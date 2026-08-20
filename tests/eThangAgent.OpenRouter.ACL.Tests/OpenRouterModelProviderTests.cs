@@ -13,8 +13,8 @@ public class OpenRouterModelProviderTests
     public async Task SendAsync_OnSuccess_ReturnsContent()
     {
         var handler = new FakeHttpMessageHandler(_ =>
-            JsonResponse(HttpStatusCode.OK,
-                """{"choices":[{"message":{"content":"Hello back"}}]}"""));
+            Task.FromResult(JsonResponse(HttpStatusCode.OK,
+                """{"choices":[{"message":{"content":"Hello back"}}]}""")));
         using var http = new HttpClient(handler);
         var provider = new OpenRouterModelProvider(http, Config);
         var modelConfig = ModelConfig.Create("openai/gpt-4o-mini", 256, 0.7f).Value!;
@@ -29,9 +29,11 @@ public class OpenRouterModelProviderTests
     public async Task SendAsync_SendsBearerTokenModelAndPath()
     {
         HttpRequestMessage? captured = null;
-        var handler = new FakeHttpMessageHandler(req =>
+        string? capturedBody = null;
+        var handler = new FakeHttpMessageHandler(async req =>
         {
             captured = req;
+            capturedBody = await req.Content!.ReadAsStringAsync();
             return JsonResponse(HttpStatusCode.OK,
                 """{"choices":[{"message":{"content":"ok"}}]}""");
         });
@@ -44,15 +46,14 @@ public class OpenRouterModelProviderTests
         Assert.True(result.IsSuccess);
         Assert.Equal("Bearer test-key", captured!.Headers.Authorization?.ToString());
         Assert.Equal("https://openrouter.test/api/v1/chat/completions", captured!.RequestUri!.ToString());
-        var body = await captured!.Content!.ReadAsStringAsync();
-        Assert.Contains("openai/gpt-4o-mini", body);
+        Assert.Contains("openai/gpt-4o-mini", capturedBody);
     }
 
     [Fact]
     public async Task SendAsync_OnRateLimit_ReturnsRateLimitedError()
     {
         var handler = new FakeHttpMessageHandler(_ =>
-            new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)));
         using var http = new HttpClient(handler);
         var provider = new OpenRouterModelProvider(http, Config);
 
@@ -66,7 +67,8 @@ public class OpenRouterModelProviderTests
     [Fact]
     public async Task SendAsync_OnTimeout_ReturnsProviderTimeoutError()
     {
-        var handler = new FakeHttpMessageHandler(_ => throw new TaskCanceledException());
+        var handler = new FakeHttpMessageHandler(_ =>
+            Task.FromException<HttpResponseMessage>(new TaskCanceledException()));
         using var http = new HttpClient(handler);
         var provider = new OpenRouterModelProvider(http, Config);
 
