@@ -1,3 +1,3 @@
-namespace eThangAgent.Conversation.Domain;
+namespace eThangAgent.ConversationDomain;
 
 public enum Role { User, Assistant }

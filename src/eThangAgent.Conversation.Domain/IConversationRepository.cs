@@ -1,4 +1,4 @@
-namespace eThangAgent.Conversation.Domain;
+namespace eThangAgent.ConversationDomain;
 
 public interface IConversationRepository
 {

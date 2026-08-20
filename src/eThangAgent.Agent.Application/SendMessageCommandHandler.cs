@@ -1,13 +1,13 @@
-using eThangAgent.Agent.Domain;
+using Ag = eThangAgent.AgentDomain.Agent;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application;
 
 public class SendMessageCommandHandler
 {
-    private readonly Agent _agent;
+    private readonly Ag _agent;
 
-    public SendMessageCommandHandler(Agent agent)
+    public SendMessageCommandHandler(Ag agent)
         => _agent = agent ?? throw new ArgumentNullException(nameof(agent));
 
     public Task<Result<string>> Handle(SendMessageCommand command, CancellationToken ct = default)

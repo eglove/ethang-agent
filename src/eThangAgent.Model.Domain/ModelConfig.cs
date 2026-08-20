@@ -1,6 +1,6 @@
 using eThangAgent.SharedKernel;
 
-namespace eThangAgent.Model.Domain;
+namespace eThangAgent.ModelDomain;
 
 public sealed record ModelConfig(string ModelId, int MaxTokens, float Temperature)
 {

@@ -1,4 +1,4 @@
-namespace eThangAgent.Conversation.Domain.Tests;
+namespace eThangAgent.ConversationDomain.Tests;
 
 public class ConversationTests
 {

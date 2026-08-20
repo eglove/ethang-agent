@@ -1,6 +1,6 @@
-using eThangAgent.Agent.Domain;
-using eThangAgent.Conversation.Domain;
-using eThangAgent.Model.Domain;
+using Ag = eThangAgent.AgentDomain.Agent;
+using eThangAgent.ModelDomain;
+using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application.Tests;
@@ -11,7 +11,7 @@ public class SendMessageCommandHandlerTests
     public async Task Handle_DelegatesToAgentAndReturnsResult()
     {
         var provider = new StubModelProvider(Result<string>.Success("response"));
-        var agent = new Agent(provider, new Conversation(),
+        var agent = new Ag(provider, new Conversation(),
             ModelConfig.Create("m", 100, 0.5f).Value!);
         var handler = new SendMessageCommandHandler(agent);
 
@@ -26,7 +26,7 @@ public class SendMessageCommandHandlerTests
     {
         var error = new Error("FAIL", "bad");
         var provider = new StubModelProvider(Result<string>.Failure(error));
-        var agent = new Agent(provider, new Conversation(),
+        var agent = new Ag(provider, new Conversation(),
             ModelConfig.Create("m", 100, 0.5f).Value!);
         var handler = new SendMessageCommandHandler(agent);
 

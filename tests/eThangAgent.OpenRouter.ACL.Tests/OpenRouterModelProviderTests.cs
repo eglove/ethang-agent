@@ -1,6 +1,6 @@
 using System.Net;
 using System.Text;
-using eThangAgent.Model.Domain;
+using eThangAgent.ModelDomain;
 
 namespace eThangAgent.OpenRouter.ACL.Tests;
 

@@ -1,4 +1,4 @@
-namespace eThangAgent.Model.Domain.Tests;
+namespace eThangAgent.ModelDomain.Tests;
 
 public class ModelConfigTests
 {

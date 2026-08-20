@@ -1,8 +1,9 @@
-using eThangAgent.Model.Domain;
-using eThangAgent.Conversation.Domain;
+using eThangAgent.ModelDomain;
+using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.AgentDomain;
 
-namespace eThangAgent.Agent.Domain.Tests;
+namespace eThangAgent.AgentDomain.Tests;
 
 public class AgentTests
 {

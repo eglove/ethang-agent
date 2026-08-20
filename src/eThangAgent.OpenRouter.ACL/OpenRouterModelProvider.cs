@@ -1,6 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using eThangAgent.Model.Domain;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.OpenRouter.ACL;
