@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.*" />
+    <ProjectReference Include="../eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
+    <ProjectReference Include="../eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />
+  </ItemGroup>
+</Project>

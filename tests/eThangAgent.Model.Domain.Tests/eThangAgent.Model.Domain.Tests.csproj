@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Model.Domain/eThangAgent.Model.Domain.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

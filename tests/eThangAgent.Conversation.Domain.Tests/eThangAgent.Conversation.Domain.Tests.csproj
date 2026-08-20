@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Conversation.Domain/eThangAgent.Conversation.Domain.csproj" />
+  </ItemGroup>
+</Project>
