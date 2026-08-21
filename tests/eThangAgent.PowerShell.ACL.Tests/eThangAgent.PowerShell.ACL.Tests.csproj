@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../src/eThangAgent.PowerShell.ACL/eThangAgent.PowerShell.ACL.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.Storage.ACL/eThangAgent.Storage.ACL.csproj" />
   </ItemGroup>
 </Project>
