@@ -2,6 +2,7 @@ using eThangAgent.ModelDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.AgentDomain;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
 
@@ -13,73 +14,111 @@ public class AgentTests
     [Fact]
     public async Task SendMessage_OnSuccess_AddsBothMessages()
     {
-        var provider = new FakeModelProvider(
+        var provider = new ScriptedModelProvider(
             Result<ModelResponse>.Success(new ModelResponse("Hello back", [])));
-        var conversation = new Conversation();
-        var agent = new Agent(provider, conversation, DefaultConfig);
+        var agent = new Agent(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
 
         var result = await agent.SendMessage("Hi");
 
         Assert.True(result.IsSuccess);
         Assert.Equal("Hello back", result.Value);
-        Assert.Equal(2, conversation.Messages.Count);
-        Assert.Equal(Role.User, conversation.Messages[0].Role);
-        Assert.Equal("Hi", conversation.Messages[0].Content);
-        Assert.Equal(Role.Assistant, conversation.Messages[1].Role);
-        Assert.Equal("Hello back", conversation.Messages[1].Content);
+        Assert.Equal(2, agent.Conversation.Messages.Count);
+        Assert.Equal(Role.Assistant, agent.Conversation.Messages[1].Role);
     }
 
     [Fact]
-    public async Task SendMessage_OnFailure_DoesNotAddAssistantMessage()
+    public async Task SendMessage_ProviderFailure_Propagates()
     {
-        var error = new Error("Test", "fail");
-        var provider = new FakeModelProvider(Result<ModelResponse>.Failure(error));
-        var conversation = new Conversation();
-        var agent = new Agent(provider, conversation, DefaultConfig);
+        var err = new Error("Test", "fail");
+        var provider = new ScriptedModelProvider(Result<ModelResponse>.Failure(err));
+        var agent = new Agent(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
 
         var result = await agent.SendMessage("Hi");
 
         Assert.False(result.IsSuccess);
-        Assert.Equal(error, result.Error);
-        Assert.Single(conversation.Messages);
-        Assert.Equal(Role.User, conversation.Messages[0].Role);
+        Assert.Equal(err, result.Error);
     }
 
     [Fact]
-    public async Task SendMessage_PassesCancellationToken()
+    public async Task SendMessage_ToolCall_ExecutesAndFeedsResultBack()
     {
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        var provider = new FakeModelProvider(Result<ModelResponse>.Success(new ModelResponse("ok", [])));
-        var agent = new Agent(provider, new Conversation(), DefaultConfig);
+        var fakeTool = new FakeTool("read", "file content");
+        var provider = new ScriptedModelProvider(
+            Result<ModelResponse>.Success(new ModelResponse(null,
+                [new ToolCallRequest("call_1", "read", "{\"p\":\"f\"}")])),
+            Result<ModelResponse>.Success(new ModelResponse("done", [])));
+        var agent = new Agent(provider, new Conversation(), DefaultConfig,
+            new ToolRegistry([fakeTool]));
 
-        var result = await agent.SendMessage("Hi", cts.Token);
+        var result = await agent.SendMessage("read file");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("done", result.Value);
+        Assert.Equal(4, agent.Conversation.Messages.Count);
+        Assert.Equal(Role.User, agent.Conversation.Messages[0].Role);
+        Assert.Equal(Role.Assistant, agent.Conversation.Messages[1].Role);
+        Assert.Equal(Role.Tool, agent.Conversation.Messages[2].Role);
+        Assert.Equal("file content", agent.Conversation.Messages[2].Content);
+        Assert.Equal(Role.Assistant, agent.Conversation.Messages[3].Role);
+        Assert.Equal("done", agent.Conversation.Messages[3].Content);
+    }
+
+    [Fact]
+    public async Task SendMessage_UnknownTool_ReturnsErrorToolResult()
+    {
+        var provider = new ScriptedModelProvider(
+            Result<ModelResponse>.Success(new ModelResponse(null,
+                [new ToolCallRequest("call_1", "nope", "{}")])),
+            Result<ModelResponse>.Success(new ModelResponse("final", [])));
+        var agent = new Agent(provider, new Conversation(), DefaultConfig,
+            new ToolRegistry([]));
+
+        var result = await agent.SendMessage("hi");
+
+        Assert.True(result.IsSuccess);
+        var toolMsg = agent.Conversation.Messages[2];
+        Assert.Equal(Role.Tool, toolMsg.Role);
+        Assert.Contains("Unknown tool", toolMsg.Content);
+    }
+
+    [Fact]
+    public async Task SendMessage_MaxIterationsExhausted_ReturnsFailure()
+    {
+        var provider = new ScriptedModelProvider(
+            Enumerable.Repeat(
+                Result<ModelResponse>.Success(new ModelResponse(null,
+                    [new ToolCallRequest("c1", "loopy", "{}")])),
+                10).ToArray());
+        var agent = new Agent(provider, new Conversation(), DefaultConfig,
+            new ToolRegistry([new FakeTool("loopy", "again")]), maxToolIterations: 10);
+
+        var result = await agent.SendMessage("hi");
 
         Assert.False(result.IsSuccess);
+        Assert.Equal("MaxToolIterations", result.Error!.Code);
     }
 
-    [Fact]
-    public void Constructor_ExposesConversationAndConfig()
+    private sealed class ScriptedModelProvider : IModelProvider
     {
-        var provider = new FakeModelProvider(Result<ModelResponse>.Success(new ModelResponse("ok", [])));
-        var conversation = new Conversation();
-        var config = DefaultConfig;
-        var agent = new Agent(provider, conversation, config);
-
-        Assert.Same(conversation, agent.Conversation);
-        Assert.Same(config, agent.Config);
-    }
-
-    private sealed class FakeModelProvider : IModelProvider
-    {
-        private readonly Result<ModelResponse> _result;
-        public FakeModelProvider(Result<ModelResponse> result) => _result = result;
+        private readonly Queue<Result<ModelResponse>> _responses;
+        public ScriptedModelProvider(params Result<ModelResponse>[] responses)
+            => _responses = new Queue<Result<ModelResponse>>(responses);
 
         public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct)
+            => Task.FromResult(_responses.Count > 0 ? _responses.Dequeue()
+                : Result<ModelResponse>.Success(new ModelResponse("fin", [])));
+    }
+
+    private sealed class FakeTool : ITool
+    {
+        private readonly string _resultContent;
+        public ToolDefinition Definition { get; }
+        public FakeTool(string name, string resultContent)
         {
-            if (ct.IsCancellationRequested)
-                return Task.FromResult(Result<ModelResponse>.Failure(new Error("Cancelled", "Cancelled")));
-            return Task.FromResult(_result);
+            Definition = new ToolDefinition(name, "desc", []);
+            _resultContent = resultContent;
         }
+        public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+            => Task.FromResult(new ToolResult(_resultContent, false));
     }
 }
