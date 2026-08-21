@@ -92,6 +92,86 @@ public class E2ETests
         Assert.Equal(0, process.ExitCode);
     }
 
+    [Fact]
+    public async Task Repl_StateDisciplineLoop_Certifies()
+    {
+        using var mock = new MockOpenRouterServer();
+        mock.Start();
+        var db = Path.Combine(Path.GetTempPath(), $"ethang-state-{Guid.NewGuid():N}.db");
+
+        var program = """
+            state.set @{ key = 'current/head'; value = 'done' }
+            state.transition @{ from = 'coding'; to = 'done'; summary = 'work'; evidence = @('Write-Output evidence-ok') }
+            state.verify @{}
+            """;
+        var execArgs = System.Text.Json.JsonSerializer.Serialize(new { program });
+        mock.Returns(ExecToolCall("call_1", execArgs));
+        mock.Returns("""{"choices":[{"message":{"content":"certified"}}]}""");
+
+        using var process = StartCli(mock, db);
+        var reader = process.StandardOutput;
+        await ReadUntil(reader, "> ");
+
+        await process.StandardInput.WriteLineAsync("track the work");
+        await process.StandardInput.FlushAsync();
+
+        var response = await ReadUntil(reader, "> ");
+        Assert.Contains("certified", response, StringComparison.OrdinalIgnoreCase);
+        using (var doc = System.Text.Json.JsonDocument.Parse(mock.RequestBodies[1]))
+        {
+            var toolContent = doc.RootElement.GetProperty("messages")[3]
+                .GetProperty("content").GetString() ?? "";
+            Assert.Contains("\"Certified\":true", toolContent);
+        }
+
+        await process.StandardInput.WriteLineAsync("/quit");
+        await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token);
+        Assert.Equal(0, process.ExitCode);
+
+        try { File.Delete(db); } catch { }
+    }
+
+    [Fact]
+    public async Task Repl_StateDisciplineLoop_Violated_OnFailingEvidence()
+    {
+        using var mock = new MockOpenRouterServer();
+        mock.Start();
+        var db = Path.Combine(Path.GetTempPath(), $"ethang-state-{Guid.NewGuid():N}.db");
+
+        var program = """
+            $null = state.set @{ key = 'current/head'; value = 'done' }
+            $null = state.transition @{ from = 'coding'; to = 'done'; summary = 'work'; evidence = @('Write-Error boom') }
+            state.verify @{}
+            """;
+        var execArgs = System.Text.Json.JsonSerializer.Serialize(new { program });
+        mock.Returns(ExecToolCall("call_1", execArgs));
+        mock.Returns("""{"choices":[{"message":{"content":"violated"}}]}""");
+
+        using var process = StartCli(mock, db);
+        var reader = process.StandardOutput;
+        await ReadUntil(reader, "> ");
+
+        await process.StandardInput.WriteLineAsync("track the work");
+        await process.StandardInput.FlushAsync();
+
+        var response = await ReadUntil(reader, "> ");
+        Assert.Contains("violated", response, StringComparison.OrdinalIgnoreCase);
+        using (var doc = System.Text.Json.JsonDocument.Parse(mock.RequestBodies[1]))
+        {
+            var toolContent = doc.RootElement.GetProperty("messages")[3]
+                .GetProperty("content").GetString() ?? "";
+            Assert.Contains("\"Certified\":false", toolContent);
+            Assert.Contains("\"Violated\":true", toolContent);
+            Assert.Contains("boom", toolContent);
+        }
+
+        await process.StandardInput.WriteLineAsync("/quit");
+        await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token);
+        Assert.Equal(0, process.ExitCode);
+
+        try { File.Delete(db); } catch { }
+    }
+
     private static string ExecToolCall(string id, string arguments) =>
         System.Text.Json.JsonSerializer.Serialize(new
         {
@@ -218,6 +298,10 @@ public class E2ETests
         Assert.NotNull(mock.LastChatRequestBody);
         Assert.Contains("\"role\":\"system\"", mock.LastChatRequestBody);
         Assert.Contains("writing PowerShell programs", mock.LastChatRequestBody);
+        Assert.Contains("get(key: String): Read a durable state value.", mock.LastChatRequestBody);
+        Assert.Contains(
+            "verify(ids: String[]): Run attached evidence fail-closed and certify.",
+            mock.LastChatRequestBody);
         Assert.Contains(
             "read(path: String, startLine: Integer, endLine: Integer): Read lines from a text file.",
             mock.LastChatRequestBody);
@@ -227,7 +311,7 @@ public class E2ETests
         Assert.Equal(0, process.ExitCode);
     }
 
-    private static Process StartCli(MockOpenRouterServer mock)
+    private static Process StartCli(MockOpenRouterServer mock, string? databasePath = null)
     {
         var projectDir = Path.GetFullPath(
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
@@ -245,6 +329,8 @@ public class E2ETests
         };
         startInfo.EnvironmentVariables["OPENROUTER_API_KEY"] = "test-key";
         startInfo.EnvironmentVariables["OPENROUTER_BASE_URL"] = mock.BaseUrl;
+        if (databasePath is not null)
+            startInfo.EnvironmentVariables["ETHANG_AGENT_DB"] = databasePath;
 
         var process = new Process { StartInfo = startInfo };
         process.Start();
