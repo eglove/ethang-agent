@@ -137,6 +137,27 @@ public class OpenRouterModelProviderTests
         Assert.Contains("result content", capturedBody);
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"choices\":[]}")]
+    [InlineData("{\"choices\":[{}]}")]
+    [InlineData("{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"call_1\"}]}}]}")]
+    [InlineData("not json")]
+    public async Task SendAsync_WhenSuccessPayloadIsMalformed_ReturnsProviderError(string payload)
+    {
+        var handler = new FakeHttpMessageHandler(_ =>
+            Task.FromResult(JsonResponse(HttpStatusCode.OK, payload)));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+
+        var result = await provider.SendAsync(
+            ModelConfig.Create("m", 100, 0.5f).Value!,
+            new ModelRequest([UserMsg("hi")]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ProviderError", result.Error!.Code);
+    }
+
     [Fact]
     public async Task SendAsync_OnRateLimit_ReturnsRateLimitedError()
     {

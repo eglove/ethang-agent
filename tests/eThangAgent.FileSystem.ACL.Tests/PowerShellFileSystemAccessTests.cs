@@ -85,6 +85,15 @@ public class PowerShellFileSystemAccessTests : IDisposable
     }
 
     [Fact]
+    public async Task DirectoryPath_ReturnsFileSystemError()
+    {
+        var result = await _access.ReadLinesAsync(_tempDir, 1, 5);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("FileSystemError", result.Error!.Code);
+    }
+
+    [Fact]
     public async Task EmptyFile_ReturnsZeroLineZeroTotal()
     {
         var path = WriteFile("empty.txt");

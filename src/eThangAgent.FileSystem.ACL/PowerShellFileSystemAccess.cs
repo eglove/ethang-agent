@@ -10,9 +10,17 @@ public sealed class PowerShellFileSystemAccess : IFileSystemAccess, IDisposable
 {
     private const string Script = """
         param([string]$Path, [int]$Start, [int]$End)
-        $exists = [System.IO.File]::Exists($Path)
-        if (-not $exists) { return @{ Found = $false } }
-        $reader = [System.IO.File]::OpenText($Path)
+        try {
+            $reader = [System.IO.File]::OpenText($Path)
+        } catch [System.IO.FileNotFoundException] {
+            return @{ Found = $false; ErrorCode = "FileNotFound" }
+        } catch [System.IO.DirectoryNotFoundException] {
+            return @{ Found = $false; ErrorCode = "FileNotFound" }
+        } catch [System.UnauthorizedAccessException] {
+            return @{ Found = $false; ErrorCode = "FileSystemError"; ErrorMessage = $_.Exception.Message }
+        } catch [System.IO.IOException] {
+            return @{ Found = $false; ErrorCode = "FileSystemError"; ErrorMessage = $_.Exception.Message }
+        }
         try {
             $lines = [System.Collections.Generic.List[string]]::new()
             $i = 0; $last = 0
@@ -67,8 +75,12 @@ public sealed class PowerShellFileSystemAccess : IFileSystemAccess, IDisposable
             var table = (Hashtable)output[0].BaseObject;
             var found = table["Found"] is true;
             if (!found)
-                return Result<FileRead>.Failure(new Error("FileNotFound",
-                    $"File not found: {path}"));
+            {
+                var errorCode = table["ErrorCode"]?.ToString() ?? "FileSystemError";
+                var errorMessage = table["ErrorMessage"]?.ToString()
+                    ?? $"File not found: {path}";
+                return Result<FileRead>.Failure(new Error(errorCode, errorMessage));
+            }
 
             var rawLines = (IEnumerable)table["Lines"]!;
             var lines = rawLines.Cast<object>()

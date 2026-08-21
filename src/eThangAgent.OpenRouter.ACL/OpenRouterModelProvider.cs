@@ -55,26 +55,47 @@ public class OpenRouterModelProvider : IModelProvider
                 };
             }
 
-            var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
-            var message = body.GetProperty("choices")[0].GetProperty("message");
-            var content = message.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String
-                ? c.GetString()
-                : null;
-
-            var toolCalls = new List<ToolCallRequest>();
-            if (message.TryGetProperty("tool_calls", out var tc) && tc.ValueKind == JsonValueKind.Array)
+            try
             {
-                foreach (var call in tc.EnumerateArray())
-                {
-                    var fn = call.GetProperty("function");
-                    toolCalls.Add(new ToolCallRequest(
-                        call.GetProperty("id").GetString()!,
-                        fn.GetProperty("name").GetString()!,
-                        fn.GetProperty("arguments").GetString() ?? ""));
-                }
-            }
+                var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+                var choices = body.GetProperty("choices");
+                if (choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() == 0)
+                    throw new InvalidOperationException("Provider response contains no choices.");
+                var message = choices[0].GetProperty("message");
+                var content = message.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String
+                    ? c.GetString()
+                    : null;
 
-            return Result<ModelResponse>.Success(new ModelResponse(content, toolCalls));
+                var toolCalls = new List<ToolCallRequest>();
+                if (message.TryGetProperty("tool_calls", out var tc) && tc.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var call in tc.EnumerateArray())
+                    {
+                        var fn = call.GetProperty("function");
+                        toolCalls.Add(new ToolCallRequest(
+                            call.GetProperty("id").GetString()!,
+                            fn.GetProperty("name").GetString()!,
+                            fn.GetProperty("arguments").GetString() ?? ""));
+                    }
+                }
+
+                return Result<ModelResponse>.Success(new ModelResponse(content, toolCalls));
+            }
+            catch (JsonException ex)
+            {
+                return Result<ModelResponse>.Failure(new Error("ProviderError",
+                    $"Invalid provider response: {ex.Message}"));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Result<ModelResponse>.Failure(new Error("ProviderError",
+                    $"Malformed provider response: {ex.Message}"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Result<ModelResponse>.Failure(new Error("ProviderError",
+                    $"Malformed provider response: {ex.Message}"));
+            }
         }
         catch (TaskCanceledException)
         {

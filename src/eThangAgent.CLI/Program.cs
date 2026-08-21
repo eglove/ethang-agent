@@ -28,7 +28,7 @@ public static class Program
             ? new Uri("https://openrouter.ai")
             : new Uri(baseUrlEnv);
 
-        var services = new ServiceCollection()
+        using var services = new ServiceCollection()
             .AddSingleton(new OpenRouterConfiguration(apiKey, baseUrl))
             .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
             {
