@@ -327,6 +327,7 @@ git add src/eThangAgent.State.Domain tests/eThangAgent.State.Domain.Tests eThang
 ```bash
 git commit -m "feat(state-domain): add state records, seams, and key parsing"
 ```
+
 ---
 
 ### Task 2: IStateService + StateCapabilityProvider (the `state` provider)
@@ -751,6 +752,7 @@ git add src/eThangAgent.State.Domain tests/eThangAgent.State.Domain.Tests
 ```bash
 git commit -m "feat(state-domain): add state capability provider with strict inputs"
 ```
+
 ---
 
 ### Task 3: StateService — CAS, transitions, fail-closed certification
@@ -1239,6 +1241,7 @@ git add src/eThangAgent.State.Domain tests/eThangAgent.State.Domain.Tests
 ```bash
 git commit -m "feat(state-domain): add state service with fail-closed certification"
 ```
+
 ---
 
 ### Task 4: Storage.ACL — AppDatabase, migrations, SqliteStateStore
@@ -1776,16 +1779,19 @@ git add src/eThangAgent.Storage.ACL tests/eThangAgent.Storage.ACL.Tests eThangAg
 ```bash
 git commit -m "feat(storage-acl): add app sqlite database and state store"
 ```
+
 ---
 
 ### Task 5: PsEvidenceRunner — fail-closed evidence execution
 
 **Files:**
+
 - Create: `src/eThangAgent.PowerShell.ACL/PsEvidenceRunner.cs`
 - Create: `tests/eThangAgent.PowerShell.ACL.Tests/PsEvidenceRunnerTests.cs`
 - Modify: `src/eThangAgent.PowerShell.ACL/eThangAgent.PowerShell.ACL.csproj` (+ State.Domain reference)
 
 **Interfaces:**
+
 - Consumes: `IEvidenceRunner`, `EvidenceResult`, `EvidenceOptions` (Task 1).
 - Produces: `PsEvidenceRunner(EvidenceOptions?) : IEvidenceRunner`. Confirmed = pipeline completed with no errors AND `$LASTEXITCODE` is 0/unset. Timeout, cancellation, errors, syntax failures, engine exceptions → not confirmed with detail.
 
@@ -2020,7 +2026,7 @@ with:
             .AddSingleton<IStateStore, SqliteStateStore>()
             .AddSingleton<EvidenceOptions>(_ => EvidenceOptions.Default)
             .AddSingleton<IEvidenceRunner, PsEvidenceRunner>()
-            .AddSingleton<StateService>()
+            .AddSingleton<IStateService, StateService>()
             .AddSingleton<StateCapabilityProvider>()
             .AddSingleton<ICapabilityRegistry>(sp =>
                 CapabilityRegistry.Create(
@@ -2078,14 +2084,17 @@ git add src/eThangAgent.CLI src/eThangAgent.Tool.Domain tests/eThangAgent.Tool.D
 ```bash
 git commit -m "feat(cli): wire durable state provider and document it in guide v1.2"
 ```
+
 ---
 
 ### Task 7: E2E — the discipline loop
 
 **Files:**
+
 - Modify: `tests/eThangAgent.CLI.Tests/E2ETests.cs`
 
 **Interfaces:**
+
 - Consumes: `ExecToolCall` helper, `StartCli`, `ReadUntil`, `MockOpenRouterServer`.
 - Produces: proof that the generated reference carries `state.*`, and that the full discipline loop (set → transition → verify) certifies on passing evidence and violates with blocking reasons on failing evidence — against an **isolated temp database** (never the real app database).
 
@@ -2211,10 +2220,12 @@ Note: the raw string literals here are valid multi-line form (opening `"""` foll
 - [ ] **Step 4: Verify + commit**
 
 Run:
+
 ```
 cd /c/Users/glove/projects/ethang-agent && dotnet build --nologo -v q 2>&1 | rg 'error|FAILED' || echo BUILD-CLEAN
 dotnet test tests/eThangAgent.CLI.Tests/eThangAgent.CLI.Tests.csproj --no-build --nologo 2>&1 | tail -2
 ```
+
 Expected: BUILD-CLEAN; all CLI tests pass including the two new discipline loops.
 
 ```bash
@@ -2284,3 +2295,10 @@ If clean, done; otherwise `chore:` commit describing the remainder.
 ## Out of Scope (next cycles)
 
 Enforcement modes (future work, user-required), MCP provider, nested exec (P4), desktop UI/kanban/supervisor tables (Storage.ACL is their beachhead), discovery-first token knob (P5+).
+
+## Status update — 2026-08-21 (wave 3 complete)
+
+- Tasks 7–8 complete: discipline-loop E2Es green; full solution 14/14 suites pass.
+- Fixes shipped: engine mints both bare and provider-qualified wrapper names (mirrors Resolve);
+  CLI registers IStateService mapping. E2E asserts decode tool-message JSON before matching.
+- Integration facts compose registry + real store + real runner in-process (broker and outer engine).
