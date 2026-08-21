@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 
 namespace eThangAgent.CLI.Tests;
 
@@ -9,6 +10,7 @@ public sealed class MockOpenRouterServer : IDisposable
     private readonly HttpListener _listener = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Queue<string> _scriptedResponses = new();
+    private readonly Dictionary<string, Queue<string>> _modelScripts = new();
     private Task? _loop;
 
     public List<string> RequestBodies { get; } = new();
@@ -33,6 +35,40 @@ public sealed class MockOpenRouterServer : IDisposable
         return this;
     }
 
+    /// <summary>Scripts turns for a specific request model: when a chat request body's
+    ///     top-level "model" field matches, turns are served from that model's queue
+    ///     (first call => first response) instead of the default script. Lets one mock
+    ///     server play both parent and child in a nested-spawn session.</summary>
+    public MockOpenRouterServer ReturnsForModel(string model, params string[] responseJsons)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+            throw new ArgumentException("model is required.", nameof(model));
+        if (!_modelScripts.TryGetValue(model, out var queue))
+            queue = _modelScripts[model] = new Queue<string>();
+        foreach (var response in responseJsons)
+            queue.Enqueue(response);
+        return this;
+    }
+
+    /// <summary>Extracts the top-level "model" field from a chat request body,
+    ///     or null when the body is not an object or carries no string model.</summary>
+    public static string? TryGetRequestModel(string requestBody)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(requestBody);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("model", out var model)
+                && model.ValueKind == JsonValueKind.String
+                ? model.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private async Task LoopAsync()
     {
         while (!_cts.IsCancellationRequested)
@@ -49,7 +85,12 @@ public sealed class MockOpenRouterServer : IDisposable
                 RequestBodies.Add(requestBody);
 
                 string body;
-                if (_scriptedResponses.Count > 0)
+                var model = TryGetRequestModel(requestBody);
+                if (model is not null
+                    && _modelScripts.TryGetValue(model, out var scripted)
+                    && scripted.Count > 0)
+                    body = scripted.Dequeue();
+                else if (_scriptedResponses.Count > 0)
                     body = _scriptedResponses.Dequeue();
                 else
                     body = """{"choices":[{"message":{"content":"pineapple"}}]}""";
