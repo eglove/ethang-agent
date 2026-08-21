@@ -54,11 +54,11 @@
 
 **Steps:**
 
-- [ ] Write failing tests: empty/whitespace `TaskPrompt` fails `NonEmptyTaskPromptSpecification` with message naming `TaskPrompt`; non-empty passes. Null/absent `Model` passes `ValidModelReferenceSpecification`; whitespace model fails with message naming `Model`; `"provider/model"` passes. `AgentId.NewId()` yields distinct Guids; `ToString()` round-trips.
-- [ ] Run `dotnet test tests/eThangAgent.Agent.Domain.Tests` — confirm compile-then-fail (red).
-- [ ] Implement the seven domain files minimally; no behavior beyond the tests.
-- [ ] Run the test project — green.
-- [ ] Commit: `feat(agent-domain): agent identity, spawn contract, store seam`
+- [x] Write failing tests: empty/whitespace `TaskPrompt` fails `NonEmptyTaskPromptSpecification` with message naming `TaskPrompt`; non-empty passes. Null/absent `Model` passes `ValidModelReferenceSpecification`; whitespace model fails with message naming `Model`; `"provider/model"` passes. `AgentId.NewId()` yields distinct Guids; `ToString()` round-trips.
+- [x] Run `dotnet test tests/eThangAgent.Agent.Domain.Tests` — confirm compile-then-fail (red).
+- [x] Implement the seven domain files minimally; no behavior beyond the tests.
+- [x] Run the test project — green.
+- [x] Commit: `feat(agent-domain): agent identity, spawn contract, store seam`
 
 ### Task 2: Depth guard + SubAgentSpawner
 
@@ -82,9 +82,9 @@
 
 **Steps:**
 
-- [ ] Write failing tests: depth-2 parent spawns child at depth 3? NO — depth-2 parent ⇒ child would be depth 3 > MaxDepth ⇒ rejected; depth-1 parent ⇒ child depth 2 succeeds; model precedence (explicit beats default; default used when omitted; MissingModel error when neither); child record persisted Running then Completed with report; timeout ⇒ Failed(Timeout); rejected spawn ⇒ no store writes, no factory calls.
-- [ ] Run — red. Implement spawner minimally. Run — green.
-- [ ] Commit: `feat(agent-domain): sub-agent spawner with depth guard and model resolution`
+- [x] Write failing tests: depth-2 parent spawns child at depth 3? NO — depth-2 parent ⇒ child would be depth 3 > MaxDepth ⇒ rejected; depth-1 parent ⇒ child depth 2 succeeds; model precedence (explicit beats default; default used when omitted; MissingModel error when neither); child record persisted Running then Completed with report; timeout ⇒ Failed(Timeout); rejected spawn ⇒ no store writes, no factory calls.
+- [x] Run — red. Implement spawner minimally. Run — green.
+- [x] Commit: `feat(agent-domain): sub-agent spawner with depth guard and model resolution`
 ### Task 3: Model provider factory seam
 
 **Files:**

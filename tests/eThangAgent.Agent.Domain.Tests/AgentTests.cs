@@ -12,6 +12,31 @@ public class AgentTests
         ModelConfig.Create("test-model", 100, 0.5f).Value!;
 
     [Fact]
+    public void Agent_DefaultConstruction_GeneratesDistinctRootIds()
+    {
+        var first = new Agent(new ScriptedModelProvider(), new Conversation(), DefaultConfig,
+            new ToolRegistry([]));
+        var second = new Agent(new ScriptedModelProvider(), new Conversation(), DefaultConfig,
+            new ToolRegistry([]));
+
+        Assert.NotEqual(default(AgentId), first.Id);
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.Equal(0, first.Depth);
+        Assert.Equal(0, second.Depth);
+    }
+
+    [Fact]
+    public void Agent_ExplicitIdAndDepth_ExposedOnAggregate()
+    {
+        var id = AgentId.NewId();
+        var agent = new Agent(new ScriptedModelProvider(), new Conversation(), DefaultConfig,
+            new ToolRegistry([]), id: id, depth: 2);
+
+        Assert.Equal(id, agent.Id);
+        Assert.Equal(2, agent.Depth);
+    }
+
+    [Fact]
     public async Task SendMessage_OnSuccess_AddsBothMessages()
     {
         var provider = new ScriptedModelProvider(

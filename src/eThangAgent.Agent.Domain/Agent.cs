@@ -15,8 +15,15 @@ public class Agent
     public Conversation Conversation { get; }
     public ModelConfig Config { get; }
 
+    /// <summary>Identity of this agent. Roots generate one on construction; spawned children carry their persisted id.</summary>
+    public AgentId Id { get; }
+
+    /// <summary>Depth in the spawn tree. Root agents are depth 0; children run at parent depth + 1.</summary>
+    public int Depth { get; }
+
     public Agent(IModelProvider provider, Conversation conversation, ModelConfig config,
-        IToolRegistry tools, ISystemPromptProvider? systemPrompt = null, int maxToolIterations = 10)
+        IToolRegistry tools, ISystemPromptProvider? systemPrompt = null, int maxToolIterations = 10,
+        AgentId? id = null, int depth = 0)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _tools = tools ?? throw new ArgumentNullException(nameof(tools));
@@ -24,6 +31,8 @@ public class Agent
         Conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         _maxToolIterations = maxToolIterations;
+        Id = id ?? AgentId.NewId();
+        Depth = depth;
     }
 
     public async Task<Result<string>> SendMessage(string text, CancellationToken ct = default)
