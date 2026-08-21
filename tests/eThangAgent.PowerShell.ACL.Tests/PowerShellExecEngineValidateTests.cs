@@ -1,4 +1,6 @@
+using eThangAgent.CapabilityDomain;
 using eThangAgent.PowerShell.ACL;
+using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.PowerShell.ACL.Tests;
@@ -6,7 +8,18 @@ namespace eThangAgent.PowerShell.ACL.Tests;
 public class PowerShellExecEngineValidateTests
 {
     private static PowerShellExecEngine CreateEngine()
-        => new(new ToolRegistry([]), ExecOptions.Default);
+        => new(CapabilityRegistry.Create(
+            [new AgentToolsProvider("agent",
+                [new AgentToolBinding(
+                    new ReadTool(new FakeFileSystemAccess()), "Read lines.")])]),
+            ExecOptions.Default);
+
+    private sealed class FakeFileSystemAccess : IFileSystemAccess
+    {
+        public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
+            CancellationToken ct = default)
+            => Task.FromResult(Result<FileRead>.Success(new FileRead(["alpha", "beta"], 2, 2)));
+    }
 
     [Fact]
     public async Task ValidProgram_ReturnsNoErrors()

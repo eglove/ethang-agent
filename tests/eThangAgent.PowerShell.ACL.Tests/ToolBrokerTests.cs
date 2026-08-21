@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Management.Automation;
+using eThangAgent.CapabilityDomain;
 using eThangAgent.PowerShell.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
@@ -8,53 +9,43 @@ namespace eThangAgent.PowerShell.ACL.Tests;
 
 public class ToolBrokerTests
 {
-    [Fact]
-    public void WrappableDefinitions_ExcludesExec()
-    {
-        var registry = new ToolRegistry([
-            new FakeTool("read"),
-            new FakeTool(ExecTool.ToolName)]);
-        var broker = new ToolBroker(registry);
+    private static CapabilityRegistry Registry(ICapabilityProvider provider)
+        => CapabilityRegistry.Create([provider]);
 
-        var definitions = broker.WrappableDefinitions;
-
-        Assert.Single(definitions);
-        Assert.Equal("read", definitions[0].Name);
-    }
+    private static ICapabilityProvider ReadProvider(IFileSystemAccess? files = null)
+        => new AgentToolsProvider("agent",
+            [new AgentToolBinding(new ReadTool(files ?? new FakeFileSystemAccess()),
+                "Read lines from a text file.")]);
 
     [Fact]
-    public void DescribeTools_FormatsOneLinePerTool_ExcludesExec()
+    public void InvokeTool_UnknownAction_Throws_ListingAvailable()
     {
-        var registry = new ToolRegistry([
-            new ReadTool(new FakeFileSystemAccess()),
-            new FakeTool(ExecTool.ToolName)]);
-        var broker = new ToolBroker(registry);
-
-        var listing = broker.DescribeTools();
-
-        Assert.Contains("read(", listing);
-        Assert.Contains("path: String", listing);
-        Assert.DoesNotContain("exec(", listing);
-    }
-
-    [Fact]
-    public void InvokeTool_UnknownTool_Throws()
-    {
-        var broker = new ToolBroker(new ToolRegistry([new FakeTool("read")]));
+        var broker = new ToolBroker(Registry(ReadProvider()));
 
         var ex = Assert.Throws<ExecToolCallException>(
             () => broker.InvokeTool("nope", new Hashtable()));
 
-        Assert.Contains("Error [UnknownTool]: Unknown tool: nope", ex.Message);
+        Assert.Contains("Error [UnknownAction]:", ex.Message);
+        Assert.Contains("read", ex.Message);
+    }
+
+    [Fact]
+    public void InvokeTool_ByFullRef_Resolves()
+    {
+        var broker = new ToolBroker(Registry(ReadProvider()));
+
+        var content = broker.InvokeTool("agent.read",
+            new Hashtable { ["path"] = "x.txt", ["startLine"] = 1, ["endLine"] = 2 });
+
+        Assert.Contains("[read x.txt lines 1-2 of 2 total]", content);
     }
 
     [Fact]
     public void InvokeTool_NullInput_Throws()
     {
-        var broker = new ToolBroker(new ToolRegistry([new FakeTool("read")]));
+        var broker = new ToolBroker(Registry(ReadProvider()));
 
-        var ex = Assert.Throws<ExecToolCallException>(
-            () => broker.InvokeTool("read", null));
+        var ex = Assert.Throws<ExecToolCallException>(() => broker.InvokeTool("read", null));
 
         Assert.Contains("Error [InvalidToolInput]:", ex.Message);
     }
@@ -62,11 +53,10 @@ public class ToolBrokerTests
     [Fact]
     public void InvokeTool_ScriptBlockInput_Throws()
     {
-        var broker = new ToolBroker(new ToolRegistry([new FakeTool("read")]));
+        var broker = new ToolBroker(Registry(ReadProvider()));
 
-        var ex = Assert.Throws<ExecToolCallException>(
-            () => broker.InvokeTool("read",
-                new Hashtable { ["path"] = ScriptBlock.Create("{ 1 }") }));
+        var ex = Assert.Throws<ExecToolCallException>(() => broker.InvokeTool("read",
+            new Hashtable { ["path"] = ScriptBlock.Create("{ 1 }") }));
 
         Assert.Contains("Error [InvalidToolInput]:", ex.Message);
     }
@@ -76,7 +66,8 @@ public class ToolBrokerTests
     {
         RawToolInput? received = null;
         var tool = new RecordingTool("read", r => received = r, "file content");
-        var broker = new ToolBroker(new ToolRegistry([tool]));
+        var broker = new ToolBroker(Registry(new AgentToolsProvider("agent",
+            [new AgentToolBinding(tool, "Read.")])));
 
         var content = broker.InvokeTool("read", new Hashtable { ["path"] = "a.txt" });
 
@@ -87,10 +78,11 @@ public class ToolBrokerTests
     }
 
     [Fact]
-    public void InvokeTool_ToolError_Throws_WithToolResultContent()
+    public void InvokeTool_ActionError_Throws_WithContent()
     {
         var tool = new RecordingTool("read", _ => { }, "Error [FileNotFound]: nope.", isError: true);
-        var broker = new ToolBroker(new ToolRegistry([tool]));
+        var broker = new ToolBroker(Registry(new AgentToolsProvider("agent",
+            [new AgentToolBinding(tool, "Read.")])));
 
         var ex = Assert.Throws<ExecToolCallException>(
             () => broker.InvokeTool("read", new Hashtable { ["path"] = "a.txt" }));
@@ -98,22 +90,52 @@ public class ToolBrokerTests
         Assert.Equal("Error [FileNotFound]: nope.", ex.Message);
     }
 
+    [Fact]
+    public void ListActions_CompactListing_NoExec()
+    {
+        var broker = new ToolBroker(Registry(ReadProvider()));
+
+        var listing = broker.ListActions();
+
+        Assert.Contains("read(path: String, startLine: Integer, endLine: Integer)", listing);
+        Assert.DoesNotContain("exec(", listing);
+    }
+
+    [Fact]
+    public void DescribeAction_ReturnsFullDescriptor()
+    {
+        var broker = new ToolBroker(Registry(ReadProvider()));
+
+        var doc = broker.DescribeAction("read");
+
+        Assert.Contains("read — Read lines from a text file.", doc);
+        Assert.Contains("annotation line", doc);
+        Assert.Contains("- path: String —", doc);
+    }
+
+    [Fact]
+    public void DescribeAction_Unknown_Throws()
+    {
+        var broker = new ToolBroker(Registry(ReadProvider()));
+
+        Assert.Throws<ExecToolCallException>(() => broker.DescribeAction("nope"));
+    }
+
+    [Fact]
+    public void ListProviders_ShowsIdAndCount()
+    {
+        var broker = new ToolBroker(Registry(ReadProvider()));
+
+        var listing = broker.ListProviders();
+
+        Assert.Equal("agent (1 actions)", listing);
+    }
+
     private sealed class FakeFileSystemAccess : IFileSystemAccess
     {
         public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
             CancellationToken ct = default)
             => Task.FromResult(Result<FileRead>.Success(new FileRead(["alpha", "beta"], 2, 2)));
-    }
-
-    private sealed class FakeTool : ITool
-    {
-        public FakeTool(string name)
-            => Definition = new ToolDefinition(name, "desc", []);
-
-        public ToolDefinition Definition { get; }
-
-        public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
-            => Task.FromResult(new ToolResult("ok", false));
     }
 
     private sealed class RecordingTool : ITool

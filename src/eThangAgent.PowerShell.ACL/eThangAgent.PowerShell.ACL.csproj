@@ -3,5 +3,6 @@
     <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.4.*" />
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
     <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
+    <ProjectReference Include="../eThangAgent.Capability.Domain/eThangAgent.Capability.Domain.csproj" />
   </ItemGroup>
 </Project>

@@ -1,3 +1,4 @@
+using eThangAgent.CapabilityDomain;
 using eThangAgent.PowerShell.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
@@ -8,9 +9,10 @@ public class PowerShellExecEngineExecuteTests
 {
     private PowerShellExecEngine CreateEngine(ExecOptions? options = null,
         IFileSystemAccess? files = null)
-        => new(new ToolRegistry([
-            new ReadTool(files ?? new FakeFileSystemAccess()),
-            new NamedFakeTool(ExecTool.ToolName)]),
+        => new(CapabilityRegistry.Create(
+            [new AgentToolsProvider("agent",
+                [new AgentToolBinding(
+                    new ReadTool(files ?? new FakeFileSystemAccess()), "Read lines.")])]),
             options ?? ExecOptions.Default);
 
     [Fact]
@@ -72,6 +74,35 @@ public class PowerShellExecEngineExecuteTests
         Assert.Equal(ExecRunStatus.Completed, run.Status);
         Assert.Contains("read(", run.Output);
         Assert.DoesNotContain("exec(", run.Output);
+    }
+
+    [Fact]
+    public async Task InvokeAgentTool_ByFullRef_CallsAction()
+    {
+        var run = await CreateEngine().ExecuteAsync(new ExecProgram(
+            "Invoke-AgentTool -Name agent.read -ToolInput @{ path = 'x.txt'; startLine = 1; endLine = 2 }"));
+
+        Assert.Equal(ExecRunStatus.Completed, run.Status);
+        Assert.Contains("alpha", run.Output);
+    }
+
+    [Fact]
+    public async Task GetAgentAction_ReturnsFullDescriptor()
+    {
+        var run = await CreateEngine().ExecuteAsync(new ExecProgram("Get-AgentAction read"));
+
+        Assert.Equal(ExecRunStatus.Completed, run.Status);
+        Assert.Contains("read — Read lines.", run.Output);
+        Assert.Contains("- path: String", run.Output);
+    }
+
+    [Fact]
+    public async Task GetAgentProvider_ListsProviders()
+    {
+        var run = await CreateEngine().ExecuteAsync(new ExecProgram("Get-AgentProvider"));
+
+        Assert.Equal(ExecRunStatus.Completed, run.Status);
+        Assert.Contains("agent (1 actions)", run.Output);
     }
 
     [Fact]
@@ -174,14 +205,4 @@ public class PowerShellExecEngineExecuteTests
                 new Error("FileNotFound", $"File not found: {path}.")));
     }
 
-    private sealed class NamedFakeTool : ITool
-    {
-        public NamedFakeTool(string name)
-            => Definition = new ToolDefinition(name, "desc", []);
-
-        public ToolDefinition Definition { get; }
-
-        public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
-            => Task.FromResult(new ToolResult("ok", false));
-    }
 }

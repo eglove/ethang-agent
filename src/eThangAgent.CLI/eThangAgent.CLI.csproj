@@ -11,5 +11,6 @@
     <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.FileSystem.ACL/eThangAgent.FileSystem.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.PowerShell.ACL/eThangAgent.PowerShell.ACL.csproj" />
+    <ProjectReference Include="../eThangAgent.Capability.Domain/eThangAgent.Capability.Domain.csproj" />
   </ItemGroup>
 </Project>

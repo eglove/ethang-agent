@@ -92,63 +92,6 @@ public class E2ETests
         Assert.Equal(0, process.ExitCode);
     }
 
-    [Fact]
-    public async Task Repl_ExecutesReadTool_EndToEnd()
-    {
-        using var mock = new MockOpenRouterServer();
-        mock.Start();
-
-        var tempFile = Path.Combine(Path.GetTempPath(), $"ethang-e2e-{Guid.NewGuid():N}.txt");
-        await File.WriteAllLinesAsync(tempFile, ["alpha line", "beta line", "gamma line"]);
-
-        var toolArgs = System.Text.Json.JsonSerializer.Serialize(
-            new { path = tempFile, startLine = 2, endLine = 3 });
-        var toolCallResponse = System.Text.Json.JsonSerializer.Serialize(new
-        {
-            choices = new[]
-            {
-                new
-                {
-                    message = new
-                    {
-                        content = (string?)null,
-                        tool_calls = new[]
-                        {
-                            new
-                            {
-                                id = "call_1",
-                                type = "function",
-                                function = new { name = "read", arguments = toolArgs }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        mock.Returns(toolCallResponse);
-        mock.Returns("""{"choices":[{"message":{"content":"read completed"}}]}""");
-
-        using var process = StartCli(mock);
-        var reader = process.StandardOutput;
-        await ReadUntil(reader, "> ");
-
-        await process.StandardInput.WriteLineAsync("read that file");
-        await process.StandardInput.FlushAsync();
-
-        var response = await ReadUntil(reader, "> ");
-        Assert.Contains("read completed", response, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(2, mock.RequestBodies.Count);
-        Assert.Contains("\"role\":\"tool\"", mock.RequestBodies[1]);
-        Assert.Contains("beta line", mock.RequestBodies[1]);
-        Assert.Contains("gamma line", mock.RequestBodies[1]);
-
-        await process.StandardInput.WriteLineAsync("/quit");
-        await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
-        Assert.Equal(0, process.ExitCode);
-
-        try { File.Delete(tempFile); } catch { }
-    }
-
     private static string ExecToolCall(string id, string arguments) =>
         System.Text.Json.JsonSerializer.Serialize(new
         {
@@ -167,6 +110,29 @@ public class E2ETests
                 }
             }
         });
+
+    [Fact]
+    public async Task Repl_ModelToolsContainOnlyExec()
+    {
+        using var mock = new MockOpenRouterServer();
+        mock.Start();
+
+        using var process = StartCli(mock);
+        var reader = process.StandardOutput;
+        await ReadUntil(reader, "> ");
+
+        await process.StandardInput.WriteLineAsync("hi");
+        await process.StandardInput.FlushAsync();
+        await ReadUntil(reader, "> ");
+
+        Assert.NotNull(mock.LastChatRequestBody);
+        Assert.Contains("\"name\":\"exec\"", mock.LastChatRequestBody);
+        Assert.DoesNotContain("\"name\":\"read\"", mock.LastChatRequestBody);
+
+        await process.StandardInput.WriteLineAsync("/quit");
+        await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
+        Assert.Equal(0, process.ExitCode);
+    }
 
     [Fact]
     public async Task Repl_ExecutesExecTool_EndToEnd()
@@ -252,6 +218,9 @@ public class E2ETests
         Assert.NotNull(mock.LastChatRequestBody);
         Assert.Contains("\"role\":\"system\"", mock.LastChatRequestBody);
         Assert.Contains("writing PowerShell programs", mock.LastChatRequestBody);
+        Assert.Contains(
+            "read(path: String, startLine: Integer, endLine: Integer): Read lines from a text file.",
+            mock.LastChatRequestBody);
 
         await process.StandardInput.WriteLineAsync("/quit");
         await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);

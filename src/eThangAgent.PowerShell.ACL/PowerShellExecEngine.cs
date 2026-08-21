@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Management.Automation;
 using System.Management.Automation.Language;
+using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
@@ -8,21 +9,21 @@ namespace eThangAgent.PowerShell.ACL;
 
 public sealed class PowerShellExecEngine : IExecEngine
 {
-    private readonly Lazy<IToolRegistry> _registry;
+    private readonly Lazy<ICapabilityRegistry> _registry;
     private readonly ExecOptions _options;
 
-    /// <summary>Primary ctor. The registry is lazy: the composition root's IToolRegistry
-    ///     contains ExecTool, whose engine would otherwise force the registry to exist
-    ///     before it is complete (DI cycle).</summary>
-    public PowerShellExecEngine(Lazy<IToolRegistry> registry, ExecOptions options)
+    /// <summary>Primary ctor. The registry is lazy: the composition root builds the
+    ///     capability registry alongside tool wiring, and the engine must not force it
+    ///     into existence before it is complete (DI cycle).</summary>
+    public PowerShellExecEngine(Lazy<ICapabilityRegistry> registry, ExecOptions options)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
     /// <summary>Convenience ctor for tests and direct use.</summary>
-    public PowerShellExecEngine(IToolRegistry registry, ExecOptions options)
-        : this(new Lazy<IToolRegistry>(() => registry), options)
+    public PowerShellExecEngine(ICapabilityRegistry registry, ExecOptions options)
+        : this(new Lazy<ICapabilityRegistry>(() => registry), options)
     {
     }
 
@@ -42,7 +43,7 @@ public sealed class PowerShellExecEngine : IExecEngine
         var broker = new ToolBroker(_registry.Value);
         using var ps = System.Management.Automation.PowerShell.Create();
         ps.Runspace.SessionStateProxy.PSVariable.Set("broker", broker);
-        ps.AddScript(CreateSetupScript(broker));
+        ps.AddScript(CreateSetupScript(_registry.Value));
         ps.AddScript(program.Text);
 
         Collection<PSObject> collected;
@@ -84,12 +85,16 @@ public sealed class PowerShellExecEngine : IExecEngine
     /// <summary>Functions are injected as setup-script text into a default PowerShell.Create()
     ///     runspace. CreateDefault2-based runspaces fail to load the built-in modules in
     ///     hosted (non-pwsh) processes; the default Create() runspace does not.</summary>
-    private static string CreateSetupScript(ToolBroker broker)
+    private static string CreateSetupScript(ICapabilityRegistry registry)
         => string.Join("\n",
-            broker.WrappableDefinitions.Select(d =>
-                $"function {d.Name} {{ param([object]$ToolInput) $broker.InvokeTool('{d.Name}', $ToolInput) }}")
+            registry.Providers
+                .SelectMany(p => p.Actions)
+                .Select(a =>
+                    $"function {a.Name} {{ param([object]$ToolInput) $broker.InvokeTool('{a.Name}', $ToolInput) }}")
                 .Append("function Invoke-AgentTool { param([string]$Name, [object]$ToolInput) $broker.InvokeTool($Name, $ToolInput) }")
-                .Append("function Get-AgentTool { $broker.DescribeTools() }"));
+                .Append("function Get-AgentTool { $broker.ListActions() }")
+                .Append("function Get-AgentAction { param([string]$Name) $broker.DescribeAction($Name) }")
+                .Append("function Get-AgentProvider { $broker.ListProviders() }"));
 
     private static IReadOnlyList<string> ErrorLines(System.Management.Automation.PowerShell ps)
         => ps.Streams.Error.Select(e => e.Exception.Message).ToList();

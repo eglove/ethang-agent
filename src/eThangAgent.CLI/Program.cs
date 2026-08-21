@@ -5,6 +5,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.ToolDomain;
 using eThangAgent.Agent.Application;
 using eThangAgent.OpenRouter.ACL;
+using eThangAgent.CapabilityDomain;
 using eThangAgent.FileSystem.ACL;
 using eThangAgent.PowerShell.ACL;
 using eThangAgent.SharedKernel;
@@ -43,23 +44,28 @@ public static class Program
             .AddSingleton(ExecOptions.Default)
             .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
             .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
+            .AddSingleton<AgentToolsProvider>(sp => new AgentToolsProvider("agent",
+                [new AgentToolBinding(
+                    new ReadTool(sp.GetRequiredService<IFileSystemAccess>()),
+                    "Read lines from a text file.")]))
+            .AddSingleton<ICapabilityRegistry>(sp =>
+                CapabilityRegistry.Create([sp.GetRequiredService<AgentToolsProvider>()]))
             .AddSingleton<IExecEngine>(sp => new PowerShellExecEngine(
-                new Lazy<IToolRegistry>(() => sp.GetRequiredService<IToolRegistry>()),
+                new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>()),
                 sp.GetRequiredService<ExecOptions>()))
-            .AddSingleton<ITool>(sp => new ReadTool(sp.GetRequiredService<IFileSystemAccess>()))
             .AddSingleton<ITool>(sp => new ExecTool(
                 sp.GetRequiredService<IExecEngine>(),
                 sp.GetRequiredService<ExecOptions>(),
                 sp.GetRequiredService<IExecOutputStore>(),
                 sp.GetRequiredService<IExecActivitySink>()))
             .AddSingleton<IToolRegistry>(sp =>
-                new ToolRegistry(sp.GetServices<ITool>().ToList()))
+                new ToolRegistry([sp.GetRequiredService<ITool>()]))
             .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
             [
                 new StaticPromptProvider(
                     "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
                     "workspace, prefer the provided tools over guessing, and keep responses tight."),
-                new ExecGuidePromptProvider(),
+                new ExecGuidePromptProvider(sp.GetRequiredService<ICapabilityRegistry>()),
             ]))
             .AddSingleton<Ag>(sp =>
             {
