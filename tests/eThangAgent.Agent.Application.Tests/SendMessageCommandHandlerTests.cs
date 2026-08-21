@@ -1,6 +1,7 @@
 using Ag = eThangAgent.AgentDomain.Agent;
 using eThangAgent.ModelDomain;
 using eThangAgent.ConversationDomain;
+using eThangAgent.ToolDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application.Tests;
@@ -13,7 +14,7 @@ public class SendMessageCommandHandlerTests
         var provider = new StubModelProvider(
             Result<ModelResponse>.Success(new ModelResponse("response", [])));
         var agent = new Ag(provider, new Conversation(),
-            ModelConfig.Create("m", 100, 0.5f).Value!);
+            ModelConfig.Create("m", 100, 0.5f).Value!, new ToolRegistry([]));
         var handler = new SendMessageCommandHandler(agent);
 
         var result = await handler.Handle(new SendMessageCommand("hello"));
@@ -28,7 +29,7 @@ public class SendMessageCommandHandlerTests
         var error = new Error("FAIL", "bad");
         var provider = new StubModelProvider(Result<ModelResponse>.Failure(error));
         var agent = new Ag(provider, new Conversation(),
-            ModelConfig.Create("m", 100, 0.5f).Value!);
+            ModelConfig.Create("m", 100, 0.5f).Value!, new ToolRegistry([]));
         var handler = new SendMessageCommandHandler(agent);
 
         var result = await handler.Handle(new SendMessageCommand("hello"));

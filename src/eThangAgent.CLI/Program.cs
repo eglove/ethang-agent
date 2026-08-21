@@ -2,6 +2,7 @@ using Ag = eThangAgent.AgentDomain.Agent;
 using eThangAgent.Terminal.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.ConversationDomain;
+using eThangAgent.ToolDomain;
 using eThangAgent.Agent.Application;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.SharedKernel;
@@ -41,7 +42,7 @@ public static class Program
                 var provider = sp.GetRequiredService<IModelProvider>();
                 var conversation = sp.GetRequiredService<Conversation>();
                 var config = sp.GetRequiredService<ModelConfig>();
-                return new Ag(provider, conversation, config);
+                return new Ag(provider, conversation, config, new ToolRegistry([]));
             })
             .AddSingleton<SendMessageCommandHandler>()
             .BuildServiceProvider();
