@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-durable-state-design.md` — the plan argues from the spec; executors read both.
 
-> **Progress:** Wave 1 outcome — tasks completed: [1, 2]. Next: Wave 2 (Tasks 5–6).
+> **Progress:** Wave 1 outcome — tasks completed: [1, 2, 3] (Task 3 inline after agent budget death; execution fixes: optional FakeRunner responder, safe event slicing, single-event History expectation, missing-id vs nothing-selected semantics, head re-verification by explicit id, delete logging in fake store, sequenced runner carrying exit-1 detail). Next: Task 4, then Wave 2.
 
 ## Global Constraints
 
@@ -837,20 +837,25 @@ public class StateServiceTests
     public async Task Verify_FailingEvidence_Violates_AndRevokesHeadCertificateFirst()
     {
         var store = new FakeStateStore();
-        var service = Create(store, new FakeRunner(_ => new EvidenceResult("cmd", false, "exit 1")));
+        var outcomes = new Queue<bool>([true, false]); // certify first, then fail on re-verification
+        var service = Create(store, new FakeRunner(_ =>
+        {
+            var confirmed = outcomes.Dequeue();
+            return new EvidenceResult("cmd", confirmed, confirmed ? "" : "exit 1");
+        }));
         await service.SetAsync("current/head", "done", null);
-        await service.TransitionAsync("coding", "done", "work", ["Write-Output ok"]);
+        var id = await service.TransitionAsync("coding", "done", "work", ["Write-Output ok"]);
         await service.VerifyAsync(null); // certify first
         store.OperationLog.Clear();
 
-        var report = await service.VerifyAsync(null);
+        var report = await service.VerifyAsync([id.Value!]);
 
         Assert.False(report.Certified);
         Assert.True(report.Violated);
         Assert.Contains("exit 1", report.BlockingReasons.Single());
         Assert.Equal("violated", store.Transitions.Single().Status);
         Assert.Null(await store.GetKeyAsync("ws", "current", "certificate"));
-        var revokeIndex = store.OperationLog.IndexOf("delete-certificate");
+        var revokeIndex = store.OperationLog.IndexOf("delete:current/certificate");
         var violatedIndex = store.OperationLog.IndexOf("event:state.violated");
         Assert.True(revokeIndex >= 0 && violatedIndex > revokeIndex, "certificate must be revoked before the violated event");
     }
@@ -922,7 +927,8 @@ public class StateServiceTests
     private sealed class FakeRunner : IEvidenceRunner
     {
         private readonly Func<string, EvidenceResult> _respond;
-        public FakeRunner(Func<string, EvidenceResult> respond) => _respond = respond;
+        public FakeRunner(Func<string, EvidenceResult>? respond = null)
+            => _respond = respond ?? (command => new EvidenceResult(command, true, ""));
         public Task<EvidenceResult> RunAsync(string command, CancellationToken ct = default)
             => Task.FromResult(_respond(command));
     }
@@ -964,6 +970,7 @@ public class StateServiceTests
             if (!_keys.TryGetValue(id, out var existing)) return Task.FromResult(false);
             if (expectedVersion.HasValue && existing.Version != expectedVersion.Value) return Task.FromResult(false);
             _keys.Remove(id);
+            OperationLog.Add($"delete:{id}");
             return Task.FromResult(true);
         }
 
@@ -1119,8 +1126,8 @@ public sealed class StateService : IStateService
                 if (!found.Contains(id))
                     blocking.Add($"Missing transition: {id}.");
         }
-        if (selected.Count == 0)
-            blocking.Add("No transitions selected (none pending and none supplied).");
+        else if (selected.Count == 0)
+            blocking.Add("No transitions selected (none pending).");
 
         var head = await _store.GetKeyAsync(workspaceId, HeadNs, HeadName, ct);
         var headValue = head?.Value;
