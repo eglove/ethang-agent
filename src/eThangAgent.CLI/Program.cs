@@ -112,6 +112,11 @@ public static class Program
 
                 terminal.Clear();
                 pane.Render(terminal, layout.TranscriptTop, layout.TranscriptHeight, width);
+                if (layout.SeparatorRow >= 0)
+                {
+                    terminal.SetCursorPosition(0, layout.SeparatorRow);
+                    terminal.Write(new string('\u2500', width), ConsoleColor.DarkGray);
+                }
                 status.Render(terminal, layout.StatusRow, width, modelConfig.ModelId, messages, state);
                 terminal.SetCursorPosition(0, layout.InputRow);
 
