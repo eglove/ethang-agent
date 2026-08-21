@@ -149,6 +149,115 @@ public class E2ETests
         try { File.Delete(tempFile); } catch { }
     }
 
+    private static string ExecToolCall(string id, string arguments) =>
+        System.Text.Json.JsonSerializer.Serialize(new
+        {
+            choices = new[]
+            {
+                new
+                {
+                    message = new
+                    {
+                        content = (string?)null,
+                        tool_calls = new[]
+                        {
+                            new { id, type = "function", function = new { name = "exec", arguments } }
+                        }
+                    }
+                }
+            }
+        });
+
+    [Fact]
+    public async Task Repl_ExecutesExecTool_EndToEnd()
+    {
+        using var mock = new MockOpenRouterServer();
+        mock.Start();
+
+        var tempFile = Path.Combine(Path.GetTempPath(), $"ethang-exec-{Guid.NewGuid():N}.txt");
+        await File.WriteAllLinesAsync(tempFile, ["alpha line", "beta line"]);
+
+        var program = $"read @{{ path = '{tempFile}'; startLine = 1; endLine = 2 }}";
+        var execArgs = System.Text.Json.JsonSerializer.Serialize(new { program });
+        mock.Returns(ExecToolCall("call_1", execArgs));
+        mock.Returns("""{"choices":[{"message":{"content":"exec completed"}}]}""");
+
+        using var process = StartCli(mock);
+        var reader = process.StandardOutput;
+        await ReadUntil(reader, "> ");
+
+        await process.StandardInput.WriteLineAsync("run a program");
+        await process.StandardInput.FlushAsync();
+
+        var response = await ReadUntil(reader, "> ");
+        Assert.Contains("exec completed", response, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, mock.RequestBodies.Count);
+        Assert.Contains("\"role\":\"tool\"", mock.RequestBodies[1]);
+        Assert.Contains("alpha line", mock.RequestBodies[1]);
+
+        await process.StandardInput.WriteLineAsync("/quit");
+        await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token);
+        Assert.Equal(0, process.ExitCode);
+
+        try { File.Delete(tempFile); } catch { }
+    }
+
+    [Fact]
+    public async Task Repl_Exec_ParseErrorFeedsBack_AndCorrectedProgramSucceeds()
+    {
+        using var mock = new MockOpenRouterServer();
+        mock.Start();
+
+        var broken = System.Text.Json.JsonSerializer.Serialize(new { program = "if (x {" });
+        var corrected = System.Text.Json.JsonSerializer.Serialize(
+            new { program = "Write-Output 'corrected output'" });
+        mock.Returns(ExecToolCall("call_1", broken));
+        mock.Returns(ExecToolCall("call_2", corrected));
+        mock.Returns("""{"choices":[{"message":{"content":"done"}}]}""");
+
+        using var process = StartCli(mock);
+        var reader = process.StandardOutput;
+        await ReadUntil(reader, "> ");
+
+        await process.StandardInput.WriteLineAsync("try exec");
+        await process.StandardInput.FlushAsync();
+
+        var response = await ReadUntil(reader, "> ");
+        Assert.Contains("done", response, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal(3, mock.RequestBodies.Count);
+        Assert.Contains("ExecParseError", mock.RequestBodies[1]);
+        Assert.Contains("ExecParseError", mock.RequestBodies[2]);
+        Assert.Contains("corrected output", mock.RequestBodies[2]);
+
+        await process.StandardInput.WriteLineAsync("/quit");
+        await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token);
+        Assert.Equal(0, process.ExitCode);
+    }
+
+    [Fact]
+    public async Task Repl_SendsExecGuide_InSystemPrompt()
+    {
+        using var mock = new MockOpenRouterServer();
+        mock.Start();
+
+        using var process = StartCli(mock);
+        var reader = process.StandardOutput;
+        await ReadUntil(reader, "> ");
+
+        await process.StandardInput.WriteLineAsync("hi");
+        await process.StandardInput.FlushAsync();
+        await ReadUntil(reader, "> ");
+
+        Assert.NotNull(mock.LastChatRequestBody);
+        Assert.Contains("\"role\":\"system\"", mock.LastChatRequestBody);
+        Assert.Contains("writing PowerShell programs", mock.LastChatRequestBody);
+
+        await process.StandardInput.WriteLineAsync("/quit");
+        await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
+        Assert.Equal(0, process.ExitCode);
+    }
+
     private static Process StartCli(MockOpenRouterServer mock)
     {
         var projectDir = Path.GetFullPath(
