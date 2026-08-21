@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-capability-registry-design.md` — the plan argues from the spec; executors read both.
 
-> **Progress:** Wave 1 outcome — tasks completed: [1, 2, 3]. Next: Wave 2 (Tasks 5–6).
+> **Progress:** Wave 1 COMPLETE — Tasks 1–4 done and verified green. Next: Wave 2 (Tasks 5–6: broker + engine registry switch).
 
 ## Global Constraints
 
@@ -734,9 +734,8 @@ public class CapabilityReferenceRendererTests
 
         var text = CapabilityReferenceRenderer.Render(registry);
 
-        Assert.Equal("""## Available actions
-agent:
-read(path: String, startLine: Integer, endLine: Integer): Read lines from a text file.""",
+        Assert.Equal(
+            "## Available actions\nagent:\nread(path: String, startLine: Integer, endLine: Integer): Read lines from a text file.",
             text);
     }
 
@@ -777,12 +776,12 @@ public static class CapabilityReferenceRenderer
         var sb = new StringBuilder("## Available actions");
         foreach (var provider in registry.Providers)
         {
-            sb.AppendLine().Append($"{provider.Id}:");
+            sb.Append("\n").Append($"{provider.Id}:");
             foreach (var action in provider.Actions)
             {
                 var parameters = string.Join(", ",
                     action.Parameters.Select(p => $"{p.Name}: {p.Type}"));
-                sb.AppendLine().Append($"{action.Name}({parameters}): {action.Summary}");
+                sb.Append("\n").Append($"{action.Name}({parameters}): {action.Summary}");
             }
         }
         return sb.ToString();
