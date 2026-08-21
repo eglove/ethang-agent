@@ -85,12 +85,18 @@ public sealed class PowerShellExecEngine : IExecEngine
     /// <summary>Functions are injected as setup-script text into a default PowerShell.Create()
     ///     runspace. CreateDefault2-based runspaces fail to load the built-in modules in
     ///     hosted (non-pwsh) processes; the default Create() runspace does not.</summary>
+    /// <summary>Each action is exposed under both naming forms the registry's
+    ///     Resolve accepts: the bare action name and the provider-qualified
+    ///     'provider.action' form — mirroring the broker surface one-for-one.</summary>
     private static string CreateSetupScript(ICapabilityRegistry registry)
         => string.Join("\n",
             registry.Providers
-                .SelectMany(p => p.Actions)
-                .Select(a =>
-                    $"function {a.Name} {{ param([object]$ToolInput) $broker.InvokeTool('{a.Name}', $ToolInput) }}")
+                .SelectMany(p => p.Actions.Select(a => (Provider: p, Action: a)))
+                .SelectMany(x => new[]
+                {
+                    $"function {x.Action.Name} {{ param([object]$ToolInput) $broker.InvokeTool('{x.Action.Name}', $ToolInput) }}",
+                    $"function {x.Provider.Id}.{x.Action.Name} {{ param([object]$ToolInput) $broker.InvokeTool('{x.Provider.Id}.{x.Action.Name}', $ToolInput) }}",
+                })
                 .Append("function Invoke-AgentTool { param([string]$Name, [object]$ToolInput) $broker.InvokeTool($Name, $ToolInput) }")
                 .Append("function Get-AgentTool { $broker.ListActions() }")
                 .Append("function Get-AgentAction { param([string]$Name) $broker.DescribeAction($Name) }")
