@@ -9,6 +9,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.*" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.*" />
     <ProjectReference Include="../eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
+    <ProjectReference Include="../eThangAgent.Agent.Infrastructure/eThangAgent.Agent.Infrastructure.csproj" />
     <ProjectReference Include="../eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.Terminal.ACL/eThangAgent.Terminal.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />

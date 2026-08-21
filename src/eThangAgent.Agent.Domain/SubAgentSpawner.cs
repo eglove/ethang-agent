@@ -3,11 +3,10 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
-using eThangAgent.AgentDomain.Specifications;
 
 namespace eThangAgent.AgentDomain;
 
-/// <summary>Terminal outcome of a successfully completed child agent run.</summary>
+/// <summary>Terminal outcome of a child agent run: completion with its report, or failure with its reason.</summary>
 public sealed record AgentRunOutcome(
     AgentId ChildId,
     AgentStatus Status,
@@ -16,8 +15,11 @@ public sealed record AgentRunOutcome(
     string ModelUsed,
     int Depth);
 
-/// <summary>Domain service validating spawn requests, enforcing the depth limit, running the child agent loop, and persisting its lifecycle.</summary>
-public sealed class SubAgentSpawner : ISubAgentSpawner
+/// <summary>Child-loop runner implementing <see cref="IAgentRunner"/>: executes a persisted child
+///     agent's conversation loop to completion and persists its terminal state and transcript.
+///     Validation, depth enforcement, model resolution, and the initial Running save belong to the
+///     spawn command (<c>StartSpawnHandler</c>), which hands the persisted record here.</summary>
+public sealed class SubAgentSpawner : IAgentRunner
 {
     /// <summary>Model-facing annotation appended when a child report exceeds the 50 KB storage guideline.</summary>
     public const string ReportOverflowAnnotation =
@@ -35,9 +37,6 @@ public sealed class SubAgentSpawner : ISubAgentSpawner
     private readonly IToolRegistry _tools;
     private readonly ISystemPromptProvider _systemPrompt;
     private readonly SubAgentOptions _options;
-
-    private readonly NonEmptyTaskPromptSpecification _promptSpec = new();
-    private readonly ValidModelReferenceSpecification _modelSpec = new();
 
     private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
 
@@ -57,34 +56,16 @@ public sealed class SubAgentSpawner : ISubAgentSpawner
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
-    public async Task<Result<AgentRunOutcome>> SpawnAsync(AgentRecord parent, SpawnRequest request,
-        CancellationToken ct = default)
+    /// <summary>Runs the child's conversation loop under its timeout budget and persists the terminal
+    ///     outcome — Completed with the truncated report, or Failed with its reason — plus the child
+    ///     transcript. It never saves the initial Running row; that is the spawn command's job. A
+    ///     failing terminal write is an infrastructure fault and throws.</summary>
+    public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
     {
-        var violation = _promptSpec.ViolationFor(request) ?? _modelSpec.ViolationFor(request);
-        if (violation is not null)
-            return Result<AgentRunOutcome>.Failure(new Error("InvalidSpawnRequest", violation.Message));
+        var config = ModelConfig.Create(child.ModelUsed, ChildMaxTokens, ChildTemperature).Value!;
 
-        if (parent.Depth >= _options.MaxDepth)
-            return Result<AgentRunOutcome>.Failure(new Error("DepthExceeded",
-                $"agent depth {parent.Depth} is at the limit ({_options.MaxDepth}); children cannot spawn further"));
-
-        var model = request.Model ?? _options.DefaultModel;
-        if (string.IsNullOrWhiteSpace(model))
-            return Result<AgentRunOutcome>.Failure(new Error("MissingModel",
-                "supply model or configure SubAgent:DefaultModel"));
-
-        var config = ModelConfig.Create(model, ChildMaxTokens, ChildTemperature).Value!;
-
-        var childId = AgentId.NewId();
-        var record = AgentRecord.Spawned(childId, parent.Id, parent.Depth + 1, model,
-            request.Label, request.TaskPrompt, DateTimeOffset.UtcNow);
-
-        var saved = await _store.SaveAsync(record, ct);
-        if (!saved.IsSuccess)
-            return Result<AgentRunOutcome>.Failure(saved.Error!);
-
-        var child = new Agent(_factory.Create(config), new Conversation(), config, _tools,
-            _systemPrompt, id: childId, depth: parent.Depth + 1);
+        var agent = new Agent(_factory.Create(config), new Conversation(), config, _tools,
+            _systemPrompt, id: child.Id, depth: child.Depth);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(_options.ChildTimeout);
@@ -92,10 +73,10 @@ public sealed class SubAgentSpawner : ISubAgentSpawner
         string? report = null;
         AgentFailureReason? failureReason = null;
         var previousChild = RunningChildCurrent.Value;
-        RunningChildCurrent.Value = record;
+        RunningChildCurrent.Value = child;
         try
         {
-            var run = await child.SendMessage(request.TaskPrompt, timeoutCts.Token);
+            var run = await agent.SendMessage(child.TaskPrompt, timeoutCts.Token);
             if (run.IsSuccess)
             {
                 report = run.Value!;
@@ -120,8 +101,8 @@ public sealed class SubAgentSpawner : ISubAgentSpawner
         }
         catch (Exception)
         {
-            // Provider/loop infrastructure failure: persisted as Failed(ProviderError) and returned
-            // as a failure Result so the caller receives a well-formed error, never a crash.
+            // Provider/loop infrastructure failure: surfaced as Failed(ProviderError) in the
+            // outcome so callers persist/retrieve a well-formed error, never a crash.
             failureReason = AgentFailureReason.ProviderError;
         }
         finally
@@ -131,38 +112,41 @@ public sealed class SubAgentSpawner : ISubAgentSpawner
 
         if (failureReason is not null)
         {
-            var failedRecord = record with
+            await PersistTerminalAsync(child with
             {
                 Status = AgentStatus.Failed,
                 FailureReason = failureReason,
                 CompletedAt = DateTimeOffset.UtcNow,
-            };
-            var failedUpdate = await _store.UpdateAsync(failedRecord, ct);
-            return !failedUpdate.IsSuccess
-                ? Result<AgentRunOutcome>.Failure(failedUpdate.Error!)
-                : Result<AgentRunOutcome>.Failure(new Error(failureReason.Value.ToString(),
-                    FailureDetail(failureReason.Value)));
+            }, ct);
+            return new AgentRunOutcome(child.Id, AgentStatus.Failed, failureReason,
+                FailureDetail(failureReason.Value), child.ModelUsed, child.Depth);
         }
 
         var finalReport = report!;
         if (Encoding.UTF8.GetByteCount(finalReport) > MaxReportBytes)
             finalReport += "\n" + ReportOverflowAnnotation;
 
-        foreach (var message in child.Conversation.Messages)
-            await _store.AppendMessageAsync(childId, message, ct);
+        foreach (var message in agent.Conversation.Messages)
+            await _store.AppendMessageAsync(child.Id, message, ct);
 
-        var completedRecord = record with
+        await PersistTerminalAsync(child with
         {
             Status = AgentStatus.Completed,
             CompletedAt = DateTimeOffset.UtcNow,
             FinalReport = finalReport,
-        };
-        var completedUpdate = await _store.UpdateAsync(completedRecord, ct);
-        if (!completedUpdate.IsSuccess)
-            return Result<AgentRunOutcome>.Failure(completedUpdate.Error!);
+        }, ct);
 
-        return Result<AgentRunOutcome>.Success(new AgentRunOutcome(
-            childId, AgentStatus.Completed, null, finalReport, model, parent.Depth + 1));
+        return new AgentRunOutcome(child.Id, AgentStatus.Completed, null, finalReport,
+            child.ModelUsed, child.Depth);
+    }
+
+    private async Task PersistTerminalAsync(AgentRecord terminal, CancellationToken ct)
+    {
+        var update = await _store.UpdateAsync(terminal, ct);
+        if (!update.IsSuccess)
+            throw new InvalidOperationException(
+                $"failed to persist terminal state for agent '{terminal.Id}': " +
+                $"[{update.Error!.Code}] {update.Error.Message}");
     }
 
     private static string FailureDetail(AgentFailureReason reason) => reason switch

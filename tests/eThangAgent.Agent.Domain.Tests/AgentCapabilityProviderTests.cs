@@ -9,78 +9,73 @@ public class AgentCapabilityProviderTests
         AgentRecord.Spawned(AgentId.NewId(), null, depth, "prov/parent", null, "root task", DateTimeOffset.UtcNow);
 
     private static (AgentCapabilityProvider Provider, List<(AgentRecord Parent, SpawnRequest Request)> Calls)
-        MakeProvider(AgentRecord parent, Result<AgentRunOutcome> outcome)
+        MakeProvider(AgentRecord parent, Result<AgentId> reply)
     {
         var calls = new List<(AgentRecord, SpawnRequest)>();
-        var spawner = new FakeSpawner(_ =>
-        {
-            return outcome;
-        }, calls);
-        return (new AgentCapabilityProvider(spawner, () => parent), calls);
+        var command = new FakeSpawnCommand(reply, calls);
+        return (new AgentCapabilityProvider(command, () => parent), calls);
     }
 
-    private sealed class FakeSpawner(Func<SpawnRequest, Result<AgentRunOutcome>> respond,
-        List<(AgentRecord, SpawnRequest)> calls) : ISubAgentSpawner
+    private sealed class FakeSpawnCommand(Result<AgentId> reply,
+        List<(AgentRecord Parent, SpawnRequest Request)> calls) : IAgentSpawnCommand
     {
-        public Task<Result<AgentRunOutcome>> SpawnAsync(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
+        public Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
         {
             calls.Add((parent, request));
-            return Task.FromResult(respond(request));
+            return Task.FromResult(reply);
         }
     }
 
     [Fact]
-    public async Task Spawn_Completed_RendersGutterContract()
+    public async Task Spawn_Success_RendersRunningLine_WithoutAnyReport()
     {
-        var outcome = new AgentRunOutcome(AgentId.NewId(), AgentStatus.Completed, null,
-            "REPORT TEXT", "prov/model-x", 1);
-        var (provider, calls) = MakeProvider(ParentAtDepth(0), Result<AgentRunOutcome>.Success(outcome));
+        var id = AgentId.NewId();
+        var (provider, calls) = MakeProvider(ParentAtDepth(0), Result<AgentId>.Success(id));
 
         var result = await provider.InvokeAsync("spawn",
             """{"taskPrompt":"summarize","model":"prov/model-x","label":"research"}""");
 
         Assert.False(result.IsError);
-        var id = calls[0].Request.TaskPrompt == "summarize" ? outcome.ChildId.ToString() : "";
-        Assert.Contains($"[agent] id={id} status=completed depth=1 model=prov/model-x label=research", result.Content);
-        Assert.Contains("--- report ---", result.Content);
-        Assert.Contains("REPORT TEXT", result.Content);
-        Assert.Contains("--- end report ---", result.Content);
+        // Non-blocking contract: exactly the running line — no report gutter, no label segment.
+        Assert.Equal($"[agent] id={id} status=running", result.Content);
+        Assert.DoesNotContain("--- report ---", result.Content);
+
+        var call = Assert.Single(calls);
+        Assert.Equal(0, call.Parent.Depth);
+        Assert.Equal("summarize", call.Request.TaskPrompt);
+        Assert.Equal("prov/model-x", call.Request.Model);
+        Assert.Equal("research", call.Request.Label);
     }
 
     [Fact]
-    public async Task Spawn_Failed_RendersReasonAndPartialReport()
-    {
-        var outcome = new AgentRunOutcome(AgentId.NewId(), AgentStatus.Failed,
-            AgentFailureReason.Timeout, "partial work", "prov/model-x", 1);
-        var (provider, _) = MakeProvider(ParentAtDepth(0), Result<AgentRunOutcome>.Success(outcome));
-
-        var result = await provider.InvokeAsync("spawn", """{"taskPrompt":"x"}""");
-
-        Assert.Contains("status=failed reason=timeout", result.Content);
-        Assert.Contains("partial work", result.Content);
-    }
-
-    [Fact]
-    public async Task Spawn_DepthExceeded_RendersKebabReason()
+    public async Task Spawn_HandlerFailure_PassesCanonicalErrorThroughUntouched()
     {
         var (provider, _) = MakeProvider(ParentAtDepth(2),
-            Result<AgentRunOutcome>.Failure(new Error("DepthExceeded", "agent depth 2 is at the limit (3)")));
+            Result<AgentId>.Failure(new Error("DepthExceeded",
+                "agent depth 2 is at the limit (3); children cannot spawn further")));
 
         var result = await provider.InvokeAsync("spawn", """{"taskPrompt":"x"}""");
 
-        Assert.Contains("status=failed reason=depth-exceeded", result.Content);
-        Assert.Contains("at the limit", result.Content);
+        Assert.True(result.IsError);
+        Assert.Equal("Error [DepthExceeded]: agent depth 2 is at the limit (3); children cannot spawn further",
+            result.Content);
     }
 
     [Fact]
-    public async Task Spawn_MissingModel_RendersMissingModelReason()
+    public async Task Spawn_CapReached_CanonicalStringRoundTripsByteForByte()
     {
-        var (provider, _) = MakeProvider(ParentAtDepth(0),
-            Result<AgentRunOutcome>.Failure(new Error("MissingModel", "supply model or configure SubAgent:DefaultModel")));
+        // The runtime builds its cap Error by parsing RuntimeErrors.CapReached; rendering must
+        // reproduce that canonical string exactly so callers can match on it.
+        var canonical = RuntimeErrors.CapReached;
+        var codeStart = canonical.IndexOf('[') + 1;
+        var codeEnd = canonical.IndexOf(']', codeStart);
+        var error = new Error(canonical[codeStart..codeEnd], canonical[(codeEnd + 3)..]);
+        var (provider, _) = MakeProvider(ParentAtDepth(0), Result<AgentId>.Failure(error));
 
         var result = await provider.InvokeAsync("spawn", """{"taskPrompt":"x"}""");
 
-        Assert.Contains("status=failed reason=missing-model", result.Content);
+        Assert.True(result.IsError);
+        Assert.Equal(canonical, result.Content);
     }
 
     [Theory]
@@ -90,8 +85,7 @@ public class AgentCapabilityProviderTests
     [InlineData("""{"taskPrompt":"x","model":" "}""", "model")]
     public async Task Spawn_InvalidInput_TypedErrorNamingField(string json, string expected)
     {
-        var (provider, calls) = MakeProvider(ParentAtDepth(0),
-            Result<AgentRunOutcome>.Success(new AgentRunOutcome(AgentId.NewId(), AgentStatus.Completed, null, "r", "m", 1)));
+        var (provider, calls) = MakeProvider(ParentAtDepth(0), Result<AgentId>.Success(AgentId.NewId()));
 
         var result = await provider.InvokeAsync("spawn", json);
 
@@ -103,24 +97,11 @@ public class AgentCapabilityProviderTests
     [Fact]
     public async Task InvokeAsync_UnknownAction_TypedError()
     {
-        var (provider, _) = MakeProvider(ParentAtDepth(0),
-            Result<AgentRunOutcome>.Success(new AgentRunOutcome(AgentId.NewId(), AgentStatus.Completed, null, "r", "m", 1)));
+        var (provider, _) = MakeProvider(ParentAtDepth(0), Result<AgentId>.Success(AgentId.NewId()));
 
         var result = await provider.InvokeAsync("nope", "{}");
 
         Assert.True(result.IsError);
         Assert.Contains("UnknownAction", result.Content);
-    }
-
-    [Fact]
-    public async Task Spawn_LabelOmitted_HeaderHasNoLabelSegment()
-    {
-        var outcome = new AgentRunOutcome(AgentId.NewId(), AgentStatus.Completed, null, "r", "prov/m", 1);
-        var (provider, _) = MakeProvider(ParentAtDepth(0), Result<AgentRunOutcome>.Success(outcome));
-
-        var result = await provider.InvokeAsync("spawn", """{"taskPrompt":"x"}""");
-
-        var header = result.Content.Split('\n')[0];
-        Assert.DoesNotContain("label=", header);
     }
 }

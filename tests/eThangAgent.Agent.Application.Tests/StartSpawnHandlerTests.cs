@@ -108,6 +108,21 @@ public class StartSpawnHandlerTests
     }
 
     [Fact]
+    public async Task Execute_NoExplicitModel_ConfiguredDefaultFlowsIntoPersistedRecord()
+    {
+        var store = new FakeAgentStore();
+        var runtime = new FakeAgentRuntime();
+        var handler = new StartSpawnHandler(store, runtime, new SubAgentOptions(DefaultModel: "fallback-model"));
+
+        var result = await handler.Execute(Parent(), new SpawnRequest("task"));
+
+        Assert.True(result.IsSuccess);
+        var saved = Assert.Single(store.Saved);
+        Assert.Equal("fallback-model", saved.ModelUsed);
+        Assert.Same(saved, Assert.Single(runtime.Started));
+    }
+
+    [Fact]
     public async Task Execute_RuntimeCapFailure_PropagatedAfterRecordWasPersisted()
     {
         var capError = new Error("ConcurrencyCapReached", "runtime at capacity");

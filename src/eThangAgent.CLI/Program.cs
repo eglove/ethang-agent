@@ -5,6 +5,7 @@ using eThangAgent.ModelDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ToolDomain;
 using eThangAgent.Agent.Application;
+using eThangAgent.AgentInfrastructure;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.FileSystem.ACL;
@@ -77,7 +78,12 @@ public static class Program
             .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
                 sp.GetRequiredService<OpenRouterConfiguration>(),
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
-            .AddSingleton<ISubAgentSpawner, SubAgentSpawner>()
+            .AddSingleton<SubAgentSpawner>()
+            .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
+                sp.GetRequiredService<SubAgentSpawner>(),
+                sp.GetRequiredService<IAgentStore>(),
+                maxConcurrentAgents: 1)) // interim cap until SubAgent:MaxConcurrentAgents configuration lands
+            .AddSingleton<IAgentSpawnCommand, StartSpawnHandler>()
             .AddSingleton<AgentCapabilityProvider>(sp =>
             {
                 // Root agent record: depth 0, own identity, never persisted — only
@@ -87,7 +93,7 @@ public static class Program
                     sp.GetRequiredService<ModelConfig>().ModelId, null,
                     "root session", DateTimeOffset.UtcNow);
                 return new AgentCapabilityProvider(
-                    sp.GetRequiredService<ISubAgentSpawner>(),
+                    sp.GetRequiredService<IAgentSpawnCommand>(),
                     () => SubAgentSpawner.RunningChild ?? rootRecord);
             })
             .AddSingleton<EvidenceOptions>(_ => EvidenceOptions.Default)

@@ -9,11 +9,11 @@ public class SubAgentSpawnerTests
 {
     private static readonly DateTimeOffset FixedNow = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
 
-    private static AgentRecord ParentAtDepth(int depth)
-        => AgentRecord.Spawned(AgentId.NewId(), null, depth, "parent-model",
-            null, "parent task", FixedNow);
+    private static AgentRecord Child(int depth = 0, string model = "default/sub-model",
+        string taskPrompt = "do things", string? label = null)
+        => AgentRecord.Spawned(AgentId.NewId(), null, depth, model, label, taskPrompt, FixedNow);
 
-    private static SubAgentSpawner MakeSpawner(
+    private static SubAgentSpawner MakeRunner(
         IModelProvider provider,
         FakeAgentStore store,
         SubAgentOptions? options = null,
@@ -25,162 +25,63 @@ public class SubAgentSpawnerTests
             new StaticPromptProvider("guide text"),
             options ?? new SubAgentOptions(DefaultModel: "default/sub-model"));
 
-    // --- depth guard ---
+    // --- depth passes through (the guard itself is covered by StartSpawnHandlerTests) ---
 
     [Fact]
-    public async Task Spawn_ParentAtMaxDepth_Rejected_NoWrites_NoFactoryCalls()
-    {
-        var factory = new FakeModelProviderFactory(new FakeProvider());
-        var store = new FakeAgentStore();
-        var spawner = new SubAgentSpawner(factory, store, new ToolRegistry([]),
-            new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "m/sub"));
-
-        var result = await spawner.SpawnAsync(ParentAtDepth(3), new SpawnRequest("do things"),
-            CancellationToken.None);
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal("DepthExceeded", result.Error!.Code);
-        Assert.Contains("depth 3 is at the limit (3)", result.Error.Message);
-        Assert.Equal(0, factory.CreateCount);
-        Assert.Equal(0, store.TotalWrites);
-    }
-
-    [Fact]
-    public async Task Spawn_Depth2Parent_ChildCompletesAtDepth3_AtBoundary()
+    public async Task RunAsync_ChildAtDepthBoundary_Completes_OutcomeCarriesChildsDepth()
     {
         var store = new FakeAgentStore();
         var provider = new FakeProvider(
             Result<ModelResponse>.Success(new ModelResponse("deep report", [])));
-        var spawner = MakeSpawner(provider, store);
+        var spawner = MakeRunner(provider, store,
+            options: new SubAgentOptions(DefaultModel: "m/sub", MaxDepth: 3));
 
-        var result = await spawner.SpawnAsync(ParentAtDepth(2), new SpawnRequest("deep task"),
-            CancellationToken.None);
+        var outcome = await spawner.RunAsync(Child(depth: 3, model: "m/sub"), CancellationToken.None);
 
-        Assert.True(result.IsSuccess);
-        Assert.Equal(3, result.Value!.Depth);
+        Assert.Equal(AgentStatus.Completed, outcome.Status);
+        Assert.Equal(3, outcome.Depth);
     }
 
-    [Fact]
-    public async Task Spawn_Depth1Parent_ChildCompletesAtDepth2()
-    {
-        var store = new FakeAgentStore();
-        var provider = new FakeProvider(
-            Result<ModelResponse>.Success(new ModelResponse("child report", [])));
-        var spawner = MakeSpawner(provider, store);
-
-        var result = await spawner.SpawnAsync(ParentAtDepth(1), new SpawnRequest("do things"),
-            CancellationToken.None);
-
-        Assert.True(result.IsSuccess);
-        Assert.Equal(2, result.Value!.Depth);
-        Assert.Equal(AgentStatus.Completed, result.Value.Status);
-    }
-
-    // --- model resolution precedence ---
+    // --- model plumbing (resolution precedence is covered by StartSpawnHandlerTests) ---
 
     [Fact]
-    public async Task Spawn_ExplicitModel_BeatsConfiguredDefault()
+    public async Task RunAsync_CreatesProvider_FromTheChildRecordsModel()
     {
         var factory = new FakeModelProviderFactory(new FakeProvider());
         var store = new FakeAgentStore();
         var spawner = new SubAgentSpawner(factory, store, new ToolRegistry([]),
-            new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "default/sub-model"));
+            new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "unused/default"));
 
-        var result = await spawner.SpawnAsync(ParentAtDepth(0),
-            new SpawnRequest("task", Model: "explicit/model"), CancellationToken.None);
+        await spawner.RunAsync(Child(depth: 0, model: "explicit/model"), CancellationToken.None);
 
-        Assert.True(result.IsSuccess);
-        Assert.Equal("explicit/model", result.Value!.ModelUsed);
+        Assert.Equal(1, factory.CreateCount);
         Assert.Equal("explicit/model", factory.LastConfig!.ModelId);
-    }
-
-    [Fact]
-    public async Task Spawn_NoExplicitModel_UsesConfiguredDefault()
-    {
-        var factory = new FakeModelProviderFactory(new FakeProvider());
-        var store = new FakeAgentStore();
-        var spawner = new SubAgentSpawner(factory, store, new ToolRegistry([]),
-            new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "default/sub-model"));
-
-        var result = await spawner.SpawnAsync(ParentAtDepth(0), new SpawnRequest("task"),
-            CancellationToken.None);
-
-        Assert.True(result.IsSuccess);
-        Assert.Equal("default/sub-model", result.Value!.ModelUsed);
-        Assert.Equal("default/sub-model", factory.LastConfig!.ModelId);
-    }
-
-    [Fact]
-    public async Task Spawn_NoModelAnywhere_MissingModelError_NoSideEffects()
-    {
-        var factory = new FakeModelProviderFactory(new FakeProvider());
-        var store = new FakeAgentStore();
-        var spawner = new SubAgentSpawner(factory, store, new ToolRegistry([]),
-            new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: null));
-
-        var result = await spawner.SpawnAsync(ParentAtDepth(0), new SpawnRequest("task"),
-            CancellationToken.None);
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal("MissingModel", result.Error!.Code);
-        Assert.Equal("supply model or configure SubAgent:DefaultModel", result.Error.Message);
-        Assert.Equal(0, factory.CreateCount);
-        Assert.Equal(0, store.TotalWrites);
-    }
-
-    // --- request validation ---
-
-    [Fact]
-    public async Task Spawn_EmptyTaskPrompt_RejectedBeforeAnySideEffect()
-    {
-        var factory = new FakeModelProviderFactory(new FakeProvider());
-        var store = new FakeAgentStore();
-        var spawner = new SubAgentSpawner(factory, store, new ToolRegistry([]),
-            new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "m/sub"));
-
-        var result = await spawner.SpawnAsync(ParentAtDepth(0), new SpawnRequest("   "),
-            CancellationToken.None);
-
-        Assert.False(result.IsSuccess);
-        Assert.Contains("TaskPrompt", result.Error!.Message);
-        Assert.Equal(0, factory.CreateCount);
-        Assert.Equal(0, store.TotalWrites);
     }
 
     // --- persistence flow ---
 
     [Fact]
-    public async Task Spawn_PersistsRunningThenCompleted_WithReportAndIdentity()
+    public async Task RunAsync_PersistsCompleted_WithReportAndIdentity()
     {
-        var parent = ParentAtDepth(1);
         var store = new FakeAgentStore();
         var provider = new FakeProvider(
             Result<ModelResponse>.Success(new ModelResponse("child report", [])));
-        var spawner = MakeSpawner(provider, store,
-            options: new SubAgentOptions(DefaultModel: "default/sub-model"));
+        var spawner = MakeRunner(provider, store);
 
-        var result = await spawner.SpawnAsync(parent,
-            new SpawnRequest("summarize the file", Label: "child-a"), CancellationToken.None);
+        var child = Child(depth: 2, taskPrompt: "summarize the file", label: "child-a");
+        var outcome = await spawner.RunAsync(child, CancellationToken.None);
 
-        Assert.True(result.IsSuccess);
-        var outcome = result.Value!;
+        // RunAsync never saves the Running row — the spawn command owns that write.
+        Assert.Empty(store.Saved);
 
-        var saved = Assert.Single(store.Saved);
         var updated = Assert.Single(store.Updated);
-        Assert.Equal(AgentStatus.Running, saved.Status);
-        Assert.Equal(parent.Id, saved.ParentId);
-        Assert.Equal(2, saved.Depth);
-        Assert.Equal("default/sub-model", saved.ModelUsed);
-        Assert.Equal("child-a", saved.Label);
-        Assert.Equal("summarize the file", saved.TaskPrompt);
-
-        Assert.Equal(saved.Id, updated.Id);
+        Assert.Equal(child.Id, updated.Id);
         Assert.Equal(AgentStatus.Completed, updated.Status);
         Assert.Null(updated.FailureReason);
         Assert.NotNull(updated.CompletedAt);
         Assert.Equal("child report", updated.FinalReport);
 
-        Assert.Equal(saved.Id, outcome.ChildId);
+        Assert.Equal(child.Id, outcome.ChildId);
         Assert.Equal(AgentStatus.Completed, outcome.Status);
         Assert.Null(outcome.Reason);
         Assert.Equal("child report", outcome.Report);
@@ -189,16 +90,16 @@ public class SubAgentSpawnerTests
     }
 
     [Fact]
-    public async Task Spawn_Completed_AppendsChildTranscript()
+    public async Task RunAsync_Completed_AppendsChildTranscript()
     {
         var store = new FakeAgentStore();
         var provider = new FakeProvider(
             Result<ModelResponse>.Success(new ModelResponse("child report", [])));
-        var spawner = MakeSpawner(provider, store);
-        var spawnResult = await spawner.SpawnAsync(ParentAtDepth(0), new SpawnRequest("do things"),
-            CancellationToken.None);
+        var spawner = MakeRunner(provider, store);
 
-        var transcript = await store.GetTranscriptAsync(spawnResult.Value!.ChildId);
+        var outcome = await spawner.RunAsync(Child(taskPrompt: "do things"), CancellationToken.None);
+
+        var transcript = await store.GetTranscriptAsync(outcome.ChildId);
 
         Assert.True(transcript.IsSuccess);
         Assert.Equal(2, transcript.Value!.Count);
@@ -209,7 +110,7 @@ public class SubAgentSpawnerTests
     }
 
     [Fact]
-    public async Task Spawn_SeedsChildConversation_AndSuppliesSystemPromptAndTools()
+    public async Task RunAsync_SeedsChildConversation_AndSuppliesSystemPromptAndTools()
     {
         var fakeTool = new FakeTool("read_file", "file content");
         var store = new FakeAgentStore();
@@ -217,11 +118,10 @@ public class SubAgentSpawnerTests
             Result<ModelResponse>.Success(new ModelResponse(null,
                 [new ToolCallRequest("call_1", "read_file", "{}")])),
             Result<ModelResponse>.Success(new ModelResponse("finished", [])));
-        var spawner = MakeSpawner(provider, store,
+        var spawner = MakeRunner(provider, store,
             tools: new ToolRegistry([fakeTool]));
 
-        await spawner.SpawnAsync(ParentAtDepth(0), new SpawnRequest("read it"),
-            CancellationToken.None);
+        await spawner.RunAsync(Child(taskPrompt: "read it"), CancellationToken.None);
 
         var request = provider.RequestsSeen[0]; // first of two turns: tool call, then final report
         Assert.Equal("guide text", request.SystemPrompt);
@@ -235,18 +135,17 @@ public class SubAgentSpawnerTests
     // --- failure paths ---
 
     [Fact]
-    public async Task Spawn_Timeout_PersistsFailedTimeout_ReturnsTimeoutError()
+    public async Task RunAsync_Timeout_ReturnsFailedOutcome_PersistsFailedTimeout()
     {
         var store = new FakeAgentStore();
-        var spawner = MakeSpawner(new BlockingProvider(), store,
+        var spawner = MakeRunner(new BlockingProvider(), store,
             options: new SubAgentOptions(DefaultModel: "m/sub",
                 ChildTimeout: TimeSpan.FromMilliseconds(50)));
 
-        var result = await spawner.SpawnAsync(ParentAtDepth(0), new SpawnRequest("slow task"),
-            CancellationToken.None);
+        var outcome = await spawner.RunAsync(Child(), CancellationToken.None);
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal("Timeout", result.Error!.Code);
+        Assert.Equal(AgentStatus.Failed, outcome.Status);
+        Assert.Equal(AgentFailureReason.Timeout, outcome.Reason);
 
         var updated = Assert.Single(store.Updated);
         Assert.Equal(AgentStatus.Failed, updated.Status);
@@ -255,16 +154,15 @@ public class SubAgentSpawnerTests
     }
 
     [Fact]
-    public async Task Spawn_ProviderThrows_PersistsFailedProviderError_ReturnsFailure()
+    public async Task RunAsync_ProviderThrows_ReturnsFailedOutcome_PersistsProviderError()
     {
         var store = new FakeAgentStore();
-        var spawner = MakeSpawner(new ThrowingProvider(), store);
+        var spawner = MakeRunner(new ThrowingProvider(), store);
 
-        var result = await spawner.SpawnAsync(ParentAtDepth(0), new SpawnRequest("task"),
-            CancellationToken.None);
+        var outcome = await spawner.RunAsync(Child(), CancellationToken.None);
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal("ProviderError", result.Error!.Code);
+        Assert.Equal(AgentStatus.Failed, outcome.Status);
+        Assert.Equal(AgentFailureReason.ProviderError, outcome.Reason);
 
         var updated = Assert.Single(store.Updated);
         Assert.Equal(AgentStatus.Failed, updated.Status);
@@ -272,40 +170,52 @@ public class SubAgentSpawnerTests
     }
 
     [Fact]
-    public async Task Spawn_MaxIterationsReached_PersistsFailedMaxIterations()
+    public async Task RunAsync_MaxIterations_ReturnsFailedOutcome_PersistsFailedMaxIterations()
     {
         var store = new FakeAgentStore();
-        var spawner = MakeSpawner(new LoopingProvider(), store,
+        var spawner = MakeRunner(new LoopingProvider(), store,
             tools: new ToolRegistry([new FakeTool("loop", "again")]));
 
-        var result = await spawner.SpawnAsync(ParentAtDepth(0), new SpawnRequest("loop forever"),
-            CancellationToken.None);
+        var outcome = await spawner.RunAsync(Child(taskPrompt: "loop forever"), CancellationToken.None);
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal("MaxIterations", result.Error!.Code);
+        Assert.Equal(AgentStatus.Failed, outcome.Status);
+        Assert.Equal(AgentFailureReason.MaxIterations, outcome.Reason);
 
         var updated = Assert.Single(store.Updated);
         Assert.Equal(AgentStatus.Failed, updated.Status);
         Assert.Equal(AgentFailureReason.MaxIterations, updated.FailureReason);
     }
 
+    // --- terminal persistence fault ---
+
+    [Fact]
+    public async Task RunAsync_TerminalUpdateFails_ThrowsInfrastructureError()
+    {
+        var store = new FakeAgentStore { UpdateFailure = Result<string>.Failure(new Error("StorageDown", "agent store unavailable.")) };
+        var provider = new FakeProvider(
+            Result<ModelResponse>.Success(new ModelResponse("report", [])));
+        var spawner = MakeRunner(provider, store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => spawner.RunAsync(Child(), CancellationToken.None));
+    }
+
     // --- report overflow ---
 
     [Fact]
-    public async Task Spawn_ReportOver50KB_AnnotationAppendedToPersistedReportAndOutcome()
+    public async Task RunAsync_ReportOver50KB_AnnotationAppendedToPersistedReportAndOutcome()
     {
         var bigReport = new string('x', 52_000);
         var store = new FakeAgentStore();
         var provider = new FakeProvider(
             Result<ModelResponse>.Success(new ModelResponse(bigReport, [])));
-        var spawner = MakeSpawner(provider, store);
+        var spawner = MakeRunner(provider, store);
 
-        var result = await spawner.SpawnAsync(ParentAtDepth(0), new SpawnRequest("big task"),
-            CancellationToken.None);
+        var outcome = await spawner.RunAsync(Child(taskPrompt: "big task"), CancellationToken.None);
 
-        Assert.True(result.IsSuccess);
-        Assert.StartsWith(bigReport, result.Value!.Report);
-        Assert.Contains("[agent] note: report exceeded 50 KB", result.Value.Report);
+        Assert.Equal(AgentStatus.Completed, outcome.Status);
+        Assert.StartsWith(bigReport, outcome.Report);
+        Assert.Contains("[agent] note: report exceeded 50 KB", outcome.Report);
 
         var updated = Assert.Single(store.Updated);
         Assert.StartsWith(bigReport, updated.FinalReport!);
@@ -313,17 +223,16 @@ public class SubAgentSpawnerTests
     }
 
     [Fact]
-    public async Task Spawn_ReportUnder50KB_NoAnnotation()
+    public async Task RunAsync_ReportUnder50KB_NoAnnotation()
     {
         var store = new FakeAgentStore();
         var provider = new FakeProvider(
             Result<ModelResponse>.Success(new ModelResponse("compact report", [])));
-        var spawner = MakeSpawner(provider, store);
+        var spawner = MakeRunner(provider, store);
 
-        var result = await spawner.SpawnAsync(ParentAtDepth(0), new SpawnRequest("task"),
-            CancellationToken.None);
+        var outcome = await spawner.RunAsync(Child(), CancellationToken.None);
 
-        Assert.True(result.IsSuccess);
-        Assert.DoesNotContain("[agent] note:", result.Value!.Report);
+        Assert.Equal(AgentStatus.Completed, outcome.Status);
+        Assert.DoesNotContain("[agent] note:", outcome.Report);
     }
 }

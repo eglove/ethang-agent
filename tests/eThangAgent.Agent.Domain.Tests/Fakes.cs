@@ -96,6 +96,9 @@ public sealed class FakeAgentStore : IAgentStore
     public List<AgentRecord> Updated { get; } = [];
     public List<(AgentId AgentId, Message Message)> AppendedMessages { get; } = [];
 
+    /// <summary>When set, UpdateAsync resolves to this failure and does not touch the record map.</summary>
+    public Result<string>? UpdateFailure { get; set; }
+
     public int TotalWrites => Saved.Count + Updated.Count;
 
     public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
@@ -108,6 +111,8 @@ public sealed class FakeAgentStore : IAgentStore
     public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
     {
         Updated.Add(record);
+        if (UpdateFailure is { } failure)
+            return Task.FromResult(failure);
         _records[record.Id.Value] = record;
         return Task.FromResult(Result<string>.Success(record.Id.ToString()));
     }

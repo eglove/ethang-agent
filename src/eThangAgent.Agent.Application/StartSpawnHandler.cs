@@ -6,8 +6,8 @@ namespace eThangAgent.Agent.Application;
 
 /// <summary>Start command of the spawn CQRS split: validates the request, persists a Running child,
 ///     and hands it to the runtime as an independent actor. Owns the validation/depth/model rules
-///     duplicated by SubAgentSpawner's synchronous path until that path is removed.</summary>
-public sealed class StartSpawnHandler
+///     that previously lived in SubAgentSpawner's synchronous path.</summary>
+public sealed class StartSpawnHandler : IAgentSpawnCommand
 {
     private readonly IAgentStore _store;
     private readonly IAgentRuntime _runtime;

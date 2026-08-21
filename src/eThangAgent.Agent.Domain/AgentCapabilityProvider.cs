@@ -4,13 +4,11 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.AgentDomain;
 
-public sealed class AgentCapabilityProvider(ISubAgentSpawner spawner, Func<AgentRecord> parentContext) : ICapabilityProvider
+public sealed class AgentCapabilityProvider(IAgentSpawnCommand spawnCommand, Func<AgentRecord> parentContext) : ICapabilityProvider
 {
     public const string ProviderId = "agent";
 
-    private const int ReportOverflowChars = 50_000;
-
-    private readonly ISubAgentSpawner _spawner = spawner ?? throw new ArgumentNullException(nameof(spawner));
+    private readonly IAgentSpawnCommand _spawnCommand = spawnCommand ?? throw new ArgumentNullException(nameof(spawnCommand));
     private readonly Func<AgentRecord> _parentContext = parentContext ?? throw new ArgumentNullException(nameof(parentContext));
 
     public string Id => ProviderId;
@@ -39,19 +37,24 @@ public sealed class AgentCapabilityProvider(ISubAgentSpawner spawner, Func<Agent
     {
         return actionName switch
         {
-            "spawn" => await SpawnAsync(jsonArguments, ct),
+            "spawn" => await Spawn(jsonArguments, ct),
             _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
         };
     }
 
-    private async Task<CapabilityInvocationResult> SpawnAsync(string json, CancellationToken ct)
+    /// <summary>Starts the child as an independent actor and returns immediately. The report is
+    ///     retrieved later through agent.status / agent.result; failures of the start itself are
+    ///     passed through as canonical error lines.</summary>
+    private async Task<CapabilityInvocationResult> Spawn(string json, CancellationToken ct)
     {
         var (request, parseError) = ParseArgs(json);
         if (parseError is not null)
             return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
 
-        var outcome = await _spawner.SpawnAsync(_parentContext(), request!, ct);
-        return CapabilityInvocationResult.Ok(Render(outcome, request!.Label));
+        var started = await _spawnCommand.Execute(_parentContext(), request!, ct);
+        return started.IsSuccess
+            ? CapabilityInvocationResult.Ok($"[agent] id={started.Value} status=running")
+            : CapabilityInvocationResult.Fail($"Error [{started.Error!.Code}]: {started.Error.Message}");
     }
 
     private static (SpawnRequest? Request, string? Error) ParseArgs(string json)
@@ -120,35 +123,5 @@ public sealed class AgentCapabilityProvider(ISubAgentSpawner spawner, Func<Agent
 
         value = s;
         return true;
-    }
-
-    private static string Render(Result<AgentRunOutcome> outcome, string? label)
-    {
-        if (!outcome.IsSuccess)
-        {
-            var failReason = outcome.Error!.Code switch
-            {
-                "DepthExceeded" => "depth-exceeded",
-                "MissingModel" => "missing-model",
-                _ => "provider-error",
-            };
-            return $"[agent] status=failed reason={failReason}\n--- report ---\n{outcome.Error.Message}\n--- end report ---";
-        }
-
-        var o = outcome.Value!;
-        var status = o.Status is AgentStatus.Completed ? "completed" : "failed";
-        var headerLabel = label is null ? "" : $" label={label}";
-        var reason = o.Reason is null ? null : o.Reason switch
-        {
-            AgentFailureReason.MaxIterations => "max-iterations",
-            AgentFailureReason.Timeout => "timeout",
-            AgentFailureReason.ProviderError => "provider-error",
-            _ => "provider-error",
-        };
-        var header = $"[agent] id={o.ChildId} status={status}{(reason is null ? "" : $" reason={reason}")} depth={o.Depth} model={o.ModelUsed}{headerLabel}";
-        var report = o.Report ?? string.Empty;
-        if (report.Length > ReportOverflowChars)
-            report += $"\n[agent] note: report exceeded {ReportOverflowChars} characters; full text stored with the agent record.";
-        return $"{header}\n--- report ---\n{report}\n--- end report ---";
     }
 }

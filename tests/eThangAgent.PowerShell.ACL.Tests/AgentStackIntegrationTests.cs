@@ -1,5 +1,7 @@
 using System.Text.Json;
+using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
+using eThangAgent.AgentInfrastructure;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
@@ -10,13 +12,14 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.PowerShell.ACL.Tests;
 
-/// <summary>Composes the full P4 agent stack exactly as the design wires it — real
-///     runspace engine over the capability registry, real SubAgentSpawner, real
-///     SqliteAgentStore on a temp app database — with an in-proc scripted model
-///     provider standing in for OpenRouter. Children reach agent.spawn the same way
-///     the root does: an exec tool call whose program invokes the capability. Proves
-///     nested spawn end-to-end: child completion with persisted transcript,
-///     grandchild nesting with ParentId chain, depth-limit rejection rendered as a
+/// <summary>Composes the full agent stack exactly as the design wires it — real runspace engine
+///     over the capability registry, StartSpawnHandler behind the agent capability provider,
+///     InProcessAgentRuntime driving the real SubAgentSpawner child loop, real SqliteAgentStore
+///     on a temp app database — with an in-proc scripted model provider standing in for
+///     OpenRouter. Children reach agent.spawn the same way the root does: an exec tool call
+///     whose program invokes the capability. Proves async nested spawn end-to-end: spawn returns
+///     a running line without the report, children complete in the background with persisted
+///     transcripts, grandchild nesting with ParentId chain, depth-limit rejection arriving as a
 ///     well-formed tool result, and dual-name wrappers.</summary>
 public class AgentStackIntegrationTests : IDisposable
 {
@@ -42,16 +45,14 @@ public class AgentStackIntegrationTests : IDisposable
 
         Assert.True(run.Status == ExecRunStatus.Completed,
             $"status={run.Status}; errors={string.Join(" | ", run.ErrorLines)}; msg={run.ErrorMessage}");
+        // Non-blocking contract: the spawn action returns the running line only — the report
+        // arrives later through the persisted record, not through the spawn result.
         Assert.Contains("[agent] id=", run.Output);
-        Assert.Contains("status=completed", run.Output);
-        Assert.Contains("depth=1", run.Output);
-        Assert.Contains("model=stack/child-model", run.Output);
-        Assert.Contains("label=child-a", run.Output);
-        Assert.Contains("--- report ---", run.Output);
-        Assert.Contains("child report body", run.Output);
-        Assert.Contains("--- end report ---", run.Output);
+        Assert.Contains("status=running", run.Output);
+        Assert.DoesNotContain("child report body", run.Output);
+        Assert.DoesNotContain("--- report ---", run.Output);
 
-        var child = Assert.Single((await store.ListChildrenAsync(root.Id)).Value!);
+        var child = await AwaitTerminalAsync(store, root.Id);
         Assert.Equal(AgentStatus.Completed, child.Status);
         Assert.Null(child.FailureReason);
         Assert.Equal(1, child.Depth);
@@ -91,15 +92,14 @@ public class AgentStackIntegrationTests : IDisposable
 
         Assert.True(run.Status == ExecRunStatus.Completed,
             $"status={run.Status}; errors={string.Join(" | ", run.ErrorLines)}; msg={run.ErrorMessage}");
-        Assert.Contains("status=completed", run.Output);
-        Assert.Contains("child wrapped the grandchild", run.Output);
+        Assert.Contains("status=running", run.Output);
 
-        var child = Assert.Single((await store.ListChildrenAsync(root.Id)).Value!);
+        var child = await AwaitTerminalAsync(store, root.Id);
         Assert.Equal(AgentStatus.Completed, child.Status);
         Assert.Equal(1, child.Depth);
         Assert.Equal(root.Id, child.ParentId);
 
-        var grandchild = Assert.Single((await store.ListChildrenAsync(child.Id)).Value!);
+        var grandchild = await AwaitTerminalAsync(store, child.Id);
         Assert.Equal(AgentStatus.Completed, grandchild.Status);
         Assert.Equal(2, grandchild.Depth);
         Assert.Equal(child.Id, grandchild.ParentId);
@@ -114,13 +114,13 @@ public class AgentStackIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task Spawn_AtDepthLimit_FailedGutterAsWellFormedToolResult_NoDepth3Row()
+    public async Task Spawn_AtDepthLimit_CanonicalErrorAsWellFormedToolResult_NoDepth3Row()
     {
-        // MaxDepth 2 places the guard at the shallowest scriptable depth so the
-        // rejection surfaces two levels down through the real engine; the depth-3
-        // boundary itself is unit-covered by SubAgentSpawnerTests. The fact asserts
-        // the guard arrives as a well-formed tool result: the spawning grandchild's
-        // run keeps going and completes, and nothing persists for the rejection.
+        // MaxDepth 2 places the guard at the shallowest scriptable depth so the rejection
+        // surfaces two levels down through the real engine; the depth boundary itself is
+        // unit-covered by StartSpawnHandlerTests. The fact asserts the guard arrives as a
+        // well-formed tool result: the spawning grandchild's run keeps going and completes,
+        // and nothing persists for the rejection.
         var (engine, store, factory, root) = ComposeStack(
             new SubAgentOptions(DefaultModel: "stack/child-model", MaxDepth: 2));
         factory.Script("stack/child-model",
@@ -136,22 +136,21 @@ public class AgentStackIntegrationTests : IDisposable
 
         Assert.True(run.Status == ExecRunStatus.Completed,
             $"status={run.Status}; errors={string.Join(" | ", run.ErrorLines)}; msg={run.ErrorMessage}");
-        Assert.Contains("child finished despite the nested rejection", run.Output);
 
-        var child = Assert.Single((await store.ListChildrenAsync(root.Id)).Value!);
+        var child = await AwaitTerminalAsync(store, root.Id);
         Assert.Equal(AgentStatus.Completed, child.Status);
         Assert.Equal(1, child.Depth);
 
-        var grandchild = Assert.Single((await store.ListChildrenAsync(child.Id)).Value!);
+        var grandchild = await AwaitTerminalAsync(store, child.Id);
         Assert.Equal(AgentStatus.Completed, grandchild.Status);
         Assert.Null(grandchild.FailureReason);
         Assert.Equal(2, grandchild.Depth);
 
-        // The rejected spawn reached the grandchild's model as a well-formed tool
-        // result carrying the failed gutter, not as a crash.
+        // The rejected spawn reached the grandchild's model as a well-formed tool result
+        // carrying the canonical error line, not as a crash.
         var transcript = (await store.GetTranscriptAsync(grandchild.Id)).Value!;
         Assert.Contains(transcript, m =>
-            m.Role == Role.Tool && m.Content.Contains("status=failed reason=depth-exceeded"));
+            m.Role == Role.Tool && m.Content.Contains("Error [DepthExceeded]"));
         Assert.Contains(transcript, m =>
             m.Role == Role.Assistant && m.Content.Contains("grandchild survived the rejection"));
 
@@ -160,7 +159,7 @@ public class AgentStackIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task Spawn_BareName_WrapperCompletes()
+    public async Task Spawn_BareName_WrapperStartsChild()
     {
         var (engine, store, factory, root) = ComposeStack(
             new SubAgentOptions(DefaultModel: "stack/child-model"));
@@ -172,18 +171,19 @@ public class AgentStackIntegrationTests : IDisposable
         Assert.True(run.Status == ExecRunStatus.Completed,
             $"status={run.Status}; errors={string.Join(" | ", run.ErrorLines)}; msg={run.ErrorMessage}");
         Assert.Contains("[agent] id=", run.Output);
-        Assert.Contains("status=completed", run.Output);
-        Assert.Contains("bare spawn report", run.Output);
+        Assert.Contains("status=running", run.Output);
 
-        var child = Assert.Single((await store.ListChildrenAsync(root.Id)).Value!);
+        var child = await AwaitTerminalAsync(store, root.Id);
         Assert.Equal(AgentStatus.Completed, child.Status);
         Assert.Equal("bare invocation", child.TaskPrompt);
+        Assert.Equal("bare spawn report", child.FinalReport);
     }
 
     /// <summary>Wires the stack with the composition-root shape: lazy registry into the
-    ///     engine, exec as the agents' only tool, spawner behind the agent capability
-    ///     provider resolving the ambient running child (falling back to the
-    ///     unpersisted root record at depth 0) as the spawn parent.</summary>
+    ///     engine, exec as the agents' only tool, the spawn command (validation, Running
+    ///     persistence, runtime hand-off) behind the agent capability provider resolving the
+    ///     ambient running child (falling back to the unpersisted root record at depth 0) as
+    ///     the spawn parent, and the runtime driving the child loop on background tasks.</summary>
     private (PowerShellExecEngine Engine, SqliteAgentStore Store,
         ScriptedProviderFactory Factory, AgentRecord Root) ComposeStack(SubAgentOptions options)
     {
@@ -200,11 +200,30 @@ public class AgentStackIntegrationTests : IDisposable
             new TempArtifactStore(), NullExecActivitySink.Instance);
         var spawner = new SubAgentSpawner(factory, store, new ToolRegistry([execTool]),
             new StaticPromptProvider("stack guide"), options);
-        var agentProvider = new AgentCapabilityProvider(spawner,
+        var runtime = new InProcessAgentRuntime(spawner, store, maxConcurrentAgents: 4);
+        var spawnCommand = new StartSpawnHandler(store, runtime, options);
+        var agentProvider = new AgentCapabilityProvider(spawnCommand,
             () => SubAgentSpawner.RunningChild ?? rootRecord);
         registry = CapabilityRegistry.Create([agentProvider]);
 
         return (engine, store, factory, rootRecord);
+    }
+
+    /// <summary>Children run on background tasks once spawned; integration assertions poll the
+    ///     store until the record reaches a terminal state instead of sleeping blindly.</summary>
+    private static async Task<AgentRecord> AwaitTerminalAsync(SqliteAgentStore store, AgentId parentId)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var children = (await store.ListChildrenAsync(parentId)).Value!;
+            var terminal = children.FirstOrDefault(c =>
+                c.Status is AgentStatus.Completed or AgentStatus.Failed);
+            if (terminal is not null)
+                return terminal;
+            await Task.Delay(20);
+        }
+        throw new TimeoutException($"no child of {parentId} reached a terminal state within 10s.");
     }
 
     private static Result<ModelResponse> FinalReport(string text)
