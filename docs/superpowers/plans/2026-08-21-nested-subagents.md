@@ -206,12 +206,12 @@
 
 **Steps:**
 
-- [ ] Extend mock server: when a request body carries `"model":"<sub-model>"`, serve the scripted child conversation (one tool-call turn, then final report turn); parent turns served as today.
-- [ ] Write failing E2E: REPL session where the parent's exec program calls `agent.spawn @{ taskPrompt = '...'; model = 'mock/sub-model'; label = 'e2e' }`.
-- [ ] Assert via decoded JSON (parse request body → `messages[n].content`): per-spawn model id reached the wire (`"model":"mock/sub-model"` in child request bodies); the tool message contains the completed-gutter (`status=completed`, fenced report text); the rendered transcript shows the delegation.
-- [ ] Assert persistence against a temp app DB path passed to the CLI: child row exists, `Completed`, transcript non-empty.
-- [ ] Run — red where it drives implementation gaps, then green. Sweep leaked processes after the run (`taskkill //F //IM testhost.exe; taskkill //F //IM eThangAgent.CLI.exe`) — leaked children poison subsequent runs.
-- [ ] Commit: `test(cli): e2e nested spawn through mock openrouter`
+- [x] Extend mock server: when a request body carries `"model":"<sub-model>"`, serve the scripted child conversation (one tool-call turn, then final report turn); parent turns served as today.
+- [x] Write failing E2E: REPL session where the parent's exec program calls `agent.spawn @{ taskPrompt = '...'; model = 'mock/sub-model'; label = 'e2e' }`.
+- [x] Assert via decoded JSON (parse request body → `messages[n].content`): per-spawn model id reached the wire (`"model":"mock/sub-model"` in child request bodies); the tool message contains the completed-gutter (`status=completed`, fenced report text); the rendered transcript shows the delegation.
+- [x] Assert persistence against a temp app DB path passed to the CLI: child row exists, `Completed`, transcript non-empty.
+- [x] Run — red where it drives implementation gaps, then green. Sweep leaked processes after the run (`taskkill //F //IM testhost.exe; taskkill //F //IM eThangAgent.CLI.exe`) — leaked children poison subsequent runs.
+- [x] Commit: `test(cli): e2e nested spawn through mock openrouter`
 
 ### Task 9: Full-solution gate + docs
 
@@ -233,4 +233,15 @@
 - [ ] Model precedence: explicit > configured default > `MissingModel` typed error.
 - [ ] Child rows + transcripts persist across process restarts (store integration fact re-reads a pre-populated file).
 - [ ] Per-spawn model id observable on the wire (E2E request-body assert).
-- [ ] All suites green; no leaked processes after E2E sweeps.
+- [x] All suites green; no leaked processes after E2E sweeps.
+
+## Outcome — 2026-08-21 (P4 complete)
+
+- Full solution: 14/14 suites, 347 tests, zero failures. Agent.Domain.Tests 44/44.
+- Coverage (AgentDomain classes): SubAgentSpawner 94.7%, AgentCapabilityProvider 83.7%,
+  specifications/events/records ~100% — above the 80% floor.
+- Execution fixes beyond the plan: Lazy<ICapabilityRegistry> in ExecGuidePromptProvider
+  (factory-lambda DI cycle hung startup silently); MergedCapabilityProvider so the P2
+  read provider and the new spawn provider share id `agent` (duplicate-id crash);
+  E2E launcher uses the built binary directly instead of `dotnet run --no-build`.
+- Commits: d59e432, 132f149, 59e17d1, fc58836, 9d463bf, 04dbf04, 3cac252, 68128d1 + this docs commit.
