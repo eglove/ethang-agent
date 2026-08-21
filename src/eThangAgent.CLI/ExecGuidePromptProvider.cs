@@ -6,10 +6,10 @@ namespace eThangAgent.CLI;
 
 public sealed class ExecGuidePromptProvider : ISystemPromptProvider
 {
-    private readonly ICapabilityRegistry _registry;
+    private readonly Lazy<ICapabilityRegistry> _registry;
 
-    public ExecGuidePromptProvider(ICapabilityRegistry registry)
+    public ExecGuidePromptProvider(Lazy<ICapabilityRegistry> registry)
         => _registry = registry ?? throw new ArgumentNullException(nameof(registry));
 
-    public string Build() => $"{ExecGuide.Text}\n\n{CapabilityReferenceRenderer.Render(_registry)}";
+    public string Build() => $"{ExecGuide.Text}\n\n{CapabilityReferenceRenderer.Render(_registry.Value)}";
 }

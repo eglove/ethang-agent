@@ -192,10 +192,10 @@
 
 **Steps:**
 
-- [ ] Write failing config-binding tests: defaults when section missing; explicit values bind; empty model string rejected; non-positive timeout rejected.
-- [ ] Run — red. Implement binding + registrations. Run — green; full CLI build clean.
-- [ ] Verify no domain project gained DI references (grep `Microsoft.Extensions` under `src/eThangAgent.Agent.*`).
-- [ ] Commit: `feat(cli): wire sub-agent spawner, agent capability, and configuration`
+- [x] Write failing config-binding tests: defaults when section missing; explicit values bind; empty model string rejected; non-positive timeout rejected.
+- [x] Run — red. Implement binding + registrations. Run — green; full CLI build clean.
+- [x] Verify no domain project gained DI references (grep `Microsoft.Extensions` under `src/eThangAgent.Agent.*`).
+- [x] Commit: `feat(cli): wire sub-agent spawner, agent capability, and configuration`
 
 ### Task 8: E2E — parent spawns child through mock OpenRouter
 

@@ -10,25 +10,7 @@ public class E2ETests
         using var mock = new MockOpenRouterServer();
         mock.Start();
 
-        var projectDir = Path.GetFullPath(
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "src", "eThangAgent.CLI"));
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            Arguments = "run --no-build",
-            WorkingDirectory = projectDir,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false
-        };
-        startInfo.EnvironmentVariables["OPENROUTER_API_KEY"] = "test-key";
-        startInfo.EnvironmentVariables["OPENROUTER_BASE_URL"] = mock.BaseUrl;
-
-        using var process = new Process { StartInfo = startInfo };
-        process.Start();
+        using var process = StartCli(mock);
 
         var reader = process.StandardOutput;
         var banner = await ReadUntil(reader, "> ");
@@ -317,10 +299,11 @@ public class E2ETests
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                 "..", "..", "..", "..", "..", "src", "eThangAgent.CLI"));
 
+        var exePath = Path.Combine(projectDir, "bin", "Debug", "net10.0", "eThangAgent.CLI.exe");
         var startInfo = new ProcessStartInfo
         {
-            FileName = "dotnet",
-            Arguments = "run --no-build",
+            FileName = exePath,
+            Arguments = "",
             WorkingDirectory = projectDir,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,

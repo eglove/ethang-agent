@@ -1,4 +1,5 @@
 using Ag = eThangAgent.AgentDomain.Agent;
+using eThangAgent.AgentDomain;
 using eThangAgent.Terminal.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.ConversationDomain;
@@ -11,6 +12,7 @@ using eThangAgent.Storage.ACL;
 using eThangAgent.StateDomain;
 using eThangAgent.PowerShell.ACL;
 using eThangAgent.SharedKernel;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.CLI;
@@ -32,8 +34,25 @@ public static class Program
             ? new Uri("https://openrouter.ai")
             : new Uri(baseUrlEnv);
 
+        // Configuration sources: optional appsettings.json next to the executable,
+        // overridden by environment variables (SubAgent__DefaultModel,
+        // SubAgent__ChildTimeoutSeconds). Binding is strict — invalid values abort startup.
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+            .AddEnvironmentVariables()
+            .Build();
+        var subAgentOptions = SubAgentConfiguration.Bind(
+            configuration["SubAgent:DefaultModel"],
+            configuration["SubAgent:ChildTimeoutSeconds"]);
+
         using var services = new ServiceCollection()
             .AddSingleton(new OpenRouterConfiguration(apiKey, baseUrl))
+            .AddHttpClient("OpenRouter", client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(120);
+            })
+            .Services
             .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(120);
@@ -53,6 +72,24 @@ public static class Program
             .AddSingleton<IWorkspaceContext, CwdWorkspaceContext>()
             .AddSingleton<AppDatabase>()
             .AddSingleton<IStateStore, SqliteStateStore>()
+            .AddSingleton<IAgentStore, SqliteAgentStore>()
+            .AddSingleton(subAgentOptions)
+            .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
+                sp.GetRequiredService<OpenRouterConfiguration>(),
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
+            .AddSingleton<ISubAgentSpawner, SubAgentSpawner>()
+            .AddSingleton<AgentCapabilityProvider>(sp =>
+            {
+                // Root agent record: depth 0, own identity, never persisted — only
+                // spawned children get rows. During a child run the ambient running
+                // child is the spawn parent so nested depth enforcement is correct.
+                var rootRecord = AgentRecord.Spawned(AgentId.NewId(), null, 0,
+                    sp.GetRequiredService<ModelConfig>().ModelId, null,
+                    "root session", DateTimeOffset.UtcNow);
+                return new AgentCapabilityProvider(
+                    sp.GetRequiredService<ISubAgentSpawner>(),
+                    () => SubAgentSpawner.RunningChild ?? rootRecord);
+            })
             .AddSingleton<EvidenceOptions>(_ => EvidenceOptions.Default)
             .AddSingleton<IEvidenceRunner, PsEvidenceRunner>()
             .AddSingleton<IStateService, StateService>()
@@ -60,7 +97,11 @@ public static class Program
             .AddSingleton<ICapabilityRegistry>(sp =>
                 CapabilityRegistry.Create(
                 [
-                    sp.GetRequiredService<AgentToolsProvider>(),
+                    new MergedCapabilityProvider("agent",
+                    [
+                        sp.GetRequiredService<AgentToolsProvider>(),
+                        sp.GetRequiredService<AgentCapabilityProvider>(),
+                    ]),
                     sp.GetRequiredService<StateCapabilityProvider>(),
                 ]))
             .AddSingleton<IExecEngine>(sp => new PowerShellExecEngine(
@@ -78,7 +119,8 @@ public static class Program
                 new StaticPromptProvider(
                     "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
                     "workspace, prefer the provided tools over guessing, and keep responses tight."),
-                new ExecGuidePromptProvider(sp.GetRequiredService<ICapabilityRegistry>()),
+                new ExecGuidePromptProvider(
+                    new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
             ]))
             .AddSingleton<Ag>(sp =>
             {
