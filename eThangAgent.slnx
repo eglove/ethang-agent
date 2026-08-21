@@ -8,6 +8,7 @@
   <Project Path="src/eThangAgent.CLI/eThangAgent.CLI.csproj" />
   <Project Path="src/eThangAgent.Terminal.ACL/eThangAgent.Terminal.ACL.csproj" />
   <Project Path="src/eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
+  <Project Path="src/eThangAgent.FileSystem.ACL/eThangAgent.FileSystem.ACL.csproj" />
   <Project Path="tests/eThangAgent.SharedKernel.Tests/eThangAgent.SharedKernel.Tests.csproj" />
   <Project Path="tests/eThangAgent.Model.Domain.Tests/eThangAgent.Model.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.Conversation.Domain.Tests/eThangAgent.Conversation.Domain.Tests.csproj" />
@@ -17,4 +18,5 @@
   <Project Path="tests/eThangAgent.CLI.Tests/eThangAgent.CLI.Tests.csproj" />
   <Project Path="tests/eThangAgent.Terminal.ACL.Tests/eThangAgent.Terminal.ACL.Tests.csproj" />
   <Project Path="tests/eThangAgent.Tool.Domain.Tests/eThangAgent.Tool.Domain.Tests.csproj" />
+  <Project Path="tests/eThangAgent.FileSystem.ACL.Tests/eThangAgent.FileSystem.ACL.Tests.csproj" />
 </Solution>
