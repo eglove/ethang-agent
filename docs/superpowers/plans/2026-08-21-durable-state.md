@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-durable-state-design.md` — the plan argues from the spec; executors read both.
 
-> **Progress:** Wave 1 COMPLETE — Tasks 1–4 done and verified green (Tasks 3–4 inline after agent budget deaths; plan fixes recorded in prior markers). Next: Wave 2 (Tasks 5–6: evidence runner + CLI wiring).
+> **Progress:** Waves 1–2 COMPLETE — Tasks 1–6 done and verified green (Task 5 fixes: SessionStateProxy.GetVariable API, exit-code-first error detail). Next: Task 7 (E2E discipline loops), then Task 8 (full verification).
 
 ## Global Constraints
 
@@ -1895,13 +1895,15 @@ public sealed class PsEvidenceRunner : IEvidenceRunner
             }
 
             await invokeTask;
+            var exitCode = ReadExitCode(ps);
             if (ps.HadErrors)
             {
-                var detail = ps.Streams.Error.FirstOrDefault()?.Exception.Message ?? "unknown error";
+                var detail = ps.Streams.Error.FirstOrDefault()?.Exception.Message;
+                if (string.IsNullOrWhiteSpace(detail))
+                    detail = exitCode is { } code ? $"$LASTEXITCODE = {code}." : "unknown error";
                 return new EvidenceResult(command, false, detail);
             }
 
-            var exitCode = ReadExitCode(ps);
             if (exitCode is not (null or 0))
                 return new EvidenceResult(command, false, $"$LASTEXITCODE = {exitCode}.");
 
@@ -1917,7 +1919,7 @@ public sealed class PsEvidenceRunner : IEvidenceRunner
     {
         try
         {
-            var value = ps.Runspace.SessionStateProxy.GetVariableValue("LASTEXITCODE");
+            var value = ps.Runspace.SessionStateProxy.GetVariable("LASTEXITCODE");
             return value is null ? null : Convert.ToInt32(value);
         }
         catch
