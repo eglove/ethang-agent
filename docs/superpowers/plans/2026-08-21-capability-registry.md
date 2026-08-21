@@ -252,15 +252,18 @@ git add src/eThangAgent.Capability.Domain tests/eThangAgent.Capability.Domain.Te
 ```bash
 git commit -m "feat(capability-domain): add capability records, interfaces, and name rules"
 ```
+
 ---
 
 ### Task 2: CapabilityRegistry — strict construction, resolution, invocation
 
 **Files:**
+
 - Create: `src/eThangAgent.Capability.Domain/CapabilityRegistry.cs`
 - Create: `tests/eThangAgent.Capability.Domain.Tests/CapabilityRegistryTests.cs`
 
 **Interfaces:**
+
 - Consumes: Task 1's records/interfaces; `Result<T>`/`Error`.
 - Produces: `CapabilityRegistry.Create(IEnumerable<ICapabilityProvider>)` (throws `InvalidOperationException` on: zero providers, empty/duplicate provider ids, empty action sets, invalid action names, duplicate action names across providers); `Resolve` by bare name or `provider.action` ref (`Result<ResolvedCapability>`, `UnknownAction` error listing available actions); `InvokeAsync(ResolvedCapability, jsonArguments)` routing to the owning provider.
 
@@ -694,15 +697,18 @@ git add src/eThangAgent.Capability.Domain tests/eThangAgent.Capability.Domain.Te
 ```bash
 git commit -m "feat(capability-domain): adapt agent tools as capability actions"
 ```
+
 ---
 
 ### Task 4: CapabilityReferenceRenderer — generated action reference
 
 **Files:**
+
 - Create: `src/eThangAgent.Capability.Domain/CapabilityReferenceRenderer.cs`
 - Create: `tests/eThangAgent.Capability.Domain.Tests/CapabilityReferenceRendererTests.cs`
 
 **Interfaces:**
+
 - Consumes: `ICapabilityRegistry` (Task 1).
 - Produces: `CapabilityReferenceRenderer.Render(ICapabilityRegistry) → string` — `## Available actions` header, then per provider its id, then one line per action: `name(param: Type, …): Summary`.
 
@@ -1086,6 +1092,7 @@ git add src/eThangAgent.PowerShell.ACL/ToolBroker.cs tests/eThangAgent.PowerShel
 ```bash
 git commit -m "feat(powerShell-acl): route broker through the capability registry"
 ```
+
 ---
 
 ### Task 6: PowerShellExecEngine switches to ICapabilityRegistry
@@ -1289,15 +1296,18 @@ git add src/eThangAgent.PowerShell.ACL tests/eThangAgent.PowerShell.ACL.Tests
 ```bash
 git commit -m "feat(powerShell-acl): execute against the capability registry"
 ```
+
 ---
 
 ### Task 7: ExecGuide v1.1 — introspection documentation
 
 **Files:**
+
 - Modify: `src/eThangAgent.Tool.Domain/ExecGuide.cs`
 - Modify: `tests/eThangAgent.Tool.Domain.Tests/ExecGuideTests.cs`
 
 **Interfaces:**
+
 - Produces: `ExecGuide.Version` = `"1.1"`; guide documents `Get-AgentAction <name>` (full docs) and `Get-AgentProvider`. All existing markers preserved (`read @{`, `Invoke-AgentTool`, `Get-AgentTool`, `try/catch`, `[exec:artifact`).
 
 - [ ] **Step 1: Update the failing tests**
@@ -1514,6 +1524,7 @@ git add src/eThangAgent.CLI tests/eThangAgent.CLI.Tests/E2ETests.cs
 ```bash
 git commit -m "feat(cli): collapse model surface to exec with registry-generated docs"
 ```
+
 ---
 
 ### Task 9: Full verification
@@ -1521,6 +1532,7 @@ git commit -m "feat(cli): collapse model surface to exec with registry-generated
 **Files:** none created — solution-level verification.
 
 **Interfaces:**
+
 - Consumes: everything.
 - Produces: the definition of done.
 
@@ -1537,10 +1549,12 @@ Expected: every project green — prior 209 plus the new Capability.Domain suite
 - [ ] **Step 3: Coverage**
 
 Run:
+
 ```
 dotnet test tests/eThangAgent.Capability.Domain.Tests/eThangAgent.Capability.Domain.Tests.csproj --collect:'XPlat Code Coverage' --nologo 2>&1 | tail -2
 fd --no-ignore 'coverage.cobertura.xml' tests/eThangAgent.Capability.Domain.Tests | head -3
 ```
+
 (P1 lesson: `TestResults` is gitignored — always `fd --no-ignore`.) Extract per-class rates with `rg -o 'name="eThangAgent.CapabilityDomain.[A-Za-z]+"[^>]*line-rate="[0-9.]+"' <newest-file>`.
 Expected: Capability.Domain classes ~100%; re-check PowerShell.ACL ≥ 80% the same way. If below, add targeted tests — never weaken assertions to raise numbers.
 
@@ -1554,6 +1568,7 @@ Expected: strict-registration throw, unknown-action listing, and ref handling al
 ```bash
 git status --short
 ```
+
 If clean, done. If stray files, commit with a `chore:` message describing them.
 
 ---
