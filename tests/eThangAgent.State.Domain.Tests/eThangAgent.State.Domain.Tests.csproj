@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.State.Domain/eThangAgent.State.Domain.csproj" />
+  </ItemGroup>
+</Project>
