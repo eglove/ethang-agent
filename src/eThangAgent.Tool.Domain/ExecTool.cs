@@ -39,14 +39,15 @@ public sealed class ExecTool : ITool
         if (!program.IsSuccess)
             return new ToolResult($"exec error [{program.Error!.Code}]: {program.Error.Message}", true);
 
-        var parse = await _engine.ValidateAsync(program.Value!, ct);
+        var exec = program.Value!;
+        var parse = await _engine.ValidateAsync(exec, ct);
         if (!parse.IsSuccess)
             return new ToolResult($"Error [{parse.Error!.Code}]: {parse.Error.Message}", true);
         if (parse.Value!.Count > 0)
             return ExecResultFormatter.ParseErrors(parse.Value!, _options.MaxParseErrors);
 
         var started = Stopwatch.GetTimestamp();
-        var run = await _engine.ExecuteAsync(program.Value!, ct);
+        var run = await _engine.ExecuteAsync(exec, ct);
 
         string? artifactPath = null;
         if (run.Status == ExecRunStatus.Completed && run.Output.Length > _options.MaxOutputChars)
@@ -54,7 +55,7 @@ public sealed class ExecTool : ITool
 
         var result = ExecResultFormatter.Format(run, _options, artifactPath);
         await _activity.RecordAsync(new ExecActivity(
-            program.Value.Text.Length > 80 ? program.Value.Text[..80] : program.Value.Text,
+            exec.Text.Length > 80 ? exec.Text[..80] : exec.Text,
             run.Status,
             run.Output.Length,
             Stopwatch.GetElapsedTime(started),
