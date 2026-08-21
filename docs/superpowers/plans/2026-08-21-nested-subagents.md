@@ -240,7 +240,7 @@
 - Full solution: 14/14 suites, 347 tests, zero failures. Agent.Domain.Tests 44/44.
 - Coverage (AgentDomain classes): SubAgentSpawner 94.7%, AgentCapabilityProvider 83.7%,
   specifications/events/records ~100% — above the 80% floor.
-- Execution fixes beyond the plan: Lazy<ICapabilityRegistry> in ExecGuidePromptProvider
+- Execution fixes beyond the plan: `Lazy<ICapabilityRegistry>` in ExecGuidePromptProvider
   (factory-lambda DI cycle hung startup silently); MergedCapabilityProvider so the P2
   read provider and the new spawn provider share id `agent` (duplicate-id crash);
   E2E launcher uses the built binary directly instead of `dotnet run --no-build`.
