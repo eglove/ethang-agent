@@ -18,10 +18,12 @@ public sealed class TranscriptPane
             wrapped.AddRange(Wrap(line, width));
 
         var visible = wrapped.TakeLast(height).ToList();
+        var offset = height - visible.Count; // anchor content to the bottom: short conversations hug the input row
         for (var row = 0; row < height; row++)
         {
             writer.SetCursorPosition(0, top + row);
-            var content = row < visible.Count ? visible[row] : string.Empty;
+            var index = row - offset;
+            var content = index >= 0 && index < visible.Count ? visible[index] : string.Empty;
             writer.Write(content.PadRight(width)[..width]);
         }
     }

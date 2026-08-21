@@ -31,8 +31,25 @@ public class TranscriptPaneTests
 
         pane.Render(writer, top: 5, height: 10, width: 40);
 
-        Assert.Contains((0, 5), writer.Moves);
-        Assert.Contains((0, 6), writer.Moves);
+        // Bottom-anchored: 2 lines in a 10-row pane start at offset 8.
+        Assert.Contains(writer.RowWrites, w => w.Top == 5 + 8 && w.Text.StartsWith("l1"));
+        Assert.Contains(writer.RowWrites, w => w.Top == 5 + 9 && w.Text.StartsWith("l2"));
+    }
+
+    [Fact]
+    public void FewerLinesThanHeight_AnchorsContentToBottom()
+    {
+        var pane = new TranscriptPane();
+        pane.AddMessage("first");
+        pane.AddMessage("second");
+        var writer = new FakeWriter();
+
+        pane.Render(writer, top: 2, height: 5, width: 40);
+
+        Assert.Contains(writer.RowWrites, w => w.Top == 2 + 3 && w.Text.StartsWith("first"));
+        Assert.Contains(writer.RowWrites, w => w.Top == 2 + 4 && w.Text.StartsWith("second"));
+        Assert.DoesNotContain(writer.RowWrites, w => w.Top == 2 && w.Text.StartsWith("first"));
+        Assert.DoesNotContain(writer.RowWrites, w => w.Top == 3 && w.Text.StartsWith("second"));
     }
 
     [Fact]

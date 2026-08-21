@@ -13,6 +13,8 @@ public sealed class FakeWriter : ITextWriter
 {
     public List<(string Text, ConsoleColor? Color)> Writes { get; } = new();
 
+    public List<(int Left, int Top, string Text)> RowWrites { get; } = new();
+
     public int CursorLeft { get; private set; }
     public int CursorTop { get; private set; }
 
@@ -30,12 +32,14 @@ public sealed class FakeWriter : ITextWriter
     public void Write(string value)
     {
         Writes.Add((value, null));
+        RowWrites.Add((CursorLeft, CursorTop, value));
         CursorLeft += value.Length;
     }
 
     public void Write(string value, ConsoleColor foreground)
     {
         Writes.Add((value, foreground));
+        RowWrites.Add((CursorLeft, CursorTop, value));
         CursorLeft += value.Length;
     }
 
