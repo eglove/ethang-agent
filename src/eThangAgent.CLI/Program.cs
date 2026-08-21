@@ -1,44 +1,18 @@
 using Ag = eThangAgent.AgentDomain.Agent;
+using eThangAgent.Terminal.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Agent.Application;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.SharedKernel;
 using Microsoft.Extensions.DependencyInjection;
-using Terminal.Gui.App;
-using Terminal.Gui.Input;
-using Terminal.Gui.ViewBase;
-using Terminal.Gui.Views;
 
 namespace eThangAgent.CLI;
 
 public static class Program
 {
-    private const string SpinnerFrames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
-
-    /// <summary>Single-line input that raises <see cref="Submitted"/> when Enter (Command.Accept) is pressed.</summary>
-    private sealed class ChatInput : TextField
-    {
-        public event Action<string>? Submitted;
-
-        public ChatInput()
-        {
-            // Typed delegate to select the Func overload of the (otherwise ambiguous) AddCommand pair.
-            Func<Nullable<bool>> accept = () =>
-            {
-                var text = Text ?? string.Empty;
-                Text = string.Empty;
-                Submitted?.Invoke(text);
-                return true;
-            };
-            AddCommand(Command.Accept, accept);
-        }
-    }
-
     public static async Task Main()
     {
-        CliDriver.Register();
-        CliDriver.ApplyPerformanceSettings();
         var apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY")
             ?? throw new InvalidOperationException(
                 "OPENROUTER_API_KEY environment variable not set. " +
@@ -70,16 +44,15 @@ public static class Program
             .BuildServiceProvider();
 
         var handler = services.GetRequiredService<SendMessageCommandHandler>();
-        var modelConfig = services.GetRequiredService<ModelConfig>();
 
         if (Console.IsInputRedirected || Console.IsOutputRedirected)
-            await RunPlainRepl(handler, modelConfig);
+            await RunRedirectedRepl(handler);
         else
-            RunTui(handler, modelConfig);
+            await RunInteractiveRepl(handler);
     }
 
-    /// <summary>Scrolling REPL for redirected I/O (pipes, E2E tests).</summary>
-    private static async Task RunPlainRepl(SendMessageCommandHandler handler, ModelConfig modelConfig)
+    /// <summary>Line-based REPL for redirected I/O (pipes, E2E tests). Plain Console.ReadLine, no spinner.</summary>
+    private static async Task RunRedirectedRepl(SendMessageCommandHandler handler)
     {
         Console.WriteLine("eThang Agent - type /help for commands");
         Console.WriteLine();
@@ -100,153 +73,47 @@ public static class Program
             }
 
             var result = await handler.Handle(new SendMessageCommand(input));
-            if (result.IsSuccess)
-                Console.WriteLine(result.Value);
-            else
-                Console.WriteLine($"Error [{result.Error!.Code}]: {result.Error.Message}");
-
+            Console.WriteLine(result.IsSuccess ? result.Value : $"Error [{result.Error!.Code}]: {result.Error.Message}");
             Console.WriteLine();
         }
     }
 
-    /// <summary>Full-screen TUI: message area on top, input field above a status line that shows the model and a spinner while waiting.</summary>
-    private static void RunTui(SendMessageCommandHandler handler, ModelConfig modelConfig)
+    /// <summary>Interactive REPL: event-driven line editing with history, ghost autocomplete, and a thinking spinner.</summary>
+    private static async Task RunInteractiveRepl(SendMessageCommandHandler handler)
     {
-        using var app = CliDriver.InitApplication();
+        try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { /* non-seekable host */ }
 
-        var modelId = modelConfig.ModelId;
-        var spinnerIndex = 0;
-        var cts = new CancellationTokenSource();
-        Object? spinnerToken = null;
+        var io = new SystemConsoleIO();
+        var editor = new LineEditor(io, io);
+        var spinner = new ConsoleSpinner(io);
+        var completer = new PrefixAutoCompleter(CliCommands.All.Select(c => c.Name).ToArray());
+        var history = new List<string>();
 
-        // ── Status line (bottom row) ─────────────────────────────────────
-        var status = new Label
+        Console.WriteLine("eThang Agent - type /help for commands");
+        Console.WriteLine();
+
+        while (true)
         {
-            X = 0,
-            Y = Pos.AnchorEnd(),
-            Width = Dim.Fill(),
-            Height = 1,
-            Text = modelId
-        };
-
-        // ── Input field (row above the status line) ──────────────────────
-        var input = new ChatInput
-        {
-            X = 0,
-            Y = Pos.AnchorEnd(2),
-            Width = Dim.Fill(),
-            Height = 1
-        };
-
-        // Slash-command autocomplete: shows the matching command inline as you type; Tab accepts it.
-        input.Autocomplete = new AppendAutocomplete(input)
-        {
-            SuggestionGenerator = new CommandSuggestionGenerator(CliCommands.All)
-        };
-
-        // ── Message area (fills the rest) ─────────────────────────────────
-        var messages = new TextView
-        {
-            X = 0,
-            Y = 0,
-            Width = Dim.Fill(),
-            Height = Dim.Fill(input),
-            ReadOnly = true,
-            WordWrap = true,
-            CanFocus = false,
-            Text = $"eThang Agent  —  {modelId}\nType a message and press Enter.  /help for commands."
-        };
-
-        void AddMessage(string text)
-        {
-            app.Invoke(() =>
+            var input = editor.Read("> ", history, completer);
+            if (input is null)
+                break; // Ctrl+D / EOF
+            input = input.Trim();
+            if (CliCommands.IsQuit(input))
+                break;
+            if (string.IsNullOrWhiteSpace(input))
+                continue;
+            if (CliCommands.IsHelp(input))
             {
-                var existing = messages.Text;
-                messages.Text = string.IsNullOrEmpty(existing) ? text : existing + "\n" + text;
-                messages.ScrollTo(new System.Drawing.Point(0, int.MaxValue));
-                messages.SetNeedsDraw();
-            });
-        }
-
-        Object? StartSpinner()
-        {
-            spinnerIndex = 0;
-            var token = app.AddTimeout(
-                TimeSpan.FromMilliseconds(80),
-                () =>
-                {
-                    spinnerIndex = (spinnerIndex + 1) % SpinnerFrames.Length;
-                    status.Text = $"{modelId}  │  {SpinnerFrames[spinnerIndex]} Thinking...";
-                    status.SetNeedsDraw();
-                    return true; // keep repeating
-                });
-            spinnerToken = token;
-            return token;
-        }
-
-        void StopSpinner(Object? token)
-        {
-            if (token != null && ReferenceEquals(spinnerToken, token))
-            {
-                app.RemoveTimeout(token);
-                spinnerToken = null;
+                Console.WriteLine(CliCommands.Describe());
+                Console.WriteLine();
+                continue;
             }
 
-            app.Invoke(() =>
-            {
-                status.Text = modelId;
-                status.SetNeedsDraw();
-            });
+            var task = handler.Handle(new SendMessageCommand(input));
+            await spinner.RunWhile(task, "Thinking");
+            var result = await task;
+            Console.WriteLine(result.IsSuccess ? result.Value : $"Error [{result.Error!.Code}]: {result.Error.Message}");
+            Console.WriteLine();
         }
-
-        input.Submitted += text =>
-        {
-            text = text.Trim();
-            if (string.IsNullOrWhiteSpace(text))
-                return;
-
-            if (CliCommands.IsHelp(text))
-            {
-                AddMessage(CliCommands.Describe());
-                return;
-            }
-
-            if (CliCommands.IsQuit(text))
-            {
-                cts.Cancel();
-                app.RequestStop();
-                return;
-            }
-
-            AddMessage("> " + text);
-            var token = StartSpinner();
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    var result = await handler.Handle(new SendMessageCommand(text), cts.Token);
-                    if (result.IsSuccess)
-                        AddMessage(result.Value!);
-                    else
-                        AddMessage($"Error [{result.Error!.Code}]: {result.Error.Message}");
-                }
-                catch (Exception ex)
-                {
-                    AddMessage($"Error: {ex.Message}");
-                }
-                finally
-                {
-                    StopSpinner(token);
-                }
-            });
-        };
-
-        var top = new Window { Title = "eThang Agent" };
-        top.Add(messages);
-        top.Add(input);
-        top.Add(status);
-
-        app.Run(top);
     }
 }
