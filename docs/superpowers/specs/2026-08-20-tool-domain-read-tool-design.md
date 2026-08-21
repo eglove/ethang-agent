@@ -58,7 +58,7 @@ Note: this is the **File System ACL** (file I/O) *implemented with* PowerShell h
 ```csharp
 public enum ToolParameterType { String, Integer }
 
-public sealed record ToolParameter(string Name, ToolParameterType Type, string Description);
+public sealed record ToolParameter(string Name, ToolParameterType Type, string Description, int? Minimum = null);
 
 public sealed record ToolDefinition(string Name, string Description, IReadOnlyList<ToolParameter> Parameters);
 
@@ -84,8 +84,8 @@ public interface IToolRegistry
 The File System seam (owned by Tool.Domain, implemented by the ACL):
 
 ```csharp
-public sealed record FileRead(IReadOnlyList<string> Lines, int LastLineRead, int? TotalLines);
-// TotalLines is null when enumeration stopped at endLine (no EOF reached → no clamp possible).
+public sealed record FileRead(IReadOnlyList<string> Lines, int LastLineRead, int TotalLines);
+// TotalLines is always populated: enumeration drains to EOF so the line count is exact.
 
 public interface IFileSystemAccess
 {
@@ -175,7 +175,7 @@ Breaking change to the existing single-prompt signature; all callers updated.
 
 - `System.Management.Automation` NuGet package (PowerShell 7.x assemblies; Windows PowerShell 5.1 assemblies do not load in .NET 10).
 - One `Runspace` created at construction, reused for every call; guarded by `SemaphoreSlim(1,1)` (runspaces are not thread-safe).
-- One streaming pass per read — skip to `startLine`, collect to `endLine` or EOF. Only the requested lines cross the runspace boundary.
+- One streaming pass per read — skip to `startLine`, collect to `endLine`, then drain to EOF to count total lines. Only the requested lines cross the runspace boundary.
 - Script (parameterized scriptblock, .NET APIs invoked through PowerShell):
 
 ```powershell
@@ -184,19 +184,22 @@ if (-not [System.IO.File]::Exists($Path)) { return @{ Found = $false } }
 $reader = [System.IO.File]::OpenText($Path)
 try {
     $lines = [System.Collections.Generic.List[string]]::new()
-    $i = 0; $reachedEnd = $false
+    $i = 0; $last = 0
     while ($true) {
         $line = $reader.ReadLine()
-        if ($null -eq $line) { $reachedEnd = $true; break }
+        if ($null -eq $line) { break }
         $i++
-        if ($i -ge $Start) { [void]$lines.Add($line) }
-        if ($i -ge $End) { break }
+        if ($i -ge $Start) { [void]$lines.Add($line); $last = $i }
+        if ($i -ge $End) {
+            while ($null -ne $reader.ReadLine()) { $i++ }
+            break
+        }
     }
     return @{
         Found      = $true
         Lines      = $lines
-        LastLine   = if ($i -ge $Start) { $i } else { 0 }
-        TotalLines = if ($reachedEnd) { $i } else { $null }
+        LastLine   = $last
+        TotalLines = $i
     }
 } finally { $reader.Dispose() }
 ```
@@ -204,7 +207,7 @@ try {
 - Encoding: `[System.IO.File]::OpenText` — UTF-8 with BOM detection (UTF-8/UTF-16 LE/BE BOMs honored; no BOM → UTF-8).
 - Line endings normalized by `ReadLine` (CRLF/LF/CR all handled).
 - Missing file returns `Found = $false`; the ACL maps it to `Result<FileRead>.Failure` with code `FileNotFound`.
-- The domain derives everything else from `FileRead`: `LastLineRead == 0` → startLine-exceeds error (with `TotalLines`); `TotalLines < requestedEnd` → clamp warning.
+- The domain derives everything else from `FileRead`: `LastLineRead == 0` → startLine-exceeds error (with `TotalLines`); `TotalLines < requestedEnd` → clamp warning. `TotalLines` is always exact.
 
 ### OpenRouter.ACL (modifications)
 
