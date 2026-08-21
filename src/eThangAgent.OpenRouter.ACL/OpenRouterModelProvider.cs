@@ -25,7 +25,7 @@ public class OpenRouterModelProvider : IModelProvider
             var bodyDict = new Dictionary<string, object?>
             {
                 ["model"] = config.ModelId,
-                ["messages"] = request.Messages.Select(TranslateMessage).ToArray(),
+                ["messages"] = BuildMessages(request),
                 ["max_tokens"] = config.MaxTokens,
                 ["temperature"] = config.Temperature,
             };
@@ -108,8 +108,18 @@ public class OpenRouterModelProvider : IModelProvider
         }
     }
 
+    private static object[] BuildMessages(ModelRequest request)
+    {
+        var messages = new List<object>();
+        if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
+            messages.Add(new { role = "system", content = request.SystemPrompt });
+        messages.AddRange(request.Messages.Select(TranslateMessage));
+        return messages.ToArray();
+    }
+
     private static object TranslateMessage(Message m) => m.Role switch
     {
+        Role.System => new { role = "system", content = m.Content },
         Role.User => new { role = "user", content = m.Content },
         Role.Assistant when m.ToolCalls is { Count: > 0 } => new
         {
