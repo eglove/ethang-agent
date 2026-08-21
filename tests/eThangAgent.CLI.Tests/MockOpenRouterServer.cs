@@ -8,7 +8,10 @@ public sealed class MockOpenRouterServer : IDisposable
 {
     private readonly HttpListener _listener = new();
     private readonly CancellationTokenSource _cts = new();
+    private readonly Queue<string> _scriptedResponses = new();
     private Task? _loop;
+
+    public List<string> RequestBodies { get; } = new();
 
     public string BaseUrl { get; private set; } = "";
 
@@ -24,6 +27,12 @@ public sealed class MockOpenRouterServer : IDisposable
         _loop = Task.Run(LoopAsync);
     }
 
+    public MockOpenRouterServer Returns(string responseJson)
+    {
+        _scriptedResponses.Enqueue(responseJson);
+        return this;
+    }
+
     private async Task LoopAsync()
     {
         while (!_cts.IsCancellationRequested)
@@ -35,9 +44,15 @@ public sealed class MockOpenRouterServer : IDisposable
             if (ctx.Request.Url!.AbsolutePath == "/api/v1/chat/completions")
             {
                 using var reader = new StreamReader(ctx.Request.InputStream);
-                LastChatRequestBody = await reader.ReadToEndAsync();
+                var requestBody = await reader.ReadToEndAsync();
+                LastChatRequestBody = requestBody;
+                RequestBodies.Add(requestBody);
 
-                var body = """{"choices":[{"message":{"content":"pineapple"}}]}""";
+                string body;
+                if (_scriptedResponses.Count > 0)
+                    body = _scriptedResponses.Dequeue();
+                else
+                    body = """{"choices":[{"message":{"content":"pineapple"}}]}""";
                 var bytes = Encoding.UTF8.GetBytes(body);
                 ctx.Response.StatusCode = 200;
                 ctx.Response.ContentType = "application/json";

@@ -5,6 +5,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.ToolDomain;
 using eThangAgent.Agent.Application;
 using eThangAgent.OpenRouter.ACL;
+using eThangAgent.FileSystem.ACL;
 using eThangAgent.SharedKernel;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -37,12 +38,16 @@ public static class Program
             .AddSingleton(_ => ModelConfig.Create("stealth/ox-alpha", 1024, 0.7f).Value!)
             .AddSingleton<Conversation>()
             .AddSingleton<IConversationRepository, InMemoryConversationRepository>()
+            .AddSingleton<IFileSystemAccess, PowerShellFileSystemAccess>()
+            .AddSingleton<ITool>(sp => new ReadTool(sp.GetRequiredService<IFileSystemAccess>()))
+            .AddSingleton<IToolRegistry>(sp => new ToolRegistry([sp.GetRequiredService<ITool>()]))
             .AddSingleton<Ag>(sp =>
             {
                 var provider = sp.GetRequiredService<IModelProvider>();
                 var conversation = sp.GetRequiredService<Conversation>();
                 var config = sp.GetRequiredService<ModelConfig>();
-                return new Ag(provider, conversation, config, new ToolRegistry([]));
+                var tools = sp.GetRequiredService<IToolRegistry>();
+                return new Ag(provider, conversation, config, tools);
             })
             .AddSingleton<SendMessageCommandHandler>()
             .BuildServiceProvider();

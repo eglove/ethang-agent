@@ -8,5 +8,7 @@
     <ProjectReference Include="../eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
     <ProjectReference Include="../eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.Terminal.ACL/eThangAgent.Terminal.ACL.csproj" />
+    <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
+    <ProjectReference Include="../eThangAgent.FileSystem.ACL/eThangAgent.FileSystem.ACL.csproj" />
   </ItemGroup>
 </Project>
