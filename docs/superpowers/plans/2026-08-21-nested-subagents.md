@@ -85,6 +85,7 @@
 - [x] Write failing tests: depth-2 parent spawns child at depth 3? NO — depth-2 parent ⇒ child would be depth 3 > MaxDepth ⇒ rejected; depth-1 parent ⇒ child depth 2 succeeds; model precedence (explicit beats default; default used when omitted; MissingModel error when neither); child record persisted Running then Completed with report; timeout ⇒ Failed(Timeout); rejected spawn ⇒ no store writes, no factory calls.
 - [x] Run — red. Implement spawner minimally. Run — green.
 - [x] Commit: `feat(agent-domain): sub-agent spawner with depth guard and model resolution`
+
 ### Task 3: Model provider factory seam
 
 **Files:**
@@ -100,9 +101,9 @@
 
 **Steps:**
 
-- [ ] Write failing test: factory returns provider; captured request body (existing FakeHttpMessageHandler pattern) carries the per-call `ModelConfig.ModelId` while auth headers come from the base configuration.
-- [ ] Run — red. Implement. Run — green.
-- [ ] Commit: `feat(openrouter-acl): per-spawn model provider factory`
+- [x] Write failing test: factory returns provider; captured request body (existing FakeHttpMessageHandler pattern) carries the per-call `ModelConfig.ModelId` while auth headers come from the base configuration.
+- [x] Run — red. Implement. Run — green.
+- [x] Commit: `feat(openrouter-acl): per-spawn model provider factory`
 
 ### Task 4: SqliteAgentStore
 
@@ -156,6 +157,7 @@
 - [ ] Write failing guide tests: v1.3 contains "Delegating subtasks", `agent.spawn`, depth-limit sentence.
 - [ ] Run — red. Implement provider + guide text. Run — green.
 - [ ] Commit: `feat(agent-domain): agent.spawn capability with report gutters; guide v1.3`
+
 ### Task 6: Integration stack fact — spawn through real engine + registry
 
 **Files:**
@@ -194,6 +196,7 @@
 - [ ] Run — red. Implement binding + registrations. Run — green; full CLI build clean.
 - [ ] Verify no domain project gained DI references (grep `Microsoft.Extensions` under `src/eThangAgent.Agent.*`).
 - [ ] Commit: `feat(cli): wire sub-agent spawner, agent capability, and configuration`
+
 ### Task 8: E2E — parent spawns child through mock OpenRouter
 
 **Files:**
