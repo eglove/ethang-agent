@@ -55,7 +55,7 @@ public static class Program
             .AddSingleton<IStateStore, SqliteStateStore>()
             .AddSingleton<EvidenceOptions>(_ => EvidenceOptions.Default)
             .AddSingleton<IEvidenceRunner, PsEvidenceRunner>()
-            .AddSingleton<StateService>()
+            .AddSingleton<IStateService, StateService>()
             .AddSingleton<StateCapabilityProvider>()
             .AddSingleton<ICapabilityRegistry>(sp =>
                 CapabilityRegistry.Create(
