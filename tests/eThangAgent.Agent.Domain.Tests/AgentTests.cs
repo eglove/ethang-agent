@@ -98,6 +98,30 @@ public class AgentTests
         Assert.Equal("MaxToolIterations", result.Error!.Code);
     }
 
+    [Fact]
+    public async Task SendMessage_WithSystemPrompt_SuppliesItToProvider()
+    {
+        var provider = new CapturingProvider();
+        var agent = new Agent(provider, new Conversation(), DefaultConfig,
+            new ToolRegistry([]), new StaticPromptProvider("guide text"));
+
+        await agent.SendMessage("hi");
+
+        Assert.Equal("guide text", provider.LastRequest!.SystemPrompt);
+    }
+
+    private sealed class CapturingProvider : IModelProvider
+    {
+        public ModelRequest? LastRequest { get; private set; }
+
+        public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
+            CancellationToken ct)
+        {
+            LastRequest = request;
+            return Task.FromResult(Result<ModelResponse>.Success(new ModelResponse("ok", [])));
+        }
+    }
+
     private sealed class ScriptedModelProvider : IModelProvider
     {
         private readonly Queue<Result<ModelResponse>> _responses;

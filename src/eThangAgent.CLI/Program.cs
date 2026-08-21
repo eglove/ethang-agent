@@ -6,6 +6,7 @@ using eThangAgent.ToolDomain;
 using eThangAgent.Agent.Application;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.FileSystem.ACL;
+using eThangAgent.PowerShell.ACL;
 using eThangAgent.SharedKernel;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -39,15 +40,35 @@ public static class Program
             .AddSingleton<Conversation>()
             .AddSingleton<IConversationRepository, InMemoryConversationRepository>()
             .AddSingleton<IFileSystemAccess, PowerShellFileSystemAccess>()
+            .AddSingleton(ExecOptions.Default)
+            .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
+            .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
+            .AddSingleton<IExecEngine>(sp => new PowerShellExecEngine(
+                new Lazy<IToolRegistry>(() => sp.GetRequiredService<IToolRegistry>()),
+                sp.GetRequiredService<ExecOptions>()))
             .AddSingleton<ITool>(sp => new ReadTool(sp.GetRequiredService<IFileSystemAccess>()))
-            .AddSingleton<IToolRegistry>(sp => new ToolRegistry([sp.GetRequiredService<ITool>()]))
+            .AddSingleton<ITool>(sp => new ExecTool(
+                sp.GetRequiredService<IExecEngine>(),
+                sp.GetRequiredService<ExecOptions>(),
+                sp.GetRequiredService<IExecOutputStore>(),
+                sp.GetRequiredService<IExecActivitySink>()))
+            .AddSingleton<IToolRegistry>(sp =>
+                new ToolRegistry(sp.GetServices<ITool>().ToList()))
+            .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
+            [
+                new StaticPromptProvider(
+                    "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
+                    "workspace, prefer the provided tools over guessing, and keep responses tight."),
+                new ExecGuidePromptProvider(),
+            ]))
             .AddSingleton<Ag>(sp =>
             {
                 var provider = sp.GetRequiredService<IModelProvider>();
                 var conversation = sp.GetRequiredService<Conversation>();
                 var config = sp.GetRequiredService<ModelConfig>();
                 var tools = sp.GetRequiredService<IToolRegistry>();
-                return new Ag(provider, conversation, config, tools);
+                return new Ag(provider, conversation, config, tools,
+                    sp.GetRequiredService<ISystemPromptProvider>());
             })
             .AddSingleton<SendMessageCommandHandler>()
             .BuildServiceProvider();

@@ -9,16 +9,18 @@ public class Agent
 {
     private readonly IModelProvider _provider;
     private readonly IToolRegistry _tools;
+    private readonly ISystemPromptProvider? _systemPrompt;
     private readonly int _maxToolIterations;
 
     public Conversation Conversation { get; }
     public ModelConfig Config { get; }
 
     public Agent(IModelProvider provider, Conversation conversation, ModelConfig config,
-        IToolRegistry tools, int maxToolIterations = 10)
+        IToolRegistry tools, ISystemPromptProvider? systemPrompt = null, int maxToolIterations = 10)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _tools = tools ?? throw new ArgumentNullException(nameof(tools));
+        _systemPrompt = systemPrompt;
         Conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         _maxToolIterations = maxToolIterations;
@@ -29,7 +31,8 @@ public class Agent
         Conversation.AddUserMessage(text);
         for (var i = 0; i < _maxToolIterations; i++)
         {
-            var request = new ModelRequest(Conversation.Messages, _tools.Definitions);
+            var request = new ModelRequest(
+                Conversation.Messages, _tools.Definitions, _systemPrompt?.Build());
             var result = await _provider.SendAsync(Config, request, ct);
             if (!result.IsSuccess)
                 return Result<string>.Failure(result.Error!);
