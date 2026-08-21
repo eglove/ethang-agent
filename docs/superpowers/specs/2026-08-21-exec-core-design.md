@@ -68,7 +68,7 @@ Parameters: [ program: String, required ]   // nothing else; timeout/limits are 
 read @{ path = "src/X.cs"; startLine = 1; endLine = 50 }
 
 # 2. Generic dispatcher — same broker path, for dynamic calls:
-Invoke-AgentTool -Name read -Input @{ path = "src/X.cs"; startLine = 1 }
+Invoke-AgentTool -Name read -ToolInput @{ path = "src/X.cs"; startLine = 1 }
 
 # 3. Introspection — discover instead of guess:
 Get-AgentTool   # → name, description, parameters of every registered tool (exec excluded)

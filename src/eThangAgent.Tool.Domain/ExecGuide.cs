@@ -19,7 +19,7 @@ public static class ExecGuide
 
     The generic form behaves identically:
 
-        Invoke-AgentTool -Name read -Input @{ path = "src/App.cs"; startLine = 1; endLine = 50 }
+        Invoke-AgentTool -Name read -ToolInput @{ path = "src/App.cs"; startLine = 1; endLine = 50 }
 
     Discover tools instead of guessing:
 

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <PackageReference Include="System.Management.Automation" Version="7.4.*" />
+    <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.4.*" />
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
     <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
   </ItemGroup>
