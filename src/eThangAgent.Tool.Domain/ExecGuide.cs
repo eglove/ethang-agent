@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "1.2";
+    public const string Version = "1.3";
 
     public const string Text = """
     ## exec — writing PowerShell programs
@@ -40,6 +40,17 @@ public static class ExecGuide
             evidence = @('dotnet build') }
         state.verify @{}
 
+    ### Delegating subtasks
+
+    Spawn a child agent for a self-contained subtask; it runs autonomously and its final
+    report comes back to you:
+
+        agent.spawn @{ taskPrompt = 'Summarize the auth module'; model = 'provider/cheap-model';
+            label = 'research' }
+
+    - Frame the task so a stranger could complete it; say exactly what the report must contain.
+    - Pick a cheap model for grunt work; omit `model` to use the configured default.
+    - Children see the full tool surface and may spawn their own children — depth limit 3.
     ### Errors
 
     Tool failures throw terminating errors — catch them with try/catch:

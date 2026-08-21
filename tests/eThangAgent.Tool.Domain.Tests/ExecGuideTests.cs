@@ -7,13 +7,16 @@ public class ExecGuideTests
     [Fact]
     public void Guide_IsVersionedAndNonEmpty()
     {
-        Assert.Equal("1.2", ExecGuide.Version);
+        Assert.Equal("1.3", ExecGuide.Version);
         Assert.True(ExecGuide.Text.Length >= 500);
     }
 
     [Fact]
     public void Guide_DocumentsDurableState()
     {
+        Assert.Contains("agent.spawn @{", ExecGuide.Text);
+        Assert.Contains("Delegating subtasks", ExecGuide.Text);
+        Assert.Contains("depth limit 3", ExecGuide.Text);
         Assert.Contains("state.set @{", ExecGuide.Text);
         Assert.Contains("state.verify @{}", ExecGuide.Text);
     }

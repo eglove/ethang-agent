@@ -17,7 +17,7 @@ public sealed record AgentRunOutcome(
     int Depth);
 
 /// <summary>Domain service validating spawn requests, enforcing the depth limit, running the child agent loop, and persisting its lifecycle.</summary>
-public sealed class SubAgentSpawner
+public sealed class SubAgentSpawner : ISubAgentSpawner
 {
     /// <summary>Model-facing annotation appended when a child report exceeds the 50 KB storage guideline.</summary>
     public const string ReportOverflowAnnotation =

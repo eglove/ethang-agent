@@ -121,9 +121,9 @@
 
 **Steps:**
 
-- [ ] Write failing tests against a temp SQLite file: save→get round-trips every `AgentRecord` field; update transitions Running→Completed with `FinalReport` and `CompletedAt`; append/get-transcript preserves order and content; list-children filters by parent and orders by `CreatedAt`; missing id returns typed `NotFound` failure; events persist and reload.
-- [ ] Run — red. Implement store + tables. Run — green.
-- [ ] Commit: `feat(storage-acl): sqlite agent store with transcripts and events`
+- [x] Write failing tests against a temp SQLite file: save→get round-trips every `AgentRecord` field; update transitions Running→Completed with `FinalReport` and `CompletedAt`; append/get-transcript preserves order and content; list-children filters by parent and orders by `CreatedAt`; missing id returns typed `NotFound` failure; events persist and reload.
+- [x] Run — red. Implement store + tables. Run — green.
+- [x] Commit: `feat(storage-acl): sqlite agent store with transcripts and events`
 
 ### Task 5: agent.spawn capability surface + guide v1.3
 
@@ -153,10 +153,10 @@
 
 **Steps:**
 
-- [ ] Write failing provider tests: valid JSON arguments invoke spawner and render the gutter contract exactly (id/status/depth/model/label + fenced report); spawner failure renders failed-gutter with reason; unknown/missing fields render typed validation errors; overflow annotation appears.
-- [ ] Write failing guide tests: v1.3 contains "Delegating subtasks", `agent.spawn`, depth-limit sentence.
-- [ ] Run — red. Implement provider + guide text. Run — green.
-- [ ] Commit: `feat(agent-domain): agent.spawn capability with report gutters; guide v1.3`
+- [x] Write failing provider tests: valid JSON arguments invoke spawner and render the gutter contract exactly (id/status/depth/model/label + fenced report); spawner failure renders failed-gutter with reason; unknown/missing fields render typed validation errors; overflow annotation appears.
+- [x] Write failing guide tests: v1.3 contains "Delegating subtasks", `agent.spawn`, depth-limit sentence.
+- [x] Run — red. Implement provider + guide text. Run — green.
+- [x] Commit: `feat(agent-domain): agent.spawn capability with report gutters; guide v1.3`
 
 ### Task 6: Integration stack fact — spawn through real engine + registry
 
