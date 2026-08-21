@@ -3,6 +3,12 @@
   <Project Path="src/eThangAgent.Model.Domain/eThangAgent.Model.Domain.csproj" />
   <Project Path="src/eThangAgent.Conversation.Domain/eThangAgent.Conversation.Domain.csproj" />
   <Project Path="src/eThangAgent.Agent.Domain/eThangAgent.Agent.Domain.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src/eThangAgent.Agent.Infrastructure/eThangAgent.Agent.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/eThangAgent.Agent.Infrastructure.Tests/eThangAgent.Agent.Infrastructure.Tests.csproj" />
+  </Folder>
   <Project Path="src/eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
   <Project Path="src/eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />
   <Project Path="src/eThangAgent.CLI/eThangAgent.CLI.csproj" />
