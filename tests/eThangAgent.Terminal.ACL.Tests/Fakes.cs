@@ -18,8 +18,11 @@ public sealed class FakeWriter : ITextWriter
 
     public int BufferWidth { get; set; } = 80;
 
+    public List<(int Left, int Top)> Moves { get; } = new();
+
     public void SetCursorPosition(int left, int top)
     {
+        Moves.Add((left, top));
         CursorLeft = left;
         CursorTop = top;
     }
