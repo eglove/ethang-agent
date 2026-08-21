@@ -12,6 +12,9 @@ public sealed class MockOpenRouterServer : IDisposable
 
     public string BaseUrl { get; private set; } = "";
 
+    /// <summary>Body of the most recent chat/completions request, for asserting what the CLI sent.</summary>
+    public string? LastChatRequestBody { get; private set; }
+
     public void Start()
     {
         var port = GetFreePort();
@@ -31,6 +34,9 @@ public sealed class MockOpenRouterServer : IDisposable
 
             if (ctx.Request.Url!.AbsolutePath == "/api/v1/chat/completions")
             {
+                using var reader = new StreamReader(ctx.Request.InputStream);
+                LastChatRequestBody = await reader.ReadToEndAsync();
+
                 var body = """{"choices":[{"message":{"content":"pineapple"}}]}""";
                 var bytes = Encoding.UTF8.GetBytes(body);
                 ctx.Response.StatusCode = 200;
