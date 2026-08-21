@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-capability-registry-design.md` — the plan argues from the spec; executors read both.
 
-> **Progress:** Wave 1 COMPLETE — Tasks 1–4 done and verified green. Next: Wave 2 (Tasks 5–6: broker + engine registry switch).
+> **Progress:** Tasks 1–8 COMPLETE and verified green (deviation: Tasks 5+6+8 landed as coupled commits — broker/engine/wiring share one compile unit; missing PowerShell.ACL→Capability.Domain project reference was a plan gap, fixed during execution). Next: Task 9 (full verification).
 
 ## Global Constraints
 
