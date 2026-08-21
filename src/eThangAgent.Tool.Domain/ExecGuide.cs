@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "1.0";
+    public const string Version = "1.1";
 
     public const string Text = """
     ## exec — writing PowerShell programs
@@ -24,6 +24,14 @@ public static class ExecGuide
     Discover tools instead of guessing:
 
         Get-AgentTool
+
+    Full documentation for any action (description + parameter docs):
+
+        Get-AgentAction read
+
+    Providers:
+
+        Get-AgentProvider
 
     ### Errors
 
