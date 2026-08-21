@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "1.1";
+    public const string Version = "1.2";
 
     public const string Text = """
     ## exec — writing PowerShell programs
@@ -32,6 +32,13 @@ public static class ExecGuide
     Providers:
 
         Get-AgentProvider
+
+    Durable state (claims, evidence, certification):
+
+        state.set @{ key = 'current/head'; value = 'done' }
+        state.transition @{ from = 'coding'; to = 'done'; summary = 'work';
+            evidence = @('dotnet build') }
+        state.verify @{}
 
     ### Errors
 

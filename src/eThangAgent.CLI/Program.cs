@@ -7,6 +7,8 @@ using eThangAgent.Agent.Application;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.FileSystem.ACL;
+using eThangAgent.Storage.ACL;
+using eThangAgent.StateDomain;
 using eThangAgent.PowerShell.ACL;
 using eThangAgent.SharedKernel;
 using Microsoft.Extensions.DependencyInjection;
@@ -48,8 +50,19 @@ public static class Program
                 [new AgentToolBinding(
                     new ReadTool(sp.GetRequiredService<IFileSystemAccess>()),
                     "Read lines from a text file.")]))
+            .AddSingleton<IWorkspaceContext, CwdWorkspaceContext>()
+            .AddSingleton<AppDatabase>()
+            .AddSingleton<IStateStore, SqliteStateStore>()
+            .AddSingleton<EvidenceOptions>(_ => EvidenceOptions.Default)
+            .AddSingleton<IEvidenceRunner, PsEvidenceRunner>()
+            .AddSingleton<StateService>()
+            .AddSingleton<StateCapabilityProvider>()
             .AddSingleton<ICapabilityRegistry>(sp =>
-                CapabilityRegistry.Create([sp.GetRequiredService<AgentToolsProvider>()]))
+                CapabilityRegistry.Create(
+                [
+                    sp.GetRequiredService<AgentToolsProvider>(),
+                    sp.GetRequiredService<StateCapabilityProvider>(),
+                ]))
             .AddSingleton<IExecEngine>(sp => new PowerShellExecEngine(
                 new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>()),
                 sp.GetRequiredService<ExecOptions>()))
