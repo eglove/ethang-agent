@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-capability-registry-design.md` — the plan argues from the spec; executors read both.
 
+> **Progress:** Wave 1 outcome — tasks completed: [1, 2, 3]. Next: Wave 2 (Tasks 5–6).
+
 ## Global Constraints
 
 - **Windows-only, PowerShell-only.** No `.sh`, `.cmd`, `.bat` scripts in the repo.
