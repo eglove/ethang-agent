@@ -21,9 +21,11 @@ public class Agent
     public async Task<Result<string>> SendMessage(string text, CancellationToken ct = default)
     {
         Conversation.AddUserMessage(text);
-        var result = await _provider.SendAsync(Config, text, ct);
-        if (result.IsSuccess)
-            Conversation.AddAssistantMessage(result.Value!);
-        return result;
+        var request = new ModelRequest(Conversation.Messages);
+        var result = await _provider.SendAsync(Config, request, ct);
+        if (!result.IsSuccess)
+            return Result<string>.Failure(result.Error!);
+        Conversation.AddAssistantMessage(result.Value!.Content ?? "");
+        return Result<string>.Success(result.Value.Content ?? "");
     }
 }

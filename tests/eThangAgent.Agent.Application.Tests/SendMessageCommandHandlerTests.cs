@@ -10,7 +10,8 @@ public class SendMessageCommandHandlerTests
     [Fact]
     public async Task Handle_DelegatesToAgentAndReturnsResult()
     {
-        var provider = new StubModelProvider(Result<string>.Success("response"));
+        var provider = new StubModelProvider(
+            Result<ModelResponse>.Success(new ModelResponse("response", [])));
         var agent = new Ag(provider, new Conversation(),
             ModelConfig.Create("m", 100, 0.5f).Value!);
         var handler = new SendMessageCommandHandler(agent);
@@ -25,7 +26,7 @@ public class SendMessageCommandHandlerTests
     public async Task Handle_PropagatesFailure()
     {
         var error = new Error("FAIL", "bad");
-        var provider = new StubModelProvider(Result<string>.Failure(error));
+        var provider = new StubModelProvider(Result<ModelResponse>.Failure(error));
         var agent = new Ag(provider, new Conversation(),
             ModelConfig.Create("m", 100, 0.5f).Value!);
         var handler = new SendMessageCommandHandler(agent);
@@ -38,10 +39,10 @@ public class SendMessageCommandHandlerTests
 
     private sealed class StubModelProvider : IModelProvider
     {
-        private readonly Result<string> _result;
-        public StubModelProvider(Result<string> result) => _result = result;
+        private readonly Result<ModelResponse> _result;
+        public StubModelProvider(Result<ModelResponse> result) => _result = result;
 
-        public Task<Result<string>> SendAsync(ModelConfig config, string prompt, CancellationToken ct)
+        public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct)
             => Task.FromResult(_result);
     }
 }
