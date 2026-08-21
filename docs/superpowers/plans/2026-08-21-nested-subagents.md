@@ -171,11 +171,11 @@
 
 **Steps:**
 
-- [ ] Write the fact: child runs to completion through the real runspace + broker + registry; output contains `[agent] id=` gutter with `status=completed`, fenced report text from the fake provider's scripted finish; `SqliteAgentStore` (real, temp file) holds the child row `Completed` at depth 1 with transcript messages.
-- [ ] Add nesting fact: child's scripted tool calls include `agent.spawn` for a grandchild (fake provider scripts two levels); grandchild completes at depth 2; both rows persisted with correct `ParentId` chain.
-- [ ] Add rejection fact: at depth 2, spawning again returns the failed-gutter with `reason=depth-exceeded` as a well-formed tool result — run status stays Completed, no depth-3 row exists.
-- [ ] Run all three facts — green. Confirm dual-name wrappers: program uses composite `agent.spawn`; add one assertion invoking bare `spawn` successfully.
-- [ ] Commit: `test(powerShell-acl): nested spawn facts through real engine and store`
+- [x] Write the fact: child runs to completion through the real runspace + broker + registry; output contains `[agent] id=` gutter with `status=completed`, fenced report text from the fake provider's scripted finish; `SqliteAgentStore` (real, temp file) holds the child row `Completed` at depth 1 with transcript messages.
+- [x] Add nesting fact: child's scripted tool calls include `agent.spawn` for a grandchild (fake provider scripts two levels); grandchild completes at depth 2; both rows persisted with correct `ParentId` chain.
+- [x] Add rejection fact: at depth 2, spawning again returns the failed-gutter with `reason=depth-exceeded` as a well-formed tool result — run status stays Completed, no depth-3 row exists.
+- [x] Run all three facts — green. Confirm dual-name wrappers: program uses composite `agent.spawn`; add one assertion invoking bare `spawn` successfully.
+- [x] Commit: `test(powerShell-acl): nested spawn facts through real engine and store`
 
 ### Task 7: Configuration + composition-root wiring
 

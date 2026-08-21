@@ -39,6 +39,14 @@ public sealed class SubAgentSpawner : ISubAgentSpawner
     private readonly NonEmptyTaskPromptSpecification _promptSpec = new();
     private readonly ValidModelReferenceSpecification _modelSpec = new();
 
+    private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
+
+    /// <summary>The child whose loop is currently executing on this async flow, if any.
+    ///     Nested agent.spawn calls must resolve their parent from here rather than
+    ///     from the composition root's static root record; compositions wire the
+    ///     parent context as <c>() => SubAgentSpawner.RunningChild ?? rootRecord</c>.</summary>
+    public static AgentRecord? RunningChild => RunningChildCurrent.Value;
+
     public SubAgentSpawner(IModelProviderFactory factory, IAgentStore store, IToolRegistry tools,
         ISystemPromptProvider systemPrompt, SubAgentOptions options)
     {
@@ -83,6 +91,8 @@ public sealed class SubAgentSpawner : ISubAgentSpawner
 
         string? report = null;
         AgentFailureReason? failureReason = null;
+        var previousChild = RunningChildCurrent.Value;
+        RunningChildCurrent.Value = record;
         try
         {
             var run = await child.SendMessage(request.TaskPrompt, timeoutCts.Token);
@@ -113,6 +123,10 @@ public sealed class SubAgentSpawner : ISubAgentSpawner
             // Provider/loop infrastructure failure: persisted as Failed(ProviderError) and returned
             // as a failure Result so the caller receives a well-formed error, never a crash.
             failureReason = AgentFailureReason.ProviderError;
+        }
+        finally
+        {
+            RunningChildCurrent.Value = previousChild;
         }
 
         if (failureReason is not null)
