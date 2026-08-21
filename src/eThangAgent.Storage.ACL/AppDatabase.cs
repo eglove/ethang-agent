@@ -31,9 +31,16 @@ public sealed class AppDatabase
     private void Migrate()
     {
         using var connection = Open();
-        if (GetVersion(connection) >= 1) return;
-        ApplyV1(connection);
-        SetVersion(connection, 1);
+        if (GetVersion(connection) < 1)
+        {
+            ApplyV1(connection);
+            SetVersion(connection, 1);
+        }
+        if (GetVersion(connection) < 2)
+        {
+            ApplyV2(connection);
+            SetVersion(connection, 2);
+        }
     }
 
     private static int GetVersion(SqliteConnection connection)
@@ -81,6 +88,46 @@ public sealed class AppDatabase
                 occurred_at  TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS ix_state_events_ws ON state_events (workspace_id, id);
+            """;
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+        transaction.Commit();
+    }
+
+    private static void ApplyV2(SqliteConnection connection)
+    {
+        var sql = """
+            CREATE TABLE IF NOT EXISTS agents (
+                id             TEXT PRIMARY KEY,
+                parent_id      TEXT NULL,
+                depth          INTEGER NOT NULL,
+                status         INTEGER NOT NULL,
+                failure_reason INTEGER NULL,
+                model_used     TEXT NOT NULL,
+                label          TEXT NULL,
+                task_prompt    TEXT NOT NULL,
+                created_at     TEXT NOT NULL,
+                completed_at   TEXT NULL,
+                final_report   TEXT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agent_messages (
+                agent_id  TEXT NOT NULL,
+                seq       INTEGER NOT NULL,
+                role      TEXT NOT NULL,
+                content   TEXT NOT NULL,
+                meta_json TEXT NULL,
+                PRIMARY KEY (agent_id, seq)
+            );
+            CREATE TABLE IF NOT EXISTS agent_events (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id     TEXT NOT NULL,
+                occurred_at  TEXT NOT NULL,
+                type         TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            );
             """;
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
