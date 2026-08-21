@@ -33,7 +33,7 @@ Agents need to delegate self-contained subtasks to child agents that run their o
 - Engine setup script mints both bare `spawn` and composite `agent.spawn` wrapper names (same dual-name projection as P3 wave 3).
 - Output contract (documented verbatim in tool description):
 
-```
+```text
 [agent] id=<id> status=completed depth=1 model=<model> label=<label>
 --- report ---
 <child's final report text>
