@@ -1,8 +1,18 @@
 # eThang Agent
 
-## Project Overview
+## What This Project Is
 
-eThang Agent is an AI agent built with .NET. It will initially be a CLI-only application with a web UI planned for a future phase. The project follows strict Domain-Driven Design (DDD) with proper layers, Specification patterns, and CQRS.
+eThang Agent is an AI agent built with .NET, delivered through a CLI. The project follows strict Domain-Driven Design: layered bounded contexts, Specification patterns, and CQRS.
+
+## Guiding Philosophy
+
+These principles explain every convention below. When a rule seems arbitrary, it traces back to one of these.
+
+- **Seams over commitments.** Every external dependency — AI provider, shell, file system, UI — sits behind an interface the domain owns. Nothing external is ever allowed to become load-bearing inside a domain. Any implementation behind a seam must be replaceable without touching domain code.
+- **Strict correctness at the boundaries.** Inputs crossing into the domain are validated completely: required parameters are required, types are exact, unknown input is rejected, and nothing is silently coerced, defaulted, or clamped. The one deliberate exception (a benign overshoot that is clamped with a visible warning) proves the rule — leniency is a named, documented decision, never a default.
+- **Errors are information, not crashes.** Expected failures flow through `Result<T>` / error values and are delivered to whoever can act on them — including the model itself, which receives tool errors as tool results so it can self-correct. Exceptions are reserved for programmer error.
+- **Reversibility by construction.** The architecture must not preclude alternative frontends, platforms, providers, storage engines, or orchestration topologies. When a choice would foreclose an option, choose the seam instead.
+- **The codebase is not the standard.** Existing code records what was done, not what is right. Never treat a current pattern as best practice just because it is present — when work touches code and a better way exists, improve it in the same change. Improve what you touch; do not launch unrelated refactors.
 
 ## Architecture Principles
 
@@ -10,8 +20,8 @@ eThang Agent is an AI agent built with .NET. It will initially be a CLI-only app
 
 The codebase is organized around business domains, not technical concerns. Each domain owns its models, logic, and boundaries. Domains communicate through well-defined contracts — never by reaching into another domain's internals.
 
-- **Ubiquitous Language**: domain models and code reflect the language of the problem space (agents, conversations, tools, providers, etc.).
-- **Bounded Contexts**: each domain has clear boundaries and ownership.
+- **Ubiquitous Language**: domain models and code reflect the language of the problem space (agents, conversations, tools, providers).
+- **Bounded Contexts**: each domain has clear boundaries and single ownership of its concerns.
 - **Aggregates**: consistency boundaries are enforced through aggregate roots.
 - **Domain Events**: side effects across domains are communicated through events, not direct calls.
 
@@ -28,48 +38,37 @@ Business rules and validation logic are encapsulated in composable Specification
 
 ### Anti-Corruption Layers (ACLs)
 
-Any external system or platform-specific concern is isolated behind an Anti-Corruption Layer. The domain never depends directly on external SDKs, platform APIs, or infrastructure. ACLs translate between the domain's ubiquitous language and the external system's concepts.
+Any external system or platform-specific concern is isolated behind an Anti-Corruption Layer. The domain never depends directly on external SDKs, platform APIs, or infrastructure. ACLs translate between the domain's ubiquitous language and the external system's concepts. An ACL exists because its seam earns its keep — each table row states why the seam exists.
 
-**Planned ACLs:**
-
-| ACL | Purpose | Future Alternatives |
+| ACL | Purpose | Why the seam exists |
 | ----- | --------- | --------------------- |
-| OpenRouter ACL | Translate domain concepts (messages, models, tokens) to/from OpenRouter's API. The domain knows nothing about OpenRouter-specific types, endpoints, or authentication. | Anthropic direct, OpenAI direct, local models |
-| PowerShell ACL | All shell execution goes through this ACL. The domain never calls Process.Start, System.Management.Automation, or shell commands directly. | Bash/Linux support, direct process management |
-| File System ACL | Abstract file I/O behind a domain interface. | Different storage backends, cloud storage |
-| Web UI ACL (future) | Translate between HTTP/WebSocket concerns and the domain's command/query/event contracts. | Different frontend frameworks, API protocols |
+| OpenRouter ACL | Translates domain concepts (messages, models, tool calls) to/from OpenRouter's API. The domain knows nothing about OpenRouter-specific types, endpoints, or authentication. | The domain speaks its own message/tool language, so any provider that can express it can be wired in without domain changes. |
+| PowerShell ACL | All shell execution goes through this ACL. The domain never calls `Process.Start`, `System.Management.Automation`, or shell commands directly. | Shell is an implementation detail of the platform, not of the domain. |
+| File System ACL | All file I/O goes through a domain interface (`IFileSystemAccess`). The domain never touches `System.IO` directly. | Storage access is a capability the domain requests, not a technology it depends on. |
 
 ## Technology Stack & Constraints
 
-### Current
-
 - **Runtime**: .NET 10
 - **Language**: C#
-- **Platform**: Windows only
-- **Shell**: PowerShell (all scripting, automation, and tool execution)
-- **AI Provider**: OpenRouter only — leverage OpenRouter-specific APIs and features (model routing, cost tracking, provider fallback, etc.)
-- **Interface**: CLI only
+- **Platform**: Windows only — all path handling, process execution, and scripting assume Windows.
+- **Shell**: PowerShell — the only shell. No `.sh`, no `.cmd`, no `.bat`.
+- **AI Provider**: OpenRouter — the domain model speaks in provider-neutral concepts, and only the OpenRouter ACL implements them.
+- **Interface**: CLI
 
-### Packages
+### Packaging & Wiring
 
-- Each domain and ACL is its own package (project) for high composability.
-- Packages are designed to be swapped or extended — e.g., the OpenRouter ACL can be replaced with an Anthropic ACL without touching any domain code.
-- Dependency injection wires implementations at composition root; domains depend only on interfaces.
+- Each domain and ACL is its own project (package) for composability.
+- Packages are designed to be swapped or extended — replacing an ACL implementation must never require touching domain code.
+- Dependency injection wires implementations at the composition root; domains depend only on interfaces and contain zero DI container references.
 
-### Constraints
+## Domains
 
-- No Linux support yet. All path handling, process execution, and scripting assumes Windows.
-- PowerShell is the only shell. No bash scripts, no cmd fallbacks.
-- OpenRouter is the only provider. The domain model may anticipate multi-provider concepts, but only OpenRouter is implemented.
+Each concern is owned by exactly one bounded context. When adding code, first ask which domain owns the concern — if the answer is "more than one" or "none", the boundaries need attention before code is written.
 
-## Domain Boundaries (Initial)
-
-These are the anticipated domains — not a final plan, but a sketch of the bounded contexts:
-
-- **Agent Domain**: the core agent loop, conversation orchestration, tool selection, and execution flow.
-- **Conversation Domain**: message history, context windows, token management, and conversation state.
-- **Tool Domain**: tool definitions, tool execution, tool result processing, and built-in tools.
-- **Model Domain**: model capabilities, pricing, routing preferences, and provider selection (OpenRouter-specific initially).
+- **Agent Domain**: the core agent loop, conversation orchestration, tool dispatch, and execution flow.
+- **Conversation Domain**: message history, message shapes (including tool calls and tool results), and conversation state.
+- **Tool Domain**: tool contracts, input validation, tool execution, tool result processing, and built-in tools.
+- **Model Domain**: model capabilities, provider contracts, and model configuration.
 - **Configuration Domain**: agent configuration, model settings, tool enablement, and user preferences.
 
 ## Project Structure
@@ -83,25 +82,23 @@ The solution follows a layered DDD structure. Each bounded context has its own p
 
 Shared kernel (cross-cutting concerns shared across domains):
 
-- `SharedKernel` — base types, common value objects, guard clauses, result types, maybe monads
+- `SharedKernel` — base types, common value objects, guard clauses, result types
 
-ACLs are placed in an `ACL` folder/namespace, each in its own project.
+ACLs live in an `ACL` project each, implementing domain-owned interfaces.
+
+### Naming Conventions
+
+- Domain namespaces omit the dot: `eThangAgent.ToolDomain`, `eThangAgent.ConversationDomain`.
+- ACL namespaces keep it: `eThangAgent.OpenRouter.ACL`, `eThangAgent.FileSystem.ACL`.
 
 ## Development Conventions
 
-- **All scripts are PowerShell** (`.ps1`). No `.sh`, no `.cmd`, no `.bat`.
-- **Build**: `dotnet build` from PowerShell.
-- **Testing**: xUnit. Three layers: unit, integration, and E2E tests. Aim for 100% coverage; minimum 80% coverage required. Integration tests should exercise real ACL implementations against sandbox/test endpoints. E2E tests exercise full CLI workflows end-to-end.
-- **Dependency injection**: all wiring at the composition root (host/CLI project). Domain projects have zero DI container references.
-- **Immutability**: domain models prefer immutability. Use records, init-only properties, and copy constructors.
-- **Error handling**: use result types, not exceptions, for expected domain failures. Exceptions are for infrastructure/programmer errors.
-
-## Future Directions
-
-These are not planned yet — but the architecture must not preclude them:
-
-- **Web UI**: a web frontend that consumes the same command/query/event contracts as the CLI.
-- **Linux support**: the PowerShell ACL and File System ACL are designed to be swapped for Linux-compatible implementations.
-- **Additional AI providers**: the OpenRouter ACL's interface is generic enough to support direct Anthropic, OpenAI, or local model providers.
-- **Persistence**: conversation history, agent state, and configuration stored in a database.
-- **Multi-agent orchestration**: multiple agents collaborating on tasks.
+- **All scripts are PowerShell** (`.ps1`).
+- **Build**: `dotnet build`.
+- **Testing**: xUnit. Three layers: unit, integration, and E2E tests. Aim for 100% coverage; minimum 80% required. Unit tests use fakes only — a domain test must never know PowerShell, HTTP, or OpenRouter exist. Integration tests exercise real ACL implementations against real files / sandbox endpoints. E2E tests drive the full CLI against a local mock provider server.
+- **Every change leaves the build green**: a task is not done if the solution does not build and all tests pass.
+- **Dependency injection**: all wiring at the composition root (host/CLI project).
+- **Immutability**: domain models prefer immutability — records, init-only properties, copy constructors.
+- **Error handling**: result types, not exceptions, for expected domain failures. Exceptions are for infrastructure/programmer errors.
+- **Tool design**: tools demand strictly correct input (see Guiding Philosophy). Tool errors are returned to the model as tool results — an error is feedback for self-correction, never a turn-ending crash. Model-facing output uses explicit format contracts (annotation lines, gutters) documented verbatim in the tool description, so the model never has to guess what it is looking at.
+- **Performance**: hot paths (file reads, shell execution) go through in-process hosting where possible; avoid per-call process spawns. Streaming over loading: read only the requested range, then account for the whole.
