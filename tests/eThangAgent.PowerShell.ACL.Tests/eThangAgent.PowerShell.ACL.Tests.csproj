@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.PowerShell.ACL/eThangAgent.PowerShell.ACL.csproj" />
+  </ItemGroup>
+</Project>
