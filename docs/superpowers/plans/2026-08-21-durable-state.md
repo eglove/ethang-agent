@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-durable-state-design.md` — the plan argues from the spec; executors read both.
 
-> **Progress:** Wave 1 outcome — tasks completed: [1, 2, 3] (Task 3 inline after agent budget death; execution fixes: optional FakeRunner responder, safe event slicing, single-event History expectation, missing-id vs nothing-selected semantics, head re-verification by explicit id, delete logging in fake store, sequenced runner carrying exit-1 detail). Next: Task 4, then Wave 2.
+> **Progress:** Wave 1 COMPLETE — Tasks 1–4 done and verified green (Tasks 3–4 inline after agent budget deaths; plan fixes recorded in prior markers). Next: Wave 2 (Tasks 5–6: evidence runner + CLI wiring).
 
 ## Global Constraints
 
