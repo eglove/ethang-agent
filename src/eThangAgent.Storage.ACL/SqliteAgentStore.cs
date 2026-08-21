@@ -19,36 +19,57 @@ public sealed class SqliteAgentStore : IAgentStore
 
     private readonly AppDatabase _database;
 
+    /// <summary>Single-writer gate: serializes all mutating operations so concurrent
+    ///     callers never race inside SQLite transactions (e.g. transcript seq allocation).
+    ///     Reads stay direct — SQLite handles concurrent readers natively.</summary>
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
+
     public SqliteAgentStore(AppDatabase database)
         => _database = database ?? throw new ArgumentNullException(nameof(database));
 
     public async Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
     {
-        await using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO agents (id, parent_id, depth, status, failure_reason, model_used, label, task_prompt, created_at, completed_at, final_report)
-            VALUES (@id, @parent, @depth, @status, @failure, @model, @label, @prompt, @created, @completed, @report);
-            """;
-        BindRecord(command, record);
-        await command.ExecuteNonQueryAsync(ct);
-        return Result<string>.Success(record.Id.ToString());
+        await _writeGate.WaitAsync(ct);
+        try
+        {
+            await using var connection = _database.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO agents (id, parent_id, depth, status, failure_reason, model_used, label, task_prompt, created_at, completed_at, final_report)
+                VALUES (@id, @parent, @depth, @status, @failure, @model, @label, @prompt, @created, @completed, @report);
+                """;
+            BindRecord(command, record);
+            await command.ExecuteNonQueryAsync(ct);
+            return Result<string>.Success(record.Id.ToString());
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
     }
 
     public async Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
     {
-        await using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            UPDATE agents SET parent_id=@parent, depth=@depth, status=@status, failure_reason=@failure,
-                model_used=@model, label=@label, task_prompt=@prompt, created_at=@created,
-                completed_at=@completed, final_report=@report
-            WHERE id=@id;
-            """;
-        BindRecord(command, record);
-        return await command.ExecuteNonQueryAsync(ct) == 0
-            ? Result<string>.Failure(NotFound(record.Id))
-            : Result<string>.Success(record.Id.ToString());
+        await _writeGate.WaitAsync(ct);
+        try
+        {
+            await using var connection = _database.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                UPDATE agents SET parent_id=@parent, depth=@depth, status=@status, failure_reason=@failure,
+                    model_used=@model, label=@label, task_prompt=@prompt, created_at=@created,
+                    completed_at=@completed, final_report=@report
+                WHERE id=@id;
+                """;
+            BindRecord(command, record);
+            return await command.ExecuteNonQueryAsync(ct) == 0
+                ? Result<string>.Failure(NotFound(record.Id))
+                : Result<string>.Success(record.Id.ToString());
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
     }
 
     public async Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
@@ -69,29 +90,37 @@ public sealed class SqliteAgentStore : IAgentStore
 
     public async Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
     {
-        await using var connection = _database.Open();
-        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(ct);
-
-        if (!await AgentExistsAsync(connection, transaction, id, ct))
+        await _writeGate.WaitAsync(ct);
+        try
         {
-            await transaction.RollbackAsync(ct);
-            return Result<string>.Failure(NotFound(id));
-        }
+            await using var connection = _database.Open();
+            await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(ct);
 
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            INSERT INTO agent_messages (agent_id, seq, role, content, meta_json)
-            VALUES (@id, (SELECT COALESCE(MAX(seq), -1) + 1 FROM agent_messages WHERE agent_id=@id), @role, @content, @meta);
-            """;
-        Add(command, "@id", id.ToString());
-        Add(command, "@role", message.Role.ToString());
-        Add(command, "@content", message.Content);
-        Add(command, "@meta", JsonSerializer.Serialize(
-            new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId)));
-        await command.ExecuteNonQueryAsync(ct);
-        await transaction.CommitAsync(ct);
-        return Result<string>.Success(id.ToString());
+            if (!await AgentExistsAsync(connection, transaction, id, ct))
+            {
+                await transaction.RollbackAsync(ct);
+                return Result<string>.Failure(NotFound(id));
+            }
+
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO agent_messages (agent_id, seq, role, content, meta_json)
+                VALUES (@id, (SELECT COALESCE(MAX(seq), -1) + 1 FROM agent_messages WHERE agent_id=@id), @role, @content, @meta);
+                """;
+            Add(command, "@id", id.ToString());
+            Add(command, "@role", message.Role.ToString());
+            Add(command, "@content", message.Content);
+            Add(command, "@meta", JsonSerializer.Serialize(
+                new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId)));
+            await command.ExecuteNonQueryAsync(ct);
+            await transaction.CommitAsync(ct);
+            return Result<string>.Success(id.ToString());
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
     }
 
     public async Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
