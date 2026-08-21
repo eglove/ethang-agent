@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
+using eThangAgent.PowerShell.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
@@ -44,8 +45,7 @@ public sealed class PowerShellFileSystemAccess : IFileSystemAccess, IDisposable
 
     public PowerShellFileSystemAccess()
     {
-        _runspace = RunspaceFactory.CreateRunspace(InitialSessionState.CreateDefault2());
-        _runspace.Open();
+        _runspace = RunspaceHost.CreateOpen();
     }
 
     public async Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
@@ -54,7 +54,7 @@ public sealed class PowerShellFileSystemAccess : IFileSystemAccess, IDisposable
         await _gate.WaitAsync(ct);
         try
         {
-            using var ps = PowerShell.Create(_runspace);
+            using var ps = System.Management.Automation.PowerShell.Create(_runspace);
             ps.AddScript(Script)
               .AddParameter("Path", path)
               .AddParameter("Start", startLine)
