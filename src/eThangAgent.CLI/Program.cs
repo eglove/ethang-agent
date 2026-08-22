@@ -69,6 +69,7 @@ public static class Program
             .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
             .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
             .AddSingleton<IFileEditAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
+            .AddSingleton<ISearchAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
             .AddSingleton(ExecOptions.Default)
             .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
             .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
@@ -87,6 +88,11 @@ public static class Program
                             sp.GetRequiredService<WorkspacePathResolver>(),
                             sp.GetRequiredService<IFileEditAccess>()),
                         "Edit a file by exact literal replacement."),
+                    new AgentToolBinding(
+                        new SearchTool(
+                            sp.GetRequiredService<WorkspacePathResolver>(),
+                            sp.GetRequiredService<ISearchAccess>()),
+                        "Search workspace text files with literal or regex patterns."),
                 ]))
             .AddSingleton<IWorkspaceContext, CwdWorkspaceContext>()
             .AddSingleton<WorkspacePathResolver>(sp =>
