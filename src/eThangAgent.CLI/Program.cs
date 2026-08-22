@@ -5,6 +5,7 @@ using eThangAgent.ModelDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ToolDomain;
 using eThangAgent.Agent.Application;
+using eThangAgent.Agent.Application.Memory;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.CapabilityDomain;
@@ -87,6 +88,8 @@ public static class Program
                 subAgentOptions.MaxConcurrentAgents))
             .AddSingleton<IAgentSpawnCommand, StartSpawnHandler>()
             .AddSingleton<IAgentQueries, AgentQueries>()
+            .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
+            .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
             .AddSingleton<AgentCapabilityProvider>(sp =>
             {
                 // Root agent record: depth 0, own identity, never persisted — only
@@ -104,6 +107,7 @@ public static class Program
             .AddSingleton<IEvidenceRunner, PsEvidenceRunner>()
             .AddSingleton<IStateService, StateService>()
             .AddSingleton<StateCapabilityProvider>()
+            .AddSingleton<MemoryCapabilityProvider>()
             .AddSingleton<ICapabilityRegistry>(sp =>
                 CapabilityRegistry.Create(
                 [
@@ -113,6 +117,7 @@ public static class Program
                         sp.GetRequiredService<AgentCapabilityProvider>(),
                     ]),
                     sp.GetRequiredService<StateCapabilityProvider>(),
+                    sp.GetRequiredService<MemoryCapabilityProvider>(),
                 ]))
             .AddSingleton<IExecEngine>(sp => new PowerShellExecEngine(
                 new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>()),

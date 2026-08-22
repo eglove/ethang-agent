@@ -8,7 +8,7 @@ namespace eThangAgent.Agent.Application.Memory;
 ///     the agent store, builds the session corpora, plans the query once, searches, and
 ///     projects one paged result. Wire input is validated strictly here — unknown values are
 ///     typed errors naming valid spellings, never silent fallbacks.</summary>
-public sealed class RecallQueryHandler
+public sealed class RecallQueryHandler : IMemoryRecallQuery
 {
     private readonly IAgentStore _store;
 
@@ -23,7 +23,7 @@ public sealed class RecallQueryHandler
     /// <param name="role">Null, or one of user/assistant/tool in any casing.</param>
     public async Task<Result<RecallPage>> Execute(
         string? query, string queryMode, string? scope, string branches, string? role,
-        int page, int pageSize)
+        int page, int pageSize, CancellationToken ct = default)
     {
         if (page < 1)
             return InvalidArgument("page must be at least 1.");
@@ -53,7 +53,7 @@ public sealed class RecallQueryHandler
         if (branchMode is not { } mode)
             return InvalidArgument("branches must be 'active' or 'all'.");
 
-        var corpora = await BuildCorporaAsync(parsedScope.Value!);
+        var corpora = await BuildCorporaAsync(parsedScope.Value!, ct);
         if (!corpora.IsSuccess)
             return Result<RecallPage>.Failure(corpora.Error!);
 
@@ -85,21 +85,21 @@ public sealed class RecallQueryHandler
     private static Result<RecallPage> InvalidArgument(string message)
         => Result<RecallPage>.Failure(new Error("InvalidArgument", message));
 
-    private async Task<Result<List<SessionCorpus>>> BuildCorporaAsync(SessionScope scope)
+    private async Task<Result<List<SessionCorpus>>> BuildCorporaAsync(SessionScope scope, CancellationToken ct)
     {
         var records = scope switch
         {
-            SessionScope.Global => await _store.ListAllAsync(),
-            SessionScope.Session session => (await _store.GetAsync(session.Id))
+            SessionScope.Global => await _store.ListAllAsync(ct),
+            SessionScope.Session session => (await _store.GetAsync(session.Id, ct))
                 .Map(single => (IReadOnlyList<AgentRecord>)[single]),
             _ => throw new NotSupportedException($"Unhandled scope type {scope.GetType().Name}."),
         };
-        return await FromRecordsAsync(records);
+        return await FromRecordsAsync(records, ct);
     }
 
     /// <summary>Turns store rows into corpora; every store failure surfaces untouched.</summary>
     private async Task<Result<List<SessionCorpus>>> FromRecordsAsync(
-        Result<IReadOnlyList<AgentRecord>> records)
+        Result<IReadOnlyList<AgentRecord>> records, CancellationToken ct)
     {
         if (!records.IsSuccess)
             return Result<List<SessionCorpus>>.Failure(records.Error!);
@@ -107,7 +107,7 @@ public sealed class RecallQueryHandler
         List<SessionCorpus> corpora = [];
         foreach (var record in records.Value!)
         {
-            var transcript = await _store.GetTranscriptAsync(record.Id);
+            var transcript = await _store.GetTranscriptAsync(record.Id, ct);
             if (!transcript.IsSuccess)
                 return Result<List<SessionCorpus>>.Failure(transcript.Error!);
 

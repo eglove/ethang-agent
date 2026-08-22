@@ -1,6 +1,4 @@
-using eThangAgent.AgentDomain;
-
-namespace eThangAgent.MemoryDomain;
+namespace eThangAgent.AgentDomain;
 
 /// <summary>One listed session's identity line: lineage, size, lifecycle, and tier.
 ///     <see cref="Tier"/> is always "hot" — every persisted session is fully indexed;

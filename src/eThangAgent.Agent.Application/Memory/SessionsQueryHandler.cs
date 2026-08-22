@@ -8,7 +8,7 @@ namespace eThangAgent.Agent.Application.Memory;
 ///     lineage, size, lifecycle, and the constant hot tier. Scope and branches are validated
 ///     with the same strictness as recall so both actions share one wire contract; the listing
 ///     itself spans every persisted row, ordered CreatedAt descending.</summary>
-public sealed class SessionsQueryHandler
+public sealed class SessionsQueryHandler : IMemorySessionsQuery
 {
     /// <summary>pi-fabric's session ceiling, ported verbatim as the wire limit cap.</summary>
     public const int MaxLimit = 500;
@@ -23,7 +23,7 @@ public sealed class SessionsQueryHandler
     /// <param name="branches">Exactly "active" or "all".</param>
     /// <param name="limit">1..500.</param>
     public async Task<Result<IReadOnlyList<SessionSummary>>> Execute(
-        string? scope, string branches, int limit)
+        string? scope, string branches, int limit, CancellationToken ct = default)
     {
         if (limit < 1 || limit > MaxLimit)
             return InvalidArgument($"limit must be between 1 and {MaxLimit}.");
@@ -37,14 +37,14 @@ public sealed class SessionsQueryHandler
         if (!branchKnown)
             return InvalidArgument("branches must be 'active' or 'all'.");
 
-        var listed = await _store.ListAllAsync();
+        var listed = await _store.ListAllAsync(ct);
         if (!listed.IsSuccess)
             return Result<IReadOnlyList<SessionSummary>>.Failure(listed.Error!);
 
         List<SessionSummary> summaries = [];
         foreach (var record in listed.Value!.OrderByDescending(r => r.CreatedAt).Take(limit))
         {
-            var transcript = await _store.GetTranscriptAsync(record.Id);
+            var transcript = await _store.GetTranscriptAsync(record.Id, ct);
             if (!transcript.IsSuccess)
                 return Result<IReadOnlyList<SessionSummary>>.Failure(transcript.Error!);
 
