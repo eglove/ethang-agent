@@ -71,6 +71,9 @@ public static class Program
             .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
             .AddSingleton<IFileEditAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
             .AddSingleton<ISearchAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
+            .AddSingleton<PowerShellGitAccess>()
+            .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<PowerShellGitAccess>())
+            .AddSingleton<IGitCommitAccess>(sp => sp.GetRequiredService<PowerShellGitAccess>())
             .AddSingleton(ExecOptions.Default)
             .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
             .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
@@ -116,6 +119,21 @@ public static class Program
                     new AgentToolBinding(
                         new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
                         "Track a workspace task list."),
+                    new AgentToolBinding(
+                        new GitStatusTool(
+                            sp.GetRequiredService<WorkspacePathResolver>(),
+                            sp.GetRequiredService<IGitQueryAccess>()),
+                        "Show branch and working-tree status."),
+                    new AgentToolBinding(
+                        new WorkingDiffTool(
+                            sp.GetRequiredService<WorkspacePathResolver>(),
+                            sp.GetRequiredService<IGitQueryAccess>()),
+                        "Show staged/unstaged/all working-tree diff, bounded."),
+                    new AgentToolBinding(
+                        new GitCommitTool(
+                            sp.GetRequiredService<WorkspacePathResolver>(),
+                            sp.GetRequiredService<IGitCommitAccess>()),
+                        "Commit the current index with a validated conventional or gitmoji message."),
                 ]))
             .AddSingleton<IWorkspaceContext, CwdWorkspaceContext>()
             .AddSingleton<WorkspacePathResolver>(sp =>
