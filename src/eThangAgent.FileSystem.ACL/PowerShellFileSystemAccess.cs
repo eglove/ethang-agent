@@ -7,7 +7,7 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL;
 
-public sealed class PowerShellFileSystemAccess : IFileSystemAccess, IFileWriteAccess, IFileEditAccess, IDisposable
+public sealed class PowerShellFileSystemAccess : IFileSystemAccess, IFileWriteAccess, IFileEditAccess, ISearchAccess, IDisposable
 {
     private const string Script = """
         param([string]$Path, [int]$Start, [int]$End)
@@ -221,6 +221,112 @@ public sealed class PowerShellFileSystemAccess : IFileSystemAccess, IFileWriteAc
                     table["ErrorMessage"]?.ToString() ?? "Unknown filesystem error."));
             return Result<ReplaceOutcome>.Success(new ReplaceOutcome(
                 Convert.ToInt32(table["Replaced"]!), Convert.ToInt32(table["NewLineCount"]!)));
+        }
+        finally { _gate.Release(); }
+    }
+
+    private const string SearchScript = """
+        param([string]$Root, [string]$Pattern, [bool]$Regex, [string]$Glob, [int]$Max, [int]$Context)
+        if (-not [System.IO.Directory]::Exists($Root)) {
+            return @{ Ok = $false; ErrorCode = "RootNotFound";
+                      ErrorMessage = "Search root not found: $Root" }
+        }
+        $rx = $null
+        if ($Regex) {
+            try {
+                $rx = [System.Text.RegularExpressions.Regex]::new(
+                    $Pattern, [System.Text.RegularExpressions.RegexOptions]::None,
+                    [TimeSpan]::FromSeconds(2))
+            } catch {
+                return @{ Ok = $false; ErrorCode = "InvalidPattern";
+                          ErrorMessage = "Invalid regular expression '$Pattern': $($_.Exception.Message)" }
+            }
+        }
+        $hits = [System.Collections.Generic.List[object]]::new()
+        $scanned = 0
+        $truncated = $false
+        $enum = [System.IO.Directory]::EnumerateFiles(
+            $Root, "*", [System.IO.SearchOption]::AllDirectories).GetEnumerator()
+        while ($enum.MoveNext()) {
+            if ($hits.Count -ge $Max) { $truncated = $true; break }
+            $file = $enum.Current
+            if ($file.Contains("\.git\")) { continue }
+            if ($Glob -and -not ([System.IO.Path]::GetFileName($file) -like $Glob)) { continue }
+            try {
+                $head = [byte[]]::new(1024)
+                $fs = [System.IO.File]::OpenRead($file)
+                try { $n = $fs.Read($head, 0, 1024) } finally { $fs.Dispose() }
+                $binary = $false
+                for ($i = 0; $i -lt $n; $i++) { if ($head[$i] -eq 0) { $binary = $true; break } }
+                if ($binary) { continue }
+                $lines = [System.Collections.Generic.List[string]]::new()
+                $sr = [System.IO.StreamReader]::new($file)
+                try {
+                    while ($null -ne ($line = $sr.ReadLine())) { [void]$lines.Add($line) }
+                } finally { $sr.Dispose() }
+            } catch { continue }
+            $scanned++
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                if ($rx -ne $null) {
+                    try { $isMatch = $rx.IsMatch($lines[$i]) }
+                    catch [System.Text.RegularExpressions.RegexMatchTimeoutException] {
+                        return @{ Ok = $false; ErrorCode = "FileSystemError";
+                                  ErrorMessage = "Regex match timed out on: $file" }
+                    }
+                } else {
+                    $isMatch = $lines[$i].Contains($Pattern, [System.StringComparison]::Ordinal)
+                }
+                if ($isMatch) {
+                    $from = [Math]::Max(0, $i - $Context)
+                    $to = [Math]::Min($lines.Count - 1, $i + $Context)
+                    $window = [string[]]::new($to - $from + 1)
+                    for ($j = $from; $j -le $to; $j++) { $window[$j - $from] = $lines[$j] }
+                    [void]$hits.Add(@{ Path = $file; Line = ($i + 1); Lines = $window })
+                }
+            }
+        }
+        return @{ Ok = $true; Matches = $hits; Truncated = $truncated; Files = $scanned }
+        """;
+
+    public async Task<Result<FileSearch>> SearchFilesAsync(
+        string rootPath, string pattern, bool regex, string? glob,
+        int maxResults, int contextLines, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            using var ps = System.Management.Automation.PowerShell.Create(_runspace);
+            ps.AddScript(SearchScript)
+              .AddParameter("Root", rootPath)
+              .AddParameter("Pattern", pattern)
+              .AddParameter("Regex", regex)
+              .AddParameter("Glob", glob ?? string.Empty)
+              .AddParameter("Max", maxResults)
+              .AddParameter("Context", contextLines);
+            var output = ps.Invoke();
+            if (ps.HadErrors || output.Count == 0)
+                return Result<FileSearch>.Failure(new Error("FileSystemError",
+                    ps.Streams.Error.FirstOrDefault()?.Exception?.Message
+                        ?? "PowerShell script produced no output."));
+            var table = (Hashtable)output[0].BaseObject;
+            if (table["Ok"] is not true)
+                return Result<FileSearch>.Failure(new Error(
+                    table["ErrorCode"]?.ToString() ?? "FileSystemError",
+                    table["ErrorMessage"]?.ToString() ?? "Unknown filesystem error."));
+            var matches = new List<SearchMatch>();
+            foreach (var raw in (IEnumerable)table["Matches"]!)
+            {
+                var ht = (Hashtable)(raw is PSObject pso ? pso.BaseObject! : raw);
+                var window = ((IEnumerable)ht["Lines"]!).Cast<object>()
+                    .Select(o => o is PSObject po ? po.BaseObject?.ToString() ?? "" : o.ToString() ?? "")
+                    .ToList();
+                matches.Add(new SearchMatch(
+                    ht["Path"]?.ToString() ?? "",
+                    Convert.ToInt32(ht["Line"]!),
+                    window));
+            }
+            return Result<FileSearch>.Success(new FileSearch(
+                matches, table["Truncated"] is true, Convert.ToInt32(table["Files"]!)));
         }
         finally { _gate.Release(); }
     }
