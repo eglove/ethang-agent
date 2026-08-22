@@ -152,10 +152,12 @@ csproj:
 ### Task 2: `CommitMessage` — validation + deterministic rendering
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/CommitMessage.cs`
 - Test: `tests/eThangAgent.Tool.Domain.Tests/CommitMessageTests.cs`
 
 **Interfaces:**
+
 - Consumes: `GitmojiCatalog` (Task 1).
 - Produces:
 
@@ -171,6 +173,7 @@ public sealed record CommitMessage(string Rendered, string Subject)
 ```
 
 Validation rules (each violation its own error, checked in this order):
+
 1. `style` must be exactly `Conventional | Gitmoji | None` (ordinal) → `InvalidStyle` listing the three.
 2. Conventional: `type` required (`TypeRequired`) against the fixed set feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert (`UnknownType` listing the set); `emojiKey` present → `ParameterNotAllowed`.
 3. Gitmoji: `emoji_key` required (`EmojiKeyRequired`); `GitmojiCatalog.Lookup` failure surfaces verbatim; `type` or `scope` present → `ParameterNotAllowed`.
@@ -180,6 +183,7 @@ Validation rules (each violation its own error, checked in this order):
 7. `body`: may be null/empty (→ none); stored verbatim otherwise (multi-line allowed).
 
 Rendering (deterministic):
+
 - Subject: Conventional → `<type>(<scope>): <desc>` / `<type>: <desc>`; Gitmoji → `<emoji> <desc>`; None → `<desc>`.
 - Body: appended as blank-line + body; rendered string ends with a single trailing `\n`.
 
@@ -194,6 +198,7 @@ Rendering (deterministic):
 ### Task 3: Git access seams + PowerShell implementation
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/GitStatus.cs`, `GitDiff.cs`, `GitCommitOutcome.cs`, `IGitQueryAccess.cs`, `IGitCommitAccess.cs`
 - Create: `src/eThangAgent.FileSystem.ACL/PowerShellGitAccess.cs`
 - Test: `tests/eThangAgent.FileSystem.ACL.Tests/PowerShellGitAccessIntegrationTests.cs`
@@ -223,6 +228,7 @@ public interface IGitCommitAccess
 Error codes: `NotAGitRepository`, `NothingStaged` (commit with empty index; hint: stage via exec git add), `GitError` (non-zero git exit with stderr text).
 
 Scripts (one per operation, on the class's own open runspace + semaphore — mirror `PowerShellFileSystemAccess` construction exactly):
+
 - **status**: `git -C $Root rev-parse --abbrev-ref HEAD` (branch; failure → NotAGitRepository via stderr match or exit code) then `git -C $Root status --porcelain`; parse lines: first two chars = XY; `??` → untracked (path is rest of line minus prefix); renames `R  old -> new` keep FULL `old -> new` string as Path in staged; everything else split by whether X != ' ' (staged) or Y != ' ' (unstaged); both dirty (X!=' ',Y!=' ') appears in BOTH lists.
 - **diff**: scope Staged → `git diff --cached --numstat` + `git diff --cached`; Unstaged → plain; All → both patches concatenated with a `\n### staged ###\n` / `\n### unstaged ###\n` separator line between numstat sections aggregated per requested set. numstat rows: `add\tdelete\tpath` (binary → `-\t-` counted as 0/0). Patch bounded at MaxPatchChars = 20000: if longer, cut at last complete line before cap, Truncated=true, TotalChars=actual full length.
 - **commit**: check `git diff --cached --name-only` output empty → NothingStaged; else write message to temp file ([System.IO.Path]::GetTempFileName()), `git commit -F <tmp>` capturing output, delete temp file, then `git rev-parse --short HEAD` and branch. Any non-zero exit → GitError with stderr.
@@ -239,14 +245,17 @@ All three: run with working directory = repoPath (script param Root used via -C 
 ### Task 4: The three tools
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/GitStatusTool.cs`, `WorkingDiffInput.cs`, `WorkingDiffTool.cs`, `GitCommitInput.cs`, `GitCommitTool.cs`
 - Test: `tests/eThangAgent.Tool.Domain.Tests/GitStatusToolTests.cs`, `WorkingDiffToolTests.cs`, `GitCommitToolTests.cs`
 
 **Interfaces:**
+
 - Consumes: `WorkspacePathResolver` (resolve the tool's implicit root: resolver.Resolve(".")), `IGitQueryAccess`, `IGitCommitAccess`, `CommitMessage.Create`.
 - Produces:
 
 `git_status` — zero parameters (reject any unknown key; `{}` accepted). Output contract:
+
 ```text
 [git-status <branch>: S staged, U unstaged, T untracked]
 staged:
@@ -256,21 +265,26 @@ unstaged:
 untracked:
 ?? notes.txt
 ```
+
 Empty groups are omitted; fully clean repo → `[git-status <branch>: clean]`.
 
 `working_diff` — input (house pattern): `scope` required, exactly `Staged | Unstaged | All`; `path` optional non-empty string, resolved via resolver (`PathOutsideWorkspace` surfaces). Output contract:
+
 ```text
 [working-diff scope=<scope> path=<path|none>: N file(s), +A/-D lines]
 <patch verbatim>
 [warning] truncated at 20000 chars; total 45123 — narrow with path/scope
 ```
+
 No changes → `[working-diff ...: no differences]`.
 
 `git_commit` — input: `style` (required), `type`, `scope`, `emoji_key`, `description` (required), `body` (optional). Unknown keys rejected. Flow: `CommitMessage.Create(...)` → failure surfaces its codes verbatim → resolve root → `_commits.CommitAsync(root, msg.Rendered)`. Output contract:
+
 ```text
 [git-commit <hash>] committed on <branch>
 <message exactly as committed>
 ```
+
 Backend errors (`NothingStaged`, `NotAGitRepository`, `GitError`) surface verbatim with their hints.
 
 - [ ] **Step 1: Failing tests** (fakes over both access seams + synthetic-root resolver):
@@ -290,6 +304,7 @@ git_commit (~12): happy conventional with scope (fake captures EXACT rendered st
 ### Task 5: Wire, README, verify
 
 **Files:**
+
 - Modify: `src/eThangAgent.CLI/Program.cs`, `README.md`
 
 - [ ] **Step 1: Registrations + bindings.** One shared instance pattern like SP1:
