@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "1.4";
+    public const string Version = "1.5";
 
     public const string Text = """
     ## exec — writing PowerShell programs
@@ -69,6 +69,30 @@ public static class ExecGuide
     - `Error [ConcurrencyCapReached]` from `agent.spawn` means the runtime is at its
       concurrent-agent limit — retrieve pending results before spawning more.
     - Children see the full tool surface and may spawn their own children — depth limit 3.
+
+    ### Recalling earlier work
+
+    Run `memory.sessions` when resuming work or before duplicating effort — it
+    lists what conversations exist:
+
+        memory.sessions @{}
+        → session=<guid> label=root depth=0 entries=42 status=running tier=hot
+
+    `memory.recall` searches transcripts for earlier decisions, errors, and context:
+
+        memory.recall @{ query = 'deploy rollback'; scope = 'global' }
+
+    - Literal mode is the default — tokens ANDed: every whitespace-separated token must
+      appear in a hit.
+    - queryMode = 'regex' switches to bounded regex. Budget errors `regex_pattern_too_large`,
+      `invalid_regex`, `regex_timeout` mean simplify the pattern or use literal mode.
+    - scope is 'global' or 'session:<id>'. branches is 'active' (default: only lineages
+      reaching a root) or 'all' (every persisted session).
+    - Long result sets are paged: pass page and pageSize (max 200); the footer reports
+      `<total> hits, page <p>/<pages>`.
+
+    Memory is READ-ONLY — nothing to save yet.
+
     ### Errors
 
     Tool failures throw terminating errors — catch them with try/catch:
