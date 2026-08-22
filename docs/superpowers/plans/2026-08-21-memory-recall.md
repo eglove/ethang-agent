@@ -199,7 +199,7 @@ All Task 8 steps completed green; no supplemental tests were required.
 
 ### E2E (Step 1)
 
-`Repl_MemoryRecall_AgainstMockServer` passed on its first run against the already-green Tasks 1–7 implementation (verification task — RED→GREEN iteration not needed). It scripts four parent turns: plain assistant reply seeding `xylophone harvest`, exec `memory.sessions @{ limit = 50 }`, exec `memory.recall @{ query = 'xylophone'; scope = 'global' }`, final text `recalled.`. All assertions read decoded tool-message content only: root session line matching `session=<guid> label=root depth=0 entries=\d+ `, `[mem] session=` hit carrying the seeded phrase, and footer regex `--- memory: \d+ hits, page 1/\d+ ---`. Process sweep (`testhost.exe`, `eThangAgent.CLI.exe`) performed after every dotnet invocation.
+`Repl_MemoryRecall_AgainstMockServer` passed on its first run against the already-green Tasks 1–7 implementation (verification task — RED→GREEN iteration not needed). It scripts four parent turns: plain assistant reply seeding `xylophone harvest`, exec `memory.sessions @{ limit = 50 }`, exec `memory.recall @{ query = 'xylophone'; scope = 'global' }`, final text `recalled.`. All assertions read decoded tool-message content only: root session line matching `session=<guid> label=root depth=0 entries=\d+`, `[mem] session=` hit carrying the seeded phrase, and footer regex `--- memory: \d+ hits, page 1/\d+ ---`. Process sweep (`testhost.exe`, `eThangAgent.CLI.exe`) performed after every dotnet invocation.
 
 ### Suite totals (Step 2)
 
