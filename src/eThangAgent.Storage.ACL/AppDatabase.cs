@@ -46,6 +46,11 @@ public sealed class AppDatabase
             ApplyV3(connection);
             SetVersion(connection, 3);
         }
+        if (GetVersion(connection) < 4)
+        {
+            ApplyV4(connection);
+            SetVersion(connection, 4);
+        }
     }
 
     private static int GetVersion(SqliteConnection connection)
@@ -168,6 +173,49 @@ public sealed class AppDatabase
                 viewed_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS ix_skill_usage_name ON skill_usage (skill_name);
+            """;
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+        transaction.Commit();
+    }
+
+    private static void ApplyV4(SqliteConnection connection)
+    {
+        var sql = """
+            CREATE TABLE IF NOT EXISTS curated_memories (
+                id            TEXT PRIMARY KEY,
+                workspace_id  TEXT NOT NULL,
+                category      TEXT NOT NULL,
+                tags          TEXT NOT NULL,
+                content       TEXT NOT NULL,
+                usage_hint    TEXT NULL,
+                scope         TEXT NOT NULL,
+                provenance    TEXT NULL,
+                version       INTEGER NOT NULL,
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_curated_ws ON curated_memories (workspace_id, scope);
+            CREATE VIRTUAL TABLE IF NOT EXISTS curated_memories_fts USING fts5(
+                content, tags, usage_hint, content='curated_memories', content_rowid='rowid'
+            );
+            CREATE TRIGGER IF NOT EXISTS curated_ai AFTER INSERT ON curated_memories BEGIN
+                INSERT INTO curated_memories_fts(rowid, content, tags, usage_hint)
+                VALUES (new.rowid, new.content, new.tags, new.usage_hint);
+            END;
+            CREATE TRIGGER IF NOT EXISTS curated_ad AFTER DELETE ON curated_memories BEGIN
+                INSERT INTO curated_memories_fts(curated_memories_fts, rowid, content, tags, usage_hint)
+                VALUES ('delete', old.rowid, old.content, old.tags, old.usage_hint);
+            END;
+            CREATE TRIGGER IF NOT EXISTS curated_au AFTER UPDATE ON curated_memories BEGIN
+                INSERT INTO curated_memories_fts(curated_memories_fts, rowid, content, tags, usage_hint)
+                VALUES ('delete', old.rowid, old.content, old.tags, old.usage_hint);
+                INSERT INTO curated_memories_fts(rowid, content, tags, usage_hint)
+                VALUES (new.rowid, new.content, new.tags, new.usage_hint);
+            END;
             """;
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
