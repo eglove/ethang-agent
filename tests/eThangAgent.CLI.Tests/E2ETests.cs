@@ -189,6 +189,59 @@ public class E2ETests
         try { File.Delete(db); } catch { }
     }
 
+    /// <summary>Boundary honesty E2E over the composed stack: the todo tool's own writes
+    ///     flow through StateServiceTodoListStore → StateService → SqliteStateStore and
+    ///     succeed, while model-invoked state.set/state.delete against the reserved
+    ///     'todo' namespace are rejected at the capability boundary with ReservedNamespace
+    ///     and leave the persisted todo document untouched.</summary>
+    [Fact]
+    public async Task Repl_TodoToolWritesFlow_ButModelStateWritesOnTodoNs_AreRejected()
+    {
+        using var mock = new MockOpenRouterServer();
+        mock.Start();
+        var db = Path.Combine(Path.GetTempPath(), $"ethang-todo-{Guid.NewGuid():N}.db");
+
+        mock.Returns(ExecToolCall("call_1", ExecProgram("todo @{ action = 'Add'; description = 'ship it' }")));
+        mock.Returns(ExecToolCall("call_2", ExecProgram("state.set @{ key = 'todo/list'; value = 'hijack' }")));
+        mock.Returns(ExecToolCall("call_3", ExecProgram("state.delete @{ key = 'todo/list' }")));
+        mock.Returns(ExecToolCall("call_4", ExecProgram("todo @{ action = 'List' }")));
+        mock.Returns("""{"choices":[{"message":{"content":"done"}}]}""");
+
+        using var process = StartCli(mock, db);
+        var reader = process.StandardOutput;
+        await ReadUntil(reader, "> ");
+
+        await process.StandardInput.WriteLineAsync("track one task, then try to write todo state directly");
+        await process.StandardInput.FlushAsync();
+
+        var response = await ReadUntil(reader, "> ");
+        Assert.True(mock.RequestBodies.Count >= 5,
+            $"expected at least 5 scripted requests, got {mock.RequestBodies.Count}");
+
+        // (a) Composed flow: the todo tool's own adapter write landed in durable state.
+        Assert.Contains("[todo] added #1",
+            GetLastToolMessage(mock.RequestBodies[1]), StringComparison.Ordinal);
+
+        // (b) Boundary gate: model-invoked writes to the reserved namespace are rejected
+        //     with ReservedNamespace, never reaching the service.
+        Assert.Contains("ReservedNamespace",
+            GetLastToolMessage(mock.RequestBodies[2]), StringComparison.Ordinal);
+        Assert.Contains("ReservedNamespace",
+            GetLastToolMessage(mock.RequestBodies[3]), StringComparison.Ordinal);
+
+        // (c) The rejected foreign writes left the persisted todo document untouched.
+        Assert.Contains("#1 [Pending] ship it",
+            GetLastToolMessage(mock.RequestBodies[4]), StringComparison.Ordinal);
+
+        Assert.Contains("done", response, StringComparison.OrdinalIgnoreCase);
+
+        await process.StandardInput.WriteLineAsync("/quit");
+        await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token);
+        Assert.Equal(0, process.ExitCode);
+
+        try { File.Delete(db); } catch { }
+    }
+
     /// <summary>Nested-spawn E2E, async contract: the parent session spawns a child through
     ///     agent.spawn (returns immediately with status=running and no report), then fetches
     ///     the finished child's report through agent.result. The mock plays both sides via

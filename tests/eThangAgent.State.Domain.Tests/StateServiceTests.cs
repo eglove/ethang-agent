@@ -31,40 +31,25 @@ public class StateServiceTests
     }
 
     [Fact]
-    public async Task Set_ReservedTodoNamespace_Fails_ReservedNamespace()
+    public async Task Set_AllowsTodoNamespace_ForInternalComposition()
     {
-        var store = new FakeStateStore();
+        var result = await Create().SetAsync("todo/list", "[]", null);
 
-        var result = await Create(store).SetAsync("todo/list", "[]", null);
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal("ReservedNamespace", result.Error!.Code);
-        Assert.Contains("'todo'", result.Error.Message);
-        Assert.Null(await store.GetKeyAsync("ws", "todo", "list"));
+        Assert.True(result.IsSuccess);
+        Assert.Equal("todo", result.Value!.Ns);
+        Assert.Equal(1, result.Value.Version);
     }
 
     [Fact]
-    public async Task Delete_ReservedTodoNamespace_Fails_ReservedNamespace()
-    {
-        var store = new FakeStateStore();
-
-        var result = await Create(store).DeleteAsync("todo/list", null);
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal("ReservedNamespace", result.Error!.Code);
-        Assert.Contains("'todo'", result.Error.Message);
-    }
-
-    [Fact]
-    public async Task ReservedTodoNamespace_DoesNotAffectOtherNamespaces()
+    public async Task Delete_AllowsTodoNamespace_AfterSet()
     {
         var service = Create();
+        await service.SetAsync("todo/list", "[]", null);
 
-        var set = await service.SetAsync("notes/scratch", "{}", null);
-        var deleted = await service.DeleteAsync("notes/scratch", 1);
+        var deleted = await service.DeleteAsync("todo/list", 1);
 
-        Assert.True(set.IsSuccess);
         Assert.True(deleted.IsSuccess);
+        Assert.Equal("deleted todo/list", deleted.Value);
     }
 
     [Fact]

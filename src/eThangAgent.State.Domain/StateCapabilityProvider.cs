@@ -8,6 +8,13 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
 {
     public const string ProviderId = "state";
 
+    /// <summary>Namespace owned by the todo tool's list storage. The reservation is
+    ///     enforced HERE, at the model-facing capability boundary: a 'foreign write'
+    ///     is a model-invoked state.set/state.delete, so only those are gated, while
+    ///     internal composition (the todo tool's own adapter over IStateService)
+    ///     flows unrestricted.</summary>
+    private const string ReservedTodoNamespace = "todo";
+
     private readonly IStateService _service;
 
     public StateCapabilityProvider(IStateService service)
@@ -21,12 +28,12 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
             "Reads one namespaced key. Fails with KeyNotFound when absent.",
             [new ActionParameter("key", "String", "Namespaced key, e.g. current/head.")]),
         new("set", "Write a durable state value with optional compare-and-swap.",
-            "Creates or updates a key. Supply expectedVersion to require the current version; a mismatch fails closed with VersionConflict naming the current version. Returns the new version.",
+            "Creates or updates a key. Supply expectedVersion to require the current version; a mismatch fails closed with VersionConflict naming the current version. Returns the new version. Namespace 'todo' is reserved and fails with ReservedNamespace.",
             [new ActionParameter("key", "String", "Namespaced key."),
              new ActionParameter("value", "String", "Value to store."),
              new ActionParameter("expectedVersion", "Integer", "Optional. Fail unless the stored version matches.")]),
         new("delete", "Delete a durable state key.",
-            "Removes a key. Supply expectedVersion for a compare-and-swap delete.",
+            "Removes a key. Supply expectedVersion for a compare-and-swap delete. Namespace 'todo' is reserved and fails with ReservedNamespace.",
             [new ActionParameter("key", "String", "Namespaced key."),
              new ActionParameter("expectedVersion", "Integer", "Optional. Fail unless the stored version matches.")]),
         new("list", "List state keys.",
@@ -82,6 +89,8 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
     private async Task<CapabilityInvocationResult> SetAsync(string json)
     {
         var args = ParseArgs(json, Allowed("key", "value", "expectedVersion"));
+        if (ReservedNamespaceError(ReqString(args, "key")) is { } setError)
+            return Gutter(setError);
         var saved = await _service.SetAsync(ReqString(args, "key"), ReqString(args, "value"), OptInt(args, "expectedVersion"));
         return saved.IsSuccess
             ? CapabilityInvocationResult.Ok($"saved {saved.Value!.Ns}/{saved.Value.Name} v{saved.Value.Version}")
@@ -89,9 +98,26 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
     }
 
     private async Task<CapabilityInvocationResult> DeleteAsync(string json)
-        => ToResult(await _service.DeleteAsync(
-            ReqString(ParseArgs(json, Allowed("key", "expectedVersion")), "key"),
-            OptInt(ParseArgs(json, Allowed("key", "expectedVersion")), "expectedVersion")));
+    {
+        var args = ParseArgs(json, Allowed("key", "expectedVersion"));
+        var key = ReqString(args, "key");
+        if (ReservedNamespaceError(key) is { } deleteError)
+            return Gutter(deleteError);
+        return ToResult(await _service.DeleteAsync(key, OptInt(args, "expectedVersion")));
+    }
+
+    /// <summary>Parses the key's namespace exactly as the service will (StateKey.Parse)
+    ///     and returns the ReservedNamespace error when it names the todo tool's
+    ///     namespace; null when the write may proceed to the service.</summary>
+    private static Error? ReservedNamespaceError(string key)
+    {
+        var parsed = StateKey.Parse(key);
+        return parsed.IsSuccess && parsed.Value.Ns == ReservedTodoNamespace
+            ? new Error("ReservedNamespace",
+                $"'{key}' uses reserved namespace '{ReservedTodoNamespace}', which is owned by " +
+                "the todo tool. Choose a different namespace.")
+            : null;
+    }
 
     private async Task<CapabilityInvocationResult> ListAsync(string json)
         => ToResult(await _service.ListAsync(OptString(ParseArgs(json, Allowed("ns")), "ns")));

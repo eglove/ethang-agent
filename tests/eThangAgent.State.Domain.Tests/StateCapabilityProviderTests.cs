@@ -48,6 +48,47 @@ public class StateCapabilityProviderTests
     }
 
     [Fact]
+    public async Task Set_ReservedTodoNamespace_Rejected_AtBoundary()
+    {
+        var service = new FakeStateService();
+
+        var result = await Create(service).InvokeAsync("set",
+            """{"key":"todo/list","value":"[]"}""");
+
+        Assert.True(result.IsError);
+        Assert.Contains("Error [ReservedNamespace]:", result.Content);
+        Assert.Contains("'todo'", result.Content);
+        Assert.Null(service.LastKey); // never reached the service
+    }
+
+    [Fact]
+    public async Task Delete_ReservedTodoNamespace_Rejected_AtBoundary()
+    {
+        var service = new FakeStateService();
+
+        var result = await Create(service).InvokeAsync("delete",
+            """{"key":"todo/list","expectedVersion":1}""");
+
+        Assert.True(result.IsError);
+        Assert.Contains("Error [ReservedNamespace]:", result.Content);
+        Assert.Contains("'todo'", result.Content);
+        Assert.Null(service.LastKey); // never reached the service
+    }
+
+    [Fact]
+    public async Task ReservedTodoNamespace_DoesNotAffectOtherNamespaces()
+    {
+        var service = new FakeStateService();
+
+        var set = await Create(service).InvokeAsync("set", """{"key":"notes/scratch","value":"{}"}""");
+        var delete = await Create(service).InvokeAsync("delete", """{"key":"notes/scratch"}""");
+
+        Assert.False(set.IsError);
+        Assert.False(delete.IsError);
+        Assert.Equal("notes/scratch", service.LastKey);
+    }
+
+    [Fact]
     public async Task Transition_ParsesEvidenceArray_AndReturnsId()
     {
         var service = new FakeStateService();
