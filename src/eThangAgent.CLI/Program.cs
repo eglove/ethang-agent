@@ -65,15 +65,26 @@ public static class Program
             .AddSingleton(_ => ModelConfig.Create("stealth/ox-alpha", 1024, 0.7f).Value!)
             .AddSingleton<Conversation>()
             .AddSingleton<IConversationRepository, InMemoryConversationRepository>()
-            .AddSingleton<IFileSystemAccess, PowerShellFileSystemAccess>()
+            .AddSingleton<PowerShellFileSystemAccess>()
+            .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
+            .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
             .AddSingleton(ExecOptions.Default)
             .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
             .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
             .AddSingleton<AgentToolsProvider>(sp => new AgentToolsProvider("agent",
-                [new AgentToolBinding(
-                    new ReadTool(sp.GetRequiredService<IFileSystemAccess>()),
-                    "Read lines from a text file.")]))
+                [
+                    new AgentToolBinding(
+                        new ReadTool(sp.GetRequiredService<IFileSystemAccess>()),
+                        "Read lines from a text file."),
+                    new AgentToolBinding(
+                        new WriteTool(
+                            sp.GetRequiredService<WorkspacePathResolver>(),
+                            sp.GetRequiredService<IFileWriteAccess>()),
+                        "Create or overwrite a workspace file."),
+                ]))
             .AddSingleton<IWorkspaceContext, CwdWorkspaceContext>()
+            .AddSingleton<WorkspacePathResolver>(sp =>
+                new WorkspacePathResolver(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
             .AddSingleton<AppDatabase>()
             .AddSingleton<IStateStore, SqliteStateStore>()
             .AddSingleton<IAgentStore, SqliteAgentStore>()
