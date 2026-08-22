@@ -328,10 +328,23 @@ Parent script (model-keyed, e.g. `mock/sub-parent`): turn 1 → one ToolCallRequ
 
 **Interfaces:** none — verification-only task.
 
-- [ ] **Step 1:** `dotnet build --nologo -v q` — zero errors.
-- [ ] **Step 2:** `dotnet test --nologo` — all suites green; record totals.
-- [ ] **Step 3:** Coverage — `dotnet test tests/eThangAgent.Agent.Application.Tests --collect:'XPlat Code Coverage'` and same for `tests/eThangAgent.Agent.Infrastructure.Tests`; parse each `coverage.cobertura.xml` line-rate for `eThangAgent.AgentApplication*` / `eThangAgent.AgentInfrastructure*` classes; floor 80% — add targeted tests if short, noting what was added.
-- [ ] **Step 4:** Process sweep — no leaked testhost/CLI processes.
-- [ ] **Step 5:** Mark this task's checkboxes `- [x]`, append `## Outcome` recording suite totals, coverage actuals, deviations (if any), and the commit list; commit `git commit -am "docs(plan): P5 async agents complete"`.
+- [x] **Step 1:** `dotnet build --nologo -v q` — zero errors.
+- [x] **Step 2:** `dotnet test --nologo` — all suites green; record totals.
+- [x] **Step 3:** Coverage — `dotnet test tests/eThangAgent.Agent.Application.Tests --collect:'XPlat Code Coverage'` and same for `tests/eThangAgent.Agent.Infrastructure.Tests`; parse each `coverage.cobertura.xml` line-rate for `eThangAgent.AgentApplication*` / `eThangAgent.AgentInfrastructure*` classes; floor 80% — add targeted tests if short, noting what was added.
+- [x] **Step 4:** Process sweep — no leaked testhost/CLI processes.
+- [x] **Step 5:** Mark this task's checkboxes `- [x]`, append `## Outcome` recording suite totals, coverage actuals, deviations (if any), and the commit list; commit `git commit -am "docs(plan): P5 async agents complete"`.
+
+## Outcome — 2026-08-21 (P5 complete)
+
+- Full solution: 15/15 suites, 389 tests, zero failures. CLI.Tests 40/40 incl. rewritten
+  nested-spawn E2E.
+- Coverage (own-code classes): StartSpawnHandler 1.0, AgentQueries 0.92–0.94,
+  InProcessAgentRuntime 1.0 — above the 80% floor. Whole-run aggregates (19%/9%) are
+  diluted by referenced assemblies and reported for context only.
+- Deviation from plan text: the guide lives in `Tool.Domain/ExecGuide.cs` (+
+  ExecGuideTests.cs), not `CLI/ExecGuidePromptProvider.cs`; version bump landed there.
+  Plan text stands corrected for future re-reads.
+- Commits: 4030d8f, 325cb2a, b9fd356, ec9463f, 1ffa2c1, b9b12e6, 0f3df8b, 0f3bd51,
+  a836d67, + this docs commit.
 
 ---
