@@ -225,12 +225,14 @@ git commit -m "feat(tools): workspace path resolver with segment-aware escape re
 ### Task 2: `write` backend — `IFileWriteAccess` + PowerShell implementation
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/IFileWriteAccess.cs`
 - Create: `src/eThangAgent.Tool.Domain/FileWriteOutcome.cs`
 - Modify: `src/eThangAgent.FileSystem.ACL/PowerShellFileSystemAccess.cs` (implement the new interface; existing members untouched)
 - Test: `tests/eThangAgent.FileSystem.ACL.Tests/FileWriteIntegrationTests.cs`
 
 **Interfaces:**
+
 - Consumes: existing runspace/semaphore infrastructure in `PowerShellFileSystemAccess`; `Result<T>` / `Error` from SharedKernel.
 - Produces: `Task<Result<FileWriteOutcome>> WriteFileAsync(string path, string content, bool overwrite, CancellationToken ct = default)` on new interface `IFileWriteAccess`; `sealed record FileWriteOutcome(bool Created, long BytesWritten)`.
 
@@ -419,11 +421,13 @@ git commit -m "feat(fs-acl): file write with explicit overwrite gate"
 ### Task 3: `write` tool — strict input + format contract
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/WriteToolInput.cs`
 - Create: `src/eThangAgent.Tool.Domain/WriteTool.cs`
 - Test: `tests/eThangAgent.Tool.Domain.Tests/WriteToolTests.cs`
 
 **Interfaces:**
+
 - Consumes: `WorkspacePathResolver.Resolve` (Task 1), `IFileWriteAccess.WriteFileAsync` (Task 2).
 - Produces: `ITool` named `write`. JSON args: `path` (string, required, non-empty), `content` (string, required — may be empty for an explicitly empty file), `overwrite` (boolean, required). Output contract, documented verbatim in the description below: `[write <path>] created, N bytes` or `[write <path>] overwritten, N bytes`.
 
@@ -689,9 +693,11 @@ git commit -m "feat(tools): write tool with explicit overwrite gate and annotati
 ### Task 4: Wire `write` at the composition root
 
 **Files:**
+
 - Modify: `src/eThangAgent.CLI/Program.cs`
 
 **Interfaces:**
+
 - Consumes: `WorkspacePathResolver`, `WriteTool` (Tasks 1, 3); `IWorkspaceContext.WorkspaceId` (already registered as `CwdWorkspaceContext`).
 - Produces: model-visible `write` tool via the existing `AgentToolsProvider` bindings (same path as `read`).
 
@@ -746,12 +752,14 @@ git commit -m "feat(cli): expose write tool at composition root"
 ### Task 5: `edit` backend — `IFileEditAccess` + PowerShell implementation
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/IFileEditAccess.cs`
 - Create: `src/eThangAgent.Tool.Domain/ReplaceOutcome.cs`
 - Modify: `src/eThangAgent.FileSystem.ACL/PowerShellFileSystemAccess.cs`
 - Test: `tests/eThangAgent.FileSystem.ACL.Tests/FileEditIntegrationTests.cs`
 
 **Interfaces:**
+
 - Consumes: runspace/semaphore infrastructure.
 - Produces: `Task<Result<ReplaceOutcome>> ReplaceInFileAsync(string path, string oldText, string newText, int? occurrences, CancellationToken ct = default)`; `sealed record ReplaceOutcome(int Replaced, int NewLineCount)`. `occurrences == null` means replace every occurrence.
 
@@ -987,11 +995,13 @@ git commit -m "feat(fs-acl): literal in-file replacement with occurrence gate an
 ### Task 6: `edit` tool — strict input + format contract
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/EditToolInput.cs`
 - Create: `src/eThangAgent.Tool.Domain/EditTool.cs`
 - Test: `tests/eThangAgent.Tool.Domain.Tests/EditToolTests.cs`
 
 **Interfaces:**
+
 - Consumes: `WorkspacePathResolver` (Task 1), `IFileEditAccess` (Task 5).
 - Produces: `ITool` named `edit`. JSON args: `path` (string, required), `old` (string, required, non-empty), `new` (string, required, may be empty = deletion), and **exactly one of** `all` (boolean true) or `occurrences` (integer ≥ 1); providing both is a validation error. Output contract: `[edit <path>] replaced N occurrence(s), file now M lines`.
 
@@ -1052,6 +1062,7 @@ git commit -m "feat(tools): literal edit tool with exactly-one replacement selec
 ### Task 7: Wire `edit` at the composition root
 
 **Files:**
+
 - Modify: `src/eThangAgent.CLI/Program.cs`
 
 - [ ] **Step 1: Register interface + binding**
@@ -1085,12 +1096,14 @@ git commit -m "feat(cli): expose edit tool at composition root"
 ### Task 8: `search` backend — `ISearchAccess` + PowerShell implementation
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/FileSearch.cs`
 - Create: `src/eThangAgent.Tool.Domain/ISearchAccess.cs`
 - Modify: `src/eThangAgent.FileSystem.ACL/PowerShellFileSystemAccess.cs`
 - Test: `tests/eThangAgent.FileSystem.ACL.Tests/FileSearchIntegrationTests.cs`
 
 **Interfaces:**
+
 - Consumes: runspace/semaphore infrastructure.
 - Produces:
 
@@ -1275,11 +1288,13 @@ git commit -m "feat(fs-acl): bounded workspace search with truncation accounting
 ### Task 9: `search_files` tool — strict input + format contract
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/SearchToolInput.cs`
 - Create: `src/eThangAgent.Tool.Domain/SearchTool.cs`
 - Test: `tests/eThangAgent.Tool.Domain.Tests/SearchToolTests.cs`
 
 **Interfaces:**
+
 - Consumes: `WorkspacePathResolver` (Task 1), `ISearchAccess` (Task 8).
 - Produces: `ITool` named `search_files`. JSON args: `pattern` (string, required, non-empty), `mode` (string enum, required, exactly `Literal` or `Regex` — ordinal comparison), `path` (string, optional, default workspace root — documented in description, not silent coercion of a missing value into something else), `glob` (string, optional, non-empty when present), `maxResults` (integer, required, ≥ 1; values above the cap clamp to it with a visible warning — the sanctioned leniency), `contextLines` (integer, optional, default 0, ≥ 0).
 
@@ -1374,6 +1389,7 @@ git commit -m "feat(tools): bounded search_files tool with visible clamp lenienc
 ### Task 10: Wire `search_files`, README, full verification
 
 **Files:**
+
 - Modify: `src/eThangAgent.CLI/Program.cs`
 - Modify: `README.md`
 

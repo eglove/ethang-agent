@@ -178,13 +178,16 @@ git commit -m "feat(skill-domain): scaffold bounded context with definition reco
 ### Task 2: SkillMarkdown frontmatter parser
 
 **Files:**
+
 - Create: `src/eThangAgent.Skill.Domain/SkillMarkdown.cs`
 - Test: `tests/eThangAgent.Skill.Domain.Tests/SkillMarkdownTests.cs`
 
 **Interfaces:**
+
 - Produces: `static class SkillMarkdown { Result<ParsedSkill> Parse(string text) }` where `sealed record ParsedSkill(string Name, string Description, string Body)`.
 
 Parsing rules (strict about structure, forward-compatible about unknown keys):
+
 - Text must start with a `---` fence line (tolerates leading UTF-8 BOM and leading whitespace-free newline).
 - Within the frontmatter block, `name:` and `description:` keys are REQUIRED (first occurrence wins); values are the trimmed remainder of the line.
 - Unrecognized top-level keys are IGNORED (documented decision: forward-compatible reading of upstream metadata; this is content parsing, not user-input coercion).
@@ -334,12 +337,14 @@ git commit -m "feat(skill-domain): strict frontmatter parser preserving verbatim
 ### Task 3: Embed the 14 skills verbatim + tool mapping + catalog
 
 **Files:**
+
 - Create: `skills/` tree inside `src/eThangAgent.Skill.Domain/` (14 upstream copies + our mapping doc)
 - Modify: `src/eThangAgent.Skill.Domain/eThangAgent.Skill.Domain.csproj` (EmbeddedResource glob)
 - Create: `ISkillCatalog.cs`, `EmbeddedSkillCatalog.cs`
 - Test: `EmbeddedSkillCatalogTests.cs`
 
 **Interfaces:**
+
 - Consumes: `SkillMarkdown` (Task 2).
 - Produces: `interface ISkillCatalog { Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default); Task<Result<SkillDefinition>> GetAsync(string name, CancellationToken ct = default); }`; `EmbeddedSkillCatalog : ISkillCatalog` reading `Skills.<dir>.SKILL.md` resources. Built-in versions are always `1`; timestamps are assembly-build-stable constants (`DateTimeOffset.UnixEpoch`) so output is deterministic.
 
@@ -540,6 +545,7 @@ public sealed class EmbeddedSkillCatalog : ISkillCatalog
 ```
 
 Implementation notes:
+
 - The resource scan filters names ending `.md` under the `skills.` prefix (so `EthangToolsMapping.md` is included; its frontmatter supplies its listable name).
 - A malformed embedded skill throws `InvalidOperationException` — that is a build/packaging defect (programmer error), not a runtime domain failure.
 - Cache once per process; skills are immutable built-ins.
@@ -561,11 +567,13 @@ git commit -m "feat(skill-domain): embed 14 verbatim superpowers skills + tool m
 ### Task 4: Learned-skill persistence — V3 migration + store
 
 **Files:**
+
 - Modify: `src/eThangAgent.Storage.ACL/AppDatabase.cs` (add `ApplyV3`)
 - Create: `src/eThangAgent.Storage.ACL/SqliteLearnedSkillStore.cs`
 - Test: `tests/eThangAgent.Storage.ACL.Tests/SqliteLearnedSkillStoreTests.cs`
 
 **Interfaces:**
+
 - Consumes: `AppDatabase` migration pattern (read `ApplyV1` first — copy its transaction style exactly).
 - Produces: `SqliteLearnedSkillStore(AppDatabase) : ILearnedSkillStore` where `ILearnedSkillStore` (in Skill.Domain):
 
@@ -648,21 +656,26 @@ git commit -m "feat(storage): learned-skill store with version history and usage
 ### Task 5: `skill_list` and `skill_view` tools
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/SkillListTool.cs`, `SkillViewTool.cs`, `SkillViewInput.cs`
 - Modify: `eThangAgent.Tool.Domain.csproj` — add project reference to Skill.Domain
 - Test: `tests/eThangAgent.Tool.Domain.Tests/SkillListToolTests.cs`, `SkillViewToolTests.cs`
 
 **Interfaces:**
+
 - Consumes: `ISkillCatalog`, `ILearnedSkillStore`.
 - Produces:
   - `skill_list`: no parameters. Merged listing (built-ins + learned; names unique by construction). Output contract — one header line plus one line per skill, sorted by name:
+
     ```text
     [skills: N available]
     brainstorming        builtin v1  Turn ideas into designs through dialogue...
     my-skill             learned v3  Remember deployment quirks...
     ```
+
     Description truncated to 60 chars with `…` when longer (visible truncation, never silent mid-word guarantee needed).
   - `skill_view`: `name` (string, required). Resolution order: built-in first, then learned (built-ins authoritative; collision impossible anyway). On hit: appends usage row (best-effort — a storage failure degrades to appending `[warning] usage not recorded` rather than failing the view; the skill content is what matters). Output contract:
+
     ```text
     [skill <name> | source | v<version>]
     <body byte-for-byte>
@@ -686,10 +699,12 @@ git commit -m "feat(tools): skill_list and skill_view over built-in + learned st
 ### Task 6: `skill_manage` tool — create/update/delete with built-in protection
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/SkillManageTool.cs`, `SkillManageInput.cs`
 - Test: `tests/eThangAgent.Tool.Domain.Tests/SkillManageToolTests.cs`
 
 **Interfaces:**
+
 - Consumes: `ISkillCatalog` (collision checks + built-in protection), `ILearnedSkillStore`, `SkillSpecifications.ValidName`.
 - Produces: `ITool` named `skill_manage`. Input (house pattern): `action` required, exactly `Create | Update | Delete` (case-sensitive); `name` required (must match ValidName — violations are `InvalidParameterValue` quoting the rule); then per action:
   - Create: `description` required non-empty, `body` required non-empty, `provenanceSession` optional string. Fails `NameCollision` when a built-in exists with that name (message: built-ins are authoritative); fails `SkillExists` when learned exists.
@@ -727,6 +742,7 @@ git commit -m "feat(tools): skill_manage with built-in protection and versioned 
 ### Task 7: Wire the skill subsystem at the composition root
 
 **Files:**
+
 - Modify: `src/eThangAgent.CLI/Program.cs`
 
 - [ ] **Step 1: Registrations** (following the SP1 forwarding pattern — one store instance):
@@ -774,10 +790,12 @@ git commit -m "feat(cli): expose skill subsystem at composition root"
 ### Task 8: Superpowers bootstrap prompt provider
 
 **Files:**
+
 - Create: `src/eThangAgent.CLI/SuperpowersBootstrapPromptProvider.cs`
 - Test: `tests/eThangAgent.CLI.Tests/SuperpowersBootstrapTests.cs`
 
 **Interfaces:**
+
 - Consumes: `ISkillCatalog` (Task 3); implements `ISystemPromptProvider` (Model Domain — check its exact member name when wiring; Program.cs already constructs providers).
 - Produces: `SuperpowersBootstrapPromptProvider(ISkillCatalog)` whose build output assembles:
 
@@ -822,6 +840,7 @@ git commit -m "feat(cli): superpowers bootstrap prompt provider with inline tool
 ### Task 9: Wire bootstrap + E2E injection assertion
 
 **Files:**
+
 - Modify: `src/eThangAgent.CLI/Program.cs` (composite gains the provider, FIRST in the list)
 - Modify: `tests/eThangAgent.CLI.Tests/E2ETests.cs` (new test)
 
@@ -878,6 +897,7 @@ git commit -m "feat(cli): inject superpowers bootstrap at session start with E2E
 ### Task 10: `clarify` tool with interactive + piped channels
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/IClarifyChannel.cs`, `ClarifyInput.cs`, `ClarifyTool.cs`
 - Create: `src/eThangAgent.CLI/InteractiveClarifyChannel.cs`, `PipedClarifyChannel.cs`
 - Test: `tests/eThangAgent.Tool.Domain.Tests/ClarifyToolTests.cs`, `tests/eThangAgent.CLI.Tests/PipedClarifyChannelTests.cs`
@@ -930,11 +950,13 @@ git commit -m "feat(tools): clarify tool with interactive and piped channels"
 ### Task 11: `todo` tool over the State Domain store
 
 **Files:**
+
 - Create: `src/eThangAgent.Tool.Domain/TodoDocument.cs`, `TodoInput.cs`, `TodoTool.cs`
 - Modify: `eThangAgent.Tool.Domain.csproj` — reference `eThangAgent.State.Domain`
 - Test: `tests/eThangAgent.Tool.Domain.Tests/TodoToolTests.cs`
 
 **Interfaces:**
+
 - Consumes: `IStateService` — `GetAsync(key)` → `Result<string>`, `SetAsync(key, value, expectedVersion)` → `Result<StateKeyValue>` (read `src/eThangAgent.State.Domain/IStateService.cs` first; adapt `.Version` field access to the actual `StateKeyValue` record shape).
 - Storage layout: single key `todo/list`; value is a JSON array of items:
 
@@ -991,6 +1013,7 @@ git commit -m "feat(tools): todo tool backed by durable state store"
 ### Task 12: README + final verification
 
 **Files:**
+
 - Modify: `README.md`
 
 - [ ] **Step 1: README** — extend the capability bullets:
