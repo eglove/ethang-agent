@@ -1,3 +1,3 @@
 namespace eThangAgent.ToolDomain;
 
-public enum ToolParameterType { String, Integer }
+public enum ToolParameterType { String, Integer, Boolean }

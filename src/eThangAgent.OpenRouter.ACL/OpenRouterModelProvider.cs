@@ -153,7 +153,14 @@ public class OpenRouterModelProvider : IModelProvider
                     {
                         var props = new Dictionary<string, object?>
                         {
-                            ["type"] = p.Type == ToolParameterType.String ? "string" : "integer",
+                            ["type"] = p.Type switch
+                            {
+                                ToolParameterType.String => "string",
+                                ToolParameterType.Integer => "integer",
+                                ToolParameterType.Boolean => "boolean",
+                                _ => throw new InvalidOperationException(
+                                    $"Unhandled tool parameter type: {p.Type}"),
+                            },
                             ["description"] = p.Description,
                         };
                         if (p.Minimum is { } min) props["minimum"] = min;
