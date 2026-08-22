@@ -41,6 +41,11 @@ public sealed class AppDatabase
             ApplyV2(connection);
             SetVersion(connection, 2);
         }
+        if (GetVersion(connection) < 3)
+        {
+            ApplyV3(connection);
+            SetVersion(connection, 3);
+        }
     }
 
     private static int GetVersion(SqliteConnection connection)
@@ -128,6 +133,41 @@ public sealed class AppDatabase
                 type         TEXT NOT NULL,
                 payload_json TEXT NOT NULL
             );
+            """;
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+        transaction.Commit();
+    }
+
+    private static void ApplyV3(SqliteConnection connection)
+    {
+        var sql = """
+            CREATE TABLE IF NOT EXISTS learned_skills (
+                name TEXT PRIMARY KEY,
+                description TEXT NOT NULL,
+                body TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                provenance_session TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS skill_versions (
+                name TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                description TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (name, version)
+            );
+            CREATE TABLE IF NOT EXISTS skill_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_name TEXT NOT NULL,
+                viewed_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_skill_usage_name ON skill_usage (skill_name);
             """;
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
