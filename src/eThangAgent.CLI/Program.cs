@@ -37,7 +37,8 @@ public static class Program
 
         // Configuration sources: optional appsettings.json next to the executable,
         // overridden by environment variables (SubAgent__DefaultModel,
-        // SubAgent__ChildTimeoutSeconds). Binding is strict — invalid values abort startup.
+        // SubAgent__ChildTimeoutSeconds, SubAgent__MaxConcurrentAgents). Binding is strict —
+        // invalid values abort startup.
         var configuration = new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
@@ -45,7 +46,8 @@ public static class Program
             .Build();
         var subAgentOptions = SubAgentConfiguration.Bind(
             configuration["SubAgent:DefaultModel"],
-            configuration["SubAgent:ChildTimeoutSeconds"]);
+            configuration["SubAgent:ChildTimeoutSeconds"],
+            configuration["SubAgent:MaxConcurrentAgents"]);
 
         using var services = new ServiceCollection()
             .AddSingleton(new OpenRouterConfiguration(apiKey, baseUrl))

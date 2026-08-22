@@ -3,13 +3,17 @@ namespace eThangAgent.CLI.Tests;
 /// <summary>Strict binding of SubAgent configuration into SubAgentOptions at the
 ///     composition root. Absent SubAgent:DefaultModel is legal; present-but-empty is a
 ///     startup error. ChildTimeoutSeconds defaults to 300; zero/negative/unparseable
-///     values are startup errors.</summary>
+///     values are startup errors. MaxConcurrentAgents is required; absent,
+///     non-integer, or below-1 values are startup errors.</summary>
 public class SubAgentConfigurationTests
 {
     [Fact]
     public void Bind_MissingSection_UsesDefaults()
     {
-        var options = SubAgentConfiguration.Bind(defaultModel: null, childTimeoutSeconds: null);
+        var options = SubAgentConfiguration.Bind(defaultModel: null, childTimeoutSeconds: null,
+            maxConcurrentAgents: "2");
+
+        Assert.Equal(2, options.MaxConcurrentAgents);
 
         Assert.Null(options.DefaultModel);
         Assert.Equal(TimeSpan.FromSeconds(300), options.ChildTimeout);
@@ -19,7 +23,8 @@ public class SubAgentConfigurationTests
     [Fact]
     public void Bind_MissingModel_WithExplicitTimeout_BindsBoth()
     {
-        var options = SubAgentConfiguration.Bind(defaultModel: null, childTimeoutSeconds: "45");
+        var options = SubAgentConfiguration.Bind(defaultModel: null, childTimeoutSeconds: "45",
+            maxConcurrentAgents: "2");
 
         Assert.Null(options.DefaultModel);
         Assert.Equal(TimeSpan.FromSeconds(45), options.ChildTimeout);
@@ -28,7 +33,7 @@ public class SubAgentConfigurationTests
     [Fact]
     public void Bind_ExplicitValues_Bind()
     {
-        var options = SubAgentConfiguration.Bind("provider/model", "120");
+        var options = SubAgentConfiguration.Bind("provider/model", "120", "2");
 
         Assert.Equal("provider/model", options.DefaultModel);
         Assert.Equal(TimeSpan.FromSeconds(120), options.ChildTimeout);
@@ -40,7 +45,7 @@ public class SubAgentConfigurationTests
     public void Bind_EmptyModelString_IsStartupError(string model)
     {
         var error = Assert.Throws<InvalidOperationException>(
-            () => SubAgentConfiguration.Bind(model, null));
+            () => SubAgentConfiguration.Bind(model, null, "2"));
 
         Assert.Contains("SubAgent:DefaultModel", error.Message);
     }
@@ -52,7 +57,7 @@ public class SubAgentConfigurationTests
     public void Bind_NonPositiveTimeout_IsStartupError(string seconds)
     {
         var error = Assert.Throws<InvalidOperationException>(
-            () => SubAgentConfiguration.Bind(null, seconds));
+            () => SubAgentConfiguration.Bind(null, seconds, "2"));
 
         Assert.Contains("SubAgent:ChildTimeoutSeconds", error.Message);
     }
@@ -64,8 +69,49 @@ public class SubAgentConfigurationTests
     public void Bind_UnparseableTimeout_IsStartupError(string seconds)
     {
         var error = Assert.Throws<InvalidOperationException>(
-            () => SubAgentConfiguration.Bind(null, seconds));
+            () => SubAgentConfiguration.Bind(null, seconds, "2"));
 
         Assert.Contains("SubAgent:ChildTimeoutSeconds", error.Message);
+    }
+
+    [Fact]
+    public void Bind_MissingMaxConcurrentAgents_IsStartupError()
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => SubAgentConfiguration.Bind(null, null, null));
+
+        Assert.Equal("SubAgent:MaxConcurrentAgents is required. Set it to a positive integer.",
+            error.Message);
+    }
+
+    [Fact]
+    public void Bind_UnparseableMaxConcurrentAgents_IsStartupError()
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => SubAgentConfiguration.Bind(null, null, "abc"));
+
+        Assert.Equal("SubAgent:MaxConcurrentAgents must be a positive integer, got 'abc'.",
+            error.Message);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-2")]
+    public void Bind_MaxConcurrentAgentsBelowOne_IsStartupError(string maxConcurrentAgents)
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => SubAgentConfiguration.Bind(null, null, maxConcurrentAgents));
+
+        Assert.Equal(
+            $"SubAgent:MaxConcurrentAgents must be at least 1, got '{maxConcurrentAgents}'.",
+            error.Message);
+    }
+
+    [Fact]
+    public void Bind_ExplicitMaxConcurrentAgents_FlowsIntoOptions()
+    {
+        var options = SubAgentConfiguration.Bind("provider/model", "120", "4");
+
+        Assert.Equal(4, options.MaxConcurrentAgents);
     }
 }

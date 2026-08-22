@@ -161,8 +161,10 @@ public class E2ETests
     ///     runs its own full loop against the mock under a per-spawn model id and reports back.
     ///     Asserts the wire (per-spawn model on child requests), the decoded tool message
     ///     (completed gutter + report), the rendered transcript, and persistence of exactly
-    ///     one Completed depth-1 agent row with a non-empty transcript.</summary>
-    [Fact]
+    ///     one Completed depth-1 agent row with a non-empty transcript.
+    ///     Skipped mid-plan: asserts the removed P4 synchronous spawn contract (completed
+    ///     gutter + report at spawn time); rewritten for the async contract in plan Task 9.</summary>
+    [Fact(Skip = "P4 sync-spawn contract removed by Tasks 4-5 (async runtime); rewritten in plan Task 9.")]
     public async Task Repl_NestedSpawn_ChildRunsAndReports()
     {
         using var mock = new MockOpenRouterServer();
@@ -431,6 +433,7 @@ public class E2ETests
         };
         startInfo.EnvironmentVariables["OPENROUTER_API_KEY"] = "test-key";
         startInfo.EnvironmentVariables["OPENROUTER_BASE_URL"] = mock.BaseUrl;
+        startInfo.EnvironmentVariables["SubAgent__MaxConcurrentAgents"] = "2";
         if (databasePath is not null)
             startInfo.EnvironmentVariables["ETHANG_AGENT_DB"] = databasePath;
 
