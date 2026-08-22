@@ -18,7 +18,7 @@ We are porting the **concepts**, not the code, into eThang Agent natively. The d
 | P4 | Agent Runtime: one-shot sub-agents, budget ledger, handoff |
 | P5 | Actors + Mesh: persistent actors, mailboxes, durable topics |
 | P6 | Memory + Compaction: recall/search, context economy |
-| P7 | Activity UI: dashboard over Terminal.ACL |
+| P7 | Activity UI: dashboard over Terminal.ACL — **deferred (2026-08-21, user decision): CLI stays the only wired interface until the desktop era** |
 
 Build order P1 → P2 → P3/P4 → P5 → P6/P7. P1 is the foundation; P2 is the seam the rest routes through.
 
