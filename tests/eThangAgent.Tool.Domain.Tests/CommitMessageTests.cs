@@ -337,6 +337,29 @@ public class CommitMessageTests
     }
 
     [Theory]
+    [InlineData("wrap-up notes")]
+    [InlineData("wrap-up notes\n")]
+    [InlineData("wrap-up notes\n\n\n")]
+    public void Body_TrailingNewlines_TrimmedAtRender_SingleTrailingNewline(string body)
+    {
+        // Render-time normalization keeps the "single trailing \n" contract even
+        // when the caller's body ends in newline(s); validation rules untouched.
+        var r = CommitMessage.Create("None", type: null, scope: null, emojiKey: null,
+            description: "plain note", body: body);
+        Assert.True(r.IsSuccess);
+        Assert.Equal("plain note\n\nwrap-up notes\n", r.Value!.Rendered);
+    }
+
+    [Fact]
+    public void Body_AllNewlines_TrimsAway_RendersAsAbsent()
+    {
+        var r = CommitMessage.Create("None", type: null, scope: null, emojiKey: null,
+            description: "plain note", body: "\n\n");
+        Assert.True(r.IsSuccess);
+        Assert.Equal("plain note\n", r.Value!.Rendered);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     public void Body_NullOrEmpty_NoBodySection(string? body)

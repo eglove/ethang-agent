@@ -19,5 +19,6 @@ Skills name actions; this harness binds them to real tools:
 | List available skills | `skill_list` tool |
 | Ask the human partner a clarifying question | `clarify` tool (MANDATORY for brainstorming) |
 | Track plan progress | `todo` tool plus plan-file checkboxes |
+| Commit work | `git_commit` tool (never raw shell commit) |
 
 All scripts are PowerShell (.ps1). Windows-native. Tests: xUnit via dotnet test.

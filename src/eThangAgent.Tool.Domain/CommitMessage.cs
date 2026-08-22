@@ -170,9 +170,15 @@ public sealed record CommitMessage(string Rendered, string Subject)
             _ => trimmedDescription,
         };
 
-        var rendered = string.IsNullOrEmpty(body)
+        // Trailing newline(s) on the body are trimmed at render time so the message
+        // ends with exactly one \n regardless of how the caller formatted the body;
+        // a body reduced to nothing by that trim renders as absent. (Named leniency:
+        // apart from this trim, bodies are kept verbatim.) Validation rules are
+        // unchanged — body never fails validation.
+        var renderedBody = (body ?? string.Empty).TrimEnd('\n');
+        var rendered = string.IsNullOrEmpty(renderedBody)
             ? $"{subject}\n"
-            : $"{subject}\n\n{body}\n";
+            : $"{subject}\n\n{renderedBody}\n";
 
         return Result<CommitMessage>.Success(new CommitMessage(rendered, subject));
     }

@@ -15,7 +15,7 @@ namespace eThangAgent.FileSystem.ACL;
 /// </summary>
 public sealed class PowerShellGitAccess : IGitQueryAccess, IGitCommitAccess, IDisposable
 {
-    private const int MaxPatchChars = 20000;
+    // Patch cap lives with its single owner: WorkingDiffTool.PatchCharCap (Tool Domain).
 
     // Runs git with stdout/stderr captured separately (exact exit codes, no stream
     // merging, no CRLF rewriting). Returns ExitCode / StdOut / StdErr.
@@ -45,7 +45,11 @@ public sealed class PowerShellGitAccess : IGitQueryAccess, IGitCommitAccess, IDi
                 return @{ Ok = $false; ErrorCode = 'NotAGitRepository';
                           ErrorMessage = "Not a git repository: $Root" }
             }
-            return @{ Ok = $false; ErrorCode = 'GitError'; ErrorMessage = $stderr.Trim() }
+            # A silent git failure must still carry information: fall back to the
+            # exit code so the error never reaches the model empty-handed.
+            $msg = $stderr.Trim()
+            if ($msg -eq '') { $msg = "git exited $($Result['ExitCode']) with no error output." }
+            return @{ Ok = $false; ErrorCode = 'GitError'; ErrorMessage = $msg }
         }
         """;
 
@@ -204,7 +208,10 @@ public sealed class PowerShellGitAccess : IGitQueryAccess, IGitCommitAccess, IDi
         $tmp = [System.IO.Path]::GetTempFileName()
         try {
             [System.IO.File]::WriteAllText($tmp, $Message, [System.Text.UTF8Encoding]::new($false))
-            $commitRes = Invoke-Git $Root @('commit', '-F', $tmp)
+            # --cleanup=verbatim keeps the message byte-for-byte; git's default
+            # 'whitespace' cleanup silently collapses blank lines and would make
+            # the committed message differ from what we report.
+            $commitRes = Invoke-Git $Root @('commit', '--cleanup=verbatim', '-F', $tmp)
         } finally {
             [System.IO.File]::Delete($tmp)
         }
@@ -279,7 +286,7 @@ public sealed class PowerShellGitAccess : IGitQueryAccess, IGitCommitAccess, IDi
             ps.AddScript(DiffScript)
               .AddParameter("Root", repoPath)
               .AddParameter("Scope", scope)
-              .AddParameter("Cap", MaxPatchChars)
+              .AddParameter("Cap", WorkingDiffTool.PatchCharCap)
               .AddParameter("Path", path ?? string.Empty);
             var output = ps.Invoke();
             if (ps.HadErrors || output.Count == 0)

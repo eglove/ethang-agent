@@ -56,5 +56,8 @@ public class EmbeddedSkillCatalogTests
         var get = await _catalog.GetAsync("ethang-tools-mapping");
         Assert.True(get.IsSuccess);
         Assert.Contains("skill_view", get.Value!.Body);
+        // Spec-required binding (SP3): skills that say "commit work" must bind to
+        // the git_commit tool — never to raw shell commits.
+        Assert.Contains("git_commit", get.Value!.Body);
     }
 }

@@ -313,6 +313,30 @@ public sealed class PowerShellGitAccessIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task Diff_PathFilter_PatchAndStatsLimitedToOneFile()
+    {
+        var (repo, cleanup) = RepoWithSplitChanges();
+        try
+        {
+            // f1.txt is staged-changed, f2.txt unstaged-changed; scope All scoped
+            // to f1.txt must surface ONLY f1 in patch and stats.
+            var r = await _access.GetDiffAsync(repo, "All", "f1.txt");
+            Assert.True(r.IsSuccess, r.Error?.Message);
+            Assert.Contains("### staged ###", r.Value!.Patch);
+            Assert.Contains("f1.txt", r.Value.Patch);
+            Assert.Contains("+line-A1", r.Value.Patch);
+            Assert.DoesNotContain("+line-U1", r.Value.Patch);
+            Assert.DoesNotContain("f2.txt", r.Value.Patch);
+            Assert.DoesNotContain("base2", r.Value.Patch);
+            Assert.DoesNotContain("### unstaged ###", r.Value.Patch);
+            Assert.Equal(1, r.Value.Stats.Files);
+            Assert.Equal(1, r.Value.Stats.Additions);
+            Assert.Equal(1, r.Value.Stats.Deletions);
+        }
+        finally { cleanup.Dispose(); }
+    }
+
+    [Fact]
     public async Task Diff_PatchBeyondCap_Truncated_WithAccurateTotalChars()
     {
         var repo = InitRepo();
@@ -356,7 +380,16 @@ public sealed class PowerShellGitAccessIntegrationTests : IDisposable
             SeedCommit(repo);
             Write(repo, "g.txt", "content\n");
             Git(repo, "add", "g.txt");
-            const string message = "feat: subject line\n\nBody paragraph with detail.\n";
+            // The body carries a LEADING blank line and CONSECUTIVE internal blank
+            // lines; --cleanup=verbatim must preserve them byte-for-byte (git's
+            // default 'whitespace' cleanup collapses them, silently rewriting the
+            // committed message away from what the tool reported).
+            const string message =
+                "feat: subject line\n" +
+                "\n" +
+                "\npara one (leading blank line above)\n" +
+                "\n\n" +
+                "para two (two blank lines above)\n";
 
             var r = await _access.CommitAsync(repo, message);
             Assert.True(r.IsSuccess, r.Error?.Message);
@@ -432,6 +465,45 @@ public sealed class PowerShellGitAccessIntegrationTests : IDisposable
             Assert.Equal("NotAGitRepository", r.Error!.Code);
         }
         finally { SafeDelete(dir); }
+    }
+
+    // ---- git failure mapping -----------------------------------------------
+
+    /// <summary>
+    /// Executes the REAL <c>ConvertTo-GitFailure</c> script shipped inside
+    /// <see cref="PowerShellGitAccess"/> — extracted via reflection over its
+    /// private const so this test always exercises the production script text.
+    /// </summary>
+    private static string InvokeConvertToGitFailure(int exitCode, string stderr)
+    {
+        var helperField = typeof(PowerShellGitAccess).GetField(
+            "InvokeGitHelper",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.True(helperField is not null,
+            "InvokeGitHelper const not found — repoint this test if it was renamed.");
+        using var ps = System.Management.Automation.PowerShell.Create();
+        ps.AddScript($$"""
+            {{(string)helperField!.GetValue(null)!}}
+            $r = ConvertTo-GitFailure @{ ExitCode = {{exitCode}}; StdOut = ''; StdErr = '{{stderr}}' } 'C:\repo'
+            @($r['Ok'], $r['ErrorCode'], $r['ErrorMessage']) -join '|'
+            """);
+        var output = ps.Invoke();
+        Assert.False(ps.HadErrors);
+        return (string)output.Single().BaseObject!;
+    }
+
+    [Fact]
+    public void GitFailure_EmptyStderr_FallsBackToExitCodeMessage()
+    {
+        Assert.Equal("False|GitError|git exited 3 with no error output.",
+            InvokeConvertToGitFailure(exitCode: 3, stderr: ""));
+    }
+
+    [Fact]
+    public void GitFailure_NonEmptyStderr_FlowsThroughTrimmed()
+    {
+        Assert.Equal("False|GitError|boom",
+            InvokeConvertToGitFailure(exitCode: 128, stderr: "boom"));
     }
 
     private sealed class TempDir : IDisposable
