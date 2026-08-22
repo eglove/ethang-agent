@@ -4,31 +4,52 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.AgentDomain;
 
-public sealed class AgentCapabilityProvider(IAgentSpawnCommand spawnCommand, Func<AgentRecord> parentContext) : ICapabilityProvider
+/// <summary>The agent capability surface: spawn starts children as independent actors,
+///     status and result retrieve their outcomes. Spawn renders only the running line —
+///     reports arrive exclusively through the queries.</summary>
+public sealed class AgentCapabilityProvider(
+    IAgentSpawnCommand spawnCommand, IAgentQueries queries, Func<AgentRecord> parentContext) : ICapabilityProvider
 {
     public const string ProviderId = "agent";
 
     private readonly IAgentSpawnCommand _spawnCommand = spawnCommand ?? throw new ArgumentNullException(nameof(spawnCommand));
+    private readonly IAgentQueries _queries = queries ?? throw new ArgumentNullException(nameof(queries));
     private readonly Func<AgentRecord> _parentContext = parentContext ?? throw new ArgumentNullException(nameof(parentContext));
 
     public string Id => ProviderId;
 
     public IReadOnlyList<ActionDescriptor> Actions { get; } =
     [
-        new("spawn", "Spawn a child agent that runs autonomously and returns its final report.",
+        new("spawn", "Spawn a child agent that runs autonomously in the background and returns immediately.",
             """
-            Runs a child agent to completion on a self-contained task and returns its report.
-            Failures keep the same shape with status=failed and a reason: max-iterations, timeout, provider-error, depth-exceeded, or missing-model. Children may spawn their own children; depth limit is 3.
+            Starts a child agent on a self-contained task and returns right away — never wait on the spawn call itself. Continue useful work or fan out siblings, then poll status and fetch result. Children may spawn their own children; depth limit is 3.
+            Start failures return canonical error lines: InvalidSpawnRequest, DepthExceeded, MissingModel, ConcurrencyCapReached.
             Output contract:
-            [agent] id=<id> status=completed depth=1 model=<model> label=<label>
-            --- report ---
-            <child's final report text>
-            --- end report ---
+            id=<id> status=running
             """,
             [
                 new ActionParameter("taskPrompt", "String", "Self-contained task for the child. State exactly what the report must contain."),
                 new ActionParameter("model", "String", "Optional provider model reference; omit to use the configured default."),
                 new ActionParameter("label", "String", "Optional free-text label for humans and logs."),
+            ]),
+        new("status", "Check whether a spawned child agent is still running, completed, or failed.",
+            """
+            Returns the child's current state as one annotation line. Poll between turns while other work continues.
+            Output contract:
+            id=<id> status=running
+            id=<id> status=completed
+            id=<id> status=failed reason=max-iterations|timeout|provider-error
+            The reason suffix appears only when status=failed.
+            """,
+            [
+                new ActionParameter("id", "String", "GUID string of the child agent, exactly as returned by spawn."),
+            ]),
+        new("result", "Fetch the final report of a spawned child agent.",
+            """
+            Returns the child's final report verbatim once it has finished. While it is still running you receive 'Error [NotComplete]' — check status again later. Unknown ids yield 'Error [NotFound]'. A failed child yields its partial report, or an Error [MaxIterations|Timeout|ProviderError] annotation when no report landed.
+            """,
+            [
+                new ActionParameter("id", "String", "GUID string of the child agent, exactly as returned by spawn."),
             ]),
     ];
 
@@ -38,6 +59,8 @@ public sealed class AgentCapabilityProvider(IAgentSpawnCommand spawnCommand, Fun
         return actionName switch
         {
             "spawn" => await Spawn(jsonArguments, ct),
+            "status" => await Status(jsonArguments, ct),
+            "result" => await Result(jsonArguments, ct),
             _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
         };
     }
@@ -53,8 +76,93 @@ public sealed class AgentCapabilityProvider(IAgentSpawnCommand spawnCommand, Fun
 
         var started = await _spawnCommand.Execute(_parentContext(), request!, ct);
         return started.IsSuccess
-            ? CapabilityInvocationResult.Ok($"[agent] id={started.Value} status=running")
+            ? CapabilityInvocationResult.Ok($"id={started.Value} status=running")
             : CapabilityInvocationResult.Fail($"Error [{started.Error!.Code}]: {started.Error.Message}");
+    }
+
+    private async Task<CapabilityInvocationResult> Status(string json, CancellationToken ct)
+    {
+        var id = ParseIdArgument(json);
+        if (!id.IsSuccess)
+            return CapabilityInvocationResult.Fail($"Error [{id.Error!.Code}]: {id.Error.Message}");
+
+        var lookup = await _queries.GetStatus(id.Value, ct);
+        return lookup.IsSuccess
+            ? CapabilityInvocationResult.Ok(StateLine(lookup.Value!))
+            : CapabilityInvocationResult.Fail($"Error [{lookup.Error!.Code}]: {lookup.Error.Message}");
+    }
+
+    private async Task<CapabilityInvocationResult> Result(string json, CancellationToken ct)
+    {
+        var id = ParseIdArgument(json);
+        if (!id.IsSuccess)
+            return CapabilityInvocationResult.Fail($"Error [{id.Error!.Code}]: {id.Error.Message}");
+
+        var report = await _queries.GetResult(id.Value, ct);
+        return report.IsSuccess
+            ? CapabilityInvocationResult.Ok(report.Value!)
+            : CapabilityInvocationResult.Fail($"Error [{report.Error!.Code}]: {report.Error.Message}");
+    }
+
+    /// <summary>Renders the status output contract: the state line, plus the reason suffix
+    ///     exactly when status=failed. A Failed row without a reason violates the record
+    ///     invariant and aborts loudly rather than inventing output.</summary>
+    private static string StateLine(AgentRecord record) => record.Status switch
+    {
+        AgentStatus.Running => $"id={record.Id} status=running",
+        AgentStatus.Completed => $"id={record.Id} status=completed",
+        AgentStatus.Failed => $"id={record.Id} status=failed reason={ReasonText(record.FailureReason)}",
+        _ => throw new InvalidOperationException($"Unknown agent status '{record.Status}' for agent '{record.Id}'."),
+    };
+
+    private static string ReasonText(AgentFailureReason? reason) => reason switch
+    {
+        AgentFailureReason.MaxIterations => "max-iterations",
+        AgentFailureReason.Timeout => "timeout",
+        AgentFailureReason.ProviderError => "provider-error",
+        _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
+    };
+
+    /// <summary>Ids cross into the domain strictly: a JSON object carrying exactly one "id"
+    ///     member whose value is a Guid in "D" format. Anything else is a typed argument
+    ///     error — never coerced, defaulted, or clamped.</summary>
+    private static Result<AgentId> ParseIdArgument(string json)
+    {
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(json);
+        }
+        catch (JsonException)
+        {
+            return Result<AgentId>.Failure(new Error("InvalidActionInput",
+                "arguments must be a valid JSON object."));
+        }
+
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind is not JsonValueKind.Object)
+                return Result<AgentId>.Failure(new Error("InvalidActionInput",
+                    "arguments must be a JSON object."));
+
+            var allowed = new HashSet<string>(StringComparer.Ordinal) { "id" };
+            var unknown = doc.RootElement.EnumerateObject()
+                .Where(p => !allowed.Contains(p.Name))
+                .Select(p => p.Name)
+                .ToArray();
+            if (unknown.Length > 0)
+                return Result<AgentId>.Failure(new Error("InvalidActionInput",
+                    $"unknown parameter(s): {string.Join(", ", unknown)}."));
+
+            if (!doc.RootElement.TryGetProperty("id", out var el)
+                || el.ValueKind is not JsonValueKind.String
+                || el.GetString() is not { } raw
+                || !Guid.TryParseExact(raw, "D", out var guid))
+                return Result<AgentId>.Failure(new Error("InvalidArgument",
+                    "'id' must be a GUID string."));
+
+            return Result<AgentId>.Success(new AgentId(guid));
+        }
     }
 
     private static (SpawnRequest? Request, string? Error) ParseArgs(string json)

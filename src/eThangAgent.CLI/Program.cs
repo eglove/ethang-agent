@@ -84,8 +84,9 @@ public static class Program
             .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
                 sp.GetRequiredService<SubAgentSpawner>(),
                 sp.GetRequiredService<IAgentStore>(),
-                maxConcurrentAgents: 1)) // interim cap until SubAgent:MaxConcurrentAgents configuration lands
+                subAgentOptions.MaxConcurrentAgents))
             .AddSingleton<IAgentSpawnCommand, StartSpawnHandler>()
+            .AddSingleton<IAgentQueries, AgentQueries>()
             .AddSingleton<AgentCapabilityProvider>(sp =>
             {
                 // Root agent record: depth 0, own identity, never persisted — only
@@ -96,6 +97,7 @@ public static class Program
                     "root session", DateTimeOffset.UtcNow);
                 return new AgentCapabilityProvider(
                     sp.GetRequiredService<IAgentSpawnCommand>(),
+                    sp.GetRequiredService<IAgentQueries>(),
                     () => SubAgentSpawner.RunningChild ?? rootRecord);
             })
             .AddSingleton<EvidenceOptions>(_ => EvidenceOptions.Default)

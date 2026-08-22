@@ -47,8 +47,7 @@ public class AgentStackIntegrationTests : IDisposable
             $"status={run.Status}; errors={string.Join(" | ", run.ErrorLines)}; msg={run.ErrorMessage}");
         // Non-blocking contract: the spawn action returns the running line only — the report
         // arrives later through the persisted record, not through the spawn result.
-        Assert.Contains("[agent] id=", run.Output);
-        Assert.Contains("status=running", run.Output);
+        Assert.Matches("id=[0-9a-fA-F-]{36} status=running", run.Output);
         Assert.DoesNotContain("child report body", run.Output);
         Assert.DoesNotContain("--- report ---", run.Output);
 
@@ -170,8 +169,7 @@ public class AgentStackIntegrationTests : IDisposable
 
         Assert.True(run.Status == ExecRunStatus.Completed,
             $"status={run.Status}; errors={string.Join(" | ", run.ErrorLines)}; msg={run.ErrorMessage}");
-        Assert.Contains("[agent] id=", run.Output);
-        Assert.Contains("status=running", run.Output);
+        Assert.Matches("id=[0-9a-fA-F-]{36} status=running", run.Output);
 
         var child = await AwaitTerminalAsync(store, root.Id);
         Assert.Equal(AgentStatus.Completed, child.Status);
@@ -180,10 +178,10 @@ public class AgentStackIntegrationTests : IDisposable
     }
 
     /// <summary>Wires the stack with the composition-root shape: lazy registry into the
-    ///     engine, exec as the agents' only tool, the spawn command (validation, Running
-    ///     persistence, runtime hand-off) behind the agent capability provider resolving the
-    ///     ambient running child (falling back to the unpersisted root record at depth 0) as
-    ///     the spawn parent, and the runtime driving the child loop on background tasks.</summary>
+    ///     engine, exec as the agents' only tool, the spawn command and queries (CQRS split)
+    ///     behind the agent capability provider resolving the ambient running child (falling
+    ///     back to the unpersisted root record at depth 0) as the spawn parent, and the
+    ///     runtime driving the child loop on background tasks.</summary>
     private (PowerShellExecEngine Engine, SqliteAgentStore Store,
         ScriptedProviderFactory Factory, AgentRecord Root) ComposeStack(SubAgentOptions options)
     {
@@ -203,7 +201,7 @@ public class AgentStackIntegrationTests : IDisposable
         var runtime = new InProcessAgentRuntime(spawner, store, maxConcurrentAgents: 4);
         var spawnCommand = new StartSpawnHandler(store, runtime, options);
         var agentProvider = new AgentCapabilityProvider(spawnCommand,
-            () => SubAgentSpawner.RunningChild ?? rootRecord);
+            new AgentQueries(store), () => SubAgentSpawner.RunningChild ?? rootRecord);
         registry = CapabilityRegistry.Create([agentProvider]);
 
         return (engine, store, factory, rootRecord);

@@ -5,7 +5,7 @@ namespace eThangAgent.Agent.Application;
 
 /// <summary>Read side of the spawn CQRS split: status and result queries over the agent store.
 ///     Queries have no side effects and never mutate persisted state.</summary>
-public sealed class AgentQueries
+public sealed class AgentQueries : IAgentQueries
 {
     private readonly IAgentStore _store;
 
