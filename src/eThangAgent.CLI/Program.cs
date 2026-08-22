@@ -14,6 +14,7 @@ using eThangAgent.Storage.ACL;
 using eThangAgent.StateDomain;
 using eThangAgent.PowerShell.ACL;
 using eThangAgent.SharedKernel;
+using eThangAgent.SkillDomain;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -93,6 +94,22 @@ public static class Program
                             sp.GetRequiredService<WorkspacePathResolver>(),
                             sp.GetRequiredService<ISearchAccess>()),
                         "Search workspace text files with literal or regex patterns."),
+                    new AgentToolBinding(
+                        new SkillListTool(
+                            sp.GetRequiredService<ISkillCatalog>(),
+                            sp.GetRequiredService<ILearnedSkillStore>()),
+                        "List available skills."),
+                    new AgentToolBinding(
+                        new SkillViewTool(
+                            sp.GetRequiredService<ISkillCatalog>(),
+                            sp.GetRequiredService<ILearnedSkillStore>()),
+                        "Load a skill's full content by name."),
+                    new AgentToolBinding(
+                        new SkillManageTool(
+                            sp.GetRequiredService<ISkillCatalog>(),
+                            sp.GetRequiredService<ILearnedSkillStore>(),
+                            sp.GetRequiredService<Func<DateTimeOffset>>()),
+                        "Create, update, or delete learned skills."),
                 ]))
             .AddSingleton<IWorkspaceContext, CwdWorkspaceContext>()
             .AddSingleton<WorkspacePathResolver>(sp =>
@@ -100,6 +117,9 @@ public static class Program
             .AddSingleton<AppDatabase>()
             .AddSingleton<IStateStore, SqliteStateStore>()
             .AddSingleton<IAgentStore, SqliteAgentStore>()
+            .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
+            .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
+            .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
             .AddSingleton(subAgentOptions)
             .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
                 sp.GetRequiredService<OpenRouterConfiguration>(),
