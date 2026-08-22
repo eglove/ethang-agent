@@ -5,9 +5,11 @@
   <Project Path="src/eThangAgent.Agent.Domain/eThangAgent.Agent.Domain.csproj" />
   <Folder Name="/src/">
     <Project Path="src/eThangAgent.Agent.Infrastructure/eThangAgent.Agent.Infrastructure.csproj" />
+    <Project Path="src/eThangAgent.Memory.Domain/eThangAgent.Memory.Domain.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/eThangAgent.Agent.Infrastructure.Tests/eThangAgent.Agent.Infrastructure.Tests.csproj" />
+    <Project Path="tests/eThangAgent.Memory.Domain.Tests/eThangAgent.Memory.Domain.Tests.csproj" />
   </Folder>
   <Project Path="src/eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
   <Project Path="src/eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />
