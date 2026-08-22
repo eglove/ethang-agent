@@ -12,6 +12,7 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 - `write` tool — create/replace files behind an explicit overwrite gate
 - `edit` tool — exact literal replacements with occurrence verification
 - `search_files` tool — bounded workspace search (literal or regex, glob-filtered)
+- `todo` tool — durable workspace task list with compare-and-swap writes
 - Capability registry exposing agent tools plus spawnable sub-agents, durable workspace state, and memory recall
 - Nested sub-agents with depth limits and concurrency caps
 - Session persistence and recall via a versioned, app-owned SQLite database

@@ -113,6 +113,9 @@ public static class Program
                     new AgentToolBinding(
                         new ClarifyTool(sp.GetRequiredService<IClarifyChannel>()),
                         "Ask the human a clarifying question with structured options."),
+                    new AgentToolBinding(
+                        new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
+                        "Track a workspace task list."),
                 ]))
             .AddSingleton<IWorkspaceContext, CwdWorkspaceContext>()
             .AddSingleton<WorkspacePathResolver>(sp =>
