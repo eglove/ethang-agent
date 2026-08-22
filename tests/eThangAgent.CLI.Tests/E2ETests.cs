@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace eThangAgent.CLI.Tests;
 
@@ -68,6 +70,39 @@ public class E2ETests
 
         Assert.NotNull(mock.LastChatRequestBody);
         Assert.Contains("stealth/ox-alpha", mock.LastChatRequestBody);
+
+        await process.StandardInput.WriteLineAsync("/quit");
+        await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
+        Assert.Equal(0, process.ExitCode);
+    }
+
+    [Fact]
+    public async Task Repl_InjectsSuperpowersBootstrap_OncePerSession()
+    {
+        using var mock = new MockOpenRouterServer();
+        mock.Start();
+        using var process = StartCli(mock);
+        var reader = process.StandardOutput;
+
+        await ReadUntil(reader, "> ");
+        await process.StandardInput.WriteLineAsync("hi");
+        await process.StandardInput.FlushAsync();
+        await ReadUntil(reader, "> ");
+
+        var body = mock.LastChatRequestBody;
+        Assert.NotNull(body);
+        // The wire body JSON-escapes angle brackets (\u003C/\u003E), so assertions on
+        // injected content run against the decoded system message, not the raw body.
+        using var doc = JsonDocument.Parse(body);
+        var system = doc.RootElement.GetProperty("messages").EnumerateArray()
+            .First(m => m.GetProperty("role").GetString() == "system")
+            .GetProperty("content").GetString();
+        Assert.NotNull(system);
+        Assert.Contains("<EXTREMELY_IMPORTANT>", system);
+        Assert.Contains("name: using-superpowers", system);
+        Assert.Contains("ALREADY ACTIVE", system);
+        Assert.Contains("skill_view", system);
+        Assert.Equal(1, Regex.Count(system!, Regex.Escape("<EXTREMELY_IMPORTANT>")));
 
         await process.StandardInput.WriteLineAsync("/quit");
         await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
