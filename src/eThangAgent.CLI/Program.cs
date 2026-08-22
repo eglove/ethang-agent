@@ -68,6 +68,7 @@ public static class Program
             .AddSingleton<PowerShellFileSystemAccess>()
             .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
             .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
+            .AddSingleton<IFileEditAccess>(sp => sp.GetRequiredService<PowerShellFileSystemAccess>())
             .AddSingleton(ExecOptions.Default)
             .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
             .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
@@ -81,6 +82,11 @@ public static class Program
                             sp.GetRequiredService<WorkspacePathResolver>(),
                             sp.GetRequiredService<IFileWriteAccess>()),
                         "Create or overwrite a workspace file."),
+                    new AgentToolBinding(
+                        new EditTool(
+                            sp.GetRequiredService<WorkspacePathResolver>(),
+                            sp.GetRequiredService<IFileEditAccess>()),
+                        "Edit a file by exact literal replacement."),
                 ]))
             .AddSingleton<IWorkspaceContext, CwdWorkspaceContext>()
             .AddSingleton<WorkspacePathResolver>(sp =>
