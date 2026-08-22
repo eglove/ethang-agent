@@ -147,14 +147,66 @@ public static class Program
         var handler = services.GetRequiredService<SendMessageCommandHandler>();
         var modelConfig = services.GetRequiredService<ModelConfig>();
 
+        // Root session bootstrap: the REPL conversation persists as an ordinary depth-0 row,
+        // so its transcript survives the process and later sessions can recall it.
+        var store = services.GetRequiredService<IAgentStore>();
+        var conversation = services.GetRequiredService<Conversation>();
+        var rootId = AgentId.NewId();
+        var rootSaved = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow));
+        if (!rootSaved.IsSuccess)
+            throw new InvalidOperationException(
+                "failed to persist root session: " +
+                $"[{rootSaved.Error!.Code}] {rootSaved.Error.Message}");
+
         if (Console.IsInputRedirected || Console.IsOutputRedirected)
-            await RunRedirectedRepl(handler);
+            await RunRedirectedRepl(handler, store, conversation, rootId);
         else
-            await RunInteractiveRepl(handler, modelConfig);
+            await RunInteractiveRepl(handler, modelConfig, store, conversation, rootId);
+    }
+
+    /// <summary>Persists one completed exchange to the root session: the user message then the
+    ///     final assistant message — the same Message instances the Conversation aggregate
+    ///     holds, never re-mapped copies. An exchange that resolved no assistant response
+    ///     appends nothing. Persistence failures surface on stderr; the session continues.</summary>
+    private static async Task AppendExchangeAsync(IAgentStore store, AgentId rootId,
+        Conversation conversation, int messageCountBefore, Result<string> result)
+    {
+        if (!result.IsSuccess)
+            return;
+
+        var user = await store.AppendMessageAsync(rootId, conversation.Messages[messageCountBefore]);
+        if (!user.IsSuccess)
+            Console.Error.WriteLine($"Error [{user.Error!.Code}]: {user.Error.Message}");
+
+        var assistant = await store.AppendMessageAsync(rootId, conversation.Messages[^1]);
+        if (!assistant.IsSuccess)
+            Console.Error.WriteLine($"Error [{assistant.Error!.Code}]: {assistant.Error.Message}");
+    }
+
+    /// <summary>Marks the root session Completed on graceful quit: fetches the persisted row and
+    ///     transitions it, preserving every other field. Failures surface on stderr — the exit
+    ///     itself must not crash.</summary>
+    private static async Task CompleteRootSessionAsync(IAgentStore store, AgentId rootId)
+    {
+        var record = await store.GetAsync(rootId);
+        if (!record.IsSuccess)
+        {
+            Console.Error.WriteLine($"Error [{record.Error!.Code}]: {record.Error.Message}");
+            return;
+        }
+
+        var updated = await store.UpdateAsync(record.Value! with
+        {
+            Status = AgentStatus.Completed,
+            CompletedAt = DateTimeOffset.UtcNow,
+        });
+        if (!updated.IsSuccess)
+            Console.Error.WriteLine($"Error [{updated.Error!.Code}]: {updated.Error.Message}");
     }
 
     /// <summary>Line-based REPL for redirected I/O (pipes, E2E tests).</summary>
-    private static async Task RunRedirectedRepl(SendMessageCommandHandler handler)
+    private static async Task RunRedirectedRepl(SendMessageCommandHandler handler,
+        IAgentStore store, Conversation conversation, AgentId rootId)
     {
         Console.WriteLine("eThang Agent - type /help for commands");
         Console.WriteLine();
@@ -174,10 +226,14 @@ public static class Program
                 continue;
             }
 
+            var messageCountBefore = conversation.Messages.Count;
             var result = await handler.Handle(new SendMessageCommand(input));
+            await AppendExchangeAsync(store, rootId, conversation, messageCountBefore, result);
             Console.WriteLine(result.IsSuccess ? result.Value : $"Error [{result.Error!.Code}]: {result.Error.Message}");
             Console.WriteLine();
         }
+
+        await CompleteRootSessionAsync(store, rootId);
     }
 
     /// <summary>
@@ -185,7 +241,8 @@ public static class Program
     ///     and the event-driven line editor on the input row. Resize is picked up on each
     ///     new prompt via a full redraw.
     /// </summary>
-    private static async Task RunInteractiveRepl(SendMessageCommandHandler handler, ModelConfig modelConfig)
+    private static async Task RunInteractiveRepl(SendMessageCommandHandler handler, ModelConfig modelConfig,
+        IAgentStore store, Conversation conversation, AgentId rootId)
     {
         try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { /* non-seekable host */ }
 
@@ -236,6 +293,7 @@ public static class Program
                 pane.AddMessage($"\u203a {input}");
                 state = "Thinking";
 
+                var messageCountBefore = conversation.Messages.Count;
                 var task = handler.Handle(new SendMessageCommand(input));
                 var frame = 0;
                 while (!task.IsCompleted)
@@ -247,11 +305,16 @@ public static class Program
                 }
 
                 var result = await task;
+                await AppendExchangeAsync(store, rootId, conversation, messageCountBefore, result);
                 state = "Ready";
                 pane.AddMessage(result.IsSuccess
                     ? result.Value!
                     : $"Error [{result.Error!.Code}]: {result.Error.Message}");
             }
+
+            // Both graceful exits (/exit, /quit, Ctrl+D) land here inside the try so the
+            // session is completed before the alternate screen tears down.
+            await CompleteRootSessionAsync(store, rootId);
         }
         finally
         {
