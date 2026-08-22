@@ -7,7 +7,7 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL;
 
-public sealed class PowerShellFileSystemAccess : IFileSystemAccess, IDisposable
+public sealed class PowerShellFileSystemAccess : IFileSystemAccess, IFileWriteAccess, IDisposable
 {
     private const string Script = """
         param([string]$Path, [int]$Start, [int]$End)
@@ -95,6 +95,56 @@ public sealed class PowerShellFileSystemAccess : IFileSystemAccess, IDisposable
         {
             _gate.Release();
         }
+    }
+
+    private const string WriteScript = """
+        param([string]$Path, [string]$Content, [bool]$Overwrite)
+        $exists = [System.IO.File]::Exists($Path)
+        if ($exists -and -not $Overwrite) {
+            return @{ Ok = $false; ErrorCode = "FileExists";
+                      ErrorMessage = "File already exists: $Path (overwrite not requested)." }
+        }
+        $dir = [System.IO.Path]::GetDirectoryName($Path)
+        if (-not [System.IO.Directory]::Exists($dir)) {
+            return @{ Ok = $false; ErrorCode = "DirectoryNotFound";
+                      ErrorMessage = "Parent directory does not exist: $dir." }
+        }
+        try {
+            $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+            [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
+            return @{ Ok = $true; Created = (-not $exists);
+                      Bytes = (Get-Item -LiteralPath $Path).Length }
+        } catch {
+            return @{ Ok = $false; ErrorCode = "FileSystemError";
+                      ErrorMessage = $_.Exception.Message }
+        }
+        """;
+
+    public async Task<Result<FileWriteOutcome>> WriteFileAsync(
+        string path, string content, bool overwrite, CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            using var ps = System.Management.Automation.PowerShell.Create(_runspace);
+            ps.AddScript(WriteScript)
+              .AddParameter("Path", path)
+              .AddParameter("Content", content)
+              .AddParameter("Overwrite", overwrite);
+            var output = ps.Invoke();
+            if (ps.HadErrors || output.Count == 0)
+                return Result<FileWriteOutcome>.Failure(new Error("FileSystemError",
+                    ps.Streams.Error.FirstOrDefault()?.Exception?.Message
+                        ?? "PowerShell script produced no output."));
+            var table = (Hashtable)output[0].BaseObject;
+            if (table["Ok"] is not true)
+                return Result<FileWriteOutcome>.Failure(new Error(
+                    table["ErrorCode"]?.ToString() ?? "FileSystemError",
+                    table["ErrorMessage"]?.ToString() ?? "Unknown filesystem error."));
+            return Result<FileWriteOutcome>.Success(new FileWriteOutcome(
+                table["Created"] is true, Convert.ToInt64(table["Bytes"]!)));
+        }
+        finally { _gate.Release(); }
     }
 
     public void Dispose()
