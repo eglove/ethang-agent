@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <EmbeddedResource Include="gitmoji.tsv" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
     <ProjectReference Include="../eThangAgent.Skill.Domain/eThangAgent.Skill.Domain.csproj" />
   </ItemGroup>

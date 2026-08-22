@@ -1,0 +1,67 @@
+key	emoji	description
+:tada:	🎉	Initial commit
+:art:	🎨	Improve structure / format of the code
+:sparkles:	✨	Introduce new features
+:bug:	🐛	Fix a bug
+:memo:	📝	Add or update documentation
+:lipstick:	💄	Add or update the UI and style files
+:zap:	⚡	Improve performance
+:fire:	🔥	Remove code or files
+:ambulance:	🚑	Critical hotfix
+:white_check_mark:	✅	Add, update, or pass tests
+:lock:	🔒	Fix security issues
+:bookmark:	🔖	Release / version tags
+:rotating_light:	🚨	Fix compiler / linter warnings
+:construction:	🚧	Work in progress
+:green_heart:	💚	Fix CI build
+:arrow_down:	⬇️	Downgrade dependencies
+:arrow_up:	⬆️	Upgrade dependencies
+:pushpin:	📌	Pin dependencies to specific versions
+:recycle:	♻️	Refactor code
+:heavy_plus_sign:	➕	Add a dependency
+:heavy_minus_sign:	➖	Remove a dependency
+:wrench:	🔧	Add or update configuration files
+:hammer:	🔨	Add or update development scripts
+:globe_with_meridians:	🌐	Internationalization and localization
+:pencil2:	✏️	Fix typos in text
+:rewind:	⏪	Revert changes
+:twisted_rightwards_arrows:	🔀	Merge branches
+:package:	📦	Add or update compiled files or packages
+:alien:	👽	Update code due to external API changes
+:truck:	🚚	Move or rename resources
+:page_facing_up:	📄	Add or update license
+:boom:	💥	Introduce breaking changes
+:bento:	🍱	Add or update assets
+:wheelchair:	♿	Improve accessibility
+:bulb:	💡	Add or update comments in source code
+:speech_balloon:	💬	Add or update text and literals
+:card_file_box:	🗃️	Perform database related changes
+:loud_sound:	🔊	Add or update logs
+:mute:	🔇	Remove logs
+:children_crossing:	🚸	Improve user experience / usability
+:building_construction:	🏗️	Make architectural changes
+:iphone:	📱	Work on responsive design
+:clown_face:	🤡	Mock things
+:see_no_evil:	🙈	Add or update a .gitignore file
+:alembic:	⚗️	Perform experiments
+:mag:	🔍	Improve SEO
+:label:	🏷️	Add or update types
+:seedling:	🌱	Add or update seed files
+:triangular_flag_on_post:	🚩	Add, update, or remove feature flags
+:goal_net:	🥅	Catch errors
+:dizzy:	💫	Add or update animations and transitions
+:wastebasket:	🗑️	Deprecate code that needs to be cleaned up
+:passport_control:	🛂	Work on code related to authorization, roles and permissions
+:adhesive_bandage:	🩹	Simple fix for a non-critical issue
+:monocle_face:	🧐	Data exploration / inspection
+:coffin:	⚰️	Remove dead code
+:test_tube:	🧪	Add a failing test
+:necktie:	👔	Add or update business logic
+:stethoscope:	🩺	Add or update healthcheck
+:technologist:	🧑‍💻	Improve developer experience
+:money_with_wings:	💸	Add sponsorships or money related infrastructure
+:thread:	🧵	Add or update code related to multithreading or concurrency
+:poop:	💩	Write bad code that needs to be improved
+:beers:	🍻	Write code drunkenly
+:egg:	🥚	Add an easter egg
+:camera_flash:	📸	Add or update snapshots
