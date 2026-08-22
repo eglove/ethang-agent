@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace eThangAgent.CLI.Tests;
 
@@ -69,6 +70,84 @@ public sealed class MockOpenRouterServer : IDisposable
         }
     }
 
+    /// <summary>Placeholder replaced with the most recently observed child-agent id before a
+    ///     scripted response is served: child ids are runtime Guids no static script can
+    ///     predict, so scripts reference them only through this placeholder.</summary>
+    public const string ChildIdPlaceholder = "{{child_id}}";
+
+    /// <summary>Agent-id annotation inside a tool message. The async contract renders
+    ///     'id=&lt;guid&gt; status=…' lines (spawn/status results); the legacy '[agent] '
+    ///     gutter prefix is accepted so canned bodies in either shape substitute.</summary>
+    private static readonly Regex AgentIdAnnotation =
+        new(@"(?:\[agent\]\s+)?id=([0-9a-fA-F-]{36})", RegexOptions.Compiled);
+
+    /// <summary>Extracts the guid from the MOST RECENT tool-role message whose content carries
+    ///     an agent-id annotation, or null when no tool message matches. The request body is
+    ///     decoded first — raw JSON escapes quotes and would corrupt the match.</summary>
+    public static Guid? TryGetMostRecentAgentId(string requestBody)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(requestBody);
+            if (doc.RootElement.ValueKind is not JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("messages", out var messages))
+                return null;
+
+            Guid? last = null;
+            foreach (var message in messages.EnumerateArray())
+            {
+                if (message.TryGetProperty("role", out var role)
+                    && role.GetString() == "tool"
+                    && message.TryGetProperty("content", out var content)
+                    && content.GetString() is { } text)
+                {
+                    var match = AgentIdAnnotation.Match(text);
+                    if (match.Success)
+                        last = Guid.Parse(match.Groups[1].Value);
+                }
+            }
+            return last;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Picks the next scripted response for a chat request — the request model's
+    ///     queue, then the default script, then the pineapple fallback — and applies
+    ///     {{child_id}} substitution before the body is served.</summary>
+    private string NextScriptedBody(string requestBody)
+    {
+        string body;
+        var model = TryGetRequestModel(requestBody);
+        if (model is not null
+            && _modelScripts.TryGetValue(model, out var scripted)
+            && scripted.Count > 0)
+            body = scripted.Dequeue();
+        else if (_scriptedResponses.Count > 0)
+            body = _scriptedResponses.Dequeue();
+        else
+            body = """{"choices":[{"message":{"content":"pineapple"}}]}""";
+        return SubstituteChildId(body, requestBody);
+    }
+
+    /// <summary>Replaces every {{child_id}} occurrence in a scripted response with the most
+    ///     recent agent id observed in the request's tool messages. A script demanding
+    ///     substitution with no observed id is a broken test script: refused loudly as a 500,
+    ///     never served as-is where the failure would surface far from its cause.</summary>
+    private static string SubstituteChildId(string scriptedBody, string requestBody)
+    {
+        if (!scriptedBody.Contains(ChildIdPlaceholder, StringComparison.Ordinal))
+            return scriptedBody;
+
+        return TryGetMostRecentAgentId(requestBody) is { } childId
+            ? scriptedBody.Replace(ChildIdPlaceholder, childId.ToString("D"), StringComparison.Ordinal)
+            : throw new InvalidOperationException(
+                $"Scripted response contains '{ChildIdPlaceholder}' but no tool message " +
+                "in the request carries an agent id ('id=<guid>').");
+    }
+
     private async Task LoopAsync()
     {
         while (!_cts.IsCancellationRequested)
@@ -84,20 +163,20 @@ public sealed class MockOpenRouterServer : IDisposable
                 LastChatRequestBody = requestBody;
                 RequestBodies.Add(requestBody);
 
-                string body;
-                var model = TryGetRequestModel(requestBody);
-                if (model is not null
-                    && _modelScripts.TryGetValue(model, out var scripted)
-                    && scripted.Count > 0)
-                    body = scripted.Dequeue();
-                else if (_scriptedResponses.Count > 0)
-                    body = _scriptedResponses.Dequeue();
-                else
-                    body = """{"choices":[{"message":{"content":"pineapple"}}]}""";
-                var bytes = Encoding.UTF8.GetBytes(body);
-                ctx.Response.StatusCode = 200;
-                ctx.Response.ContentType = "application/json";
-                await ctx.Response.OutputStream.WriteAsync(bytes);
+                try
+                {
+                    var bytes = Encoding.UTF8.GetBytes(NextScriptedBody(requestBody));
+                    ctx.Response.StatusCode = 200;
+                    ctx.Response.ContentType = "application/json";
+                    await ctx.Response.OutputStream.WriteAsync(bytes);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    var bytes = Encoding.UTF8.GetBytes(ex.Message);
+                    ctx.Response.StatusCode = 500;
+                    ctx.Response.ContentType = "text/plain";
+                    await ctx.Response.OutputStream.WriteAsync(bytes);
+                }
             }
             else
             {

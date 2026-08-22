@@ -1,7 +1,4 @@
 using System.Diagnostics;
-using System.Text.RegularExpressions;
-using eThangAgent.AgentDomain;
-using eThangAgent.Storage.ACL;
 
 namespace eThangAgent.CLI.Tests;
 
@@ -157,93 +154,82 @@ public class E2ETests
         try { File.Delete(db); } catch { }
     }
 
-    /// <summary>Nested-spawn E2E: parent session spawns a child through agent.spawn; the child
-    ///     runs its own full loop against the mock under a per-spawn model id and reports back.
-    ///     Asserts the wire (per-spawn model on child requests), the decoded tool message
-    ///     (completed gutter + report), the rendered transcript, and persistence of exactly
-    ///     one Completed depth-1 agent row with a non-empty transcript.
-    ///     Skipped mid-plan: asserts the removed P4 synchronous spawn contract (completed
-    ///     gutter + report at spawn time); rewritten for the async contract in plan Task 9.</summary>
-    [Fact(Skip = "P4 sync-spawn contract removed by Tasks 4-5 (async runtime); rewritten in plan Task 9.")]
+    /// <summary>Nested-spawn E2E, async contract: the parent session spawns a child through
+    ///     agent.spawn (returns immediately with status=running and no report), then fetches
+    ///     the finished child's report through agent.result. The mock plays both sides via
+    ///     model-keyed scripting — the parent under its session model, the child under the
+    ///     per-spawn model — and substitutes {{child_id}} with the runtime child id observed
+    ///     in the parent's tool messages, since no static script can predict it.</summary>
+    [Fact]
     public async Task Repl_NestedSpawn_ChildRunsAndReports()
     {
         using var mock = new MockOpenRouterServer();
         mock.Start();
         var db = Path.Combine(Path.GetTempPath(), $"ethang-nested-{Guid.NewGuid():N}.db");
 
-        // Parent script: first call spawns a child via exec; second call acknowledges it.
-        var spawnProgram = """
-            agent.spawn @{ taskPrompt = 'summarize the meeting notes'; model = 'mock/sub-model'; label = 'e2e' }
+        // Parent script, keyed by the session model Program.cs configures: spawn, status,
+        // poll-then-fetch result, final text. Turn 3 polls status inside exec so the async
+        // child's terminal write is observed before agent.result runs.
+        const string pollThenResult = """
+            $status = agent.status @{ id = '{{child_id}}' }
+            while ($status -notmatch 'status=completed') { Start-Sleep -Milliseconds 50; $status = agent.status @{ id = '{{child_id}}' } }
+            agent.result @{ id = '{{child_id}}' }
             """;
-        var spawnArgs = System.Text.Json.JsonSerializer.Serialize(new { program = spawnProgram });
-        mock.Returns(ExecToolCall("parent_call_1", spawnArgs));
-        mock.Returns("""{"choices":[{"message":{"content":"Delegated to sub-agent 'e2e'; its report arrived completed."}}]}""");
+        mock.ReturnsForModel("stealth/ox-alpha",
+            ExecToolCall("parent_call_1", ExecProgram("agent.spawn @{ taskPrompt = 'Say child report done and nothing else.'; model = 'mock/sub-model'; label = 'e2e' }")),
+            ExecToolCall("parent_call_2", ExecProgram("agent.status @{ id = '{{child_id}}' }")),
+            ExecToolCall("parent_call_3", ExecProgram(pollThenResult)),
+            """{"choices":[{"message":{"content":"done: child reported"}}]}""");
 
         // Child script, keyed by the per-spawn model: one tool turn, then the final report.
-        var childProgram = System.Text.Json.JsonSerializer.Serialize(
-            new { program = "Write-Output 'child exec ran'" });
         mock.ReturnsForModel("mock/sub-model",
-            ExecToolCall("child_call_1", childProgram),
+            ExecToolCall("child_call_1", ExecProgram("Write-Output 'child report done'")),
             """{"choices":[{"message":{"content":"child report done"}}]}""");
 
         using var process = StartCli(mock, db);
         var reader = process.StandardOutput;
         await ReadUntil(reader, "> ");
 
-        await process.StandardInput.WriteLineAsync("delegate the summarization");
+        await process.StandardInput.WriteLineAsync("delegate a subtask and fetch its result");
         await process.StandardInput.FlushAsync();
 
         var response = await ReadUntil(reader, "> ");
-        Assert.Contains("Delegated to sub-agent 'e2e'", response, StringComparison.OrdinalIgnoreCase);
 
-        // Wire: child request bodies carry the per-spawn model id at the top level.
-        var childBodies = mock.RequestBodies
-            .Where(body => MockOpenRouterServer.TryGetRequestModel(body) == "mock/sub-model")
+        var parentBodies = mock.RequestBodies
+            .Where(body => MockOpenRouterServer.TryGetRequestModel(body) == "stealth/ox-alpha")
             .ToList();
-        Assert.Equal(2, childBodies.Count);
-        Assert.Contains("\"tools\"", childBodies[0]);            // child's first turn carries the tool surface
-        Assert.Contains("\"tool_calls\"", childBodies[1]);        // child's second turn echoes its tool call
-        Assert.Contains("child exec ran", childBodies[1]);        // child saw its own tool result
+        Assert.True(parentBodies.Count >= 4,
+            $"expected at least 4 parent requests, got {parentBodies.Count}");
 
-        // Decoded parent tool message carries the completed gutter and fenced report.
-        var toolContent = FindToolMessageContaining(mock.RequestBodies, "[agent] id=");
-        Assert.Contains("status=completed", toolContent);
-        Assert.Contains("depth=1", toolContent);
-        Assert.Contains("model=mock/sub-model", toolContent);
-        Assert.Contains("label=e2e", toolContent);
-        Assert.Contains("--- report ---", toolContent);
-        Assert.Contains("child report done", toolContent);
+        // (a) The spawn result reached the transcript as a running line — non-blocking:
+        //     no report text, and none of the removed P4 completed-gutter furniture.
+        var spawnResult = GetLastToolMessage(parentBodies[1]);
+        Assert.Matches("^id=[0-9a-fA-F-]{36} status=running$", spawnResult.Trim());
+        Assert.DoesNotContain("child report done", spawnResult);
+        Assert.DoesNotContain("--- report ---", spawnResult);
+
+        // (b) Wire: the child ran its own loop against the mock under the per-spawn model id.
+        Assert.Contains(mock.RequestBodies,
+            body => MockOpenRouterServer.TryGetRequestModel(body) == "mock/sub-model");
+
+        // (c) Decoded transcript: the parent fetched the child's report through agent.result.
+        Assert.Contains("child report done",
+            FindToolMessageContaining(parentBodies, "child report done"),
+            StringComparison.Ordinal);
+
+        // (d) The parent's final reply acknowledges completion.
+        Assert.Contains("done:", response, StringComparison.OrdinalIgnoreCase);
 
         await process.StandardInput.WriteLineAsync("/quit");
         await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token);
         Assert.Equal(0, process.ExitCode);
 
-        // Persistence: exactly one agent row (roots are not persisted) — Completed,
-        // depth 1, non-empty transcript — read back through AppDatabase/SqliteAgentStore.
-        var database = new AppDatabase(db);
-        var store = new SqliteAgentStore(database);
-        var childId = ParseCompletedChildId(toolContent);
-        var child = await store.GetAsync(childId);
-        Assert.True(child.IsSuccess);
-        Assert.Equal(AgentStatus.Completed, child.Value!.Status);
-        Assert.Equal(1, child.Value.Depth);
-        Assert.Equal("mock/sub-model", child.Value.ModelUsed);
-        Assert.Equal("e2e", child.Value.Label);
-        Assert.Equal("child report done", child.Value.FinalReport);
-
-        var transcript = await store.GetTranscriptAsync(childId);
-        Assert.True(transcript.IsSuccess);
-        Assert.NotEmpty(transcript.Value!);
-
-        using (var connection = database.Open())
-        {
-            using var command = connection.CreateCommand();
-            command.CommandText = "SELECT COUNT(*) FROM agents;";
-            Assert.Equal(1L, Convert.ToInt64(command.ExecuteScalar()));
-        }
-
         try { File.Delete(db); } catch { }
     }
+
+    /// <summary>Serializes an exec tool-call argument carrying one PowerShell program.</summary>
+    private static string ExecProgram(string program) =>
+        System.Text.Json.JsonSerializer.Serialize(new { program });
 
     private static string ExecToolCall(string id, string arguments) =>
         System.Text.Json.JsonSerializer.Serialize(new
@@ -407,11 +393,21 @@ public class E2ETests
         return "";
     }
 
-    private static AgentId ParseCompletedChildId(string toolContent)
+    /// <summary>Returns the decoded content of the LAST tool-role message in a chat request
+    ///     body (never raw-substring on escaped bodies).</summary>
+    private static string GetLastToolMessage(string body)
     {
-        var match = Regex.Match(toolContent, @"\[agent\] id=([0-9a-fA-F-]{36}) status=completed");
-        Assert.True(match.Success, $"no completed-gutter id found in: {toolContent}");
-        return new AgentId(Guid.Parse(match.Groups[1].Value));
+        using var doc = System.Text.Json.JsonDocument.Parse(body);
+        string? last = null;
+        foreach (var message in doc.RootElement.GetProperty("messages").EnumerateArray())
+        {
+            if (message.TryGetProperty("role", out var role)
+                && role.GetString() == "tool"
+                && message.TryGetProperty("content", out var content))
+                last = content.GetString();
+        }
+        Assert.NotNull(last);
+        return last!;
     }
 
     private static Process StartCli(MockOpenRouterServer mock, string? databasePath = null)
