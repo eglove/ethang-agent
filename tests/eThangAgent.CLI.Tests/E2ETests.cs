@@ -227,6 +227,62 @@ public class E2ETests
         try { File.Delete(db); } catch { }
     }
 
+    /// <summary>Seed-and-recall E2E: the first exchange seeds the persisted root transcript
+    ///     with a distinctive phrase; scripted turns then list sessions and recall the phrase
+    ///     through the memory capability actions inside exec programs. Assertions read only
+    ///     decoded tool-message content — the output contracts documented verbatim in
+    ///     MemoryCapabilityProvider: [mem] hit lines, the paging footer, and session= lines.</summary>
+    [Fact]
+    public async Task Repl_MemoryRecall_AgainstMockServer()
+    {
+        using var mock = new MockOpenRouterServer();
+        mock.Start();
+        var db = Path.Combine(Path.GetTempPath(), $"ethang-memory-{Guid.NewGuid():N}.db");
+
+        // Turn 1: plain assistant reply seeding 'xylophone harvest' into the transcript.
+        mock.Returns("""{"choices":[{"message":{"content":"The xylophone harvest begins at dawn."}}]}""");
+        // Turn 2: one exec tool call listing what conversations exist.
+        mock.Returns(ExecToolCall("call_1", ExecProgram("memory.sessions @{ limit = 50 }")));
+        // Turn 3: one exec tool call recalling the seeded phrase across all sessions.
+        mock.Returns(ExecToolCall("call_2", ExecProgram("memory.recall @{ query = 'xylophone'; scope = 'global' }")));
+        // Turn 4: final text closes the exchange.
+        mock.Returns("""{"choices":[{"message":{"content":"recalled."}}]}""");
+
+        using var process = StartCli(mock, db);
+        var reader = process.StandardOutput;
+        await ReadUntil(reader, "> ");
+
+        await process.StandardInput.WriteLineAsync("tell me about the xylophone harvest");
+        await process.StandardInput.FlushAsync();
+        await ReadUntil(reader, "> ");
+
+        await process.StandardInput.WriteLineAsync("now list sessions and recall what you said");
+        await process.StandardInput.FlushAsync();
+
+        var response = await ReadUntil(reader, "> ");
+        Assert.True(mock.RequestBodies.Count >= 4,
+            $"expected at least 4 scripted requests, got {mock.RequestBodies.Count}");
+
+        // (a) Sessions listing shows the persisted root conversation at depth 0.
+        var sessionsOutput = FindToolMessageContaining(mock.RequestBodies, "label=root depth=0");
+        Assert.Matches(@"(^|\n)session=[0-9a-fA-F-]{36} label=root depth=0 entries=\d+ ", sessionsOutput);
+
+        // (b) Recall renders the [mem] annotation line carrying the seeded phrase.
+        var recallOutput = FindToolMessageContaining(mock.RequestBodies, "xylophone harvest");
+        Assert.Contains("[mem] session=", recallOutput, StringComparison.Ordinal);
+
+        // (c) The recall footer follows the paging contract.
+        Assert.Matches(@"--- memory: \d+ hits, page 1/\d+ ---", recallOutput);
+
+        Assert.Contains("recalled.", response, StringComparison.OrdinalIgnoreCase);
+
+        await process.StandardInput.WriteLineAsync("/quit");
+        await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token);
+        Assert.Equal(0, process.ExitCode);
+
+        try { File.Delete(db); } catch { }
+    }
+
     /// <summary>Serializes an exec tool-call argument carrying one PowerShell program.</summary>
     private static string ExecProgram(string program) =>
         System.Text.Json.JsonSerializer.Serialize(new { program });

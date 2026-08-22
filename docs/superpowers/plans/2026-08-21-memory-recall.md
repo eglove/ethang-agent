@@ -186,9 +186,65 @@ Validation (exact strings): pageSize outside 1..200 → `Error [InvalidArgument]
 
 **Interfaces:** none new — verification task.
 
-- [ ] **Step 1:** New E2E against the mock server: parent script turn 1 answers an exchange containing the distinctive phrase `xylophone harvest`; turn 2 runs `memory.sessions @{ limit = 50 }`; turn 3 runs `memory.recall @{ query = 'xylophone'; scope = 'global' }`; final text `recalled.`. Assert decoded tool messages: a `session=` line whose depth is 0 (the persisted root); a `[mem]` hit whose content contains `xylophone harvest`; the footer regex `--- memory: \d+ hits, page 1/\d+ ---`. Run this E2E alone first; SWEEP (`taskkill //F //IM testhost.exe 2>/dev/null; taskkill //F //IM eThangAgent.CLI.exe 2>/dev/null`) after EVERY dotnet test invocation.
-- [ ] **Step 2:** Full CLI.Tests green (incl. E2Es); full solution `dotnet test` green — record totals.
-- [ ] **Step 3:** Coverage probe: `dotnet test tests/eThangAgent.Memory.Domain.Tests --collect:'XPlat Code Coverage'`; per-class line-rate for `eThangAgent.MemoryDomain.*` classes ≥ 0.80 — add targeted tokenizer/regex/search tests if short, noting additions.
-- [ ] **Step 4:** Mark this task's checkboxes `- [x]`, append `## Outcome` with suite totals, coverage actuals, deviations (if any), and the commit list; commit `git commit -am "docs(plan): P6 memory recall complete"`.
+- [x] **Step 1:** New E2E against the mock server: parent script turn 1 answers an exchange containing the distinctive phrase `xylophone harvest`; turn 2 runs `memory.sessions @{ limit = 50 }`; turn 3 runs `memory.recall @{ query = 'xylophone'; scope = 'global' }`; final text `recalled.`. Assert decoded tool messages: a `session=` line whose depth is 0 (the persisted root); a `[mem]` hit whose content contains `xylophone harvest`; the footer regex `--- memory: \d+ hits, page 1/\d+ ---`. Run this E2E alone first; SWEEP (`taskkill //F //IM testhost.exe 2>/dev/null; taskkill //F //IM eThangAgent.CLI.exe 2>/dev/null`) after EVERY dotnet test invocation.
+- [x] **Step 2:** Full CLI.Tests green (incl. E2Es); full solution `dotnet test` green — record totals.
+- [x] **Step 3:** Coverage probe: `dotnet test tests/eThangAgent.Memory.Domain.Tests --collect:'XPlat Code Coverage'`; per-class line-rate for `eThangAgent.MemoryDomain.*` classes ≥ 0.80 — add targeted tokenizer/regex/search tests if short, noting additions.
+- [x] **Step 4:** Mark this task's checkboxes `- [x]`, append `## Outcome` with suite totals, coverage actuals, deviations (if any), and the commit list; commit `git commit -am "docs(plan): P6 memory recall complete"`.
+
+---
+
+## Outcome
+
+All Task 8 steps completed green; no supplemental tests were required.
+
+### E2E (Step 1)
+
+`Repl_MemoryRecall_AgainstMockServer` passed on its first run against the already-green Tasks 1–7 implementation (verification task — RED→GREEN iteration not needed). It scripts four parent turns: plain assistant reply seeding `xylophone harvest`, exec `memory.sessions @{ limit = 50 }`, exec `memory.recall @{ query = 'xylophone'; scope = 'global' }`, final text `recalled.`. All assertions read decoded tool-message content only: root session line matching `session=<guid> label=root depth=0 entries=\d+ `, `[mem] session=` hit carrying the seeded phrase, and footer regex `--- memory: \d+ hits, page 1/\d+ ---`. Process sweep (`testhost.exe`, `eThangAgent.CLI.exe`) performed after every dotnet invocation.
+
+### Suite totals (Step 2)
+
+- CLI.Tests alone: **41/41 passed**.
+- Full solution `dotnet test`: **494/494 passed, 0 failed** across 16 test projects:
+  SharedKernel 10, Terminal.ACL 38, Conversation.Domain 10, Tool.Domain 58, Capability.Domain 23, Model.Domain 10, State.Domain 25, Agent.Infrastructure 6, Agent.Domain 67, OpenRouter.ACL 16, Memory.Domain 50, Storage.ACL 22, Agent.Application 54, FileSystem.ACL 13, PowerShell.ACL 51, CLI 41.
+
+### Coverage actuals per class (Step 3, XPlat Code Coverage / cobertura)
+
+| Class | Line rate |
+| --- | --- |
+| eThangAgent.MemoryDomain.BoundedRegex | 1.000 |
+| eThangAgent.MemoryDomain.LexicalTokenizer | 1.000 |
+| eThangAgent.MemoryDomain.MemoryEntry | 1.000 |
+| eThangAgent.MemoryDomain.MemoryQueryPlan | 1.000 |
+| eThangAgent.MemoryDomain.MemoryQueryPlan/Terms | 1.000 |
+| eThangAgent.MemoryDomain.MemoryQueryPlan/RegexPattern | 1.000 |
+| eThangAgent.MemoryDomain.SearchOutcome/Ok | 1.000 |
+| eThangAgent.MemoryDomain.SearchOutcome/Fail | 1.000 |
+| eThangAgent.MemoryDomain.SearchResult | 1.000 |
+| eThangAgent.MemoryDomain.Hit | 1.000 |
+| eThangAgent.MemoryDomain.SearchService | 0.946 |
+| eThangAgent.MemoryDomain.SessionCorpus | 0.800 |
+| eThangAgent.MemoryDomain.SessionScope | 1.000 |
+| eThangAgent.MemoryDomain.SessionScope/Session | 1.000 |
+
+Every class meets the ≥ 0.80 floor (minimum: SessionCorpus at exactly 0.800); no targeted tokenizer/regex/search tests added in this task.
+
+### Deviations from plan
+
+- **DTO home moved to Agent.Domain (Task 6):** `RecallPage.cs` and `SessionSummary.cs` live in `src/eThangAgent.Agent.Domain/` (namespace `eThangAgent.AgentDomain`), not `src/eThangAgent.Memory.Domain/` as the File Structure table suggested — they are the return DTOs of the domain-owned `IMemoryRecallQuery` / `IMemorySessionsQuery` seams, so they belong beside those interfaces.
+- **struct-enumerator fix in `MemoryCapabilityProvider.UnknownArgument`:** `JsonProperty` is a struct; `FirstOrDefault` over an exhausted property enumerator yields `default(JsonProperty)` and reading `.Name` off it throws. Replaced with manual `foreach` enumeration (documented at the site).
+- No other deviations: guardrail constants, error strings, output contracts, guide placement (`Tool.Domain/ExecGuide.cs`), and read-only scope all landed as specified.
+
+### Commit list (P6 memory recall)
+
+- `6ccbe85` docs(spec): memory recall over persisted sessions design (P6)
+- `06e0927` docs(plan): P6 memory recall implementation plan
+- `225ed13` feat(memory-domain): lexical tokenizer and query planning
+- `7dee751` feat(memory-domain): bounded regex executor with typed failures
+- `62a9e0f` feat(memory-domain): scoped branch-aware search service
+- `7684d5f` feat(cli): persist root conversation as depth-0 agent session
+- `8c5fad4` feat(agent-application): recall and sessions query handlers
+- `8dc5b59` feat(agent): memory recall and sessions capability actions
+- `f00637b` docs(guide): v1.5 recalling earlier work
+- *(this commit)* `docs(plan): P6 memory recall complete`
 
 ---
