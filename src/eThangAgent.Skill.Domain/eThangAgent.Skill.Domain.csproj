@@ -2,4 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="skills/**/*" />
+  </ItemGroup>
 </Project>
