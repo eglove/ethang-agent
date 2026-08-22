@@ -56,11 +56,23 @@ public sealed class PowerShellGitAccess : IGitQueryAccess, IGitCommitAccess, IDi
 
     private const string StatusScript = StatusParams + InvokeGitHelper + """
 
-        $branchRes = Invoke-Git $Root @('rev-parse', '--abbrev-ref', 'HEAD')
-        if ($branchRes['ExitCode'] -ne 0) {
-            return ConvertTo-GitFailure $branchRes $Root
+        # Probe repo-ness explicitly so a plain directory reports NotAGitRepository
+        # (same probe pattern as diff/commit). The branch resolution below cannot
+        # make that distinction — it treats 'no symbolic ref' as detached HEAD.
+        $probe = Invoke-Git $Root @('rev-parse', '--is-inside-work-tree')
+        if ($probe['ExitCode'] -ne 0) {
+            return ConvertTo-GitFailure $probe $Root
         }
-        $branch = $branchRes['StdOut'].Trim()
+
+        # Resolve the branch via symbolic-ref: unlike 'rev-parse --abbrev-ref HEAD'
+        # this also works on an UNBORN HEAD (fresh 'git init', no commits yet).
+        # Only a detached HEAD lacks a symbolic ref — surface a visible marker.
+        $branchRes = Invoke-Git $Root @('symbolic-ref', '--short', 'HEAD')
+        if ($branchRes['ExitCode'] -ne 0) {
+            $branch = '(detached)'
+        } else {
+            $branch = $branchRes['StdOut'].Trim()
+        }
 
         $statusRes = Invoke-Git $Root @('status', '--porcelain')
         if ($statusRes['ExitCode'] -ne 0) {

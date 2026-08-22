@@ -144,6 +144,45 @@ public sealed class PowerShellGitAccessIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task Status_FreshlyInitializedRepo_NoCommits_SucceedsWithDefaultBranchAndCleanLists()
+    {
+        var repo = InitRepo(); // init + config only — NO commit, HEAD is unborn
+        try
+        {
+            // Expected branch comes from git itself (init.defaultBranch varies by
+            // environment); the contract under test is that status SUCCEEDS here.
+            var expectedBranch = GitOut(repo, "symbolic-ref", "--short", "HEAD").Trim();
+
+            var r = await _access.GetStatusAsync(repo);
+            Assert.True(r.IsSuccess, r.Error?.Message);
+            Assert.Equal(expectedBranch, r.Value!.Branch);
+            Assert.Empty(r.Value.Staged);
+            Assert.Empty(r.Value.Unstaged);
+            Assert.Empty(r.Value.Untracked);
+        }
+        finally { SafeDelete(repo); }
+    }
+
+    [Fact]
+    public async Task Status_DetachedHead_ReportsDetachedMarker()
+    {
+        var repo = InitRepo();
+        try
+        {
+            SeedCommit(repo);
+            Git(repo, "checkout", "--detach"); // detach at current HEAD, tree stays clean
+
+            var r = await _access.GetStatusAsync(repo);
+            Assert.True(r.IsSuccess, r.Error?.Message);
+            Assert.Equal("(detached)", r.Value!.Branch);
+            Assert.Empty(r.Value.Staged);
+            Assert.Empty(r.Value.Unstaged);
+            Assert.Empty(r.Value.Untracked);
+        }
+        finally { SafeDelete(repo); }
+    }
+
+    [Fact]
     public async Task Status_PlainDirectory_Fails_NotAGitRepository()
     {
         var dir = Directory.CreateTempSubdirectory("ethang-nogit").FullName;
