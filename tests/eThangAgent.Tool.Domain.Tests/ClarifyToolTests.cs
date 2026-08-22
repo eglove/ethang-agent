@@ -105,6 +105,21 @@ public class ClarifyToolTests
         Assert.Contains("timeout", result.Content);
     }
 
+    [Fact]
+    public async Task FreeTextBlocked_WithoutOptions_Unsatisfiable_Rejected()
+    {
+        // Scripted so that, without the gate, the call would burn a human answer
+        // before dying as FreeTextNotAllowed; the gate must fire at input time.
+        var result = await MakeTool(new ScriptedClarifyChannel(Result<string>.Success("1")))
+            .ExecuteAsync(new RawToolInput("clarify",
+                """{"question":"Pick one","allowFreeText":false}"""));
+        Assert.True(result.IsError);
+        Assert.Contains("InvalidParameterValue", result.Content);
+        Assert.Contains("options", result.Content);
+        Assert.Contains("allowFreeText", result.Content);
+        Assert.Contains("rejected", result.Content);
+    }
+
     // ---- Selection and free text flow ----
 
     [Fact]

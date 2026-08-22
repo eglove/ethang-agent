@@ -107,17 +107,20 @@ public class SqliteLearnedSkillStoreTests : IDisposable
         Assert.Equal(2, fetched.Value!.Version);
         Assert.Equal("Updated body.", fetched.Value.Body);
 
+        // History rows carry each version's authoring time, not the skill's original creation time.
         await using var connection = _database.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT version, body FROM skill_versions WHERE name='x' ORDER BY version;";
+        command.CommandText = "SELECT version, body, created_at FROM skill_versions WHERE name='x' ORDER BY version;";
         using var reader = command.ExecuteReader();
 
         Assert.True(reader.Read());
         Assert.Equal(1, reader.GetInt64(0));
         Assert.Equal(v1.Body, reader.GetString(1));
+        Assert.Equal(Timestamp, DateTimeOffset.Parse(reader.GetString(2)));
         Assert.True(reader.Read());
         Assert.Equal(2, reader.GetInt64(0));
         Assert.Equal(v2.Body, reader.GetString(1));
+        Assert.Equal(Timestamp.AddHours(1), DateTimeOffset.Parse(reader.GetString(2)));
         Assert.False(reader.Read());
 
         Assert.Equal(2L, Scalar("SELECT COUNT(*) FROM skill_versions WHERE name='x';"));

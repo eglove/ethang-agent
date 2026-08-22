@@ -227,7 +227,9 @@ public sealed class SqliteLearnedSkillStore : ILearnedSkillStore
         Add(command, "@v", skill.Version);
         Add(command, "@d", skill.Description);
         Add(command, "@b", skill.Body);
-        Add(command, "@c", skill.CreatedAt.ToString("o"));
+        // History rows carry the version's authoring time (UpdatedAt), which for a
+        // fresh create equals CreatedAt; current-row created_at semantics are separate.
+        Add(command, "@c", skill.UpdatedAt.ToString("o"));
     }
 
     private static SkillDefinition MapRow(SqliteDataReader reader)

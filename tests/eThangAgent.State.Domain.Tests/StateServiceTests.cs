@@ -31,6 +31,43 @@ public class StateServiceTests
     }
 
     [Fact]
+    public async Task Set_ReservedTodoNamespace_Fails_ReservedNamespace()
+    {
+        var store = new FakeStateStore();
+
+        var result = await Create(store).SetAsync("todo/list", "[]", null);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ReservedNamespace", result.Error!.Code);
+        Assert.Contains("'todo'", result.Error.Message);
+        Assert.Null(await store.GetKeyAsync("ws", "todo", "list"));
+    }
+
+    [Fact]
+    public async Task Delete_ReservedTodoNamespace_Fails_ReservedNamespace()
+    {
+        var store = new FakeStateStore();
+
+        var result = await Create(store).DeleteAsync("todo/list", null);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ReservedNamespace", result.Error!.Code);
+        Assert.Contains("'todo'", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task ReservedTodoNamespace_DoesNotAffectOtherNamespaces()
+    {
+        var service = Create();
+
+        var set = await service.SetAsync("notes/scratch", "{}", null);
+        var deleted = await service.DeleteAsync("notes/scratch", 1);
+
+        Assert.True(set.IsSuccess);
+        Assert.True(deleted.IsSuccess);
+    }
+
+    [Fact]
     public async Task Transition_AssignsId_AppendsAttachedEvent()
     {
         var store = new FakeStateStore();

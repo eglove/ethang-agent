@@ -12,6 +12,10 @@ public sealed class StateService : IStateService
     public const string GoalNs = "goal";
     public const string GoalName = "check";
 
+    /// <summary>Namespace owned by the todo tool's list storage; state set/delete
+    /// must never touch it (State-Domain-owned reservation policy).</summary>
+    public const string TodoListNamespace = "todo";
+
     private readonly IStateStore _store;
     private readonly IEvidenceRunner _evidence;
     private readonly IWorkspaceContext _workspace;
@@ -43,6 +47,10 @@ public sealed class StateService : IStateService
         var parsed = StateKey.Parse(key);
         if (!parsed.IsSuccess) return Result<StateKeyValue>.Failure(parsed.Error!);
         var (ns, name) = parsed.Value;
+        if (ns == TodoListNamespace)
+            return Result<StateKeyValue>.Failure(new Error("ReservedNamespace",
+                $"'{key}' uses reserved namespace '{TodoListNamespace}', which is owned by " +
+                "the todo tool. Choose a different namespace."));
         var saved = await _store.SetKeyCasAsync(_workspace.WorkspaceId, ns, name, value, expectedVersion, ct);
         if (saved is not null) return Result<StateKeyValue>.Success(saved);
         var current = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct);
@@ -55,6 +63,10 @@ public sealed class StateService : IStateService
         var parsed = StateKey.Parse(key);
         if (!parsed.IsSuccess) return Result<string>.Failure(parsed.Error!);
         var (ns, name) = parsed.Value;
+        if (ns == TodoListNamespace)
+            return Result<string>.Failure(new Error("ReservedNamespace",
+                $"'{key}' uses reserved namespace '{TodoListNamespace}', which is owned by " +
+                "the todo tool. Choose a different namespace."));
         var existing = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct);
         if (existing is null)
             return Result<string>.Failure(new Error("KeyNotFound", $"'{key}' does not exist."));

@@ -100,6 +100,12 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
         switch (action)
         {
             case TodoAction.Add:
+                // 'status' is meaningful elsewhere in this tool, so an explicit one on
+                // Add is rejected, not silently dropped: items always start Pending.
+                if (status is not null)
+                    return Fail(new Error("InvalidParameterValue",
+                        "'status' is not accepted for Add: items always start Pending. " +
+                        "Use Update to change an item's status."));
                 if (description is null)
                     return Fail(new Error("MissingParameter",
                         "Missing required parameter 'description'. Add requires a non-empty description."));

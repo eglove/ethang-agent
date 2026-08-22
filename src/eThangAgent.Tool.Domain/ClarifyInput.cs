@@ -65,6 +65,14 @@ public sealed record ClarifyInput(string Question, IReadOnlyList<string>? Option
             return WrongType("allowFreeText", "boolean", freeEl.ValueKind);
         var allowFreeText = freeEl.GetBoolean();
 
+        // An options-free, free-text-blocked question can never succeed: every
+        // answer would be rejected as FreeTextNotAllowed. Reject it at the boundary.
+        if (!allowFreeText && options is null)
+            return Fail(new Error("InvalidParameterValue",
+                "'allowFreeText' is false but 'options' was not provided: without options " +
+                "every answer would be rejected as free text. Provide at least 2 options " +
+                "or set 'allowFreeText' to true."));
+
         return Result<ClarifyInput>.Success(new(question, options, allowFreeText));
     }
 

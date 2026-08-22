@@ -478,6 +478,21 @@ public class TodoToolTests
     }
 
     [Fact]
+    public async Task Add_ExplicitStatus_Rejected_ItemsStartPending()
+    {
+        var (tool, state) = MakeTool();
+
+        var result = await tool.ExecuteAsync(new RawToolInput("todo",
+            """{"action":"Add","description":"x","status":"Completed"}"""));
+
+        Assert.True(result.IsError);
+        Assert.Contains("InvalidParameterValue", result.Content);
+        Assert.Contains("'status'", result.Content);
+        Assert.Contains("Pending", result.Content);
+        Assert.Empty(state.SetCalls);
+    }
+
+    [Fact]
     public async Task Update_MissingId_MissingParameter()
     {
         var (tool, _) = MakeTool();
