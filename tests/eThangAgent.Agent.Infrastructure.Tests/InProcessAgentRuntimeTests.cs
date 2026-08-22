@@ -74,6 +74,9 @@ public class InProcessAgentRuntimeTests
 
         public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,
             CancellationToken ct = default) => throw new NotSupportedException("not exercised by runtime tests");
+
+        public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+            => throw new NotSupportedException("not exercised by runtime tests");
     }
 
     [Fact]

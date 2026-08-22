@@ -8,6 +8,7 @@ namespace eThangAgent.Agent.Application.Tests;
 public sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
 {
     private readonly Dictionary<Guid, AgentRecord> _records = [];
+    private readonly Dictionary<Guid, List<Message>> _messages = [];
 
     public List<AgentRecord> Saved { get; } = [];
     public List<AgentRecord> Updated { get; } = [];
@@ -43,15 +44,25 @@ public sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
     public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
     {
         callLog?.Add($"append:{id}");
+        if (!_messages.TryGetValue(id.Value, out var transcript))
+            _messages[id.Value] = transcript = [];
+        transcript.Add(message);
         return Task.FromResult(Result<string>.Success(id.ToString()));
     }
 
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
-        => Task.FromResult(Result<IReadOnlyList<Message>>.Success([]));
+        => Task.FromResult(Result<IReadOnlyList<Message>>.Success(
+            _messages.TryGetValue(id.Value, out var transcript)
+                ? transcript.ToList()
+                : []));
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
         => Task.FromResult(Result<IReadOnlyList<AgentRecord>>.Success(
             _records.Values.Where(r => r.ParentId == parentId).ToList()));
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+        => Task.FromResult(Result<IReadOnlyList<AgentRecord>>.Success(
+            _records.Values.OrderBy(r => r.CreatedAt).ToList()));
 }
 
 /// <summary>Fake IAgentRuntime capturing started records; returns a scripted outcome when set.</summary>

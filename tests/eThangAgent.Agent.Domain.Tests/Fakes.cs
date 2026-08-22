@@ -135,4 +135,8 @@ public sealed class FakeAgentStore : IAgentStore
     public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
         => Task.FromResult(Result<IReadOnlyList<AgentRecord>>.Success(
             _records.Values.Where(r => r.ParentId == parentId).ToList()));
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+        => Task.FromResult(Result<IReadOnlyList<AgentRecord>>.Success(
+            _records.Values.OrderBy(r => r.CreatedAt).ToList()));
 }

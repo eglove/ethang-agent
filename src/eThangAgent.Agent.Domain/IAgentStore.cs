@@ -17,4 +17,8 @@ public interface IAgentStore
     Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default);
 
     Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default);
+
+    /// <summary>Every persisted agent record in creation order (CreatedAt ascending) —
+    ///     the corpus source for memory recall and session listing.</summary>
+    Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default);
 }

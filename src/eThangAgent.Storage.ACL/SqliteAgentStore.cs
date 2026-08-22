@@ -164,6 +164,22 @@ public sealed class SqliteAgentStore : IAgentStore
         return Result<IReadOnlyList<AgentRecord>>.Success(children);
     }
 
+    public async Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+    {
+        await using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, parent_id, depth, status, failure_reason, model_used, label, task_prompt,
+                   created_at, completed_at, final_report
+            FROM agents ORDER BY created_at;
+            """;
+        var records = new List<AgentRecord>();
+        using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            records.Add(ReadRecord(reader));
+        return Result<IReadOnlyList<AgentRecord>>.Success(records);
+    }
+
     /// <summary>Persists an agent domain event as an agent_events row (state_events-style append).</summary>
     public async Task<Result<string>> AppendEventAsync(AgentDomainEvent domainEvent, CancellationToken ct = default)
     {
