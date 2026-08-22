@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "1.3";
+    public const string Version = "1.4";
 
     public const string Text = """
     ## exec — writing PowerShell programs
@@ -42,14 +42,32 @@ public static class ExecGuide
 
     ### Delegating subtasks
 
-    Spawn a child agent for a self-contained subtask; it runs autonomously and its final
-    report comes back to you:
+    Spawn a child agent for a self-contained subtask. `agent.spawn` is non-blocking: it
+    returns immediately with `id=<guid> status=running` and the child runs in the background.
+    Never wait for a child inside the spawn call.
 
         agent.spawn @{ taskPrompt = 'Summarize the auth module'; model = 'provider/cheap-model';
             label = 'research' }
+        → id=3fa85f64-591c-4a0e-b3d8-0266a14e5a11 status=running
 
     - Frame the task so a stranger could complete it; say exactly what the report must contain.
     - Pick a cheap model for grunt work; omit `model` to use the configured default.
+
+    While children run, continue useful work on your own task, or fan out siblings for parallel
+    independent subtasks so they run concurrently.
+
+    Poll each child's progress between turns:
+
+        agent.status @{ id = '<guid>' }   → id=<guid> status=running|completed|failed
+
+    When a child is done, fetch its final report:
+
+        agent.result @{ id = '<guid>' }
+
+    - `Error [NotComplete]` means the child is still running — try again later.
+    - `Error [NotFound]` means the id is wrong.
+    - `Error [ConcurrencyCapReached]` from `agent.spawn` means the runtime is at its
+      concurrent-agent limit — retrieve pending results before spawning more.
     - Children see the full tool surface and may spawn their own children — depth limit 3.
     ### Errors
 
