@@ -110,11 +110,13 @@ Error codes: `VersionConflict` (names current version), `MemoryNotFound`, `Stora
 ### Task 2: V4 migration + `SqliteCuratedMemoryStore`
 
 **Files:**
+
 - Modify: `src/eThangAgent.Storage.ACL/AppDatabase.cs` (ApplyV4 + gate)
 - Create: `src/eThangAgent.Storage.ACL/SqliteCuratedMemoryStore.cs`
 - Test: `tests/eThangAgent.Storage.ACL.Tests/SqliteCuratedMemoryStoreTests.cs`
 
 **Interfaces:**
+
 - Consumes: AppDatabase migration pattern (ApplyV1–V3), `ICuratedMemoryStore` from Task 1. Storage.ACL gains a project reference to Memory.Domain (Memory.Domain does NOT reference Storage — no cycle).
 
 V4 SQL:
@@ -184,15 +186,18 @@ Update CAS: `UPDATE … WHERE id=@id AND version=@expected`; rows-affected 0 →
 ### Task 3: `CuratedMemoryCapabilityProvider`
 
 **Files:**
+
 - Create: `src/eThangAgent.Memory.Domain/CuratedMemoryCapabilityProvider.cs`
 - Test: `tests/eThangAgent.Memory.Domain.Tests/CuratedMemoryCapabilityProviderTests.cs`
 - Modify: `src/eThangAgent.Memory.Domain/eThangAgent.Memory.Domain.csproj` — explicit project reference to Capability.Domain (transitive today; make it deliberate)
 
 **Interfaces:**
+
 - Consumes: `ICuratedMemoryStore`, `Func<string?> provenanceAccessor` (ambient session id, may return null).
 - Produces: `ICapabilityProvider`, `ProviderId = "memories"`, four actions. Argument parsing mirrors `StateCapabilityProvider`'s helpers (read it first; copy the ParseArgs/Allowed/ReqString/OptString/ToInt pattern verbatim, adapting names).
 
 Actions (JSON args):
+
 - **search**: all optional — `query`, `category`, `tags` (string array), `scope` (exactly `workspace | global`; filters to that scope), `limit` (default 20, clamped 1..100 with visible `[warning] limit clamped to 100` line when overshot). Output:
 
 ```text
@@ -200,6 +205,7 @@ Actions (JSON args):
 [mem] id=<first8> v<n> cat=<category> scope=<scope> tags=t1,t2 :: <content ≤120 chars>
      hint: <usage_hint ≤80 chars>          (only when present)
 ```
+
 Zero hits → `[memories] 0 hit(s)`. Overshoot clamp warning appended after the list.
 
 - **add**: `content` required (trim, non-empty → MissingContent; >4000 → ContentTooLong naming limit+actual), `category` required exact lowercase (`MissingCategory` / `InvalidCategory` listing five), `tags` optional array (invalid tag element → InvalidTag quoting the rule; >12 tags → TooManyTags), `usage_hint` optional ≤200 (`HintTooLong`), `scope` required exact (`workspace|global`) → workspace rows keyed by the service's injected workspace id, `session` NOT accepted from the model (provenance is ambient). Output: `[memories] added <first8> v1 (cat=<c> scope=<s>)`. Increments the injected write-counter.
@@ -221,6 +227,7 @@ Constructor: `(ICuratedMemoryStore store, Func<string> workspaceId, Func<string?
 ### Task 4: Nudges + conversation/loop additions
 
 **Files:**
+
 - Modify: `src/eThangAgent.Conversation.Domain/Conversation.cs` (+AddSystemMessage)
 - Modify: `src/eThangAgent.Agent.Domain/Agent.cs` (+LastTurnToolCalls)
 - Create: `src/eThangAgent.Agent.Application/Nudges/NudgeContext.cs`, `INudgePolicy.cs`, `DefaultNudgePolicy.cs`
@@ -262,6 +269,7 @@ Handler change: after a SUCCESSFUL `_agent.SendMessage`, evaluate policy with tu
 ### Task 5: Guidance prompt, wiring, README, verification
 
 **Files:**
+
 - Create: `src/eThangAgent.CLI/CuratedMemoryGuidePromptProvider.cs`
 - Modify: `src/eThangAgent.CLI/Program.cs`, `README.md`
 
