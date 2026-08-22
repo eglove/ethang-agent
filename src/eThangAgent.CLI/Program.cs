@@ -110,6 +110,9 @@ public static class Program
                             sp.GetRequiredService<ILearnedSkillStore>(),
                             sp.GetRequiredService<Func<DateTimeOffset>>()),
                         "Create, update, or delete learned skills."),
+                    new AgentToolBinding(
+                        new ClarifyTool(sp.GetRequiredService<IClarifyChannel>()),
+                        "Ask the human a clarifying question with structured options."),
                 ]))
             .AddSingleton<IWorkspaceContext, CwdWorkspaceContext>()
             .AddSingleton<WorkspacePathResolver>(sp =>
@@ -120,6 +123,15 @@ public static class Program
             .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
             .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
             .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
+            // Clarify reaches the human through the terminal ACL in interactive mode or
+            // stdin lines when input is redirected; the choice happens only here.
+            .AddSingleton<IClarifyChannel>(_ =>
+            {
+                if (Console.IsInputRedirected)
+                    return new PipedClarifyChannel(Console.In);
+                var terminal = new AnsiTerminal();
+                return new InteractiveClarifyChannel(terminal, terminal);
+            })
             .AddSingleton(subAgentOptions)
             .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
                 sp.GetRequiredService<OpenRouterConfiguration>(),
