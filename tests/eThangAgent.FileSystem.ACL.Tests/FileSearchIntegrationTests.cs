@@ -6,7 +6,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 public sealed class FileSearchIntegrationTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("ethang-s").FullName;
-    private readonly PowerShellFileSystemAccess _access = new();
+    private readonly DirectFileSystemAccess _access = new();
 
     public void Dispose()
     {
