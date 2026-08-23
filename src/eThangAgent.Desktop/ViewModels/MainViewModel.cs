@@ -131,6 +131,12 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Awaits the in-flight turn task. Returns a completed task if no turn is running.</summary>
     public Task WaitForTurnAsync() => _runningTurn ?? Task.CompletedTask;
 
+    /// <summary>
+    /// Completes the root session on graceful exit (/exit, /quit, or window close).
+    /// Persistence failures surface as transcript notices — teardown itself never throws.
+    /// </summary>
+    public Task ShutdownAsync() => _lifecycle.CompleteAsync(_rootId, ReportPersistenceError);
+
     private async Task ExecuteTurnAsync(string input)
     {
         MessageCount++;
