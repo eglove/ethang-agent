@@ -1,7 +1,7 @@
 using eThangAgent.ModelDomain;
 using eThangAgent.SkillDomain;
 
-namespace eThangAgent.CLI;
+namespace eThangAgent.Composition;
 
 /// <summary>Session-start bootstrap injection: the verbatim using-superpowers skill
 /// wrapped in EXTREMELY_IMPORTANT tags plus an inline tool-mapping constant, so the

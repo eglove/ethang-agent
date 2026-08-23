@@ -1,6 +1,6 @@
 using eThangAgent.ConversationDomain;
 
-namespace eThangAgent.CLI;
+namespace eThangAgent.Composition;
 
 public class InMemoryConversationRepository : IConversationRepository
 {

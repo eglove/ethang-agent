@@ -2,7 +2,7 @@ using eThangAgent.CapabilityDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.ToolDomain;
 
-namespace eThangAgent.CLI;
+namespace eThangAgent.Composition;
 
 public sealed class ExecGuidePromptProvider : ISystemPromptProvider
 {
