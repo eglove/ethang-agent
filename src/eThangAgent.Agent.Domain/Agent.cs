@@ -25,7 +25,7 @@ public class Agent
     public int LastTurnToolCalls { get; private set; }
 
     public Agent(IModelProvider provider, Conversation conversation, ModelConfig config,
-        IToolRegistry tools, ISystemPromptProvider? systemPrompt = null, int maxToolIterations = 10,
+        IToolRegistry tools, ISystemPromptProvider? systemPrompt = null, int maxToolIterations = 100,
         AgentId? id = null, int depth = 0)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));

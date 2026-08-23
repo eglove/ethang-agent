@@ -53,6 +53,8 @@ public static class Program
             configuration["SubAgent:DefaultModel"],
             configuration["SubAgent:ChildTimeoutSeconds"],
             configuration["SubAgent:MaxConcurrentAgents"]);
+        var maxToolIterations = MaxToolIterationsConfiguration.Bind(
+            configuration["Agent:MaxToolIterations"]);
 
         using var services = new ServiceCollection()
             .AddSingleton(new OpenRouterConfiguration(apiKey, baseUrl))
@@ -241,7 +243,7 @@ public static class Program
                 var config = sp.GetRequiredService<ModelConfig>();
                 var tools = sp.GetRequiredService<IToolRegistry>();
                 return new Ag(provider, conversation, config, tools,
-                    sp.GetRequiredService<ISystemPromptProvider>());
+                    sp.GetRequiredService<ISystemPromptProvider>(), maxToolIterations);
             })
             // Nudging is active: the conversation is the same singleton the Agent holds,
             // and both the policy and the write counter are supplied. The handler's
