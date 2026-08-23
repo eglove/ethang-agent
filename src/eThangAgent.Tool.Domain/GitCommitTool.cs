@@ -4,7 +4,7 @@ namespace eThangAgent.ToolDomain;
 
 public sealed class GitCommitTool : ITool
 {
-    private readonly WorkspacePathResolver _resolver;
+    private readonly IPathResolver _resolver;
     private readonly IGitCommitAccess _commits;
 
     public ToolDefinition Definition { get; } = new(
@@ -34,7 +34,7 @@ public sealed class GitCommitTool : ITool
                 "Optional body paragraph, appended after a blank line."),
         ]);
 
-    public GitCommitTool(WorkspacePathResolver resolver, IGitCommitAccess commits)
+    public GitCommitTool(IPathResolver resolver, IGitCommitAccess commits)
     {
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _commits = commits ?? throw new ArgumentNullException(nameof(commits));

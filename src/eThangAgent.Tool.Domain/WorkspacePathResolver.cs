@@ -5,7 +5,7 @@ namespace eThangAgent.ToolDomain;
 /// <summary>Resolves tool-supplied paths against the workspace root and refuses
 /// anything that resolves outside it. Segment-aware: a sibling directory whose name
 /// merely shares a prefix with the root is correctly rejected.</summary>
-public sealed class WorkspacePathResolver
+public sealed class WorkspacePathResolver : IPathResolver
 {
     private readonly string _root;
 

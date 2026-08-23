@@ -9,7 +9,7 @@ public sealed class WorkingDiffTool : ITool
     /// domain owns this contract number for display; the access layer enforces it.</summary>
     public const int PatchCharCap = 20000;
 
-    private readonly WorkspacePathResolver _resolver;
+    private readonly IPathResolver _resolver;
     private readonly IGitQueryAccess _git;
 
     public ToolDefinition Definition { get; } = new(
@@ -29,7 +29,7 @@ public sealed class WorkingDiffTool : ITool
                 "Optional single-path filter, workspace-relative or absolute-inside-workspace."),
         ]);
 
-    public WorkingDiffTool(WorkspacePathResolver resolver, IGitQueryAccess git)
+    public WorkingDiffTool(IPathResolver resolver, IGitQueryAccess git)
     {
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _git = git ?? throw new ArgumentNullException(nameof(git));

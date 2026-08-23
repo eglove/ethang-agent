@@ -4,7 +4,7 @@ namespace eThangAgent.ToolDomain;
 
 public sealed class WriteTool : ITool
 {
-    private readonly WorkspacePathResolver _resolver;
+    private readonly IPathResolver _resolver;
     private readonly IFileWriteAccess _files;
 
     public ToolDefinition Definition { get; } = new(
@@ -25,7 +25,7 @@ public sealed class WriteTool : ITool
                 "true to replace an existing file, false to refuse."),
         ]);
 
-    public WriteTool(WorkspacePathResolver resolver, IFileWriteAccess files)
+    public WriteTool(IPathResolver resolver, IFileWriteAccess files)
     {
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _files = files ?? throw new ArgumentNullException(nameof(files));

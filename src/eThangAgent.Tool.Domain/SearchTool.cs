@@ -4,7 +4,7 @@ namespace eThangAgent.ToolDomain;
 
 public sealed class SearchTool : ITool
 {
-    private readonly WorkspacePathResolver _resolver;
+    private readonly IPathResolver _resolver;
     private readonly ISearchAccess _search;
 
     public ToolDefinition Definition { get; } = new(
@@ -32,7 +32,7 @@ public sealed class SearchTool : ITool
                 "Context lines around each match. Minimum: 0", Minimum: 0),
         ]);
 
-    public SearchTool(WorkspacePathResolver resolver, ISearchAccess search)
+    public SearchTool(IPathResolver resolver, ISearchAccess search)
     {
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _search = search ?? throw new ArgumentNullException(nameof(search));

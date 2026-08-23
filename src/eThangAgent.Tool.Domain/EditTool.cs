@@ -4,7 +4,7 @@ namespace eThangAgent.ToolDomain;
 
 public sealed class EditTool : ITool
 {
-    private readonly WorkspacePathResolver _resolver;
+    private readonly IPathResolver _resolver;
     private readonly IFileEditAccess _files;
 
     public ToolDefinition Definition { get; } = new(
@@ -28,7 +28,7 @@ public sealed class EditTool : ITool
                 "Expected number of replacements (mutually exclusive with all). Minimum: 1", Minimum: 1),
         ]);
 
-    public EditTool(WorkspacePathResolver resolver, IFileEditAccess files)
+    public EditTool(IPathResolver resolver, IFileEditAccess files)
     {
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _files = files ?? throw new ArgumentNullException(nameof(files));
