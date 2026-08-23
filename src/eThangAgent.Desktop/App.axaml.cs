@@ -15,16 +15,18 @@ public class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // Bootstrap off the UI thread: config load + SQLite session save do real I/O.
-            // The window is shown on the UI thread once the host is ready; startup errors
-            // surface as an error dialog and a non-zero shutdown inside DesktopHost.
+            // Bootstrap splits by thread affinity: config load + SQLite session save run on a
+            // background thread; window construction MUST happen on the UI thread (Avalonia
+            // controls are thread-affine). Startup failures surface as an error dialog and a
+            // non-zero exit inside DesktopHost.
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    var window = await DesktopHost.CreateMainWindowAsync(desktop);
+                    var boot = await DesktopHost.PrepareAsync(desktop);
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                     {
+                        var window = DesktopHost.CreateMainWindow(desktop, boot);
                         desktop.MainWindow = window;
                         window.Show();
                     });
@@ -35,8 +37,7 @@ public class App : Application
                 }
                 catch (Exception ex)
                 {
-                    // Never exit silently: surface ANY bootstrap failure (bad config,
-                    // locked database, missing key) in a visible dialog, then exit non-zero.
+                    // Never exit silently: surface ANY bootstrap failure in a visible dialog.
                     Console.Error.WriteLine(ex);
                     await DesktopHost.ShowErrorAndExitAsync(desktop,
                         "eThang Agent failed to start: " + ex.Message);
