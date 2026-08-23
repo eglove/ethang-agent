@@ -155,16 +155,18 @@ public class CuratedMemoryCapabilityProviderTests
         Assert.EndsWith("[warning] limit clamped to 100", result.Content);
     }
 
-    [Fact]
-    public async Task Search_LimitUndershoot_ClampsTo1_WithVisibleWarningLine()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public async Task Search_LimitBelowOne_RejectedWithInvalidLimit(int limit)
     {
         var h = new Harness();
 
-        var result = await h.Provider().InvokeAsync("search", """{"limit":0}""");
+        var result = await h.Provider().InvokeAsync("search", $$"""{"limit":{{limit}}}""");
 
-        Assert.False(result.IsError);
-        Assert.Equal(1, h.Store.LastSearchLimit);
-        Assert.EndsWith("[warning] limit clamped to 1", result.Content);
+        Assert.True(result.IsError);
+        Assert.Equal("Error [InvalidLimit]: 'limit' must be an integer >= 1.", result.Content);
+        Assert.Null(h.Store.LastSearchWorkspaceId); // rejected before the store was ever consulted
     }
 
     [Fact]

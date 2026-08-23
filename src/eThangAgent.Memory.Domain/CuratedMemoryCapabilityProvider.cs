@@ -59,7 +59,7 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
              new ActionParameter("category", "String", "Optional exact-lowercase filter: convention | preference | insight | failure | reference."),
              new ActionParameter("tags", "String[]", "Optional tag filters; rows must carry all of them."),
              new ActionParameter("scope", "String", "Optional exact filter: workspace | global."),
-             new ActionParameter("limit", "Integer", "Optional. Default 20; values above 100 clamp to 100 and below 1 clamp to 1 with a visible [warning] line.")]),
+             new ActionParameter("limit", "Integer", "Optional. Default 20; minimum 1; values above 100 clamp to 100 with a visible [warning] line.")]),
         new("add", "Store a durable curated memory.",
             "Requires content (trimmed non-empty, at most 4000 chars), category (exact-lowercase), "
             + "and scope (workspace | global). Optional tags (at most 12, each matching "
@@ -113,7 +113,15 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
         var args = ParseArgs(json, Allowed("query", "category", "tags", "scope", "limit"));
 
         var limit = OptInt(args, "limit") ?? DefaultLimit;
-        var warning = ClampLimit(ref limit);
+        if (limit < 1)
+            return Fail(new Error("InvalidLimit", "'limit' must be an integer >= 1."));
+        string? warning = null;
+        if (limit > MaxLimit)
+        {
+            // The one sanctioned leniency: benign overshoot clamps to the cap and says so.
+            limit = MaxLimit;
+            warning = $"[warning] limit clamped to {MaxLimit}";
+        }
 
         MemoryCategory? category = null;
         if (args.ContainsKey("category"))
@@ -382,23 +390,6 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
     private static string First8(Guid id) => id.ToString("N")[..8];
 
     private static string Truncate(string text, int max) => text.Length <= max ? text : text[..max];
-
-    /// <summary>The one sanctioned leniency: a limit outside 1..100 clamps to the nearest
-    /// bound and says so. Returns the visible warning line, or null when no clamp happened.</summary>
-    private static string? ClampLimit(ref int limit)
-    {
-        if (limit > MaxLimit)
-        {
-            limit = MaxLimit;
-            return $"[warning] limit clamped to {MaxLimit}";
-        }
-        if (limit < 1)
-        {
-            limit = 1;
-            return "[warning] limit clamped to 1";
-        }
-        return null;
-    }
 
     private static CapabilityInvocationResult Fail(Error error)
         => CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");
