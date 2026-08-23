@@ -1,25 +1,11 @@
 using System.Collections.Concurrent;
-using Ag = eThangAgent.AgentDomain.Agent;
-using eThangAgent.AgentDomain;
-using eThangAgent.Terminal.ACL;
-using eThangAgent.ModelDomain;
-using eThangAgent.ConversationDomain;
-using eThangAgent.ToolDomain;
 using eThangAgent.Agent.Application;
-using eThangAgent.Agent.Application.Memory;
-using eThangAgent.Agent.Application.Nudges;
-using eThangAgent.AgentInfrastructure;
-using eThangAgent.OpenRouter.ACL;
+using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
-using eThangAgent.CapabilityDomain;
-using eThangAgent.MemoryDomain;
-using eThangAgent.FileSystem.ACL;
-using eThangAgent.Storage.ACL;
-using eThangAgent.StateDomain;
-using eThangAgent.Roslyn.ACL;
-using eThangAgent.SharedKernel;
-using eThangAgent.SkillDomain;
-using Microsoft.Extensions.Configuration;
+using eThangAgent.ConversationDomain;
+using eThangAgent.ModelDomain;
+using eThangAgent.Terminal.ACL;
+using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.CLI;
@@ -31,236 +17,28 @@ public static class Program
 
     public static async Task Main()
     {
-        var apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY")
+        var settings = AgentConfiguration.Load();
+        var apiKey = settings.ApiKey
             ?? throw new InvalidOperationException(
                 "OPENROUTER_API_KEY environment variable not set. " +
                 "Get a key at https://openrouter.ai/keys");
 
-        var baseUrlEnv = Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL");
-        var baseUrl = string.IsNullOrWhiteSpace(baseUrlEnv)
-            ? new Uri("https://openrouter.ai")
-            : new Uri(baseUrlEnv);
-
-        // Configuration sources: optional appsettings.json next to the executable,
-        // overridden by environment variables (SubAgent__DefaultModel,
-        // SubAgent__ChildTimeoutSeconds, SubAgent__MaxConcurrentAgents). Binding is strict —
-        // invalid values abort startup.
-        var configuration = new ConfigurationBuilder()
-            .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-            .AddEnvironmentVariables()
-            .Build();
-        var subAgentOptions = SubAgentConfiguration.Bind(
-            configuration["SubAgent:DefaultModel"],
-            configuration["SubAgent:ChildTimeoutSeconds"],
-            configuration["SubAgent:MaxConcurrentAgents"]);
-        var maxToolIterations = MaxToolIterationsConfiguration.Bind(
-            configuration["Agent:MaxToolIterations"]);
-
         using var services = new ServiceCollection()
-            .AddSingleton(new OpenRouterConfiguration(apiKey, baseUrl))
-            .AddHttpClient("OpenRouter", client =>
-            {
-                client.Timeout = TimeSpan.FromSeconds(120);
-            })
-            .Services
-            .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
-            {
-                client.Timeout = TimeSpan.FromSeconds(120);
-            })
-            .Services
-            .AddSingleton(_ => ModelConfig.Create("stealth/ox-alpha", 1024, 0.7f).Value!)
-            .AddSingleton<Conversation>()
-            .AddSingleton<IConversationRepository, InMemoryConversationRepository>()
-            .AddSingleton<DirectFileSystemAccess>()
-            .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
-            .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
-            .AddSingleton<IFileEditAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
-            .AddSingleton<ISearchAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
-            .AddSingleton<DirectGitAccess>()
-            .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
-            .AddSingleton<IGitCommitAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
-            .AddSingleton(ExecOptions.Default)
-            .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
-            .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
-            .AddSingleton<AgentToolsProvider>(sp => new AgentToolsProvider("agent",
-                [
-                    new AgentToolBinding(
-                        new ReadTool(sp.GetRequiredService<IFileSystemAccess>()),
-                        "Read lines from a text file."),
-                    new AgentToolBinding(
-                        new WriteTool(
-                            sp.GetRequiredService<WorkspacePathResolver>(),
-                            sp.GetRequiredService<IFileWriteAccess>()),
-                        "Create or overwrite a workspace file."),
-                    new AgentToolBinding(
-                        new EditTool(
-                            sp.GetRequiredService<WorkspacePathResolver>(),
-                            sp.GetRequiredService<IFileEditAccess>()),
-                        "Edit a file by exact literal replacement."),
-                    new AgentToolBinding(
-                        new SearchTool(
-                            sp.GetRequiredService<WorkspacePathResolver>(),
-                            sp.GetRequiredService<ISearchAccess>()),
-                        "Search workspace text files with literal or regex patterns."),
-                    new AgentToolBinding(
-                        new SkillListTool(
-                            sp.GetRequiredService<ISkillCatalog>(),
-                            sp.GetRequiredService<ILearnedSkillStore>()),
-                        "List available skills."),
-                    new AgentToolBinding(
-                        new SkillViewTool(
-                            sp.GetRequiredService<ISkillCatalog>(),
-                            sp.GetRequiredService<ILearnedSkillStore>()),
-                        "Load a skill's full content by name."),
-                    new AgentToolBinding(
-                        new SkillManageTool(
-                            sp.GetRequiredService<ISkillCatalog>(),
-                            sp.GetRequiredService<ILearnedSkillStore>(),
-                            sp.GetRequiredService<Func<DateTimeOffset>>()),
-                        "Create, update, or delete learned skills."),
-                    new AgentToolBinding(
-                        new ClarifyTool(sp.GetRequiredService<IClarifyChannel>()),
-                        "Ask the human a clarifying question with structured options."),
-                    new AgentToolBinding(
-                        new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
-                        "Track a workspace task list."),
-                    new AgentToolBinding(
-                        new GitStatusTool(
-                            sp.GetRequiredService<WorkspacePathResolver>(),
-                            sp.GetRequiredService<IGitQueryAccess>()),
-                        "Show branch and working-tree status."),
-                    new AgentToolBinding(
-                        new WorkingDiffTool(
-                            sp.GetRequiredService<WorkspacePathResolver>(),
-                            sp.GetRequiredService<IGitQueryAccess>()),
-                        "Show staged/unstaged/all working-tree diff, bounded."),
-                    new AgentToolBinding(
-                        new GitCommitTool(
-                            sp.GetRequiredService<WorkspacePathResolver>(),
-                            sp.GetRequiredService<IGitCommitAccess>()),
-                        "Commit the current index with a validated conventional or gitmoji message."),
-                ]))
-            .AddSingleton<IWorkspaceContext, CwdWorkspaceContext>()
-            .AddSingleton<WorkspacePathResolver>(sp =>
-                new WorkspacePathResolver(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
-            .AddSingleton<AppDatabase>()
-            .AddSingleton<IStateStore, SqliteStateStore>()
-            .AddSingleton<IAgentStore, SqliteAgentStore>()
-            .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
-            .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
-            .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
-            .AddSingleton<SqliteCuratedMemoryStore>()
-            .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
-            // Session-scoped count of successful curated-memory writes. ONE explicit
-            // counter serves two consumers with different verbs: the capability provider
-            // BUMPS via Increment on every add; the nudge path READS via Count, which is
-            // side-effect-free by construction. A single ambiguous Func<int> here made
-            // every read increment too, so DefaultNudgePolicy's zero condition could
-            // never hold and nudges were silently dead in production (final-review C1).
-            .AddSingleton<SessionMemoryWriteCounter>()
-            .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy(() => DateTimeOffset.UtcNow))
-            // Clarify reaches the human through the terminal ACL in interactive mode or
-            // stdin lines when input is redirected; the choice happens only here.
-            .AddSingleton<IClarifyChannel>(_ =>
-            {
-                if (Console.IsInputRedirected)
-                    return new PipedClarifyChannel(Console.In);
-                var terminal = new AnsiTerminal();
-                return new InteractiveClarifyChannel(terminal, terminal);
-            })
-            .AddSingleton(subAgentOptions)
-            .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
-                sp.GetRequiredService<OpenRouterConfiguration>(),
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
-            .AddSingleton<SubAgentSpawner>()
-            .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
-                sp.GetRequiredService<SubAgentSpawner>(),
-                sp.GetRequiredService<IAgentStore>(),
-                subAgentOptions.MaxConcurrentAgents))
-            .AddSingleton<IAgentSpawnCommand, StartSpawnHandler>()
-            .AddSingleton<IAgentQueries, AgentQueries>()
-            .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
-            .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
-            .AddSingleton<AgentCapabilityProvider>(sp =>
-            {
-                // Root agent record: depth 0, own identity, never persisted — only
-                // spawned children get rows. During a child run the ambient running
-                // child is the spawn parent so nested depth enforcement is correct.
-                var rootRecord = AgentRecord.Spawned(AgentId.NewId(), null, 0,
-                    sp.GetRequiredService<ModelConfig>().ModelId, null,
-                    "root session", DateTimeOffset.UtcNow);
-                return new AgentCapabilityProvider(
-                    sp.GetRequiredService<IAgentSpawnCommand>(),
-                    sp.GetRequiredService<IAgentQueries>(),
-                    () => SubAgentSpawner.RunningChild ?? rootRecord);
-            })
-            .AddSingleton<EvidenceOptions>(_ => EvidenceOptions.Default)
-            .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()
-            .AddSingleton<IStateService, StateService>()
-            .AddSingleton<StateCapabilityProvider>()
-            .AddSingleton<MemoryCapabilityProvider>()
-            .AddSingleton<ICapabilityRegistry>(sp =>
-                CapabilityRegistry.Create(
-                [
-                    new MergedCapabilityProvider("agent",
-                    [
-                        sp.GetRequiredService<AgentToolsProvider>(),
-                        sp.GetRequiredService<AgentCapabilityProvider>(),
-                    ]),
-                    sp.GetRequiredService<StateCapabilityProvider>(),
-                    sp.GetRequiredService<MemoryCapabilityProvider>(),
-                    new CuratedMemoryCapabilityProvider(
-                        sp.GetRequiredService<ICuratedMemoryStore>(),
-                        () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
-                        () => SubAgentSpawner.RunningChild?.Id.ToString(),
-                        sp.GetRequiredService<SessionMemoryWriteCounter>().Increment,
-                        () => DateTimeOffset.UtcNow),
-                ]))
-            .AddSingleton<IExecEngine>(sp => new CSharpScriptExecEngine(
-                new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>()),
-                sp.GetRequiredService<ExecOptions>()))
-            .AddSingleton<ITool>(sp => new ExecTool(
-                sp.GetRequiredService<IExecEngine>(),
-                sp.GetRequiredService<ExecOptions>(),
-                sp.GetRequiredService<IExecOutputStore>(),
-                sp.GetRequiredService<IExecActivitySink>()))
-            .AddSingleton<IToolRegistry>(sp =>
-                new ToolRegistry([sp.GetRequiredService<ITool>()]))
-            .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
-            [
-                new SuperpowersBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>()),
-                new StaticPromptProvider(
-                    "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
-                    "workspace, prefer the provided tools over guessing, and keep responses tight."),
-                new ExecGuidePromptProvider(
-                    new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
-                new CuratedMemoryGuidePromptProvider(),
-            ]))
-            .AddSingleton<Ag>(sp =>
-            {
-                var provider = sp.GetRequiredService<IModelProvider>();
-                var conversation = sp.GetRequiredService<Conversation>();
-                var config = sp.GetRequiredService<ModelConfig>();
-                var tools = sp.GetRequiredService<IToolRegistry>();
-                return new Ag(provider, conversation, config, tools,
-                    sp.GetRequiredService<ISystemPromptProvider>(), maxToolIterations);
-            })
-            // Nudging is active: the conversation is the same singleton the Agent holds,
-            // and both the policy and the write counter are supplied. The handler's
-            // dependency is a pure READ of the shared counter — never its bump.
-            .AddSingleton<SendMessageCommandHandler>(sp => new SendMessageCommandHandler(
-                sp.GetRequiredService<Ag>(),
-                sp.GetRequiredService<Conversation>(),
-                sp.GetRequiredService<INudgePolicy>(),
-                () => sp.GetRequiredService<SessionMemoryWriteCounter>().Count))
+            .AddEThangAgentCore(settings, apiKey,
+                ModelConfig.Create("stealth/ox-alpha", 1024, 0.7f).Value!,
+                new AgentHostOptions(
+                    Console.IsInputRedirected
+                        ? new PipedClarifyChannel(Console.In)
+                        : new InteractiveClarifyChannel(new AnsiTerminal(), new AnsiTerminal()),
+                    new CwdWorkspaceContext(),
+                    new WorkspacePathResolver(Path.GetFullPath("."))))
             .BuildServiceProvider();
 
         var handler = services.GetRequiredService<SendMessageCommandHandler>();
         var modelConfig = services.GetRequiredService<ModelConfig>();
+        var lifecycle = services.GetRequiredService<RootSessionLifecycle>();
 
-        // Root session bootstrap: the REPL conversation persists as an ordinary depth-0 row,
-        // so its transcript survives the process and later sessions can recall it.
+        // Root session bootstrap: identical to before.
         var store = services.GetRequiredService<IAgentStore>();
         var conversation = services.GetRequiredService<Conversation>();
         var rootId = AgentId.NewId();
@@ -271,54 +49,14 @@ public static class Program
                 $"[{rootSaved.Error!.Code}] {rootSaved.Error.Message}");
 
         if (Console.IsInputRedirected || Console.IsOutputRedirected)
-            await RunRedirectedRepl(handler, store, conversation, rootId);
+            await RunRedirectedRepl(handler, lifecycle, conversation, rootId);
         else
-            await RunInteractiveRepl(handler, modelConfig, store, conversation, rootId);
-    }
-
-    /// <summary>Persists one completed exchange to the root session: the user message then the
-    ///     final assistant message — the same Message instances the Conversation aggregate
-    ///     holds, never re-mapped copies. An exchange that resolved no assistant response
-    ///     appends nothing. Persistence failures surface on stderr; the session continues.</summary>
-    private static async Task AppendExchangeAsync(IAgentStore store, AgentId rootId,
-        Conversation conversation, int messageCountBefore, Result<string> result)
-    {
-        if (!result.IsSuccess)
-            return;
-
-        var user = await store.AppendMessageAsync(rootId, conversation.Messages[messageCountBefore]);
-        if (!user.IsSuccess)
-            Console.Error.WriteLine($"Error [{user.Error!.Code}]: {user.Error.Message}");
-
-        var assistant = await store.AppendMessageAsync(rootId, conversation.Messages[^1]);
-        if (!assistant.IsSuccess)
-            Console.Error.WriteLine($"Error [{assistant.Error!.Code}]: {assistant.Error.Message}");
-    }
-
-    /// <summary>Marks the root session Completed on graceful quit: fetches the persisted row and
-    ///     transitions it, preserving every other field. Failures surface on stderr — the exit
-    ///     itself must not crash.</summary>
-    private static async Task CompleteRootSessionAsync(IAgentStore store, AgentId rootId)
-    {
-        var record = await store.GetAsync(rootId);
-        if (!record.IsSuccess)
-        {
-            Console.Error.WriteLine($"Error [{record.Error!.Code}]: {record.Error.Message}");
-            return;
-        }
-
-        var updated = await store.UpdateAsync(record.Value! with
-        {
-            Status = AgentStatus.Completed,
-            CompletedAt = DateTimeOffset.UtcNow,
-        });
-        if (!updated.IsSuccess)
-            Console.Error.WriteLine($"Error [{updated.Error!.Code}]: {updated.Error.Message}");
+            await RunInteractiveRepl(handler, modelConfig, lifecycle, conversation, rootId);
     }
 
     /// <summary>Line-based REPL for redirected I/O (pipes, E2E tests).</summary>
     private static async Task RunRedirectedRepl(SendMessageCommandHandler handler,
-        IAgentStore store, Conversation conversation, AgentId rootId)
+        RootSessionLifecycle lifecycle, Conversation conversation, AgentId rootId)
     {
         Console.WriteLine("eThang Agent - type /help for commands");
         Console.WriteLine();
@@ -343,12 +81,13 @@ public static class Program
 
             var messageCountBefore = conversation.Messages.Count;
             var result = await handler.Handle(new SendMessageCommand(input));
-            await AppendExchangeAsync(store, rootId, conversation, messageCountBefore, result);
+            await lifecycle.AppendExchangeAsync(rootId, conversation, messageCountBefore,
+                result, Console.Error.WriteLine);
             Console.WriteLine(result.IsSuccess ? result.Value : $"Error [{result.Error!.Code}]: {result.Error.Message}");
             Console.WriteLine();
         }
 
-        await CompleteRootSessionAsync(store, rootId);
+        await lifecycle.CompleteAsync(rootId, Console.Error.WriteLine);
     }
 
     /// <summary>
@@ -357,7 +96,7 @@ public static class Program
     ///     new prompt via a full redraw.
     /// </summary>
     private static async Task RunInteractiveRepl(SendMessageCommandHandler handler, ModelConfig modelConfig,
-        IAgentStore store, Conversation conversation, AgentId rootId)
+        RootSessionLifecycle lifecycle, Conversation conversation, AgentId rootId)
     {
         try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { /* non-seekable host */ }
 
@@ -449,7 +188,8 @@ public static class Program
                 DrainStream(streamEvents, pane);
 
                 var result = await task;
-                await AppendExchangeAsync(store, rootId, conversation, messageCountBefore, result);
+                await lifecycle.AppendExchangeAsync(rootId, conversation, messageCountBefore,
+                    result, Console.Error.WriteLine);
                 state = "Ready";
                 // Streamed content is already on screen; only failures and turns that produced
                 // no deltas (non-streaming fallback) print a line here.
@@ -461,7 +201,7 @@ public static class Program
 
             // Both graceful exits (/exit, /quit, Ctrl+D) land here inside the try so the
             // session is completed before the alternate screen tears down.
-            await CompleteRootSessionAsync(store, rootId);
+            await lifecycle.CompleteAsync(rootId, Console.Error.WriteLine);
         }
         finally
         {
@@ -526,4 +266,3 @@ public static class Program
         }
     }
 }
-
