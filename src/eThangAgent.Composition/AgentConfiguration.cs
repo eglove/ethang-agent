@@ -17,9 +17,7 @@ public static class AgentConfiguration
 
         var apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
         var baseUrlEnv = Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL");
-        var baseUrl = string.IsNullOrWhiteSpace(baseUrlEnv)
-            ? new Uri("https://openrouter.ai")
-            : new Uri(baseUrlEnv);
+        var baseUrl = BindBaseUrl(baseUrlEnv);
 
         var subAgents = SubAgentConfiguration.Bind(
             configuration["SubAgent:DefaultModel"],
@@ -29,5 +27,18 @@ public static class AgentConfiguration
             configuration["Agent:MaxToolIterations"]);
 
         return new AgentSettings(apiKey, baseUrl, subAgents, maxToolIterations);
+    }
+
+    private static Uri BindBaseUrl(string? baseUrlEnv)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrlEnv))
+            return new Uri("https://openrouter.ai");
+
+        try { return new Uri(baseUrlEnv); }
+        catch (UriFormatException)
+        {
+            throw new InvalidOperationException(
+                $"OPENROUTER_BASE_URL must be a valid absolute URI, got '{baseUrlEnv}'.");
+        }
     }
 }

@@ -30,6 +30,14 @@ public class AgentConfigurationTests
     }
 
     [Fact]
+    public void Invalid_Base_Url_Throws_InvalidOperationException()
+    {
+        var ex = Record.Exception(() => Load(env: [
+            ("OPENROUTER_API_KEY", "k"), ("OPENROUTER_BASE_URL", "not-a-url")]));
+        Assert.IsType<InvalidOperationException>(ex);
+    }
+
+    [Fact]
     public void Invalid_SubAgent_Configuration_Throws()
     {
         var ex = Record.Exception(() => Load(env: [
