@@ -35,8 +35,11 @@ public class App : Application
                 }
                 catch (Exception ex)
                 {
+                    // Never exit silently: surface ANY bootstrap failure (bad config,
+                    // locked database, missing key) in a visible dialog, then exit non-zero.
                     Console.Error.WriteLine(ex);
-                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => desktop.Shutdown(1));
+                    await DesktopHost.ShowErrorAndExitAsync(desktop,
+                        "eThang Agent failed to start: " + ex.Message);
                 }
             });
         }

@@ -96,7 +96,7 @@ public static class DesktopHost
         return await tcs.Task;
     }
 
-    private static async Task ShowErrorAndExitAsync(
+    public static async Task ShowErrorAndExitAsync(
         IClassicDesktopStyleApplicationLifetime desktop, string message)
     {
         await Dispatcher.UIThread.InvokeAsync(() =>
