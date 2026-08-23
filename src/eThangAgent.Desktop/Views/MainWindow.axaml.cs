@@ -8,6 +8,7 @@ namespace eThangAgent.Desktop.Views;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel? _vm;
+    private Avalonia.Threading.DispatcherTimer? _statusTimer;
 
     public MainWindow() => InitializeComponent();
 
@@ -20,6 +21,17 @@ public partial class MainWindow : Window
         vm.Transcript.Entries.CollectionChanged += (_, _) =>
         {
             try { TranscriptScroll.ScrollToEnd(); } catch { /* layout not ready */ }
+        };
+
+        // Animated spinner parity with the terminal frame loop (~12 fps): an 80 ms timer
+        // runs only while a turn is busy; Phase transitions reset the displayed state.
+        _statusTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
+        _statusTimer.Tick += (_, _) => vm.Status.Tick();
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(MainViewModel.IsBusy)) return;
+            if (vm.IsBusy) _statusTimer.Start();
+            else _statusTimer.Stop();
         };
 
         // Tunnel so Enter/Esc are seen before TextBox class handling consumes them.
