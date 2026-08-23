@@ -9,9 +9,30 @@ public sealed class CSharpEvidenceRunner : IEvidenceRunner
 {
     private readonly EvidenceOptions _options;
 
-    private static readonly ScriptOptions ScriptOpts = ScriptOptions.Default
-        .AddImports("System", "System.IO")
-        .AddReferences(typeof(CSharpEvidenceRunner).Assembly);
+    private static ScriptOptions? _scriptOpts;
+
+    private static ScriptOptions ScriptOpts
+    {
+        get
+        {
+            if (_scriptOpts is not null) return _scriptOpts;
+            var opts = ScriptOptions.Default
+                .AddImports("System", "System.IO");
+
+            try
+            {
+                opts = opts.AddReferences(typeof(CSharpEvidenceRunner).Assembly);
+            }
+            catch (NotSupportedException)
+            {
+                var dllPath = Path.Combine(AppContext.BaseDirectory, "eThangAgent.Roslyn.ACL.dll");
+                opts = opts.AddReferences(MetadataReference.CreateFromFile(dllPath));
+            }
+
+            _scriptOpts = opts;
+            return opts;
+        }
+    }
 
     public CSharpEvidenceRunner(EvidenceOptions options)
         => _options = options ?? EvidenceOptions.Default;
