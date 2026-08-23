@@ -25,8 +25,8 @@ public class ExecToolTests
 
         Assert.Contains("exec error [ExecParseError]:", tool.Definition.Description);
         Assert.Contains("[exec:artifact", tool.Definition.Description);
-        Assert.Contains("Invoke-AgentTool", tool.Definition.Description);
-        Assert.Contains("Get-AgentTool", tool.Definition.Description);
+        Assert.Contains("Tools.Invoke(", tool.Definition.Description);
+        Assert.Contains("Tools.List()", tool.Definition.Description);
         Assert.Contains("exec error [ExecTimeout]:", tool.Definition.Description);
     }
 

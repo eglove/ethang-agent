@@ -35,10 +35,21 @@ public static class ExecGuide
         Tools.read(new { path = "src/App.cs", startLine = 1, endLine = 50 });
         Tools.search_files(new { pattern = "TODO", regex = false, rootPath = ".", maxResults = 20, contextLines = 2 });
 
-    Discover available tools:
+    The generic form behaves identically:
+
+        Tools.Invoke("read", new { path = "src/App.cs", startLine = 1, endLine = 50 });
+
+    Discover tools instead of guessing:
 
         Tools.List()
         Tools.Describe("read")
+
+    Durable state (claims, evidence, certification):
+
+        Tools.Invoke("state.set", new { key = "current/head", value = "done" });
+        Tools.Invoke("state.transition", new { from = "coding", to = "done",
+            summary = "work", evidence = new[] { "dotnet build" } });
+        Tools.Invoke("state.verify", new { });
 
     ### Running external commands
 
@@ -62,32 +73,66 @@ public static class ExecGuide
 
     ### Delegating subtasks
 
-    agent.spawn is available via Tools.Invoke():
+    Spawn a child agent for a self-contained subtask through Tools.Invoke("agent.spawn", ...).
+    agent.spawn is non-blocking: it returns immediately with `id=<guid> status=running`
+    and the child runs in the background. Never wait for a child inside the spawn call.
 
-        var id = Tools.Invoke("agent.spawn", new { taskPrompt = "Summarize auth module", model = "provider/cheap-model", label = "research" });
-        return id;
+        Tools.Invoke("agent.spawn", new {
+            taskPrompt = "Summarize the auth module", model = "provider/cheap-model",
+            label = "research" })
+        → id=3fa85f64-591c-4a0e-b3d8-0266a14e5a11 status=running
 
-    Poll progress:
+    - Frame the task so a stranger could complete it; say exactly what the report must contain.
+    - Pick a cheap model for grunt work; omit `model` to use the configured default.
 
-        Tools.Invoke("agent.status", new { id = "<guid>" });
-        Tools.Invoke("agent.result", new { id = "<guid>" });
+    While children run, continue useful work on your own task, or fan out siblings for parallel
+    independent subtasks so they run concurrently.
+
+    Poll each child's progress between turns:
+
+        Tools.Invoke("agent.status", new { id = "<guid>" })   → id=<guid> status=running|completed|failed
+
+    When a child is done, fetch its final report:
+
+        Tools.Invoke("agent.result", new { id = "<guid>" })
+
+    - `Error [NotComplete]` means the child is still running — try again later.
+    - `Error [NotFound]` means the id is wrong.
+    - `Error [ConcurrencyCapReached]` from agent.spawn means the runtime is at its
+      concurrent-agent limit — retrieve pending results before spawning more.
+    - Children see the full tool surface and may spawn their own children — depth limit 3.
 
     ### Recalling earlier work
 
-        Tools.Invoke("memory.sessions", new { });
-        Tools.Invoke("memory.recall", new { query = "deploy rollback", scope = "global" });
+    Run memory.sessions when resuming work or before duplicating effort —
+    it lists what conversations exist:
 
-    ### State
+        Tools.Invoke("memory.sessions", new { })
+        → session=<guid> label=root depth=0 entries=42 status=running tier=hot
 
-        Tools.Invoke("state.set", new { key = "current/head", value = "done" });
-        Tools.Invoke("state.get", new { key = "current/head" });
+    memory.recall searches transcripts for earlier decisions, errors, and context:
+
+        Tools.Invoke("memory.recall", new { query = "deploy rollback", scope = "global" })
+
+    - Literal mode is the default — tokens ANDed: every whitespace-separated token must
+      appear in a hit.
+    - queryMode = "regex" switches to bounded regex. Budget errors `regex_pattern_too_large`,
+      `invalid_regex`, `regex_timeout` mean simplify the pattern or use literal mode.
+    - scope is "global" or "session:<id>". branches is "active" (default: only lineages
+      reaching a root) or "all" (every persisted session).
+    - Long result sets are paged: pass page and pageSize (max 200); the footer reports
+      `<total> hits, page <p>/<pages>`.
+
+    Memory is READ-ONLY — nothing to save yet.
 
     ### Errors
 
-    Tool failures return error text: `Error [Code]: message`. Wrap in try/catch:
+    Tool failures return error text: `Error [Code]: message`. Wrap risky calls in try/catch:
 
         try { Tools.read(new { path = "missing.txt", startLine = 1, endLine = 5 }); }
         catch (Exception ex) { Output("fallback: " + ex.Message); }
+
+    Thrown exceptions mark the whole result as an error with exec error [ScriptError] lines.
 
     ### Rules
 

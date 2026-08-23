@@ -22,7 +22,6 @@
   <Project Path="src/eThangAgent.Capability.Domain/eThangAgent.Capability.Domain.csproj" />
   <Project Path="src/eThangAgent.State.Domain/eThangAgent.State.Domain.csproj" />
   <Project Path="src/eThangAgent.Storage.ACL/eThangAgent.Storage.ACL.csproj" />
-  <Project Path="src/eThangAgent.PowerShell.ACL/eThangAgent.PowerShell.ACL.csproj" />
   <Project Path="src/eThangAgent.Roslyn.ACL/eThangAgent.Roslyn.ACL.csproj" />
   <Project Path="tests/eThangAgent.SharedKernel.Tests/eThangAgent.SharedKernel.Tests.csproj" />
   <Project Path="tests/eThangAgent.Model.Domain.Tests/eThangAgent.Model.Domain.Tests.csproj" />
@@ -37,6 +36,5 @@
   <Project Path="tests/eThangAgent.Capability.Domain.Tests/eThangAgent.Capability.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.State.Domain.Tests/eThangAgent.State.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.Storage.ACL.Tests/eThangAgent.Storage.ACL.Tests.csproj" />
-  <Project Path="tests/eThangAgent.PowerShell.ACL.Tests/eThangAgent.PowerShell.ACL.Tests.csproj" />
   <Project Path="tests/eThangAgent.Roslyn.ACL.Tests/eThangAgent.Roslyn.ACL.Tests.csproj" />
 </Solution>

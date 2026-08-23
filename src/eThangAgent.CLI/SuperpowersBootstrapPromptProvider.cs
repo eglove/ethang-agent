@@ -17,7 +17,7 @@ public sealed class SuperpowersBootstrapPromptProvider : ISystemPromptProvider
         """
         Tool mapping for this harness (eThang Agent): skills name actions; bind them:
         - Read a file -> read tool; write/edit files -> write/edit; search files -> search_files
-        - Run shell commands/tests/git plumbing -> exec (PowerShell only)
+        - Run shell commands/tests/git plumbing -> exec (C# scripting)
         - Dispatch a subagent -> spawn sub-agent capability
         - Create/update todos -> todo tool; invoke or list skills -> skill_view / skill_list
         - Ask the human a clarifying question -> clarify tool (MANDATORY during brainstorming)

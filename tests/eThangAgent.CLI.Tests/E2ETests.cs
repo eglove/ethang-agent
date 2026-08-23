@@ -117,9 +117,9 @@ public class E2ETests
         var db = Path.Combine(Path.GetTempPath(), $"ethang-state-{Guid.NewGuid():N}.db");
 
         var program = """
-            state.set @{ key = 'current/head'; value = 'done' }
-            state.transition @{ from = 'coding'; to = 'done'; summary = 'work'; evidence = @('Write-Output evidence-ok') }
-            state.verify @{}
+            Tools.Invoke("state.set", new { key = "current/head", value = "done" });
+            Tools.Invoke("state.transition", new { from = "coding", to = "done", summary = "work", evidence = new[] { "true" } });
+            return Tools.Invoke("state.verify", new { });
             """;
         var execArgs = System.Text.Json.JsonSerializer.Serialize(new { program });
         mock.Returns(ExecToolCall("call_1", execArgs));
@@ -156,9 +156,9 @@ public class E2ETests
         var db = Path.Combine(Path.GetTempPath(), $"ethang-state-{Guid.NewGuid():N}.db");
 
         var program = """
-            $null = state.set @{ key = 'current/head'; value = 'done' }
-            $null = state.transition @{ from = 'coding'; to = 'done'; summary = 'work'; evidence = @('Write-Error boom') }
-            state.verify @{}
+            Tools.Invoke("state.set", new { key = "current/head", value = "done" });
+            Tools.Invoke("state.transition", new { from = "coding", to = "done", summary = "work", evidence = new[] { "throw new System.Exception(\"boom\")" } });
+            return Tools.Invoke("state.verify", new { });
             """;
         var execArgs = System.Text.Json.JsonSerializer.Serialize(new { program });
         mock.Returns(ExecToolCall("call_1", execArgs));
@@ -201,10 +201,10 @@ public class E2ETests
         mock.Start();
         var db = Path.Combine(Path.GetTempPath(), $"ethang-todo-{Guid.NewGuid():N}.db");
 
-        mock.Returns(ExecToolCall("call_1", ExecProgram("todo @{ action = 'Add'; description = 'ship it' }")));
-        mock.Returns(ExecToolCall("call_2", ExecProgram("state.set @{ key = 'todo/list'; value = 'hijack' }")));
-        mock.Returns(ExecToolCall("call_3", ExecProgram("state.delete @{ key = 'todo/list' }")));
-        mock.Returns(ExecToolCall("call_4", ExecProgram("todo @{ action = 'List' }")));
+        mock.Returns(ExecToolCall("call_1", ExecProgram("Tools.Invoke(\"todo\", new { action = \"Add\", description = \"ship it\" })")));
+        mock.Returns(ExecToolCall("call_2", ExecProgram("Tools.Invoke(\"state.set\", new { key = \"todo/list\", value = \"hijack\" })")));
+        mock.Returns(ExecToolCall("call_3", ExecProgram("Tools.Invoke(\"state.delete\", new { key = \"todo/list\" })")));
+        mock.Returns(ExecToolCall("call_4", ExecProgram("Tools.Invoke(\"todo\", new { action = \"List\" })")));
         mock.Returns("""{"choices":[{"message":{"content":"done"}}]}""");
 
         using var process = StartCli(mock, db);
@@ -259,19 +259,23 @@ public class E2ETests
         // poll-then-fetch result, final text. Turn 3 polls status inside exec so the async
         // child's terminal write is observed before agent.result runs.
         const string pollThenResult = """
-            $status = agent.status @{ id = '{{child_id}}' }
-            while ($status -notmatch 'status=completed') { Start-Sleep -Milliseconds 50; $status = agent.status @{ id = '{{child_id}}' } }
-            agent.result @{ id = '{{child_id}}' }
+            var status = "";
+            while (!status.Contains("status=completed"))
+            {
+                await System.Threading.Tasks.Task.Delay(50);
+                status = Tools.Invoke("agent.status", new { id = "{{child_id}}" });
+            }
+            return Tools.Invoke("agent.result", new { id = "{{child_id}}" });
             """;
         mock.ReturnsForModel("stealth/ox-alpha",
-            ExecToolCall("parent_call_1", ExecProgram("agent.spawn @{ taskPrompt = 'Say child report done and nothing else.'; model = 'mock/sub-model'; label = 'e2e' }")),
-            ExecToolCall("parent_call_2", ExecProgram("agent.status @{ id = '{{child_id}}' }")),
+            ExecToolCall("parent_call_1", ExecProgram("var spawned = Tools.Invoke(\"agent.spawn\", new { taskPrompt = \"Say child report done and nothing else.\", model = \"mock/sub-model\", label = \"e2e\" }); return spawned;")),
+            ExecToolCall("parent_call_2", ExecProgram("return Tools.Invoke(\"agent.status\", new { id = \"{{child_id}}\" });")),
             ExecToolCall("parent_call_3", ExecProgram(pollThenResult)),
             """{"choices":[{"message":{"content":"done: child reported"}}]}""");
 
         // Child script, keyed by the per-spawn model: one tool turn, then the final report.
         mock.ReturnsForModel("mock/sub-model",
-            ExecToolCall("child_call_1", ExecProgram("Write-Output 'child report done'")),
+            ExecToolCall("child_call_1", ExecProgram("return \"child report done\";")),
             """{"choices":[{"message":{"content":"child report done"}}]}""");
 
         using var process = StartCli(mock, db);
@@ -330,9 +334,9 @@ public class E2ETests
         // Turn 1: plain assistant reply seeding 'xylophone harvest' into the transcript.
         mock.Returns("""{"choices":[{"message":{"content":"The xylophone harvest begins at dawn."}}]}""");
         // Turn 2: one exec tool call listing what conversations exist.
-        mock.Returns(ExecToolCall("call_1", ExecProgram("memory.sessions @{ limit = 50 }")));
+        mock.Returns(ExecToolCall("call_1", ExecProgram("return Tools.Invoke(\"memory.sessions\", new { limit = 50 });")));
         // Turn 3: one exec tool call recalling the seeded phrase across all sessions.
-        mock.Returns(ExecToolCall("call_2", ExecProgram("memory.recall @{ query = 'xylophone'; scope = 'global' }")));
+        mock.Returns(ExecToolCall("call_2", ExecProgram("return Tools.Invoke(\"memory.recall\", new { query = \"xylophone\", scope = \"global\" });")));
         // Turn 4: final text closes the exchange.
         mock.Returns("""{"choices":[{"message":{"content":"recalled."}}]}""");
 
@@ -371,7 +375,7 @@ public class E2ETests
         try { File.Delete(db); } catch { }
     }
 
-    /// <summary>Serializes an exec tool-call argument carrying one PowerShell program.</summary>
+    /// <summary>Serializes an exec tool-call argument carrying one C# program.</summary>
     private static string ExecProgram(string program) =>
         System.Text.Json.JsonSerializer.Serialize(new { program });
 
@@ -426,7 +430,8 @@ public class E2ETests
         var tempFile = Path.Combine(Path.GetTempPath(), $"ethang-exec-{Guid.NewGuid():N}.txt");
         await File.WriteAllLinesAsync(tempFile, ["alpha line", "beta line"]);
 
-        var program = $"read @{{ path = '{tempFile}'; startLine = 1; endLine = 2 }}";
+        var pathArg = tempFile.Replace("\\", "\\\\");
+        var program = $"return Tools.read(new {{ path = \"{pathArg}\", startLine = 1, endLine = 2 }});";
         var execArgs = System.Text.Json.JsonSerializer.Serialize(new { program });
         mock.Returns(ExecToolCall("call_1", execArgs));
         mock.Returns("""{"choices":[{"message":{"content":"exec completed"}}]}""");
@@ -500,7 +505,7 @@ public class E2ETests
 
         Assert.NotNull(mock.LastChatRequestBody);
         Assert.Contains("\"role\":\"system\"", mock.LastChatRequestBody);
-        Assert.Contains("writing PowerShell programs", mock.LastChatRequestBody);
+        Assert.Contains("writing C# programs", mock.LastChatRequestBody);
         Assert.Contains("get(key: String): Read a durable state value.", mock.LastChatRequestBody);
         Assert.Contains(
             "verify(ids: String[]): Run attached evidence fail-closed and certify.",

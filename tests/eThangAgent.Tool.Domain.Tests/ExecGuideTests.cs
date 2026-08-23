@@ -7,18 +7,18 @@ public class ExecGuideTests
     [Fact]
     public void Guide_IsVersionedAndNonEmpty()
     {
-        Assert.Equal("1.5", ExecGuide.Version);
+        Assert.Equal("2.0", ExecGuide.Version);
         Assert.True(ExecGuide.Text.Length >= 500);
     }
 
     [Fact]
     public void Guide_DocumentsDurableState()
     {
-        Assert.Contains("agent.spawn @{", ExecGuide.Text);
+        Assert.Contains("Tools.Invoke(\"agent.spawn\", new {", ExecGuide.Text);
         Assert.Contains("Delegating subtasks", ExecGuide.Text);
         Assert.Contains("depth limit 3", ExecGuide.Text);
-        Assert.Contains("state.set @{", ExecGuide.Text);
-        Assert.Contains("state.verify @{}", ExecGuide.Text);
+        Assert.Contains("Tools.Invoke(\"state.set\", new {", ExecGuide.Text);
+        Assert.Contains("Tools.Invoke(\"state.verify\", new { })", ExecGuide.Text);
     }
 
     [Fact]
@@ -33,10 +33,10 @@ public class ExecGuideTests
         Assert.Contains("continue useful work", section);
         Assert.Contains("fan out siblings", section);
         // (3) poll agent.status between turns.
-        Assert.Contains("agent.status @{", section);
+        Assert.Contains("Tools.Invoke(\"agent.status\", new { id = \"<guid>\" })", section);
         Assert.Contains("between turns", section);
         // (4) fetch agent.result — NotComplete = later, NotFound = wrong id.
-        Assert.Contains("agent.result @{", section);
+        Assert.Contains("Tools.Invoke(\"agent.result\", new { id = \"<guid>\" })", section);
         Assert.Contains("`Error [NotComplete]`", section);
         Assert.Contains("try again later", section);
         Assert.Contains("`Error [NotFound]`", section);
@@ -51,8 +51,8 @@ public class ExecGuideTests
         {
             IndexOf(section, "returns immediately"),
             IndexOf(section, "continue useful work"),
-            IndexOf(section, "agent.status"),
-            IndexOf(section, "agent.result"),
+            IndexOf(section, "Tools.Invoke(\"agent.status\""),
+            IndexOf(section, "Tools.Invoke(\"agent.result\""),
             IndexOf(section, "ConcurrencyCapReached"),
             IndexOf(section, "depth limit 3"),
         };
@@ -71,26 +71,26 @@ public class ExecGuideTests
         Assert.True(recallStart > delegationEnd, "recall section must come after the delegation section");
 
         // (1) memory.sessions lists what conversations exist — run it when resuming work.
-        Assert.Contains("memory.sessions @{", section);
-        Assert.Contains("lists what conversations exist", section);
-        Assert.Contains("resuming work", section);
+        Assert.Contains("Tools.Invoke(\"memory.sessions\", new { })", section);
+        Assert.Contains("lists what conversations exist", section)
+            ; Assert.Contains("resuming work", section);
         Assert.Contains("before duplicating effort", section);
         // (2) memory.recall searches transcripts — literal default, tokens ANDed.
-        Assert.Contains("memory.recall @{", section);
+        Assert.Contains("Tools.Invoke(\"memory.recall\", new {", section);
         Assert.Contains("searches transcripts", section);
         Assert.Contains("tokens ANDed", section);
         // (2b) regex mode optional; budget errors mean simplify or go literal.
-        Assert.Contains("queryMode = 'regex'", section);
+        Assert.Contains("queryMode = \"regex\"", section);
         Assert.Contains("`regex_pattern_too_large`", section);
         Assert.Contains("`invalid_regex`", section);
         Assert.Contains("`regex_timeout`", section);
         Assert.Contains("simplify the pattern", section);
         Assert.Contains("literal mode", section);
         // (3) scopes and branches.
-        Assert.Contains("'global'", section);
-        Assert.Contains("'session:<id>'", section);
-        Assert.Contains("'active'", section);
-        Assert.Contains("'all'", section);
+        Assert.Contains("\"global\"", section);
+        Assert.Contains("\"session:<id>\"", section);
+        Assert.Contains("\"active\"", section);
+        Assert.Contains("\"all\"", section);
         // (4) paging for long result sets.
         Assert.Contains("page", section);
         Assert.Contains("pageSize", section);
@@ -101,10 +101,10 @@ public class ExecGuideTests
 
         var markers = new[]
         {
-            IndexOf(section, "memory.sessions @{"),
-            IndexOf(section, "memory.recall @{"),
-            IndexOf(section, "queryMode = 'regex'"),
-            IndexOf(section, "'session:<id>'"),
+            IndexOf(section, "Tools.Invoke(\"memory.sessions\""),
+            IndexOf(section, "Tools.Invoke(\"memory.recall\""),
+            IndexOf(section, "queryMode = \"regex\""),
+            IndexOf(section, "\"session:<id>\""),
             IndexOf(section, "pageSize"),
             IndexOf(section, "READ-ONLY"),
         };
@@ -136,16 +136,15 @@ public class ExecGuideTests
     [Fact]
     public void Guide_DocumentsIntrospection()
     {
-        Assert.Contains("Get-AgentAction", ExecGuide.Text);
-        Assert.Contains("Get-AgentProvider", ExecGuide.Text);
+        Assert.Contains("Tools.List()", ExecGuide.Text);
+        Assert.Contains("Tools.Describe(", ExecGuide.Text);
     }
 
     [Fact]
     public void Guide_DocumentsCoreCallPatterns()
     {
-        Assert.Contains("read @{", ExecGuide.Text);
-        Assert.Contains("Invoke-AgentTool", ExecGuide.Text);
-        Assert.Contains("Get-AgentTool", ExecGuide.Text);
+        Assert.Contains("Tools.read(new {", ExecGuide.Text);
+        Assert.Contains("Tools.Invoke(", ExecGuide.Text);
         Assert.Contains("try/catch", ExecGuide.Text);
         Assert.Contains("[exec:artifact", ExecGuide.Text);
     }

@@ -15,7 +15,7 @@ using eThangAgent.MemoryDomain;
 using eThangAgent.FileSystem.ACL;
 using eThangAgent.Storage.ACL;
 using eThangAgent.StateDomain;
-using eThangAgent.PowerShell.ACL;
+using eThangAgent.Roslyn.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 using Microsoft.Extensions.Configuration;
@@ -193,7 +193,7 @@ public static class Program
                     () => SubAgentSpawner.RunningChild ?? rootRecord);
             })
             .AddSingleton<EvidenceOptions>(_ => EvidenceOptions.Default)
-            .AddSingleton<IEvidenceRunner, PsEvidenceRunner>()
+            .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()
             .AddSingleton<IStateService, StateService>()
             .AddSingleton<StateCapabilityProvider>()
             .AddSingleton<MemoryCapabilityProvider>()
@@ -214,7 +214,7 @@ public static class Program
                         sp.GetRequiredService<SessionMemoryWriteCounter>().Increment,
                         () => DateTimeOffset.UtcNow),
                 ]))
-            .AddSingleton<IExecEngine>(sp => new PowerShellExecEngine(
+            .AddSingleton<IExecEngine>(sp => new CSharpScriptExecEngine(
                 new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>()),
                 sp.GetRequiredService<ExecOptions>()))
             .AddSingleton<ITool>(sp => new ExecTool(
@@ -323,7 +323,10 @@ public static class Program
         while (true)
         {
             Console.Write("> ");
-            var input = Console.ReadLine()?.Trim() ?? string.Empty;
+            var line = Console.ReadLine();
+            if (line is null)
+                break; // EOF: stdin closed (pipe broken, host gone). Exiting beats spinning.
+            var input = line.Trim();
             if (CliCommands.IsQuit(input))
                 break;
             if (string.IsNullOrWhiteSpace(input))

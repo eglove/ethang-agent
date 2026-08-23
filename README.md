@@ -1,6 +1,6 @@
 # eThang Agent
 
-eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered through a CLI. It pairs a strict Domain-Driven Design core (layered bounded contexts, CQRS, Specifications, Anti-Corruption Layers) with a pragmatic tool surface: it talks to OpenRouter models, runs PowerShell through a dedicated ACL, and persists every session to an app-owned SQLite database so past work can be recalled.
+eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered through a CLI. It pairs a strict Domain-Driven Design core (layered bounded contexts, CQRS, Specifications, Anti-Corruption Layers) with a pragmatic tool surface: it talks to OpenRouter models, executes model-written C# scripts in-process through a dedicated ACL, and persists every session to an app-owned SQLite database so past work can be recalled.
 
 > `AGENTS.md` is the engineering handbook — architecture rules and conventions for working *on* this codebase. This README covers what the agent *is* and how to *use* it.
 
@@ -10,7 +10,7 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 - Live response streaming in the interactive REPL — assistant text renders as it arrives,
   including interstitial reasoning between tool calls (SSE; falls back transparently when a
   provider endpoint does not stream)
-- `exec` tool — PowerShell execution with artifact capture and structured output
+- `exec` tool — in-process C# scripting via Roslyn with artifact capture and structured output
 - `read` tool — bounded, line-range text file reads
 - `write` tool — create/replace files behind an explicit overwrite gate
 - `edit` tool — exact literal replacements with occurrence verification
@@ -29,8 +29,7 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 
 ## Requirements
 
-- Windows (path handling, process execution, and the shell assume Windows)
-- PowerShell
+- Windows (path handling and process execution assume Windows)
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - An [OpenRouter API key](https://openrouter.ai/keys)
 
@@ -98,7 +97,7 @@ dotnet publish src/eThangAgent.CLI -c Release -r win-x64 --self-contained false 
 ```
 
 - Every change leaves the build green.
-- Unit tests use fakes only — a domain test never knows PowerShell, HTTP, or OpenRouter exist.
+- Unit tests use fakes only — a domain test never knows Roslyn, HTTP, or OpenRouter exist.
 - Integration tests exercise real ACL implementations; E2E tests drive the full CLI against a local mock OpenRouter server.
 - Read `AGENTS.md` for architecture rules and conventions before writing code.
 
