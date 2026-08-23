@@ -112,6 +112,14 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
     {
         var args = ParseArgs(json, Allowed("query", "category", "tags", "scope", "limit"));
 
+        // Same strict tag boundary as add/update: an invalid element is rejected
+        // outright instead of being forwarded to become a silently-wrong filter.
+        var tagFilters = OptStringArray(args, "tags");
+        foreach (var tag in tagFilters)
+            if (!CuratedMemorySpecifications.ValidTag(tag))
+                return Fail(new Error("InvalidTag",
+                    $"Invalid tag '{tag}': tags must match ^[a-z0-9][a-z0-9-_]{{0,31}}$."));
+
         var limit = OptInt(args, "limit") ?? DefaultLimit;
         if (limit < 1)
             return Fail(new Error("InvalidLimit", "'limit' must be an integer >= 1."));
@@ -140,7 +148,7 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
         }
 
         var search = await _store.SearchAsync(
-            _workspaceId(), OptString(args, "query"), category, OptStringArray(args, "tags"), limit);
+            _workspaceId(), OptString(args, "query"), category, tagFilters, limit);
         if (!search.IsSuccess) return Fail(search.Error!);
 
         // The store ranks by visibility (global always; workspace only when it matches);

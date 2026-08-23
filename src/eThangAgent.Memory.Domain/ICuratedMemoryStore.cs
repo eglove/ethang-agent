@@ -33,7 +33,8 @@ public interface ICuratedMemoryStore
         string? workspaceId, string? query, MemoryCategory? category,
         IReadOnlyList<string>? tags, int limit, CancellationToken ct = default);
 
-    /// <summary>CAS: fails VersionConflict unless memory.Version equals stored version.</summary>
+    /// <summary>CAS: fails VersionConflict unless memory.Version equals stored version + 1
+    /// (the proposed next version); the error names the current stored version.</summary>
     Task<Result<CuratedMemory>> UpdateAsync(CuratedMemory updated, CancellationToken ct = default);
 
     Task<Result<bool>> DeleteAsync(Guid id, CancellationToken ct = default);

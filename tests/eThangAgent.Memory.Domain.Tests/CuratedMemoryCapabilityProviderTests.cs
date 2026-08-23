@@ -125,6 +125,20 @@ public class CuratedMemoryCapabilityProviderTests
     }
 
     [Fact]
+    public async Task Search_TagElementsValidated_InvalidTagFailsBeforeStoreConsult()
+    {
+        var h = new Harness();
+
+        var result = await h.Provider().InvokeAsync("search",
+            """{"tags":["SQL"]}""");
+
+        Assert.True(result.IsError);
+        Assert.StartsWith("Error [InvalidTag]:", result.Content);
+        Assert.Contains("^[a-z0-9][a-z0-9-_]{0,31}$", result.Content);
+        Assert.Null(h.Store.LastSearchTags); // rejected before the store was consulted
+    }
+
+    [Fact]
     public async Task Search_TruncatesContentAt120_AndHintAt80_WithoutMarkers()
     {
         var h = new Harness();

@@ -148,13 +148,13 @@ public static class Program
             .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
             .AddSingleton<SqliteCuratedMemoryStore>()
             .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
-            // Session-scoped count of successful curated-memory writes: the capability
-            // provider bumps it on every add; the nudge policy reads it at turn boundaries.
-            .AddSingleton<Func<int>>(_ =>
-            {
-                var count = 0;
-                return () => Interlocked.Increment(ref count);
-            })
+            // Session-scoped count of successful curated-memory writes. ONE explicit
+            // counter serves two consumers with different verbs: the capability provider
+            // BUMPS via Increment on every add; the nudge path READS via Count, which is
+            // side-effect-free by construction. A single ambiguous Func<int> here made
+            // every read increment too, so DefaultNudgePolicy's zero condition could
+            // never hold and nudges were silently dead in production (final-review C1).
+            .AddSingleton<SessionMemoryWriteCounter>()
             .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy(() => DateTimeOffset.UtcNow))
             // Clarify reaches the human through the terminal ACL in interactive mode or
             // stdin lines when input is redirected; the choice happens only here.
@@ -210,7 +210,7 @@ public static class Program
                         sp.GetRequiredService<ICuratedMemoryStore>(),
                         () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
                         () => SubAgentSpawner.RunningChild?.Id.ToString(),
-                        sp.GetRequiredService<Func<int>>(),
+                        sp.GetRequiredService<SessionMemoryWriteCounter>().Increment,
                         () => DateTimeOffset.UtcNow),
                 ]))
             .AddSingleton<IExecEngine>(sp => new PowerShellExecEngine(
@@ -243,12 +243,13 @@ public static class Program
                     sp.GetRequiredService<ISystemPromptProvider>());
             })
             // Nudging is active: the conversation is the same singleton the Agent holds,
-            // and both the policy and the write counter are supplied.
+            // and both the policy and the write counter are supplied. The handler's
+            // dependency is a pure READ of the shared counter — never its bump.
             .AddSingleton<SendMessageCommandHandler>(sp => new SendMessageCommandHandler(
                 sp.GetRequiredService<Ag>(),
                 sp.GetRequiredService<Conversation>(),
                 sp.GetRequiredService<INudgePolicy>(),
-                sp.GetRequiredService<Func<int>>()))
+                () => sp.GetRequiredService<SessionMemoryWriteCounter>().Count))
             .BuildServiceProvider();
 
         var handler = services.GetRequiredService<SendMessageCommandHandler>();

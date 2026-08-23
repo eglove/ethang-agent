@@ -77,8 +77,11 @@ public sealed class SqliteCuratedMemoryStore : ICuratedMemoryStore
             foreach (var tag in tags ?? [])
             {
                 var name = $"@tag{parameters.Count}";
+                // The pattern is quote-bounded to JSON element boundaries: System.Text.Json
+                // always quotes array elements, so %"tag"% can never substring-match inside
+                // a longer element ("sql" no longer hits a row tagged ["mysql"]).
                 predicates.Add($"m.tags LIKE {name} ESCAPE '\\'");
-                parameters.Add(Param(name, $"%{TagPattern(tag)}%"));
+                parameters.Add(Param(name, $"%\"{TagPattern(tag)}\"%"));
             }
 
             string sql;
@@ -97,7 +100,7 @@ public sealed class SqliteCuratedMemoryStore : ICuratedMemoryStore
             }
             else
             {
-                sql = $"{SelectColumns} FROM curated_memories AS m WHERE {string.Join(" AND ", predicates)} ORDER BY m.updated_at DESC LIMIT @limit;";
+                sql = $"{SelectColumns} FROM curated_memories AS m WHERE {string.Join(" AND ", predicates)} ORDER BY m.updated_at DESC, m.id LIMIT @limit;";
             }
 
             parameters.Add(Param("@limit", limit));
@@ -124,10 +127,15 @@ public sealed class SqliteCuratedMemoryStore : ICuratedMemoryStore
     {
         try
         {
+            // One transaction spans the CAS write and its disambiguation: without it a
+            // concurrent delete between the two statements would misreport a version
+            // conflict as absence.
             await using var connection = _database.Open();
+            await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(ct);
             int changed;
             using (var command = connection.CreateCommand())
             {
+                command.Transaction = transaction;
                 command.CommandText = """
                     UPDATE curated_memories
                     SET workspace_id=@ws, category=@cat, tags=@tags, content=@content, usage_hint=@hint,
@@ -140,22 +148,31 @@ public sealed class SqliteCuratedMemoryStore : ICuratedMemoryStore
             }
 
             if (changed > 0)
+            {
+                await transaction.CommitAsync(ct);
                 return Result<CuratedMemory>.Success(updated);
+            }
 
             // Disambiguate: a stale version conflicts with the stored row; an unknown id is absence.
+            string code;
+            string message;
             using (var current = connection.CreateCommand())
             {
+                current.Transaction = transaction;
                 current.CommandText = "SELECT version FROM curated_memories WHERE id=@id;";
                 Add(current, "@id", updated.Id.ToString());
                 var storedVersion = await current.ExecuteScalarAsync(ct);
-                return storedVersion is null
-                    ? Result<CuratedMemory>.Failure(new Error(
-                        CuratedMemoryErrors.MemoryNotFound,
-                        $"No curated memory with id '{updated.Id}' exists."))
-                    : Result<CuratedMemory>.Failure(new Error(
-                        CuratedMemoryErrors.VersionConflict,
-                        $"Expected version {updated.Version - 1} but the stored version is {Convert.ToInt32(storedVersion)}."));
+                (code, message) = storedVersion is null
+                    ? (CuratedMemoryErrors.MemoryNotFound,
+                        $"No curated memory with id '{updated.Id}' exists.")
+                    : (CuratedMemoryErrors.VersionConflict,
+                        // Same phrasing as the provider's pre-check so the model sees one
+                        // consistent conflict message whichever layer catches the staleness.
+                        $"current stored version is {Convert.ToInt32(storedVersion)}.");
             }
+
+            await transaction.CommitAsync(ct);
+            return Result<CuratedMemory>.Failure(new Error(code, message));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

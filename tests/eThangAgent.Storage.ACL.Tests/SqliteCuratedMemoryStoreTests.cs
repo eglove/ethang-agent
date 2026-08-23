@@ -26,6 +26,7 @@ public class SqliteCuratedMemoryStoreTests : IDisposable
     }
 
     private static CuratedMemory MakeMemory(
+        Guid? id = null,
         string workspaceId = "ws-1",
         MemoryScope scope = MemoryScope.Workspace,
         MemoryCategory category = MemoryCategory.Convention,
@@ -37,7 +38,7 @@ public class SqliteCuratedMemoryStoreTests : IDisposable
         DateTimeOffset? createdAt = null,
         DateTimeOffset? updatedAt = null)
         => new(
-            Guid.NewGuid(),
+            id ?? Guid.NewGuid(),
             workspaceId,
             category,
             tags ?? ["api"],
@@ -268,6 +269,49 @@ public class SqliteCuratedMemoryStoreTests : IDisposable
         var byEmpty = await _store.SearchAsync("ws-1", null, null, Array.Empty<string>(), 10);
         AssertSuccess(byEmpty);
         Assert.Equal(2, byEmpty.Value!.Count);
+    }
+
+    [Fact]
+    public async Task Search_TagsFilter_MatchesWholeJsonElements_NotSubstrings()
+    {
+        // "mysql" contains "sql" and "apidocs" contains "api": a bare substring
+        // LIKE over the serialized JSON array would return wrong rows as hits.
+        var mysql = MakeMemory(tags: ["mysql"], content: "mysql connection advice");
+        var apidocs = MakeMemory(tags: ["apidocs"], content: "api documentation advice");
+        await _store.AddAsync(mysql);
+        await _store.AddAsync(apidocs);
+
+        var bySql = await _store.SearchAsync("ws-1", null, null, ["sql"], 10);
+        var byApi = await _store.SearchAsync("ws-1", null, null, ["api"], 10);
+        var byMySql = await _store.SearchAsync("ws-1", null, null, ["mysql"], 10);
+        var byApiDocs = await _store.SearchAsync("ws-1", null, null, ["apidocs"], 10);
+
+        AssertSuccess(bySql);
+        Assert.Empty(bySql.Value!);
+        AssertSuccess(byApi);
+        Assert.Empty(byApi.Value!);
+        AssertSuccess(byMySql);
+        Assert.Equal(new[] { mysql.Id }, byMySql.Value!.Select(m => m.Id).ToArray());
+        AssertSuccess(byApiDocs);
+        Assert.Equal(new[] { apidocs.Id }, byApiDocs.Value!.Select(m => m.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task Search_RecencyMode_EqualTimestamps_OrderedByDeterministicIdTiebreaker()
+    {
+        // Six rows share one timestamp; insertion order is the REVERSE of stored-id
+        // order, so only an explicit id tiebreaker — not arrival order — can yield
+        // a deterministic sequence.
+        var idsAscending = Enumerable.Range(0, 6).Select(_ => Guid.NewGuid())
+            .OrderBy(g => g.ToString(), StringComparer.Ordinal)
+            .ToList();
+        foreach (var id in Enumerable.Reverse(idsAscending))
+            await _store.AddAsync(MakeMemory(id: id, content: "tiebreaker probe"));
+
+        var searched = await _store.SearchAsync("ws-1", null, null, null, 10);
+
+        AssertSuccess(searched);
+        Assert.Equal(idsAscending, searched.Value!.Select(m => m.Id).ToArray());
     }
 
     [Fact]
