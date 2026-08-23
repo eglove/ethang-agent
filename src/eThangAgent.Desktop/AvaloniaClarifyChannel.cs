@@ -17,6 +17,11 @@ public sealed class AvaloniaClarifyChannel(Func<ClarifyQuestion, Task<ClarifyVie
     public async Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
     {
         var vm = await present(question);
+
+        // A cancelled token must not hang on an unanswered question — it cancels the
+        // presented view-model, settling Completion with the terminal Cancelled contract.
+        using var reg = ct.Register(() => vm.Cancel());
+
         return await vm.Completion;
     }
 }

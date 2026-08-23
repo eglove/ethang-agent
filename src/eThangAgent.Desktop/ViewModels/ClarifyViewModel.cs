@@ -69,6 +69,13 @@ public sealed partial class ClarifyViewModel : ObservableObject
     public void Cancel() =>
         Settle(Result<string>.Failure(new Error("Cancelled", "Cancelled by the user.")));
 
+    /// <summary>
+    ///     Surfaces an external validation failure — input routed to this question that it
+    ///     cannot accept — through <see cref="ValidationMessage"/> without consuming the
+    ///     one-shot completion: the question stays pending and completable.
+    /// </summary>
+    public void RejectInput(string message) => ValidationMessage = message;
+
     private void Settle(Result<string> result)
     {
         if (Interlocked.Exchange(ref _settled, 1) == 1) return;

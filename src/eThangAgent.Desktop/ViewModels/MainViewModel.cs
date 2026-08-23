@@ -231,7 +231,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
         else
         {
-            pending.ValidationMessage = $"Enter a number between 1 and {pending.Options.Count}.";
+            pending.RejectInput($"Enter a number between 1 and {pending.Options.Count}.");
             return;
         }
 

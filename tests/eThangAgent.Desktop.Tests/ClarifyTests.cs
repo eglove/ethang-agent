@@ -99,7 +99,69 @@ public class ClarifyTests
         Assert.Equal("Which approach?", presented!.Question);
     }
 
+    [Fact]
+    public async Task Channel_Cancellation_Mid_Wait_Resolves_Cancelled_Contract()
+    {
+        var vm = new ClarifyViewModel(Sample()); // pending — nobody answers
+        var channel = new AvaloniaClarifyChannel(_ => Task.FromResult(vm));
+        using var cts = new CancellationTokenSource();
+
+        var ask = channel.AskAsync(Sample(), cts.Token);
+        Assert.False(ask.IsCompleted); // still waiting on the human
+
+        cts.Cancel(); // the user walks away mid-question
+
+        var settled = ask.Wait(TimeSpan.FromSeconds(5));
+        Assert.True(settled, "AskAsync ignored the CancellationToken and hung awaiting Completion.");
+
+        var result = await ask;
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Cancelled", result.Error!.Code);
+        Assert.Equal("Cancelled by the user.", result.Error!.Message);
+    }
+
+    [Fact]
+    public void RejectInput_Surfaces_Message_Without_Consuming_Completion()
+    {
+        var vm = new ClarifyViewModel(Sample());
+
+        vm.RejectInput("Enter a number between 1 and 2.");
+
+        // Transient rejection: completion is NOT consumed; message is observable.
+        Assert.False(vm.Completion.IsCompleted);
+        Assert.Equal("Enter a number between 1 and 2.", vm.ValidationMessage);
+
+        vm.ChooseOption(1); // still completable after a rejection
+        Assert.True(vm.Completion.Result.IsSuccess);
+        Assert.Equal("1", vm.Completion.Result.Value);
+    }
+
     // ── Integration: MainViewModel routing while a question is pending ────────
+
+    [Fact]
+    public async Task MainViewModel_Routes_Unroutable_Input_Through_RejectInput()
+    {
+        var vm = new MainViewModel(
+            (_, _, _, _, _, _, _) => Task.FromResult(Result<string>.Success("unused")),
+            new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+            "m", () => { });
+        await vm.PresentClarifyAsync(
+            new ClarifyQuestion("Which approach?", ["first", "second"], AllowFreeText: false));
+        var clarify = vm.Clarify!;
+
+        vm.SubmitAsync("bananas"); // neither free text nor a number
+
+        // Routed rejection: message surfaces, question stays up and pending.
+        Assert.False(clarify.Completion.IsCompleted);
+        Assert.Equal("Enter a number between 1 and 2.", clarify.ValidationMessage);
+        Assert.NotNull(vm.Clarify);
+
+        vm.SubmitAsync("2"); // still routable afterwards
+        Assert.True(clarify.Completion.Result.IsSuccess);
+        Assert.Equal("2", clarify.Completion.Result.Value);
+        Assert.Null(vm.Clarify);
+        Assert.Contains(vm.Transcript.Entries.OfType<UserMessageEntry>(), e => e.Text == "2");
+    }
 
     [Fact]
     public async Task MainViewModel_Routes_Input_To_Pending_Clarify()
