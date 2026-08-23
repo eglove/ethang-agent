@@ -27,6 +27,26 @@ public sealed class RecordingLifecycle(IAgentStore store) : RootSessionLifecycle
     }
 }
 
+/// <summary>
+/// Lifecycle override whose persistence step fails through the reportError
+/// callback — mirroring how RootSessionLifecycle surfaces store failures —
+/// while still recording that the exchange was booked.
+/// </summary>
+public sealed class PersistenceErroringLifecycle(IAgentStore store)
+    : RootSessionLifecycle(store)
+{
+    public int Exchanges;
+
+    public override Task AppendExchangeAsync(
+        AgentId rootId, Conversation c, int before,
+        Result<string> result, Action<string> err)
+    {
+        Exchanges++;
+        err("Error [DbDown]: nope");
+        return Task.CompletedTask;
+    }
+}
+
 public class MainViewModelTests
 {
     private static (MainViewModel Vm, List<string> Errors, RecordingLifecycle Lifecycle)
@@ -159,6 +179,26 @@ public class MainViewModelTests
         await vm.WaitForTurnAsync();
 
         Assert.Equal(1, vm.Transcript.Entries.OfType<UserMessageEntry>().Count());
+    }
+
+    // ── 5. Persistence errors route through reportError → notice entries ─────
+
+    [Fact]
+    public async Task Persistence_Error_Routes_Through_ReportError_To_Notice_Entry()
+    {
+        var lifecycle = new PersistenceErroringLifecycle(new StubStore());
+        var vm = new MainViewModel(
+            (_, _, _, _, _, _, _) =>
+                Task.FromResult(Result<string>.Success("answer")),
+            lifecycle, AgentId.NewId(), new Conversation(), "test/model",
+            () => { });
+
+        await vm.SubmitAsync("hi");
+        await vm.WaitForTurnAsync();
+
+        Assert.Contains(vm.Transcript.Entries.OfType<NoticeEntry>(),
+            n => n.Text.Contains("Error [DbDown]"));
+        Assert.Equal(1, lifecycle.Exchanges);
     }
 
     // ── 6. Blank input ignored ────────────────────────────────────────────────
