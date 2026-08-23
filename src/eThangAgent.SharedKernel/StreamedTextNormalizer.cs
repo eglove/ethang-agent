@@ -4,11 +4,12 @@ namespace eThangAgent.SharedKernel;
 
 /// <summary>
 ///     Incrementally normalizes streamed model reasoning text for display. Providers emit
-///     reasoning as tiny fragments full of hard wraps and blank-line runs; this joins
-///     mid-word wraps, turns comma-style wraps into spaces, preserves sentence, colon, and
-///     bullet breaks, collapses blank-line floods to a single blank line, and drops leading
-///     and trailing breaks. Presentation-only: never applied to text persisted in a
-///     conversation.
+///     reasoning as tiny fragments full of hard wraps and blank-line runs; this joins wraps
+///     between two letters (the model hard-wraps inside CamelCase identifiers constantly),
+///     attaches wraps before closing/comma punctuation directly, preserves sentence,
+///     heading-after-colon, and bullet breaks, collapses blank-line floods to a single
+///     blank line, and drops leading and trailing breaks. Presentation-only: never applied
+///     to text persisted in a conversation.
 /// </summary>
 public sealed class StreamedTextNormalizer
 {
@@ -55,26 +56,39 @@ public sealed class StreamedTextNormalizer
             return;
         }
 
-        // Single break: a hard wrap inside a word joins directly. An uppercase letter
-        // after the break reads as a new sentence and keeps its break.
-        if (char.IsLetter(prev) && char.IsLower(next))
-            return;
-
-        // Sentence-ending punctuation keeps its break.
-        if (prev is '.' or '!' or '?' or '\u2026' or ':' || next is '-' or '*' or '\u2022' or '>')
+        // Bullet and list markers always start a line.
+        if (next is '-' or '*' or '\u2022' or '>')
         {
             _text.Append('\n');
             return;
         }
 
-        // A capital after a bare break starts a new sentence or heading.
+        // Sentence-ending punctuation keeps its break.
+        if (prev is '.' or '!' or '?' or '\u2026')
+        {
+            _text.Append('\n');
+            return;
+        }
+
+        // A bare wrap between two letters is mid-word — including CamelCase identifiers,
+        // which code-dense reasoning emits constantly — so join regardless of case. An
+        // unpunctuated sentence boundary before a capital joins too: identifier wraps
+        // vastly outnumber it, and a wrong join reads cheaper than a wrong break.
+        if (char.IsLetter(prev) && char.IsLetter(next))
+            return;
+
+        // Closing and comma punctuation attaches to the previous word: join directly.
+        if (next is ',' or '.' or ';' or ':' or ')')
+            return;
+
+        // A capital after a non-letter (digit, bracket) starts a heading or list entry.
         if (char.IsUpper(next))
         {
             _text.Append('\n');
             return;
         }
 
-        // Everything else (comma wraps, clause wraps) reads better joined with a space.
+        // Everything else (opening brackets, clause wraps after punctuation) joins with a space.
         _text.Append(' ');
     }
 }
