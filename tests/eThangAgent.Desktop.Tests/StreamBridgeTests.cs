@@ -29,6 +29,32 @@ public class StreamBridgeTests
         Assert.IsType<UiStreamEvent.ToolResultEvent>(received[5]);
     }
 
+    /// <summary>
+    /// If the sink throws, DrainUntilIdleAsync must surface the exception rather than
+    /// hanging forever. A timeout-guarded CancellationToken ensures CI cannot deadlock
+    /// on a regression: the test fails fast (&lt;5 s) with OperationCanceledException
+    /// when the bug is present instead of blocking the run.
+    /// </summary>
+    [Fact]
+    public async Task Throwing_Sink_Faults_DrainUntilIdleAsync_Instead_Of_Hanging()
+    {
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        Action<UiStreamEvent> throwingSink = _ => throw new InvalidOperationException("boom");
+        var bridge = new StreamBridge(throwingSink);
+        bridge.Start();
+        bridge.OnContentDelta("x");
+        bridge.MarkTurnComplete();
+
+        // DrainUntilIdleAsync must complete (with an exception) — not hang.
+        // We race it against the timeout so a regression causes a fast, clear failure.
+        var drainTask = bridge.DrainUntilIdleAsync();
+        var completed = await Task.WhenAny(drainTask, Task.Delay(Timeout.Infinite, cts.Token)
+            .ContinueWith(_ => (Task)Task.CompletedTask, TaskContinuationOptions.OnlyOnCanceled)
+            .Unwrap());
+        Assert.Same(drainTask, completed); // timed out → regression
+        await Assert.ThrowsAsync<InvalidOperationException>(() => drainTask);
+    }
+
     [Fact]
     public async Task Events_Published_From_Many_Threads_All_Arrive()
     {

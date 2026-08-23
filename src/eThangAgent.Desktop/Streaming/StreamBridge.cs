@@ -9,6 +9,11 @@ namespace eThangAgent.Desktop.Streaming;
 /// Production sinks marshal onto the UI thread so <see cref="ViewModels.TranscriptViewModel"/>
 /// keeps its UI-thread-only contract. Tests must call <see cref="Start"/> after construction —
 /// the pump only runs once started.
+/// <para><b>Fault semantics:</b> if the sink throws, the exception is forwarded to every
+/// <see cref="DrainUntilIdleAsync"/> awaiter via <c>TrySetException</c> — the task never
+/// hangs. Remaining buffered events are abandoned on the first sink fault. The pump task
+/// itself stores its <see cref="Task"/> and adds a no-op continuation so the fault is
+/// always observed and never raises <see cref="UnobservedTaskException"/>.</para>
 /// </summary>
 public sealed class StreamBridge(Action<UiStreamEvent> sink)
 {
@@ -27,7 +32,11 @@ public sealed class StreamBridge(Action<UiStreamEvent> sink)
     public void Start()
     {
         _pump = new StreamBridgePump(_channel.Reader, sink, _drained);
-        _ = Task.Run(_pump.RunAsync);
+        // Store the task and attach a no-op continuation so any unhandled fault
+        // is observed; the real fault path goes through _drained.TrySetException.
+        Task.Run(_pump.RunAsync).ContinueWith(
+            static t => _ = t.Exception, // observe fault
+            TaskContinuationOptions.OnlyOnFaulted);
     }
 
     public void MarkTurnComplete() => _channel.Writer.TryComplete();
@@ -40,7 +49,20 @@ internal sealed class StreamBridgePump(
 {
     public async Task RunAsync()
     {
-        await foreach (var evt in reader.ReadAllAsync()) sink(evt);
-        drained.TrySetResult();
+        try
+        {
+            await foreach (var evt in reader.ReadAllAsync()) sink(evt);
+        }
+        catch (Exception ex)
+        {
+            drained.TrySetException(ex);
+            return;
+        }
+        finally
+        {
+            // Guard: if we exited via the catch path, TrySetException already settled the
+            // TCS; this call is a no-op.  If we exited normally, this is the only setter.
+            drained.TrySetResult();
+        }
     }
 }
