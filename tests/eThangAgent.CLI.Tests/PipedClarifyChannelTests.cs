@@ -43,8 +43,11 @@ public class InteractiveClarifyChannelTests
         new("Which color?", ["red", "green"], true);
 
     [Fact]
-    public async Task NumberThenEnter_ReturnsDigitAndRendersNumberedOptions()
+    public async Task NumberThenEnter_ReturnsDigitAndRendersShortPrompt()
     {
+        // The full question + options render in the transcript pane (clarify tool-call
+        // entry). The channel itself writes only a short answer prompt that always fits
+        // one console row — it must never target a column past the buffer width.
         var writer = new CapturingTextWriter();
         var reader = new ScriptedKeyReader(Key('2'), Key(ConsoleKey.Enter));
 
@@ -52,9 +55,7 @@ public class InteractiveClarifyChannelTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal("2", result.Value);
-        Assert.Contains("Which color?", writer.Text);
-        Assert.Contains("1) red", writer.Text);
-        Assert.Contains("2) green", writer.Text);
+        Assert.Contains("answer [1-2]", writer.Text);
     }
 
     [Fact]
