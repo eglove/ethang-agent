@@ -93,7 +93,7 @@ dotnet test    # xUnit — unit, integration, and E2E layers
 Production build (framework-dependent single file for win-x64):
 
 ```powershell
-dotnet publish src/eThangAgent.CLI -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
+dotnet publish src/eThangAgent.CLI -c Release -r win-x64 --self-contained false
 ```
 
 - Every change leaves the build green.

@@ -14,35 +14,11 @@ public sealed class CSharpScriptExecEngine : IExecEngine
     private readonly Lazy<ICapabilityRegistry> _registry;
     private readonly ExecOptions _options;
 
-    private static ScriptOptions? _scriptOpts;
-
-    private static ScriptOptions ScriptOpts
-    {
-        get
-        {
-            if (_scriptOpts is not null) return _scriptOpts;
-            var opts = ScriptOptions.Default
-                .AddImports("System", "System.IO", "System.Linq",
-                    "System.Collections.Generic", "System.Diagnostics",
-                    "System.Text", "System.Text.RegularExpressions");
-
-            // The assembly reference is preferred (works in dev / dotnet run). In
-            // single-file publish, Assembly.Location returns "" and AddReferences
-            // throws NotSupportedException; fall back to the extracted DLL on disk.
-            try
-            {
-                opts = opts.AddReferences(typeof(ScriptGlobals).Assembly);
-            }
-            catch (NotSupportedException)
-            {
-                var dllPath = Path.Combine(AppContext.BaseDirectory, "eThangAgent.Roslyn.ACL.dll");
-                opts = opts.AddReferences(MetadataReference.CreateFromFile(dllPath));
-            }
-
-            _scriptOpts = opts;
-            return opts;
-        }
-    }
+    private static readonly ScriptOptions ScriptOpts = ScriptOptions.Default
+        .AddImports("System", "System.IO", "System.Linq",
+            "System.Collections.Generic", "System.Diagnostics",
+            "System.Text", "System.Text.RegularExpressions")
+        .AddReferences(typeof(ScriptGlobals).Assembly);
 
     public CSharpScriptExecEngine(Lazy<ICapabilityRegistry> registry, ExecOptions options)
     {
