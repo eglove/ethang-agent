@@ -15,22 +15,20 @@ public sealed class InteractiveClarifyChannel(ITextWriter writer, IKeyReader rea
 {
     public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
     {
-        // Build a compact single-line prompt: "Q? [1) a, 2) b]" or "Q?"
-        var prompt = question.Question;
-        if (question.Options.Count > 0)
-        {
-            var opts = string.Join(", ",
-                question.Options.Select((o, i) => $"{i + 1}) {o}"));
-            prompt += $" [{opts}]";
-        }
+        // The full question and its options are already visible in the transcript
+        // pane (the clarify tool-call entry). The input row gets a short, always-fits
+        // answer prompt — never a column past the buffer width, which would throw
+        // ArgumentOutOfRangeException from SetCursorPosition.
+        var prompt = question.Options.Count > 0
+            ? $"answer [1-{question.Options.Count}]"
+            : "answer";
         if (question.AllowFreeText)
-            prompt += " (or type)";
+            prompt += " or type";
+        prompt += ": ";
 
-        // Write on the current row (the input row the frame loop never overwrites)
-        // and pad with spaces so stale text from the editor prompt is covered.
-        var pad = Math.Max(0, writer.BufferWidth - prompt.Length - 2);
-        writer.Write(prompt + ": " + new string(' ', pad));
-        writer.SetCursorPosition(prompt.Length + 2, writer.CursorTop);
+        writer.Write(prompt);
+        var cursorCol = Math.Min(prompt.Length, writer.BufferWidth - 1);
+        writer.SetCursorPosition(cursorCol, writer.CursorTop);
 
         var buffer = new List<char>();
         while (true)

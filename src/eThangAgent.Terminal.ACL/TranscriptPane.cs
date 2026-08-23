@@ -52,7 +52,7 @@ public sealed class TranscriptPane
     ///     Does NOT close the content stream.</summary>
     public void AppendToolCall(string name, string arguments)
     {
-        var argsPreview = arguments.Length > 80 ? arguments[..77] + "…" : arguments;
+        var argsPreview = arguments.Length > 400 ? arguments[..397] + "…" : arguments;
         _lines.Add($"▸ {name} {{{argsPreview}}}");
     }
 
