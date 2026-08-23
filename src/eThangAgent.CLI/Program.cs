@@ -10,6 +10,7 @@ using eThangAgent.Agent.Application.Memory;
 using eThangAgent.Agent.Application.Nudges;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.OpenRouter.ACL;
+using eThangAgent.Composition;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.MemoryDomain;
 using eThangAgent.FileSystem.ACL;

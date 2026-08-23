@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace eThangAgent.CLI;
+namespace eThangAgent.Composition;
 
 /// <summary>Strict composition-root binding of the main agent's tool-iteration budget.
 ///     Key "Agent:MaxToolIterations" — optional; absent defaults to 100. Present must be a

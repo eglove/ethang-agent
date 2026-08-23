@@ -1,7 +1,7 @@
 using System.Globalization;
 using eThangAgent.AgentDomain;
 
-namespace eThangAgent.CLI;
+namespace eThangAgent.Composition;
 
 /// <summary>Strict composition-root binding of SubAgent configuration into
 ///     <see cref="SubAgentOptions"/>. Keys:

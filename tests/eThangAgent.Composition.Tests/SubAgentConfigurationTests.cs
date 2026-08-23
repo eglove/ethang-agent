@@ -1,4 +1,4 @@
-namespace eThangAgent.CLI.Tests;
+namespace eThangAgent.Composition.Tests;
 
 /// <summary>Strict binding of SubAgent configuration into SubAgentOptions at the
 ///     composition root. Absent SubAgent:DefaultModel is legal; present-but-empty is a
