@@ -7,6 +7,7 @@ using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -26,7 +27,9 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly AgentId _rootId;
     private readonly Conversation _conversation;
     private readonly Action _requestClose;
+    private readonly Func<ClarifyQuestion, Task<ClarifyViewModel>> _presentClarify;
 
+    private IClarifyChannel? _clarifyChannel;
     private Task? _runningTurn;
 
     [ObservableProperty]
@@ -41,8 +44,9 @@ public sealed partial class MainViewModel : ObservableObject
     public TranscriptViewModel Transcript { get; } = new();
     public StatusViewModel Status { get; }
 
-    /// <summary>Null until Task 11 wires clarify routing.</summary>
-    public ClarifyViewModel? Clarify { get; private set; }
+    /// <summary>The pending clarify question, or null when none is awaiting an answer.</summary>
+    [ObservableProperty]
+    private ClarifyViewModel? _clarify;
 
     public ICommand SubmitCommand { get; }
 
@@ -52,17 +56,36 @@ public sealed partial class MainViewModel : ObservableObject
         AgentId rootId,
         Conversation conversation,
         string modelId,
-        Action requestClose)
+        Action requestClose,
+        Func<ClarifyQuestion, Task<ClarifyViewModel>>? presentClarify = null)
     {
         _runner = runner;
         _lifecycle = lifecycle;
         _rootId = rootId;
         _conversation = conversation;
         _requestClose = requestClose;
+        // Default present builds the view-model inline. Production (Task 12) supplies a
+        // hook that marshals construction onto the UI thread via the Dispatcher.
+        _presentClarify = presentClarify ?? (q => Task.FromResult(new ClarifyViewModel(q)));
         Status = new StatusViewModel(modelId);
         SubmitCommand = new AsyncRelayCommand(
             () => SubmitAsync(Input),
             () => !IsBusy);
+    }
+
+    /// <summary>Stores the clarify channel seam the clarify tool answers through.</summary>
+    public void AttachClarifyChannel(IClarifyChannel channel) => _clarifyChannel = channel;
+
+    /// <summary>
+    /// Presents a clarify question by building (and surfacing) its view-model through the
+    /// injected present hook, publishing it as <see cref="Clarify"/>. Returns the view-model
+    /// whose one-shot completion the channel awaits.
+    /// </summary>
+    public async Task<ClarifyViewModel> PresentClarifyAsync(ClarifyQuestion question)
+    {
+        var vm = await _presentClarify(question);
+        Clarify = vm;
+        return vm;
     }
 
     /// <summary>
@@ -74,6 +97,15 @@ public sealed partial class MainViewModel : ObservableObject
     {
         var input = rawInput?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(input)) return Task.CompletedTask;
+
+        // A pending clarify question intercepts input before anything else — even while a
+        // turn is in flight (IsBusy) awaiting the answer.
+        if (Clarify is { } pending)
+        {
+            RouteToClarify(pending, input);
+            return Task.CompletedTask;
+        }
+
         if (IsBusy) return Task.CompletedTask;
 
         if (DesktopCommands.IsQuit(input))
@@ -177,6 +209,43 @@ public sealed partial class MainViewModel : ObservableObject
                 Transcript.AddToolResult(tr.Name, tr.Summary);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Answers the pending clarify question. Free-text questions submit the trimmed input;
+    /// numbered questions parse a leading integer and select that option. A settled question
+    /// records the answer as a user transcript entry and clears <see cref="Clarify"/> — it
+    /// never increments <see cref="MessageCount"/> nor starts a turn. Invalid input leaves
+    /// the question pending with its validation message showing.
+    /// </summary>
+    private void RouteToClarify(ClarifyViewModel pending, string input)
+    {
+        if (pending.AllowFreeText)
+        {
+            pending.Input = input;
+            pending.SubmitFreeText();
+        }
+        else if (TryParseLeadingInteger(input, out var choice))
+        {
+            pending.ChooseOption(choice);
+        }
+        else
+        {
+            pending.ValidationMessage = $"Enter a number between 1 and {pending.Options.Count}.";
+            return;
+        }
+
+        if (!pending.Completion.IsCompleted) return; // transient failure — stay pending
+
+        Transcript.AddUser(input);
+        Clarify = null;
+    }
+
+    private static bool TryParseLeadingInteger(string input, out int value)
+    {
+        var end = 0;
+        while (end < input.Length && char.IsDigit(input[end])) end++;
+        return int.TryParse(input.AsSpan(0, end), out value);
     }
 
     private void ReportPersistenceError(string message) => Transcript.AddNotice(message);
