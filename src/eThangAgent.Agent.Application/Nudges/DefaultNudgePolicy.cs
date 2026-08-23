@@ -7,7 +7,7 @@ namespace eThangAgent.Agent.Application.Nudges;
 /// The clock seam is accepted for signature stability with future time-aware policies;
 /// the current rule conditions purely on turn boundaries (no polling, no timers).
 /// </summary>
-public sealed class DefaultNudgePolicy(Func<DateTimeOffset> clock)
+public sealed class DefaultNudgePolicy(Func<DateTimeOffset> clock) : INudgePolicy
 {
     /// <summary>The exact line appended to the conversation when the policy fires.</summary>
     public const string ReminderLine =

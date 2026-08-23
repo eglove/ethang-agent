@@ -6,9 +6,11 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.ToolDomain;
 using eThangAgent.Agent.Application;
 using eThangAgent.Agent.Application.Memory;
+using eThangAgent.Agent.Application.Nudges;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.CapabilityDomain;
+using eThangAgent.MemoryDomain;
 using eThangAgent.FileSystem.ACL;
 using eThangAgent.Storage.ACL;
 using eThangAgent.StateDomain;
@@ -144,6 +146,16 @@ public static class Program
             .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
             .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
             .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
+            .AddSingleton<SqliteCuratedMemoryStore>()
+            .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
+            // Session-scoped count of successful curated-memory writes: the capability
+            // provider bumps it on every add; the nudge policy reads it at turn boundaries.
+            .AddSingleton<Func<int>>(_ =>
+            {
+                var count = 0;
+                return () => Interlocked.Increment(ref count);
+            })
+            .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy(() => DateTimeOffset.UtcNow))
             // Clarify reaches the human through the terminal ACL in interactive mode or
             // stdin lines when input is redirected; the choice happens only here.
             .AddSingleton<IClarifyChannel>(_ =>
@@ -194,6 +206,12 @@ public static class Program
                     ]),
                     sp.GetRequiredService<StateCapabilityProvider>(),
                     sp.GetRequiredService<MemoryCapabilityProvider>(),
+                    new CuratedMemoryCapabilityProvider(
+                        sp.GetRequiredService<ICuratedMemoryStore>(),
+                        () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+                        () => SubAgentSpawner.RunningChild?.Id.ToString(),
+                        sp.GetRequiredService<Func<int>>(),
+                        () => DateTimeOffset.UtcNow),
                 ]))
             .AddSingleton<IExecEngine>(sp => new PowerShellExecEngine(
                 new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>()),
@@ -213,6 +231,7 @@ public static class Program
                     "workspace, prefer the provided tools over guessing, and keep responses tight."),
                 new ExecGuidePromptProvider(
                     new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
+                new CuratedMemoryGuidePromptProvider(),
             ]))
             .AddSingleton<Ag>(sp =>
             {
@@ -223,7 +242,13 @@ public static class Program
                 return new Ag(provider, conversation, config, tools,
                     sp.GetRequiredService<ISystemPromptProvider>());
             })
-            .AddSingleton<SendMessageCommandHandler>()
+            // Nudging is active: the conversation is the same singleton the Agent holds,
+            // and both the policy and the write counter are supplied.
+            .AddSingleton<SendMessageCommandHandler>(sp => new SendMessageCommandHandler(
+                sp.GetRequiredService<Ag>(),
+                sp.GetRequiredService<Conversation>(),
+                sp.GetRequiredService<INudgePolicy>(),
+                sp.GetRequiredService<Func<int>>()))
             .BuildServiceProvider();
 
         var handler = services.GetRequiredService<SendMessageCommandHandler>();
@@ -403,4 +428,26 @@ public static class Program
             terminal.ExitAlternateScreen();
         }
     }
+}
+
+/// <summary>
+/// Usage guidance for the curated-memory capability surface, appended after the exec
+/// guide so the model knows when to search and when to write curated memories.
+/// Guidance only — it never instructs the model to store anything beyond the durable-
+/// fact rules stated here.
+/// </summary>
+public sealed class CuratedMemoryGuidePromptProvider : ISystemPromptProvider
+{
+    public string Build() =>
+        """
+        Persistent curated memories: you maintain a searchable knowledge base of durable facts —
+        conventions, preferences, insights, failures, references — via the memories actions
+        (memories.search / memories.add / memories.update / memories.remove through exec).
+        Search when context feels missing before assuming; write when the user states a durable
+        preference/convention or a task reveals a non-obvious insight or failure worth remembering.
+        Keep entries atomic (one fact each), tagged, and scoped honestly (global only for facts true
+        everywhere). Never store secrets, transient task state, or anything derivable from the repo.
+        After completing a genuinely complex multi-step effort, consider proposing a reusable skill
+        via skill_manage (source learned) capturing what generalizes beyond this workspace.
+        """;
 }

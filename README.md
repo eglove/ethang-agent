@@ -14,6 +14,8 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 - `search_files` tool — bounded workspace search (literal or regex, glob-filtered)
 - `git_status` / `working_diff` tools — inspect branch state and bounded diffs
 - `git_commit` tool — index-only commits with validated conventional or gitmoji messages
+- Curated memory loop — `memories.search/add/update/remove` over a categorized, full-text,
+  versioned knowledge base, with turn-boundary nudges prompting curation
 - Skill subsystem: 14 embedded development-methodology skills (superpowers), session-start bootstrap injection, and `skill_list` / `skill_view` / `skill_manage` tools
 - `clarify` tool — structured clarifying questions with numbered options
 - `todo` tool — durable workspace task list with compare-and-swap writes
