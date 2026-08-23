@@ -15,10 +15,10 @@ public sealed class ExecTool : ITool
     public ToolDefinition Definition { get; } = new(
         ToolName,
         """
-        Execute a PowerShell program in the agent workspace. The program's output stream is the result: each emitted object appears on its own line (strings verbatim, complex objects as one-line JSON). Write-Error lines appear as 'exec error [ScriptError]: ...'; any terminating or non-terminating error marks the result as an error. Output over 50,000 characters is truncated with both ends preserved and the full output saved to a file reported as [exec:artifact <path>] — read that file with the read tool. Validation failures report 'exec error [ExecParseError]:' followed by 'line N, col M: message' entries. Timeouts (120s) report 'exec error [ExecTimeout]:' with partial output. Tools are available as functions taking one hashtable: read @{ path = 'file.txt'; startLine = 1; endLine = 50 }. Invoke-AgentTool -Name <tool> -ToolInput <hashtable> is the generic form. Get-AgentTool lists available tools. Nested exec is not available. Malformed arguments to exec itself report 'Error [Code]: ...'.
+        Execute a C# program in the agent workspace. The script runs in-process via Roslyn scripting. The return value is the result: strings verbatim, other objects as one-line JSON. Call Output() during execution for intermediate output. Console.WriteLine is also captured. Thrown exceptions mark the result as an error with exec error [ScriptError] lines. Output over 50,000 characters is truncated with both ends preserved and the full output saved to a file reported as [exec:artifact <path>] — read that file with the read tool. Compile errors report 'exec error [ExecParseError]:' followed by 'line N, col M: message' entries. Timeouts (120s) report 'exec error [ExecTimeout]:' with partial output. Tools are available as methods on the Tools object taking one anonymous object: Tools.read(new { path = "file.txt", startLine = 1, endLine = 50 }). Tools.Invoke("name", args) is the generic form. Tools.List() lists available tools. Nested exec is not available. Malformed arguments to exec itself report 'Error [Code]: ...'.
         """,
         [new ToolParameter("program", ToolParameterType.String,
-            "The PowerShell program text to execute.")]);
+            "The C# program text to execute.")]);
 
     public ExecTool(IExecEngine engine, ExecOptions options, IExecOutputStore artifacts,
         IExecActivitySink activity)

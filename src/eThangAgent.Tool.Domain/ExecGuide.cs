@@ -2,113 +2,99 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "1.5";
+    public const string Version = "2.0";
 
     public const string Text = """
-    ## exec — writing PowerShell programs
+    ## exec — writing C# programs
 
-    `exec` runs a PowerShell program you write. Its only parameter is `program`, a string of
-    PowerShell text. The script's output stream is returned to you: strings verbatim, other
-    objects as one-line JSON. Write exactly what you want back and nothing else.
+    `exec` runs a C# program you write. Its only parameter is `program`, a string of
+    C# text. The script runs in-process with Roslyn scripting. The return value becomes
+    the output: strings verbatim, other values as one-line JSON. Write exactly what you
+    want back and nothing else.
 
-    ### Calling tools inside a program
+    ### Writing output
 
-    Registered tools are functions that take ONE hashtable argument:
+    Return a value to produce the final output:
 
-        read @{ path = "src/App.cs"; startLine = 1; endLine = 50 }
+        return "hello";
+        return 42;
+        return new { count = 5, name = "alpha" };  // serialized to JSON
 
-    The generic form behaves identically:
+    Call Output() during execution for intermediate lines:
 
-        Invoke-AgentTool -Name read -ToolInput @{ path = "src/App.cs"; startLine = 1; endLine = 50 }
+        Output("processing...");
+        // ... work ...
+        return "done";
 
-    Discover tools instead of guessing:
+    Console.WriteLine() also works and its output is captured.
 
-        Get-AgentTool
+    ### Calling tools
 
-    Full documentation for any action (description + parameter docs):
+    Tools are methods on the `Tools` object taking one anonymous object argument:
 
-        Get-AgentAction read
+        Tools.read(new { path = "src/App.cs", startLine = 1, endLine = 50 });
+        Tools.search_files(new { pattern = "TODO", regex = false, rootPath = ".", maxResults = 20, contextLines = 2 });
 
-    Providers:
+    Discover available tools:
 
-        Get-AgentProvider
+        Tools.List()
+        Tools.Describe("read")
 
-    Durable state (claims, evidence, certification):
+    ### Running external commands
 
-        state.set @{ key = 'current/head'; value = 'done' }
-        state.transition @{ from = 'coding'; to = 'done'; summary = 'work';
-            evidence = @('dotnet build') }
-        state.verify @{}
+    Shell() runs an external process and returns exit code, stdout, and stderr:
+
+        var r = Shell("dotnet", "build");
+        if (r.ExitCode != 0) { Output(r.Stderr); return "build failed"; }
+        return "build OK";
+
+    Working directory is the agent workspace.
+
+    ### File system and LINQ
+
+    Use System.IO and System.Linq:
+
+        var files = Directory.EnumerateFiles(Workspace, "*.cs", SearchOption.AllDirectories);
+        return files.Count();
+
+        var sizes = files.Select(f => new { Name = Path.GetFileName(f), Size = new FileInfo(f).Length });
+        return string.Join("\n", sizes.Select(x => $"{x.Name}: {x.Size}"));
 
     ### Delegating subtasks
 
-    Spawn a child agent for a self-contained subtask. `agent.spawn` is non-blocking: it
-    returns immediately with `id=<guid> status=running` and the child runs in the background.
-    Never wait for a child inside the spawn call.
+    agent.spawn is available via Tools.Invoke():
 
-        agent.spawn @{ taskPrompt = 'Summarize the auth module'; model = 'provider/cheap-model';
-            label = 'research' }
-        → id=3fa85f64-591c-4a0e-b3d8-0266a14e5a11 status=running
+        var id = Tools.Invoke("agent.spawn", new { taskPrompt = "Summarize auth module", model = "provider/cheap-model", label = "research" });
+        return id;
 
-    - Frame the task so a stranger could complete it; say exactly what the report must contain.
-    - Pick a cheap model for grunt work; omit `model` to use the configured default.
+    Poll progress:
 
-    While children run, continue useful work on your own task, or fan out siblings for parallel
-    independent subtasks so they run concurrently.
-
-    Poll each child's progress between turns:
-
-        agent.status @{ id = '<guid>' }   → id=<guid> status=running|completed|failed
-
-    When a child is done, fetch its final report:
-
-        agent.result @{ id = '<guid>' }
-
-    - `Error [NotComplete]` means the child is still running — try again later.
-    - `Error [NotFound]` means the id is wrong.
-    - `Error [ConcurrencyCapReached]` from `agent.spawn` means the runtime is at its
-      concurrent-agent limit — retrieve pending results before spawning more.
-    - Children see the full tool surface and may spawn their own children — depth limit 3.
+        Tools.Invoke("agent.status", new { id = "<guid>" });
+        Tools.Invoke("agent.result", new { id = "<guid>" });
 
     ### Recalling earlier work
 
-    Run `memory.sessions` when resuming work or before duplicating effort — it
-    lists what conversations exist:
+        Tools.Invoke("memory.sessions", new { });
+        Tools.Invoke("memory.recall", new { query = "deploy rollback", scope = "global" });
 
-        memory.sessions @{}
-        → session=<guid> label=root depth=0 entries=42 status=running tier=hot
+    ### State
 
-    `memory.recall` searches transcripts for earlier decisions, errors, and context:
-
-        memory.recall @{ query = 'deploy rollback'; scope = 'global' }
-
-    - Literal mode is the default — tokens ANDed: every whitespace-separated token must
-      appear in a hit.
-    - queryMode = 'regex' switches to bounded regex. Budget errors `regex_pattern_too_large`,
-      `invalid_regex`, `regex_timeout` mean simplify the pattern or use literal mode.
-    - scope is 'global' or 'session:<id>'. branches is 'active' (default: only lineages
-      reaching a root) or 'all' (every persisted session).
-    - Long result sets are paged: pass page and pageSize (max 200); the footer reports
-      `<total> hits, page <p>/<pages>`.
-
-    Memory is READ-ONLY — nothing to save yet.
+        Tools.Invoke("state.set", new { key = "current/head", value = "done" });
+        Tools.Invoke("state.get", new { key = "current/head" });
 
     ### Errors
 
-    Tool failures throw terminating errors — catch them with try/catch:
+    Tool failures return error text: `Error [Code]: message`. Wrap in try/catch:
 
-        try { read @{ path = "missing.txt"; startLine = 1; endLine = 5 } }
-        catch { Write-Output ("fallback: " + $_.Exception.Message) }
-
-    Error text follows 'Error [Code]: message'. Write-Error marks the whole result as an error.
+        try { Tools.read(new { path = "missing.txt", startLine = 1, endLine = 5 }); }
+        catch (Exception ex) { Output("fallback: " + ex.Message); }
 
     ### Rules
 
-    - Output over 50,000 characters is truncated; the full text lands in a file reported as
-      [exec:artifact <path>] — read that file with `read`.
+    - Return value is the output. null/void produces empty output.
+    - Output over 50,000 characters is truncated; full text saved to [exec:artifact <path>].
     - exec cannot call itself (no nested exec).
-    - A 120s timeout stops the pipeline; keep programs small and chunked.
-    - Argument hashtables hold strings, numbers, booleans, and arrays only — no scriptblocks
-      or live objects.
+    - A 120s timeout stops the script.
+    - Use anonymous objects for tool args: new { path = "...", startLine = 1 }.
     """;
 }
