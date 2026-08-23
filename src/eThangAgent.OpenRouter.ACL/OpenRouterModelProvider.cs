@@ -229,7 +229,25 @@ public class OpenRouterModelProvider : IModelProvider
             }
         }
 
-        return Result<ModelResponse>.Success(new ModelResponse(content, toolCalls));
+        return Result<ModelResponse>.Success(
+            new ModelResponse(content, toolCalls, ParseFinishReason(choices[0])));
+    }
+
+    /// <summary>Translates OpenRouter's finish_reason vocabulary into the provider-neutral
+    ///     enum. A missing value means the provider did not say, treated as Stop.</summary>
+    private static FinishReason ParseFinishReason(JsonElement choice)
+    {
+        if (!choice.TryGetProperty("finish_reason", out var reason)
+            || reason.ValueKind != JsonValueKind.String)
+            return FinishReason.Stop;
+        return reason.GetString() switch
+        {
+            "stop" => FinishReason.Stop,
+            "length" => FinishReason.Length,
+            "tool_calls" => FinishReason.ToolCalls,
+            "content_filter" => FinishReason.ContentFilter,
+            _ => FinishReason.Unknown,
+        };
     }
 
     /// <summary>Consumes an SSE body: "data: {json}" frames carrying delta objects,":"-prefixed
@@ -242,6 +260,8 @@ public class OpenRouterModelProvider : IModelProvider
     {
         var content = new StringBuilder();
         var toolCalls = new Dictionary<int, StreamedToolCall>();
+        var finishReason = FinishReason.Stop;
+        var sawDone = false;
         try
         {
             using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -254,11 +274,23 @@ public class OpenRouterModelProvider : IModelProvider
                     continue; // only data frames carry payload
                 var payload = line["data:".Length..].Trim();
                 if (payload == "[DONE]")
+                {
+                    sawDone = true;
                     break;
+                }
 
                 using var doc = JsonDocument.Parse(payload);
-                ApplyChunk(doc.RootElement, content, toolCalls, onContentDelta, onReasoningDelta);
+                if (ApplyChunk(doc.RootElement, content, toolCalls, onContentDelta, onReasoningDelta)
+                    is { } chunkReason)
+                    finishReason = chunkReason;
             }
+
+            // A stream that ends without [DONE] was cut off (connection drop, proxy kill),
+            // not completed. Failing loudly beats returning a silently truncated response;
+            // non-retryable because deltas already streamed to the observer.
+            if (!sawDone)
+                return Result<ModelResponse>.Failure(new Error("StreamInterrupted",
+                    "Provider stream ended without its [DONE] terminator."));
 
             // Assembled inside the guard: strict fragment validation (missing id/name) is a
             // provider-stream failure delivered as a Result, never an escaped exception.
@@ -266,7 +298,8 @@ public class OpenRouterModelProvider : IModelProvider
                 content.Length > 0 ? content.ToString() : null,
                 toolCalls.OrderBy(pair => pair.Key)
                     .Select(pair => pair.Value.ToRequest())
-                    .ToList()));
+                    .ToList(),
+                finishReason));
         }
         catch (JsonException ex)
         {
@@ -280,7 +313,9 @@ public class OpenRouterModelProvider : IModelProvider
         }
     }
 
-    private static void ApplyChunk(JsonElement chunk, StringBuilder content,
+    /// <summary>Applies one SSE chunk and returns the chunk's finish_reason when it
+    ///     carries one, else null (delta/usage frames).</summary>
+    private static FinishReason? ApplyChunk(JsonElement chunk, StringBuilder content,
         Dictionary<int, StreamedToolCall> toolCalls,
         Action<string>? onContentDelta,
         Action<string>? onReasoningDelta)
@@ -288,11 +323,11 @@ public class OpenRouterModelProvider : IModelProvider
         if (!chunk.TryGetProperty("choices", out var choices)
             || choices.ValueKind != JsonValueKind.Array
             || choices.GetArrayLength() == 0)
-            return; // usage-only or heartbeat frames carry no choices
+            return null; // usage-only or heartbeat frames carry no choices
 
         var choice = choices[0];
         if (!choice.TryGetProperty("delta", out var delta))
-            return;
+            return null;
 
         if (delta.TryGetProperty("content", out var contentDelta)
             && contentDelta.ValueKind == JsonValueKind.String)
@@ -336,6 +371,25 @@ public class OpenRouterModelProvider : IModelProvider
                 }
             }
         }
+
+        return ParseChunkFinishReason(choice);
+    }
+
+    /// <summary>Per-chunk translation of OpenRouter's finish_reason vocabulary. Missing on a
+    ///     delta frame → null, so it never overwrites an already-seen reason.</summary>
+    private static FinishReason? ParseChunkFinishReason(JsonElement choice)
+    {
+        if (!choice.TryGetProperty("finish_reason", out var reason)
+            || reason.ValueKind != JsonValueKind.String)
+            return null;
+        return reason.GetString() switch
+        {
+            "stop" => FinishReason.Stop,
+            "length" => FinishReason.Length,
+            "tool_calls" => FinishReason.ToolCalls,
+            "content_filter" => FinishReason.ContentFilter,
+            _ => FinishReason.Unknown,
+        };
     }
 
     /// <summary>Accumulates one streamed tool call: id/name arrive on the first fragment,

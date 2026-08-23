@@ -132,4 +132,98 @@ public class StreamingTests
         Assert.Equal("ProviderError", result.Error!.Code);
         Assert.Contains("Malformed provider stream", result.Error.Message);
     }
+
+    [Fact]
+    public async Task FinishReason_Length_IsSurfaced()
+    {
+        const string sse =
+            "data: {\"choices\":[{\"delta\":{\"content\":\"partial ans\"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n" +
+            "data: [DONE]\n\n";
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(Sse(sse)));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(FinishReason.Length, result.Value!.FinishReason);
+    }
+
+    [Fact]
+    public async Task FinishReason_ToolCalls_IsSurfaced()
+    {
+        const string sse =
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"a1\",\"type\":\"function\"," +
+            "\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+            "data: [DONE]\n\n";
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(Sse(sse)));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(FinishReason.ToolCalls, result.Value!.FinishReason);
+    }
+
+    [Fact]
+    public async Task FinishReason_Missing_TreatsAsStop()
+    {
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(Sse(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"done\"}}]}\n\ndata: [DONE]\n\n")));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(FinishReason.Stop, result.Value!.FinishReason);
+    }
+
+    [Fact]
+    public async Task FinishReason_UnrecognizedValue_MapsToUnknown()
+    {
+        const string sse =
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"weird_reason\"}]}\n\ndata: [DONE]\n\n";
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(Sse(sse)));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(FinishReason.Unknown, result.Value!.FinishReason);
+    }
+
+    [Fact]
+    public async Task JsonFallback_SurfacesFinishReason()
+    {
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(JsonBody(
+            """{"choices":[{"message":{"content":"plain"},"finish_reason":"length"}]}""")));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]), _ => { });
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(FinishReason.Length, result.Value!.FinishReason);
+    }
+
+    [Fact]
+    public async Task StreamEndingWithoutDoneMarker_Yields_StreamInterrupted()
+    {
+        // A dropped connection must not masquerade as a successful (truncated)
+        // completion — the pre-fix bug behind turns silently stopping mid-task.
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(Sse(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"cut off mid-sen\"}}]}\n\n")));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+        var deltas = new List<string>();
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("StreamInterrupted", result.Error!.Code);
+    }
 }

@@ -7,10 +7,22 @@ namespace eThangAgent.AgentDomain;
 
 public class Agent
 {
+    /// <summary>Bounded auto-continuations per turn when a response ends with
+    ///     <see cref="FinishReason.Length"/>.</summary>
+    public const int DefaultMaxAutoContinuations = 8;
+
+    /// <summary>Appended as a System message after a length-truncated assistant response.
+    ///     Verbatim contract: the model must resume exactly where it stopped.</summary>
+    public const string ContinuationPrompt =
+        "[Your previous message was cut off by the output limit. Continue exactly where you stopped; do not repeat earlier text.]";
     private readonly IModelProvider _provider;
     private readonly IToolRegistry _tools;
     private readonly ISystemPromptProvider? _systemPrompt;
     private readonly int _maxToolIterations;
+    private readonly int _maxAutoContinuations;
+
+    // Auto-continuations used by the current turn; reset at SendMessage entry.
+    private int _autoContinuations;
 
     public Conversation Conversation { get; }
     public ModelConfig Config { get; }
@@ -26,7 +38,7 @@ public class Agent
 
     public Agent(IModelProvider provider, Conversation conversation, ModelConfig config,
         IToolRegistry tools, ISystemPromptProvider? systemPrompt = null, int maxToolIterations = 100,
-        AgentId? id = null, int depth = 0)
+        AgentId? id = null, int depth = 0, int maxAutoContinuations = DefaultMaxAutoContinuations)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _tools = tools ?? throw new ArgumentNullException(nameof(tools));
@@ -34,6 +46,7 @@ public class Agent
         Conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         _maxToolIterations = maxToolIterations;
+        _maxAutoContinuations = maxAutoContinuations;
         Id = id ?? AgentId.NewId();
         Depth = depth;
     }
@@ -55,6 +68,7 @@ public class Agent
         Action<string, string>? onToolResult = null)
     {
         LastTurnToolCalls = 0;
+        _autoContinuations = 0;
         Conversation.AddUserMessage(text);
         for (var i = 0; i < _maxToolIterations; i++)
         {
@@ -70,6 +84,23 @@ public class Agent
             if (response.ToolCalls.Count == 0)
             {
                 var content = response.Content ?? "";
+
+                // A length-truncated answer is not a final answer. Keep the partial
+                // message in history, nudge the model to continue where it stopped,
+                // and loop — bounded so a pathological model cannot spin forever.
+                // (Named decision: auto-continuation is leniency with a visible cap,
+                // never a silent retry.)
+                if (response.FinishReason is FinishReason.Length)
+                {
+                    if (_autoContinuations >= _maxAutoContinuations)
+                        return Result<string>.Failure(new Error("MaxOutputContinuations",
+                            $"Output limit reached {_maxAutoContinuations + 1} times without a complete answer."));
+                    _autoContinuations++;
+                    Conversation.AddAssistantMessage(content);
+                    Conversation.AddSystemMessage(ContinuationPrompt);
+                    continue;
+                }
+
                 Conversation.AddAssistantMessage(content);
                 return Result<string>.Success(content);
             }

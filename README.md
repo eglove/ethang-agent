@@ -15,8 +15,14 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
   transport errors, timeouts — four attempts by default; a server `Retry-After` hint is
   honored). A streaming request is retried only while nothing has been emitted to the UI;
   mid-stream failures surface as errors so output is never duplicated
-- Reasoning streams render readably in both frontends: mid-word wraps join, comma wraps
-  become spaces, and blank-line floods collapse to one paragraph break
+- Reasoning streams render readably in both frontends: hard wraps inside words and
+  CamelCase identifiers join, wraps before closing punctuation attach directly, real
+  sentence/bullet breaks stay, and blank-line floods collapse to one paragraph break
+- Length-truncated turns continue automatically: when a response hits the model's output
+  limit (`finish_reason: length`), the partial answer is kept, a continuation nudge is
+  appended, and the loop resumes — bounded per turn, with `MaxOutputContinuations` raised
+  as a visible error if the cap is exhausted. A stream cut off without its terminator is a
+  `StreamInterrupted` error, never a silently truncated "answer"
 - Selectable transcript text in the desktop app — select any message or reasoning block
   and copy it with Ctrl+C
 - `exec` tool — in-process C# scripting via Roslyn with artifact capture and structured output
