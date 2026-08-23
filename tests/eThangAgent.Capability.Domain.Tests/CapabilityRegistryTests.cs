@@ -7,8 +7,13 @@ public class CapabilityRegistryTests
     private static ActionDescriptor Act(string name) => new(name, "sum", "desc", []);
 
     [Fact]
-    public void Create_NoProviders_Throws()
-        => Assert.Throws<InvalidOperationException>(() => CapabilityRegistry.Create([]));
+    public void Create_NoProviders_CreatesEmptyRegistry()
+    {
+        var registry = CapabilityRegistry.Create([]);
+        Assert.Empty(registry.Providers);
+        var resolved = registry.Resolve("anything");
+        Assert.False(resolved.IsSuccess);
+    }
 
     [Fact]
     public void Create_EmptyProviderId_Throws()

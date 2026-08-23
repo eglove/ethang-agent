@@ -20,8 +20,6 @@ public sealed class CapabilityRegistry : ICapabilityRegistry
     public static CapabilityRegistry Create(IEnumerable<ICapabilityProvider> providers)
     {
         var list = providers.ToList();
-        if (list.Count == 0)
-            throw new InvalidOperationException("At least one capability provider is required.");
 
         foreach (var provider in list)
         {

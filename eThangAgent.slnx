@@ -38,4 +38,5 @@
   <Project Path="tests/eThangAgent.State.Domain.Tests/eThangAgent.State.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.Storage.ACL.Tests/eThangAgent.Storage.ACL.Tests.csproj" />
   <Project Path="tests/eThangAgent.PowerShell.ACL.Tests/eThangAgent.PowerShell.ACL.Tests.csproj" />
+  <Project Path="tests/eThangAgent.Roslyn.ACL.Tests/eThangAgent.Roslyn.ACL.Tests.csproj" />
 </Solution>
