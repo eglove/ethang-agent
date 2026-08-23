@@ -11,6 +11,14 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 - Live response streaming in the interactive REPL — assistant text renders as it arrives,
   including interstitial reasoning between tool calls (SSE; falls back transparently when a
   provider endpoint does not stream)
+- Transient-failure retries with exponential backoff against OpenRouter (429/408/5xx,
+  transport errors, timeouts — four attempts by default; a server `Retry-After` hint is
+  honored). A streaming request is retried only while nothing has been emitted to the UI;
+  mid-stream failures surface as errors so output is never duplicated
+- Reasoning streams render readably in both frontends: mid-word wraps join, comma wraps
+  become spaces, and blank-line floods collapse to one paragraph break
+- Selectable transcript text in the desktop app — select any message or reasoning block
+  and copy it with Ctrl+C
 - `exec` tool — in-process C# scripting via Roslyn with artifact capture and structured output
 - `read` tool — bounded, line-range text file reads
 - `write` tool — create/replace files behind an explicit overwrite gate

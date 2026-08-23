@@ -74,4 +74,31 @@ public class TranscriptViewModelTests
         Assert.Contains(System.Collections.Specialized.NotifyCollectionChangedAction.Add, changes);
         Assert.Contains(System.Collections.Specialized.NotifyCollectionChangedAction.Replace, changes);
     }
+
+    // ---- reasoning normalization (shared StreamedTextNormalizer) ----
+
+    [Fact]
+    public void Reasoning_NewlineFlood_IsCollapsedToOneBlankLine()
+    {
+        var vm = new TranscriptViewModel();
+        vm.AppendReasoning("step one\n\n\n\n\n\nstep two");
+        Assert.Equal("step one\n\nstep two", Assert.IsType<ReasoningEntry>(vm.Entries[^1]).Text);
+    }
+
+    [Fact]
+    public void Reasoning_CommaNewline_BecomesSpace()
+    {
+        var vm = new TranscriptViewModel();
+        vm.AppendReasoning("however,");
+        vm.AppendReasoning("\nthe answer");
+        Assert.Equal("however, the answer", Assert.IsType<ReasoningEntry>(vm.Entries[^1]).Text);
+    }
+
+    [Fact]
+    public void Reasoning_SentenceBreak_IsPreserved()
+    {
+        var vm = new TranscriptViewModel();
+        vm.AppendReasoning("done.\nNext");
+        Assert.Equal("done.\nNext", Assert.IsType<ReasoningEntry>(vm.Entries[^1]).Text);
+    }
 }

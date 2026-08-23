@@ -1,13 +1,25 @@
+using eThangAgent.SharedKernel;
+
 namespace eThangAgent.Terminal.ACL;
 
 /// <summary>Scroll-back transcript: holds raw message lines and renders the last visible screen rows.</summary>
 public sealed class TranscriptPane
 {
+    private const string Dim = "\u001b[2m";
+    private const string ResetDim = "\u001b[0m";
+
     private readonly List<string> _lines = new();
     private bool _streamOpen;
 
+    // Open reasoning block: contiguous dim lines re-rendered in place as deltas arrive,
+    // so fragmented provider output collapses instead of stacking one line per fragment.
+    private StreamedTextNormalizer? _reasoning;
+    private int _reasoningStart;
+    private int _reasoningLineCount;
+
     public void AddMessage(string message)
     {
+        CloseReasoningBlock();
         _streamOpen = false; // a completed message closes any open streamed message
         foreach (var line in message.Split('\n'))
             _lines.Add(line.TrimEnd('\r'));
@@ -18,6 +30,7 @@ public sealed class TranscriptPane
     ///     then reused as the stream's first line.</summary>
     public void BeginStream()
     {
+        CloseReasoningBlock();
         _streamOpen = true;
         if (_lines.Count == 0 || _lines[^1].Length > 0)
             _lines.Add(string.Empty);
@@ -38,30 +51,53 @@ public sealed class TranscriptPane
         }
     }
 
-    /// <summary>Appends reasoning text lines. Reasoning is rendered dim to distinguish it
-    ///     from the model's spoken prose; each source line becomes a separate transcript
-    ///     entry. Does NOT close the content stream — reasoning interleaves with, not
-    ///     replaces, the streaming text.</summary>
+    /// <summary>Appends reasoning text. Reasoning renders dim to distinguish it from the model's
+    ///     spoken prose and passes through the shared <see cref="StreamedTextNormalizer"/>, so
+    ///     mid-word wraps join and blank-line floods collapse. The open block's lines are
+    ///     rewritten in place on every delta. Does NOT close the content stream — reasoning
+    ///     interleaves with, not replaces, the streaming text.</summary>
     public void AppendReasoning(string text)
     {
-        foreach (var line in text.Split('\n'))
-            _lines.Add($"[2m{line.TrimEnd('\r')}[0m");
+        if (_reasoning is null)
+            _reasoningStart = _lines.Count;
+        _reasoning ??= new StreamedTextNormalizer();
+        _reasoning.Append(text);
+
+        var normalized = _reasoning.Text;
+        var lines = normalized.Length == 0
+            ? []
+            : normalized.Split('\n')
+                .Select(l => l.Length == 0 ? l : $"{Dim}{l.TrimEnd('\r')}{ResetDim}")
+                .ToArray();
+
+        if (_reasoningLineCount > 0)
+            _lines.RemoveRange(_reasoningStart, _reasoningLineCount);
+        _lines.InsertRange(_reasoningStart, lines);
+        _reasoningLineCount = lines.Length;
+    }
+
+    private void CloseReasoningBlock()
+    {
+        _reasoning = null;
+        _reasoningLineCount = 0;
     }
 
     /// <summary>Appends a tool-call entry with its name and an arguments preview.
     ///     Does NOT close the content stream.</summary>
     public void AppendToolCall(string name, string arguments)
     {
-        var argsPreview = arguments.Length > 400 ? arguments[..397] + "…" : arguments;
-        _lines.Add($"▸ {name} {{{argsPreview}}}");
+        CloseReasoningBlock();
+        var argsPreview = arguments.Length > 400 ? arguments[..397] + "\u2026" : arguments;
+        _lines.Add($"\u25b8 {name} {{{argsPreview}}}");
     }
 
     /// <summary>Appends a tool-result entry with its name and a one-line summary.
     ///     Does NOT close the content stream.</summary>
     public void AppendToolResult(string name, string summary)
     {
-        var summaryPreview = summary.Length > 100 ? summary[..97] + "…" : summary;
-        _lines.Add($"  ↳ {name}: {summaryPreview}");
+        CloseReasoningBlock();
+        var summaryPreview = summary.Length > 100 ? summary[..97] + "\u2026" : summary;
+        _lines.Add($"  \u21b3 {name}: {summaryPreview}");
     }
 
     public void Render(ITextWriter writer, int top, int height, int width)

@@ -60,13 +60,13 @@
       <ItemsControl x:Name="TranscriptList" ItemsSource="{Binding Transcript.Entries}" Margin="4,8">
         <ItemsControl.DataTemplates>
           <DataTemplate DataType="vm:UserMessageEntry">
-            <TextBlock Text="{Binding Text}" FontWeight="Bold" Margin="8,2" TextWrapping="Wrap"/>
+            <SelectableTextBlock Text="{Binding Text}" FontWeight="Bold" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
           <DataTemplate DataType="vm:AssistantTextEntry">
-            <TextBlock Text="{Binding Text}" Margin="8,2" TextWrapping="Wrap"/>
+            <SelectableTextBlock Text="{Binding Text}" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
           <DataTemplate DataType="vm:ReasoningEntry">
-            <TextBlock Text="{Binding Text}" FontStyle="Italic" Opacity="0.7" Margin="8,2" TextWrapping="Wrap"/>
+            <SelectableTextBlock Text="{Binding Text}" FontStyle="Italic" Opacity="0.7" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
           <DataTemplate DataType="vm:ToolCallEntry">
             <TextBlock Margin="8,2" TextWrapping="Wrap">
@@ -79,7 +79,7 @@
             </TextBlock>
           </DataTemplate>
           <DataTemplate DataType="vm:NoticeEntry">
-            <TextBlock Text="{Binding Text}" Foreground="DarkGray" Margin="8,2" TextWrapping="Wrap"/>
+            <SelectableTextBlock Text="{Binding Text}" Foreground="DarkGray" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
         </ItemsControl.DataTemplates>
       </ItemsControl>

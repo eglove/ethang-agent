@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -14,6 +15,10 @@ public sealed class TranscriptViewModel
 
     // Index of the extendable AssistantTextEntry / ReasoningEntry, else -1.
     private int _openIndex = -1;
+
+    // Normalizer feeding the open ReasoningEntry: providers emit reasoning as tiny
+    // fragments full of hard wraps and blank-line floods that must not reach the UI raw.
+    private StreamedTextNormalizer? _openReasoning;
 
     public ObservableCollection<TranscriptEntry> Entries => _entries;
 
@@ -59,16 +64,24 @@ public sealed class TranscriptViewModel
 
     public void AppendReasoning(string text)
     {
-        if (_openIndex >= 0 && _entries[_openIndex] is ReasoningEntry open)
+        if (_openIndex >= 0 && _entries[_openIndex] is ReasoningEntry open && _openReasoning is not null)
         {
-            _entries[_openIndex] = open with { Text = open.Text + text };
+            _openReasoning.Append(text);
+            _entries[_openIndex] = open with { Text = _openReasoning.Text };
             return;
         }
 
         CloseOpen();
-        _entries.Add(new ReasoningEntry(text));
+        var normalizer = new StreamedTextNormalizer();
+        normalizer.Append(text);
+        _openReasoning = normalizer;
+        _entries.Add(new ReasoningEntry(normalizer.Text));
         _openIndex = _entries.Count - 1;
     }
 
-    private void CloseOpen() => _openIndex = -1;
+    private void CloseOpen()
+    {
+        _openIndex = -1;
+        _openReasoning = null;
+    }
 }

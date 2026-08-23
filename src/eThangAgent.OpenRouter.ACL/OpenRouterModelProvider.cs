@@ -12,32 +12,68 @@ public class OpenRouterModelProvider : IModelProvider
 {
     private readonly HttpClient _http;
     private readonly OpenRouterConfiguration _config;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly Func<double> _jitter;
 
-    public OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration config)
+    public OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration config,
+        Func<TimeSpan, CancellationToken, Task>? delay = null,
+        Func<double>? jitter = null)
     {
-        _http = http;
-        _config = config;
+        _http = http ?? throw new ArgumentNullException(nameof(http));
+        _config = config ?? throw new ArgumentNullException(nameof(config));
+        // Seams for deterministic tests; production uses Task.Delay with random 1x-2x spread.
+        _delay = delay ?? ((span, token) => Task.Delay(span, token));
+        _jitter = jitter ?? Random.Shared.NextDouble;
     }
 
     public async Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)
+    {
+        var attempts = _config.Retry.MaxAttempts;
+        for (var attempt = 1; ; attempt++)
+        {
+            var outcome = await SendOnceAsync(config, request, ct);
+            if (!outcome.Retryable || ct.IsCancellationRequested || attempt >= attempts)
+                return outcome.Result;
+            if (!await BackoffAsync(attempt, outcome.RetryAfter))
+                return outcome.Result; // cancelled while waiting — surface the last failure
+        }
+    }
+
+    /// <summary>Sleeps the policy-computed backoff before the next retry. Returns false when
+    ///     cancelled while waiting, so the caller surfaces the last failure instead of looping.</summary>
+    private async Task<bool> BackoffAsync(int attempt, TimeSpan? retryAfter)
+    {
+        try
+        {
+            await _delay(_config.Retry.ComputeDelay(attempt, _jitter(), retryAfter), CancellationToken.None);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    private async Task<AttemptOutcome> SendOnceAsync(ModelConfig config, ModelRequest request, CancellationToken ct)
     {
         try
         {
             using var httpRequest = CreateRequest(config, request, stream: false);
             using var response = await _http.SendAsync(httpRequest, ct);
             if (!response.IsSuccessStatusCode)
-                return StatusFailure((int)response.StatusCode);
+                return StatusOutcome((int)response.StatusCode, response.Headers.RetryAfter?.Delta);
 
-            return await ReadJsonBodyAsync(response, ct);
+            return AttemptOutcome.Final(await ReadJsonBodyAsync(response, ct));
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
-            return Result<ModelResponse>.Failure(new Error("ProviderTimeout",
-                "Request timed out."));
+            return new AttemptOutcome(Result<ModelResponse>.Failure(new Error("ProviderTimeout",
+                "Request timed out.")), Retryable: true, RetryAfter: null);
         }
         catch (HttpRequestException ex)
         {
-            return Result<ModelResponse>.Failure(new Error("ProviderError", ex.Message));
+            return new AttemptOutcome(Result<ModelResponse>.Failure(new Error("ProviderError", ex.Message)),
+                Retryable: true, RetryAfter: null);
         }
     }
 
@@ -54,33 +90,55 @@ public class OpenRouterModelProvider : IModelProvider
         Action<string>? onReasoningDelta = null,
         CancellationToken ct = default)
     {
+        var attempts = _config.Retry.MaxAttempts;
+        for (var attempt = 1; ; attempt++)
+        {
+            var emitted = false;
+            Action<string>? contentSink = onContentDelta is null ? null : t => { emitted = true; onContentDelta(t); };
+            Action<string>? reasoningSink = onReasoningDelta is null ? null : t => { emitted = true; onReasoningDelta(t); };
+
+            var outcome = await SendStreamingOnceAsync(config, request, contentSink, reasoningSink, ct);
+            // Once a delta has reached a callback it cannot be replayed without duplicating
+            // output — mid-stream failures surface to the caller as errors, not retries.
+            if (!outcome.Retryable || emitted || ct.IsCancellationRequested || attempt >= attempts)
+                return outcome.Result;
+            if (!await BackoffAsync(attempt, outcome.RetryAfter))
+                return outcome.Result;
+        }
+    }
+
+    private async Task<AttemptOutcome> SendStreamingOnceAsync(ModelConfig config, ModelRequest request,
+        Action<string>? onContentDelta, Action<string>? onReasoningDelta, CancellationToken ct)
+    {
         try
         {
             using var httpRequest = CreateRequest(config, request, stream: true);
             // Headers-read completion so the body surfaces incrementally instead of buffering.
             using var response = await _http.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!response.IsSuccessStatusCode)
-                return StatusFailure((int)response.StatusCode);
+                return StatusOutcome((int)response.StatusCode, response.Headers.RetryAfter?.Delta);
 
             var contentType = response.Content.Headers.ContentType?.MediaType;
             if (contentType == "text/event-stream")
-                return await ReadSseStreamAsync(response, onContentDelta, onReasoningDelta, ct);
+                return AttemptOutcome.Final(await ReadSseStreamAsync(response, onContentDelta, onReasoningDelta, ct));
 
-            return await ReadJsonBodyAsync(response, ct);
+            return AttemptOutcome.Final(await ReadJsonBodyAsync(response, ct));
         }
         catch (OperationCanceledException)
         {
-            return Result<ModelResponse>.Failure(new Error("ProviderTimeout",
-                "Request timed out."));
+            return new AttemptOutcome(Result<ModelResponse>.Failure(new Error("ProviderTimeout",
+                "Request timed out.")), Retryable: true, RetryAfter: null);
         }
         catch (HttpRequestException ex)
         {
-            return Result<ModelResponse>.Failure(new Error("ProviderError", ex.Message));
+            return new AttemptOutcome(Result<ModelResponse>.Failure(new Error("ProviderError", ex.Message)),
+                Retryable: true, RetryAfter: null);
         }
         catch (IOException ex)
         {
-            return Result<ModelResponse>.Failure(new Error("ProviderError",
-                $"Connection lost while reading the provider stream: {ex.Message}"));
+            return new AttemptOutcome(Result<ModelResponse>.Failure(new Error("ProviderError",
+                $"Connection lost while reading the provider stream: {ex.Message}")),
+                Retryable: true, RetryAfter: null);
         }
     }
 
@@ -106,15 +164,23 @@ public class OpenRouterModelProvider : IModelProvider
         return httpRequest;
     }
 
-    private static Result<ModelResponse> StatusFailure(int statusCode) => statusCode switch
+    /// <summary>Maps an HTTP status to its error result plus retry classification: 408, 429,
+    ///     and any 5xx are transient; everything else is permanent and fails immediately.</summary>
+    private static AttemptOutcome StatusOutcome(int statusCode, TimeSpan? retryAfter)
     {
-        429 => Result<ModelResponse>.Failure(new Error("RateLimited",
-            "OpenRouter rate limit exceeded.")),
-        408 => Result<ModelResponse>.Failure(new Error("ProviderTimeout",
-            "Request timed out.")),
-        _ => Result<ModelResponse>.Failure(new Error("ProviderError",
-            $"OpenRouter returned HTTP {statusCode}."))
-    };
+        var failure = statusCode switch
+        {
+            429 => Result<ModelResponse>.Failure(new Error("RateLimited",
+                "OpenRouter rate limit exceeded.")),
+            408 => Result<ModelResponse>.Failure(new Error("ProviderTimeout",
+                "Request timed out.")),
+            _ => Result<ModelResponse>.Failure(new Error("ProviderError",
+                $"OpenRouter returned HTTP {statusCode}."))
+        };
+        return new AttemptOutcome(failure,
+            Retryable: statusCode is 408 or 429 || statusCode >= 500,
+            RetryAfter: retryAfter);
+    }
 
     private static async Task<Result<ModelResponse>> ReadJsonBodyAsync(HttpResponseMessage response, CancellationToken ct)
     {
@@ -288,6 +354,17 @@ public class OpenRouterModelProvider : IModelProvider
             Name ?? throw new InvalidOperationException(
                 $"Streamed tool call '{Id}' carried no function name."),
             _arguments.ToString());
+    }
+
+    /// <summary>One provider attempt's verdict plus what a retry decision needs: whether the
+    ///     failure was transient and any server-provided Retry-After hint.</summary>
+    private sealed record AttemptOutcome(
+        Result<ModelResponse> Result,
+        bool Retryable,
+        TimeSpan? RetryAfter)
+    {
+        public static AttemptOutcome Final(Result<ModelResponse> result) =>
+            new(result, Retryable: false, RetryAfter: null);
     }
 
     private static object[] BuildMessages(ModelRequest request)
