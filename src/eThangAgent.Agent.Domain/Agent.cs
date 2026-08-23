@@ -21,6 +21,9 @@ public class Agent
     /// <summary>Depth in the spawn tree. Root agents are depth 0; children run at parent depth + 1.</summary>
     public int Depth { get; }
 
+    /// <summary>Tool calls executed during the most recent SendMessage; 0 when the turn ended without any.</summary>
+    public int LastTurnToolCalls { get; private set; }
+
     public Agent(IModelProvider provider, Conversation conversation, ModelConfig config,
         IToolRegistry tools, ISystemPromptProvider? systemPrompt = null, int maxToolIterations = 10,
         AgentId? id = null, int depth = 0)
@@ -37,6 +40,7 @@ public class Agent
 
     public async Task<Result<string>> SendMessage(string text, CancellationToken ct = default)
     {
+        LastTurnToolCalls = 0;
         Conversation.AddUserMessage(text);
         for (var i = 0; i < _maxToolIterations; i++)
         {
@@ -61,6 +65,7 @@ public class Agent
 
             foreach (var call in response.ToolCalls)
             {
+                LastTurnToolCalls++;
                 var tool = _tools.Find(call.Name);
                 var toolResult = tool is null
                     ? new ToolResult($"Error [UnknownTool]: Unknown tool: {call.Name}.", true)

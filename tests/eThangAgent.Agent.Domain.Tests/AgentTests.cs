@@ -124,6 +124,59 @@ public class AgentTests
     }
 
     [Fact]
+    public async Task SendMessage_ZeroToolCallTurn_LastTurnToolCallsIsZero()
+    {
+        var provider = new FakeProvider(
+            Result<ModelResponse>.Success(new ModelResponse("done", [])));
+        var agent = new Agent(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
+
+        await agent.SendMessage("hi");
+
+        Assert.Equal(0, agent.LastTurnToolCalls);
+    }
+
+    [Fact]
+    public async Task SendMessage_TurnWithThreeToolCalls_CounterReflectsThem()
+    {
+        var provider = new FakeProvider(
+            Result<ModelResponse>.Success(new ModelResponse(null,
+            [
+                new ToolCallRequest("c1", "t", "{}"),
+                new ToolCallRequest("c2", "t", "{}"),
+                new ToolCallRequest("c3", "t", "{}"),
+            ])),
+            Result<ModelResponse>.Success(new ModelResponse("done", [])));
+        var agent = new Agent(provider, new Conversation(), DefaultConfig,
+            new ToolRegistry([new FakeTool("t", "ok")]));
+
+        await agent.SendMessage("hi");
+
+        Assert.Equal(3, agent.LastTurnToolCalls);
+    }
+
+    [Fact]
+    public async Task SendMessage_FailedTurnWithoutToolCalls_CounterResetsToZero()
+    {
+        var provider = new FakeProvider(
+            Result<ModelResponse>.Success(new ModelResponse(null,
+                [new ToolCallRequest("c1", "t", "{}")])),
+            Result<ModelResponse>.Success(new ModelResponse("mid", [])),
+            Result<ModelResponse>.Failure(new Error("Boom", "provider down")));
+        var agent = new Agent(provider, new Conversation(), DefaultConfig,
+            new ToolRegistry([new FakeTool("t", "ok")]));
+
+        var first = await agent.SendMessage("hi");
+
+        Assert.True(first.IsSuccess);
+        Assert.Equal(1, agent.LastTurnToolCalls);
+
+        var second = await agent.SendMessage("again");
+
+        Assert.False(second.IsSuccess);
+        Assert.Equal(0, agent.LastTurnToolCalls);
+    }
+
+    [Fact]
     public async Task SendMessage_WithSystemPrompt_SuppliesItToProvider()
     {
         var provider = new CapturingProvider();

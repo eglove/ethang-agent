@@ -17,4 +17,11 @@ public class Conversation
 
     public void AddToolResult(string toolCallId, string content)
         => _messages.Add(new Message(Role.Tool, content, DateTimeOffset.UtcNow, ToolCallId: toolCallId));
+
+    /// <summary>Appends a system-level message (e.g. a turn-boundary nudge). Null/whitespace is rejected.</summary>
+    public void AddSystemMessage(string text)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        _messages.Add(new Message(Role.System, text, DateTimeOffset.UtcNow));
+    }
 }

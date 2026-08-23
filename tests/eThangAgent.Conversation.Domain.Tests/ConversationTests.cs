@@ -96,6 +96,36 @@ public class ConversationTests
     }
 
     [Fact]
+    public void AddSystemMessage_AppendsSystemMessageInOrder()
+    {
+        var c = new Conversation();
+        c.AddUserMessage("q");
+        c.AddAssistantMessage("a");
+        c.AddSystemMessage("[nudge] consider memories.add");
+
+        Assert.Equal(3, c.Messages.Count);
+        var msg = c.Messages[2];
+        Assert.Equal(Role.System, msg.Role);
+        Assert.Equal("[nudge] consider memories.add", msg.Content);
+        Assert.NotEqual(default, msg.Timestamp);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t\n ")]
+    public void AddSystemMessage_NullOrWhitespace_Rejects(string? text)
+    {
+        var c = new Conversation();
+
+        // Null throws ArgumentNullException, whitespace ArgumentException — both are ArgumentException.
+        Assert.ThrowsAny<ArgumentException>(() => c.AddSystemMessage(text!));
+
+        Assert.Empty(c.Messages);
+    }
+
+    [Fact]
     public void AddToolResult_AfterUser_OrderIsPreserved()
     {
         var conv = new Conversation();
