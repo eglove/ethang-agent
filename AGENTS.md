@@ -49,7 +49,7 @@ Any external system or platform-specific concern is isolated behind an Anti-Corr
 | OpenRouter ACL | Translates domain concepts (messages, models, tool calls) to/from OpenRouter's API. The domain knows nothing about OpenRouter-specific types, endpoints, or authentication. | The domain speaks its own message/tool language, so any provider that can express it can be wired in without domain changes. |
 | PowerShell ACL | All shell execution goes through this ACL. The domain never calls `Process.Start`, `System.Management.Automation`, or shell commands directly. | Shell is an implementation detail of the platform, not of the domain. |
 | File System ACL | All file I/O goes through a domain interface (`IFileSystemAccess`). The domain never touches `System.IO` directly. | Storage access is a capability the domain requests, not a technology it depends on. |
-| Storage ACL | All persistence goes through this ACL (`AppDatabase`, `IStateStore`, `IAgentStore` — SQLite with versioned migrations). | The storage engine is swappable; the domain never knows SQL exists. |
+| Storage ACL | All persistence goes through this ACL (`AppDatabase`, `IStateStore`, `IAgentStore`, `ILearnedSkillStore`, `ICuratedMemoryStore` — SQLite with versioned migrations + FTS5). | The storage engine is swappable; the domain never knows SQL exists. |
 | Terminal ACL | Console I/O — line editing, key reading, ANSI rendering, layout panes — sits behind interfaces (`ITextWriter`, `IKeyReader`). | The terminal surface is an implementation detail; a future UI replaces it without touching domains. |
 
 ## Technology Stack & Constraints
@@ -76,7 +76,8 @@ Each concern is owned by exactly one bounded context. When adding code, first as
 - **Tool Domain**: tool contracts, input validation, tool execution, tool result processing, and built-in tools.
 - **Model Domain**: model capabilities, provider contracts, and model configuration.
 - **Capability Domain**: the registry that merges providers and exposes tools and capabilities to the model.
-- **Memory Domain**: recall and search over persisted sessions (lexical and bounded-regex query planning).
+- **Memory Domain**: recall and search over persisted sessions (lexical and bounded-regex query planning), plus the curated-memory learning loop (categorized, tagged, full-text searchable, versioned).
+- **Skill Domain**: the methodology-skill subsystem — embedded built-in skills (superpowers, verbatim) and agent-created learned skills, with version history and usage tracking.
 - **State Domain**: durable, workspace-scoped key-value state, evidence-carrying transitions, and state events.
 
 Configuration concerns live with their consumers until a real Configuration context earns its own boundary.
@@ -111,4 +112,5 @@ ACLs live in an `ACL` project each, implementing domain-owned interfaces.
 - **Immutability**: domain models prefer immutability — records, init-only properties, copy constructors.
 - **Error handling**: result types, not exceptions, for expected domain failures. Exceptions are for infrastructure/programmer errors.
 - **Tool design**: tools demand strictly correct input (see Guiding Philosophy). Tool errors are returned to the model as tool results — an error is feedback for self-correction, never a turn-ending crash. Model-facing output uses explicit format contracts (annotation lines, gutters) documented verbatim in the tool description, so the model never has to guess what it is looking at.
-- **Performance**: hot paths (file reads, shell execution) go through in-process hosting where possible; avoid per-call process spawns. Streaming over loading: read only the requested range, then account for the whole. Aim for event-driven flow over polling loops, and keep steady-state memory small — don't hold what you're not using.
+- **Performance**: hot paths (file reads, shell execution) go through in-process hosting where possible; avoid per-call process spawns. Streaming over loading: read only the requested range, then account for the whole. Aim for event-driven flow over polling loops, and keep steady-state memory small — don't hold what you're not using. Maintain high performance, low latency, low memory, and a modular event-driven architecture across every change.
+- **Create tools as you work**: when something useful is missing, add a tool for it rather than working around the gap. Tools are the agent's first-class surface — a missing capability is a missing tool, not a one-off script. New tools follow the existing `ITool` / capability-provider contracts: strict input validation, `Result<T>` errors, and verbatim format contracts in the description.
