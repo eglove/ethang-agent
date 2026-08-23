@@ -6,6 +6,7 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 
 ## What it can do today
 
+- Two interchangeable frontends over one shared core (`eThangAgent.Composition`): the interactive terminal REPL and an Avalonia desktop app with the same feature surface — streamed responses with reasoning/tool activity, clarify prompts answered in-place, sub-agent spawning, durable session persistence
 - Conversational coding loop against [OpenRouter](https://openrouter.ai/) models
 - Live response streaming in the interactive REPL — assistant text renders as it arrives,
   including interstitial reasoning between tool calls (SSE; falls back transparently when a
@@ -44,12 +45,13 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 
 3. Build and run:
 
-   ```powershell
-   dotnet build
-   dotnet run --project src/eThangAgent.CLI
-   ```
+```powershell
+dotnet build
+dotnet run --project src/eThangAgent.CLI     # terminal REPL
+dotnet run --project src/eThangAgent.Desktop # Avalonia desktop app
+```
 
-The agent starts an interactive REPL and works inside whatever workspace directory you launch it from.
+The CLI starts an interactive REPL and works inside whatever workspace directory you launch it from. The desktop app has no workspace concept yet — file and git tools use whatever paths the model passes (absolute recommended; relative paths resolve against the process working directory). Multi-workspace support is planned.
 
 ## Usage
 
@@ -105,6 +107,8 @@ dotnet publish src/eThangAgent.CLI -c Release -r win-x64 --self-contained false
 
 ```text
 src/     One project per bounded context and ACL (see AGENTS.md for the map)
+         plus eThangAgent.Composition (shared host-agnostic wiring),
+         eThangAgent.CLI (terminal frontend) and eThangAgent.Desktop (Avalonia frontend)
 tests/   Mirror-image test projects
 docs/    Specs and implementation plans (superpowers workflow)
 ```
