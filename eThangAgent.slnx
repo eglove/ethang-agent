@@ -23,6 +23,7 @@
   <Project Path="src/eThangAgent.State.Domain/eThangAgent.State.Domain.csproj" />
   <Project Path="src/eThangAgent.Storage.ACL/eThangAgent.Storage.ACL.csproj" />
   <Project Path="src/eThangAgent.PowerShell.ACL/eThangAgent.PowerShell.ACL.csproj" />
+  <Project Path="src/eThangAgent.Roslyn.ACL/eThangAgent.Roslyn.ACL.csproj" />
   <Project Path="tests/eThangAgent.SharedKernel.Tests/eThangAgent.SharedKernel.Tests.csproj" />
   <Project Path="tests/eThangAgent.Model.Domain.Tests/eThangAgent.Model.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.Conversation.Domain.Tests/eThangAgent.Conversation.Domain.Tests.csproj" />
