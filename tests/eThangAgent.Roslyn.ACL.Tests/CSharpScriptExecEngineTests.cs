@@ -1,5 +1,6 @@
 using eThangAgent.CapabilityDomain;
 using eThangAgent.Roslyn.ACL;
+using eThangAgent.StateDomain;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
@@ -79,5 +80,51 @@ public class CSharpScriptExecEngineTests
 
         Assert.Equal(ExecRunStatus.Completed, run.Status);
         Assert.Contains("hello", run.Output);
+    }
+}
+
+public class CSharpEvidenceRunnerTests
+{
+    [Fact]
+    public async Task TrueExpression_ReturnsConfirmed()
+    {
+        var runner = new CSharpEvidenceRunner(EvidenceOptions.Default);
+        var r = await runner.RunAsync("1 + 1 == 2");
+
+        Assert.True(r.Confirmed);
+        Assert.Empty(r.Detail);
+    }
+
+    [Fact]
+    public async Task FalseExpression_ReturnsNotConfirmed()
+    {
+        var runner = new CSharpEvidenceRunner(EvidenceOptions.Default);
+        var r = await runner.RunAsync("1 == 2");
+
+        Assert.False(r.Confirmed);
+        Assert.NotEmpty(r.Detail);
+    }
+
+    [Fact]
+    public async Task Exception_ReturnsNotConfirmed()
+    {
+        var runner = new CSharpEvidenceRunner(EvidenceOptions.Default);
+        var r = await runner.RunAsync("throw new System.Exception(\"fail\")");
+
+        Assert.False(r.Confirmed);
+        Assert.Contains("fail", r.Detail);
+    }
+
+    [Fact]
+    public async Task FileExists_Evidence_Works()
+    {
+        var tmp = Path.GetTempFileName();
+        try
+        {
+            var runner = new CSharpEvidenceRunner(EvidenceOptions.Default);
+            var r = await runner.RunAsync($"System.IO.File.Exists(@\"{tmp.Replace("\\", "\\\\")}\")");
+            Assert.True(r.Confirmed);
+        }
+        finally { File.Delete(tmp); }
     }
 }
