@@ -13,7 +13,7 @@ public class MainWindowTests
     [AvaloniaFact]
     public void Typing_And_Enter_Sends_User_Message_To_Transcript()
     {
-        var vm = TestFixtures.CreateViewModel();
+        var vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
         var window = new MainWindow(vm);
         window.Show();
 
@@ -28,7 +28,7 @@ public class MainWindowTests
     [AvaloniaFact]
     public void Slash_Opens_Autocomplete_Listing_Three_Commands()
     {
-        var vm = TestFixtures.CreateViewModel();
+        var vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
         var window = new MainWindow(vm);
         window.Show();
 
@@ -45,7 +45,7 @@ public class MainWindowTests
     [AvaloniaFact]
     public void Escape_Dismisses_Autocomplete()
     {
-        var vm = TestFixtures.CreateViewModel();
+        var vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
         var window = new MainWindow(vm);
         window.Show();
 

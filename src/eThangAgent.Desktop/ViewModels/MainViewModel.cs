@@ -28,6 +28,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly Conversation _conversation;
     private readonly Action _requestClose;
     private readonly Func<ClarifyQuestion, Task<ClarifyViewModel>> _presentClarify;
+    private readonly Func<UiStreamEvent, Task> _streamSink;
 
     private IClarifyChannel? _clarifyChannel;
     private Task? _runningTurn;
@@ -57,16 +58,21 @@ public sealed partial class MainViewModel : ObservableObject
         Conversation conversation,
         string modelId,
         Action requestClose,
-        Func<ClarifyQuestion, Task<ClarifyViewModel>>? presentClarify = null)
+        Func<ClarifyQuestion, Task<ClarifyViewModel>>? presentClarify = null,
+        Func<UiStreamEvent, Task>? uiStreamSink = null)
     {
         _runner = runner;
         _lifecycle = lifecycle;
         _rootId = rootId;
         _conversation = conversation;
         _requestClose = requestClose;
-        // Default present builds the view-model inline. Production (Task 12) supplies a
-        // hook that marshals construction onto the UI thread via the Dispatcher.
+        // Default present builds the view-model inline. Production supplies hooks that
+        // marshal onto the UI thread via the Dispatcher.
         _presentClarify = presentClarify ?? (q => Task.FromResult(new ClarifyViewModel(q)));
+        // Default sink applies on the calling (pump) thread — adequate for unit tests.
+        // Production passes ApplyUiStreamEventOnUIThreadAsync so transcript mutations
+        // always land on the UI thread.
+        _streamSink = uiStreamSink ?? (evt => { ApplyStreamEvent(evt); return Task.CompletedTask; });
         Status = new StatusViewModel(modelId);
         SubmitCommand = new AsyncRelayCommand(
             () => SubmitAsync(Input),
@@ -144,7 +150,7 @@ public sealed partial class MainViewModel : ObservableObject
         Status.Phase = TurnPhase.Thinking;
         IsBusy = true;
 
-        var bridge = new StreamBridge(ApplyStreamEvent);
+        var bridge = new StreamBridge(_streamSink);
         bridge.Start();
 
         var messageCountBefore = _conversation.Messages.Count;
@@ -253,6 +259,19 @@ public sealed partial class MainViewModel : ObservableObject
         while (end < input.Length && char.IsDigit(input[end])) end++;
         return int.TryParse(input.AsSpan(0, end), out value);
     }
+
+    /// <summary>Applies a stream event on the calling thread. Test seam; also usable when
+    ///     the caller has already marshaled onto the UI thread.</summary>
+    public Task ApplyUiStreamEventAsync(UiStreamEvent evt)
+    {
+        ApplyStreamEvent(evt);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Production stream sink: marshals the event onto the UI thread before applying
+    ///     it, keeping every <see cref="Transcript"/> mutation on the UI thread.</summary>
+    public Task ApplyUiStreamEventOnUIThreadAsync(UiStreamEvent evt) =>
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => ApplyStreamEvent(evt)).GetTask();
 
     private void ReportPersistenceError(string message) => Transcript.AddNotice(message);
 }

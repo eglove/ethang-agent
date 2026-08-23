@@ -2,6 +2,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
+using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 
@@ -30,20 +31,31 @@ public static class TestFixtures
             => Task.FromResult(Result<IReadOnlyList<AgentRecord>>.Success([]));
     }
 
-    /// <summary>Builds a MainViewModel whose turn runner streams "ack" and succeeds.</summary>
-    public static MainViewModel CreateViewModel(Action? requestClose = null)
+    /// <summary>Builds a MainViewModel whose turn runner streams "ack" and succeeds.
+    ///     When <paramref name="marshalToUIThread"/> is true the stream sink marshals onto
+    ///     the UI thread (production shape — for headless window tests); otherwise events
+    ///     apply on the pump thread (deterministic for plain unit tests).</summary>
+    public static MainViewModel CreateViewModel(Action? requestClose = null, bool marshalToUIThread = false)
     {
         TurnRunner runner = (command, ct, onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult) =>
         {
             onContentDelta?.Invoke("ack");
             return Task.FromResult(Result<string>.Success("ack"));
         };
-        return new MainViewModel(
+
+        MainViewModel? vmRef = null;
+        var sink = marshalToUIThread
+            ? (Func<UiStreamEvent, Task>)(e => vmRef!.ApplyUiStreamEventOnUIThreadAsync(e))
+            : e => vmRef!.ApplyUiStreamEventAsync(e);
+        var vm = new MainViewModel(
             runner,
             new RootSessionLifecycle(new StubStore()),
             AgentId.NewId(),
             new Conversation(),
             "test/model",
-            requestClose ?? (() => { }));
+            requestClose ?? (() => { }),
+            uiStreamSink: sink);
+        vmRef = vm;
+        return vm;
     }
 }

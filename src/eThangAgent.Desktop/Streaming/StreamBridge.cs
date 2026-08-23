@@ -6,8 +6,10 @@ namespace eThangAgent.Desktop.Streaming;
 /// Bridges agent-loop stream callbacks (arbitrary threads) to a UI sink. Callbacks
 /// only write to an unbounded channel; a single reader pumps events to the sink in order.
 /// Event-driven — no polling timer. The channel lives for one turn; MarkTurnComplete ends it.
-/// Production sinks marshal onto the UI thread so <see cref="ViewModels.TranscriptViewModel"/>
-/// keeps its UI-thread-only contract. Tests must call <see cref="Start"/> after construction —
+/// The pump AWAITS each sink delivery, so <see cref="DrainUntilIdleAsync"/> means
+/// "every event was applied" — which lets production sinks marshal onto the UI thread
+/// without losing determinism (<see cref="ViewModels.TranscriptViewModel"/> keeps its
+/// UI-thread-only contract). Tests must call <see cref="Start"/> after construction —
 /// the pump only runs once started.
 /// <para><b>Fault semantics:</b> if the sink throws, the exception is forwarded to every
 /// <see cref="DrainUntilIdleAsync"/> awaiter via <c>TrySetException</c> — the task never
@@ -15,7 +17,7 @@ namespace eThangAgent.Desktop.Streaming;
 /// itself stores its <see cref="Task"/> and adds a no-op continuation so the fault is
 /// always observed and never raises <see cref="UnobservedTaskException"/>.</para>
 /// </summary>
-public sealed class StreamBridge(Action<UiStreamEvent> sink)
+public sealed class StreamBridge(Func<UiStreamEvent, Task> sink)
 {
     private readonly Channel<UiStreamEvent> _channel =
         Channel.CreateUnbounded<UiStreamEvent>(new UnboundedChannelOptions { SingleReader = true });
@@ -45,13 +47,13 @@ public sealed class StreamBridge(Action<UiStreamEvent> sink)
 }
 
 internal sealed class StreamBridgePump(
-    ChannelReader<UiStreamEvent> reader, Action<UiStreamEvent> sink, TaskCompletionSource drained)
+    ChannelReader<UiStreamEvent> reader, Func<UiStreamEvent, Task> sink, TaskCompletionSource drained)
 {
     public async Task RunAsync()
     {
         try
         {
-            await foreach (var evt in reader.ReadAllAsync()) sink(evt);
+            await foreach (var evt in reader.ReadAllAsync()) await sink(evt);
         }
         catch (Exception ex)
         {

@@ -9,7 +9,7 @@ public class StreamBridgeTests
     public async Task Events_Are_Delivered_In_Publication_Order_Exactly_Once()
     {
         var received = new List<UiStreamEvent>();
-        var bridge = new StreamBridge(e => received.Add(e));
+        var bridge = new StreamBridge(e => { received.Add(e); return Task.CompletedTask; });
         bridge.Start();
         bridge.OnContentDelta("a");
         bridge.OnReasoningDelta("r");
@@ -39,7 +39,7 @@ public class StreamBridgeTests
     public async Task Throwing_Sink_Faults_DrainUntilIdleAsync_Instead_Of_Hanging()
     {
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        Action<UiStreamEvent> throwingSink = _ => throw new InvalidOperationException("boom");
+        Func<UiStreamEvent, Task> throwingSink = _ => throw new InvalidOperationException("boom");
         var bridge = new StreamBridge(throwingSink);
         bridge.Start();
         bridge.OnContentDelta("x");
@@ -59,7 +59,7 @@ public class StreamBridgeTests
     public async Task Events_Published_From_Many_Threads_All_Arrive()
     {
         var received = new List<UiStreamEvent>();
-        var bridge = new StreamBridge(e => received.Add(e));
+        var bridge = new StreamBridge(e => { received.Add(e); return Task.CompletedTask; });
         bridge.Start();
         var tasks = Enumerable.Range(0, 8).Select(i => Task.Run(() =>
         {
