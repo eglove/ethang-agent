@@ -50,7 +50,9 @@ public class OpenRouterModelProvider : IModelProvider
     /// fallback, never a change in parsing rules.
     /// </summary>
     public async Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
-        Action<string>? onContentDelta = null, CancellationToken ct = default)
+        Action<string>? onContentDelta = null,
+        Action<string>? onReasoningDelta = null,
+        CancellationToken ct = default)
     {
         try
         {
@@ -62,7 +64,7 @@ public class OpenRouterModelProvider : IModelProvider
 
             var contentType = response.Content.Headers.ContentType?.MediaType;
             if (contentType == "text/event-stream")
-                return await ReadSseStreamAsync(response, onContentDelta, ct);
+                return await ReadSseStreamAsync(response, onContentDelta, onReasoningDelta, ct);
 
             return await ReadJsonBodyAsync(response, ct);
         }
@@ -168,7 +170,9 @@ public class OpenRouterModelProvider : IModelProvider
     ///     keep-alive comments, and the "data: [DONE]" terminator. Content fragments stream
     ///     straight through; tool-call fragments accumulate per index until the stream ends.</summary>
     private static async Task<Result<ModelResponse>> ReadSseStreamAsync(HttpResponseMessage response,
-        Action<string>? onContentDelta, CancellationToken ct)
+        Action<string>? onContentDelta,
+        Action<string>? onReasoningDelta,
+        CancellationToken ct)
     {
         var content = new StringBuilder();
         var toolCalls = new Dictionary<int, StreamedToolCall>();
@@ -187,7 +191,7 @@ public class OpenRouterModelProvider : IModelProvider
                     break;
 
                 using var doc = JsonDocument.Parse(payload);
-                ApplyChunk(doc.RootElement, content, toolCalls, onContentDelta);
+                ApplyChunk(doc.RootElement, content, toolCalls, onContentDelta, onReasoningDelta);
             }
 
             // Assembled inside the guard: strict fragment validation (missing id/name) is a
@@ -211,7 +215,9 @@ public class OpenRouterModelProvider : IModelProvider
     }
 
     private static void ApplyChunk(JsonElement chunk, StringBuilder content,
-        Dictionary<int, StreamedToolCall> toolCalls, Action<string>? onContentDelta)
+        Dictionary<int, StreamedToolCall> toolCalls,
+        Action<string>? onContentDelta,
+        Action<string>? onReasoningDelta)
     {
         if (!chunk.TryGetProperty("choices", out var choices)
             || choices.ValueKind != JsonValueKind.Array
@@ -228,6 +234,12 @@ public class OpenRouterModelProvider : IModelProvider
             var text = contentDelta.GetString()!;
             content.Append(text);
             onContentDelta?.Invoke(text);
+        }
+
+        if (delta.TryGetProperty("reasoning_content", out var reasoningDelta)
+            && reasoningDelta.ValueKind == JsonValueKind.String)
+        {
+            onReasoningDelta?.Invoke(reasoningDelta.GetString()!);
         }
 
         if (delta.TryGetProperty("tool_calls", out var calls)

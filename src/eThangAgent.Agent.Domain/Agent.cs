@@ -48,7 +48,11 @@ public class Agent
     /// threads; observers must marshal to their own context.
     /// </summary>
     public async Task<Result<string>> SendMessage(string text, CancellationToken ct = default,
-        Action<string>? onContentDelta = null, Action? onIterationEnd = null)
+        Action<string>? onContentDelta = null,
+        Action<string>? onReasoningDelta = null,
+        Action? onIterationEnd = null,
+        Action<string, string>? onToolCall = null,
+        Action<string, string>? onToolResult = null)
     {
         LastTurnToolCalls = 0;
         Conversation.AddUserMessage(text);
@@ -56,7 +60,8 @@ public class Agent
         {
             var request = new ModelRequest(
                 Conversation.Messages, _tools.Definitions, _systemPrompt?.Build());
-            var result = await _provider.SendStreamingAsync(Config, request, onContentDelta, ct);
+            var result = await _provider.SendStreamingAsync(Config, request,
+                onContentDelta, onReasoningDelta, ct);
             if (!result.IsSuccess)
                 return Result<string>.Failure(result.Error!);
             onIterationEnd?.Invoke();
@@ -77,11 +82,16 @@ public class Agent
             foreach (var call in response.ToolCalls)
             {
                 LastTurnToolCalls++;
+                onToolCall?.Invoke(call.Name, call.Arguments);
                 var tool = _tools.Find(call.Name);
                 var toolResult = tool is null
                     ? new ToolResult($"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
                     : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct);
                 Conversation.AddToolResult(call.Id, toolResult.Content);
+                var summary = toolResult.IsError
+                    ? (toolResult.Content.Length > 80 ? toolResult.Content[..77] + "…" : toolResult.Content)
+                    : "ok";
+                onToolResult?.Invoke(call.Name, summary);
             }
         }
 

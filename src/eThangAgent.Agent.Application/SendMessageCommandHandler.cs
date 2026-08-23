@@ -30,11 +30,16 @@ public class SendMessageCommandHandler
     }
 
     public async Task<Result<string>> Handle(SendMessageCommand command, CancellationToken ct = default,
-        Action<string>? onContentDelta = null, Action? onIterationEnd = null)
+        Action<string>? onContentDelta = null,
+        Action<string>? onReasoningDelta = null,
+        Action? onIterationEnd = null,
+        Action<string, string>? onToolCall = null,
+        Action<string, string>? onToolResult = null)
     {
         var turnNumber = Interlocked.Increment(ref _turnCount);
 
-        var result = await _agent.SendMessage(command.Text, ct, onContentDelta, onIterationEnd);
+        var result = await _agent.SendMessage(command.Text, ct,
+            onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult);
         if (!result.IsSuccess)
             return result;
 

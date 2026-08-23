@@ -25,7 +25,9 @@ public class StreamingAgentTests
             => throw new NotSupportedException("the agent loop must use SendStreamingAsync.");
 
         public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
-            Action<string>? onContentDelta = null, CancellationToken ct = default)
+            Action<string>? onContentDelta = null,
+            Action<string>? onReasoningDelta = null,
+            CancellationToken ct = default)
         {
             var (deltas, response) = _turns.Dequeue();
             foreach (var delta in deltas)
@@ -70,7 +72,7 @@ public class StreamingAgentTests
         var deltas = new List<string>();
         var iterations = 0;
 
-        var result = await agent.SendMessage("hi", default, deltas.Add, () => iterations++);
+        var result = await agent.SendMessage("hi", default, onContentDelta: deltas.Add, onIterationEnd: () => iterations++);
 
         Assert.True(result.IsSuccess);
         Assert.Equal("done", result.Value);

@@ -417,7 +417,13 @@ public static class Program
                         streamedAny = true;
                         streamEvents.Enqueue(new StreamEvent.Delta(delta));
                     },
-                    onIterationEnd: () => streamEvents.Enqueue(new StreamEvent.IterationEnd()));
+                    onReasoningDelta: reasoning =>
+                        streamEvents.Enqueue(new StreamEvent.Reasoning(reasoning)),
+                    onIterationEnd: () => streamEvents.Enqueue(new StreamEvent.IterationEnd()),
+                    onToolCall: (name, args) =>
+                        streamEvents.Enqueue(new StreamEvent.ToolCallEvent(name, args)),
+                    onToolResult: (name, summary) =>
+                        streamEvents.Enqueue(new StreamEvent.ToolResultEvent(name, summary)));
                 pane.BeginStream();
 
                 var frame = 0;
@@ -470,6 +476,23 @@ public static class Program
         }
 
         public sealed class IterationEnd : StreamEvent;
+
+        public sealed class Reasoning(string text) : StreamEvent
+        {
+            public string Text { get; } = text;
+        }
+
+        public sealed class ToolCallEvent(string name, string arguments) : StreamEvent
+        {
+            public string Name { get; } = name;
+            public string Arguments { get; } = arguments;
+        }
+
+        public sealed class ToolResultEvent(string name, string summary) : StreamEvent
+        {
+            public string Name { get; } = name;
+            public string Summary { get; } = summary;
+        }
     }
 
     /// <summary>Drains queued stream events into the transcript pane between frames. An iteration
@@ -486,6 +509,15 @@ public static class Program
                     break;
                 case StreamEvent.IterationEnd:
                     pane.BeginStream();
+                    break;
+                case StreamEvent.Reasoning r:
+                    pane.AppendReasoning(r.Text);
+                    break;
+                case StreamEvent.ToolCallEvent tc:
+                    pane.AppendToolCall(tc.Name, tc.Arguments);
+                    break;
+                case StreamEvent.ToolResultEvent tr:
+                    pane.AppendToolResult(tr.Name, tr.Summary);
                     break;
             }
         }

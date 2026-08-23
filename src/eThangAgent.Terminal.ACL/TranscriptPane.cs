@@ -38,6 +38,32 @@ public sealed class TranscriptPane
         }
     }
 
+    /// <summary>Appends reasoning text lines. Reasoning is rendered dim to distinguish it
+    ///     from the model's spoken prose; each source line becomes a separate transcript
+    ///     entry bracketed by ANSI SGR dim/reset codes.</summary>
+    public void AppendReasoning(string text)
+    {
+        _streamOpen = false;
+        foreach (var line in text.Split('\n'))
+            _lines.Add($"[2m{line.TrimEnd('\r')}[0m");
+    }
+
+    /// <summary>Appends a tool-call entry with its name and an arguments preview.</summary>
+    public void AppendToolCall(string name, string arguments)
+    {
+        _streamOpen = false;
+        var argsPreview = arguments.Length > 80 ? arguments[..77] + "…" : arguments;
+        _lines.Add($"▸ {name} {{{argsPreview}}}");
+    }
+
+    /// <summary>Appends a tool-result entry with its name and a one-line summary.</summary>
+    public void AppendToolResult(string name, string summary)
+    {
+        _streamOpen = false;
+        var summaryPreview = summary.Length > 100 ? summary[..97] + "…" : summary;
+        _lines.Add($"  ↳ {name}: {summaryPreview}");
+    }
+
     public void Render(ITextWriter writer, int top, int height, int width)
     {
         var wrapped = new List<string>();
