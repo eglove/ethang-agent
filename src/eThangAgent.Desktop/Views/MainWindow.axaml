@@ -1,0 +1,6 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="eThangAgent.Desktop.Views.MainWindow"
+        Title="eThang Agent" Width="900" Height="650">
+  <TextBlock Text="eThang Agent" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+</Window>
