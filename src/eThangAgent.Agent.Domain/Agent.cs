@@ -38,7 +38,17 @@ public class Agent
         Depth = depth;
     }
 
-    public async Task<Result<string>> SendMessage(string text, CancellationToken ct = default)
+    /// <summary>
+    /// Runs one user turn through the provider/tool loop. Content deltas stream out through
+    /// <paramref name="onContentDelta"/> exactly as the provider emits them — every iteration,
+    /// interstitial text between tool calls included — and <paramref name="onIterationEnd"/>
+    /// fires once after each provider response so observers can separate iterations. Both are
+    /// optional: providers without streaming support simply never invoke the delta callback,
+    /// and the returned result is identical either way. Callbacks may fire on arbitrary
+    /// threads; observers must marshal to their own context.
+    /// </summary>
+    public async Task<Result<string>> SendMessage(string text, CancellationToken ct = default,
+        Action<string>? onContentDelta = null, Action? onIterationEnd = null)
     {
         LastTurnToolCalls = 0;
         Conversation.AddUserMessage(text);
@@ -46,9 +56,10 @@ public class Agent
         {
             var request = new ModelRequest(
                 Conversation.Messages, _tools.Definitions, _systemPrompt?.Build());
-            var result = await _provider.SendAsync(Config, request, ct);
+            var result = await _provider.SendStreamingAsync(Config, request, onContentDelta, ct);
             if (!result.IsSuccess)
                 return Result<string>.Failure(result.Error!);
+            onIterationEnd?.Invoke();
 
             var response = result.Value!;
             if (response.ToolCalls.Count == 0)

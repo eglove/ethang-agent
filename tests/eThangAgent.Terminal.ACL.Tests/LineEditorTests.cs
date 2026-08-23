@@ -125,4 +125,78 @@ public class LineEditorTests
 
         Assert.StartsWith("> ", writer.AllText);
     }
+
+    private sealed class StrictWriter : ITextWriter
+    {
+        public StrictWriter(int width, int height)
+        {
+            BufferWidth = width;
+            BufferHeight = height;
+            CursorLeft = 0;
+            // The TUI input row: one row above the statusline, i.e. the second-to-last row.
+            CursorTop = height - 2;
+        }
+
+        public int BufferWidth { get; }
+        public int BufferHeight { get; }
+        public int CursorLeft { get; private set; }
+        public int CursorTop { get; private set; }
+
+        public List<(int Left, int Top)> Moves { get; } = new();
+
+        public void SetCursorPosition(int left, int top)
+        {
+            // Same contract as Console.SetCursorPosition: any cell outside the buffer throws.
+            if (left < 0 || top < 0 || left >= BufferWidth || top >= BufferHeight)
+                throw new ArgumentOutOfRangeException(nameof(left),
+                    $"cell ({left},{top}) is outside the {BufferWidth}x{BufferHeight} console buffer");
+            Moves.Add((left, top));
+            CursorLeft = left;
+            CursorTop = top;
+        }
+
+        public void Write(string value) => CursorLeft += value.Length;
+
+        public void Write(string value, ConsoleColor foreground) => CursorLeft += value.Length;
+
+        public void WriteLine(string value)
+        {
+            CursorLeft = 0;
+            CursorTop++;
+        }
+    }
+
+    [Fact]
+    public void LongLineBeyondBufferBottom_DoesNotCrash()
+    {
+        // Regression: a line longer than the input row used to wrap past the bottom of the
+        // console buffer, and SetCursorPosition threw ArgumentOutOfRangeException, killing
+        // the REPL. The editor must scroll horizontally within its single row instead.
+        var writer = new StrictWriter(width: 20, height: 24);
+        var keys = Enumerable.Range(0, 50).Select(_ => CharKey('x')).Append(Key(ConsoleKey.Enter)).ToArray();
+        var editor = new LineEditor(new FakeKeyReader(keys), writer);
+
+        var line = editor.Read("> ", null, null);
+
+        Assert.Equal(new string('x', 50), line);
+    }
+
+    [Fact]
+    public void LongLine_CursorNeverLeavesInputRow()
+    {
+        var writer = new StrictWriter(width: 20, height: 24);
+        var startTop = writer.CursorTop;
+        var keys = Enumerable.Range(0, 40).Select(_ => CharKey('x'))
+            .Concat(Enumerable.Range(0, 25).Select(_ => Key(ConsoleKey.LeftArrow)))
+            .Append(Key(ConsoleKey.Enter))
+            .ToArray();
+        var editor = new LineEditor(new FakeKeyReader(keys), writer);
+
+        var line = editor.Read("> ", null, null);
+
+        Assert.Equal(new string('x', 40), line);
+        Assert.NotEmpty(writer.Moves);
+        Assert.All(writer.Moves, m => Assert.Equal(startTop, m.Top));
+        Assert.All(writer.Moves, m => Assert.InRange(m.Left, 0, writer.BufferWidth - 1));
+    }
 }

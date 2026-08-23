@@ -165,10 +165,22 @@ public sealed class MockOpenRouterServer : IDisposable
 
                 try
                 {
-                    var bytes = Encoding.UTF8.GetBytes(NextScriptedBody(requestBody));
+                    var scriptedBody = NextScriptedBody(requestBody);
                     ctx.Response.StatusCode = 200;
-                    ctx.Response.ContentType = "application/json";
-                    await ctx.Response.OutputStream.WriteAsync(bytes);
+                    if (RequestWantsStream(requestBody))
+                    {
+                        // The agent always requests SSE; serving canned completions as
+                        // multi-chunk streams exercises real client-side chunk assembly.
+                        ctx.Response.ContentType = "text/event-stream";
+                        var bytes = Encoding.UTF8.GetBytes(ToSse(scriptedBody));
+                        await ctx.Response.OutputStream.WriteAsync(bytes);
+                    }
+                    else
+                    {
+                        ctx.Response.ContentType = "application/json";
+                        var bytes = Encoding.UTF8.GetBytes(scriptedBody);
+                        await ctx.Response.OutputStream.WriteAsync(bytes);
+                    }
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -185,6 +197,66 @@ public sealed class MockOpenRouterServer : IDisposable
             ctx.Response.Close();
         }
     }
+
+    private static bool RequestWantsStream(string requestBody)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(requestBody);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("stream", out var stream)
+                && stream.ValueKind == JsonValueKind.True;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Converts a canned non-streaming completion body into an equivalent SSE exchange:
+    ///     content split across two delta chunks (proving client-side chunk assembly),
+    ///     tool_calls served whole in one delta, terminated by [DONE].</summary>
+    private static string ToSse(string completionBody)
+    {
+        using var doc = JsonDocument.Parse(completionBody);
+        var message = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
+        var sse = new StringBuilder();
+        if (message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+        {
+            var text = content.GetString() ?? "";
+            var cut = text.Length / 2;
+            if (cut > 0)
+                Chunk(sse, new { choices = new[] { new { delta = new { content = text[..cut] } } } });
+            if (text.Length - cut > 0)
+                Chunk(sse, new { choices = new[] { new { delta = new { content = text[cut..] } } } });
+        }
+        if (message.TryGetProperty("tool_calls", out var calls) && calls.ValueKind == JsonValueKind.Array)
+        {
+            var deltas = new List<object>();
+            var index = 0;
+            foreach (var call in calls.EnumerateArray())
+            {
+                deltas.Add(new
+                {
+                    index,
+                    id = call.GetProperty("id").GetString(),
+                    type = "function",
+                    function = new
+                    {
+                        name = call.GetProperty("function").GetProperty("name").GetString(),
+                        arguments = call.GetProperty("function").GetProperty("arguments").GetString()
+                    }
+                });
+                index++;
+            }
+            Chunk(sse, new { choices = new[] { new { delta = new { tool_calls = deltas.ToArray() } } } });
+        }
+        sse.Append("data: [DONE]\n\n");
+        return sse.ToString();
+    }
+
+    private static void Chunk(StringBuilder sse, object payload) =>
+        sse.Append("data: ").Append(JsonSerializer.Serialize(payload)).Append("\n\n");
 
     private static int GetFreePort()
     {

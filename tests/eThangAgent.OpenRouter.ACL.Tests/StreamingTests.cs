@@ -1,0 +1,135 @@
+using System.Net;
+using System.Text;
+using eThangAgent.ModelDomain;
+
+namespace eThangAgent.OpenRouter.ACL.Tests;
+
+public class StreamingTests
+{
+    private static readonly Uri BaseUrl = new("https://openrouter.test");
+    private static OpenRouterConfiguration Config => new("test-key", BaseUrl);
+    private static ModelConfig Model => ModelConfig.Create("m", 256, 0.7f).Value!;
+
+    private static HttpResponseMessage Sse(string raw) =>
+        new(HttpStatusCode.OK) { Content = new StringContent(raw, Encoding.UTF8, "text/event-stream") };
+
+    private static HttpResponseMessage JsonBody(string body) =>
+        new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
+    [Fact]
+    public async Task Streams_ContentDeltas_InOrder_AndAssemblesFinalContent()
+    {
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(Sse(
+            ": OPENROUTER PROCESSING\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n" +
+            "\n" +
+            "data: {\"choices\":[{\"delta\":{\"content\":\"lo w\"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"content\":\"orld\"}}]}\n\n" +
+            "data: {\"choices\":[],\"usage\":{\"total_tokens\":9}}\n\n" +
+            "data: [DONE]\n\n")));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+        var deltas = new List<string>();
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(["Hel", "lo w", "orld"], deltas);
+        Assert.Equal("Hello world", result.Value!.Content);
+        Assert.Empty(result.Value.ToolCalls);
+    }
+
+    [Fact]
+    public async Task Assembles_ToolCallFragments_ByIndex_AcrossChunks()
+    {
+        const string sse =
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"a1\",\"type\":\"function\"," +
+            "\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"pa\"}}]}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"th\\\":\\\"x\\\"}\"}}," +
+            "{\"index\":1,\"id\":\"a2\",\"type\":\"function\",\"function\":{\"name\":\"exec\",\"arguments\":\"{}\"}}]}}]}\n\n" +
+            "data: [DONE]\n\n";
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(Sse(sse)));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value!.Content);
+        Assert.Equal(2, result.Value.ToolCalls.Count);
+        Assert.Equal("a1", result.Value.ToolCalls[0].Id);
+        Assert.Equal("read", result.Value.ToolCalls[0].Name);
+        Assert.Equal("{\"path\":\"x\"}", result.Value.ToolCalls[0].Arguments);
+        Assert.Equal("a2", result.Value.ToolCalls[1].Id);
+        Assert.Equal("exec", result.Value.ToolCalls[1].Name);
+        Assert.Equal("{}", result.Value.ToolCalls[1].Arguments);
+    }
+
+    [Fact]
+    public async Task FallsBack_ToJsonParsing_WhenServerIgnoresStreamFlag()
+    {
+        string? captured = null;
+        var handler = new FakeHttpMessageHandler(async req =>
+        {
+            captured = await req.Content!.ReadAsStringAsync();
+            return JsonBody("""{"choices":[{"message":{"content":"plain"}}]}""");
+        });
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+        var deltas = new List<string>();
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("plain", result.Value!.Content);
+        Assert.Empty(deltas);
+        Assert.NotNull(captured);
+        Assert.Contains("\"stream\":true", captured);
+    }
+
+    [Fact]
+    public async Task Streaming_ErrorStatus_MapsLikeNonStreaming()
+    {
+        var handler = new FakeHttpMessageHandler(_ =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("RateLimited", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task MalformedChunk_Yields_ProviderError()
+    {
+        var handler = new FakeHttpMessageHandler(_ =>
+            Task.FromResult(Sse("data: {not-json\n\ndata: [DONE]\n\n")));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ProviderError", result.Error!.Code);
+        Assert.Contains("Invalid provider stream", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task ToolCallFragment_WithoutFunctionName_Yields_ProviderError()
+    {
+        const string sse =
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"a1\"," +
+            "\"function\":{\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n";
+        var handler = new FakeHttpMessageHandler(_ => Task.FromResult(Sse(sse)));
+        using var http = new HttpClient(handler);
+        var provider = new OpenRouterModelProvider(http, Config);
+
+        var result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ProviderError", result.Error!.Code);
+        Assert.Contains("Malformed provider stream", result.Error.Message);
+    }
+}

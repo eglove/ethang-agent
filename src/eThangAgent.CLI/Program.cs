@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Ag = eThangAgent.AgentDomain.Agent;
 using eThangAgent.AgentDomain;
 using eThangAgent.Terminal.ACL;
@@ -401,23 +402,49 @@ public static class Program
                 pane.AddMessage($"\u203a {input}");
                 state = "Thinking";
 
+                // Streaming: agent callbacks enqueue events from whatever thread they run on;
+                // only this frame loop touches the terminal, redrawing the pane (~12 fps)
+                // until the turn resolves.
+                var streamEvents = new ConcurrentQueue<StreamEvent>();
+                var streamedAny = false;
                 var messageCountBefore = conversation.Messages.Count;
-                var task = handler.Handle(new SendMessageCommand(input));
+                var task = handler.Handle(new SendMessageCommand(input),
+                    onContentDelta: delta =>
+                    {
+                        streamedAny = true;
+                        streamEvents.Enqueue(new StreamEvent.Delta(delta));
+                    },
+                    onIterationEnd: () => streamEvents.Enqueue(new StreamEvent.IterationEnd()));
+                pane.BeginStream();
+
                 var frame = 0;
                 while (!task.IsCompleted)
                 {
+                    // Re-read the console geometry every frame: a resize during the turn must
+                    // never leave the panes targeting rows past the shrunken buffer, which
+                    // throws ArgumentOutOfRangeException from SetCursorPosition.
+                    width = Console.WindowWidth;
+                    height = Console.WindowHeight;
+                    layout = TuiLayout.Compute(height);
+                    DrainStream(streamEvents, pane);
+                    var phase = streamedAny ? "Streaming" : "Thinking";
                     status.Render(terminal, layout.StatusRow, width, modelConfig.ModelId, messages,
-                        $"{SpinnerFrames[frame % SpinnerFrames.Length]} Thinking\u2026");
+                        $"{SpinnerFrames[frame % SpinnerFrames.Length]} {phase}\u2026");
+                    pane.Render(terminal, layout.TranscriptTop, layout.TranscriptHeight, width);
                     frame++;
                     await Task.Delay(80);
                 }
+                DrainStream(streamEvents, pane);
 
                 var result = await task;
                 await AppendExchangeAsync(store, rootId, conversation, messageCountBefore, result);
                 state = "Ready";
-                pane.AddMessage(result.IsSuccess
-                    ? result.Value!
-                    : $"Error [{result.Error!.Code}]: {result.Error.Message}");
+                // Streamed content is already on screen; only failures and turns that produced
+                // no deltas (non-streaming fallback) print a line here.
+                if (!result.IsSuccess || !streamedAny)
+                    pane.AddMessage(result.IsSuccess
+                        ? result.Value!
+                        : $"Error [{result.Error!.Code}]: {result.Error.Message}");
             }
 
             // Both graceful exits (/exit, /quit, Ctrl+D) land here inside the try so the
@@ -427,6 +454,37 @@ public static class Program
         finally
         {
             terminal.ExitAlternateScreen();
+        }
+    }
+
+    /// <summary>Presentation-side stream events queued by agent callbacks. The REPL frame loop
+    ///     owns every terminal write; callbacks running on arbitrary threads only enqueue.</summary>
+    private abstract class StreamEvent
+    {
+        public sealed class Delta(string text) : StreamEvent
+        {
+            public string Text { get; } = text;
+        }
+
+        public sealed class IterationEnd : StreamEvent;
+    }
+
+    /// <summary>Drains queued stream events into the transcript pane between frames. An iteration
+    ///     end re-opens the stream so the next provider iteration starts on a separated line —
+    ///     and reuses the empty stream-start line when an iteration streamed no content.</summary>
+    private static void DrainStream(ConcurrentQueue<StreamEvent> events, TranscriptPane pane)
+    {
+        while (events.TryDequeue(out var streamEvent))
+        {
+            switch (streamEvent)
+            {
+                case StreamEvent.Delta delta:
+                    pane.AppendStream(delta.Text);
+                    break;
+                case StreamEvent.IterationEnd:
+                    pane.BeginStream();
+                    break;
+            }
         }
     }
 }

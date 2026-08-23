@@ -29,11 +29,12 @@ public class SendMessageCommandHandler
         _memoriesWritten = memoriesWritten;
     }
 
-    public async Task<Result<string>> Handle(SendMessageCommand command, CancellationToken ct = default)
+    public async Task<Result<string>> Handle(SendMessageCommand command, CancellationToken ct = default,
+        Action<string>? onContentDelta = null, Action? onIterationEnd = null)
     {
         var turnNumber = Interlocked.Increment(ref _turnCount);
 
-        var result = await _agent.SendMessage(command.Text, ct);
+        var result = await _agent.SendMessage(command.Text, ct, onContentDelta, onIterationEnd);
         if (!result.IsSuccess)
             return result;
 

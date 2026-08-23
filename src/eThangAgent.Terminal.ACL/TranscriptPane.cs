@@ -4,11 +4,38 @@ namespace eThangAgent.Terminal.ACL;
 public sealed class TranscriptPane
 {
     private readonly List<string> _lines = new();
+    private bool _streamOpen;
 
     public void AddMessage(string message)
     {
+        _streamOpen = false; // a completed message closes any open streamed message
         foreach (var line in message.Split('\n'))
             _lines.Add(line.TrimEnd('\r'));
+    }
+
+    /// <summary>Opens a streamed message: subsequent <see cref="AppendStream"/> calls extend it.
+    ///     Starts on a fresh line unless the current last line is an empty separator, which is
+    ///     then reused as the stream's first line.</summary>
+    public void BeginStream()
+    {
+        _streamOpen = true;
+        if (_lines.Count == 0 || _lines[^1].Length > 0)
+            _lines.Add(string.Empty);
+    }
+
+    /// <summary>Extends the open streamed message with one delta chunk; embedded newlines split
+    ///     lines exactly as AddMessage splits them. No effect while no stream is open.</summary>
+    public void AppendStream(string delta)
+    {
+        if (!_streamOpen)
+            return;
+        var parts = delta.Split('\n');
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (i > 0)
+                _lines.Add(string.Empty);
+            _lines[^1] += parts[i];
+        }
     }
 
     public void Render(ITextWriter writer, int top, int height, int width)

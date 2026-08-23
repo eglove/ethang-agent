@@ -7,6 +7,9 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 ## What it can do today
 
 - Conversational coding loop against [OpenRouter](https://openrouter.ai/) models
+- Live response streaming in the interactive REPL — assistant text renders as it arrives,
+  including interstitial reasoning between tool calls (SSE; falls back transparently when a
+  provider endpoint does not stream)
 - `exec` tool — PowerShell execution with artifact capture and structured output
 - `read` tool — bounded, line-range text file reads
 - `write` tool — create/replace files behind an explicit overwrite gate
@@ -86,6 +89,12 @@ The default model is declared at the composition root (`src/eThangAgent.CLI/Prog
 ```powershell
 dotnet build   # solution: eThangAgent.slnx
 dotnet test    # xUnit — unit, integration, and E2E layers
+```
+
+Production build (framework-dependent single file for win-x64):
+
+```powershell
+dotnet publish src/eThangAgent.CLI -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
 ```
 
 - Every change leaves the build green.
