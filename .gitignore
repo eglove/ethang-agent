@@ -287,3 +287,6 @@ obj/
 
 # local publish output
 dist/
+
+# isolated feature worktrees
+.worktrees/
