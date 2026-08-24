@@ -15,6 +15,11 @@ public class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // No window exists until workspace selection and bootstrap finish; the
+            // transient picker/dialog host windows closing must not trip Avalonia's
+            // default "shutdown when the last window closes" behavior mid-startup.
+            DesktopHost.DeferShutdownDuringStartup(desktop);
+
             // Startup splits three ways: workspace selection first (folder dialogs are
             // UI-affine, so the decision loop runs on the UI thread), then config load +
             // SQLite session save on a background thread, then window construction back on
@@ -36,6 +41,8 @@ public class App : Application
                         var window = DesktopHost.CreateMainWindow(desktop, boot);
                         desktop.MainWindow = window;
                         window.Show();
+                        // A real window now owns the lifetime: closing it should exit.
+                        DesktopHost.EnableWindowCloseShutdown(desktop);
                     });
                 }
                 catch (UnreachableException)

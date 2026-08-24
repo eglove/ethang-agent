@@ -95,6 +95,26 @@ public static class DesktopHost
             services.GetRequiredService<ModelConfig>().ModelId);
     }
 
+    /// <summary>Defers shutdown while startup runs. Between framework initialization and
+    ///     the main window being shown, NO window exists yet except transient helpers (the
+    ///     folder-picker host, dialogs); under Avalonia's default OnLastWindowClose mode,
+    ///     closing one of those with nothing else open shuts the app down mid-startup.
+    ///     While deferred, only explicit <c>desktop.Shutdown(...)</c> calls end the app,
+    ///     which is exactly how the decline and error paths already exit.</summary>
+    public static void DeferShutdownDuringStartup(
+        IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+    }
+
+    /// <summary>Restores window-close-driven shutdown once a real main window exists.
+    /// Call on the UI thread immediately after the main window is shown.</summary>
+    public static void EnableWindowCloseShutdown(
+        IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
+    }
+
     /// <summary>Opens the platform folder picker and returns the chosen directory's local
     ///     path, or null when the user cancels. MUST run on the UI thread: native folder
     ///     dialogs need a parent window handle, supplied by a transient 1x1 host window.</summary>
