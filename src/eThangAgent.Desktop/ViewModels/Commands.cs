@@ -2,7 +2,7 @@ namespace eThangAgent.Desktop.ViewModels;
 
 public sealed record DesktopCommand(string Name, string Description);
 
-/// <summary>Presentation commands for the desktop frontend — mirrors CliCommands semantics.</summary>
+/// <summary>Presentation commands for the desktop frontend.</summary>
 public static class DesktopCommands
 {
     private static readonly string[] QuitNames = ["/exit", "/quit"];
