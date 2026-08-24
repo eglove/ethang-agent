@@ -113,7 +113,8 @@ src/     One project per bounded context and ACL (see AGENTS.md for the map)
          plus eThangAgent.Composition (shared host-agnostic wiring) and
          eThangAgent.Desktop (Avalonia frontend)
 tests/   Mirror-image test projects
-docs/    Specs and implementation plans (skills workflow)
+docs/    Project documentation only; no workflow artifacts
+        (specs and implementation plans live in workspace state — keys specs/* and plans/* — not repo files)
 ```
 
 ## Roadmap
