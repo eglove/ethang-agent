@@ -41,8 +41,8 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
         new("list", "List state keys.",
             "Lists keys as 'ns/name v<version>' lines, optionally filtered by namespace.",
             [new ActionParameter("ns", "String", "Optional namespace filter.")]),
-        new("search", "Full-text search over workspace state values and key names.",
-            "Searches all state in this workspace with SQLite FTS5 over values, namespaces, and key names. Output contract: header line '[state.search '<query>'] <N> hit(s)', then per hit the key as ns/name and an indented snippet line. Zero hits prints only the header. Malformed queries fail with InvalidQuery rather than returning empty.",
+        new("find", "Full-text search over workspace state values and key names.",
+            "Searches all state in this workspace with SQLite FTS5 over values, namespaces, and key names. Output contract: header line '[state.find '<query>'] <N> hit(s)', then per hit the key as ns/name and an indented snippet line. Zero hits prints only the header. Malformed queries fail with InvalidQuery rather than returning empty.",
             [new ActionParameter("query", "String", "Required. FTS5 query text (supports prefix*, AND/OR/NOT)."),
              new ActionParameter("limit", "Integer", "Optional. Max hits, 1..100, default 20.")]),
         new("transition", "Attach a claim with evidence (stored, never run on attach).",
@@ -70,7 +70,7 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
             return actionName switch
             {
                 "get" => await GetAsync(jsonArguments),
-                "search" => await SearchAsync(jsonArguments),
+                "find" => await SearchAsync(jsonArguments),
                 "set" => await SetAsync(jsonArguments),
                 "delete" => await DeleteAsync(jsonArguments),
                 "list" => await ListAsync(jsonArguments),
@@ -140,7 +140,7 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
         var result = await _service.SearchAsync(query, limit);
         if (!result.IsSuccess) return Gutter(result.Error!);
         var sb = new System.Text.StringBuilder();
-        sb.Append($"[state.search '{query}'] {result.Value!.Count} hit(s)");
+        sb.Append($"[state.find '{query}'] {result.Value!.Count} hit(s)");
         foreach (var hit in result.Value!)
         {
             sb.Append($"\n{hit.Ns}/{hit.Name}");

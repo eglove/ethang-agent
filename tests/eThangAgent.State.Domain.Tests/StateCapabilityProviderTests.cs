@@ -16,7 +16,7 @@ public class StateCapabilityProviderTests
 
         Assert.Equal("state", provider.Id);
         Assert.Equal(9, provider.Actions.Count);
-        Assert.Contains(provider.Actions, a => a.Name == "search" && a.Summary.Contains("Full-text"));
+        Assert.Contains(provider.Actions, a => a.Name == "find" && a.Summary.Contains("Full-text"));
         Assert.Contains(provider.Actions, a => a.Name == "transition" && a.Summary.Contains("evidence"));
         Assert.Contains(provider.Actions, a => a.Name == "verify" && a.Description.Contains("fail-closed"));
     }
@@ -158,11 +158,11 @@ public class StateCapabilityProviderTests
             new StateSearchHit("specs", "beta", "second [hit]"),
         ]);
 
-        var result = await Create(service).InvokeAsync("search", "{\"query\":\"ledger\",\"limit\":5}");
+        var result = await Create(service).InvokeAsync("find", "{\"query\":\"ledger\",\"limit\":5}");
 
         Assert.False(result.IsError);
         Assert.Equal(
-            "[state.search 'ledger'] 2 hit(s)\nplans/alpha\n  rewrite the [ledger] flow\nspecs/beta\n  second [hit]",
+            "[state.find 'ledger'] 2 hit(s)\nplans/alpha\n  rewrite the [ledger] flow\nspecs/beta\n  second [hit]",
             result.Content);
         Assert.Equal(5, service.LastSearchLimit);
     }
@@ -170,16 +170,16 @@ public class StateCapabilityProviderTests
     [Fact]
     public async Task Search_ZeroHits_PrintsHeaderOnly()
     {
-        var result = await Create().InvokeAsync("search", "{\"query\":\"nothing\"}");
+        var result = await Create().InvokeAsync("find", "{\"query\":\"nothing\"}");
         Assert.False(result.IsError);
-        Assert.Equal("[state.search 'nothing'] 0 hit(s)", result.Content);
+        Assert.Equal("[state.find 'nothing'] 0 hit(s)", result.Content);
     }
 
     [Fact]
     public async Task Search_DefaultLimit_Is20()
     {
         var service = new FakeStateService();
-        await Create(service).InvokeAsync("search", "{\"query\":\"x\"}");
+        await Create(service).InvokeAsync("find", "{\"query\":\"x\"}");
         Assert.Equal(20, service.LastSearchLimit);
     }
 
@@ -189,7 +189,7 @@ public class StateCapabilityProviderTests
         var service = new FakeStateService();
         service.SearchResult = Result<IReadOnlyList<StateSearchHit>>.Failure(new Error("InvalidQuery", "bad fts syntax"));
 
-        var result = await Create(service).InvokeAsync("search", "{\"query\":\"AND (\"}");
+        var result = await Create(service).InvokeAsync("find", "{\"query\":\"AND (\"}");
 
         Assert.True(result.IsError);
         Assert.Contains("Error [InvalidQuery]:", result.Content);
