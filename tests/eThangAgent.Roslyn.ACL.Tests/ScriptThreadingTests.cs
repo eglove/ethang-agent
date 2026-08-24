@@ -17,7 +17,7 @@ public class ScriptThreadingTests
             CapabilityRegistry.Create([new StubProvider()]), ExecOptions.Default);
 
         var outcome = await RunUnderNonPumpingContext(
-            () => engine.ExecuteAsync(new ExecProgram("Tools.Invoke(\"stub_action\", null)")));
+            () => engine.ExecuteAsync(new ExecProgram("Tools.Invoke(\"stub_action\", new { timeoutSeconds = 30 })")));
 
         Assert.False(outcome.Leaked, "execution posted back onto the caller's context");
         Assert.Equal(ExecRunStatus.Completed, outcome.Value.Status);
@@ -31,7 +31,7 @@ public class ScriptThreadingTests
             workspace: ".", temp: Path.GetTempPath());
 
         var outcome = await RunUnderNonPumpingContext(
-            () => Task.FromResult(globals.Tools.Invoke("stub_action", null)));
+            () => Task.FromResult(globals.Tools.Invoke("stub_action", new { timeoutSeconds = 30 })));
 
         Assert.False(outcome.Leaked, "invocation posted back onto the caller's context");
         Assert.Equal("ok", outcome.Value);

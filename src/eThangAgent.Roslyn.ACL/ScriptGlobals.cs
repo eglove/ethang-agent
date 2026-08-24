@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL;
 
@@ -83,6 +84,14 @@ public sealed class ScriptGlobals
         }
     }
 
+    /// <summary>Returns the last <paramref name="chars"/> characters of text (or the
+    ///     whole string when it is shorter). Convenience for bounded output of shell results:
+    ///     Output(Tail(r.Stdout, 2000)) never throws on short output, unlike r.Stdout[^N..].</summary>
+    public static string Tail(string? text, int chars)
+    {
+        if (text is null || chars <= 0) return "";
+        return text.Length <= chars ? text : text[^chars..];
+    }
     /// <summary>Append a line to the script output. Does not terminate the script.
     /// Also capture any text written to Console.Out.</summary>
     public void Output(object? value)
@@ -161,7 +170,10 @@ public sealed class ScriptTools
         }
     }
 
-    /// <summary>Invoke a tool by name and return the raw tool result text.</summary>
+    /// <summary>Invoke a tool by name and return the raw tool result text.
+    ///     Every invocation MUST carry timeoutSeconds (whole seconds, 1..3600): it is
+    ///     validated here, converted to the call's cancellation token, and STRIPPED from
+    ///     the arguments before dispatch so providers never see a harness-reserved key.</summary>
     public string Invoke(string name, object? args)
     {
         var resolved = _registry.Resolve(name);
@@ -175,6 +187,30 @@ public sealed class ScriptTools
             _ => System.Text.Json.JsonSerializer.Serialize(args)
         };
 
+        System.Text.Json.JsonElement document;
+        try
+        {
+            using var parsed = System.Text.Json.JsonDocument.Parse(json);
+            document = parsed.RootElement.Clone();
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            return $"Error [InvalidJsonArguments]: Arguments are not valid JSON: {ex.Message}";
+        }
+        if (document.ValueKind != System.Text.Json.JsonValueKind.Object)
+            return "Error [InvalidJsonArguments]: Arguments must be a JSON object.";
+
+        var budget = ToolTimeout.Parse(document);
+        if (!budget.IsSuccess)
+            return $"Error [{budget.Error!.Code}]: {budget.Error!.Message}";
+
+        // Tools whose contract declares timeoutSeconds (ITool-backed actions) re-validate
+        // it themselves — pass arguments through untouched. Pure capability providers never
+        // declare it; strip the harness-reserved key so their strict parsers accept the rest.
+        var declaresTimeout = resolved.Value!.Action.Parameters
+            .Any(pr => pr.Name == ToolTimeout.ParameterName);
+        var stripped = declaresTimeout ? json : StripTimeout(document);
+
         // Offload to the worker pool before blocking: scripts are synchronous but the
         // registry is async, and awaiting inline deadlocks whenever this runs on a thread
         // whose SynchronizationContext must pump (e.g. Avalonia's UI thread). Task.Run
@@ -182,11 +218,39 @@ public sealed class ScriptTools
         // the invocation's continuation resumes on the pool, never on a blocked pump.
         Task<CapabilityInvocationResult> scheduled;
         using (ExecutionContext.SuppressFlow())
-            scheduled = Task.Run(() => _registry.InvokeAsync(resolved.Value!, json));
+            scheduled = Task.Run(async () =>
+            {
+                using var cts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
+                cts.CancelAfter(budget.Value);
+                try
+                {
+                    return await _registry.InvokeAsync(resolved.Value!, stripped, cts.Token);
+                }
+                catch (OperationCanceledException) when (cts.IsCancellationRequested)
+                {
+                    return new CapabilityInvocationResult(ToolTimeout.TimedOut(name, budget.Value).Content, true);
+                }
+            });
         var result = scheduled.GetAwaiter().GetResult();
         return result.Content;
     }
 
+    /// <summary>Serializes the argument object minus the harness-reserved timeoutSeconds key.</summary>
+    private static string StripTimeout(System.Text.Json.JsonElement document)
+    {
+        var buffer = new System.IO.MemoryStream();
+        using (var writer = new System.Text.Json.Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            foreach (var property in document.EnumerateObject())
+            {
+                if (property.Name == ToolTimeout.ParameterName) continue;
+                property.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+        return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
+    }
     /// <summary>Dynamic dispatch for convenience methods generated as public methods.
     /// Matches unknown method calls by name if the tool name is valid C#. The argument
     /// defaults to null so zero-argument actions bind without a dummy object —

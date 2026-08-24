@@ -20,9 +20,9 @@ public class DesktopAgentCapabilityE2ETests
         using var host = await new E2E.Host().StartAsync();
 
         var program = """
-            Tools.Invoke("state.set", new { key = "current/head", value = "done" });
-            Tools.Invoke("state.transition", new { from = "coding", to = "done", summary = "work", evidence = new[] { "true" } });
-            return Tools.Invoke("state.verify", new { });
+            Tools.Invoke("state.set", new { timeoutSeconds = 60, key = "current/head", value = "done" });
+            Tools.Invoke("state.transition", new { timeoutSeconds = 60, from = "coding", to = "done", summary = "work", evidence = new[] { "true" } });
+            return Tools.Invoke("state.verify", new { timeoutSeconds = 60 });
             """;
         host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram(program)));
         host.Mock.Returns(RawCompletion("certified"));
@@ -43,9 +43,9 @@ public class DesktopAgentCapabilityE2ETests
         using var host = await new E2E.Host().StartAsync();
 
         var program = """
-            Tools.Invoke("state.set", new { key = "current/head", value = "done" });
-            Tools.Invoke("state.transition", new { from = "coding", to = "done", summary = "work", evidence = new[] { "throw new System.Exception(\"boom\")" } });
-            return Tools.Invoke("state.verify", new { });
+            Tools.Invoke("state.set", new { timeoutSeconds = 60, key = "current/head", value = "done" });
+            Tools.Invoke("state.transition", new { timeoutSeconds = 60, from = "coding", to = "done", summary = "work", evidence = new[] { "throw new System.Exception(\"boom\")" } });
+            return Tools.Invoke("state.verify", new { timeoutSeconds = 60 });
             """;
         host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram(program)));
         host.Mock.Returns(RawCompletion("violated"));
@@ -72,8 +72,8 @@ public class DesktopAgentCapabilityE2ETests
         using var host = await new E2E.Host().StartAsync();
 
         host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram("Tools.Invoke(\"todo\", new { timeoutSeconds = 120, action = \"Add\", description = \"ship it\" })")));
-        host.Mock.Returns(E2E.ExecToolCall("call_2", E2E.ExecProgram("Tools.Invoke(\"state.set\", new { key = \"todo/list\", value = \"hijack\" })")));
-        host.Mock.Returns(E2E.ExecToolCall("call_3", E2E.ExecProgram("Tools.Invoke(\"state.delete\", new { key = \"todo/list\" })")));
+        host.Mock.Returns(E2E.ExecToolCall("call_2", E2E.ExecProgram("Tools.Invoke(\"state.set\", new { timeoutSeconds = 60, key = \"todo/list\", value = \"hijack\" })")));
+        host.Mock.Returns(E2E.ExecToolCall("call_3", E2E.ExecProgram("Tools.Invoke(\"state.delete\", new { timeoutSeconds = 60, key = \"todo/list\" })")));
         host.Mock.Returns(E2E.ExecToolCall("call_4", E2E.ExecProgram("Tools.Invoke(\"todo\", new { timeoutSeconds = 120, action = \"List\" })")));
         host.Mock.Returns(RawCompletion("done"));
 
@@ -121,13 +121,13 @@ public class DesktopAgentCapabilityE2ETests
             while (!status.Contains("status=completed"))
             {
                 await System.Threading.Tasks.Task.Delay(50);
-                status = Tools.Invoke("agent.status", new { id = "{{child_id}}" });
+                status = Tools.Invoke("agent.status", new { timeoutSeconds = 60, id = "{{child_id}}" });
             }
-            return Tools.Invoke("agent.result", new { id = "{{child_id}}" });
+            return Tools.Invoke("agent.result", new { timeoutSeconds = 60, id = "{{child_id}}" });
             """;
         host.Mock.ReturnsForModel(E2E.SessionModel,
-            E2E.ExecToolCall("parent_call_1", E2E.ExecProgram("var spawned = Tools.Invoke(\"agent.spawn\", new { taskPrompt = \"Say child report done and nothing else.\", model = \"mock/sub-model\", label = \"e2e\" }); return spawned;")),
-            E2E.ExecToolCall("parent_call_2", E2E.ExecProgram("return Tools.Invoke(\"agent.status\", new { id = \"{{child_id}}\" });")),
+            E2E.ExecToolCall("parent_call_1", E2E.ExecProgram("var spawned = Tools.Invoke(\"agent.spawn\", new { timeoutSeconds = 60, taskPrompt = \"Say child report done and nothing else.\", model = \"mock/sub-model\", label = \"e2e\" }); return spawned;")),
+            E2E.ExecToolCall("parent_call_2", E2E.ExecProgram("return Tools.Invoke(\"agent.status\", new { timeoutSeconds = 60, id = \"{{child_id}}\" });")),
             E2E.ExecToolCall("parent_call_3", E2E.ExecProgram(pollThenResult)),
             RawCompletion("done: child reported"));
 
@@ -180,9 +180,9 @@ public class DesktopAgentCapabilityE2ETests
         await host.Vm.RunTurnAsync("tell me about the xylophone harvest");
 
         // Turn 2: one exec tool call listing what conversations exist.
-        host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram("return Tools.Invoke(\"memory.sessions\", new { limit = 50 });")));
+        host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram("return Tools.Invoke(\"memory.sessions\", new { timeoutSeconds = 60, limit = 50 });")));
         // Turn 3: one exec tool call recalling the seeded phrase across all sessions.
-        host.Mock.Returns(E2E.ExecToolCall("call_2", E2E.ExecProgram("return Tools.Invoke(\"memory.recall\", new { query = \"xylophone\", scope = \"global\" });")));
+        host.Mock.Returns(E2E.ExecToolCall("call_2", E2E.ExecProgram("return Tools.Invoke(\"memory.recall\", new { timeoutSeconds = 60, query = \"xylophone\", scope = \"global\" });")));
         // Turn 4: final text closes the exchange.
         host.Mock.Returns(RawCompletion("recalled."));
         await host.Vm.RunTurnAsync("now list sessions and recall what you said");

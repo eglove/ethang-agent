@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "2.1";
+    public const string Version = "2.2";
 
     public const string Text = """
     ## exec — writing C# programs
@@ -141,6 +141,29 @@ public static class ExecGuide
 
     Thrown exceptions mark the whole result as an error with exec error [ScriptError] lines.
 
+    ### Writing C# safely (string literals and large content)
+
+    Roslyn raw string literals have sharp edges; their misuse produces misleading
+    '; expected' compile errors. Rules:
+
+    - A multi-line raw string's opening delimiter must be followed by a newline, and
+      its closing delimiter must start its own line.
+    - Never type more than three quote characters in a row anywhere in a script.
+    - To generate code that itself contains triple-quote delimiters (SQL blocks,
+      embedded markdown), build it as a string array joined with newlines instead of
+      nesting raw strings:
+
+        var parts = new[] { "var sql = " + q3 + ";", "SELECT 1;" };  // q3 = triple quotes
+
+    - To store large multi-line content (markdown, plans, reports) into state keys,
+      write it to a staging file with the write tool, read it inside exec, pass it to
+      state.set, then delete the staging file. Do not fight raw-string escaping inline.
+
+    Bounded output helper:
+
+        Output(Tail(r.Stdout, 2000));   // last 2000 chars, never throws on short input
+
+    r.Stdout[^300..] throws on outputs shorter than 300 chars; Tail does not.
     ### Rules
 
     - Return value is the output. null/void produces empty output.
