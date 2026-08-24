@@ -46,7 +46,7 @@ public static class DesktopHost
 
         var services = new ServiceCollection()
             .AddEThangAgentCore(settings, settings.ApiKey,
-                ModelConfig.Create("stealth/ox-alpha", 1024, 0.7f).Value!,
+                ModelConfig.Create("stealth/ox-alpha", 32 * 1024, 0.7f).Value!,
                 new AgentHostOptions(
                     new AvaloniaClarifyChannel(PresentLater),
                     new FixedWorkspaceContext("app"),

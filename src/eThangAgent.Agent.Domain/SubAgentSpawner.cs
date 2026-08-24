@@ -29,7 +29,7 @@ public sealed class SubAgentSpawner : IAgentRunner
     public const int MaxReportBytes = 50 * 1024;
 
     /// <summary>Child completion budget; matches the composition root's current root-agent settings.</summary>
-    public const int ChildMaxTokens = 1024;
+    public const int ChildMaxTokens = 32 * 1024;
     public const float ChildTemperature = 0.7f;
 
     private readonly IModelProviderFactory _factory;

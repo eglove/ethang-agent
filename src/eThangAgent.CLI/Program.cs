@@ -25,7 +25,7 @@ public static class Program
 
         using var services = new ServiceCollection()
             .AddEThangAgentCore(settings, apiKey,
-                ModelConfig.Create("stealth/ox-alpha", 1024, 0.7f).Value!,
+                ModelConfig.Create("stealth/ox-alpha", 32 * 1024, 0.7f).Value!,
                 new AgentHostOptions(
                     Console.IsInputRedirected
                         ? new PipedClarifyChannel(Console.In)
