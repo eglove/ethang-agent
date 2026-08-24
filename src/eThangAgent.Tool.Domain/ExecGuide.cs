@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "2.2";
+    public const string Version = "2.3";
 
     public const string Text = """
     ## exec — writing C# programs
@@ -85,12 +85,12 @@ public static class ExecGuide
     and the child runs in the background. Never wait for a child inside the spawn call.
 
         Tools.Invoke("agent.spawn", new {
-            taskPrompt = "Summarize the auth module", model = "provider/cheap-model",
-            label = "research" })
+            taskPrompt = "Summarize the auth module",
+            label = "research" })   // omit model: children inherit the configured default
         → id=3fa85f64-591c-4a0e-b3d8-0266a14e5a11 status=running
 
     - Frame the task so a stranger could complete it; say exactly what the report must contain.
-    - Pick a cheap model for grunt work; omit `model` to use the configured default.
+    - Omit `model`: children always inherit the configured default. There is no model selection.
 
     While children run, continue useful work on your own task, or fan out siblings for parallel
     independent subtasks so they run concurrently.

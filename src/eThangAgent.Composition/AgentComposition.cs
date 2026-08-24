@@ -179,7 +179,7 @@ public static class AgentComposition
                 new CuratedMemoryGuidePromptProvider(),
                 ..host.ExtraPromptProviders,
             ]))
-            .AddSingleton(subAgents(settings))
+            .AddSingleton(subAgents(settings, defaultModel.ModelId))
             .AddSingleton<Ag>(sp =>
             {
                 var provider = sp.GetRequiredService<IModelProvider>();
@@ -198,5 +198,13 @@ public static class AgentComposition
             ;
     }
 
-    private static SubAgentOptions subAgents(AgentSettings settings) => settings.SubAgents;
+    /// <summary>Child-agent options with the default-model fallback applied: when
+    ///     configuration omits the SubAgent DefaultModel key, children inherit the host's
+    ///     root model rather than failing every spawn with MissingModel. A configured
+    ///     value always wins; empty config values are still rejected upstream at bind time.</summary>
+    private static SubAgentOptions subAgents(AgentSettings settings, string rootModelId)
+        => string.IsNullOrWhiteSpace(settings.SubAgents.DefaultModel)
+            ? new SubAgentOptions(rootModelId, settings.SubAgents.ChildTimeout,
+                settings.SubAgents.MaxConcurrentAgents, settings.SubAgents.MaxDepth)
+            : settings.SubAgents;
 }

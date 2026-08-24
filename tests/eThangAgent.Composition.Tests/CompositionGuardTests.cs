@@ -20,6 +20,24 @@ namespace eThangAgent.Composition.Tests;
 
 public class CompositionGuardTests
 {
+    [Fact]
+    public void SubAgentDefaultModel_FallsBackToRootModel_WhenConfigOmitsIt()
+    {
+        var settings = new AgentSettings("sk-or-test", new Uri("https://openrouter.test"),
+            new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
+        using var services = new ServiceCollection()
+            .AddEThangAgentCore(settings, settings.ApiKey!,
+                ModelConfig.Create("root/model", 512, 0.5f).Value!,
+                new AgentHostOptions(new StubClarifyChannel(),
+                    new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
+            .BuildServiceProvider();
+
+        var options = services.GetRequiredService<SubAgentOptions>();
+        Assert.Equal("root/model", options.DefaultModel);
+        Assert.Equal(TimeSpan.FromSeconds(300), options.ChildTimeout); // preserved
+        Assert.Equal(2, options.MaxConcurrentAgents);                  // preserved
+    }
+
     public static TheoryData<string, AgentHostOptions> BothHostShapes => new()
     {
         { "terminal-shaped", new AgentHostOptions(
