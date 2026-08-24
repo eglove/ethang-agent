@@ -15,8 +15,8 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** If working in an isolated worktree, it should have been created via the `using-git-worktrees` skill at execution time.
 
-**Save plans to:** `docs/skills/plans/YYYY-MM-DD-<feature-name>.md`
-- (User preferences for plan location override this default)
+**Save plans to:** state key `plans/<yyyy-mm-dd>-<feature-name>` via `state.set`
+- (User-approved key-scheme overrides live in the spec's Key Scheme table)
 
 ## Scope Check
 
@@ -66,8 +66,8 @@ independently testable deliverable.
 
 **Tech Stack:** [Key technologies/libraries]
 
-**Spec:** [path to the spec/design doc this plan implements — the plan
-argues from the spec, so the spec travels with it; executors read both]
+**Spec:** [state key of the spec this plan implements, e.g. `specs/<yyyy-mm-dd>-<topic>` —
+the plan argues from the spec, so the spec travels with it; executors retrieve both with `state.get`]
 
 ## Global Constraints
 
@@ -105,8 +105,8 @@ def test_specific_behavior():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: FAIL with "function not defined"
+Run: `dotnet test tests/<Project>.Tests --filter <TestName>`
+Expected: FAIL (member missing / assertion unmet)
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -117,15 +117,13 @@ def function(input):
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pytest tests/path/test.py::test_name -v`
+Run: `dotnet test tests/<Project>.Tests --filter <TestName>`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
-```bash
-git add tests/path/test.py src/path/file.py
-git commit -m "feat: add specific feature"
-```
+Stage the touched files (`git add ...` via exec), then commit with the
+`git_commit` tool — style Conventional, type feat, description `add specific feature`. Never raw shell commits.
 ````
 
 ## No Placeholders
@@ -154,7 +152,7 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 After saving the plan, offer execution choice:
 
-**"Plan complete and saved to `docs/skills/plans/<filename>.md`. Two execution options:**
+**"Plan complete and saved to state key `plans/<filename>`. Two execution options:**
 
 **1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
 
