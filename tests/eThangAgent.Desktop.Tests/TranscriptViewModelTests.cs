@@ -101,4 +101,39 @@ public class TranscriptViewModelTests
         vm.AppendReasoning("done.\nNext");
         Assert.Equal("done.\nNext", Assert.IsType<ReasoningEntry>(vm.Entries[^1]).Text);
     }
+
+
+    // ---- empty-delta frames (providers emit "content": "" alongside reasoning) ----
+    // An empty fragment is a structural no-op: it must neither break the open reasoning
+    // block nor open a new one, or every streamed chunk renders as its own component.
+
+    [Fact]
+    public void Empty_Content_Delta_Does_Not_Break_Open_Reasoning_Block()
+    {
+        var vm = new TranscriptViewModel();
+        vm.AppendReasoning("I will check how");
+        vm.AppendAssistantDelta("");
+        vm.AppendReasoning(" the Dispatcher registers dialogs");
+        var entry = Assert.IsType<ReasoningEntry>(vm.Entries.Single());
+        Assert.Equal("I will check how the Dispatcher registers dialogs", entry.Text);
+    }
+
+    [Fact]
+    public void Empty_Reasoning_Delta_Does_Not_Open_A_New_Block()
+    {
+        var vm = new TranscriptViewModel();
+        vm.AppendReasoning("thinking");
+        vm.AppendReasoning("");
+        Assert.Single(vm.Entries);
+        Assert.Equal("thinking", Assert.IsType<ReasoningEntry>(vm.Entries[0]).Text);
+    }
+
+    [Fact]
+    public void Empty_Deltas_With_No_Open_Block_Create_Nothing()
+    {
+        var vm = new TranscriptViewModel();
+        vm.AppendAssistantDelta("");
+        vm.AppendReasoning("");
+        Assert.Empty(vm.Entries);
+    }
 }

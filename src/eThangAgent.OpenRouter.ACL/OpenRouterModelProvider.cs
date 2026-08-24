@@ -333,19 +333,27 @@ public class OpenRouterModelProvider : IModelProvider
             && contentDelta.ValueKind == JsonValueKind.String)
         {
             var text = contentDelta.GetString()!;
-            content.Append(text);
-            onContentDelta?.Invoke(text);
+            if (text.Length > 0)
+            {
+                content.Append(text);
+                onContentDelta?.Invoke(text);
+            }
+            // else: structural no-op frame — carries no information, emits nothing.
         }
 
         if (delta.TryGetProperty("reasoning_content", out var reasoningContent)
             && reasoningContent.ValueKind == JsonValueKind.String)
         {
-            onReasoningDelta?.Invoke(reasoningContent.GetString()!);
+            var text = reasoningContent.GetString()!;
+            if (text.Length > 0)
+                onReasoningDelta?.Invoke(text);
         }
         else if (delta.TryGetProperty("reasoning", out var reasoning)
             && reasoning.ValueKind == JsonValueKind.String)
         {
-            onReasoningDelta?.Invoke(reasoning.GetString()!);
+            var text = reasoning.GetString()!;
+            if (text.Length > 0)
+                onReasoningDelta?.Invoke(text);
         }
 
         if (delta.TryGetProperty("tool_calls", out var calls)

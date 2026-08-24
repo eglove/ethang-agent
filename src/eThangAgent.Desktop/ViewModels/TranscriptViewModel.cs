@@ -50,6 +50,8 @@ public sealed class TranscriptViewModel
 
     public void AppendAssistantDelta(string text)
     {
+        if (text.Length == 0)
+            return; // empty fragment — no information, no block change
         if (_openIndex >= 0 && _entries[_openIndex] is AssistantTextEntry open)
         {
             // Replace notification drives re-render.
@@ -64,6 +66,8 @@ public sealed class TranscriptViewModel
 
     public void AppendReasoning(string text)
     {
+        if (text.Length == 0)
+            return; // empty fragment — no information, no block change
         if (_openIndex >= 0 && _entries[_openIndex] is ReasoningEntry open && _openReasoning is not null)
         {
             _openReasoning.Append(text);
