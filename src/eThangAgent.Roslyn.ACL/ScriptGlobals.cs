@@ -157,7 +157,15 @@ public sealed class ScriptTools
             _ => System.Text.Json.JsonSerializer.Serialize(args)
         };
 
-        var result = _registry.InvokeAsync(resolved.Value!, json).GetAwaiter().GetResult();
+        // Offload to the worker pool before blocking: scripts are synchronous but the
+        // registry is async, and awaiting inline deadlocks whenever this runs on a thread
+        // whose SynchronizationContext must pump (e.g. Avalonia's UI thread). Task.Run
+        // alone still FLOWS the ambient context (.NET 6+), so the flow is suppressed —
+        // the invocation's continuation resumes on the pool, never on a blocked pump.
+        Task<CapabilityInvocationResult> scheduled;
+        using (ExecutionContext.SuppressFlow())
+            scheduled = Task.Run(() => _registry.InvokeAsync(resolved.Value!, json));
+        var result = scheduled.GetAwaiter().GetResult();
         return result.Content;
     }
 

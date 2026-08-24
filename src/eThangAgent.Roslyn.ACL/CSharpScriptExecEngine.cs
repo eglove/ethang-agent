@@ -70,11 +70,19 @@ public sealed class CSharpScriptExecEngine : IExecEngine
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(_options.Timeout);
 
-            var state = await script.RunAsync(globals, err =>
-            {
-                if (err is OperationCanceledException) return true;
-                return false;
-            }, cts.Token);
+            // Scripts are synchronous model-authored code; they may legitimately block
+            // (Tools.Invoke, Shell). Schedule the submission on the worker pool with the
+            // caller's execution context suppressed: Task.Run alone still FLOWS the
+            // ambient SynchronizationContext (.NET 6+), which would make every internal
+            // await post back to a pump that synchronous script code may be blocking.
+            // Suppressed, every continuation resumes on pool threads, never on a UI pump.
+            Task<ScriptState<object>> scheduled;
+            using (ExecutionContext.SuppressFlow())
+                scheduled = Task.Run(() => script.RunAsync(globals,
+                    err => err is OperationCanceledException, cts.Token));
+            // The ACL is context-free by contract: its resumptions must never depend
+            // on the caller's pump, so shed the captured context here as well.
+            var state = await scheduled.ConfigureAwait(false);
 
             var outputLines = new List<string>(globals.OutputLines);
             if (state.ReturnValue is not null && state.ReturnValue is not ScriptGlobals)
