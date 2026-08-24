@@ -10,12 +10,13 @@ public class StateCapabilityProviderTests
         => new(service ?? new FakeStateService());
 
     [Fact]
-    public void Provider_ExposesEightActions_UnderStateId()
+    public void Provider_ExposesNineActions_UnderStateId()
     {
         var provider = Create();
 
         Assert.Equal("state", provider.Id);
-        Assert.Equal(8, provider.Actions.Count);
+        Assert.Equal(9, provider.Actions.Count);
+        Assert.Contains(provider.Actions, a => a.Name == "search" && a.Summary.Contains("Full-text"));
         Assert.Contains(provider.Actions, a => a.Name == "transition" && a.Summary.Contains("evidence"));
         Assert.Contains(provider.Actions, a => a.Name == "verify" && a.Description.Contains("fail-closed"));
     }
@@ -147,6 +148,118 @@ public class StateCapabilityProviderTests
         Assert.Contains("Error [UnknownAction]:", result.Content);
     }
 
+    [Fact]
+    public async Task Search_FormatsHits_UnderContractHeader()
+    {
+        var service = new FakeStateService();
+        service.SearchResult = Result<IReadOnlyList<StateSearchHit>>.Success(
+        [
+            new StateSearchHit("plans", "alpha", "rewrite the [ledger] flow"),
+            new StateSearchHit("specs", "beta", "second [hit]"),
+        ]);
+
+        var result = await Create(service).InvokeAsync("search", "{\"query\":\"ledger\",\"limit\":5}");
+
+        Assert.False(result.IsError);
+        Assert.Equal(
+            "[state.search 'ledger'] 2 hit(s)\nplans/alpha\n  rewrite the [ledger] flow\nspecs/beta\n  second [hit]",
+            result.Content);
+        Assert.Equal(5, service.LastSearchLimit);
+    }
+
+    [Fact]
+    public async Task Search_ZeroHits_PrintsHeaderOnly()
+    {
+        var result = await Create().InvokeAsync("search", "{\"query\":\"nothing\"}");
+        Assert.False(result.IsError);
+        Assert.Equal("[state.search 'nothing'] 0 hit(s)", result.Content);
+    }
+
+    [Fact]
+    public async Task Search_DefaultLimit_Is20()
+    {
+        var service = new FakeStateService();
+        await Create(service).InvokeAsync("search", "{\"query\":\"x\"}");
+        Assert.Equal(20, service.LastSearchLimit);
+    }
+
+    [Fact]
+    public async Task Search_ServiceError_SurfacesAsGutter()
+    {
+        var service = new FakeStateService();
+        service.SearchResult = Result<IReadOnlyList<StateSearchHit>>.Failure(new Error("InvalidQuery", "bad fts syntax"));
+
+        var result = await Create(service).InvokeAsync("search", "{\"query\":\"AND (\"}");
+
+        Assert.True(result.IsError);
+        Assert.Contains("Error [InvalidQuery]:", result.Content);
+    }
+
+    [Fact]
+    public async Task Get_WithRange_ReturnsEnvelopeAndRequestedLines()
+    {
+        var service = new FakeStateService();
+        service.GetResult = Result<string>.Success("one\ntwo\nthree");
+        service.ListResult = Result<IReadOnlyList<string>>.Success(["current/head v7"]);
+
+        var result = await Create(service).InvokeAsync("get", "{\"key\":\"current/head\",\"startLine\":2,\"endLine\":3}");
+
+        Assert.False(result.IsError);
+        Assert.Equal("[current/head v7 | lines 2-3 of 3]\ntwo\nthree", result.Content);
+    }
+
+    [Fact]
+    public async Task Get_RangeBeyondLastLine_ClampsWithVisibleWarning()
+    {
+        var service = new FakeStateService();
+        service.GetResult = Result<string>.Success("a\nb");
+        service.ListResult = Result<IReadOnlyList<string>>.Success(["current/head v2"]);
+
+        var result = await Create(service).InvokeAsync("get", "{\"key\":\"current/head\",\"startLine\":1,\"endLine\":10}");
+
+        Assert.False(result.IsError);
+        Assert.Equal("[current/head v2 | lines 1-2 of 2]\na\nb\n[note] endLine 10 exceeds last line 2; clamped.", result.Content);
+    }
+
+    [Fact]
+    public async Task Get_RangeWhenVersionUnresolvable_OmitsVersionSegment()
+    {
+        var service = new FakeStateService();
+        service.GetResult = Result<string>.Success("solo");
+        service.ListResult = Result<IReadOnlyList<string>>.Success([]);
+
+        var result = await Create(service).InvokeAsync("get", "{\"key\":\"current/head\",\"startLine\":1,\"endLine\":1}");
+
+        Assert.False(result.IsError);
+        Assert.Equal("[current/head | lines 1-1 of 1]\nsolo", result.Content);
+    }
+
+    [Fact]
+    public async Task Get_OnlyOneRangeParameter_Rejected()
+    {
+        var r1 = await Create().InvokeAsync("get", "{\"key\":\"current/head\",\"startLine\":1}");
+        var r2 = await Create().InvokeAsync("get", "{\"key\":\"current/head\",\"endLine\":5}");
+        Assert.True(r1.IsError);
+        Assert.Contains("InvalidActionInput", r1.Content);
+        Assert.True(r2.IsError);
+        Assert.Contains("InvalidActionInput", r2.Content);
+    }
+
+    [Fact]
+    public async Task Get_StartLineBelowOne_Rejected()
+    {
+        var r = await Create().InvokeAsync("get", "{\"key\":\"current/head\",\"startLine\":0,\"endLine\":2}");
+        Assert.True(r.IsError);
+        Assert.Contains("InvalidActionInput", r.Content);
+    }
+
+    [Fact]
+    public async Task Get_EndLineBeforeStartLine_Rejected()
+    {
+        var r = await Create().InvokeAsync("get", "{\"key\":\"current/head\",\"startLine\":5,\"endLine\":4}");
+        Assert.True(r.IsError);
+        Assert.Contains("InvalidActionInput", r.Content);
+    }
     private sealed class FakeStateService : IStateService
     {
         public Result<string> GetResult { get; set; } = Result<string>.Success("v1");
@@ -179,8 +292,13 @@ public class StateCapabilityProviderTests
         public Task<Result<IReadOnlyList<string>>> ListAsync(string? ns, CancellationToken ct = default)
             => Task.FromResult(ListResult);
 
+        public Result<IReadOnlyList<StateSearchHit>> SearchResult { get; set; } =
+            Result<IReadOnlyList<StateSearchHit>>.Success([]);
+        public string? LastSearchQuery { get; private set; }
+        public int LastSearchLimit { get; private set; }
+
         public Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(string query, int limit, CancellationToken ct = default)
-            => Task.FromResult(Result<IReadOnlyList<StateSearchHit>>.Success([]));
+        { LastSearchQuery = query; LastSearchLimit = limit; return Task.FromResult(SearchResult); }
 
         public Task<Result<string>> TransitionAsync(string from, string to, string summary,
             IReadOnlyList<string> evidence, CancellationToken ct = default)

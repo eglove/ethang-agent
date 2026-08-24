@@ -24,9 +24,11 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
 
     public IReadOnlyList<ActionDescriptor> Actions { get; } =
     [
-        new("get", "Read a durable state value.",
-            "Reads one namespaced key. Fails with KeyNotFound when absent.",
-            [new ActionParameter("key", "String", "Namespaced key, e.g. current/head.")]),
+        new("get", "Read a durable state value, or a line range of it.",
+            "Reads one namespaced key. Fails with KeyNotFound when absent. Optional startLine/endLine return only that range under an envelope '[<key> v<version> | lines <S>-<E> of <T>]'; an endLine past the last line is clamped with a visible '[note] ... clamped.' warning.",
+            [new ActionParameter("key", "String", "Namespaced key, e.g. current/head."),
+             new ActionParameter("startLine", "Integer", "Optional, only together with endLine. First line to read, >= 1."),
+             new ActionParameter("endLine", "Integer", "Optional, only together with startLine. Last line to read.")]),
         new("set", "Write a durable state value with optional compare-and-swap.",
             "Creates or updates a key. Supply expectedVersion to require the current version; a mismatch fails closed with VersionConflict naming the current version. Returns the new version. Namespace 'todo' is reserved and fails with ReservedNamespace.",
             [new ActionParameter("key", "String", "Namespaced key."),
@@ -39,6 +41,10 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
         new("list", "List state keys.",
             "Lists keys as 'ns/name v<version>' lines, optionally filtered by namespace.",
             [new ActionParameter("ns", "String", "Optional namespace filter.")]),
+        new("search", "Full-text search over workspace state values and key names.",
+            "Searches all state in this workspace with SQLite FTS5 over values, namespaces, and key names. Output contract: header line '[state.search '<query>'] <N> hit(s)', then per hit the key as ns/name and an indented snippet line. Zero hits prints only the header. Malformed queries fail with InvalidQuery rather than returning empty.",
+            [new ActionParameter("query", "String", "Required. FTS5 query text (supports prefix*, AND/OR/NOT)."),
+             new ActionParameter("limit", "Integer", "Optional. Max hits, 1..100, default 20.")]),
         new("transition", "Attach a claim with evidence (stored, never run on attach).",
             "Records a labeled move from one world-state to another with summary and evidence commands. Evidence is replayable but has NOT run. Returns the transition id; status starts pending.",
             [new ActionParameter("from", "String", "Prior state label."),
@@ -64,6 +70,7 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
             return actionName switch
             {
                 "get" => await GetAsync(jsonArguments),
+                "search" => await SearchAsync(jsonArguments),
                 "set" => await SetAsync(jsonArguments),
                 "delete" => await DeleteAsync(jsonArguments),
                 "list" => await ListAsync(jsonArguments),
@@ -82,8 +89,64 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
 
     private async Task<CapabilityInvocationResult> GetAsync(string json)
     {
-        var args = ParseArgs(json, Allowed("key"));
-        return ToResult(await _service.GetAsync(ReqString(args, "key")));
+        var args = ParseArgs(json, Allowed("key", "startLine", "endLine"));
+        var key = ReqString(args, "key");
+        if (!args.ContainsKey("startLine") && !args.ContainsKey("endLine"))
+            return ToResult(await _service.GetAsync(key));
+
+        // Strict range validation: both-or-neither, start >= 1, end >= start.
+        if (!args.TryGetValue("startLine", out var sEl) || sEl.ValueKind != JsonValueKind.Number || !sEl.TryGetInt32(out var start))
+            throw new StateInputException("'startLine' is required together with 'endLine' and must be an integer.");
+        if (!args.TryGetValue("endLine", out var eEl) || eEl.ValueKind != JsonValueKind.Number || !eEl.TryGetInt32(out var end))
+            throw new StateInputException("'endLine' is required together with 'startLine' and must be an integer.");
+        if (start < 1)
+            throw new StateInputException("'startLine' must be >= 1.");
+        if (end < start)
+            throw new StateInputException("'endLine' must be >= 'startLine'.");
+
+        var value = await _service.GetAsync(key);
+        if (!value.IsSuccess) return Gutter(value.Error!);
+        var lines = value.Value!.Split('\n');
+        var total = lines.Length;
+        var clampedEnd = Math.Min(end, total);
+        var slice = string.Join("\n", lines[(start - 1)..clampedEnd]);
+
+        // Version comes from ListAsync(ns) so IStateService signatures stay untouched.
+        string? versionPart = null;
+        var slashAt = key.IndexOf('/');
+        var keys = await _service.ListAsync(key[..slashAt]);
+        if (keys.IsSuccess)
+        {
+            var prefix = key + " v";
+            var match = keys.Value!.FirstOrDefault(k => k.StartsWith(prefix, StringComparison.Ordinal));
+            if (match is not null)
+                versionPart = "v" + match[prefix.Length..];
+        }
+
+        var header = versionPart is null
+            ? $"[{key} | lines {start}-{clampedEnd} of {total}]"
+            : $"[{key} {versionPart} | lines {start}-{clampedEnd} of {total}]";
+        var output = header + "\n" + slice;
+        if (end > total)
+            output += $"\n[note] endLine {end} exceeds last line {total}; clamped.";
+        return CapabilityInvocationResult.Ok(output);
+    }
+
+    private async Task<CapabilityInvocationResult> SearchAsync(string json)
+    {
+        var args = ParseArgs(json, Allowed("query", "limit"));
+        var query = ReqString(args, "query");
+        var limit = OptInt(args, "limit") ?? 20;
+        var result = await _service.SearchAsync(query, limit);
+        if (!result.IsSuccess) return Gutter(result.Error!);
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"[state.search '{query}'] {result.Value!.Count} hit(s)");
+        foreach (var hit in result.Value!)
+        {
+            sb.Append($"\n{hit.Ns}/{hit.Name}");
+            sb.Append($"\n  {hit.Snippet}");
+        }
+        return CapabilityInvocationResult.Ok(sb.ToString());
     }
 
     private async Task<CapabilityInvocationResult> SetAsync(string json)
