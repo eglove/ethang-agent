@@ -16,6 +16,11 @@ public interface IStateStore
         string workspaceId, string ns, string name, string value,
         int? expectedVersion, CancellationToken ct = default);
 
+    /// <summary>Deletes every key whose namespace starts with the given prefix
+    ///     within a workspace. Returns the number of rows removed.</summary>
+    Task<int> DeleteNamespacePrefixAsync(
+        string workspaceId, string nsPrefix, CancellationToken ct = default);
+
     /// <summary>Full-text search over state keys in a workspace. Invalid FTS
     ///     queries fail with InvalidQuery rather than throwing.</summary>
     Task<Result<IReadOnlyList<StateSearchHit>>> SearchKeysAsync(

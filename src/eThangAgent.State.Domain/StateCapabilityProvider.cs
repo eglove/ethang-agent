@@ -45,6 +45,14 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
             "Searches all state in this workspace with SQLite FTS5 over values, namespaces, and key names. Output contract: header line '[state.find '<query>'] <N> hit(s)', then per hit the key as ns/name and an indented snippet line. Zero hits prints only the header. Malformed queries fail with InvalidQuery rather than returning empty.",
             [new ActionParameter("query", "String", "Required. FTS5 query text (supports prefix*, AND/OR/NOT)."),
              new ActionParameter("limit", "Integer", "Optional. Max hits, 1..100, default 20.")]),
+        new("append", "Append one line to a state value atomically.",
+            "CAS append: the line is added to the key's stored value with a newline separator. A missing key is created holding just the line. Text must be a single line without leading or trailing whitespace (InvalidText otherwise). Fails closed with VersionConflict when expectedVersion does not match — re-get, reconcile, retry; never blind-overwrite. This is how SDD ledgers are maintained.",
+            [new ActionParameter("key", "String", "Namespaced key, e.g. sdd.my-plan/ledger."),
+             new ActionParameter("text", "String", "The single line to append."),
+             new ActionParameter("expectedVersion", "Integer", "Optional. Fail unless the stored version matches.")]),
+        new("prune", "Bulk-delete every state key under a namespace prefix.",
+            "Deletes all keys whose namespace equals the prefix or starts with '<prefix>.'. The dotted boundary is respected: prefix 'sdd.alpha' does not touch 'sdd.alphabeta'. Reserved namespaces ('todo', 'current') are rejected. Returns '[prune <prefix>] <N> key(s) removed'. Intended for cleaning up SDD task briefs and reports after a plan finishes.",
+            [new ActionParameter("prefix", "String", "Namespace prefix, e.g. sdd.my-plan.")]),
         new("transition", "Attach a claim with evidence (stored, never run on attach).",
             "Records a labeled move from one world-state to another with summary and evidence commands. Evidence is replayable but has NOT run. Returns the transition id; status starts pending.",
             [new ActionParameter("from", "String", "Prior state label."),
@@ -71,6 +79,8 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
             {
                 "get" => await GetAsync(jsonArguments),
                 "find" => await SearchAsync(jsonArguments),
+                "append" => await AppendAsync(jsonArguments),
+                "prune" => await PruneAsync(jsonArguments),
                 "set" => await SetAsync(jsonArguments),
                 "delete" => await DeleteAsync(jsonArguments),
                 "list" => await ListAsync(jsonArguments),
@@ -204,6 +214,23 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
 
     private async Task<CapabilityInvocationResult> HistoryAsync(string json)
         => ToResult(await _service.HistoryAsync(OptInt(ParseArgs(json, Allowed("limit")), "limit") ?? 20));
+
+    private async Task<CapabilityInvocationResult> AppendAsync(string json)
+    {
+        var args = ParseArgs(json, Allowed("key", "text", "expectedVersion"));
+        var saved = await _service.AppendAsync(ReqString(args, "key"), ReqString(args, "text"), OptInt(args, "expectedVersion"));
+        return saved.IsSuccess
+            ? CapabilityInvocationResult.Ok($"appended to {saved.Value!.Ns}/{saved.Value.Name} v{saved.Value.Version}")
+            : Gutter(saved.Error!);
+    }
+
+    private async Task<CapabilityInvocationResult> PruneAsync(string json)
+    {
+        var args = ParseArgs(json, Allowed("prefix"));
+        var result = await _service.DeletePrefixAsync(ReqString(args, "prefix"));
+        if (!result.IsSuccess) return Gutter(result.Error!);
+        return CapabilityInvocationResult.Ok($"[prune {ReqString(args, "prefix")}] {result.Value} key(s) removed");
+    }
 
     private static CapabilityInvocationResult ToResult<T>(Result<T> result)
         => result.IsSuccess

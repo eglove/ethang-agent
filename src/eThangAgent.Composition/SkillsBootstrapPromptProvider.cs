@@ -31,7 +31,7 @@ public sealed class SkillsBootstrapPromptProvider : ISystemPromptProvider
         | Invoke a skill / load its content | `skill_view` tool (never read raw skill paths; the skill store IS the mechanism) |
         | List available skills | `skill_list` tool |
         | Ask the human partner a clarifying question | `clarify` tool (MANDATORY during brainstorming) |
-        | Store or read specs, plans, ledgers, briefs, reports | `state` tools — `state.get` / `state.set` / `state.list` / `state.search` |
+        | Store or read specs, plans, ledgers, briefs, reports | `state` tools — `state.get` / `state.set` / `state.append` (CAS ledger lines) / `state.list` / `state.find` (full-text search) / `state.prune` (SDD cleanup) |
         | Commit work | `git_commit` tool (never raw shell commits) |
         
         Windows-native throughout. Tests run via the dotnet CLI with xUnit (`dotnet test`);

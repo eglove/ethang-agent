@@ -11,6 +11,8 @@ public sealed class StateService : IStateService
     public const string CertificateName = "certificate";
     public const string GoalNs = "goal";
     public const string GoalName = "check";
+    private const string CurrentPrefix = "current";
+    private const string ReservedTodoCheck = "todo";
 
     private readonly IStateStore _store;
     private readonly IEvidenceRunner _evidence;
@@ -72,6 +74,50 @@ public sealed class StateService : IStateService
             keys.Select(k => $"{k.Ns}/{k.Name} v{k.Version}").ToList());
     }
 
+    public async Task<Result<StateKeyValue>> AppendAsync(string key, string text,
+        int? expectedVersion, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text.Trim() != text || text.Contains('\n') || text.Contains('\r'))
+            return Result<StateKeyValue>.Failure(new Error("InvalidText",
+                "Append text must be a single line without leading or trailing whitespace."));
+
+        // Read the stored row for its version (GetAsync returns only the value).
+        var parsedKey = StateKey.Parse(key);
+        if (!parsedKey.IsSuccess) return Result<StateKeyValue>.Failure(parsedKey.Error!);
+        var (ns, name) = parsedKey.Value;
+        var row = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct);
+
+        if (row is null)
+        {
+            if (expectedVersion.HasValue)
+                return Result<StateKeyValue>.Failure(new Error("VersionConflict",
+                    $"Version conflict for '{key}': it does not exist (expected version {expectedVersion.Value})."));
+            return await SetAsync(key, text, null, ct);
+        }
+
+        if (expectedVersion.HasValue && expectedVersion.Value != row.Version)
+        {
+            return Result<StateKeyValue>.Failure(new Error("VersionConflict",
+                $"Version conflict for '{key}': current version is {row.Version}."));
+        }
+
+        return await SetAsync(key, row.Value + "\n" + text, row.Version, ct);
+    }
+
+    public async Task<Result<int>> DeletePrefixAsync(string nsPrefix, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(nsPrefix) || nsPrefix.Trim() != nsPrefix
+            || nsPrefix.Contains('/') || nsPrefix.Any(char.IsWhiteSpace))
+            return Result<int>.Failure(new Error("InvalidKey",
+                "Namespace prefix must be a legal namespace segment: non-empty, whitespace-free, no slash."));
+        if (nsPrefix == "todo" || nsPrefix.StartsWith("todo.", StringComparison.Ordinal))
+            return Result<int>.Failure(new Error("ReservedNamespace",
+                "'todo' namespaces are owned by the todo tool and cannot be bulk-deleted."));
+        if (nsPrefix == CurrentPrefix)
+            return Result<int>.Failure(new Error("ReservedNamespace",
+                $"'{CurrentPrefix}' namespaces carry head/certificate state and cannot be bulk-deleted."));
+        return Result<int>.Success(await _store.DeleteNamespacePrefixAsync(_workspace.WorkspaceId, nsPrefix, ct));
+    }
     public async Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(
         string query, int limit, CancellationToken ct = default)
     {

@@ -73,9 +73,12 @@ in todos.
   `# SDD ledger — plan: <plan key>`.
 - The ledger is your recovery map: the commits it names exist in git even when
   your context no longer remembers creating them. After compaction, trust the
-  ledger and `git log` over your own recollection. Append with CAS:
-  `state.set ... expectedVersion=<n>`; on VersionConflict, re-get, reconcile,
-  retry — never blind-overwrite.
+  ledger and `git log` over your own recollection. Append ledger lines with `state.append` (key `sdd.<slug>/ledger`, text one
+  line). It is CAS by design: pass `expectedVersion=<n>` when resuming after a
+  conflict report; on VersionConflict re-get, reconcile, retry — never
+  blind-overwrite. For bulk scratch cleanup at Finish use
+  `state.prune` on the plan's task namespace (dotted boundary
+  respected), keeping the ledger itself.
 
 Read the plan once (`state.get <plan-key>`), note its context and Global
 Constraints, and create a todo per task. If the plan names a Spec (a

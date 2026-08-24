@@ -118,6 +118,17 @@ public sealed class SqliteStateStore : IStateStore
         return await command.ExecuteNonQueryAsync(ct) > 0;
     }
 
+    public async Task<int> DeleteNamespacePrefixAsync(string workspaceId, string nsPrefix,
+        CancellationToken ct = default)
+    {
+        await using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM state_keys WHERE workspace_id=@w AND (ns=@p OR ns LIKE @like);";
+        command.Parameters.AddWithValue("@w", workspaceId);
+        command.Parameters.AddWithValue("@p", nsPrefix);
+        command.Parameters.AddWithValue("@like", nsPrefix + ".%");
+        return await command.ExecuteNonQueryAsync(ct);
+    }
     public async Task<Result<IReadOnlyList<StateSearchHit>>> SearchKeysAsync(
         string workspaceId, string query, int limit, CancellationToken ct = default)
     {

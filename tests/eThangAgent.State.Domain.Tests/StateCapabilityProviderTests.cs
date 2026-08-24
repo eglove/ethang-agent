@@ -10,12 +10,12 @@ public class StateCapabilityProviderTests
         => new(service ?? new FakeStateService());
 
     [Fact]
-    public void Provider_ExposesNineActions_UnderStateId()
+    public void Provider_ExposesElevenActions_UnderStateId()
     {
         var provider = Create();
 
         Assert.Equal("state", provider.Id);
-        Assert.Equal(9, provider.Actions.Count);
+        Assert.Equal(11, provider.Actions.Count);
         Assert.Contains(provider.Actions, a => a.Name == "find" && a.Summary.Contains("Full-text"));
         Assert.Contains(provider.Actions, a => a.Name == "transition" && a.Summary.Contains("evidence"));
         Assert.Contains(provider.Actions, a => a.Name == "verify" && a.Description.Contains("fail-closed"));
@@ -296,6 +296,12 @@ public class StateCapabilityProviderTests
             Result<IReadOnlyList<StateSearchHit>>.Success([]);
         public string? LastSearchQuery { get; private set; }
         public int LastSearchLimit { get; private set; }
+
+        public Task<Result<StateKeyValue>> AppendAsync(string key, string text, int? expectedVersion, CancellationToken ct = default)
+            => Task.FromResult(Result<StateKeyValue>.Success(new StateKeyValue("sdd.x", "ledger", text, 1)));
+
+        public Task<Result<int>> DeletePrefixAsync(string nsPrefix, CancellationToken ct = default)
+            => Task.FromResult(Result<int>.Success(0));
 
         public Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(string query, int limit, CancellationToken ct = default)
         { LastSearchQuery = query; LastSearchLimit = limit; return Task.FromResult(SearchResult); }

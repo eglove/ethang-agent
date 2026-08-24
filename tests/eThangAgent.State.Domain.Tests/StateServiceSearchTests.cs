@@ -73,6 +73,9 @@ public class StateServiceSearchTests
         public Task<bool> DeleteKeyCasAsync(string workspaceId, string ns, string name, int? expectedVersion, CancellationToken ct = default)
             => Task.FromResult(false);
 
+        public Task<int> DeleteNamespacePrefixAsync(string workspaceId, string nsPrefix, CancellationToken ct = default)
+            => Task.FromResult(0);
+
         public Task<Result<IReadOnlyList<StateSearchHit>>> SearchKeysAsync(string workspaceId, string query, int limit, CancellationToken ct = default)
         {
             if (Failure is not null)
