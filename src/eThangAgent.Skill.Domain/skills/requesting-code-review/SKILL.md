@@ -31,7 +31,7 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 **2. Dispatch code reviewer subagent:**
 
-Dispatch a `general-purpose` subagent, filling the template at [code-reviewer.md](code-reviewer.md)
+Dispatch a reviewer subagent with `spawn`, filling the template at the end of this skill
 
 **Placeholders:**
 - `{DESCRIPTION}` - Brief summary of what you built
@@ -57,7 +57,7 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 [Dispatch code reviewer subagent]
   DESCRIPTION: Added verifyIndex() and repairIndex() with 4 issue types
-  PLAN_OR_REQUIREMENTS: Task 2 from docs/skills/plans/deployment-plan.md
+  PLAN_OR_REQUIREMENTS: Task 2 from state key plans/<plan-key> (retrieve via state.get)
   BASE_SHA: a7981ec
   HEAD_SHA: 3df7661
 
@@ -92,4 +92,4 @@ You: [Fix progress indicators]
 - Show code/tests that prove it works
 - Request clarification
 
-See template at: [code-reviewer.md](code-reviewer.md)
+Template: at the end of this skill (Code Reviewer Template)

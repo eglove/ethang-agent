@@ -68,10 +68,10 @@ Each agent gets:
 Issue all three subagent dispatches in the same response — they run in parallel:
 
 ```text
-Subagent (general-purpose): "Fix agent-tool-abort.test.ts failures"
-Subagent (general-purpose): "Fix batch-completion-behavior.test.ts failures"
-Subagent (general-purpose): "Fix tool-approval-race-conditions.test.ts failures"
-# All three run concurrently.
+spawn(taskPrompt: "Fix the agent-tool-abort test failures", label: "abort")
+spawn(taskPrompt: "Fix the batch-completion-behavior failures", label: "batch")
+spawn(taskPrompt: "Fix the tool-approval-race-condition failures", label: "race")
+// Three spawn calls in one response = parallel execution. One per response = sequential.
 ```
 
 Multiple dispatch calls in one response = parallel execution. One per response = sequential.

@@ -51,13 +51,10 @@ These thoughts mean STOP—you're rationalizing:
 
 ## Platform Adaptation
 
-If your harness appears here, read its reference file for special instructions:
-
-- Codex: `references/codex-tools.md`
-- Pi: `references/pi-tools.md`
-- Antigravity: `references/antigravity-tools.md`
-- Hermes Agent: `references/hermes-tools.md`
+This harness IS eThang Agent — there are no other platform variants. Tool
+binding lives in the session bootstrap's tool mapping and the
+ethang-tools-mapping skill.
 
 ## User Instructions
 
-User instructions (CLAUDE.md, AGENTS.md, GEMINI.md, etc, direct requests) take precedence over skills, which in turn override default behavior. Only skip skill workflows or instructions when your human partner has explicitly told you to.
+User instructions (AGENTS.md and direct requests) take precedence over skills, which in turn override default behavior. Only skip skill workflows or instructions when your human partner has explicitly told you to.

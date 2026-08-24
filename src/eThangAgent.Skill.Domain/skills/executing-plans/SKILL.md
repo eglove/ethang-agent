@@ -11,7 +11,7 @@ Load plan, review critically, execute all tasks, report when complete.
 
 **Announce at start:** "I'm using the executing-plans skill to implement this plan."
 
-**Note:** Tell your human partner that the skills system works much better with access to subagents (Claude Code, Codex CLI, Codex App, Copilot CLI, and Gemini CLI all qualify; see the per-platform tool refs in `../using-skills/references/`). If subagents are available, use subagent-driven-development instead of this skill.
+**Note:** This harness always has subagents — if you are executing a plan with independent tasks in this session, prefer subagent-driven-development instead of this skill.
 
 ## The Process
 
