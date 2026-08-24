@@ -143,15 +143,15 @@ public class ClarifyTests
         Assert.Equal("1", settled.Value);
     }
 
-    // ── Integration: MainViewModel routing while a question is pending ────────
+    // ── Integration: session view-model routing while a question is pending ────────
 
     [Fact]
-    public async Task MainViewModel_Routes_Unroutable_Input_Through_RejectInput()
+    public async Task SessionViewModel_Routes_Unroutable_Input_Through_RejectInput()
     {
-        var vm = new MainViewModel(
+        var vm = new AgentSessionViewModel(
             (_, _, _, _, _, _, _) => Task.FromResult(Result<string>.Success("unused")),
             new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
-            "m", () => { });
+            "m", workspaceRoot: @"C:\work\demo");
         await vm.PresentClarifyAsync(
             new ClarifyQuestion("Which approach?", ["first", "second"], AllowFreeText: false));
         var clarify = vm.Clarify!;
@@ -172,13 +172,13 @@ public class ClarifyTests
     }
 
     [Fact]
-    public async Task MainViewModel_Routes_Input_To_Pending_Clarify()
+    public async Task SessionViewModel_Routes_Input_To_Pending_Clarify()
     {
         var questionGate = new TaskCompletionSource<ClarifyViewModel>(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        MainViewModel vm = null!;
-        // The channel presents through the MainViewModel, which publishes vm.Clarify.
+        AgentSessionViewModel vm = null!;
+        // The channel presents through the session view-model, which publishes vm.Clarify.
         var channel = new AvaloniaClarifyChannel(async q =>
         {
             var cvm = await vm.PresentClarifyAsync(q);
@@ -187,7 +187,7 @@ public class ClarifyTests
         });
 
         // Runner awaits the clarify channel mid-turn so IsBusy is true when input routes.
-        vm = new MainViewModel(
+        vm = new AgentSessionViewModel(
             async (_, _, _, _, _, _, _) =>
             {
                 var answer = await channel.AskAsync(
@@ -197,7 +197,7 @@ public class ClarifyTests
                     : Result<string>.Failure(answer.Error!);
             },
             new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
-            "m", () => { });
+            "m", workspaceRoot: @"C:\work\demo");
         vm.AttachClarifyChannel(channel);
 
         var turn = vm.SubmitAsync("ask me"); // model asks a clarify question mid-turn

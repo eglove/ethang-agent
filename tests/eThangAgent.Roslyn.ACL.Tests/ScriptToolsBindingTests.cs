@@ -26,7 +26,8 @@ public class ScriptToolsBindingTests
     }
 
     private static CSharpScriptExecEngine MakeEngine() =>
-        new(CapabilityRegistry.Create([new StubProvider()]), ExecOptions.Default);
+        new(CapabilityRegistry.Create([new StubProvider()]), ExecOptions.Default,
+            workspaceRoot: () => AppContext.BaseDirectory);
 
     [Fact]
     public async Task ParameterlessAction_BindsWithZeroArguments()

@@ -31,11 +31,11 @@ public static class TestFixtures
             => Task.FromResult(Result<IReadOnlyList<AgentRecord>>.Success([]));
     }
 
-    /// <summary>Builds a MainViewModel whose turn runner streams "ack" and succeeds.
+    /// <summary>Builds an AgentSessionViewModel whose turn runner streams "ack" and succeeds.
     ///     When <paramref name="marshalToUIThread"/> is true the stream sink marshals onto
     ///     the UI thread (production shape — for headless window tests); otherwise events
     ///     apply on the pump thread (deterministic for plain unit tests).</summary>
-    public static MainViewModel CreateViewModel(Action? requestClose = null, bool marshalToUIThread = false)
+    public static AgentSessionViewModel CreateViewModel(bool marshalToUIThread = false)
     {
         TurnRunner runner = (command, ct, onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult) =>
         {
@@ -43,17 +43,17 @@ public static class TestFixtures
             return Task.FromResult(Result<string>.Success("ack"));
         };
 
-        MainViewModel? vmRef = null;
+        AgentSessionViewModel? vmRef = null;
         var sink = marshalToUIThread
             ? (Func<UiStreamEvent, Task>)(e => vmRef!.ApplyUiStreamEventOnUIThreadAsync(e))
             : e => vmRef!.ApplyUiStreamEventAsync(e);
-        var vm = new MainViewModel(
+        var vm = new AgentSessionViewModel(
             runner,
             new RootSessionLifecycle(new StubStore()),
             AgentId.NewId(),
             new Conversation(),
             "test/model",
-            requestClose ?? (() => { }),
+            workspaceRoot: @"C:\work\demo",
             uiStreamSink: sink);
         vmRef = vm;
         return vm;

@@ -5,6 +5,7 @@ using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.StateDomain;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL;
@@ -13,6 +14,7 @@ public sealed class CSharpScriptExecEngine : IExecEngine
 {
     private readonly Lazy<ICapabilityRegistry> _registry;
     private readonly ExecOptions _options;
+    private readonly Func<string> _workspaceRoot;
 
     private static readonly ScriptOptions ScriptOpts = ScriptOptions.Default
         .AddImports("System", "System.IO", "System.Linq",
@@ -20,14 +22,28 @@ public sealed class CSharpScriptExecEngine : IExecEngine
             "System.Text", "System.Text.RegularExpressions")
         .AddReferences(typeof(ScriptGlobals).Assembly);
 
-    public CSharpScriptExecEngine(Lazy<ICapabilityRegistry> registry, ExecOptions options)
+    public CSharpScriptExecEngine(Lazy<ICapabilityRegistry> registry, ExecOptions options,
+        Func<string>? workspaceRoot = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        // Resolved per execution rather than captured at construction: several agents
+        // share one process, each with its own workspace root — a construction-time
+        // value would pin every session to whichever container was built first.
+        _workspaceRoot = workspaceRoot ?? ThrowMissingWorkspace;
     }
 
-    public CSharpScriptExecEngine(ICapabilityRegistry registry, ExecOptions options)
-        : this(new Lazy<ICapabilityRegistry>(() => registry), options) { }
+    public CSharpScriptExecEngine(ICapabilityRegistry registry, ExecOptions options,
+        Func<string>? workspaceRoot = null)
+        : this(new Lazy<ICapabilityRegistry>(() => registry), options, workspaceRoot) { }
+
+    /// <summary>Executes against the ambient workspace identity when the host supplies
+    ///     none. The scripts' globals must name the agent's own workspace root; without
+    ///     an injected resolver there is no honest answer, so this fails loudly instead
+    ///     of silently adopting the process-wide current directory.</summary>
+    private static string ThrowMissingWorkspace() => throw new InvalidOperationException(
+        "No workspace resolver was provided to the exec engine; scripts cannot resolve 'Workspace'. " +
+        "Supply one at composition (the session's IWorkspaceContext).");
 
     public async Task<Result<IReadOnlyList<ExecParseError>>> ValidateAsync(
         ExecProgram program, CancellationToken ct = default)
@@ -52,7 +68,7 @@ public sealed class CSharpScriptExecEngine : IExecEngine
     {
         var globals = new ScriptGlobals(
             _registry.Value,
-            Environment.CurrentDirectory,
+            _workspaceRoot(),
             Path.GetTempPath());
 
         var script = CSharpScript.Create(program.Text, ScriptOpts, typeof(ScriptGlobals));

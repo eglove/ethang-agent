@@ -1,14 +1,19 @@
+using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using eThangAgent.Desktop.ViewModels;
 
 namespace eThangAgent.Desktop.Views;
 
+/// <summary>The main window shell: left menu bar plus a tab host with one tab per
+///     open agent. 'Open Agent' shows the folder picker; the chosen directory becomes
+///     the agent's workspace and opens as a new tab. Opening another directory opens
+///     another tab — each backed by its own isolated session container.</summary>
 public partial class MainWindow : Window
 {
     private readonly MainViewModel? _vm;
-    private Avalonia.Threading.DispatcherTimer? _statusTimer;
 
     public MainWindow() => InitializeComponent();
 
@@ -17,155 +22,67 @@ public partial class MainWindow : Window
         _vm = vm;
         DataContext = vm;
 
-        // Auto-scroll the transcript as entries arrive (best effort).
-        vm.Transcript.Entries.CollectionChanged += (_, _) =>
-        {
-            try { TranscriptScroll.ScrollToEnd(); } catch { /* layout not ready */ }
-        };
-
-        // Animated spinner parity with the terminal frame loop (~12 fps): an 80 ms timer
-        // runs only while a turn is busy; Phase transitions reset the displayed state.
-        _statusTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
-        _statusTimer.Tick += (_, _) => vm.Status.Tick();
-        vm.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName != nameof(MainViewModel.IsBusy)) return;
-            if (vm.IsBusy) _statusTimer.Start();
-            else _statusTimer.Stop();
-        };
-
-        // Tunnel so Enter/Esc are seen before TextBox class handling consumes them.
-        InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);
-
-        // Drive the command autocomplete from the Text PROPERTY rather than the
-        // TextChanged event: property-changed notifications fire for every change
-        // source, which TextChanged proved not to do reliably under headless testing.
-        InputBox.PropertyChanged += (_, e) =>
-        {
-            if (e.Property == TextBox.TextProperty) UpdateCommandPopup();
-        };
+        // The menu button asks the view to show the picker (UI-affine); the result
+        // comes back through CompleteOpenAgentAsync on the view-model.
+        vm.OpenAgentRequested += async (_, _) => await OpenAgentPickerAsync();
     }
 
-    private void OnInputKeyDownTunnel(object? sender, KeyEventArgs e)
+    /// <summary>Shows the native folder picker and opens (or selects) the agent tab.
+    ///     A cancelled pick is a no-op. Failures surface as a transcript notice in the
+    ///     selected tab, or a dialog when no tab exists yet.</summary>
+    private async Task OpenAgentPickerAsync()
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose the directory this agent will work from",
+            AllowMultiple = false,
+        });
+        if (folders.Count == 0) return; // user cancelled — no-op
+
+        var root = folders[0].Path.LocalPath;
+        var result = await _vm!.OpenAgentAsync(root);
+        if (!result.IsSuccess)
+            await ShowOpenFailedAsync(result.Error!.Message);
+    }
+
+    private async Task ShowOpenFailedAsync(string message)
+    {
+        var dialog = new Window
+        {
+            Title = "eThang Agent — could not open agent",
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            Content = new StackPanel
+            {
+                Margin = new Avalonia.Thickness(24),
+                Spacing = 16,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 480 },
+                    new Button { Content = "OK" },
+                },
+            },
+        };
+        var okButton = (Button)((StackPanel)dialog.Content!).Children[^1];
+        okButton.Click += (_, _) => dialog.Close();
+        await dialog.ShowDialog(this);
+    }
+
+    private void OnCloseTab(object? sender, RoutedEventArgs e)
     {
         if (_vm is null) return;
-
-        if (e.Key == Key.Escape && CommandPopup.IsOpen)
-        {
-            CommandPopup.IsOpen = false;
-            e.Handled = true;
-            return;
-        }
-
-        // Accept the highlighted (or first) autocomplete suggestion without submitting.
-        if (CommandPopup.IsOpen && (e.Key == Key.Tab || e.Key == Key.Enter))
-        {
-            ViewModels.DesktopCommand? chosen = CommandList.SelectedItem as ViewModels.DesktopCommand;
-            if (chosen is null && CommandList.ItemsSource is IEnumerable<ViewModels.DesktopCommand> items)
-            {
-                chosen = items.FirstOrDefault();
-            }
-            if (chosen is not null)
-            {
-                InputBox.Text = chosen.Name;
-                InputBox.CaretIndex = InputBox.Text?.Length ?? 0;
-            }
-            CommandPopup.IsOpen = false;
-            e.Handled = true;
-            return;
-        }
-
-        if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
-        {
-            e.Handled = true; // suppress newline insertion
-            var text = InputBox.Text ?? "";
-            InputBox.Text = "";
-            _ = _vm.SubmitAsync(text);
-        }
-        // Shift+Enter falls through: TextBox inserts the newline.
+        if (sender is Button { DataContext: AgentTabViewModel tab })
+            _ = _vm.CloseTabAsync(tab);
     }
 
-    private void UpdateCommandPopup()
-    {
-        var text = InputBox.Text ?? "";
-        if (!text.StartsWith('/'))
-        {
-            CommandPopup.IsOpen = false;
-            return;
-        }
-
-        var query = text[1..];
-        var matches = DesktopCommands.All
-            .Where(c => c.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        CommandList.ItemsSource = matches;
-        CommandPopup.IsOpen = matches.Count > 0;
-    }
-
-    private void OnCommandChosen(object? sender, RoutedEventArgs e)
-    {
-        CompleteFromSelection();
-    }
-
-    private void OnCommandListKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key is Key.Enter or Key.Tab)
-        {
-            CompleteFromSelection();
-            e.Handled = true;
-        }
-    }
-
-    private void CompleteFromSelection()
-    {
-        if (CommandList.SelectedItem is ViewModels.DesktopCommand chosen)
-        {
-            InputBox.Text = chosen.Name;
-            InputBox.CaretIndex = InputBox.Text?.Length ?? 0;
-        }
-        CommandPopup.IsOpen = false;
-        InputBox.Focus();
-    }
-
-    private async void OnClarifyOption(object? sender, RoutedEventArgs e)
-    {
-        if (_vm?.Clarify is not { } pending) return;
-        if (sender is Button { DataContext: string option })
-        {
-            var index = pending.Options.ToList().IndexOf(option);
-            pending.ChooseOption(index + 1); // 1-based display index
-        }
-        await _vm.WaitForTurnAsync();
-    }
-
-    private void OnClarifyInputKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter)
-        {
-            e.Handled = true;
-            _vm?.Clarify?.SubmitFreeText();
-        }
-    }
-
-    private async void OnClarifyAnswer(object? sender, RoutedEventArgs e)
-    {
-        _vm?.Clarify?.SubmitFreeText();
-        if (_vm is not null) await _vm.WaitForTurnAsync();
-    }
-
-    private async void OnClarifyCancel(object? sender, RoutedEventArgs e)
-    {
-        _vm?.Clarify?.Cancel();
-        if (_vm is not null) await _vm.WaitForTurnAsync();
-    }
-
-    private void OnWindowClosed(object? sender, EventArgs e)
+    private async void OnWindowClosed(object? sender, EventArgs e)
     {
         try
         {
-            _ = _vm?.ShutdownAsync().ContinueWith(
-                static t => Console.Error.WriteLine(t.Exception),
-                System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
+            // Every open agent completes its root session gracefully on window close.
+            var sessions = _vm?.Tabs.Select(t => t.ViewModel).ToList();
+            if (sessions is not null && sessions.Count > 0)
+                await Task.WhenAll(sessions.Select(s => s.ShutdownAsync()));
         }
         catch (Exception ex)
         {

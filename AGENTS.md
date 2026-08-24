@@ -49,7 +49,7 @@ Any external system or platform-specific concern is isolated behind an Anti-Corr
 | ACL | Purpose | Why the seam exists |
 | ----- | --------- | --------------------- |
 | OpenRouter ACL | Translates domain concepts (messages, models, tool calls) to/from OpenRouter's API. The domain knows nothing about OpenRouter-specific types, endpoints, or authentication. | The domain speaks its own message/tool language, so any provider that can express it can be wired in without domain changes. |
-| Exec ACL (Roslyn) | Runs model-authored `exec` programs and evidence checks via Roslyn C# scripting (`CSharpScriptExecEngine`, `CSharpEvidenceRunner`). The domain knows nothing about compilation or scripting internals. | The execution engine is an implementation detail of the platform, not of the domain. |
+| Exec ACL (Roslyn) | Runs model-authored `exec` programs and evidence checks via Roslyn C# scripting (`CSharpScriptExecEngine`, `CSharpEvidenceRunner`). The domain knows nothing about compilation or scripting internals; the engine resolves each script's `Workspace` through a host-supplied resolver (the session's workspace identity), never a process-global cwd. | The execution engine is an implementation detail of the platform, not of the domain. |
 | File System ACL | All file I/O goes through a domain interface (`IFileSystemAccess`). The domain never touches `System.IO` directly. | Storage access is a capability the domain requests, not a technology it depends on. |
 | Storage ACL | All persistence goes through this ACL (`AppDatabase`, `IStateStore`, `IAgentStore`, `ILearnedSkillStore`, `ICuratedMemoryStore` — SQLite with versioned migrations + FTS5). | The storage engine is swappable; the domain never knows SQL exists. |
 

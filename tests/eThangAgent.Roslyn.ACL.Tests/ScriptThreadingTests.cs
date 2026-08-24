@@ -14,7 +14,8 @@ public class ScriptThreadingTests
     public async Task ExecScript_CallingToolsInvoke_Completes_UnderNonPumpingContext()
     {
         var engine = new CSharpScriptExecEngine(
-            CapabilityRegistry.Create([new StubProvider()]), ExecOptions.Default);
+            CapabilityRegistry.Create([new StubProvider()]), ExecOptions.Default,
+            workspaceRoot: () => AppContext.BaseDirectory);
 
         var outcome = await RunUnderNonPumpingContext(
             () => engine.ExecuteAsync(new ExecProgram("Tools.Invoke(\"stub_action\", new { timeoutSeconds = 30 })")));

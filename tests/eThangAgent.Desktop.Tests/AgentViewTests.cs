@@ -8,16 +8,19 @@ using eThangAgent.Desktop.Views;
 
 namespace eThangAgent.Desktop.Tests;
 
-public class MainWindowTests
+public class AgentViewTests
 {
     [AvaloniaFact]
     public void Typing_And_Enter_Sends_User_Message_To_Transcript()
     {
         var vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
-        var window = new MainWindow(vm);
+        var window = new Window { Content = new AgentView { DataContext = vm } };
         window.Show();
 
-        var input = window.GetControl<TextBox>("InputBox");
+        // Named controls live in the AgentView's own name scope.
+        var view = (AgentView)window.Content!;
+
+        var input = view.GetControl<TextBox>("InputBox");
         input.Focus();
         input.Text = "hello agent";
         window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
@@ -29,12 +32,15 @@ public class MainWindowTests
     public void Slash_Opens_Autocomplete_Listing_Three_Commands()
     {
         var vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
-        var window = new MainWindow(vm);
+        var window = new Window { Content = new AgentView { DataContext = vm } };
         window.Show();
 
-        var input = window.GetControl<TextBox>("InputBox");
-        var popup = window.GetControl<Popup>("CommandPopup");
-        var list = window.GetControl<ListBox>("CommandList");
+        // Named controls live in the AgentView's own name scope.
+        var view = (AgentView)window.Content!;
+
+        var input = view.GetControl<TextBox>("InputBox");
+        var popup = view.GetControl<Popup>("CommandPopup");
+        var list = view.GetControl<ListBox>("CommandList");
         input.Focus();
         input.Text = "/";
 
@@ -46,11 +52,14 @@ public class MainWindowTests
     public void Escape_Dismisses_Autocomplete()
     {
         var vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
-        var window = new MainWindow(vm);
+        var window = new Window { Content = new AgentView { DataContext = vm } };
         window.Show();
 
-        var input = window.GetControl<TextBox>("InputBox");
-        var popup = window.GetControl<Popup>("CommandPopup");
+        // Named controls live in the AgentView's own name scope.
+        var view = (AgentView)window.Content!;
+
+        var input = view.GetControl<TextBox>("InputBox");
+        var popup = view.GetControl<Popup>("CommandPopup");
         input.Focus();
         input.Text = "/e";
         Assert.True(popup.IsOpen); // /exit matches prefix "e"

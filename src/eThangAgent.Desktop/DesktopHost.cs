@@ -1,64 +1,43 @@
 using System.Diagnostics;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using eThangAgent.Agent.Application;
-using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
-using eThangAgent.ConversationDomain;
+using eThangAgent.Storage.ACL;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
-using eThangAgent.ToolDomain;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop;
 
 /// <summary>Everything <see cref="CreateMainWindow"/> needs, prepared OFF the UI thread:
-///     configuration, service provider, and the persisted root session.</summary>
+///     validated configuration plus the session factory the shell uses to open one
+///     isolated agent container per chosen directory. No agent exists until the user
+///     opens one.</summary>
 public sealed record DesktopBootstrap(
-    IServiceProvider Services,
-    AgentId RootId,
-    Conversation Conversation,
-    SendMessageCommandHandler Handler,
-    RootSessionLifecycle Lifecycle,
-    string ModelId,
-    AvaloniaClarifyChannel ClarifyChannel);
+    AgentSessionFactory Sessions,
+    string ModelId);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
-///     Startup begins with workspace selection (a native folder picker with a re-prompt loop);
-///     the chosen directory roots path resolution, workspace identity, process cwd, and — when
-///     an AGENTS.md exists there — a verbatim system-prompt injection announcing it as read.
-///     Bootstrap validation failures surface as an error dialog followed by exit code 1.</summary>
+///     Startup validates configuration and shows the shell immediately; each 'Open Agent'
+///     pick builds an isolated <see cref="AgentSession"/> whose directory roots path
+///     resolution, workspace identity, and — when an AGENTS.md exists there — a verbatim
+///     system-prompt injection announcing it as read. Bootstrap validation failures surface
+///     as an error dialog followed by exit code 1.</summary>
 public static class DesktopHost
 {
-    /// <summary>Background-thread-safe preparation: strict config load, provider build, and
-    ///     root-session persistence. Constructs NO Avalonia controls (they are thread-affine
-    ///     and must be built on the UI thread via <see cref="CreateMainWindow"/>).
-    ///     <paramref name="workspaceRoot"/> must exist; it becomes the agent's working
-    ///     directory in every sense: path resolution, workspace identity, process cwd.</summary>
+    /// <summary>Background-thread-safe preparation: strict config load and the session
+    ///     factory. Constructs NO Avalonia controls (they are thread-affine and must be
+    ///     built on the UI thread via <see cref="CreateMainWindow"/>). The API key is
+    ///     validated here so a misconfigured install fails at startup, not on first open.
+    ///     No workspace is required up front: agents are opened per tab from the shell.</summary>
     public static async Task<DesktopBootstrap> PrepareAsync(
-        IClassicDesktopStyleApplicationLifetime desktop, string workspaceRoot)
+        IClassicDesktopStyleApplicationLifetime desktop)
     {
-        if (string.IsNullOrWhiteSpace(workspaceRoot) || !Directory.Exists(workspaceRoot))
-        {
-            await ShowErrorAndExitAsync(desktop,
-                $"workspace directory not found: '{workspaceRoot}'.");
-            throw new UnreachableException("unreachable after error dialog shutdown");
-        }
-
-        workspaceRoot = Path.GetFullPath(workspaceRoot);
-
-        // exec scripts resolve relative paths through their globals' Workspace, which
-        // captures Environment.CurrentDirectory at execution time — align it with the
-        // chosen root so every tool sees one consistent workspace.
-        Environment.CurrentDirectory = workspaceRoot;
-
         var settings = AgentConfiguration.Load();
         if (settings.ApiKey is null)
         {
@@ -67,42 +46,19 @@ public static class DesktopHost
             throw new UnreachableException("unreachable after error dialog shutdown");
         }
 
-        var clarifyChannel = new AvaloniaClarifyChannel(null);
-        var services = new ServiceCollection()
-            .AddEThangAgentCore(settings, settings.ApiKey,
-                ModelConfig.Create("stealth/ox-alpha", 32 * 1024, 0.7f).Value!,
-                new AgentHostOptions(
-                    clarifyChannel,
-                    new FixedWorkspaceContext(workspaceRoot),
-                    new WorkspacePathResolver(workspaceRoot),
-                    [new WorkspaceInstructionsPromptProvider(workspaceRoot)]))
-            .BuildServiceProvider();
-
-        var store = services.GetRequiredService<IAgentStore>();
-        var bootstrapped = await RootSessionBootstrapper.PersistRootAsync(store);
-        if (!bootstrapped.IsSuccess)
-        {
-            await ShowErrorAndExitAsync(desktop, bootstrapped.Error!.Message);
-            throw new UnreachableException("unreachable after error dialog shutdown");
-        }
-        var rootId = bootstrapped.Value!;
-
+        var defaultModel = ModelConfig.Create("stealth/ox-alpha", 32 * 1024, 0.7f).Value!;
+        // ONE app-owned database for every opened session (rows are keyed by workspace id).
+        var database = new AppDatabase();
         return new DesktopBootstrap(
-            services,
-            rootId,
-            services.GetRequiredService<Conversation>(),
-            services.GetRequiredService<SendMessageCommandHandler>(),
-            services.GetRequiredService<RootSessionLifecycle>(),
-            services.GetRequiredService<ModelConfig>().ModelId,
-            clarifyChannel);
+            new AgentSessionFactory(settings, settings.ApiKey, defaultModel, database),
+            defaultModel.ModelId);
     }
 
     /// <summary>Defers shutdown while startup runs. Between framework initialization and
     ///     the main window being shown, NO window exists yet except transient helpers (the
-    ///     folder-picker host, dialogs); under Avalonia's default OnLastWindowClose mode,
-    ///     closing one of those with nothing else open shuts the app down mid-startup.
-    ///     While deferred, only explicit <c>desktop.Shutdown(...)</c> calls end the app,
-    ///     which is exactly how the decline and error paths already exit.</summary>
+    ///     folder-picker host); under Avalonia's default OnLastWindowClose mode, closing
+    ///     one of those with nothing else open shuts the app down mid-startup. While
+    ///     deferred, only explicit <c>desktop.Shutdown(...)</c> calls end the app.</summary>
     public static void DeferShutdownDuringStartup(
         IClassicDesktopStyleApplicationLifetime desktop)
     {
@@ -117,123 +73,20 @@ public static class DesktopHost
         desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
     }
 
-    /// <summary>Opens the platform folder picker and returns the chosen directory's local
-    ///     path, or null when the user cancels. MUST run on the UI thread: native folder
-    ///     dialogs need a parent window handle, supplied by a transient 1x1 host window.</summary>
-    public static async Task<string?> PickWorkspaceFolderAsync(
-        IClassicDesktopStyleApplicationLifetime desktop)
-    {
-        Dispatcher.UIThread.VerifyAccess();
-
-        var host = TransientHostWindow();
-        host.Show();
-        try
-        {
-            var folders = await host.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-            {
-                Title = "Choose the directory eThang Agent will work in",
-                AllowMultiple = false,
-            });
-            return folders.Count > 0 ? folders[0].Path.LocalPath : null;
-        }
-        finally
-        {
-            host.Close();
-        }
-    }
-
-    /// <summary>Shown after a cancelled pick: the workspace is mandatory. Returns true to
-    ///     re-open the folder picker, false to exit the application. Closing the dialog
-    ///     counts as declining (false). MUST run on the UI thread.</summary>
-    public static async Task<bool> ShowRequiredDialogAsync(
-        IClassicDesktopStyleApplicationLifetime desktop)
-    {
-        Dispatcher.UIThread.VerifyAccess();
-
-        var choice = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var chooseAgain = new Button { Content = "Choose again" };
-        var exit = new Button { Content = "Exit" };
-        chooseAgain.Click += (_, _) => { choice.TrySetResult(true); };
-        exit.Click += (_, _) => { choice.TrySetResult(false); };
-
-        var dialog = new Window
-        {
-            Title = "eThang Agent — working directory required",
-            SizeToContent = SizeToContent.WidthAndHeight,
-            CanResize = false,
-            Content = new StackPanel
-            {
-                Margin = new Thickness(24),
-                Spacing = 16,
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = "A working directory is required before eThang Agent can start.",
-                        TextWrapping = TextWrapping.Wrap,
-                        MaxWidth = 420,
-                    },
-                    new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Spacing = 12,
-                        Children = { chooseAgain, exit },
-                    },
-                },
-            },
-        };
-        dialog.Closed += (_, _) => choice.TrySetResult(false);
-
-        var host = TransientHostWindow();
-        host.Show();
-        try
-        {
-            await dialog.ShowDialog(host);
-            return await choice.Task;
-        }
-        finally
-        {
-            host.Close();
-        }
-    }
-
-    private static Window TransientHostWindow() => new()
-    {
-        ShowInTaskbar = false,
-        SystemDecorations = SystemDecorations.None,
-        ShowActivated = false,
-        Width = 1,
-        Height = 1,
-    };
-
-    /// <summary>Builds the view-model and main window. MUST run on the UI thread — Avalonia
-    ///     controls are thread-affine (calling this off-thread throws "Call from invalid thread").</summary>
+    /// <summary>Builds the shell view-model and main window. MUST run on the UI thread —
+    ///     Avalonia controls are thread-affine (calling this off-thread throws "Call from
+    ///     invalid thread"). No agent exists yet: the window opens on the empty shell and
+    ///     tabs appear as the user opens directories.</summary>
     public static MainWindow CreateMainWindow(
         IClassicDesktopStyleApplicationLifetime desktop, DesktopBootstrap boot)
     {
         Dispatcher.UIThread.VerifyAccess();
 
-        // The clarify channel's presenter resolves the view-model lazily: the channel is
-        // created before the VM exists, but presenting only happens mid-turn when it does.
-        MainViewModel? viewModel = null;
-        var channel = boot.ClarifyChannel;
-        channel.SetPresenter(q =>
-            PresentOnUIThread(() => viewModel!.PresentClarifyAsync(q)));
-
-        var vm = new MainViewModel(
-            OffUiThread((command, ct, content, reasoning, iterationEnd, toolCall, toolResult) =>
-                boot.Handler.Handle(command, ct, content, reasoning,
-                    iterationEnd, toolCall, toolResult)),
-            boot.Lifecycle,
-            boot.RootId,
-            boot.Conversation,
-            boot.ModelId,
-            requestClose: () => Dispatcher.UIThread.Post(() => desktop.MainWindow?.Close()),
-            uiStreamSink: evt => viewModel!.ApplyUiStreamEventOnUIThreadAsync(evt));
-        viewModel = vm;
-        vm.AttachClarifyChannel(channel);
-
+        // One fresh clarify channel per opened session: each agent tab presents its own
+        // pending questions through its own view-model (wired in MainViewModel when the
+        // session VM is created). The presenter starts unavailable — a structured,
+        // model-actionable failure — until that tab's VM installs it.
+        var vm = new MainViewModel(root => boot.Sessions.CreateAsync(root, new AvaloniaClarifyChannel(null)));
         return new MainWindow(vm);
     }
 
@@ -252,7 +105,7 @@ public static class DesktopHost
                 CanResize = false,
                 Content = new StackPanel
                 {
-                    Margin = new Thickness(24),
+                    Margin = new Avalonia.Thickness(24),
                     Spacing = 16,
                     Children =
                     {
@@ -291,21 +144,5 @@ public static class DesktopHost
                     reasoningDelta, iterationEnd, toolCall, toolResult));
             return scheduled;
         };
-    }
-
-
-    /// <summary>Marshals clarify presentation onto the UI thread, propagating both the
-    ///     presented view-model and any fault back to the awaiting agent thread.</summary>
-    private static async Task<ClarifyViewModel> PresentOnUIThread(
-        Func<Task<ClarifyViewModel>> present)
-    {
-        var tcs = new TaskCompletionSource<ClarifyViewModel>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        await Dispatcher.UIThread.InvokeAsync(async () =>
-        {
-            try { tcs.SetResult(await present()); }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return await tcs.Task;
     }
 }

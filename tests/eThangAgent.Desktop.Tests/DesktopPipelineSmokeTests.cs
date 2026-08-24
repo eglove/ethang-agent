@@ -45,14 +45,15 @@ public class DesktopPipelineSmokeTests
         var lifecycle = services.GetRequiredService<RootSessionLifecycle>();
         var conversation = services.GetRequiredService<Conversation>();
 
-        var vm = new MainViewModel(
-            (command, ct, onContent, onReasoning, onIterationEnd, onToolCall, onToolResult) =>
-                handler.Handle(command, ct, onContent, onReasoning, onIterationEnd, onToolCall, onToolResult),
-            lifecycle,
-            AgentId.NewId(),
-            conversation,
-            "mock/model",
-            requestClose: () => { });
+        // The smoke test drives one agent through the same shell surface production
+        // uses: a MainViewModel whose single tab wraps the composed session.
+        var session = new AgentSession(
+            services, AgentId.NewId(), conversation, handler, lifecycle,
+            ModelConfig.Create("mock/model", 256, 0.2f).Value!,
+            WorkspaceRoot: Directory.GetCurrentDirectory(),
+            ClarifyChannel: new StubClarifyChannel());
+        var shell = await MainViewModel.ForPrebuiltSessionAsync(session);
+        var vm = shell.Tabs[0].ViewModel;
 
         await vm.SubmitAsync("say hi");
         await vm.WaitForTurnAsync();

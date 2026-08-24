@@ -3,6 +3,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
+using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -31,7 +32,11 @@ public static class E2E
 
         private string DatabasePath { get; set; } = "";
 
-        public MainViewModel Vm { get; private set; } = null!;
+        /// <summary>The single agent tab's view-model — the chat surface under test.</summary>
+        public AgentSessionViewModel Vm { get; private set; } = null!;
+
+        /// <summary>The shell hosting the agent tab (production window shape).</summary>
+        public MainViewModel Shell { get; private set; } = null!;
 
         /// <summary>The persisted root session id — the SAME id the view-model appends under.</summary>
         public AgentId RootId { get; private set; }
@@ -65,14 +70,25 @@ public static class E2E
             var lifecycle = _services.GetRequiredService<RootSessionLifecycle>();
             var conversation = _services.GetRequiredService<Conversation>();
 
-            Vm = new MainViewModel(
-                (command, ct, content, reasoning, iterationEnd, toolCall, toolResult) =>
-                    handler.Handle(command, ct, content, reasoning, iterationEnd, toolCall, toolResult),
-                lifecycle,
-                RootId,
-                conversation,
-                SessionModel,
-                requestClose: () => { });
+            // The E2E host drives one agent through the same shell surface production
+            // uses: a MainViewModel whose single tab wraps the composed session.
+            var session = new AgentSession(
+                _services!, RootId, conversation, handler, lifecycle,
+                ModelConfig.Create(SessionModel, 32 * 1024, 0.7f).Value!,
+                WorkspaceRoot: Directory.GetCurrentDirectory(),
+                ClarifyChannel: new NeverClarifyChannel());
+            // No live Avalonia session exists in headless tests, so the production sink
+            // (ApplyUiStreamEventOnUIThreadAsync) posts onto Dispatcher.UIThread, where queued
+            // operations never execute (shut-down unit-test dispatcher) — wedging every turn
+            // inside DrainUntilIdleAsync. Inject a shell-level sink that applies events directly,
+            // mirroring TestFixtures.CreateViewModel(marshalToUIThread: false).
+            AgentSessionViewModel? sessionVmRef = null;
+            var sink = new Func<UiStreamEvent, Task>(evt => (sessionVmRef ??
+                throw new InvalidOperationException("E2E stream sink fired before the session view-model was initialized"))
+                .ApplyUiStreamEventAsync(evt));
+            Shell = await MainViewModel.ForPrebuiltSessionAsync(session, sink);
+            Vm = Shell.Tabs[0].ViewModel;
+            sessionVmRef = Vm;
             return this;
         }
 
@@ -87,9 +103,12 @@ public static class E2E
 
     /// <summary>Submits one user turn and waits for it to resolve, bounded so a wedged
     /// turn fails the test instead of hanging CI.</summary>
-    public static async Task RunTurnAsync(this MainViewModel vm, string input)
+    public static async Task RunTurnAsync(this AgentSessionViewModel vm, string input)
     {
-        await vm.SubmitAsync(input);
+        // SubmitAsync RETURNS the running turn task, so awaiting it covers the whole turn
+        // including DrainUntilIdleAsync — it must carry its own bound, otherwise a wedged
+        // drain hangs before the WaitForTurnAsync timeout below is ever reached.
+        await vm.SubmitAsync(input).WaitAsync(TimeSpan.FromSeconds(60));
         await vm.WaitForTurnAsync().WaitAsync(TimeSpan.FromSeconds(60));
     }
 

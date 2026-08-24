@@ -7,8 +7,11 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 
 public class CSharpScriptExecEngineTests
 {
+    /// <summary>Tests exercise engine semantics against a fixed workspace root — the
+    ///     same contract the composition supplies per session (IWorkspaceContext).</summary>
     private static CSharpScriptExecEngine CreateEngine(ExecOptions? options = null)
-        => new(CapabilityRegistry.Create([]), options ?? ExecOptions.Default);
+        => new(CapabilityRegistry.Create([]), options ?? ExecOptions.Default,
+            workspaceRoot: () => AppContext.BaseDirectory);
 
     [Fact]
     public async Task StringReturnValue_BecomesOutput()
@@ -80,6 +83,21 @@ public class CSharpScriptExecEngineTests
 
         Assert.Equal(ExecRunStatus.Completed, run.Status);
         Assert.Contains("hello", run.Output);
+    }
+    [Fact]
+    public async Task Workspace_Global_Reflects_Injected_Resolver_PerExecution()
+    {
+        string current = AppContext.BaseDirectory;
+        var engine = new CSharpScriptExecEngine(CapabilityRegistry.Create([]), ExecOptions.Default,
+            workspaceRoot: () => current);
+        var first = await engine.ExecuteAsync(new ExecProgram("return Workspace;"));
+        Assert.Equal(current, first.Output);
+
+        // A second execution sees the resolver's NEW value — the construction-time
+        // capture that pinned multi-session hosts to one root is gone.
+        current = Path.GetTempPath();
+        var second = await engine.ExecuteAsync(new ExecProgram("return Workspace;"));
+        Assert.Equal(Path.GetTempPath(), second.Output);
     }
 }
 

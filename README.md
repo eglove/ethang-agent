@@ -8,7 +8,7 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 
 - One Avalonia desktop frontend over a shared host-agnostic core (`eThangAgent.Composition`) — streamed responses with reasoning/tool activity, clarify prompts answered in-place, sub-agent spawning, durable session persistence
 - Conversational coding loop against [OpenRouter](https://openrouter.ai/) models
-- Desktop startup asks for a working directory through a native folder picker and re-prompts until one is chosen; the picked directory roots path resolution, `exec` scripts' cwd, and curated-memory scoping, and an `AGENTS.md` found at that root is injected verbatim into the system prompt as read
+- Desktop shell opens on a main window with a left-hand menu bar; **Open Agent** shows a folder picker for the directory the agent works from (its workspace) and opens it as a tab inside the main window — opening another directory adds another agent tab. Each workspace roots path resolution, `exec` scripts' `Workspace`, and curated-memory scoping, and an `AGENTS.md` found at that root is injected verbatim into the system prompt as read
 - Live response streaming — assistant text renders as it arrives,
   including interstitial reasoning between tool calls (SSE; falls back transparently when a
   provider endpoint does not stream)
@@ -68,7 +68,7 @@ dotnet build
 dotnet run --project src/eThangAgent.Desktop # Avalonia desktop app
 ```
 
-On startup the app asks for a working directory; the picked directory roots path resolution, `exec` scripts' cwd, and curated-memory scoping.
+The window opens directly on the shell: no workspace is required up front. Click **Open Agent**, pick a directory, and that agent's chat opens as a tab; repeat to work with several workspaces side by side.
 
 ## Usage
 

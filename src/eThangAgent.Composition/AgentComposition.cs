@@ -25,9 +25,12 @@ public static class AgentComposition
     /// <summary>Registers every host-agnostic piece of the agent: OpenRouter and platform
     ///     ACLs, the agent loop, capability registry, stores, nudge policy, system prompts,
     ///     and session lifecycle. Frontends supply exactly three decisions via AgentHostOptions.
-    ///     Registration order and lifetimes mirror the CLI composition root this replaces.</summary>
+    ///     Registration order and lifetimes mirror the CLI composition root this replaces.
+    ///     <paramref name="database"/> lets multi-session hosts share ONE app database;
+    ///     when omitted each container constructs its own (single-session hosts).</summary>
     public static IServiceCollection AddEThangAgentCore(this IServiceCollection services,
-        AgentSettings settings, string apiKey, ModelConfig defaultModel, AgentHostOptions host)
+        AgentSettings settings, string apiKey, ModelConfig defaultModel, AgentHostOptions host,
+        AppDatabase? database = null)
     {
         return services
             .AddSingleton(new OpenRouterConfiguration(apiKey, settings.BaseUrl))
@@ -104,7 +107,9 @@ public static class AgentComposition
             .AddSingleton(host.WorkspaceContext)
             .AddSingleton(host.PathResolver)
             .AddSingleton(host.ClarifyChannel)
-            .AddSingleton<AppDatabase>()
+            // One app-owned database: hosts opening several sessions pass a shared
+            // instance here so every session's stores hit the same SQLite file.
+            .AddSingleton(_ => database ?? new AppDatabase())
             .AddSingleton<IStateStore, SqliteStateStore>()
             .AddSingleton<IAgentStore, SqliteAgentStore>()
             .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
@@ -160,7 +165,10 @@ public static class AgentComposition
                 ]))
             .AddSingleton<IExecEngine>(sp => new CSharpScriptExecEngine(
                 new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>()),
-                sp.GetRequiredService<ExecOptions>()))
+                sp.GetRequiredService<ExecOptions>(),
+                // Resolved per execution so concurrent sessions in one process each
+                // see their own workspace root, never a stale construction-time value.
+                () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
             .AddSingleton<ITool>(sp => new ExecTool(
                 sp.GetRequiredService<IExecEngine>(),
                 sp.GetRequiredService<ExecOptions>(),
