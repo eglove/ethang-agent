@@ -51,6 +51,11 @@ public sealed class AppDatabase
             ApplyV4(connection);
             SetVersion(connection, 4);
         }
+        if (GetVersion(connection) < 5)
+        {
+            ApplyV5(connection);
+            SetVersion(connection, 5);
+        }
     }
 
     private static int GetVersion(SqliteConnection connection)
@@ -224,4 +229,34 @@ public sealed class AppDatabase
         command.ExecuteNonQuery();
         transaction.Commit();
     }
-}
+
+    private static void ApplyV5(SqliteConnection connection)
+    {
+        var sql = """
+            CREATE VIRTUAL TABLE IF NOT EXISTS state_keys_fts USING fts5(
+                value, ns, name, content='state_keys', content_rowid='rowid'
+            );
+            CREATE TRIGGER IF NOT EXISTS state_ai AFTER INSERT ON state_keys BEGIN
+                INSERT INTO state_keys_fts(rowid, value, ns, name)
+                VALUES (new.rowid, new.value, new.ns, new.name);
+            END;
+            CREATE TRIGGER IF NOT EXISTS state_ad AFTER DELETE ON state_keys BEGIN
+                INSERT INTO state_keys_fts(state_keys_fts, rowid, value, ns, name)
+                VALUES ('delete', old.rowid, old.value, old.ns, old.name);
+            END;
+            CREATE TRIGGER IF NOT EXISTS state_au AFTER UPDATE ON state_keys BEGIN
+                INSERT INTO state_keys_fts(state_keys_fts, rowid, value, ns, name)
+                VALUES ('delete', old.rowid, old.value, old.ns, old.name);
+                INSERT INTO state_keys_fts(rowid, value, ns, name)
+                VALUES (new.rowid, new.value, new.ns, new.name);
+            END;
+            INSERT INTO state_keys_fts(rowid, value, ns, name)
+                SELECT rowid, value, ns, name FROM state_keys;
+            """;
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+        transaction.Commit();
+    }}
