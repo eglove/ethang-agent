@@ -2,7 +2,7 @@
 
 ## What This Project Is
 
-eThang Agent is an AI agent built with .NET, delivered through a CLI. The project follows strict Domain-Driven Design: layered bounded contexts, Specification patterns, and CQRS.
+eThang Agent is an AI agent built with .NET, delivered through an Avalonia desktop application. The project follows strict Domain-Driven Design: layered bounded contexts, Specification patterns, and CQRS.
 
 > **Read [`README.md`](README.md) first** — it carries the high-level overview and usage instructions. Whenever a change makes either stale, update the README in the same change.
 
@@ -50,7 +50,6 @@ Any external system or platform-specific concern is isolated behind an Anti-Corr
 | PowerShell ACL | All shell execution goes through this ACL. The domain never calls `Process.Start`, `System.Management.Automation`, or shell commands directly. | Shell is an implementation detail of the platform, not of the domain. |
 | File System ACL | All file I/O goes through a domain interface (`IFileSystemAccess`). The domain never touches `System.IO` directly. | Storage access is a capability the domain requests, not a technology it depends on. |
 | Storage ACL | All persistence goes through this ACL (`AppDatabase`, `IStateStore`, `IAgentStore`, `ILearnedSkillStore`, `ICuratedMemoryStore` — SQLite with versioned migrations + FTS5). | The storage engine is swappable; the domain never knows SQL exists. |
-| Terminal ACL | Console I/O — line editing, key reading, ANSI rendering, layout panes — sits behind interfaces (`ITextWriter`, `IKeyReader`). | The terminal surface is an implementation detail; a future UI replaces it without touching domains. |
 
 ## Technology Stack & Constraints
 
@@ -59,7 +58,7 @@ Any external system or platform-specific concern is isolated behind an Anti-Corr
 - **Platform**: Windows only — all path handling, process execution, and scripting assume Windows.
 - **Shell**: PowerShell — the only shell. No `.sh`, no `.cmd`, no `.bat`.
 - **AI Provider**: OpenRouter — the domain model speaks in provider-neutral concepts, and only the OpenRouter ACL implements them.
-- **Interface**: CLI
+- **Interface**: Desktop (Avalonia)
 
 ### Packaging & Wiring
 
@@ -106,9 +105,9 @@ ACLs live in an `ACL` project each, implementing domain-owned interfaces.
 
 - **All scripts are PowerShell** (`.ps1`).
 - **Build**: `dotnet build`.
-- **Testing**: xUnit. Three layers: unit, integration, and E2E tests. Aim for 100% coverage; minimum 80% required. Unit tests use fakes only — a domain test must never know PowerShell, HTTP, or OpenRouter exist. Integration tests exercise real ACL implementations against real files / sandbox endpoints. E2E tests drive the full CLI against a local mock provider server.
+- **Testing**: xUnit. Three layers: unit, integration, and E2E tests. Aim for 100% coverage; minimum 80% required. Unit tests use fakes only — a domain test must never know PowerShell, HTTP, or OpenRouter exist. Integration tests exercise real ACL implementations against real files / sandbox endpoints. E2E tests drive the desktop app headless — real composition behind the view-model — against a local mock provider server.
 - **Every change leaves the build green**: a task is not done if the solution does not build and all tests pass.
-- **Dependency injection**: all wiring at the composition root (host/CLI project).
+- **Dependency injection**: all wiring at the composition root (the Desktop host project).
 - **Immutability**: domain models prefer immutability — records, init-only properties, copy constructors.
 - **Error handling**: result types, not exceptions, for expected domain failures. Exceptions are for infrastructure/programmer errors.
 - **Tool design**: tools demand strictly correct input (see Guiding Philosophy). Tool errors are returned to the model as tool results — an error is feedback for self-correction, never a turn-ending crash. Model-facing output uses explicit format contracts (annotation lines, gutters) documented verbatim in the tool description, so the model never has to guess what it is looking at.
