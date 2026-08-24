@@ -103,6 +103,17 @@ Skip any step = lying, not verifying
 ❌ Trust agent report
 ```
 
+## The Clean-Tree Gate
+
+"Green" means more than tests passing. Before declaring a task or session done:
+
+1. Build succeeds and the full suite passes (fresh output, this message).
+2. `git status --porcelain` is EMPTY. Every intended change is committed; every
+   unintended change is either reverted or explicitly surfaced to your human
+   partner. Uncommitted work is unfinished work — a rename split across files
+   has silently stranded itself in the working tree before.
+3. The claim you are about to make lists BOTH: test evidence AND tree state.
+
 ## When To Apply
 
 **ALWAYS before:**

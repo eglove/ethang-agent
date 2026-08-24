@@ -112,6 +112,7 @@ ACLs live in an `ACL` project each, implementing domain-owned interfaces.
 - **Testing**: xUnit. Three layers: unit, integration, and E2E tests. Aim for 100% coverage; minimum 80% required. Unit tests use fakes only — a domain test must never know PowerShell, HTTP, or OpenRouter exist. Integration tests exercise real ACL implementations against real files / sandbox endpoints. E2E tests drive the desktop app headless — real composition behind the view-model — against a local mock provider server.
 - **Session retrospective**: at the end of every session/task, evaluate the session for bugs encountered, improvements worth making, and new tools or skills that could be built into the agent — then act on what is worth acting on (file it, fix it, or build it), rather than letting it evaporate.
 - **Every change leaves the build green**: a task is not done if the solution does not build and all tests pass.
+- **Green includes a clean tree**: a task is not done while `git status --porcelain` shows output. Intended changes are committed; unintended ones are reverted or surfaced. Uncommitted work is unfinished work.
 - **Dependency injection**: all wiring at the composition root (the Desktop host project).
 - **Immutability**: domain models prefer immutability — records, init-only properties, copy constructors.
 - **Error handling**: result types, not exceptions, for expected domain failures. Exceptions are for infrastructure/programmer errors.

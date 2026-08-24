@@ -23,7 +23,12 @@ Tests failing (<N> failures). Must fix before completing:
 [Show failures]
 ```
 
-**If tests pass:** continue to Step 2.
+**If tests pass:** verify the working tree is clean — run `git status --porcelain`
+via exec; any output is uncommitted work that must be committed or reverted before
+the integration menu appears. A dirty tree at finish time means something was done
+but never recorded.
+
+Then continue to Step 2.
 
 ## Step 2: Detect Environment
 
