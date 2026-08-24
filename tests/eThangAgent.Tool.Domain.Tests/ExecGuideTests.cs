@@ -1,3 +1,4 @@
+using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Tool.Domain.Tests;
@@ -7,7 +8,7 @@ public class ExecGuideTests
     [Fact]
     public void Guide_IsVersionedAndNonEmpty()
     {
-        Assert.Equal("2.0", ExecGuide.Version);
+        Assert.Equal("2.1", ExecGuide.Version);
         Assert.True(ExecGuide.Text.Length >= 500);
     }
 
@@ -132,6 +133,47 @@ public class ExecGuideTests
 
     private static int IndexOf(string text, string marker)
         => text.IndexOf(marker, StringComparison.Ordinal);
+
+    [Fact]
+    public void Guide_DocumentsShell_PowerShellRoutingAndTokenSemantics()
+    {
+        var start = ExecGuide.Text.IndexOf("### Running external commands", StringComparison.Ordinal);
+        var end = ExecGuide.Text.IndexOf("### File system", StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start, "Running external commands section missing");
+        var section = ExecGuide.Text[start..end];
+
+        // The route and its reason are documented verbatim.
+        Assert.Contains("powershell -NoProfile", section);
+        Assert.Contains("one token", section);
+        Assert.Contains("re-parsed", section);
+        Assert.Contains("exit code propagates", section);
+        // The canonical example uses pre-split tokens.
+        Assert.Contains("Shell(\"git\", \"status\", \"--short\")", section);
+    }
+
+    [Fact]
+    public void ExecTool_Description_StatesShellContract()
+    {
+        var tool = new ExecTool(
+            new NullExecEngine(), ExecOptions.Default,
+            new NullOutputStore(), NullExecActivitySink.Instance);
+        Assert.Contains("powershell -NoProfile", tool.Definition.Description);
+        Assert.Contains("one token", tool.Definition.Description);
+    }
+
+    private sealed class NullExecEngine : IExecEngine
+    {
+        public Task<Result<IReadOnlyList<ExecParseError>>> ValidateAsync(ExecProgram program, CancellationToken ct = default) =>
+            Task.FromResult(Result<IReadOnlyList<ExecParseError>>.Success([]));
+        public Task<ExecRunResult> ExecuteAsync(ExecProgram program, CancellationToken ct = default) =>
+            Task.FromResult(new ExecRunResult(ExecRunStatus.Completed, "", []));
+    }
+
+    private sealed class NullOutputStore : IExecOutputStore
+    {
+        public Task<string> WriteAsync(string content, CancellationToken ct = default) =>
+            Task.FromResult("");
+    }
 
     [Fact]
     public void Guide_DocumentsIntrospection()

@@ -57,15 +57,11 @@ public static class E2E
                         new UnrootedPathResolver()))
                 .BuildServiceProvider();
 
-            // Root-session bootstrap, identical to both production hosts: without a persisted
-            // AgentRecord.Root the session never becomes listable/recallable in memory.
-            var store = _services.GetRequiredService<IAgentStore>();
-            RootId = AgentId.NewId();
-            var saved = await store.SaveAsync(AgentRecord.Root(RootId, DateTimeOffset.UtcNow));
-            if (!saved.IsSuccess)
-                throw new InvalidOperationException(
-                    "failed to persist root session: " +
-                    $"[{saved.Error!.Code}] {saved.Error.Message}");
+            // Root-session bootstrap via the shared composition helper — the SAME code
+            // path as the desktop host, so the persisted id and the id the view-model
+            // appends under can never drift apart.
+            RootId = (await RootSessionBootstrapper.PersistRootAsync(
+                _services.GetRequiredService<IAgentStore>())).Value!;
             var handler = _services.GetRequiredService<SendMessageCommandHandler>();
             var lifecycle = _services.GetRequiredService<RootSessionLifecycle>();
             var conversation = _services.GetRequiredService<Conversation>();

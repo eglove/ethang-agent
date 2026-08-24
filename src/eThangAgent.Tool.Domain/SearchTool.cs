@@ -30,7 +30,8 @@ public sealed class SearchTool : ITool
                 "Maximum matches returned; values above 200 clamp with a warning. Minimum: 1", Minimum: 1),
             new ToolParameter("contextLines", ToolParameterType.Integer,
                 "Context lines around each match. Minimum: 0", Minimum: 0),
-        ]);
+        ],
+        ["pattern", "mode", "maxResults"]);
 
     public SearchTool(IPathResolver resolver, ISearchAccess search)
     {

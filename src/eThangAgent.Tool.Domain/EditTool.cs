@@ -26,7 +26,8 @@ public sealed class EditTool : ITool
                 "true to replace every occurrence (mutually exclusive with occurrences)."),
             new ToolParameter("occurrences", ToolParameterType.Integer,
                 "Expected number of replacements (mutually exclusive with all). Minimum: 1", Minimum: 1),
-        ]);
+        ],
+        ["path", "old", "new"]);
 
     public EditTool(IPathResolver resolver, IFileEditAccess files)
     {

@@ -15,21 +15,23 @@ public class ClarifyTests
     // ── Interaction tests (transient failures surface via ValidationMessage) ──
 
     [Fact]
-    public void Option_Selection_Completes_Once_With_Index()
+    public async Task Option_Selection_Completes_Once_With_Index()
     {
         var vm = new ClarifyViewModel(Sample());
         vm.ChooseOption(1);
-        Assert.Equal("1", vm.Completion.Result.Value);
+        var answer = await vm.Completion;
+        Assert.Equal("1", answer.Value);
 
         // Double-complete guarded — settlement is exactly-once.
         vm.Cancel();
         vm.ChooseOption(2);
-        Assert.True(vm.Completion.Result.IsSuccess);
-        Assert.Equal("1", vm.Completion.Result.Value);
+        var settled = await vm.Completion;
+        Assert.True(settled.IsSuccess);
+        Assert.Equal("1", settled.Value);
     }
 
     [Fact]
-    public void Out_Of_Range_Option_Surfaces_Validation_And_Stays_Pending()
+    public async Task Out_Of_Range_Option_Surfaces_Validation_And_Stays_Pending()
     {
         var vm = new ClarifyViewModel(Sample());
         vm.ChooseOption(5);
@@ -39,21 +41,23 @@ public class ClarifyTests
         Assert.Equal("Pick an option between 1 and 2.", vm.ValidationMessage);
 
         vm.ChooseOption(1); // still completable after bad pick
-        Assert.True(vm.Completion.Result.IsSuccess);
-        Assert.Equal("1", vm.Completion.Result.Value);
+        var settled = await vm.Completion;
+        Assert.True(settled.IsSuccess);
+        Assert.Equal("1", settled.Value);
     }
 
     [Fact]
-    public void Free_Text_Submits_Typed_Answer()
+    public async Task Free_Text_Submits_Typed_Answer()
     {
         var vm = new ClarifyViewModel(Sample());
         vm.Input = "neither, do this instead";
         vm.SubmitFreeText();
-        Assert.Equal("neither, do this instead", vm.Completion.Result.Value);
+        var answer = await vm.Completion;
+        Assert.Equal("neither, do this instead", answer.Value);
     }
 
     [Fact]
-    public void Empty_Free_Text_Surfaces_Validation_And_Stays_Pending()
+    public async Task Empty_Free_Text_Surfaces_Validation_And_Stays_Pending()
     {
         var vm = new ClarifyViewModel(Sample());
         vm.Input = "   ";
@@ -64,7 +68,8 @@ public class ClarifyTests
 
         vm.Input = "ok";
         vm.SubmitFreeText();
-        Assert.Equal("ok", vm.Completion.Result.Value);
+        var answer = await vm.Completion;
+        Assert.Equal("ok", answer.Value);
     }
 
     [Fact]
@@ -72,10 +77,10 @@ public class ClarifyTests
     {
         var vm = new ClarifyViewModel(Sample());
         vm.Cancel();
-        Assert.False(vm.Completion.Result.IsSuccess);
-        Assert.Equal("Cancelled", vm.Completion.Result.Error!.Code);
-        Assert.Equal("Cancelled by the user.", vm.Completion.Result.Error!.Message);
-        await Task.CompletedTask;
+        var settled = await vm.Completion;
+        Assert.False(settled.IsSuccess);
+        Assert.Equal("Cancelled", settled.Error!.Code);
+        Assert.Equal("Cancelled by the user.", settled.Error!.Message);
     }
 
     // ── Channel ───────────────────────────────────────────────────────────────
@@ -111,8 +116,9 @@ public class ClarifyTests
 
         cts.Cancel(); // the user walks away mid-question
 
-        var settled = ask.Wait(TimeSpan.FromSeconds(5));
-        Assert.True(settled, "AskAsync ignored the CancellationToken and hung awaiting Completion.");
+        // Bounded wait: a TimeoutException here would mean AskAsync ignored the
+        // CancellationToken and hung awaiting Completion.
+        await ask.WaitAsync(TimeSpan.FromSeconds(5));
 
         var result = await ask;
         Assert.False(result.IsSuccess);
@@ -121,7 +127,7 @@ public class ClarifyTests
     }
 
     [Fact]
-    public void RejectInput_Surfaces_Message_Without_Consuming_Completion()
+    public async Task RejectInput_Surfaces_Message_Without_Consuming_Completion()
     {
         var vm = new ClarifyViewModel(Sample());
 
@@ -132,8 +138,9 @@ public class ClarifyTests
         Assert.Equal("Enter a number between 1 and 2.", vm.ValidationMessage);
 
         vm.ChooseOption(1); // still completable after a rejection
-        Assert.True(vm.Completion.Result.IsSuccess);
-        Assert.Equal("1", vm.Completion.Result.Value);
+        var settled = await vm.Completion;
+        Assert.True(settled.IsSuccess);
+        Assert.Equal("1", settled.Value);
     }
 
     // ── Integration: MainViewModel routing while a question is pending ────────
@@ -149,16 +156,17 @@ public class ClarifyTests
             new ClarifyQuestion("Which approach?", ["first", "second"], AllowFreeText: false));
         var clarify = vm.Clarify!;
 
-        vm.SubmitAsync("bananas"); // neither free text nor a number
+        await vm.SubmitAsync("bananas"); // neither free text nor a number
 
         // Routed rejection: message surfaces, question stays up and pending.
         Assert.False(clarify.Completion.IsCompleted);
         Assert.Equal("Enter a number between 1 and 2.", clarify.ValidationMessage);
         Assert.NotNull(vm.Clarify);
 
-        vm.SubmitAsync("2"); // still routable afterwards
-        Assert.True(clarify.Completion.Result.IsSuccess);
-        Assert.Equal("2", clarify.Completion.Result.Value);
+        await vm.SubmitAsync("2"); // still routable afterwards
+        var settled = await clarify.Completion;
+        Assert.True(settled.IsSuccess);
+        Assert.Equal("2", settled.Value);
         Assert.Null(vm.Clarify);
         Assert.Contains(vm.Transcript.Entries.OfType<UserMessageEntry>(), e => e.Text == "2");
     }

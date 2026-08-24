@@ -1,6 +1,6 @@
 ---
 name: ethang-tools-mapping
-description: How superpowers action names bind to real eThang Agent tools.
+description: How skills name actions and how they bind to real eThang Agent tools.
 ---
 
 # eThang Agent Tool Mapping

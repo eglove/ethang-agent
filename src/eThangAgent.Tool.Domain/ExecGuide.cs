@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "2.0";
+    public const string Version = "2.1";
 
     public const string Text = """
     ## exec — writing C# programs
@@ -53,10 +53,17 @@ public static class ExecGuide
 
     ### Running external commands
 
-    Shell() runs an external process and returns exit code, stdout, and stderr:
+    Shell() runs an external command line through powershell -NoProfile and returns
+    exit code, stdout, and stderr. Every argument after the exe is one token of a single
+    native command line; a multi-token piece such as "build -c Release" is re-parsed as
+    separate tokens instead of reaching the exe as one quoted literal argument. The
+    native exit code propagates verbatim.
 
-        var r = Shell("dotnet", "build");
-        if (r.ExitCode != 0) { Output(r.Stderr); return "build failed"; }
+        var r = Shell("git", "status", "--short");
+        if (r.ExitCode != 0) { Output(r.Stderr); return "not a repo?"; }
+
+        var b = Shell("dotnet", "build", "-c", "Release");
+        if (b.ExitCode != 0) { Output(b.Stderr); return "build failed"; }
         return "build OK";
 
     Working directory is the agent workspace.

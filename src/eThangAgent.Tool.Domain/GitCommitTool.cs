@@ -32,7 +32,8 @@ public sealed class GitCommitTool : ITool
                 "Single-line subject, at most 72 characters after trimming."),
             new ToolParameter("body", ToolParameterType.String,
                 "Optional body paragraph, appended after a blank line."),
-        ]);
+        ],
+        ["style", "description"]);
 
     public GitCommitTool(IPathResolver resolver, IGitCommitAccess commits)
     {

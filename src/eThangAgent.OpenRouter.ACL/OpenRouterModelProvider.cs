@@ -474,9 +474,12 @@ public class OpenRouterModelProvider : IModelProvider
                     {
                         var props = new Dictionary<string, object?>
                         {
+                            ["items"] = p.Type == ToolParameterType.StringArray
+                                ? new Dictionary<string, object?> { ["type"] = "string" } : null,
                             ["type"] = p.Type switch
                             {
                                 ToolParameterType.String => "string",
+                                ToolParameterType.StringArray => "array",
                                 ToolParameterType.Integer => "integer",
                                 ToolParameterType.Boolean => "boolean",
                                 _ => throw new InvalidOperationException(
@@ -487,7 +490,7 @@ public class OpenRouterModelProvider : IModelProvider
                         if (p.Minimum is { } min) props["minimum"] = min;
                         return props;
                     }),
-                ["required"] = t.Parameters.Select(p => p.Name).ToArray(),
+                ["required"] = t.RequiredParameters.ToArray(),
                 ["additionalProperties"] = false,
             },
         }

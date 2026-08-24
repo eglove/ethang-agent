@@ -37,19 +37,37 @@ public sealed class ScriptGlobals
     /// <summary>Collected output lines from Output() calls and captured Console.Out.</summary>
     public IReadOnlyList<string> OutputLines => _outputLines.ToArray();
 
-    /// <summary>Run an external process and return stdout, stderr, and exit code.</summary>
+    /// <summary>Run an external command line and return stdout, stderr, and exit code.
+    ///     Every argument after <paramref name="exe"/> is one token of a single native
+    ///     command line. Execution routes through PowerShell (-NoProfile) with the whole
+    ///     line passed via -EncodedCommand, so a multi-token piece such as "build -c
+    ///     Release" is re-parsed as separate tokens instead of reaching the exe as one
+    ///     quoted literal argument, and the native exit code propagates verbatim
+    ///     (bare -Command maps inner failures to 1; the explicit exit guard prevents
+    ///     that). No intermediate quoting layer exists: the line travels base64-encoded.</summary>
     public ShellResult Shell(string exe, params string[] args)
     {
-        var psi = new ProcessStartInfo(exe, args)
+        var commandLine = string.Join(" ", new[] { exe }.Concat(args));
+        var script =
+            commandLine + "\n" +
+            "if ($LASTEXITCODE -is [int]) { exit $LASTEXITCODE }\n" +
+            "elseif ($?) { exit 0 } else { exit 1 }";
+        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+
+        var psi = new ProcessStartInfo
         {
+            FileName = "powershell",
             WorkingDirectory = Workspace,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
             StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
+            StandardErrorEncoding = Encoding.UTF8,
         };
+        psi.ArgumentList.Add("-NoProfile");
+        psi.ArgumentList.Add("-EncodedCommand");
+        psi.ArgumentList.Add(encoded);
 
         try
         {
@@ -170,15 +188,17 @@ public sealed class ScriptTools
     }
 
     /// <summary>Dynamic dispatch for convenience methods generated as public methods.
-    /// Matches unknown method calls by name if the tool name is valid C#.</summary>
-    public string read(object? args) => Invoke("read", args);
-    public string write(object? args) => Invoke("write", args);
-    public string edit(object? args) => Invoke("edit", args);
-    public string search_files(object? args) => Invoke("search_files", args);
-    public string exec(object? args) => Invoke("exec", args);
-    public string git_status(object? args) => Invoke("git_status", args);
-    public string working_diff(object? args) => Invoke("working_diff", args);
-    public string git_commit(object? args) => Invoke("git_commit", args);
+    /// Matches unknown method calls by name if the tool name is valid C#. The argument
+    /// defaults to null so zero-argument actions bind without a dummy object —
+    /// Tools.git_status() and Tools.Invoke("git_status", null) are equivalent.</summary>
+    public string read(object? args = null) => Invoke("read", args);
+    public string write(object? args = null) => Invoke("write", args);
+    public string edit(object? args = null) => Invoke("edit", args);
+    public string search_files(object? args = null) => Invoke("search_files", args);
+    public string exec(object? args = null) => Invoke("exec", args);
+    public string git_status(object? args = null) => Invoke("git_status", args);
+    public string working_diff(object? args = null) => Invoke("working_diff", args);
+    public string git_commit(object? args = null) => Invoke("git_commit", args);
 
     public string List() => string.Join("\n", _registry.Providers.SelectMany(p => p.Actions)
         .Select(a => $"{a.Name}({string.Join(", ", a.Parameters.Select(p => $"{p.Name}: {p.Type}"))})"));

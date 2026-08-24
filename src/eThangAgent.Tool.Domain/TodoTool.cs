@@ -58,7 +58,8 @@ public sealed class TodoTool : ITool
                 "Update only: exactly Pending, InProgress, or Completed (case-sensitive)."),
             new ToolParameter("confirm", ToolParameterType.Boolean,
                 "Clear only: must be exactly true; clearing empties the list."),
-        ]);
+        ],
+        ["action"]);
 
     public TodoTool(ITodoListStore store)
     {

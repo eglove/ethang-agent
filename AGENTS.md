@@ -1,5 +1,7 @@
 # eThang Agent
 
+> **Keep this document current**: AGENTS.md describes how the system works *today*, not how it was built. When a change makes any statement here stale — an ACL replaced, a constraint dropped, a convention changed — update this file in the same change. Verify claims against the code before relying on them.
+
 ## What This Project Is
 
 eThang Agent is an AI agent built with .NET, delivered through an Avalonia desktop application. The project follows strict Domain-Driven Design: layered bounded contexts, Specification patterns, and CQRS.
@@ -47,7 +49,7 @@ Any external system or platform-specific concern is isolated behind an Anti-Corr
 | ACL | Purpose | Why the seam exists |
 | ----- | --------- | --------------------- |
 | OpenRouter ACL | Translates domain concepts (messages, models, tool calls) to/from OpenRouter's API. The domain knows nothing about OpenRouter-specific types, endpoints, or authentication. | The domain speaks its own message/tool language, so any provider that can express it can be wired in without domain changes. |
-| PowerShell ACL | All shell execution goes through this ACL. The domain never calls `Process.Start`, `System.Management.Automation`, or shell commands directly. | Shell is an implementation detail of the platform, not of the domain. |
+| Exec ACL (Roslyn) | Runs model-authored `exec` programs and evidence checks via Roslyn C# scripting (`CSharpScriptExecEngine`, `CSharpEvidenceRunner`). The domain knows nothing about compilation or scripting internals. | The execution engine is an implementation detail of the platform, not of the domain. |
 | File System ACL | All file I/O goes through a domain interface (`IFileSystemAccess`). The domain never touches `System.IO` directly. | Storage access is a capability the domain requests, not a technology it depends on. |
 | Storage ACL | All persistence goes through this ACL (`AppDatabase`, `IStateStore`, `IAgentStore`, `ILearnedSkillStore`, `ICuratedMemoryStore` — SQLite with versioned migrations + FTS5). | The storage engine is swappable; the domain never knows SQL exists. |
 
@@ -56,7 +58,7 @@ Any external system or platform-specific concern is isolated behind an Anti-Corr
 - **Runtime**: .NET 10
 - **Language**: C#
 - **Platform**: Windows only — all path handling, process execution, and scripting assume Windows.
-- **Shell**: PowerShell — the only shell. No `.sh`, no `.cmd`, no `.bat`.
+- **Exec / Scripting**: Roslyn C# scripting via the Exec ACL (`IExecEngine`) — no PowerShell anywhere in the solution. External processes (e.g., `git`) are spawned directly with native .NET `Process` APIs.
 - **AI Provider**: OpenRouter — the domain model speaks in provider-neutral concepts, and only the OpenRouter ACL implements them.
 - **Interface**: Desktop (Avalonia)
 
@@ -76,7 +78,7 @@ Each concern is owned by exactly one bounded context. When adding code, first as
 - **Model Domain**: model capabilities, provider contracts, and model configuration.
 - **Capability Domain**: the registry that merges providers and exposes tools and capabilities to the model.
 - **Memory Domain**: recall and search over persisted sessions (lexical and bounded-regex query planning), plus the curated-memory learning loop (categorized, tagged, full-text searchable, versioned).
-- **Skill Domain**: the methodology-skill subsystem — embedded built-in skills (superpowers, verbatim) and agent-created learned skills, with version history and usage tracking.
+- **Skill Domain**: the methodology-skill subsystem — embedded built-in skills (shipped verbatim) and agent-created learned skills, with version history and usage tracking.
 - **State Domain**: durable, workspace-scoped key-value state, evidence-carrying transitions, and state events.
 
 Configuration concerns live with their consumers until a real Configuration context earns its own boundary.
@@ -103,9 +105,12 @@ ACLs live in an `ACL` project each, implementing domain-owned interfaces.
 
 ## Development Conventions
 
-- **All scripts are PowerShell** (`.ps1`).
+- **No shell intermediary**: repo automation is plain `dotnet` CLI invocations; do not commit `.ps1`/`.sh`/`.cmd`/`.bat` scripts. If a task needs scripting, prefer C# (the same language as the codebase).
+
 - **Build**: `dotnet build`.
+- **Release builds while developing**: a running desktop app locks `bin/Debug`, so builds/tests against it fail with MSB3021/MSB3027 — use `-c Release` whenever the app is running.
 - **Testing**: xUnit. Three layers: unit, integration, and E2E tests. Aim for 100% coverage; minimum 80% required. Unit tests use fakes only — a domain test must never know PowerShell, HTTP, or OpenRouter exist. Integration tests exercise real ACL implementations against real files / sandbox endpoints. E2E tests drive the desktop app headless — real composition behind the view-model — against a local mock provider server.
+- **Session retrospective**: at the end of every session/task, evaluate the session for bugs encountered, improvements worth making, and new tools or skills that could be built into the agent — then act on what is worth acting on (file it, fix it, or build it), rather than letting it evaporate.
 - **Every change leaves the build green**: a task is not done if the solution does not build and all tests pass.
 - **Dependency injection**: all wiring at the composition root (the Desktop host project).
 - **Immutability**: domain models prefer immutability — records, init-only properties, copy constructors.
@@ -113,3 +118,4 @@ ACLs live in an `ACL` project each, implementing domain-owned interfaces.
 - **Tool design**: tools demand strictly correct input (see Guiding Philosophy). Tool errors are returned to the model as tool results — an error is feedback for self-correction, never a turn-ending crash. Model-facing output uses explicit format contracts (annotation lines, gutters) documented verbatim in the tool description, so the model never has to guess what it is looking at.
 - **Performance**: hot paths (file reads, shell execution) go through in-process hosting where possible; avoid per-call process spawns. Streaming over loading: read only the requested range, then account for the whole. Aim for event-driven flow over polling loops, and keep steady-state memory small — don't hold what you're not using. Maintain high performance, low latency, low memory, and a modular event-driven architecture across every change.
 - **Create tools as you work**: when something useful is missing, add a tool for it rather than working around the gap. Tools are the agent's first-class surface — a missing capability is a missing tool, not a one-off script. New tools follow the existing `ITool` / capability-provider contracts: strict input validation, `Result<T>` errors, and verbatim format contracts in the description.
+- **Prefer tools over exec scripts**: the Roslyn `exec` engine is for one-off glue, not a substitute for first-class capabilities. When the model keeps writing the same or similar scripts across sessions — repeated file probing, shell-out patterns, query shapes — that is a signal to promote the pattern into a general tool with proper validation and format contracts. The model should spend its effort on decisions, not on re-deriving boilerplate C#.

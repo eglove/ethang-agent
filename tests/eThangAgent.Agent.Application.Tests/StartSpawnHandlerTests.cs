@@ -22,7 +22,7 @@ public class StartSpawnHandlerTests
         var result = await handler.Execute(parent, new SpawnRequest("do the thing", Model: "explicit-model", Label: "lbl"));
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(1, store.Saved.Count);
+        Assert.Single(store.Saved);
         var saved = store.Saved[0];
         Assert.Equal(result.Value, saved.Id);
         Assert.Equal(parent.Id, saved.ParentId);
@@ -134,7 +134,7 @@ public class StartSpawnHandlerTests
 
         Assert.False(result.IsSuccess);
         Assert.Same(capError, result.Error);
-        Assert.Equal(1, store.Saved.Count);
+        Assert.Single(store.Saved);
         Assert.Equal(AgentStatus.Running, store.Saved[0].Status);
         Assert.Single(runtime.Started);
     }

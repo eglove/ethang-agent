@@ -19,7 +19,8 @@ public sealed class AgentToolsProvider : ICapabilityProvider
             b.Tool.Definition.Description,
             b.Tool.Definition.Parameters
                 .Select(p => new ActionParameter(p.Name, p.Type.ToString(), p.Description))
-                .ToList())).ToList();
+                .ToList(),
+            b.Tool.Definition.RequiredParameters)).ToList();
     }
 
     public string Id { get; }

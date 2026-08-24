@@ -18,12 +18,14 @@ public sealed class ClarifyTool : ITool
         [
             new ToolParameter("question", ToolParameterType.String,
                 "The question to ask. Required, non-empty."),
-            new ToolParameter("options", ToolParameterType.String,
-                "Two or more answer options, presented as a numbered list. Optional; omit for " +
-                "a free-text-only question."),
+            new ToolParameter("options", ToolParameterType.StringArray,
+                "A JSON array of two or more answer-option strings, presented as a numbered " +
+                "list. Optional; omit for a free-text-only question. Example: " +
+                "[\"first option\", \"second option\"]."),
             new ToolParameter("allowFreeText", ToolParameterType.Boolean,
                 "true to let the human answer in their own words, false to require an option number."),
-        ]);
+        ],
+        ["question", "allowFreeText"]);
 
     public ClarifyTool(IClarifyChannel channel)
     {

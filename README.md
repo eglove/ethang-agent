@@ -35,7 +35,7 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 - `git_commit` tool — index-only commits with validated conventional or gitmoji messages
 - Curated memory loop — `memories.search/add/update/remove` over a categorized, full-text,
   versioned knowledge base, with turn-boundary nudges prompting curation
-- Skill subsystem: 14 embedded development-methodology skills (superpowers), session-start bootstrap injection, and `skill_list` / `skill_view` / `skill_manage` tools
+- Skill subsystem: 15 embedded development-methodology skills, session-start bootstrap injection, and `skill_list` / `skill_view` / `skill_manage` tools
 - `clarify` tool — structured clarifying questions with numbered options
 - `todo` tool — durable workspace task list with compare-and-swap writes
 - Capability registry exposing agent tools plus spawnable sub-agents, durable workspace state, and memory recall
@@ -109,7 +109,7 @@ src/     One project per bounded context and ACL (see AGENTS.md for the map)
          plus eThangAgent.Composition (shared host-agnostic wiring) and
          eThangAgent.Desktop (Avalonia frontend)
 tests/   Mirror-image test projects
-docs/    Specs and implementation plans (superpowers workflow)
+docs/    Specs and implementation plans (skills workflow)
 ```
 
 ## Roadmap

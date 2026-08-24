@@ -77,14 +77,13 @@ public static class DesktopHost
             .BuildServiceProvider();
 
         var store = services.GetRequiredService<IAgentStore>();
-        var rootId = AgentId.NewId();
-        var saved = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow));
-        if (!saved.IsSuccess)
+        var bootstrapped = await RootSessionBootstrapper.PersistRootAsync(store);
+        if (!bootstrapped.IsSuccess)
         {
-            await ShowErrorAndExitAsync(desktop,
-                $"failed to persist root session: [{saved.Error!.Code}] {saved.Error.Message}");
+            await ShowErrorAndExitAsync(desktop, bootstrapped.Error!.Message);
             throw new UnreachableException("unreachable after error dialog shutdown");
         }
+        var rootId = bootstrapped.Value!;
 
         return new DesktopBootstrap(
             services,

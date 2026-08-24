@@ -5,7 +5,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>
 /// Headless end-to-end coverage ported from the retired piped-CLI suite: the REAL
 /// composition answers through the mock provider and the view-model renders it.
-/// Provider-contract scenarios: configured model selection, superpowers bootstrap,
+/// Provider-contract scenarios: configured model selection, skills bootstrap,
 /// exposed tool surface, exec guide injection.
 /// </summary>
 [Collection("Desktop E2E")]
@@ -27,7 +27,7 @@ public class DesktopE2ETests
     }
 
     [Fact]
-    public async Task Turn_InjectsSuperpowersBootstrap_OncePerSession()
+    public async Task Turn_InjectsSkillsBootstrap_OncePerSession()
     {
         using var host = await new E2E.Host().StartAsync();
 
@@ -43,7 +43,7 @@ public class DesktopE2ETests
             .GetProperty("content").GetString();
         Assert.NotNull(system);
         Assert.Contains("<EXTREMELY_IMPORTANT>", system);
-        Assert.Contains("name: using-superpowers", system);
+        Assert.Contains("name: using-skills", system);
         Assert.Contains("ALREADY ACTIVE", system);
         Assert.Contains("skill_view", system);
         Assert.Equal(1, System.Text.RegularExpressions.Regex.Count(system!,

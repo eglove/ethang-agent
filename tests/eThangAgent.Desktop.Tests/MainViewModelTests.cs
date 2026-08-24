@@ -178,7 +178,7 @@ public class MainViewModelTests
         await first;
         await vm.WaitForTurnAsync();
 
-        Assert.Equal(1, vm.Transcript.Entries.OfType<UserMessageEntry>().Count());
+        Assert.Single(vm.Transcript.Entries.OfType<UserMessageEntry>());
     }
 
     // ── 5. Persistence errors route through reportError → notice entries ─────

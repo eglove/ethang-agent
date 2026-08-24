@@ -170,7 +170,7 @@ public static class AgentComposition
                 new ToolRegistry([sp.GetRequiredService<ITool>()]))
             .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
             [
-                new SuperpowersBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>()),
+                new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>()),
                 new StaticPromptProvider(
                     "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
                     "workspace, prefer the provided tools over guessing, and keep responses tight."),

@@ -36,6 +36,7 @@ public class CompositionGuardTests
     [MemberData(nameof(BothHostShapes))]
     public void Core_Graph_Resolves_Every_Service_For_Every_Host(string label, AgentHostOptions host)
     {
+        Assert.False(string.IsNullOrWhiteSpace(label));
         var settings = new AgentSettings("sk-or-test", new Uri("https://openrouter.test"),
             new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2), MaxToolIterationsConfiguration.Default);
         using var services = new ServiceCollection()
