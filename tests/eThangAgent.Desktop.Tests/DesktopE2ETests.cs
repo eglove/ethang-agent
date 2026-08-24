@@ -72,7 +72,7 @@ public class DesktopE2ETests
         Assert.NotNull(host.Mock.LastChatRequestBody);
         Assert.Contains("\"role\":\"system\"", host.Mock.LastChatRequestBody);
         Assert.Contains("writing C# programs", host.Mock.LastChatRequestBody);
-        Assert.Contains("get(key: String): Read a durable state value.", host.Mock.LastChatRequestBody);
+        Assert.Contains("get(key: String, startLine: Integer, endLine: Integer): Read a durable state value, or a line range of it.", host.Mock.LastChatRequestBody);
         Assert.Contains(
             "verify(ids: String[]): Run attached evidence fail-closed and certify.",
             host.Mock.LastChatRequestBody);
