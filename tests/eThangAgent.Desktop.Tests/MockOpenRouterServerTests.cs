@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text;
 
-namespace eThangAgent.CLI.Tests;
+namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Unit checks for the mock server's {{child_id}} substitution: before serving any
 ///     scripted response, the most recent agent-id annotation in the request's tool messages
