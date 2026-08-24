@@ -80,4 +80,52 @@ public class DesktopE2ETests
             "read(path: String, startLine: Integer, endLine: Integer): Read lines from a text file.",
             host.Mock.LastChatRequestBody);
     }
-}
+
+    [Fact]
+    public async Task ExecutesExecTool_EndToEnd()
+    {
+        using var host = new E2E.Host().Start();
+
+        var tempFile = Path.Combine(Path.GetTempPath(), $"ethang-exec-{Guid.NewGuid():N}.txt");
+        await File.WriteAllLinesAsync(tempFile, ["alpha line", "beta line"]);
+
+        var pathArg = tempFile.Replace("\\", "\\\\");
+        var program = $"return Tools.read(new {{ path = \"{pathArg}\", startLine = 1, endLine = 2 }});";
+        host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram(program)));
+        host.Mock.Returns(RawCompletion("exec completed"));
+
+        await host.Vm.RunTurnAsync("run a program");
+
+        var assistant = string.Join("", host.Vm.Transcript.Entries
+            .OfType<AssistantTextEntry>().Select(a => a.Text));
+        Assert.Contains("exec completed", assistant, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, host.Mock.RequestBodies.Count);
+        Assert.Contains("\"role\":\"tool\"", host.Mock.RequestBodies[1]);
+        Assert.Contains("alpha line", host.Mock.RequestBodies[1]);
+
+        try { File.Delete(tempFile); } catch { }
+    }
+
+    [Fact]
+    public async Task Exec_ParseErrorFeedsBack_AndCorrectedProgramSucceeds()
+    {
+        using var host = new E2E.Host().Start();
+
+        var broken = System.Text.Json.JsonSerializer.Serialize(new { program = "if (x {" });
+        var corrected = System.Text.Json.JsonSerializer.Serialize(
+            new { program = "Write-Output 'corrected output'" });
+        host.Mock.Returns(E2E.ExecToolCall("call_1", broken));
+        host.Mock.Returns(E2E.ExecToolCall("call_2", corrected));
+        host.Mock.Returns(RawCompletion("done"));
+
+        await host.Vm.RunTurnAsync("try exec");
+
+        var assistant = string.Join("", host.Vm.Transcript.Entries
+            .OfType<AssistantTextEntry>().Select(a => a.Text));
+        Assert.Contains("done", assistant, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal(3, host.Mock.RequestBodies.Count);
+        Assert.Contains("ExecParseError", host.Mock.RequestBodies[1]);
+        Assert.Contains("ExecParseError", host.Mock.RequestBodies[2]);
+        Assert.Contains("corrected output", host.Mock.RequestBodies[2]);
+    }}
