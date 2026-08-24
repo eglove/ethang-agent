@@ -11,20 +11,33 @@ public sealed class SkillsBootstrapPromptProvider : ISystemPromptProvider
 {
     public const string SkillName = "using-skills";
 
-    // Single injection source for harness tool binding. Keep in sync with
-    // src/eThangAgent.Skill.Domain/skills/EthangToolsMapping.md when tools change.
+    // Single injection source for harness tool binding. This constant and the
+    // body of src/eThangAgent.Skill.Domain/skills/EthangToolsMapping.md MUST stay
+    // word-for-word identical — change both together or neither.
     private const string ToolMapping =
         """
-        Tool mapping for this harness (eThang Agent): skills name actions; bind them:
-        - Read a file -> read tool; write/edit files -> write/edit; search files -> search_files
-        - Run shell commands/tests/git plumbing -> exec (C# scripting)
-        - Dispatch a subagent -> spawn sub-agent capability
-        - Create/update todos -> todo tool; invoke or list skills -> skill_view / skill_list
-        - Ask the human a clarifying question -> clarify tool (MANDATORY during brainstorming)
-        - Commit work -> git_commit tool once available; never raw shell commits
-
-        The using-skills skill is ALREADY ACTIVE — do not load it again. Load other
-        skills with skill_view when they apply. This bootstrap is injected once per session.
+        # eThang Agent Tool Mapping
+        
+        Skills name actions; this harness binds them to real tools:
+        
+        | Action (as named by skills) | Binding |
+        | --- | --- |
+        | Read a file | `read` (optional startLine/endLine for line ranges) |
+        | Write / edit files | `write` / `edit` |
+        | Search files | `search_files` |
+        | Run commands, tests, or git plumbing | `exec` — C# scripting through the exec engine (Roslyn); never shell scripts |
+        | Dispatch a subagent | `spawn` (non-blocking, returns an id; poll `status`; fetch the report with `result`) |
+        | Create/update todos | `todo` tool |
+        | Invoke a skill / load its content | `skill_view` tool (never read raw skill paths; the skill store IS the mechanism) |
+        | List available skills | `skill_list` tool |
+        | Ask the human partner a clarifying question | `clarify` tool (MANDATORY during brainstorming) |
+        | Store or read specs, plans, ledgers, briefs, reports | `state` tools — `state.get` / `state.set` / `state.list` / `state.search` |
+        | Commit work | `git_commit` tool (never raw shell commits) |
+        
+        Windows-native throughout. Tests run via the dotnet CLI with xUnit (`dotnet test`);
+        repo automation is plain `dotnet` CLI invocations — no `.ps1`/`.sh`/`.cmd`/`.bat`.
+        
+        The using-skills skill is ALREADY ACTIVE — do not load it again. Load other skills with skill_view when they apply. This bootstrap is injected once per session.
         """;
 
     private readonly ISkillCatalog _catalog;

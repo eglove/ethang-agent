@@ -9,16 +9,19 @@ Skills name actions; this harness binds them to real tools:
 
 | Action (as named by skills) | Binding |
 | --- | --- |
-| Read a file | `read` |
+| Read a file | `read` (optional startLine/endLine for line ranges) |
 | Write / edit files | `write` / `edit` |
 | Search files | `search_files` |
-| Run shell commands / tests / git plumbing | `exec` (PowerShell) |
-| Dispatch a subagent | spawn sub-agent capability |
+| Run commands, tests, or git plumbing | `exec` — C# scripting through the exec engine (Roslyn); never shell scripts |
+| Dispatch a subagent | `spawn` (non-blocking, returns an id; poll `status`; fetch the report with `result`) |
 | Create/update todos | `todo` tool |
 | Invoke a skill / load its content | `skill_view` tool (never read raw skill paths; the skill store IS the mechanism) |
 | List available skills | `skill_list` tool |
-| Ask the human partner a clarifying question | `clarify` tool (MANDATORY for brainstorming) |
-| Track plan progress | `todo` tool plus plan-file checkboxes |
-| Commit work | `git_commit` tool (never raw shell commit) |
+| Ask the human partner a clarifying question | `clarify` tool (MANDATORY during brainstorming) |
+| Store or read specs, plans, ledgers, briefs, reports | `state` tools — `state.get` / `state.set` / `state.list` / `state.search` |
+| Commit work | `git_commit` tool (never raw shell commits) |
 
-All scripts are PowerShell (.ps1). Windows-native. Tests: xUnit via dotnet test.
+Windows-native throughout. Tests run via the dotnet CLI with xUnit (`dotnet test`);
+repo automation is plain `dotnet` CLI invocations — no `.ps1`/`.sh`/`.cmd`/`.bat`.
+
+The using-skills skill is ALREADY ACTIVE — do not load it again. Load other skills with skill_view when they apply. This bootstrap is injected once per session.
