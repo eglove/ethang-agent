@@ -13,7 +13,7 @@ description: Use when implementation is complete, all tests pass, and you need t
 
 ## Step 1: Verify Tests
 
-Run the project's full test suite (`npm test` / `cargo test` / `pytest` / `go test ./...`).
+Build and run the project's full suite: `dotnet build` then `dotnet test`. If the running desktop app locks bin/Debug (MSB3021/3027), build and test with `-c Release`.
 
 **If tests fail**, report the failures and stop — the menu comes after a green suite:
 
@@ -27,13 +27,13 @@ Tests failing (<N> failures). Must fix before completing:
 
 ## Step 2: Detect Environment
 
-```bash
-GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
-GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
-# Capture now, while still inside the workspace — Step 5 changes directory
-# before cleanup (Step 6) needs this value
-WORKTREE_PATH=$(git rev-parse --show-toplevel)
-```
+Via exec, capture each value into variables in your C# script:
+  Shell("git", "rev-parse", "--git-dir")        -> gitDir
+  Shell("git", "rev-parse", "--git-common-dir")  -> gitCommon
+  Shell("git", "rev-parse", "--show-toplevel")   -> worktreePath
+Capture now, while still inside the workspace — Step 5 changes directory
+before cleanup (Step 6) needs these values. Compare resolved full paths of
+gitDir and gitCommon (Path.GetFullPath).
 
 This determines which menu to show and how cleanup works:
 
@@ -85,19 +85,12 @@ is theirs.
 
 ### Option 1: Merge Locally
 
-```bash
-# Get main repo root for CWD safety
-MAIN_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
-cd "$MAIN_ROOT"
-
-# Merge first — verify success before removing anything
-git checkout <base-branch>
-git pull
-git merge <feature-branch>
-
-# Verify tests on merged result
-<test command>
-```
+Via exec, in order:
+  mainRoot = Shell("git", "rev-parse", "--show-toplevel")   // CWD safety anchor
+  Shell("git", "checkout", baseBranch)
+  Shell("git", "pull")
+  Shell("git", "merge", featureBranch)
+Then verify tests on the merged result: dotnet build + dotnet test.
 
 If tests fail on the merged result: stop, leave the worktree and branch in
 place, and investigate — nothing has been pushed, so the merge is local
@@ -106,17 +99,13 @@ and recoverable.
 Once the merged result is green: clean up the worktree (Step 6), then
 delete the branch:
 
-```bash
-git branch -d <feature-branch>
-```
+Via exec: Shell("git", "branch", "-d", featureBranch)
 
 ### Option 2: Push and Create PR
 
-```bash
-git push -u origin <feature-branch>
-# From a detached HEAD, name the new branch on the remote:
-# git push origin HEAD:refs/heads/<new-branch>
-```
+Via exec: Shell("git", "push", "-u", "origin", featureBranch).
+From a detached HEAD, name the branch on the remote:
+  Shell("git", "push", "origin", "HEAD:refs/heads/" + newBranch)
 
 Then create the pull/merge request against <base-branch> with the forge's
 tooling — its CLI if one is available, or the creation URL most forges
@@ -145,43 +134,36 @@ Type 'discard' to confirm.
 
 Wait for that exact confirmation. When it arrives:
 
-```bash
-MAIN_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
-cd "$MAIN_ROOT"
-```
+Via exec: mainRoot = Shell("git", "rev-parse", "--show-toplevel"); use it as
+the working directory anchor for cleanup calls.
 
 Then clean up the worktree (Step 6) and force-delete the branch:
 
-```bash
-git branch -D <feature-branch>
-```
+Via exec: Shell("git", "branch", "-D", featureBranch)
 
 ## Step 6: Cleanup Workspace
 
 **Runs for Option 1 and confirmed discards.** Options 2 and 3 always
 preserve the worktree. Both callers have already changed directory to the
 main repo root — worktree removal must run from outside the worktree —
-and use the `GIT_DIR`/`GIT_COMMON`/`WORKTREE_PATH` values captured in
-Step 2, from before that directory change.
+and use the gitDir/gitCommon/worktreePath values captured in Step 2, from
+before that directory change.
 
-**If `GIT_DIR == GIT_COMMON`:** Normal repo, no worktree to clean up. Done.
+**If gitDir == gitCommon:** Normal repo, no worktree to clean up. Done.
 
 **If `WORKTREE_PATH` is under `.worktrees/` or `worktrees/`:** The skills system
 created this worktree — we own cleanup:
 
-```bash
-git worktree remove "$WORKTREE_PATH"
-git worktree prune  # Self-healing: clean up any stale registrations
-```
+Via exec:
+  Shell("git", "worktree", "remove", worktreePath)
+  Shell("git", "worktree", "prune")   // self-healing: clears stale registrations
 
 **If removal is refused** (`contains modified or untracked files`): the
 worktree holds files that exist nowhere else — uncommitted plans, notes,
 or scratch work. Never `--force` on your own initiative. Show your human
 partner what is at stake and ask:
 
-```bash
-git -C "$WORKTREE_PATH" status --porcelain -uall
-```
+Via exec: Shell("git", "-C", worktreePath, "status", "--porcelain", "-uall")
 
 ```
 Worktree removal refused — these files were never committed:
@@ -197,8 +179,7 @@ Which?
 
 Carry out the choice, then remove the worktree.
 
-**Otherwise:** The host environment owns this workspace — leave it in
-place. If your platform provides a workspace-exit tool, use it.
+**Otherwise:** The host environment owns this workspace — leave it in place.
 
 ## Quick Reference
 

@@ -17,18 +17,17 @@ Ensure work happens in an isolated workspace. Prefer your platform's native work
 
 **Before creating anything, check if you are already in an isolated workspace.**
 
-```bash
-GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
-GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
-BRANCH=$(git branch --show-current)
-```
+Via exec, capture each value into a variable in your C# script:
+  Shell("git", "rev-parse", "--git-dir")          -> gitDir
+  Shell("git", "rev-parse", "--git-common-dir")   -> gitCommon
+  Shell("git", "branch", "--show-current")        -> branch
+Compare resolved full paths of gitDir and gitCommon (Path.GetFullPath).
 
 **Submodule guard:** `GIT_DIR != GIT_COMMON` is also true inside git submodules. Before concluding "already in a worktree," verify you are not in a submodule:
 
-```bash
-# If this returns a path, you're in a submodule, not a worktree — treat as normal repo
-git rev-parse --show-superproject-working-tree 2>/dev/null
-```
+Via exec: Shell("git", "rev-parse", "--show-superproject-working-tree").
+A non-empty result means you are in a submodule, not a worktree — treat as
+normal repo.
 
 **If `GIT_DIR != GIT_COMMON` (and not a submodule):** You are already in a linked worktree. Skip to Step 2 (Project Setup). Do NOT create another worktree.
 
@@ -48,30 +47,19 @@ Honor any existing declared preference without asking. If the user declines cons
 
 **You have two mechanisms. Try them in this order.**
 
-### 1a. Native Worktree Tools (preferred)
+### Create the Worktree
 
-The user has asked for an isolated workspace (Step 0 consent). Do you already have a way to create a worktree? It might be a tool with a name like `EnterWorktree`, `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag. If you do, use it and skip to Step 2.
-
-Native tools handle directory placement, branch creation, and cleanup automatically. Using `git worktree add` when you have a native tool creates phantom state your harness can't see or manage.
-
-Only proceed to Step 1b if you have no native worktree tool available.
-
-### 1b. Git Worktree Fallback
-
-**Only use this if Step 1a does not apply** — you have no native worktree tool available. Create a worktree manually using git.
-
+This harness has no native worktree tools — run git directly through exec
+(C# script: Shell("git", ...) calls).
 #### Directory Selection
 
 Follow this priority order. Explicit user preference always beats observed filesystem state.
 
 1. **Check your instructions for a declared worktree directory preference.** If the user has already specified one, use it without asking.
 
-2. **Check for an existing project-local worktree directory:**
-   ```bash
-   ls -d .worktrees 2>/dev/null     # Preferred (hidden)
-   ls -d worktrees 2>/dev/null      # Alternative
-   ```
-   If found, use it. If both exist, `.worktrees` wins.
+2. **Check for an existing project-local worktree directory** via exec
+   (Directory.Exists on `.worktrees`, then `worktrees`). If found, use it.
+   If both exist, `.worktrees` wins.
 
 3. **If there is no other guidance available**, default to `.worktrees/` at the project root.
 
@@ -79,9 +67,7 @@ Follow this priority order. Explicit user preference always beats observed files
 
 **MUST verify directory is ignored before creating worktree:**
 
-```bash
-git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
-```
+Via exec: Shell("git", "check-ignore", "-q", dir) per candidate — exit 0 means ignored.
 
 **If NOT ignored:** Add to .gitignore, commit the change, then proceed.
 
@@ -89,43 +75,27 @@ git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/d
 
 #### Create the Worktree
 
-```bash
-# Determine path based on chosen location
-path="$LOCATION/$BRANCH_NAME"
+Via exec: Shell("git", "worktree", "add", fullPath, "-b", branchName).
+The agent workspace then moves to fullPath; children spawned while it is
+active inherit that workspace root.
 
-git worktree add "$path" -b "$BRANCH_NAME"
-cd "$path"
-```
-
-**Sandbox fallback:** If `git worktree add` fails with a permission error (sandbox denial), tell the user the sandbox blocked worktree creation and you're working in the current directory instead. Then run setup and baseline tests in place.
+**Exec failure fallback:** if the exec call fails or git reports a permission error, tell your human partner and work in the current directory instead; run setup and baseline tests in place.
 
 ## Step 2: Project Setup
 
 Auto-detect and run appropriate setup:
 
-```bash
-# Node.js
-if [ -f package.json ]; then npm install; fi
-
-# Rust
-if [ -f Cargo.toml ]; then cargo build; fi
-
-# Python
-if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-if [ -f pyproject.toml ]; then poetry install; fi
-
-# Go
-if [ -f go.mod ]; then go mod download; fi
-```
+Detect the project type via File.Exists in your C# script and restore:
+- package.json -> Node project: tell your human partner; do not guess toolchains
+- Cargo.toml / requirements.txt / pyproject.toml / go.mod -> same rule
+For .NET repos (the normal case here): dotnet restore then dotnet build.
 
 ## Step 3: Verify Clean Baseline
 
 Run tests to ensure workspace starts clean:
 
-```bash
-# Use project-appropriate command
-npm test / cargo test / pytest / go test ./...
-```
+dotnet test for .NET repos. For other project types, ask your human partner
+which verification command to use — never guess a foreign toolchain.
 
 **If tests fail:** Report failures, ask whether to proceed or investigate.
 
@@ -145,23 +115,21 @@ Ready to implement <feature-name>
 |-----------|--------|
 | Already in linked worktree | Skip creation (Step 0) |
 | In a submodule | Treat as normal repo (Step 0 guard) |
-| Native worktree tool available | Use it (Step 1a) |
-| No native tool | Git worktree fallback (Step 1b) |
 | `.worktrees/` exists | Use it (verify ignored) |
 | `worktrees/` exists | Use it (verify ignored) |
 | Both exist | Use `.worktrees/` |
 | Neither exists | Check instruction file, then default `.worktrees/` |
 | Directory not ignored | Add to .gitignore + commit |
-| Permission error on create | Sandbox fallback, work in place |
+| Exec or permission failure on create | Work in place, tell your human partner |
 | Tests fail during baseline | Report failures + ask |
-| No package.json/Cargo.toml | Skip dependency install |
+| Foreign project type (Node/Rust/Python/Go) | Ask your human partner; never guess toolchains |
 
 ## Common Rationalizations
 
 | Excuse | Reality |
 |--------|---------|
 | "I'm obviously not in a worktree — no need to check" | Run Step 0. Harness-created isolation and submodules both fool eyeballing; the detection commands settle it. |
-| "`git worktree add` is quicker than hunting for a native tool" | A native tool (e.g. `EnterWorktree`) owns placement, branching, and cleanup. Bypassing it is the #1 mistake — it creates phantom state your harness can't see or manage. |
+| "Skip detection — I'll just create one" | The detection commands settle what eyeballing cannot: existing isolation and submodule traps both fool inspection. Bypassing them is the #1 mistake. |
 | "The worktree directory is surely ignored already" | Run `git check-ignore`. An unignored worktree directory commits the whole tree into the repo. |
 | "Any directory name works" | Explicit instructions beat an existing project-local directory, which beats the `.worktrees/` default. |
 | "The workspace is fresh — baseline tests can wait" | A dirty baseline makes every later failure ambiguous. Run the tests now; proceeding past failures is your human partner's call. |
