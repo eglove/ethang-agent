@@ -2,7 +2,9 @@ using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
@@ -11,6 +13,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.ModelDomain;
+using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -27,15 +30,34 @@ public sealed record DesktopBootstrap(
     string ModelId);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
-///     Startup validation failures surface as an error dialog followed by exit code 1.</summary>
+///     Startup begins with workspace selection (a native folder picker with a re-prompt loop);
+///     the chosen directory roots path resolution, workspace identity, process cwd, and — when
+///     an AGENTS.md exists there — a verbatim system-prompt injection announcing it as read.
+///     Bootstrap validation failures surface as an error dialog followed by exit code 1.</summary>
 public static class DesktopHost
 {
     /// <summary>Background-thread-safe preparation: strict config load, provider build, and
     ///     root-session persistence. Constructs NO Avalonia controls (they are thread-affine
-    ///     and must be built on the UI thread via <see cref="CreateMainWindow"/>).</summary>
+    ///     and must be built on the UI thread via <see cref="CreateMainWindow"/>).
+    ///     <paramref name="workspaceRoot"/> must exist; it becomes the agent's working
+    ///     directory in every sense: path resolution, workspace identity, process cwd.</summary>
     public static async Task<DesktopBootstrap> PrepareAsync(
-        IClassicDesktopStyleApplicationLifetime desktop)
+        IClassicDesktopStyleApplicationLifetime desktop, string workspaceRoot)
     {
+        if (string.IsNullOrWhiteSpace(workspaceRoot) || !Directory.Exists(workspaceRoot))
+        {
+            await ShowErrorAndExitAsync(desktop,
+                $"workspace directory not found: '{workspaceRoot}'.");
+            throw new UnreachableException("unreachable after error dialog shutdown");
+        }
+
+        workspaceRoot = Path.GetFullPath(workspaceRoot);
+
+        // exec scripts resolve relative paths through their globals' Workspace, which
+        // captures Environment.CurrentDirectory at execution time — align it with the
+        // chosen root so every tool sees one consistent workspace.
+        Environment.CurrentDirectory = workspaceRoot;
+
         var settings = AgentConfiguration.Load();
         if (settings.ApiKey is null)
         {
@@ -49,8 +71,9 @@ public static class DesktopHost
                 ModelConfig.Create("stealth/ox-alpha", 32 * 1024, 0.7f).Value!,
                 new AgentHostOptions(
                     new AvaloniaClarifyChannel(PresentLater),
-                    new FixedWorkspaceContext("app"),
-                    new UnrootedPathResolver()))
+                    new FixedWorkspaceContext(workspaceRoot),
+                    new WorkspacePathResolver(workspaceRoot),
+                    [new WorkspaceInstructionsPromptProvider(workspaceRoot)]))
             .BuildServiceProvider();
 
         var store = services.GetRequiredService<IAgentStore>();
@@ -72,6 +95,96 @@ public static class DesktopHost
             services.GetRequiredService<ModelConfig>().ModelId);
     }
 
+    /// <summary>Opens the platform folder picker and returns the chosen directory's local
+    ///     path, or null when the user cancels. MUST run on the UI thread: native folder
+    ///     dialogs need a parent window handle, supplied by a transient 1x1 host window.</summary>
+    public static async Task<string?> PickWorkspaceFolderAsync(
+        IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        Dispatcher.UIThread.VerifyAccess();
+
+        var host = TransientHostWindow();
+        host.Show();
+        try
+        {
+            var folders = await host.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "Choose the directory eThang Agent will work in",
+                AllowMultiple = false,
+            });
+            return folders.Count > 0 ? folders[0].Path.LocalPath : null;
+        }
+        finally
+        {
+            host.Close();
+        }
+    }
+
+    /// <summary>Shown after a cancelled pick: the workspace is mandatory. Returns true to
+    ///     re-open the folder picker, false to exit the application. Closing the dialog
+    ///     counts as declining (false). MUST run on the UI thread.</summary>
+    public static async Task<bool> ShowRequiredDialogAsync(
+        IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        Dispatcher.UIThread.VerifyAccess();
+
+        var choice = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var chooseAgain = new Button { Content = "Choose again" };
+        var exit = new Button { Content = "Exit" };
+        chooseAgain.Click += (_, _) => { choice.TrySetResult(true); };
+        exit.Click += (_, _) => { choice.TrySetResult(false); };
+
+        var dialog = new Window
+        {
+            Title = "eThang Agent — working directory required",
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(24),
+                Spacing = 16,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "A working directory is required before eThang Agent can start.",
+                        TextWrapping = TextWrapping.Wrap,
+                        MaxWidth = 420,
+                    },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 12,
+                        Children = { chooseAgain, exit },
+                    },
+                },
+            },
+        };
+        dialog.Closed += (_, _) => choice.TrySetResult(false);
+
+        var host = TransientHostWindow();
+        host.Show();
+        try
+        {
+            await dialog.ShowDialog(host);
+            return await choice.Task;
+        }
+        finally
+        {
+            host.Close();
+        }
+    }
+
+    private static Window TransientHostWindow() => new()
+    {
+        ShowInTaskbar = false,
+        SystemDecorations = SystemDecorations.None,
+        ShowActivated = false,
+        Width = 1,
+        Height = 1,
+    };
+
     /// <summary>Builds the view-model and main window. MUST run on the UI thread — Avalonia
     ///     controls are thread-affine (calling this off-thread throws "Call from invalid thread").</summary>
     public static MainWindow CreateMainWindow(
@@ -86,8 +199,9 @@ public static class DesktopHost
             PresentOnUIThread(() => viewModel!.PresentClarifyAsync(q)));
 
         var vm = new MainViewModel(
-            (command, ct, content, reasoning, iterationEnd, toolCall, toolResult) =>
-                boot.Handler.Handle(command, ct, content, reasoning, iterationEnd, toolCall, toolResult),
+            OffUiThread((command, ct, content, reasoning, iterationEnd, toolCall, toolResult) =>
+                boot.Handler.Handle(command, ct, content, reasoning,
+                    iterationEnd, toolCall, toolResult)),
             boot.Lifecycle,
             boot.RootId,
             boot.Conversation,
@@ -133,6 +247,27 @@ public static class DesktopHost
             dialog.Closed += (_, _) => desktop.Shutdown(1); // non-zero exit per spec
             dialog.Show();
         });
+    }
+
+    /// <summary>Wraps a turn runner so each turn executes on the worker pool. The agent
+    /// loop must never run on the UI thread: its awaits would post back to Avalonia's
+    /// SynchronizationContext, and one sync-blocking tool or script would deadlock the
+    /// app (observed in production as a frozen turn with nothing persisted). UI updates
+    /// flow back only through the stream sink and clarify channel, which marshal
+    /// explicitly onto the dispatcher.</summary>
+    public static TurnRunner OffUiThread(TurnRunner inner)
+    {
+        return (command, ct, contentDelta, reasoningDelta, iterationEnd, toolCall, toolResult) =>
+        {
+            // Suppress the execution context along with the thread switch: Task.Run alone
+            // still flows the caller's SynchronizationContext (.NET 6+), which would pin
+            // the domain loop's continuations to the UI pump.
+            Task<Result<string>> scheduled;
+            using (ExecutionContext.SuppressFlow())
+                scheduled = Task.Run(() => inner(command, ct, contentDelta,
+                    reasoningDelta, iterationEnd, toolCall, toolResult));
+            return scheduled;
+        };
     }
 
     private static Task<ClarifyViewModel> PresentLater(ClarifyQuestion question) =>

@@ -177,6 +177,7 @@ public static class AgentComposition
                 new ExecGuidePromptProvider(
                     new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
                 new CuratedMemoryGuidePromptProvider(),
+                ..host.ExtraPromptProviders,
             ]))
             .AddSingleton(subAgents(settings))
             .AddSingleton<Ag>(sp =>

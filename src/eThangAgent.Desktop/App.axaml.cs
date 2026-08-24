@@ -2,7 +2,7 @@ using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
-using Avalonia.Themes.Fluent;
+using Avalonia.Threading;
 using eThangAgent.Desktop.Views;
 
 namespace eThangAgent.Desktop;
@@ -15,16 +15,23 @@ public class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // Bootstrap splits by thread affinity: config load + SQLite session save run on a
-            // background thread; window construction MUST happen on the UI thread (Avalonia
-            // controls are thread-affine). Startup failures surface as an error dialog and a
-            // non-zero exit inside DesktopHost.
+            // Startup splits three ways: workspace selection first (folder dialogs are
+            // UI-affine, so the decision loop runs on the UI thread), then config load +
+            // SQLite session save on a background thread, then window construction back on
+            // the UI thread (Avalonia controls are thread-affine). Declining to choose a
+            // workspace exits cleanly with code 0; bootstrap failures surface as an error
+            // dialog and a non-zero exit inside DesktopHost.
             _ = Task.Run(async () =>
             {
+                var root = await Dispatcher.UIThread.InvokeAsync(
+                    () => SelectWorkspaceOrShutdownAsync(desktop));
+                if (root is null)
+                    return; // user declined to pick a workspace; shutdown already scheduled
+
                 try
                 {
-                    var boot = await DesktopHost.PrepareAsync(desktop);
-                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    var boot = await DesktopHost.PrepareAsync(desktop, root);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         var window = DesktopHost.CreateMainWindow(desktop, boot);
                         desktop.MainWindow = window;
@@ -45,5 +52,23 @@ public class App : Application
             });
         }
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>Runs the workspace decision loop on the UI thread. Returns the chosen root,
+    ///     or null when the user chose to exit (clean shutdown scheduled here).</summary>
+    private static async Task<string?> SelectWorkspaceOrShutdownAsync(
+        IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        var flow = new WorkspaceStartupFlow();
+        var result = await flow.RunAsync(
+            () => DesktopHost.PickWorkspaceFolderAsync(desktop),
+            () => DesktopHost.ShowRequiredDialogAsync(desktop));
+
+        if (result.ExitRequested)
+        {
+            desktop.Shutdown(0);
+            return null;
+        }
+        return result.Root;
     }
 }

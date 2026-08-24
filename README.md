@@ -8,6 +8,7 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 
 - Two interchangeable frontends over one shared core (`eThangAgent.Composition`): the interactive terminal REPL and an Avalonia desktop app with the same feature surface — streamed responses with reasoning/tool activity, clarify prompts answered in-place, sub-agent spawning, durable session persistence
 - Conversational coding loop against [OpenRouter](https://openrouter.ai/) models
+- Desktop startup asks for a working directory through a native folder picker and re-prompts until one is chosen; the picked directory roots path resolution, `exec` scripts' cwd, and curated-memory scoping, and an `AGENTS.md` found at that root is injected verbatim into the system prompt as read
 - Live response streaming in the interactive REPL — assistant text renders as it arrives,
   including interstitial reasoning between tool calls (SSE; falls back transparently when a
   provider endpoint does not stream)
