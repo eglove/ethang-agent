@@ -91,6 +91,9 @@ Each open agent gets its own everything-except-the-database:
   explicitly; the ACL never reads ambient process state.
 - `DesktopHost.PrepareAsync` stops setting `Environment.CurrentDirectory`.
 
+The evidence runner needs NO change: `CSharpEvidenceRunner` compiles scripts without a
+globals type, so it has no workspace dependency today.
+
 Verified during brainstorming: external child processes are already workspace-anchored
 (`ScriptGlobals.Shell` sets `WorkingDirectory = Workspace`; git access anchors to repo
 path), so this single seam change fully removes cross-agent interference.
@@ -108,6 +111,8 @@ tabs turning simultaneously are independent tasks; nothing polls.
   Bootstrap-failure cleanup reuses this path minus lifecycle completion.
 - **Background clarify indicator:** small dot on the tab header while that tab's agent
   awaits a clarify answer.
+- **/quit in a tab:** closes THAT tab (previously: exited the app). App exit is
+  shell-window close only.
 - **Shell close:** gracefully complete ALL open sessions (parity with today's
   `MainWindow.Closed` handling for one), then exit.
 
