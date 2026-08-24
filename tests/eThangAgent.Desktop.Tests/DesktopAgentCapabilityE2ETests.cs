@@ -71,10 +71,10 @@ public class DesktopAgentCapabilityE2ETests
     {
         using var host = await new E2E.Host().StartAsync();
 
-        host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram("Tools.Invoke(\"todo\", new { action = \"Add\", description = \"ship it\" })")));
+        host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram("Tools.Invoke(\"todo\", new { timeoutSeconds = 120, action = \"Add\", description = \"ship it\" })")));
         host.Mock.Returns(E2E.ExecToolCall("call_2", E2E.ExecProgram("Tools.Invoke(\"state.set\", new { key = \"todo/list\", value = \"hijack\" })")));
         host.Mock.Returns(E2E.ExecToolCall("call_3", E2E.ExecProgram("Tools.Invoke(\"state.delete\", new { key = \"todo/list\" })")));
-        host.Mock.Returns(E2E.ExecToolCall("call_4", E2E.ExecProgram("Tools.Invoke(\"todo\", new { action = \"List\" })")));
+        host.Mock.Returns(E2E.ExecToolCall("call_4", E2E.ExecProgram("Tools.Invoke(\"todo\", new { timeoutSeconds = 120, action = \"List\" })")));
         host.Mock.Returns(RawCompletion("done"));
 
         await host.Vm.RunTurnAsync("track one task, then try to write todo state directly");

@@ -18,7 +18,8 @@ public class AgentToolsProviderTests
         Assert.Equal("read", action.Name);
         Assert.Equal("Read lines from a text file.", action.Summary);
         Assert.Contains("annotation", action.Description);
-        Assert.Equal(3, action.Parameters.Count);
+        Assert.Equal(4, action.Parameters.Count);
+        Assert.Contains(action.Parameters, p => p.Name == ToolTimeout.ParameterName && p.Type == "Integer");
         Assert.Contains(action.Parameters, p => p.Name == "path" && p.Type == "String");
         Assert.Contains(action.Parameters, p => p.Name == "startLine" && p.Type == "Integer");
     }
@@ -27,7 +28,7 @@ public class AgentToolsProviderTests
     public async Task InvokeAsync_DelegatesToTool_AndReturnsContent()
     {
         var result = await Create().InvokeAsync("read",
-            """{"path":"x.txt","startLine":1,"endLine":2}""");
+            """{"timeoutSeconds":120,"path":"x.txt","startLine":1,"endLine":2}""");
 
         Assert.False(result.IsError);
         Assert.Contains("[read x.txt lines 1-2 of 2 total]", result.Content);
@@ -41,7 +42,7 @@ public class AgentToolsProviderTests
             [new AgentToolBinding(new ReadTool(new FailingFileSystemAccess()), "Read lines.")]);
 
         var result = await provider.InvokeAsync("read",
-            """{"path":"missing.txt","startLine":1,"endLine":5}""");
+            """{"timeoutSeconds":120,"path":"missing.txt","startLine":1,"endLine":5}""");
 
         Assert.True(result.IsError);
         Assert.Contains("Error [FileNotFound]:", result.Content);

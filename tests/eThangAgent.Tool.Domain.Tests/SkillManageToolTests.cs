@@ -29,7 +29,7 @@ public class SkillManageToolTests
     public async Task MissingAction_MissingParameter_NamingAllowedActions()
     {
         var (tool, _, _) = MakeTool();
-        var result = await tool.ExecuteAsync(new RawToolInput("skill_manage", "{}"));
+        var result = await tool.ExecuteAsync(new RawToolInput("skill_manage", "{\"timeoutSeconds\":120}"));
         Assert.True(result.IsError);
         Assert.Contains("MissingParameter", result.Content);
         Assert.Contains("'action'", result.Content);
@@ -43,7 +43,7 @@ public class SkillManageToolTests
     {
         var (tool, _, store) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"create","name":"x-skill"}"""));
+            """{"timeoutSeconds":120,"action":"create","name":"x-skill"}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
         Assert.Contains("'create'", result.Content);
@@ -59,7 +59,7 @@ public class SkillManageToolTests
     {
         var (tool, _, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":42}"""));
+            """{"timeoutSeconds":120,"action":42}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterType", result.Content);
         Assert.Contains("'action'", result.Content);
@@ -72,7 +72,7 @@ public class SkillManageToolTests
     {
         var (tool, _, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Create","name":"My-Skill"}"""));
+            """{"timeoutSeconds":120,"action":"Create","name":"My-Skill"}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
         Assert.Contains("lowercase", result.Content);
@@ -83,7 +83,7 @@ public class SkillManageToolTests
     {
         var (tool, _, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Create","name":"-bad"}"""));
+            """{"timeoutSeconds":120,"action":"Create","name":"-bad"}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
         Assert.Contains("must start with a letter or digit", result.Content);
@@ -94,7 +94,7 @@ public class SkillManageToolTests
     {
         var (tool, _, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Create","name":""}"""));
+            """{"timeoutSeconds":120,"action":"Create","name":""}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
         Assert.Contains("non-empty", result.Content);
@@ -106,7 +106,7 @@ public class SkillManageToolTests
     public async Task InvalidJsonArguments_Rejected()
     {
         var (tool, _, _) = MakeTool();
-        var result = await tool.ExecuteAsync(new RawToolInput("skill_manage", "{bad"));
+        var result = await tool.ExecuteAsync(new RawToolInput("skill_manage", "{\"timeoutSeconds\":120,bad"));
         Assert.True(result.IsError);
         Assert.Contains("not valid JSON", result.Content);
     }
@@ -127,7 +127,7 @@ public class SkillManageToolTests
     {
         var (tool, _, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Delete","name":"my-skill","confirm":true,"force":true}"""));
+            """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":true,"force":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("Unknown parameter", result.Content);
         Assert.Contains("force", result.Content);
@@ -141,7 +141,7 @@ public class SkillManageToolTests
         var (tool, catalog, store) = MakeTool();
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Create","name":"my-skill","description":"What it does.","body":"Step one.","provenanceSession":"sess-1"}"""));
+            """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"What it does.","body":"Step one.","provenanceSession":"sess-1"}"""));
 
         Assert.False(result.IsError);
         Assert.Equal("[skill-manage] created 'my-skill' v1", result.Content);
@@ -170,7 +170,7 @@ public class SkillManageToolTests
             MakeTool(builtIns: [Def("brainstorming", "Built-in body.")]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Create","name":"brainstorming","description":"d","body":"b"}"""));
+            """{"timeoutSeconds":120,"action":"Create","name":"brainstorming","description":"d","body":"b"}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("NameCollision", result.Content);
@@ -190,7 +190,7 @@ public class SkillManageToolTests
         var tool = new SkillManageTool(new FakeCatalog([]), store, () => ClockNow);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Create","name":"my-skill","description":"d","body":"b"}"""));
+            """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"d","body":"b"}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("SkillExists", result.Content);
@@ -205,7 +205,7 @@ public class SkillManageToolTests
     {
         var (tool, _, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Create","name":"my-skill","body":"b"}"""));
+            """{"timeoutSeconds":120,"action":"Create","name":"my-skill","body":"b"}"""));
         Assert.True(result.IsError);
         Assert.Contains("MissingParameter", result.Content);
         Assert.Contains("'description'", result.Content);
@@ -216,7 +216,7 @@ public class SkillManageToolTests
     {
         var (tool, _, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Create","name":"my-skill","description":"d"}"""));
+            """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"d"}"""));
         Assert.True(result.IsError);
         Assert.Contains("MissingParameter", result.Content);
         Assert.Contains("'body'", result.Content);
@@ -227,7 +227,7 @@ public class SkillManageToolTests
     {
         var (tool, _, store) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Create","name":"my-skill","description":"","body":"b"}"""));
+            """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"","body":"b"}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
         Assert.Contains("'description'", result.Content);
@@ -245,7 +245,7 @@ public class SkillManageToolTests
                 source: SkillSource.Learned, provenance: "p0", createdAt: createdAt)]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Update","name":"my-skill","body":"New body."}"""));
+            """{"timeoutSeconds":120,"action":"Update","name":"my-skill","body":"New body."}"""));
 
         Assert.False(result.IsError);
         Assert.Equal("[skill-manage] updated 'my-skill' v2", result.Content);
@@ -269,7 +269,7 @@ public class SkillManageToolTests
             MakeTool(builtIns: [Def("brainstorming", "Built-in body.")]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Update","name":"brainstorming","body":"New body."}"""));
+            """{"timeoutSeconds":120,"action":"Update","name":"brainstorming","body":"New body."}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("BuiltInImmutable", result.Content);
@@ -286,7 +286,7 @@ public class SkillManageToolTests
         var (tool, _, store) = MakeTool();
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Update","name":"nope","body":"New body."}"""));
+            """{"timeoutSeconds":120,"action":"Update","name":"nope","body":"New body."}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("SkillNotFound", result.Content);
@@ -301,7 +301,7 @@ public class SkillManageToolTests
             learned: [Def("my-skill", "Old body.", source: SkillSource.Learned)]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Update","name":"my-skill"}"""));
+            """{"timeoutSeconds":120,"action":"Update","name":"my-skill"}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
@@ -318,7 +318,7 @@ public class SkillManageToolTests
             learned: [Def("my-skill", "Old body.", source: SkillSource.Learned)]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Update","name":"my-skill","body":""}"""));
+            """{"timeoutSeconds":120,"action":"Update","name":"my-skill","body":""}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
@@ -335,7 +335,7 @@ public class SkillManageToolTests
             learned: [Def("my-skill", "Body.", source: SkillSource.Learned)]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Delete","name":"my-skill"}"""));
+            """{"timeoutSeconds":120,"action":"Delete","name":"my-skill"}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
@@ -351,7 +351,7 @@ public class SkillManageToolTests
             learned: [Def("my-skill", "Body.", source: SkillSource.Learned)]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Delete","name":"my-skill","confirm":false}"""));
+            """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":false}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
@@ -366,7 +366,7 @@ public class SkillManageToolTests
             learned: [Def("my-skill", "Body.", source: SkillSource.Learned)]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Delete","name":"my-skill","confirm":"true"}"""));
+            """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":"true"}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
@@ -380,7 +380,7 @@ public class SkillManageToolTests
             MakeTool(builtIns: [Def("brainstorming", "Built-in body.")]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Delete","name":"brainstorming","confirm":true}"""));
+            """{"timeoutSeconds":120,"action":"Delete","name":"brainstorming","confirm":true}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("BuiltInImmutable", result.Content);
@@ -397,7 +397,7 @@ public class SkillManageToolTests
                 source: SkillSource.Learned, provenance: "p0")]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
-            """{"action":"Delete","name":"my-skill","confirm":true}"""));
+            """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":true}"""));
 
         Assert.False(result.IsError);
         Assert.Equal("[skill-manage] deleted 'my-skill'", result.Content);

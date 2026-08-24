@@ -23,10 +23,8 @@ public static class AgentConfiguration
             configuration["SubAgent:DefaultModel"],
             configuration["SubAgent:ChildTimeoutSeconds"],
             configuration["SubAgent:MaxConcurrentAgents"]);
-        var maxToolIterations = MaxToolIterationsConfiguration.Bind(
-            configuration["Agent:MaxToolIterations"]);
 
-        return new AgentSettings(apiKey, baseUrl, subAgents, maxToolIterations);
+        return new AgentSettings(apiKey, baseUrl, subAgents);
     }
 
     private static Uri BindBaseUrl(string? baseUrlEnv)

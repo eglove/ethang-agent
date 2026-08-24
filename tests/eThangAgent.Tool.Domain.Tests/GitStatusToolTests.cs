@@ -22,7 +22,7 @@ public class GitStatusToolTests
     public async Task CleanRepo_FormatsCleanLine()
     {
         var (tool, _) = Make(new GitStatus("main", [], [], []));
-        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{}"));
+        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{\"timeoutSeconds\":120}"));
         Assert.False(result.IsError);
         Assert.Equal("[git-status main: clean]", result.Content);
     }
@@ -35,7 +35,7 @@ public class GitStatusToolTests
             [new GitStatusEntry(" M", "src/b.cs")],
             ["notes.txt"]);
         var (tool, _) = Make(status);
-        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{}"));
+        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{\"timeoutSeconds\":120}"));
         Assert.False(result.IsError);
         Assert.Equal(
             """
@@ -57,7 +57,7 @@ public class GitStatusToolTests
             [new GitStatusEntry("A ", "x.cs"), new GitStatusEntry("D ", "y.cs")],
             [], []);
         var (tool, _) = Make(status);
-        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{}"));
+        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{\"timeoutSeconds\":120}"));
         Assert.False(result.IsError);
         Assert.Equal(
             """
@@ -75,7 +75,7 @@ public class GitStatusToolTests
     public async Task NotAGitRepository_SurfacesBackendError()
     {
         var (tool, _) = Make();
-        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{}"));
+        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{\"timeoutSeconds\":120}"));
         Assert.True(result.IsError);
         Assert.Contains($"Error [NotAGitRepository]: Not a git repository: {Root}", result.Content);
     }
@@ -86,7 +86,7 @@ public class GitStatusToolTests
         var fake = new FakeGitQueryAccess(
             Result<GitStatus>.Failure(new Error("GitError", "fatal: bad object HEAD")));
         var tool = new GitStatusTool(new WorkspacePathResolver(Root), fake);
-        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{}"));
+        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{\"timeoutSeconds\":120}"));
         Assert.True(result.IsError);
         Assert.Contains("Error [GitError]: fatal: bad object HEAD", result.Content);
     }
@@ -98,7 +98,7 @@ public class GitStatusToolTests
     {
         var (tool, _) = Make();
         var result = await tool.ExecuteAsync(new RawToolInput("git_status",
-            """{"verbose":true}"""));
+            """{"timeoutSeconds":120,"verbose":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("Unknown parameter", result.Content);
         Assert.Contains("verbose", result.Content);
@@ -117,25 +117,29 @@ public class GitStatusToolTests
     public async Task EmptyObjectArguments_Accepted()
     {
         var (tool, _) = Make(new GitStatus("main", [], [], []));
-        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{}"));
+        var result = await tool.ExecuteAsync(new RawToolInput("git_status", "{\"timeoutSeconds\":120}"));
         Assert.False(result.IsError);
         Assert.Equal("[git-status main: clean]", result.Content);
     }
 
+    // The mandatory timeoutSeconds budget means arguments are never optional:
+    // an empty payload is a MissingParameter error, not an implicit empty object.
     [Fact]
-    public async Task MissingArguments_Accepted()
+    public async Task MissingArguments_Rejected_MissingParameter()
     {
         var (tool, _) = Make(new GitStatus("main", [], [], []));
         var result = await tool.ExecuteAsync(new RawToolInput("git_status", ""));
-        Assert.False(result.IsError);
-        Assert.Equal("[git-status main: clean]", result.Content);
+        Assert.True(result.IsError);
+        // An empty payload is not valid JSON, so it fails one step earlier than
+        // the budget check: malformed arguments, budget never reached.
+        Assert.Contains("InvalidJsonArguments", result.Content);
     }
 
     [Fact]
     public async Task ResolvesImplicitRoot_AndPassesToQuery()
     {
         var (tool, fake) = Make(new GitStatus("main", [], [], []));
-        await tool.ExecuteAsync(new RawToolInput("git_status", "{}"));
+        await tool.ExecuteAsync(new RawToolInput("git_status", "{\"timeoutSeconds\":120}"));
         Assert.Equal(Root, fake.RepoPath);
     }
 

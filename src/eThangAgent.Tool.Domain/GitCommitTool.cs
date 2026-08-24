@@ -10,8 +10,8 @@ public sealed class GitCommitTool : ITool
     public ToolDefinition Definition { get; } = new(
         "git_commit",
         "Commit the CURRENT INDEX of the repository at the workspace root with a fully " +
-        "validated message. Never stages anything — stage first, then call this. style is " +
-        "exactly 'Conventional', 'Gitmoji', or 'None' (case-sensitive); description is the " +
+        "validated message. Never stages anything — stage first, then call this. timeoutSeconds and style are " +
+        "mandatory: style is exactly 'Conventional', 'Gitmoji', or 'None' (case-sensitive); description is the " +
         "single-line subject (at most 72 characters after trimming). Conventional requires " +
         "type from the fixed set and an optional lowercase scope; Gitmoji requires emoji_key " +
         "(an exact ':name:' catalog key) and forbids type/scope; None allows description " +
@@ -20,6 +20,7 @@ public sealed class GitCommitTool : ITool
         "committed message exactly as committed. Validation and backend errors begin with " +
         "`Error [Code]:`.",
         [
+            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.Integer, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("style", ToolParameterType.String,
                 "Exactly 'Conventional', 'Gitmoji', or 'None' (case-sensitive)."),
             new ToolParameter("type", ToolParameterType.String,
@@ -33,7 +34,7 @@ public sealed class GitCommitTool : ITool
             new ToolParameter("body", ToolParameterType.String,
                 "Optional body paragraph, appended after a blank line."),
         ],
-        ["style", "description"]);
+        ["timeoutSeconds", "style", "description"]);
 
     public GitCommitTool(IPathResolver resolver, IGitCommitAccess commits)
     {
@@ -41,11 +42,11 @@ public sealed class GitCommitTool : ITool
         _commits = commits ?? throw new ArgumentNullException(nameof(commits));
     }
 
-    public async Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
     {
         var parsed = GitCommitInput.Create(input.JsonArguments);
         if (!parsed.IsSuccess)
-            return Err(parsed.Error!);
+            return Task.FromResult(Err(parsed.Error!));
         var v = parsed.Value!;
 
         // Message assembly first: every validation code surfaces verbatim before any
@@ -53,13 +54,23 @@ public sealed class GitCommitTool : ITool
         var message = CommitMessage.Create(
             v.Style, v.Type, v.Scope, v.EmojiKey, v.Description, v.Body);
         if (!message.IsSuccess)
-            return Err(message.Error!);
+            return Task.FromResult(Err(message.Error!));
 
         var root = _resolver.Resolve(".");
         if (!root.IsSuccess)
-            return Err(root.Error!);
+            return Task.FromResult(Err(root.Error!));
 
-        var committed = await _commits.CommitAsync(root.Value!, message.Value!.Rendered, ct);
+        var budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+        if (!budget.IsSuccess)
+            return Task.FromResult(Err(budget.Error!));
+
+        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
+            CommitAsync(root.Value!, message.Value!.Rendered, token), ct);
+    }
+
+    private async Task<ToolResult> CommitAsync(string repoRoot, string message, CancellationToken ct)
+    {
+        var committed = await _commits.CommitAsync(repoRoot, message, ct);
         if (!committed.IsSuccess)
             return Err(committed.Error!);
         var o = committed.Value!;

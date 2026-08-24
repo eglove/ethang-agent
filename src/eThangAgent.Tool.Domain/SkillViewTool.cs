@@ -10,17 +10,20 @@ public sealed class SkillViewTool : ITool
 
     public ToolDefinition Definition { get; } = new(
         "skill_view",
-        "Show the full body of one methodology skill by name. name is mandatory: the exact " +
+        "Show the full body of one methodology skill by name. timeoutSeconds and name are mandatory: " +
+        "name is the exact " +
         "skill name as listed by skill_list. Built-ins are resolved first, then learned skills. " +
         "Output is an annotation line `[skill <name> | <builtin|learned> | v<version>]` followed " +
         "by the skill body byte-for-byte. Each view records a usage row best-effort; if " +
         "recording fails, a final line `[warning] usage not recorded` is appended and the view " +
-        "still succeeds. Errors begin with `Error [Code]:` \u2014 including `Error [SkillNotFound]:` " +
+        "still succeeds. Errors begin with `Error [Code]:` — including `Error [SkillNotFound]:` " +
         "when no skill has that name.",
         [
+            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.Integer, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("name", ToolParameterType.String,
                 "Exact skill name from skill_list."),
-        ]);
+        ],
+        ["timeoutSeconds", "name"]);
 
     public SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore learned)
     {
@@ -28,14 +31,22 @@ public sealed class SkillViewTool : ITool
         _learned = learned ?? throw new ArgumentNullException(nameof(learned));
     }
 
-    public async Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
     {
         var parsed = SkillViewInput.Create(input.JsonArguments);
         if (!parsed.IsSuccess)
-            return Err(parsed.Error!);
+            return Task.FromResult(Err(parsed.Error!));
 
-        var name = parsed.Value!.Name;
+        var budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+        if (!budget.IsSuccess)
+            return Task.FromResult(Err(budget.Error!));
 
+        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
+            ViewAsync(parsed.Value!.Name, token), ct);
+    }
+
+    private async Task<ToolResult> ViewAsync(string name, CancellationToken ct)
+    {
         // Built-ins are authoritative; names cannot collide, so any catalog
         // miss or failure safely falls through to the learned store.
         var builtIn = await _catalog.GetAsync(name, ct);

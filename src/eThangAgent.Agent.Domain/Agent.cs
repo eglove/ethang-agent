@@ -18,7 +18,6 @@ public class Agent
     private readonly IModelProvider _provider;
     private readonly IToolRegistry _tools;
     private readonly ISystemPromptProvider? _systemPrompt;
-    private readonly int _maxToolIterations;
     private readonly int _maxAutoContinuations;
 
     // Auto-continuations used by the current turn; reset at SendMessage entry.
@@ -37,7 +36,7 @@ public class Agent
     public int LastTurnToolCalls { get; private set; }
 
     public Agent(IModelProvider provider, Conversation conversation, ModelConfig config,
-        IToolRegistry tools, ISystemPromptProvider? systemPrompt = null, int maxToolIterations = 100,
+        IToolRegistry tools, ISystemPromptProvider? systemPrompt = null,
         AgentId? id = null, int depth = 0, int maxAutoContinuations = DefaultMaxAutoContinuations)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
@@ -45,7 +44,6 @@ public class Agent
         _systemPrompt = systemPrompt;
         Conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
         Config = config ?? throw new ArgumentNullException(nameof(config));
-        _maxToolIterations = maxToolIterations;
         _maxAutoContinuations = maxAutoContinuations;
         Id = id ?? AgentId.NewId();
         Depth = depth;
@@ -70,8 +68,14 @@ public class Agent
         LastTurnToolCalls = 0;
         _autoContinuations = 0;
         Conversation.AddUserMessage(text);
-        for (var i = 0; i < _maxToolIterations; i++)
+        // No iteration cap by design: the loop runs until the model answers without
+        // tool calls. Termination is the model's job — but cancellation is checked
+        // every round, because nothing else in the loop is obliged to observe ct
+        // (fakes, cached providers, and instant tools may never see it).
+        while (true)
         {
+            ct.ThrowIfCancellationRequested();
+
             var request = new ModelRequest(
                 Conversation.Messages, _tools.Definitions, _systemPrompt?.Build());
             var result = await _provider.SendStreamingAsync(Config, request,
@@ -125,8 +129,5 @@ public class Agent
                 onToolResult?.Invoke(call.Name, summary);
             }
         }
-
-        return Result<string>.Failure(new Error("MaxToolIterations",
-            $"Tool loop did not converge after {_maxToolIterations} iterations."));
     }
 }

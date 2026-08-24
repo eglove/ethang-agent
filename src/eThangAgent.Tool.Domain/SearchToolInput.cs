@@ -11,22 +11,13 @@ public sealed record SearchToolInput(
 
     public static Result<SearchToolInput> Create(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Fail(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
-        if (json.ValueKind != JsonValueKind.Object)
-            return Fail(new Error("InvalidJsonArguments", "Arguments must be a JSON object."));
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Fail(baseParse.Error!);
+        var json = baseParse.Value;
 
         var known = new HashSet<string>(
-            ["pattern", "mode", "path", "glob", "maxResults", "contextLines"],
+            ["pattern", "mode", "path", "glob", "maxResults", "contextLines", ToolTimeout.ParameterName],
             StringComparer.Ordinal);
         var unknown = json.EnumerateObject()
             .Where(p => !known.Contains(p.Name))
@@ -35,7 +26,7 @@ public sealed record SearchToolInput(
         if (unknown.Count > 0)
             return Fail(new Error("UnknownParameter",
                 $"Unknown parameter(s): {string.Join(", ", unknown)}. " +
-                "Allowed: pattern, mode, path, glob, maxResults, contextLines."));
+                $"Allowed: pattern, mode, path, glob, maxResults, contextLines, {ToolTimeout.ParameterName}."));
 
         if (!json.TryGetProperty("pattern", out var patternEl)) return Missing("pattern");
         if (patternEl.ValueKind != JsonValueKind.String) return WrongType("pattern", "string", patternEl.ValueKind);
@@ -79,7 +70,7 @@ public sealed record SearchToolInput(
             return WrongType("maxResults", "integer", maxEl.ValueKind);
         if (max < 1)
             return Fail(new Error("InvalidParameterValue",
-                $"'maxResults' must be \u2265 1 (got {max})."));
+                $"'maxResults' must be ≥ 1 (got {max})."));
         var clampedMax = Math.Min(max, MaxResultsCap);
 
         var contextLines = 0;
@@ -89,7 +80,7 @@ public sealed record SearchToolInput(
                 return WrongType("contextLines", "integer", ctxEl.ValueKind);
             if (contextLines < 0)
                 return Fail(new Error("InvalidParameterValue",
-                    $"'contextLines' must be \u2265 0 (got {contextLines})."));
+                    $"'contextLines' must be ≥ 0 (got {contextLines})."));
         }
 
         return Result<SearchToolInput>.Success(new(

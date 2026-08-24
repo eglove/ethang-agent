@@ -7,28 +7,19 @@ public sealed record WorkingDiffInput(string Scope, string? Path)
 {
     public static Result<WorkingDiffInput> Create(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Fail(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
-        if (json.ValueKind != JsonValueKind.Object)
-            return Fail(new Error("InvalidJsonArguments", "Arguments must be a JSON object."));
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Fail(baseParse.Error!);
+        var json = baseParse.Value;
 
-        var known = new HashSet<string>(["scope", "path"], StringComparer.Ordinal);
+        var known = new HashSet<string>(["scope", "path", ToolTimeout.ParameterName], StringComparer.Ordinal);
         var unknown = json.EnumerateObject()
             .Where(p => !known.Contains(p.Name))
             .Select(p => p.Name)
             .ToList();
         if (unknown.Count > 0)
             return Fail(new Error("UnknownParameter",
-                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: scope, path."));
+                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: scope, path, {ToolTimeout.ParameterName}."));
 
         if (!json.TryGetProperty("scope", out var scopeEl)) return Missing();
         if (scopeEl.ValueKind != JsonValueKind.String) return WrongType(scopeEl.ValueKind);

@@ -64,7 +64,7 @@ public sealed class ThrowingProvider : IModelProvider
         => throw new InvalidOperationException("provider exploded");
 }
 
-/// <summary>Always answers with one tool call — drives the loop to MaxToolIterations.</summary>
+/// <summary>Always answers with one tool call — drives the loop until a budget stops it.</summary>
 public sealed class LoopingProvider : IModelProvider
 {
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,

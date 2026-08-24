@@ -27,6 +27,10 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 - Selectable transcript text in the desktop app — select any message or reasoning block
   and copy it with Ctrl+C
 - `exec` tool — in-process C# scripting via Roslyn with artifact capture and structured output
+- Every tool call carries a mandatory `timeoutSeconds` budget (1–3600): a call exceeding its
+  budget is stopped and returned as `Error [ToolTimeout]` for self-correction; the agent's
+  tool loop itself runs uncapped until the model answers without tool calls, with per-turn
+  cancellation always honored
 - `read` tool — bounded, line-range text file reads
 - `write` tool — create/replace files behind an explicit overwrite gate
 - `edit` tool — exact literal replacements with occurrence verification

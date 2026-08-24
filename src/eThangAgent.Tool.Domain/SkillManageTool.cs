@@ -11,7 +11,8 @@ public sealed class SkillManageTool : ITool
 
     public ToolDefinition Definition { get; } = new(
         "skill_manage",
-        "Create, update, or delete a learned methodology skill. action is exactly Create, Update, " +
+        "Create, update, or delete a learned methodology skill. timeoutSeconds and action are mandatory: " +
+        "action is exactly Create, Update, " +
         "or Delete (case-sensitive). name must be lowercase letters, digits, and hyphens, starting " +
         "with a letter or digit (64 chars max). Create requires description and body; " +
         "provenanceSession optionally tags the originating session. Update changes at least one of " +
@@ -23,6 +24,7 @@ public sealed class SkillManageTool : ITool
         "`[skill-manage] created '<name>' v1`, `[skill-manage] updated '<name>' v<N>`, or " +
         "`[skill-manage] deleted '<name>'`. Errors begin with `Error [Code]:`.",
         [
+            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.Integer, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("action", ToolParameterType.String,
                 "Exactly Create, Update, or Delete (case-sensitive)."),
             new ToolParameter("name", ToolParameterType.String,
@@ -35,7 +37,8 @@ public sealed class SkillManageTool : ITool
                 "Create only: originating session id recorded for provenance."),
             new ToolParameter("confirm", ToolParameterType.Boolean,
                 "Delete only: must be exactly true; deletion is permanent."),
-        ]);
+        ],
+        ["timeoutSeconds", "action"]);
 
     public SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore learned, Func<DateTimeOffset> clock)
     {
@@ -44,18 +47,23 @@ public sealed class SkillManageTool : ITool
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
-    public async Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
     {
         var parsed = SkillManageInput.Create(input.JsonArguments);
         if (!parsed.IsSuccess)
-            return Err(parsed.Error!);
+            return Task.FromResult(Err(parsed.Error!));
 
-        return parsed.Value!.Action switch
+        var budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+        if (!budget.IsSuccess)
+            return Task.FromResult(Err(budget.Error!));
+
+        var v = parsed.Value!;
+        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token => v.Action switch
         {
-            SkillManageAction.Create => await CreateAsync(parsed.Value, ct),
-            SkillManageAction.Update => await UpdateAsync(parsed.Value, ct),
-            _ => await DeleteAsync(parsed.Value, ct),
-        };
+            SkillManageAction.Create => CreateAsync(v, token),
+            SkillManageAction.Update => UpdateAsync(v, token),
+            _ => DeleteAsync(v, token),
+        }, ct);
     }
 
     private async Task<ToolResult> CreateAsync(SkillManageInput input, CancellationToken ct)

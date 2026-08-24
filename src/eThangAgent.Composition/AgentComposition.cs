@@ -187,7 +187,7 @@ public static class AgentComposition
                 var config = sp.GetRequiredService<ModelConfig>();
                 var tools = sp.GetRequiredService<IToolRegistry>();
                 return new Ag(provider, conversation, config, tools,
-                    sp.GetRequiredService<ISystemPromptProvider>(), settings.MaxToolIterations);
+                    sp.GetRequiredService<ISystemPromptProvider>());
             })
             .AddSingleton(sp => new SendMessageCommandHandler(
                 sp.GetRequiredService<Ag>(),

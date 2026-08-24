@@ -7,40 +7,38 @@ public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
 {
     public static Result<WriteToolInput> Create(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Fail(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
-        if (json.ValueKind != JsonValueKind.Object)
-            return Fail(new Error("InvalidJsonArguments", "Arguments must be a JSON object."));
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Fail(baseParse.Error!);
+        var json = baseParse.Value;
 
-        var known = new HashSet<string>(["path", "content", "overwrite"], StringComparer.Ordinal);
+        var known = new HashSet<string>(["path", "content", "overwrite", ToolTimeout.ParameterName], StringComparer.Ordinal);
         var unknown = json.EnumerateObject()
             .Where(p => !known.Contains(p.Name))
             .Select(p => p.Name)
             .ToList();
         if (unknown.Count > 0)
             return Fail(new Error("UnknownParameter",
-                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, content, overwrite."));
+                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, content, overwrite, {ToolTimeout.ParameterName}."));
 
-        if (!json.TryGetProperty("path", out var pathEl)) return Missing("path");
-        if (pathEl.ValueKind != JsonValueKind.String) return WrongType("path", "string", pathEl.ValueKind);
+        if (!json.TryGetProperty("path", out var pathEl))
+            return Missing("path");
+        if (pathEl.ValueKind != JsonValueKind.String)
+            return WrongType("path", "string", pathEl.ValueKind);
         var path = pathEl.GetString()!;
         if (path.Length == 0)
-            return Fail(new Error("InvalidParameterValue", "'path' must be a non-empty string."));
+            return Fail(new Error("InvalidParameterValue",
+                "'path' must be a non-empty string."));
 
-        if (!json.TryGetProperty("content", out var contentEl)) return Missing("content");
-        if (contentEl.ValueKind != JsonValueKind.String) return WrongType("content", "string", contentEl.ValueKind);
+        if (!json.TryGetProperty("content", out var contentEl))
+            return Missing("content");
+        if (contentEl.ValueKind != JsonValueKind.String)
+            return WrongType("content", "string", contentEl.ValueKind);
+        // Content may be empty — an explicitly empty file is a legitimate write.
         var content = contentEl.GetString()!;
 
-        if (!json.TryGetProperty("overwrite", out var owEl)) return Missing("overwrite");
+        if (!json.TryGetProperty("overwrite", out var owEl))
+            return Missing("overwrite");
         if (owEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             return WrongType("overwrite", "boolean", owEl.ValueKind);
         var overwrite = owEl.GetBoolean();

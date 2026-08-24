@@ -8,8 +8,9 @@ public sealed class ReadTool : ITool
 
     public ToolDefinition Definition { get; } = new(
         "read",
-        "Read a range of lines from a text file. path, startLine, and endLine are all mandatory; line numbers are 1-based and inclusive. Output begins with an annotation line in [brackets] — it is metadata, not file content. Each content line is prefixed with its line number and →; the number and arrow are never part of the file. Never reproduce line numbers or arrows when creating or editing files. Cite line numbers as shown when referencing locations. If endLine exceeds the file length it is clamped and a [warning] is appended. Maximum range: 1000 lines per call.",
+        "Read a range of lines from a text file. timeoutSeconds, path, startLine, and endLine are all mandatory; line numbers are 1-based and inclusive. Output begins with an annotation line in [brackets] — it is metadata, not file content. Each content line is prefixed with its line number and →; the number and arrow are never part of the file. Never reproduce line numbers or arrows when creating or editing files. Cite line numbers as shown when referencing locations. If endLine exceeds the file length it is clamped and a [warning] is appended. Maximum range: 1000 lines per call.",
         [
+            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.Integer, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("path", ToolParameterType.String, "Path to the file to read."),
             new ToolParameter("startLine", ToolParameterType.Integer, "First line to read (1-based, inclusive).", Minimum: 1),
             new ToolParameter("endLine", ToolParameterType.Integer, "Last line to read (1-based, inclusive).", Minimum: 1),
@@ -20,30 +21,41 @@ public sealed class ReadTool : ITool
         _files = files ?? throw new ArgumentNullException(nameof(files));
     }
 
-    public async Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
     {
         var parsed = ReadToolInput.Create(input.JsonArguments);
         if (!parsed.IsSuccess)
-            return Error(parsed.Error!);
+            return Task.FromResult(Error(parsed.Error!));
+        var args = parsed.Value!;
 
-        var read = await _files.ReadLinesAsync(parsed.Value!.Path, parsed.Value.StartLine, parsed.Value.EndLine, ct);
+        var budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+        if (!budget.IsSuccess)
+            return Task.FromResult(Error(budget.Error!));
+
+        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
+            ReadAsync(args, token), ct);
+    }
+
+    private async Task<ToolResult> ReadAsync(ReadToolInput args, CancellationToken ct)
+    {
+        var read = await _files.ReadLinesAsync(args.Path, args.StartLine, args.EndLine, ct);
         if (!read.IsSuccess)
             return Error(read.Error!);
 
         var file = read.Value!;
         if (file.LastLineRead == 0)
             return Error(new Error("StartLineBeyondEof",
-                $"'startLine' {parsed.Value.StartLine} exceeds file length ({file.TotalLines} lines)."));
+                $"'startLine' {args.StartLine} exceeds file length ({file.TotalLines} lines)."));
 
-        var clamped = file.TotalLines < parsed.Value.EndLine;
-        var last = clamped ? file.TotalLines : parsed.Value.EndLine;
+        var clamped = file.TotalLines < args.EndLine;
+        var last = clamped ? file.TotalLines : args.EndLine;
         var width = last.ToString().Length;
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"[read {parsed.Value.Path} lines {parsed.Value.StartLine}-{last} of {file.TotalLines} total]");
+        sb.AppendLine($"[read {args.Path} lines {args.StartLine}-{last} of {file.TotalLines} total]");
         foreach (var (text, i) in file.Lines.Select((t, i) => (t, i)))
-            sb.AppendLine($"{(parsed.Value.StartLine + i).ToString().PadLeft(width)}→ {text}");
+            sb.AppendLine($"{(args.StartLine + i).ToString().PadLeft(width)}→ {text}");
         if (clamped)
-            sb.Append($"[warning] endLine {parsed.Value.EndLine} exceeded file length ({file.TotalLines}); clamped");
+            sb.Append($"[warning] endLine {args.EndLine} exceeded file length ({file.TotalLines}); clamped");
         else
             sb.Length -= Environment.NewLine.Length;  // trim trailing newline
 

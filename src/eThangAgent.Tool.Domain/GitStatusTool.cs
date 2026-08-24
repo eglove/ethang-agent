@@ -1,4 +1,3 @@
-using System.Text.Json;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
@@ -11,13 +10,17 @@ public sealed class GitStatusTool : ITool
     public ToolDefinition Definition { get; } = new(
         "git_status",
         "Show the working-tree status of the repository at the workspace root. Takes no " +
-        "arguments — pass {} (or nothing at all). Output begins with an annotation line " +
+        "arguments besides timeoutSeconds — pass {\"timeoutSeconds\": N} (or nothing at all). " +
+        "Output begins with an annotation line " +
         "`[git-status <branch>: S staged, U unstaged, T untracked]`; a fully clean tree " +
         "reports `[git-status <branch>: clean]` instead. Non-empty groups follow under " +
         "`staged:`, `unstaged:`, and `untracked:` headers; entries are the porcelain lines " +
         "themselves (two-char XY code, space, path). Empty groups are omitted entirely. " +
         "Errors begin with `Error [Code]:`.",
-        []);
+        [
+            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.Integer, ToolTimeout.ParameterDescription, Minimum: 1),
+        ],
+        ["timeoutSeconds"]);
 
     public GitStatusTool(IPathResolver resolver, IGitQueryAccess git)
     {
@@ -25,17 +28,27 @@ public sealed class GitStatusTool : ITool
         _git = git ?? throw new ArgumentNullException(nameof(git));
     }
 
-    public async Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
     {
         var args = ParseArguments(input.JsonArguments);
         if (!args.IsSuccess)
-            return Err(args.Error!);
+            return Task.FromResult(Err(args.Error!));
 
         var root = _resolver.Resolve(".");
         if (!root.IsSuccess)
-            return Err(root.Error!);
+            return Task.FromResult(Err(root.Error!));
 
-        var status = await _git.GetStatusAsync(root.Value!, ct);
+        var budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+        if (!budget.IsSuccess)
+            return Task.FromResult(Err(budget.Error!));
+
+        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
+            StatusAsync(root.Value!, token), ct);
+    }
+
+    private async Task<ToolResult> StatusAsync(string repoRoot, CancellationToken ct)
+    {
+        var status = await _git.GetStatusAsync(repoRoot, ct);
         if (!status.IsSuccess)
             return Err(status.Error!);
         var s = status.Value!;
@@ -69,32 +82,27 @@ public sealed class GitStatusTool : ITool
         return new ToolResult(string.Join("\n", lines), false);
     }
 
-    /// <summary>Zero parameters: arguments must be absent or an empty JSON object.</summary>
+    /// <summary>git_status carries no parameters of its own — only the mandatory
+    ///     <c>timeoutSeconds</c> budget shared by every tool call.</summary>
     private static Result<bool> ParseArguments(string jsonArguments)
     {
-        if (string.IsNullOrWhiteSpace(jsonArguments))
-            return Result<bool>.Success(true);
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Result<bool>.Failure(baseParse.Error!);
+;
 
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Result<bool>.Failure(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
-        if (json.ValueKind != JsonValueKind.Object)
-            return Result<bool>.Failure(new Error("InvalidJsonArguments",
-                "Arguments must be a JSON object."));
+        var budget = ToolTimeout.Parse(baseParse.Value);
+        if (!budget.IsSuccess)
+            return Result<bool>.Failure(budget.Error!);
 
-        var unknown = json.EnumerateObject().Select(p => p.Name).ToList();
+        var unknown = baseParse.Value.EnumerateObject()
+            .Select(p => p.Name)
+            .Where(n => n != ToolTimeout.ParameterName)
+            .ToList();
         if (unknown.Count > 0)
             return Result<bool>.Failure(new Error("UnknownParameter",
                 $"Unknown parameter(s): {string.Join(", ", unknown)}. " +
-                "This tool takes no arguments."));
+                $"This tool takes no arguments besides {ToolTimeout.ParameterName}."));
 
         return Result<bool>.Success(true);
     }

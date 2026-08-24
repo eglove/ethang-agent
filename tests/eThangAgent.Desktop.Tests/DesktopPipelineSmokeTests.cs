@@ -30,8 +30,7 @@ public class DesktopPipelineSmokeTests
         var settings = new AgentSettings(
             "sk-or-test",
             new Uri(server.BaseUrl),
-            new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1),
-            MaxToolIterationsConfiguration.Default);
+            new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1));
 
         using var services = new ServiceCollection()
             .AddEThangAgentCore(settings, settings.ApiKey!,

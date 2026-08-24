@@ -85,10 +85,6 @@ public sealed class SubAgentSpawner : IAgentRunner
             {
                 failureReason = AgentFailureReason.Timeout;
             }
-            else if (run.Error!.Code == "MaxToolIterations")
-            {
-                failureReason = AgentFailureReason.MaxIterations;
-            }
             else
             {
                 failureReason = AgentFailureReason.ProviderError;

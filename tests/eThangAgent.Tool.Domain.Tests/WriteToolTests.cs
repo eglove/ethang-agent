@@ -17,7 +17,7 @@ public class WriteToolTests
     public async Task MissingPath_ReturnsError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
-            """{"content":"x","overwrite":true}"""));
+            """{"timeoutSeconds":120,"content":"x","overwrite":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("path", result.Content);
     }
@@ -26,7 +26,7 @@ public class WriteToolTests
     public async Task MissingContent_ReturnsError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
-            """{"path":"a.txt","overwrite":true}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","overwrite":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("content", result.Content);
     }
@@ -35,7 +35,7 @@ public class WriteToolTests
     public async Task MissingOverwrite_ReturnsError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
-            """{"path":"a.txt","content":"x"}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","content":"x"}"""));
         Assert.True(result.IsError);
         Assert.Contains("overwrite", result.Content);
     }
@@ -46,7 +46,7 @@ public class WriteToolTests
     public async Task Overwrite_MustBeBoolean_StringRejected()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
-            """{"path":"a.txt","content":"x","overwrite":"yes"}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":"yes"}"""));
         Assert.True(result.IsError);
         Assert.Contains("overwrite", result.Content);
         Assert.Contains("boolean", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -56,7 +56,7 @@ public class WriteToolTests
     public async Task Content_MustBeString_NumberRejected()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
-            """{"path":"a.txt","content":42,"overwrite":true}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","content":42,"overwrite":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("content", result.Content);
         Assert.Contains("string", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -66,7 +66,7 @@ public class WriteToolTests
     public async Task UnknownParameter_Rejected()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
-            """{"path":"a.txt","content":"x","overwrite":true,"encoding":"utf16"}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":true,"encoding":"utf16"}"""));
         Assert.True(result.IsError);
         Assert.Contains("Unknown parameter", result.Content);
         Assert.Contains("encoding", result.Content);
@@ -78,7 +78,7 @@ public class WriteToolTests
     public async Task PathOutsideWorkspace_ReturnsResolverError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
-            """{"path":"..\\evil.txt","content":"x","overwrite":false}"""));
+            """{"timeoutSeconds":120,"path":"..\\evil.txt","content":"x","overwrite":false}"""));
         Assert.True(result.IsError);
         Assert.Contains("PathOutsideWorkspace", result.Content);
     }
@@ -90,7 +90,7 @@ public class WriteToolTests
     {
         var result = await MakeTool(Result<FileWriteOutcome>.Success(new(true, 42)))
             .ExecuteAsync(new RawToolInput("write",
-                """{"path":"a.txt","content":"x","overwrite":false}"""));
+                """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":false}"""));
         Assert.False(result.IsError);
         Assert.Equal($"[write {Resolved}] created, 42 bytes", result.Content);
     }
@@ -100,7 +100,7 @@ public class WriteToolTests
     {
         var result = await MakeTool(Result<FileWriteOutcome>.Success(new(false, 7)))
             .ExecuteAsync(new RawToolInput("write",
-                """{"path":"a.txt","content":"x","overwrite":true}"""));
+                """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":true}"""));
         Assert.False(result.IsError);
         Assert.Equal($"[write {Resolved}] overwritten, 7 bytes", result.Content);
     }
@@ -110,7 +110,7 @@ public class WriteToolTests
     {
         var result = await MakeTool(Result<FileWriteOutcome>.Success(new(true, 0)))
             .ExecuteAsync(new RawToolInput("write",
-                """{"path":"empty.txt","content":"","overwrite":false}"""));
+                """{"timeoutSeconds":120,"path":"empty.txt","content":"","overwrite":false}"""));
         Assert.False(result.IsError);
         Assert.Contains("created, 0 bytes", result.Content);
     }
@@ -123,7 +123,7 @@ public class WriteToolTests
         var result = await MakeTool(Result<FileWriteOutcome>.Failure(
                 new Error("FileExists", "File already exists: a.txt")))
             .ExecuteAsync(new RawToolInput("write",
-                """{"path":"a.txt","content":"x","overwrite":false}"""));
+                """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":false}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [FileExists]", result.Content);
     }

@@ -7,28 +7,19 @@ public sealed record SkillViewInput(string Name)
 {
     public static Result<SkillViewInput> Create(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Fail(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
-        if (json.ValueKind != JsonValueKind.Object)
-            return Fail(new Error("InvalidJsonArguments", "Arguments must be a JSON object."));
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Fail(baseParse.Error!);
+        var json = baseParse.Value;
 
-        var known = new HashSet<string>(["name"], StringComparer.Ordinal);
+        var known = new HashSet<string>(["name", ToolTimeout.ParameterName], StringComparer.Ordinal);
         var unknown = json.EnumerateObject()
             .Where(p => !known.Contains(p.Name))
             .Select(p => p.Name)
             .ToList();
         if (unknown.Count > 0)
             return Fail(new Error("UnknownParameter",
-                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: name."));
+                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: name, {ToolTimeout.ParameterName}."));
 
         if (!json.TryGetProperty("name", out var nameEl)) return Missing();
         if (nameEl.ValueKind != JsonValueKind.String) return WrongType(nameEl.ValueKind);

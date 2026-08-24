@@ -11,7 +11,7 @@ public class EditToolTests
     private static EditTool MakeTool(Result<ReplaceOutcome> outcome) =>
         new(new WorkspacePathResolver(Root), new FakeFileEditAccess(outcome));
 
-    private const string Args = """{"path":"a.txt","old":"x","new":"y","occurrences":1}""";
+    private const string Args = """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","occurrences":1}""";
 
     // ---- Missing parameters ----
 
@@ -19,7 +19,7 @@ public class EditToolTests
     public async Task MissingPath_ReturnsError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            """{"old":"x","new":"y","all":true}"""));
+            """{"timeoutSeconds":120,"old":"x","new":"y","all":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("path", result.Content);
     }
@@ -28,7 +28,7 @@ public class EditToolTests
     public async Task MissingOld_ReturnsError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            """{"path":"a.txt","new":"y","all":true}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","new":"y","all":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("old", result.Content);
     }
@@ -37,7 +37,7 @@ public class EditToolTests
     public async Task MissingNew_ReturnsError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            """{"path":"a.txt","old":"x","all":true}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","old":"x","all":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("new", result.Content);
     }
@@ -48,7 +48,7 @@ public class EditToolTests
     public async Task NeitherAllNorOccurrences_ReturnsError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            """{"path":"a.txt","old":"x","new":"y"}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y"}"""));
         Assert.True(result.IsError);
         Assert.Contains("exactly one", result.Content);
     }
@@ -57,7 +57,7 @@ public class EditToolTests
     public async Task BothAllAndOccurrences_ReturnsError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            """{"path":"a.txt","old":"x","new":"y","all":true,"occurrences":2}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":true,"occurrences":2}"""));
         Assert.True(result.IsError);
         Assert.Contains("exactly one", result.Content);
     }
@@ -66,7 +66,7 @@ public class EditToolTests
     public async Task AllFalse_Rejected()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            """{"path":"a.txt","old":"x","new":"y","all":false}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":false}"""));
         Assert.True(result.IsError);
         Assert.Contains("exactly one", result.Content);
     }
@@ -75,7 +75,7 @@ public class EditToolTests
     public async Task OccurrencesZero_ReturnsError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            """{"path":"a.txt","old":"x","new":"y","occurrences":0}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","occurrences":0}"""));
         Assert.True(result.IsError);
         Assert.Contains("occurrences", result.Content);
         Assert.Contains("\u2265 1", result.Content);
@@ -87,7 +87,7 @@ public class EditToolTests
     public async Task OccurrencesAsString_Rejected()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            """{"path":"a.txt","old":"x","new":"y","occurrences":"1"}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","occurrences":"1"}"""));
         Assert.True(result.IsError);
         Assert.Contains("occurrences", result.Content);
         Assert.Contains("integer", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -97,7 +97,7 @@ public class EditToolTests
     public async Task OldEmpty_Rejected()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            """{"path":"a.txt","old":"","new":"y","all":true}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","old":"","new":"y","all":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("old", result.Content);
     }
@@ -106,7 +106,7 @@ public class EditToolTests
     public async Task UnknownParameter_Rejected()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            "{\"path\":\"a.txt\",\"old\":\"x\",\"new\":\"y\",\"all\":true,\"regex\":true}"));
+            "{\"timeoutSeconds\":120,\"path\":\"a.txt\",\"old\":\"x\",\"new\":\"y\",\"all\":true,\"regex\":true}"));
         Assert.True(result.IsError);
         Assert.Contains("Unknown parameter", result.Content);
         Assert.Contains("regex", result.Content);
@@ -118,7 +118,7 @@ public class EditToolTests
     public async Task PathOutsideWorkspace_ReturnsResolverError()
     {
         var result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
-            """{"path":"..\\evil.txt","old":"x","new":"y","all":true}"""));
+            """{"timeoutSeconds":120,"path":"..\\evil.txt","old":"x","new":"y","all":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("PathOutsideWorkspace", result.Content);
     }
@@ -130,7 +130,7 @@ public class EditToolTests
     {
         var result = await MakeTool(Result<ReplaceOutcome>.Success(new(3, 5)))
             .ExecuteAsync(new RawToolInput("edit",
-            """{"path":"a.txt","old":"x","new":"y","all":true}"""));
+            """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":true}"""));
         Assert.False(result.IsError);
         Assert.Equal($"[edit {Resolved}] replaced 3 occurrence(s), file now 5 lines", result.Content);
     }

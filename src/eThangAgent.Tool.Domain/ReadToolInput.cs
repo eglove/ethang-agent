@@ -9,30 +9,19 @@ public sealed record ReadToolInput(string Path, int StartLine, int EndLine)
 
     public static Result<ReadToolInput> Create(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Failure(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Failure(baseParse.Error!);
+        var json = baseParse.Value;
 
-        if (json.ValueKind != JsonValueKind.Object)
-            return Failure(new Error("InvalidJsonArguments",
-                "Arguments must be a JSON object."));
-
-        var known = new HashSet<string>(["path", "startLine", "endLine"], StringComparer.Ordinal);
+        var known = new HashSet<string>(["path", "startLine", "endLine", ToolTimeout.ParameterName], StringComparer.Ordinal);
         var unknown = json.EnumerateObject()
             .Where(p => !known.Contains(p.Name))
             .Select(p => p.Name)
             .ToList();
         if (unknown.Count > 0)
             return Failure(new Error("UnknownParameter",
-                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, startLine, endLine."));
+                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, startLine, endLine, {ToolTimeout.ParameterName}."));
 
         if (!json.TryGetProperty("path", out var pathEl))
             return Missing("path");

@@ -7,28 +7,19 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
 {
     public static Result<EditToolInput> Create(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Fail(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
-        if (json.ValueKind != JsonValueKind.Object)
-            return Fail(new Error("InvalidJsonArguments", "Arguments must be a JSON object."));
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Fail(baseParse.Error!);
+        var json = baseParse.Value;
 
-        var known = new HashSet<string>(["path", "old", "new", "all", "occurrences"], StringComparer.Ordinal);
+        var known = new HashSet<string>(["path", "old", "new", "all", "occurrences", ToolTimeout.ParameterName], StringComparer.Ordinal);
         var unknown = json.EnumerateObject()
             .Where(p => !known.Contains(p.Name))
             .Select(p => p.Name)
             .ToList();
         if (unknown.Count > 0)
             return Fail(new Error("UnknownParameter",
-                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, old, new, all, occurrences."));
+                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, old, new, all, occurrences, {ToolTimeout.ParameterName}."));
 
         if (!json.TryGetProperty("path", out var pathEl)) return Missing("path");
         if (pathEl.ValueKind != JsonValueKind.String) return WrongType("path", "string", pathEl.ValueKind);
@@ -51,7 +42,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
         var hasOcc = json.TryGetProperty("occurrences", out var occEl);
         if (hasAll == hasOcc)
             return Fail(new Error("InvalidParameterValue",
-                "Provide exactly one of 'all' (boolean true) or 'occurrences' (integer \u2265 1)."));
+                "Provide exactly one of 'all' (boolean true) or 'occurrences' (integer ≥ 1)."));
 
         bool all;
         int occurrences;
@@ -60,7 +51,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
             if (allEl.ValueKind is not JsonValueKind.True)
                 return Fail(new Error("InvalidParameterValue",
                     "'all' must be exactly true. Provide exactly one of " +
-                    "'all' (boolean true) or 'occurrences' (integer \u2265 1)."));
+                    "'all' (boolean true) or 'occurrences' (integer ≥ 1)."));
             all = true;
             occurrences = 0;
         }
@@ -70,7 +61,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
                 return WrongType("occurrences", "integer", occEl.ValueKind);
             if (occurrences < 1)
                 return Fail(new Error("InvalidParameterValue",
-                    $"'occurrences' must be \u2265 1 (got {occurrences})."));
+                    $"'occurrences' must be ≥ 1 (got {occurrences})."));
             all = false;
         }
 

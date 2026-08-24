@@ -16,7 +16,7 @@ public class ClarifyToolTests
     public async Task MissingQuestion_ReturnsError()
     {
         var result = await MakeTool(UnusedChannel).ExecuteAsync(new RawToolInput("clarify",
-            """{"options":["a","b"],"allowFreeText":true}"""));
+            """{"timeoutSeconds":120,"options":["a","b"],"allowFreeText":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("question", result.Content);
     }
@@ -25,7 +25,7 @@ public class ClarifyToolTests
     public async Task EmptyQuestion_ReturnsError()
     {
         var result = await MakeTool(UnusedChannel).ExecuteAsync(new RawToolInput("clarify",
-            """{"question":"","options":["a","b"],"allowFreeText":true}"""));
+            """{"timeoutSeconds":120,"question":"","options":["a","b"],"allowFreeText":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("question", result.Content);
     }
@@ -34,7 +34,7 @@ public class ClarifyToolTests
     public async Task Question_MustBeString_NumberRejected()
     {
         var result = await MakeTool(UnusedChannel).ExecuteAsync(new RawToolInput("clarify",
-            """{"question":7,"options":["a","b"],"allowFreeText":true}"""));
+            """{"timeoutSeconds":120,"question":7,"options":["a","b"],"allowFreeText":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("string", result.Content, StringComparison.OrdinalIgnoreCase);
     }
@@ -43,7 +43,7 @@ public class ClarifyToolTests
     public async Task MissingAllowFreeText_ReturnsError()
     {
         var result = await MakeTool(UnusedChannel).ExecuteAsync(new RawToolInput("clarify",
-            """{"question":"Pick one","options":["a","b"]}"""));
+            """{"timeoutSeconds":120,"question":"Pick one","options":["a","b"]}"""));
         Assert.True(result.IsError);
         Assert.Contains("allowFreeText", result.Content);
     }
@@ -52,7 +52,7 @@ public class ClarifyToolTests
     public async Task AllowFreeText_MustBeBoolean_StringRejected()
     {
         var result = await MakeTool(UnusedChannel).ExecuteAsync(new RawToolInput("clarify",
-            """{"question":"Pick one","options":["a","b"],"allowFreeText":"yes"}"""));
+            """{"timeoutSeconds":120,"question":"Pick one","options":["a","b"],"allowFreeText":"yes"}"""));
         Assert.True(result.IsError);
         Assert.Contains("boolean", result.Content, StringComparison.OrdinalIgnoreCase);
     }
@@ -63,7 +63,7 @@ public class ClarifyToolTests
     public async Task SingleOptionArray_Rejected()
     {
         var result = await MakeTool(UnusedChannel).ExecuteAsync(new RawToolInput("clarify",
-            """{"question":"Pick one","options":["only"],"allowFreeText":false}"""));
+            """{"timeoutSeconds":120,"question":"Pick one","options":["only"],"allowFreeText":false}"""));
         Assert.True(result.IsError);
         Assert.Contains("at least 2", result.Content);
     }
@@ -72,7 +72,7 @@ public class ClarifyToolTests
     public async Task Options_MustBeArray_StringRejected()
     {
         var result = await MakeTool(UnusedChannel).ExecuteAsync(new RawToolInput("clarify",
-            """{"question":"Pick one","options":"a","allowFreeText":true}"""));
+            """{"timeoutSeconds":120,"question":"Pick one","options":"a","allowFreeText":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("array", result.Content, StringComparison.OrdinalIgnoreCase);
     }
@@ -81,7 +81,7 @@ public class ClarifyToolTests
     public async Task Options_NonStringElement_Rejected()
     {
         var result = await MakeTool(UnusedChannel).ExecuteAsync(new RawToolInput("clarify",
-            """{"question":"Pick one","options":["a",3],"allowFreeText":true}"""));
+            """{"timeoutSeconds":120,"question":"Pick one","options":["a",3],"allowFreeText":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("string", result.Content, StringComparison.OrdinalIgnoreCase);
     }
@@ -90,7 +90,7 @@ public class ClarifyToolTests
     public async Task Options_EmptyElement_Rejected()
     {
         var result = await MakeTool(UnusedChannel).ExecuteAsync(new RawToolInput("clarify",
-            """{"question":"Pick one","options":["a",""],"allowFreeText":true}"""));
+            """{"timeoutSeconds":120,"question":"Pick one","options":["a",""],"allowFreeText":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("non-empty", result.Content);
     }
@@ -99,7 +99,7 @@ public class ClarifyToolTests
     public async Task UnknownParameter_Rejected()
     {
         var result = await MakeTool(UnusedChannel).ExecuteAsync(new RawToolInput("clarify",
-            """{"question":"Pick one","options":["a","b"],"allowFreeText":true,"timeout":5}"""));
+            """{"timeoutSeconds":120,"question":"Pick one","options":["a","b"],"allowFreeText":true,"timeout":5}"""));
         Assert.True(result.IsError);
         Assert.Contains("Unknown parameter", result.Content);
         Assert.Contains("timeout", result.Content);
@@ -112,7 +112,7 @@ public class ClarifyToolTests
         // before dying as FreeTextNotAllowed; the gate must fire at input time.
         var result = await MakeTool(new ScriptedClarifyChannel(Result<string>.Success("1")))
             .ExecuteAsync(new RawToolInput("clarify",
-                """{"question":"Pick one","allowFreeText":false}"""));
+                """{"timeoutSeconds":120,"question":"Pick one","allowFreeText":false}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
         Assert.Contains("options", result.Content);
@@ -127,7 +127,7 @@ public class ClarifyToolTests
     {
         var channel = new ScriptedClarifyChannel(Result<string>.Success("2"));
         var result = await new ClarifyTool(channel).ExecuteAsync(new RawToolInput("clarify",
-            """{"question":"Which color?","options":["red","green","blue"],"allowFreeText":false}"""));
+            """{"timeoutSeconds":120,"question":"Which color?","options":["red","green","blue"],"allowFreeText":false}"""));
 
         Assert.False(result.IsError);
         Assert.Equal("[clarify] answered: green", result.Content);
@@ -143,7 +143,7 @@ public class ClarifyToolTests
     {
         var result = await MakeTool(new ScriptedClarifyChannel(Result<string>.Success("teal-ish")))
             .ExecuteAsync(new RawToolInput("clarify",
-                """{"question":"Which color?","options":["red","green"],"allowFreeText":true}"""));
+                """{"timeoutSeconds":120,"question":"Which color?","options":["red","green"],"allowFreeText":true}"""));
         Assert.False(result.IsError);
         Assert.Equal("[clarify] answered: teal-ish", result.Content);
     }
@@ -153,7 +153,7 @@ public class ClarifyToolTests
     {
         var result = await MakeTool(new ScriptedClarifyChannel(Result<string>.Success("anything goes")))
             .ExecuteAsync(new RawToolInput("clarify",
-                """{"question":"What next?","allowFreeText":true}"""));
+                """{"timeoutSeconds":120,"question":"What next?","allowFreeText":true}"""));
         Assert.False(result.IsError);
         Assert.Equal("[clarify] answered: anything goes", result.Content);
     }
@@ -163,7 +163,7 @@ public class ClarifyToolTests
     {
         var result = await MakeTool(new ScriptedClarifyChannel(Result<string>.Success("purple")))
             .ExecuteAsync(new RawToolInput("clarify",
-                """{"question":"Which color?","options":["red","green"],"allowFreeText":false}"""));
+                """{"timeoutSeconds":120,"question":"Which color?","options":["red","green"],"allowFreeText":false}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [FreeTextNotAllowed]", result.Content);
     }
@@ -173,7 +173,7 @@ public class ClarifyToolTests
     {
         var result = await MakeTool(new ScriptedClarifyChannel(Result<string>.Success("0")))
             .ExecuteAsync(new RawToolInput("clarify",
-                """{"question":"Which color?","options":["red","green","blue"],"allowFreeText":true}"""));
+                """{"timeoutSeconds":120,"question":"Which color?","options":["red","green","blue"],"allowFreeText":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [InvalidSelection]", result.Content);
     }
@@ -183,7 +183,7 @@ public class ClarifyToolTests
     {
         var result = await MakeTool(new ScriptedClarifyChannel(Result<string>.Success("4")))
             .ExecuteAsync(new RawToolInput("clarify",
-                """{"question":"Which color?","options":["red","green","blue"],"allowFreeText":true}"""));
+                """{"timeoutSeconds":120,"question":"Which color?","options":["red","green","blue"],"allowFreeText":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [InvalidSelection]", result.Content);
         Assert.Contains("1", result.Content);
@@ -196,7 +196,7 @@ public class ClarifyToolTests
         var result = await MakeTool(new ScriptedClarifyChannel(
                 Result<string>.Failure(new Error("TerminalLost", "the terminal went away"))))
             .ExecuteAsync(new RawToolInput("clarify",
-                """{"question":"Which color?","options":["red","green"],"allowFreeText":false}"""));
+                """{"timeoutSeconds":120,"question":"Which color?","options":["red","green"],"allowFreeText":false}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [TerminalLost]: the terminal went away", result.Content);
     }

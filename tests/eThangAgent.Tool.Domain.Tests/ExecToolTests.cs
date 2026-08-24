@@ -13,9 +13,10 @@ public class ExecToolTests
         var tool = CreateTool();
 
         Assert.Equal("exec", tool.Definition.Name);
-        var p = Assert.Single(tool.Definition.Parameters);
-        Assert.Equal("program", p.Name);
-        Assert.Equal(ToolParameterType.String, p.Type);
+        Assert.Equal(["timeoutSeconds", "program"],
+            tool.Definition.Parameters.Select(p => p.Name).ToArray());
+        Assert.Equal(ToolParameterType.String,
+            tool.Definition.Parameters.Single(p => p.Name == "program").Type);
     }
 
     [Fact]
@@ -51,7 +52,7 @@ public class ExecToolTests
         var tool = CreateTool(engine, options);
 
         var result = await tool.ExecuteAsync(
-            new RawToolInput("exec", "{\"program\":\"abcdef\"}"));
+            new RawToolInput("exec", "{\"timeoutSeconds\":120,\"program\":\"abcdef\"}"));
 
         Assert.True(result.IsError);
         Assert.Contains("exec error [ExecProgramTooLarge]:", result.Content);
@@ -66,7 +67,7 @@ public class ExecToolTests
         var tool = CreateTool(engine);
 
         var result = await tool.ExecuteAsync(
-            new RawToolInput("exec", "{\"program\":\"if (x {\"}"));
+            new RawToolInput("exec", "{\"timeoutSeconds\":120,\"program\":\"if (x {\"}"));
 
         Assert.True(result.IsError);
         Assert.Contains("exec error [ExecParseError]:", result.Content);
@@ -81,7 +82,7 @@ public class ExecToolTests
         var tool = CreateTool(engine, activity: activity);
 
         var result = await tool.ExecuteAsync(
-            new RawToolInput("exec", "{\"program\":\"Write-Output 'hi'\"}"));
+            new RawToolInput("exec", "{\"timeoutSeconds\":120,\"program\":\"Write-Output 'hi'\"}"));
 
         Assert.False(result.IsError);
         Assert.Equal("hi", result.Content);
@@ -100,7 +101,7 @@ public class ExecToolTests
         var tool = CreateTool(engine, artifacts: store);
 
         var result = await tool.ExecuteAsync(
-            new RawToolInput("exec", "{\"program\":\"x\"}"));
+            new RawToolInput("exec", "{\"timeoutSeconds\":120,\"program\":\"x\"}"));
 
         Assert.Equal(60 * 1024, store.Written.Length);
         Assert.Contains("[exec:artifact C:\\art\\out.txt]", result.Content);

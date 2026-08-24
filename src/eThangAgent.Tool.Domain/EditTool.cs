@@ -9,13 +9,14 @@ public sealed class EditTool : ITool
 
     public ToolDefinition Definition { get; } = new(
         "edit",
-        "Edit a text file by exact literal replacement. path, old, and new are mandatory; then provide " +
-        "exactly one of all (boolean true \u2014 replace every occurrence) or occurrences (integer \u2265 1 \u2014 expected " +
-        "match count; the call fails if the actual count differs, naming both numbers). old must appear verbatim \u2014 " +
+        "Edit a text file by exact literal replacement. timeoutSeconds, path, old, and new are mandatory; then provide " +
+        "exactly one of all (boolean true — replace every occurrence) or occurrences (integer ≥ 1 — expected " +
+        "match count; the call fails if the actual count differs, naming both numbers). old must appear verbatim — " +
         "no regex, no whitespace normalization. An empty new deletes the matched text. The file is never created. " +
         "Binary files are refused. Output is a single annotation line: `[edit <path>] replaced N occurrence(s), " +
         "file now M lines`. Errors begin with `Error [Code]:` and are safe to retry with corrected arguments.",
         [
+            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.Integer, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("path", ToolParameterType.String,
                 "File path, workspace-relative or absolute-inside-workspace."),
             new ToolParameter("old", ToolParameterType.String,
@@ -27,7 +28,7 @@ public sealed class EditTool : ITool
             new ToolParameter("occurrences", ToolParameterType.Integer,
                 "Expected number of replacements (mutually exclusive with all). Minimum: 1", Minimum: 1),
         ],
-        ["path", "old", "new"]);
+        ["timeoutSeconds", "path", "old", "new"]);
 
     public EditTool(IPathResolver resolver, IFileEditAccess files)
     {
@@ -35,26 +36,36 @@ public sealed class EditTool : ITool
         _files = files ?? throw new ArgumentNullException(nameof(files));
     }
 
-    public async Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
     {
         var parsed = EditToolInput.Create(input.JsonArguments);
         if (!parsed.IsSuccess)
-            return Err(parsed.Error!);
+            return Task.FromResult(Err(parsed.Error!));
 
         var resolved = _resolver.Resolve(parsed.Value!.Path);
         if (!resolved.IsSuccess)
-            return Err(resolved.Error!);
+            return Task.FromResult(Err(resolved.Error!));
+
+        var budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+        if (!budget.IsSuccess)
+            return Task.FromResult(Err(budget.Error!));
 
         var v = parsed.Value;
+        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
+            ReplaceAsync(resolved.Value!, v, token), ct);
+    }
+
+    private async Task<ToolResult> ReplaceAsync(string path, EditToolInput args, CancellationToken ct)
+    {
         var replaced = await _files.ReplaceInFileAsync(
-            resolved.Value!, v.Old, v.New, v.All ? null : v.Occurrences, ct);
+            path, args.Old, args.New, args.All ? null : args.Occurrences, ct);
         if (!replaced.IsSuccess)
             return Err(replaced.Error!);
 
         var o = replaced.Value!;
         var noun = o.Replaced == 1 ? "occurrence" : "occurrence(s)";
         return new ToolResult(
-            $"[edit {resolved.Value}] replaced {o.Replaced} {noun}, file now {o.NewLineCount} lines",
+            $"[edit {path}] replaced {o.Replaced} {noun}, file now {o.NewLineCount} lines",
             false);
     }
 

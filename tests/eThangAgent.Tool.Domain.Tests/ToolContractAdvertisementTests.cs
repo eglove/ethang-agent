@@ -27,7 +27,7 @@ public class ToolContractAdvertisementTests
     public void Clarify_OnlyQuestionAndAllowFreeText_AreRequired()
     {
         var tool = new ClarifyTool(new StubClarifyChannel());
-        Assert.Equal(["question", "allowFreeText"], tool.Definition.RequiredParameters);
+        Assert.Equal(["timeoutSeconds", "question", "allowFreeText"], tool.Definition.RequiredParameters);
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class ToolContractAdvertisementTests
     public void GitCommit_StyleAndDescription_AreRequired()
     {
         var tool = new GitCommitTool(new UnrootedPathResolver(), new StubCommitAccess());
-        Assert.Equal(["style", "description"], tool.Definition.RequiredParameters);
+        Assert.Equal(["timeoutSeconds", "style", "description"], tool.Definition.RequiredParameters);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class ToolContractAdvertisementTests
     public void SearchFiles_OnlyPatternModeMaxResults_AreRequired()
     {
         var tool = new SearchTool(new UnrootedPathResolver(), new StubSearchAccess());
-        Assert.Equal(["pattern", "mode", "maxResults"], tool.Definition.RequiredParameters);
+        Assert.Equal(["timeoutSeconds", "pattern", "mode", "maxResults"], tool.Definition.RequiredParameters);
     }
 
     // ── edit ─────────────────────────────────────────────────────────────────
@@ -106,14 +106,14 @@ public class ToolContractAdvertisementTests
     public void Todo_OnlyAction_IsUnconditionallyRequired()
     {
         var tool = new TodoTool(new StubTodoStore());
-        Assert.Equal(["action"], tool.Definition.RequiredParameters);
+        Assert.Equal(["timeoutSeconds", "action"], tool.Definition.RequiredParameters);
     }
 
     [Fact]
     public void Todo_Description_DocumentsExactActionAndStatusValues()
     {
         var tool = new TodoTool(new StubTodoStore());
-        Assert.Contains("Add", tool.Definition.Parameters[0].Description);
+        Assert.Contains("Add", Param(tool, "action").Description);
         Assert.Contains("InProgress", Param(tool, "status").Description);
     }
 }

@@ -34,7 +34,8 @@ public sealed class TodoTool : ITool
 
     public ToolDefinition Definition { get; } = new(
         "todo",
-        "Track the workspace task list persisted in durable state. action is exactly Add, " +
+        "Track the workspace task list persisted in durable state. timeoutSeconds and action are mandatory: " +
+        "action is exactly Add, " +
         "Update, Complete, Remove, List, or Clear (case-sensitive). Add requires a non-empty " +
         "description; new items get the next free id and start Pending. Update requires id plus " +
         "at least one of description or status; status is exactly Pending, InProgress, or " +
@@ -48,6 +49,7 @@ public sealed class TodoTool : ITool
         "fails with VersionConflict \u2014 re-issue the same call to retry. Errors begin with " +
         "`Error [Code]:`.",
         [
+            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.Integer, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("action", ToolParameterType.String,
                 "Exactly Add, Update, Complete, Remove, List, or Clear (case-sensitive)."),
             new ToolParameter("id", ToolParameterType.Integer,
@@ -59,19 +61,29 @@ public sealed class TodoTool : ITool
             new ToolParameter("confirm", ToolParameterType.Boolean,
                 "Clear only: must be exactly true; clearing empties the list."),
         ],
-        ["action"]);
+        ["timeoutSeconds", "action"]);
 
     public TodoTool(ITodoListStore store)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
     }
 
-    public async Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
     {
         var parsed = TodoInput.Create(input.JsonArguments);
         if (!parsed.IsSuccess)
-            return Err(parsed.Error!);
+            return Task.FromResult(Err(parsed.Error!));
 
+        var budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+        if (!budget.IsSuccess)
+            return Task.FromResult(Err(budget.Error!));
+
+        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
+            RunAsync(parsed.Value!, token), ct);
+    }
+
+    private async Task<ToolResult> RunAsync(TodoInput input, CancellationToken ct)
+    {
         var read = await _store.GetValueAsync(StoreKey, ct);
         IReadOnlyList<TodoItem> doc;
         if (read.IsSuccess)
@@ -91,13 +103,13 @@ public sealed class TodoTool : ITool
             return Err(read.Error);
         }
 
-        return parsed.Value!.Action switch
+        return input.Action switch
         {
             TodoAction.List => List(doc),
-            TodoAction.Add => await AddAsync(parsed.Value, doc, ct),
-            TodoAction.Update => await UpdateAsync(parsed.Value, doc, ct),
-            TodoAction.Complete => await CompleteAsync(parsed.Value, doc, ct),
-            TodoAction.Remove => await RemoveAsync(parsed.Value, doc, ct),
+            TodoAction.Add => await AddAsync(input, doc, ct),
+            TodoAction.Update => await UpdateAsync(input, doc, ct),
+            TodoAction.Complete => await CompleteAsync(input, doc, ct),
+            TodoAction.Remove => await RemoveAsync(input, doc, ct),
             _ => await ClearAsync(ct),
         };
     }

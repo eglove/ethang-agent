@@ -45,8 +45,7 @@ public static class E2E
             var settings = new AgentSettings(
                 "sk-or-test",
                 new Uri(Mock.BaseUrl),
-                new SubAgentOptions(null, TimeSpan.FromSeconds(30), 2),
-                MaxToolIterationsConfiguration.Default);
+                new SubAgentOptions(null, TimeSpan.FromSeconds(30), 2));
 
             _services = new ServiceCollection()
                 .AddEThangAgentCore(settings, settings.ApiKey!,
@@ -94,9 +93,10 @@ public static class E2E
         await vm.WaitForTurnAsync().WaitAsync(TimeSpan.FromSeconds(60));
     }
 
-    /// <summary>Serializes an exec tool-call argument carrying one C# program.</summary>
+    /// <summary>Serializes an exec tool-call argument carrying one C# program and the
+    ///     mandatory per-call execution budget.</summary>
     public static string ExecProgram(string program) =>
-        JsonSerializer.Serialize(new { program });
+        JsonSerializer.Serialize(new { timeoutSeconds = 120, program });
 
     /// <summary>Scripted assistant response performing one exec tool call.</summary>
     public static string ExecToolCall(string id, string arguments) =>

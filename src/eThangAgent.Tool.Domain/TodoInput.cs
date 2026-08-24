@@ -9,22 +9,14 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
 {
     public static Result<TodoInput> Create(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Fail(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
-        if (json.ValueKind != JsonValueKind.Object)
-            return Fail(new Error("InvalidJsonArguments", "Arguments must be a JSON object."));
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Fail(baseParse.Error!);
+        var json = baseParse.Value;
 
         var known = new HashSet<string>(
-            ["action", "id", "description", "status", "confirm"], StringComparer.Ordinal);
+            ["action", "id", "description", "status", "confirm", ToolTimeout.ParameterName],
+            StringComparer.Ordinal);
         var unknown = json.EnumerateObject()
             .Where(p => !known.Contains(p.Name))
             .Select(p => p.Name)
@@ -32,7 +24,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
         if (unknown.Count > 0)
             return Fail(new Error("UnknownParameter",
                 $"Unknown parameter(s): {string.Join(", ", unknown)}. " +
-                "Allowed: action, id, description, status, confirm."));
+                $"Allowed: action, id, description, status, confirm, {ToolTimeout.ParameterName}."));
 
         if (!json.TryGetProperty("action", out var actionEl)) return MissingAction();
         if (actionEl.ValueKind != JsonValueKind.String)

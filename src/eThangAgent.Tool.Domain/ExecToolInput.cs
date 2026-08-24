@@ -7,30 +7,19 @@ public sealed record ExecToolInput(string Program)
 {
     public static Result<ExecToolInput> Create(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Failure(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Failure(baseParse.Error!);
+        var json = baseParse.Value;
 
-        if (json.ValueKind != JsonValueKind.Object)
-            return Failure(new Error("InvalidJsonArguments",
-                "Arguments must be a JSON object."));
-
-        var known = new HashSet<string>(["program"], StringComparer.Ordinal);
+        var known = new HashSet<string>(["program", ToolTimeout.ParameterName], StringComparer.Ordinal);
         var unknown = json.EnumerateObject()
             .Where(p => !known.Contains(p.Name))
             .Select(p => p.Name)
             .ToList();
         if (unknown.Count > 0)
             return Failure(new Error("UnknownParameter",
-                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: program."));
+                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: program, {ToolTimeout.ParameterName}."));
 
         if (!json.TryGetProperty("program", out var programEl))
             return Failure(new Error("MissingParameter",

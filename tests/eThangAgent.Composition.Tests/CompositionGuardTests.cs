@@ -38,7 +38,7 @@ public class CompositionGuardTests
     {
         Assert.False(string.IsNullOrWhiteSpace(label));
         var settings = new AgentSettings("sk-or-test", new Uri("https://openrouter.test"),
-            new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2), MaxToolIterationsConfiguration.Default);
+            new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
         using var services = new ServiceCollection()
             .AddEThangAgentCore(settings, settings.ApiKey!,
                 ModelConfig.Create("test/model", 512, 0.5f).Value!, host)

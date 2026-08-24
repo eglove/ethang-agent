@@ -42,7 +42,7 @@ public class ReadToolTests
     {
         var tool = MakeTool((Result<FileRead>)null!);
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"startLine":1,"endLine":5}"""));
+            """{"timeoutSeconds":120,"startLine":1,"endLine":5}"""));
         Assert.True(result.IsError);
         Assert.Contains("Missing required", result.Content);
         Assert.Contains("path", result.Content);
@@ -53,7 +53,7 @@ public class ReadToolTests
     {
         var tool = MakeTool((Result<FileRead>)null!);
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"f","endLine":5}"""));
+            """{"timeoutSeconds":120,"path":"f","endLine":5}"""));
         Assert.True(result.IsError);
         Assert.Contains("startLine", result.Content);
     }
@@ -63,7 +63,7 @@ public class ReadToolTests
     {
         var tool = MakeTool((Result<FileRead>)null!);
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"f","startLine":1}"""));
+            """{"timeoutSeconds":120,"path":"f","startLine":1}"""));
         Assert.True(result.IsError);
         Assert.Contains("endLine", result.Content);
     }
@@ -75,7 +75,7 @@ public class ReadToolTests
     {
         var tool = MakeTool((Result<FileRead>)null!);
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"f","startLine":"1","endLine":5}"""));
+            """{"timeoutSeconds":120,"path":"f","startLine":"1","endLine":5}"""));
         Assert.True(result.IsError);
         Assert.Contains("startLine", result.Content);
         Assert.Contains("integer", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -86,7 +86,7 @@ public class ReadToolTests
     {
         var tool = MakeTool((Result<FileRead>)null!);
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"f","startLine":1.5,"endLine":5}"""));
+            """{"timeoutSeconds":120,"path":"f","startLine":1.5,"endLine":5}"""));
         Assert.True(result.IsError);
         Assert.Contains("startLine", result.Content);
         Assert.Contains("integer", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -97,7 +97,7 @@ public class ReadToolTests
     {
         var tool = MakeTool((Result<FileRead>)null!);
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":123,"startLine":1,"endLine":5}"""));
+            """{"timeoutSeconds":120,"path":123,"startLine":1,"endLine":5}"""));
         Assert.True(result.IsError);
         Assert.Contains("path", result.Content);
         Assert.Contains("string", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -110,7 +110,7 @@ public class ReadToolTests
     {
         var tool = MakeTool((Result<FileRead>)null!);
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"f","startLine":1,"endLine":5,"encoding":"utf16"}"""));
+            """{"timeoutSeconds":120,"path":"f","startLine":1,"endLine":5,"encoding":"utf16"}"""));
         Assert.True(result.IsError);
         Assert.Contains("encoding", result.Content);
         Assert.Contains("Unknown parameter", result.Content);
@@ -123,7 +123,7 @@ public class ReadToolTests
     {
         var tool = MakeTool((Result<FileRead>)null!);
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"f","startLine":0,"endLine":5}"""));
+            """{"timeoutSeconds":120,"path":"f","startLine":0,"endLine":5}"""));
         Assert.True(result.IsError);
         Assert.Contains("startLine", result.Content);
         Assert.Contains("≥ 1", result.Content);
@@ -134,7 +134,7 @@ public class ReadToolTests
     {
         var tool = MakeTool((Result<FileRead>)null!);
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"f","startLine":10,"endLine":5}"""));
+            """{"timeoutSeconds":120,"path":"f","startLine":10,"endLine":5}"""));
         Assert.True(result.IsError);
         Assert.Contains("must not exceed", result.Content);
     }
@@ -146,7 +146,7 @@ public class ReadToolTests
     {
         var tool = MakeTool((Result<FileRead>)null!);
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"f","startLine":1,"endLine":2000}"""));
+            """{"timeoutSeconds":120,"path":"f","startLine":1,"endLine":2000}"""));
         Assert.True(result.IsError);
         Assert.Contains("1000", result.Content);
         Assert.Contains("chunks", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -161,7 +161,7 @@ public class ReadToolTests
         var tool = MakeTool(fileRead);
 
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"doc.txt","startLine":1,"endLine":3}"""));
+            """{"timeoutSeconds":120,"path":"doc.txt","startLine":1,"endLine":3}"""));
 
         Assert.False(result.IsError);
         Assert.StartsWith("[read doc.txt lines 1-3 of 5 total]", result.Content);
@@ -177,7 +177,7 @@ public class ReadToolTests
         var tool = MakeTool(fileRead);
 
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"f","startLine":9,"endLine":10}"""));
+            """{"timeoutSeconds":120,"path":"f","startLine":9,"endLine":10}"""));
 
         // line 9 → 1 digit, line 10 → 2 digits, gutter width = 2
         Assert.Contains(" 9→ a", result.Content);  // space + 9 + arrow
@@ -193,7 +193,7 @@ public class ReadToolTests
         var tool = MakeTool(fileRead);
 
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"small.txt","startLine":1,"endLine":100}"""));
+            """{"timeoutSeconds":120,"path":"small.txt","startLine":1,"endLine":100}"""));
 
         Assert.False(result.IsError);
         Assert.StartsWith("[read small.txt lines 1-3 of 3 total]", result.Content);
@@ -211,7 +211,7 @@ public class ReadToolTests
         var tool = MakeTool(Result<FileRead>.Success(fileRead));
 
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"short.txt","startLine":20,"endLine":25}"""));
+            """{"timeoutSeconds":120,"path":"short.txt","startLine":20,"endLine":25}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("startLine", result.Content);
@@ -228,7 +228,7 @@ public class ReadToolTests
         var tool = MakeTool(Result<FileRead>.Success(fileRead));
 
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"empty.txt","startLine":1,"endLine":1}"""));
+            """{"timeoutSeconds":120,"path":"empty.txt","startLine":1,"endLine":1}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("file length (0 lines)", result.Content);
@@ -242,7 +242,7 @@ public class ReadToolTests
         var tool = MakeTool(Result<FileRead>.Failure(new Error("FileNotFound", "File not found: nope.txt")));
 
         var result = await tool.ExecuteAsync(new RawToolInput("read",
-            """{"path":"nope.txt","startLine":1,"endLine":5}"""));
+            """{"timeoutSeconds":120,"path":"nope.txt","startLine":1,"endLine":5}"""));
 
         Assert.True(result.IsError);
         Assert.Contains("File not found", result.Content);
@@ -256,7 +256,8 @@ public class ReadToolTests
         var tool = new ReadTool(new FakeFileSystemAccess(null!));
 
         Assert.Equal("read", tool.Definition.Name);
-        Assert.Equal(3, tool.Definition.Parameters.Count);
+        Assert.Equal(4, tool.Definition.Parameters.Count);
+        Assert.Contains(tool.Definition.Parameters, p => p.Name == ToolTimeout.ParameterName && p.Minimum == 1);
         Assert.Contains(tool.Definition.Parameters, p => p.Name == "path");
         Assert.Contains(tool.Definition.Parameters, p => p.Name == "startLine" && p.Minimum == 1);
         Assert.Contains(tool.Definition.Parameters, p => p.Name == "endLine" && p.Minimum == 1);

@@ -107,20 +107,24 @@ public class AgentTests
     }
 
     [Fact]
-    public async Task SendMessage_MaxIterationsExhausted_ReturnsFailure()
+    public async Task SendMessage_ToolLoop_ConvergesBeyondAnyIterationCap()
     {
-        var provider = new ScriptedModelProvider(
-            Enumerable.Repeat(
-                Result<ModelResponse>.Success(new ModelResponse(null,
-                    [new ToolCallRequest("c1", "loopy", "{}")])),
-                10).ToArray());
+        // The tool loop has no iteration limit: it keeps calling tools until the
+        // model answers without tool calls. 151 rounds — far beyond any former cap.
+        const int rounds = 151;
+        var responses = Enumerable.Range(0, rounds)
+            .Select(_ => Result<ModelResponse>.Success(new ModelResponse(null,
+                [new ToolCallRequest("c1", "loopy", "{}")])))
+            .Append(Result<ModelResponse>.Success(new ModelResponse("finally done", [])))
+            .ToArray();
+        var provider = new ScriptedModelProvider(responses);
         var agent = new Agent(provider, new Conversation(), DefaultConfig,
-            new ToolRegistry([new FakeTool("loopy", "again")]), maxToolIterations: 10);
+            new ToolRegistry([new FakeTool("loopy", "again")]));
 
         var result = await agent.SendMessage("hi");
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal("MaxToolIterations", result.Error!.Code);
+        Assert.True(result.IsSuccess);
+        Assert.Equal("finally done", result.Value);
     }
 
     [Fact]

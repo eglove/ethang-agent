@@ -7,28 +7,19 @@ public sealed record ClarifyInput(string Question, IReadOnlyList<string>? Option
 {
     public static Result<ClarifyInput> Create(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Fail(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
-        if (json.ValueKind != JsonValueKind.Object)
-            return Fail(new Error("InvalidJsonArguments", "Arguments must be a JSON object."));
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Fail(baseParse.Error!);
+        var json = baseParse.Value;
 
-        var known = new HashSet<string>(["question", "options", "allowFreeText"], StringComparer.Ordinal);
+        var known = new HashSet<string>(["question", "options", "allowFreeText", ToolTimeout.ParameterName], StringComparer.Ordinal);
         var unknown = json.EnumerateObject()
             .Where(p => !known.Contains(p.Name))
             .Select(p => p.Name)
             .ToList();
         if (unknown.Count > 0)
             return Fail(new Error("UnknownParameter",
-                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: question, options, allowFreeText."));
+                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: question, options, allowFreeText, {ToolTimeout.ParameterName}."));
 
         if (!json.TryGetProperty("question", out var questionEl)) return Missing("question");
         if (questionEl.ValueKind != JsonValueKind.String) return WrongType("question", "string", questionEl.ValueKind);

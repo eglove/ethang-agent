@@ -169,21 +169,25 @@ public class SubAgentSpawnerTests
         Assert.Equal(AgentFailureReason.ProviderError, updated.FailureReason);
     }
 
+    // There is no tool-iteration cap anymore: a child that keeps calling tools runs
+    // until its time budget elapses, so a looping model surfaces as Failed(Timeout).
     [Fact]
-    public async Task RunAsync_MaxIterations_ReturnsFailedOutcome_PersistsFailedMaxIterations()
+    public async Task RunAsync_LoopingChild_TimesOut_ReturnsFailedOutcome_PersistsFailedTimeout()
     {
         var store = new FakeAgentStore();
         var spawner = MakeRunner(new LoopingProvider(), store,
+            options: new SubAgentOptions(DefaultModel: "default/sub-model",
+                ChildTimeout: TimeSpan.FromMilliseconds(250)),
             tools: new ToolRegistry([new FakeTool("loop", "again")]));
 
         var outcome = await spawner.RunAsync(Child(taskPrompt: "loop forever"), CancellationToken.None);
 
         Assert.Equal(AgentStatus.Failed, outcome.Status);
-        Assert.Equal(AgentFailureReason.MaxIterations, outcome.Reason);
+        Assert.Equal(AgentFailureReason.Timeout, outcome.Reason);
 
         var updated = Assert.Single(store.Updated);
         Assert.Equal(AgentStatus.Failed, updated.Status);
-        Assert.Equal(AgentFailureReason.MaxIterations, updated.FailureReason);
+        Assert.Equal(AgentFailureReason.Timeout, updated.FailureReason);
     }
 
     // --- terminal persistence fault ---

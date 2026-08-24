@@ -24,13 +24,13 @@ public class SkillListToolTests
     [Fact]
     public async Task EmptyObject_IsAccepted()
     {
-        var result = await MakeTool().ExecuteAsync(new RawToolInput("skill_list", "{}"));
+        var result = await MakeTool().ExecuteAsync(new RawToolInput("skill_list", "{\"timeoutSeconds\":120}"));
         Assert.False(result.IsError);
     }
 
     [Theory]
-    [InlineData("""{"verbose":true}""")]
-    [InlineData("""{"name":"brainstorming"}""")]
+    [InlineData("""{"timeoutSeconds":120,"verbose":true}""")]
+    [InlineData("""{"timeoutSeconds":120,"name":"brainstorming"}""")]
     public async Task AnyParameter_IsRejected(string args)
     {
         var result = await MakeTool().ExecuteAsync(new RawToolInput("skill_list", args));
@@ -49,7 +49,7 @@ public class SkillListToolTests
     [Fact]
     public async Task InvalidJsonArguments_AreRejected()
     {
-        var result = await MakeTool().ExecuteAsync(new RawToolInput("skill_list", "{bad"));
+        var result = await MakeTool().ExecuteAsync(new RawToolInput("skill_list", "{\"timeoutSeconds\":120,bad"));
         Assert.True(result.IsError);
         Assert.Contains("not valid JSON", result.Content);
     }
@@ -59,7 +59,7 @@ public class SkillListToolTests
     [Fact]
     public async Task NoSkillsAnywhere_HeaderCountsZero()
     {
-        var result = await MakeTool().ExecuteAsync(new RawToolInput("skill_list", "{}"));
+        var result = await MakeTool().ExecuteAsync(new RawToolInput("skill_list", "{\"timeoutSeconds\":120}"));
         Assert.False(result.IsError);
         Assert.Equal("[skills: 0 available]", result.Content);
     }
@@ -73,7 +73,7 @@ public class SkillListToolTests
             new FakeLearnedStore(
                 [Def("my-skill", "Remember deployment quirks", version: 3, source: SkillSource.Learned)]));
 
-        var result = await tool.ExecuteAsync(new RawToolInput("skill_list", "{}"));
+        var result = await tool.ExecuteAsync(new RawToolInput("skill_list", "{\"timeoutSeconds\":120}"));
 
         var expected =
             "[skills: 2 available]\n" +
@@ -88,7 +88,7 @@ public class SkillListToolTests
     {
         var description = new string('d', 60);
         var result = await MakeTool([Def("s", description)])
-            .ExecuteAsync(new RawToolInput("skill_list", "{}"));
+            .ExecuteAsync(new RawToolInput("skill_list", "{\"timeoutSeconds\":120}"));
         Assert.Equal("[skills: 1 available]\n" + $"{"s",-20} builtin v1  {description}",
             result.Content);
     }
@@ -99,7 +99,7 @@ public class SkillListToolTests
     public async Task LearnedStoreFailure_AppendsWarning_StillSucceeds()
     {
         var result = await MakeTool([Def("brainstorming", "short")], failStoreList: true)
-            .ExecuteAsync(new RawToolInput("skill_list", "{}"));
+            .ExecuteAsync(new RawToolInput("skill_list", "{\"timeoutSeconds\":120}"));
         Assert.False(result.IsError);
         Assert.Equal(
             "[skills: 1 available]\n" +
@@ -114,7 +114,7 @@ public class SkillListToolTests
         var result = await MakeTool(
             learned: [Def("my-skill", "learned thing", source: SkillSource.Learned)],
             failCatalogList: true)
-            .ExecuteAsync(new RawToolInput("skill_list", "{}"));
+            .ExecuteAsync(new RawToolInput("skill_list", "{\"timeoutSeconds\":120}"));
         Assert.False(result.IsError);
         Assert.Equal(
             "[skills: 1 available]\n" +

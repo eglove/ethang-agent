@@ -26,7 +26,7 @@ public class SkillViewToolTests
     public async Task MissingName_MissingParameter()
     {
         var (tool, _) = MakeTool();
-        var result = await tool.ExecuteAsync(new RawToolInput("skill_view", "{}"));
+        var result = await tool.ExecuteAsync(new RawToolInput("skill_view", "{\"timeoutSeconds\":120}"));
         Assert.True(result.IsError);
         Assert.Contains("MissingParameter", result.Content);
         Assert.Contains("'name'", result.Content);
@@ -37,7 +37,7 @@ public class SkillViewToolTests
     {
         var (tool, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-            """{"name":"a","encoding":"utf16"}"""));
+            """{"timeoutSeconds":120,"name":"a","encoding":"utf16"}"""));
         Assert.True(result.IsError);
         Assert.Contains("Unknown parameter", result.Content);
         Assert.Contains("encoding", result.Content);
@@ -48,7 +48,7 @@ public class SkillViewToolTests
     {
         var (tool, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-            """{"name":42}"""));
+            """{"timeoutSeconds":120,"name":42}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterType", result.Content);
         Assert.Contains("string", result.Content);
@@ -59,7 +59,7 @@ public class SkillViewToolTests
     {
         var (tool, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-            """{"name":""}"""));
+            """{"timeoutSeconds":120,"name":""}"""));
         Assert.True(result.IsError);
         Assert.Contains("non-empty", result.Content);
     }
@@ -68,7 +68,7 @@ public class SkillViewToolTests
     public async Task InvalidJsonArguments_Rejected()
     {
         var (tool, _) = MakeTool();
-        var result = await tool.ExecuteAsync(new RawToolInput("skill_view", "{bad"));
+        var result = await tool.ExecuteAsync(new RawToolInput("skill_view", "{\"timeoutSeconds\":120,bad"));
         Assert.True(result.IsError);
         Assert.Contains("not valid JSON", result.Content);
     }
@@ -90,7 +90,7 @@ public class SkillViewToolTests
         var (tool, store) = MakeTool(builtIns: [Def("brainstorming", "First line.\nSecond line.")]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-            """{"name":"brainstorming"}"""));
+            """{"timeoutSeconds":120,"name":"brainstorming"}"""));
 
         Assert.False(result.IsError);
         Assert.Equal("[skill brainstorming | builtin | v1]\nFirst line.\nSecond line.",
@@ -109,7 +109,7 @@ public class SkillViewToolTests
             source: SkillSource.Learned)]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-            """{"name":"my-skill"}"""));
+            """{"timeoutSeconds":120,"name":"my-skill"}"""));
 
         Assert.False(result.IsError);
         Assert.Equal("[skill my-skill | learned | v3]\nLearned body.", result.Content);
@@ -124,7 +124,7 @@ public class SkillViewToolTests
             learned: [Def("shared", "Learned body.", version: 7, source: SkillSource.Learned)]);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-            """{"name":"shared"}"""));
+            """{"timeoutSeconds":120,"name":"shared"}"""));
 
         Assert.False(result.IsError);
         Assert.Equal("[skill shared | builtin | v1]\nBuilt-in body.", result.Content);
@@ -135,7 +135,7 @@ public class SkillViewToolTests
     {
         var (tool, _) = MakeTool();
         var result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-            """{"name":"nope"}"""));
+            """{"timeoutSeconds":120,"name":"nope"}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [SkillNotFound]", result.Content);
         Assert.Contains("nope", result.Content);
@@ -150,7 +150,7 @@ public class SkillViewToolTests
             failAppendUsage: true);
 
         var result = await tool.ExecuteAsync(new RawToolInput("skill_view",
-            """{"name":"brainstorming"}"""));
+            """{"timeoutSeconds":120,"name":"brainstorming"}"""));
 
         Assert.False(result.IsError);
         Assert.Equal("[skill brainstorming | builtin | v1]\nThe body." +

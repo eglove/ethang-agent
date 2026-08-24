@@ -77,7 +77,7 @@ public class DesktopE2ETests
             "verify(ids: String[]): Run attached evidence fail-closed and certify.",
             host.Mock.LastChatRequestBody);
         Assert.Contains(
-            "read(path: String, startLine: Integer, endLine: Integer): Read lines from a text file.",
+            "read(timeoutSeconds: Integer, path: String, startLine: Integer, endLine: Integer): Read lines from a text file.",
             host.Mock.LastChatRequestBody);
     }
 
@@ -90,7 +90,7 @@ public class DesktopE2ETests
         await File.WriteAllLinesAsync(tempFile, ["alpha line", "beta line"]);
 
         var pathArg = tempFile.Replace("\\", "\\\\");
-        var program = $"return Tools.read(new {{ path = \"{pathArg}\", startLine = 1, endLine = 2 }});";
+        var program = $"return Tools.read(new {{ timeoutSeconds = 120, path = \"{pathArg}\", startLine = 1, endLine = 2 }});";
         host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram(program)));
         host.Mock.Returns(RawCompletion("exec completed"));
 

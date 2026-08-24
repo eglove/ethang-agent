@@ -45,13 +45,8 @@ public class AgentConfigurationTests
         Assert.IsType<InvalidOperationException>(ex);
     }
 
-    [Fact]
-    public void Invalid_Max_Tool_Iterations_Throws()
-    {
-        var ex = Record.Exception(() => Load(env: [
-            ("OPENROUTER_API_KEY", "k"), ("Agent__MaxToolIterations", "abc")]));
-        Assert.IsType<InvalidOperationException>(ex);
-    }
+    // Agent:MaxToolIterations was removed with the iteration cap: an unknown key is
+    // simply ignored by configuration, never a startup error.
 
     private static AgentSettings Load(params (string Key, string Value)[] env)
     {

@@ -13,16 +13,19 @@ public sealed class SkillListTool : ITool
 
     public ToolDefinition Definition { get; } = new(
         "skill_list",
-        "List available methodology skills \u2014 built-ins shipped with the app plus skills " +
-        "learned earlier \u2014 merged and sorted by name. Takes no parameters: pass an empty " +
-        "object {}; any other argument is rejected. Output is one header line " +
+        "List available methodology skills — built-ins shipped with the app plus skills " +
+        "learned earlier — merged and sorted by name. Takes no parameters besides the " +
+        "mandatory timeoutSeconds budget; other arguments are rejected. Output is one header line " +
         "`[skills: N available]`, then one line per skill: `<name> <builtin|learned> " +
         "v<version>  <description>` with the name padded to 20 characters and the description " +
-        "truncated to 60 characters with an appended \u2026 when longer. If a source cannot be " +
-        "read, its skills are omitted and a trailing line is appended \u2014 `[warning] built-in " +
-        "skills unavailable: <reason>` or `[warning] learned skills unavailable: <reason>` \u2014 " +
+        "truncated to 60 characters with an appended … when longer. If a source cannot be " +
+        "read, its skills are omitted and a trailing line is appended — `[warning] built-in " +
+        "skills unavailable: <reason>` or `[warning] learned skills unavailable: <reason>` — " +
         "while the listing itself still succeeds. Errors begin with `Error [Code]:`.",
-        []);
+        [
+            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.Integer, ToolTimeout.ParameterDescription, Minimum: 1),
+        ],
+        ["timeoutSeconds"]);
 
     public SkillListTool(ISkillCatalog catalog, ILearnedSkillStore learned)
     {
@@ -30,12 +33,21 @@ public sealed class SkillListTool : ITool
         _learned = learned ?? throw new ArgumentNullException(nameof(learned));
     }
 
-    public async Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
     {
         var parsed = ParseArguments(input.JsonArguments);
         if (!parsed.IsSuccess)
-            return Err(parsed.Error!);
+            return Task.FromResult(Err(parsed.Error!));
 
+        var budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+        if (!budget.IsSuccess)
+            return Task.FromResult(Err(budget.Error!));
+
+        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, ListAsync, ct);
+    }
+
+    private async Task<ToolResult> ListAsync(CancellationToken ct)
+    {
         var warnings = new List<string>();
         var skills = new List<SkillDefinition>();
 
@@ -71,26 +83,27 @@ public sealed class SkillListTool : ITool
             ? description
             : description[..DescriptionLimit] + '\u2026';
 
+    /// <summary>skill_list carries no parameters of its own — only the mandatory
+    ///     <c>timeoutSeconds</c> budget shared by every tool call.</summary>
     private static Result<bool> ParseArguments(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Fail(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
-        if (json.ValueKind != JsonValueKind.Object)
-            return Fail(new Error("InvalidJsonArguments", "Arguments must be a JSON object."));
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Fail(baseParse.Error!)
+;
 
-        var unknown = json.EnumerateObject().Select(p => p.Name).ToList();
+        var budget = ToolTimeout.Parse(baseParse.Value);
+        if (!budget.IsSuccess)
+            return Fail(budget.Error!);
+
+        var unknown = baseParse.Value.EnumerateObject()
+            .Select(p => p.Name)
+            .Where(n => n != ToolTimeout.ParameterName)
+            .ToList();
         if (unknown.Count > 0)
             return Fail(new Error("UnknownParameter",
-                $"Unknown parameter(s): {string.Join(", ", unknown)}. This tool takes no parameters."));
+                $"Unknown parameter(s): {string.Join(", ", unknown)}. " +
+                $"This tool takes no parameters besides {ToolTimeout.ParameterName}."));
 
         return Result<bool>.Success(true);
     }

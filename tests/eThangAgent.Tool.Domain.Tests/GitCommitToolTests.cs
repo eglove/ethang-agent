@@ -23,7 +23,7 @@ public class GitCommitToolTests
     {
         var tool = Make(OkFor("feat(tools): add git tools\n"), out var fake);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"Conventional","type":"feat","scope":"tools","description":"add git tools"}"""));
+            """{"timeoutSeconds":120,"style":"Conventional","type":"feat","scope":"tools","description":"add git tools"}"""));
         Assert.False(result.IsError);
         Assert.Equal("feat(tools): add git tools\n", fake.Message);
         Assert.Equal(Root, fake.RepoPath);
@@ -34,7 +34,7 @@ public class GitCommitToolTests
     {
         var tool = Make(OkFor("feat(tools): add git tools\n"), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"Conventional","type":"feat","scope":"tools","description":"add git tools"}"""));
+            """{"timeoutSeconds":120,"style":"Conventional","type":"feat","scope":"tools","description":"add git tools"}"""));
         Assert.False(result.IsError);
         Assert.Equal("[git-commit abc1234] committed on main\nfeat(tools): add git tools\n", result.Content);
     }
@@ -44,7 +44,7 @@ public class GitCommitToolTests
     {
         var tool = Make(OkFor("\u2728 add git tools\n"), out var fake);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"Gitmoji","emoji_key":":sparkles:","description":"add git tools"}"""));
+            """{"timeoutSeconds":120,"style":"Gitmoji","emoji_key":":sparkles:","description":"add git tools"}"""));
         Assert.False(result.IsError);
         Assert.Equal("\u2728 add git tools\n", fake.Message);
     }
@@ -54,7 +54,7 @@ public class GitCommitToolTests
     {
         var tool = Make(OkFor("wip notes\n"), out var fake);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"None","description":"wip notes"}"""));
+            """{"timeoutSeconds":120,"style":"None","description":"wip notes"}"""));
         Assert.False(result.IsError);
         Assert.Equal("wip notes\n", fake.Message);
     }
@@ -64,7 +64,7 @@ public class GitCommitToolTests
     {
         var tool = Make(OkFor("fix(tools): guard input\n\ndetail line\n"), out var fake);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"Conventional","type":"fix","scope":"tools","description":"guard input","body":"detail line"}"""));
+            """{"timeoutSeconds":120,"style":"Conventional","type":"fix","scope":"tools","description":"guard input","body":"detail line"}"""));
         Assert.False(result.IsError);
         Assert.Equal("fix(tools): guard input\n\ndetail line\n", fake.Message);
     }
@@ -76,7 +76,7 @@ public class GitCommitToolTests
     {
         var tool = Make(null!, out _);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"Bogus","description":"x"}"""));
+            """{"timeoutSeconds":120,"style":"Bogus","description":"x"}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [InvalidStyle]:", result.Content);
     }
@@ -86,7 +86,7 @@ public class GitCommitToolTests
     {
         var tool = Make(null!, out _);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"Conventional","type":"banana","description":"x"}"""));
+            """{"timeoutSeconds":120,"style":"Conventional","type":"banana","description":"x"}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [UnknownType]:", result.Content);
     }
@@ -96,7 +96,7 @@ public class GitCommitToolTests
     {
         var tool = Make(null!, out _);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"Conventional","description":"x"}"""));
+            """{"timeoutSeconds":120,"style":"Conventional","description":"x"}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [TypeRequired]:", result.Content);
     }
@@ -106,7 +106,7 @@ public class GitCommitToolTests
     {
         var tool = Make(null!, out _);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"Conventional","type":"feat","emoji_key":":sparkles:","description":"x"}"""));
+            """{"timeoutSeconds":120,"style":"Conventional","type":"feat","emoji_key":":sparkles:","description":"x"}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [ParameterNotAllowed]:", result.Content);
     }
@@ -129,7 +129,7 @@ public class GitCommitToolTests
     {
         var tool = Make(null!, out _);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"None"}"""));
+            """{"timeoutSeconds":120,"style":"None"}"""));
         Assert.True(result.IsError);
         Assert.Contains("MissingParameter", result.Content);
         Assert.Contains("'description'", result.Content);
@@ -140,7 +140,7 @@ public class GitCommitToolTests
     {
         var tool = Make(null!, out _);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"description":"x"}"""));
+            """{"timeoutSeconds":120,"description":"x"}"""));
         Assert.True(result.IsError);
         Assert.Contains("MissingParameter", result.Content);
         Assert.Contains("'style'", result.Content);
@@ -151,7 +151,7 @@ public class GitCommitToolTests
     {
         var tool = Make(null!, out _);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"None","description":"x","author":"me"}"""));
+            """{"timeoutSeconds":120,"style":"None","description":"x","author":"me"}"""));
         Assert.True(result.IsError);
         Assert.Contains("Unknown parameter", result.Content);
         Assert.Contains("author", result.Content);
@@ -166,7 +166,7 @@ public class GitCommitToolTests
                 $"The index is empty; there is nothing to commit in {Root}. Stage changes first (e.g. exec: git add <file>).")),
             out _);
         var result = await tool.ExecuteAsync(new RawToolInput("git_commit",
-            """{"style":"None","description":"x"}"""));
+            """{"timeoutSeconds":120,"style":"None","description":"x"}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [NothingStaged]:", result.Content);
         Assert.Contains("Stage changes first", result.Content);

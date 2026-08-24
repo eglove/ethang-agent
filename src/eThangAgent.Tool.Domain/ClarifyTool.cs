@@ -16,6 +16,7 @@ public sealed class ClarifyTool : ITool
         "answer verbatim. If the human cancels (Ctrl+C or end of input) the error is " +
         "`Error [Cancelled]:`. Other errors begin with `Error [Code]:`.",
         [
+            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.Integer, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("question", ToolParameterType.String,
                 "The question to ask. Required, non-empty."),
             new ToolParameter("options", ToolParameterType.StringArray,
@@ -25,20 +26,30 @@ public sealed class ClarifyTool : ITool
             new ToolParameter("allowFreeText", ToolParameterType.Boolean,
                 "true to let the human answer in their own words, false to require an option number."),
         ],
-        ["question", "allowFreeText"]);
+        ["timeoutSeconds", "question", "allowFreeText"]);
 
     public ClarifyTool(IClarifyChannel channel)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
     }
 
-    public async Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
     {
         var parsed = ClarifyInput.Create(input.JsonArguments);
         if (!parsed.IsSuccess)
-            return Err(parsed.Error!);
+            return Task.FromResult(Err(parsed.Error!));
+
+        var budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+        if (!budget.IsSuccess)
+            return Task.FromResult(Err(budget.Error!));
 
         var v = parsed.Value!;
+        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
+            AskAsync(v, token), ct);
+    }
+
+    private async Task<ToolResult> AskAsync(ClarifyInput v, CancellationToken ct)
+    {
         var asked = await _channel.AskAsync(
             new ClarifyQuestion(v.Question, v.Options ?? [], v.AllowFreeText), ct);
         if (!asked.IsSuccess)

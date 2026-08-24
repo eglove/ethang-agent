@@ -7,8 +7,8 @@ public static class ExecGuide
     public const string Text = """
     ## exec — writing C# programs
 
-    `exec` runs a C# program you write. Its only parameter is `program`, a string of
-    C# text. The script runs in-process with Roslyn scripting. The return value becomes
+    `exec` runs a C# program you write. Its parameters are `timeoutSeconds` (required
+    execution budget in whole seconds, 1..3600) and `program`, a string of C# text. The script runs in-process with Roslyn scripting. The return value becomes
     the output: strings verbatim, other values as one-line JSON. Write exactly what you
     want back and nothing else.
 
@@ -146,7 +146,12 @@ public static class ExecGuide
     - Return value is the output. null/void produces empty output.
     - Output over 50,000 characters is truncated; full text saved to [exec:artifact <path>].
     - exec cannot call itself (no nested exec).
-    - A 120s timeout stops the script.
-    - Use anonymous objects for tool args: new { path = "...", startLine = 1 }.
+    - The script is stopped at your timeoutSeconds budget and also at a 120s hard cap,
+      whichever comes first.
+    - Every tool call — exec and every action inside scripts — REQUIRES a timeoutSeconds
+      argument: a whole-second budget, 1..3600. A call without it fails with MissingParameter,
+      and a call exceeding its budget fails with Error [ToolTimeout]; re-issue with a larger
+      budget if the work genuinely needs longer. Choose generously but honestly.
+    - Use anonymous objects for tool args: new { path = "...", startLine = 1, timeoutSeconds = 60 }.
     """;
 }

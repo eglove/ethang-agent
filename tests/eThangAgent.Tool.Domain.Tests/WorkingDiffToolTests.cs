@@ -29,7 +29,7 @@ public class WorkingDiffToolTests
     public async Task MissingScope_ReturnsError()
     {
         var tool = Make(Ok(), out _);
-        var result = await tool.ExecuteAsync(new RawToolInput("working_diff", "{}"));
+        var result = await tool.ExecuteAsync(new RawToolInput("working_diff", "{\"timeoutSeconds\":120}"));
         Assert.True(result.IsError);
         Assert.Contains("MissingParameter", result.Content);
         Assert.Contains("'scope'", result.Content);
@@ -40,7 +40,7 @@ public class WorkingDiffToolTests
     {
         var tool = Make(Ok(), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":42}"""));
+            """{"timeoutSeconds":120,"scope":42}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterType", result.Content);
         Assert.Contains("string", result.Content);
@@ -51,7 +51,7 @@ public class WorkingDiffToolTests
     {
         var tool = Make(Ok(), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"Both"}"""));
+            """{"timeoutSeconds":120,"scope":"Both"}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
         Assert.Contains("Staged", result.Content);
@@ -64,7 +64,7 @@ public class WorkingDiffToolTests
     {
         var tool = Make(Ok(), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"staged"}"""));
+            """{"timeoutSeconds":120,"scope":"staged"}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
     }
@@ -74,7 +74,7 @@ public class WorkingDiffToolTests
     {
         var tool = Make(Ok(), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"All","path":""}"""));
+            """{"timeoutSeconds":120,"scope":"All","path":""}"""));
         Assert.True(result.IsError);
         Assert.Contains("InvalidParameterValue", result.Content);
         Assert.Contains("'path'", result.Content);
@@ -85,7 +85,7 @@ public class WorkingDiffToolTests
     {
         var tool = Make(Ok(), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"All","path":"..\\evil.txt"}"""));
+            """{"timeoutSeconds":120,"scope":"All","path":"..\\evil.txt"}"""));
         Assert.True(result.IsError);
         Assert.Contains("PathOutsideWorkspace", result.Content);
     }
@@ -95,7 +95,7 @@ public class WorkingDiffToolTests
     {
         var tool = Make(Ok(), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"All","stat":true}"""));
+            """{"timeoutSeconds":120,"scope":"All","stat":true}"""));
         Assert.True(result.IsError);
         Assert.Contains("Unknown parameter", result.Content);
         Assert.Contains("stat", result.Content);
@@ -108,7 +108,7 @@ public class WorkingDiffToolTests
     {
         var tool = Make(Ok(files: 2, additions: 3, deletions: 1), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"All"}"""));
+            """{"timeoutSeconds":120,"scope":"All"}"""));
         Assert.False(result.IsError);
         Assert.StartsWith("[working-diff scope=All path=none: 2 file(s), +3/-1 lines]\n", result.Content);
     }
@@ -119,7 +119,7 @@ public class WorkingDiffToolTests
         var patch = "+hello\tworld\n-old line\n@@ -1 +1 @@\n+new line with <xml> & \"quotes\"\n";
         var tool = Make(Ok(patch: patch), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"Unstaged"}"""));
+            """{"timeoutSeconds":120,"scope":"Unstaged"}"""));
         Assert.False(result.IsError);
         Assert.Equal(
             "[working-diff scope=Unstaged path=none: 2 file(s), +3/-1 lines]\n" + patch,
@@ -132,7 +132,7 @@ public class WorkingDiffToolTests
         var patch = "diff --git a/x.cs b/x.cs\n+truncated tail\n";
         var tool = Make(Ok(patch: patch, truncated: true, totalChars: 45123), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"All"}"""));
+            """{"timeoutSeconds":120,"scope":"All"}"""));
         Assert.False(result.IsError);
         Assert.EndsWith(
             "\n[warning] truncated at 20000 chars; total 45123 — narrow with path/scope",
@@ -144,7 +144,7 @@ public class WorkingDiffToolTests
     {
         var tool = Make(Ok(files: 0, additions: 0, deletions: 0, patch: ""), out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"Staged"}"""));
+            """{"timeoutSeconds":120,"scope":"Staged"}"""));
         Assert.False(result.IsError);
         Assert.Equal("[working-diff scope=Staged path=none: no differences]", result.Content);
     }
@@ -156,7 +156,7 @@ public class WorkingDiffToolTests
     {
         var tool = Make(Ok(), out var fake);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"Unstaged","path":"sub/a.cs"}"""));
+            """{"timeoutSeconds":120,"scope":"Unstaged","path":"sub/a.cs"}"""));
         Assert.False(result.IsError);
         Assert.Equal(Root, fake.RepoPath);
         Assert.Equal(SubFile, fake.Path);
@@ -174,7 +174,7 @@ public class WorkingDiffToolTests
                 new Error("NotAGitRepository", $"Not a git repository: {Root}")),
             out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"All"}"""));
+            """{"timeoutSeconds":120,"scope":"All"}"""));
         Assert.True(result.IsError);
         Assert.Contains($"Error [NotAGitRepository]: Not a git repository: {Root}", result.Content);
     }
@@ -186,7 +186,7 @@ public class WorkingDiffToolTests
                 new Error("GitError", "fatal: unable to read tree")),
             out _);
         var result = await tool.ExecuteAsync(new RawToolInput("working_diff",
-            """{"scope":"Staged"}"""));
+            """{"timeoutSeconds":120,"scope":"Staged"}"""));
         Assert.True(result.IsError);
         Assert.Contains("Error [GitError]: fatal: unable to read tree", result.Content);
     }

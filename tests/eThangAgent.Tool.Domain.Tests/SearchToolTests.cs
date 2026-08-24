@@ -13,8 +13,11 @@ public class SearchToolTests
         return new(new WorkspacePathResolver(Root), fake);
     }
 
+    // Every search payload is a JSON object; inject the mandatory budget here so the
+    // individual tests can stay focused on their own parameter under test.
     private static Task<ToolResult> Run(SearchTool tool, string json) =>
-        tool.ExecuteAsync(new RawToolInput("search_files", json));
+        tool.ExecuteAsync(new RawToolInput("search_files",
+            json.StartsWith('{') ? "{\"timeoutSeconds\":120," + json[1..] : json));
 
     // ---- Missing parameters ----
 

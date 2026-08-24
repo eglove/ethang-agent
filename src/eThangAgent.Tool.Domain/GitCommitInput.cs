@@ -15,22 +15,13 @@ public sealed record GitCommitInput(
 {
     public static Result<GitCommitInput> Create(string jsonArguments)
     {
-        JsonElement json;
-        try
-        {
-            using var doc = JsonDocument.Parse(jsonArguments);
-            json = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            return Fail(new Error("InvalidJsonArguments",
-                $"Arguments are not valid JSON: {ex.Message}"));
-        }
-        if (json.ValueKind != JsonValueKind.Object)
-            return Fail(new Error("InvalidJsonArguments", "Arguments must be a JSON object."));
+        var baseParse = ToolArguments.ParseObject(jsonArguments);
+        if (!baseParse.IsSuccess)
+            return Fail(baseParse.Error!);
+        var json = baseParse.Value;
 
         var known = new HashSet<string>(
-            ["style", "type", "scope", "emoji_key", "description", "body"],
+            ["style", "type", "scope", "emoji_key", "description", "body", ToolTimeout.ParameterName],
             StringComparer.Ordinal);
         var unknown = json.EnumerateObject()
             .Where(p => !known.Contains(p.Name))
@@ -39,7 +30,7 @@ public sealed record GitCommitInput(
         if (unknown.Count > 0)
             return Fail(new Error("UnknownParameter",
                 $"Unknown parameter(s): {string.Join(", ", unknown)}. " +
-                "Allowed: style, type, scope, emoji_key, description, body."));
+                $"Allowed: style, type, scope, emoji_key, description, body, {ToolTimeout.ParameterName}."));
 
         if (!json.TryGetProperty("style", out var styleEl)) return Missing("style");
         if (styleEl.ValueKind != JsonValueKind.String) return WrongType("style", styleEl.ValueKind);
