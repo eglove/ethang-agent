@@ -2,7 +2,7 @@ using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 
-namespace eThangAgent.CLI.Tests;
+namespace eThangAgent.Composition.Tests;
 
 /// <summary>Six contract cases for SuperpowersBootstrapPromptProvider: the output
 /// wraps the verbatim using-superpowers skill (frontmatter included) plus the inline
