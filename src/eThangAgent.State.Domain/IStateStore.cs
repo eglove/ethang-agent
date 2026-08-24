@@ -1,3 +1,5 @@
+using eThangAgent.SharedKernel;
+
 namespace eThangAgent.StateDomain;
 
 public interface IStateStore
@@ -13,6 +15,11 @@ public interface IStateStore
     Task<StateKeyValue?> SetKeyCasAsync(
         string workspaceId, string ns, string name, string value,
         int? expectedVersion, CancellationToken ct = default);
+
+    /// <summary>Full-text search over state keys in a workspace. Invalid FTS
+    ///     queries fail with InvalidQuery rather than throwing.</summary>
+    Task<Result<IReadOnlyList<StateSearchHit>>> SearchKeysAsync(
+        string workspaceId, string query, int limit, CancellationToken ct = default);
 
     /// <summary>Atomic CAS delete. Returns false on conflict or missing key.</summary>
     Task<bool> DeleteKeyCasAsync(

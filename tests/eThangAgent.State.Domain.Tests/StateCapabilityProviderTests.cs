@@ -179,6 +179,9 @@ public class StateCapabilityProviderTests
         public Task<Result<IReadOnlyList<string>>> ListAsync(string? ns, CancellationToken ct = default)
             => Task.FromResult(ListResult);
 
+        public Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(string query, int limit, CancellationToken ct = default)
+            => Task.FromResult(Result<IReadOnlyList<StateSearchHit>>.Success([]));
+
         public Task<Result<string>> TransitionAsync(string from, string to, string summary,
             IReadOnlyList<string> evidence, CancellationToken ct = default)
         { LastEvidence = evidence; return Task.FromResult(TransitionResult); }

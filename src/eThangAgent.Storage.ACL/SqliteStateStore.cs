@@ -1,4 +1,5 @@
 using System.Text.Json;
+using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
 using Microsoft.Data.Sqlite;
 
@@ -117,6 +118,36 @@ public sealed class SqliteStateStore : IStateStore
         return await command.ExecuteNonQueryAsync(ct) > 0;
     }
 
+    public async Task<Result<IReadOnlyList<StateSearchHit>>> SearchKeysAsync(
+        string workspaceId, string query, int limit, CancellationToken ct = default)
+    {
+        await using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT k.ns, k.name, snippet(state_keys_fts, 0, '[', ']', '…', 12)
+            FROM state_keys_fts f
+            JOIN state_keys k ON k.rowid = f.rowid
+            WHERE k.workspace_id = @w AND state_keys_fts MATCH @q
+            ORDER BY rank
+            LIMIT @limit;
+            """;
+        command.Parameters.AddWithValue("@w", workspaceId);
+        command.Parameters.AddWithValue("@q", query);
+        command.Parameters.AddWithValue("@limit", limit);
+        try
+        {
+            var hits = new List<StateSearchHit>();
+            using var reader = await command.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+                hits.Add(new StateSearchHit(reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+            return Result<IReadOnlyList<StateSearchHit>>.Success(hits);
+        }
+        catch (SqliteException ex)
+        {
+            return Result<IReadOnlyList<StateSearchHit>>.Failure(
+                new Error("InvalidQuery", $"Full-text search rejected the query '{query}': {ex.Message}"));
+        }
+    }
     public async Task<TransitionRecord> InsertTransitionAsync(string workspaceId,
         TransitionRecord transition, CancellationToken ct = default)
     {

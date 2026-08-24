@@ -72,6 +72,17 @@ public sealed class StateService : IStateService
             keys.Select(k => $"{k.Ns}/{k.Name} v{k.Version}").ToList());
     }
 
+    public async Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(
+        string query, int limit, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return Result<IReadOnlyList<StateSearchHit>>.Failure(
+                new Error("InvalidQuery", "Query is required and must contain non-whitespace characters."));
+        if (limit < 1 || limit > 100)
+            return Result<IReadOnlyList<StateSearchHit>>.Failure(
+                new Error("InvalidLimit", $"Limit must be between 1 and 100, got {limit}."));
+        return await _store.SearchKeysAsync(_workspace.WorkspaceId, query.Trim(), limit, ct);
+    }
     public async Task<Result<string>> TransitionAsync(string from, string to, string summary,
         IReadOnlyList<string> evidence, CancellationToken ct = default)
     {
