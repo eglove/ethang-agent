@@ -18,7 +18,7 @@ public class DesktopE2ETests
     [Fact]
     public async Task Turn_SendsConfiguredDefaultModel_ToProvider()
     {
-        using var host = new E2E.Host().Start();
+        using var host = await new E2E.Host().StartAsync();
 
         await host.Vm.RunTurnAsync("hi");
 
@@ -29,7 +29,7 @@ public class DesktopE2ETests
     [Fact]
     public async Task Turn_InjectsSuperpowersBootstrap_OncePerSession()
     {
-        using var host = new E2E.Host().Start();
+        using var host = await new E2E.Host().StartAsync();
 
         await host.Vm.RunTurnAsync("hi");
 
@@ -53,7 +53,7 @@ public class DesktopE2ETests
     [Fact]
     public async Task ModelToolsContainOnlyExec()
     {
-        using var host = new E2E.Host().Start();
+        using var host = await new E2E.Host().StartAsync();
 
         await host.Vm.RunTurnAsync("hi");
 
@@ -65,7 +65,7 @@ public class DesktopE2ETests
     [Fact]
     public async Task SendsExecGuide_InSystemPrompt()
     {
-        using var host = new E2E.Host().Start();
+        using var host = await new E2E.Host().StartAsync();
 
         await host.Vm.RunTurnAsync("hi");
 
@@ -84,7 +84,7 @@ public class DesktopE2ETests
     [Fact]
     public async Task ExecutesExecTool_EndToEnd()
     {
-        using var host = new E2E.Host().Start();
+        using var host = await new E2E.Host().StartAsync();
 
         var tempFile = Path.Combine(Path.GetTempPath(), $"ethang-exec-{Guid.NewGuid():N}.txt");
         await File.WriteAllLinesAsync(tempFile, ["alpha line", "beta line"]);
@@ -109,7 +109,7 @@ public class DesktopE2ETests
     [Fact]
     public async Task Exec_ParseErrorFeedsBack_AndCorrectedProgramSucceeds()
     {
-        using var host = new E2E.Host().Start();
+        using var host = await new E2E.Host().StartAsync();
 
         var broken = System.Text.Json.JsonSerializer.Serialize(new { program = "if (x {" });
         var corrected = System.Text.Json.JsonSerializer.Serialize(

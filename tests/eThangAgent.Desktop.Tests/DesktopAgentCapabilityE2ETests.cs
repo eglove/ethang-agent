@@ -17,7 +17,7 @@ public class DesktopAgentCapabilityE2ETests
     [Fact]
     public async Task StateDisciplineLoop_Certifies()
     {
-        using var host = new E2E.Host().Start();
+        using var host = await new E2E.Host().StartAsync();
 
         var program = """
             Tools.Invoke("state.set", new { key = "current/head", value = "done" });
@@ -40,7 +40,7 @@ public class DesktopAgentCapabilityE2ETests
     [Fact]
     public async Task StateDisciplineLoop_Violated_OnFailingEvidence()
     {
-        using var host = new E2E.Host().Start();
+        using var host = await new E2E.Host().StartAsync();
 
         var program = """
             Tools.Invoke("state.set", new { key = "current/head", value = "done" });
@@ -69,7 +69,7 @@ public class DesktopAgentCapabilityE2ETests
     [Fact]
     public async Task TodoToolWritesFlow_ButModelStateWritesOnTodoNs_AreRejected()
     {
-        using var host = new E2E.Host().Start();
+        using var host = await new E2E.Host().StartAsync();
 
         host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram("Tools.Invoke(\"todo\", new { action = \"Add\", description = \"ship it\" })")));
         host.Mock.Returns(E2E.ExecToolCall("call_2", E2E.ExecProgram("Tools.Invoke(\"state.set\", new { key = \"todo/list\", value = \"hijack\" })")));
@@ -101,4 +101,107 @@ public class DesktopAgentCapabilityE2ETests
             .OfType<AssistantTextEntry>().Select(a => a.Text));
         Assert.Contains("done", assistant, StringComparison.OrdinalIgnoreCase);
     }
-}
+
+    /// <summary>Nested-spawn E2E, async contract: the parent session spawns a child through
+    ///     agent.spawn (returns immediately with status=running and no report), then fetches
+    ///     the finished child's report through agent.result. The mock plays both sides via
+    ///     model-keyed scripting — the parent under its session model, the child under the
+    ///     per-spawn model — and substitutes {{child_id}} with the runtime child id observed
+    ///     in the parent's tool messages.</summary>
+    [Fact]
+    public async Task NestedSpawn_ChildRunsAndReports()
+    {
+        using var host = await new E2E.Host().StartAsync();
+
+        // Parent script, keyed by the session model: spawn, status, poll-then-fetch result,
+        // final text. Turn 3 polls status inside exec so the async child's terminal write is
+        // observed before agent.result runs.
+        const string pollThenResult = """
+            var status = "";
+            while (!status.Contains("status=completed"))
+            {
+                await System.Threading.Tasks.Task.Delay(50);
+                status = Tools.Invoke("agent.status", new { id = "{{child_id}}" });
+            }
+            return Tools.Invoke("agent.result", new { id = "{{child_id}}" });
+            """;
+        host.Mock.ReturnsForModel(E2E.SessionModel,
+            E2E.ExecToolCall("parent_call_1", E2E.ExecProgram("var spawned = Tools.Invoke(\"agent.spawn\", new { taskPrompt = \"Say child report done and nothing else.\", model = \"mock/sub-model\", label = \"e2e\" }); return spawned;")),
+            E2E.ExecToolCall("parent_call_2", E2E.ExecProgram("return Tools.Invoke(\"agent.status\", new { id = \"{{child_id}}\" });")),
+            E2E.ExecToolCall("parent_call_3", E2E.ExecProgram(pollThenResult)),
+            RawCompletion("done: child reported"));
+
+        // Child script, keyed by the per-spawn model: one tool turn, then the final report.
+        host.Mock.ReturnsForModel("mock/sub-model",
+            E2E.ExecToolCall("child_call_1", E2E.ExecProgram("return \"child report done\";")),
+            RawCompletion("child report done"));
+
+        await host.Vm.RunTurnAsync("delegate a subtask and fetch its result");
+
+        var parentBodies = host.Mock.RequestBodies
+            .Where(body => MockOpenRouterServer.TryGetRequestModel(body) == E2E.SessionModel)
+            .ToList();
+        Assert.True(parentBodies.Count >= 4,
+            $"expected at least 4 parent requests, got {parentBodies.Count}");
+
+        // (a) The spawn result reached the transcript as a running line — non-blocking:
+        //     no report text, and none of the removed completed-gutter furniture.
+        var spawnResult = E2E.GetLastToolMessage(parentBodies[1]);
+        Assert.Matches("^id=[0-9a-fA-F-]{36} status=running$", spawnResult.Trim());
+        Assert.DoesNotContain("child report done", spawnResult);
+        Assert.DoesNotContain("--- report ---", spawnResult);
+
+        // (b) Wire: the child ran its own loop against the mock under the per-spawn model id.
+        Assert.Contains(host.Mock.RequestBodies,
+            body => MockOpenRouterServer.TryGetRequestModel(body) == "mock/sub-model");
+
+        // (c) Decoded transcript: the parent fetched the child's report through agent.result.
+        Assert.Contains("child report done",
+            E2E.FindToolMessageContaining(parentBodies, "child report done"),
+            StringComparison.Ordinal);
+
+        // (d) The parent's final reply acknowledges completion.
+        var assistant = string.Join("", host.Vm.Transcript.Entries
+            .OfType<AssistantTextEntry>().Select(a => a.Text));
+        Assert.Contains("done:", assistant, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Seed-and-recall E2E: the first exchange seeds the persisted root transcript
+    ///     with a distinctive phrase; scripted turns then list sessions and recall the phrase
+    ///     through the memory capability actions inside exec programs. Assertions read only
+    ///     decoded tool-message content — [mem] hit lines, the paging footer, session= lines.</summary>
+    [Fact]
+    public async Task MemoryRecall_AgainstMockServer()
+    {
+        using var host = await new E2E.Host().StartAsync();
+
+        // Turn 1: plain assistant reply seeding 'xylophone harvest' into the transcript.
+        host.Mock.Returns(RawCompletion("The xylophone harvest begins at dawn."));
+        await host.Vm.RunTurnAsync("tell me about the xylophone harvest");
+
+        // Turn 2: one exec tool call listing what conversations exist.
+        host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram("return Tools.Invoke(\"memory.sessions\", new { limit = 50 });")));
+        // Turn 3: one exec tool call recalling the seeded phrase across all sessions.
+        host.Mock.Returns(E2E.ExecToolCall("call_2", E2E.ExecProgram("return Tools.Invoke(\"memory.recall\", new { query = \"xylophone\", scope = \"global\" });")));
+        // Turn 4: final text closes the exchange.
+        host.Mock.Returns(RawCompletion("recalled."));
+        await host.Vm.RunTurnAsync("now list sessions and recall what you said");
+
+        Assert.True(host.Mock.RequestBodies.Count >= 4,
+            $"expected at least 4 scripted requests, got {host.Mock.RequestBodies.Count}");
+
+        // (a) Sessions listing shows the persisted root conversation at depth 0.
+        var sessionsOutput = E2E.FindToolMessageContaining(host.Mock.RequestBodies, "label=root depth=0");
+        Assert.Matches(@"(^|\n)session=[0-9a-fA-F-]{36} label=root depth=0 entries=\d+ ", sessionsOutput);
+
+        // (b) Recall renders the [mem] annotation line carrying the seeded phrase.
+        var recallOutput = E2E.FindToolMessageContaining(host.Mock.RequestBodies, "xylophone harvest");
+        Assert.Contains("[mem] session=", recallOutput, StringComparison.Ordinal);
+
+        // (c) The recall footer follows the paging contract.
+        Assert.Matches(@"--- memory: \d+ hits, page 1/\d+ ---", recallOutput);
+
+        var assistant = string.Join("", host.Vm.Transcript.Entries
+            .OfType<AssistantTextEntry>().Select(a => a.Text));
+        Assert.Contains("recalled.", assistant, StringComparison.OrdinalIgnoreCase);
+    }}

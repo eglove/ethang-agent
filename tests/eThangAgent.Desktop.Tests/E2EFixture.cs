@@ -33,7 +33,10 @@ public static class E2E
 
         public MainViewModel Vm { get; private set; } = null!;
 
-        public Host Start()
+        /// <summary>The persisted root session id — the SAME id the view-model appends under.</summary>
+        public AgentId RootId { get; private set; }
+
+        public async Task<Host> StartAsync()
         {
             Mock.Start();
             DatabasePath = Path.Combine(Path.GetTempPath(), $"ethang-e2e-{Guid.NewGuid():N}.db");
@@ -54,6 +57,15 @@ public static class E2E
                         new UnrootedPathResolver()))
                 .BuildServiceProvider();
 
+            // Root-session bootstrap, identical to both production hosts: without a persisted
+            // AgentRecord.Root the session never becomes listable/recallable in memory.
+            var store = _services.GetRequiredService<IAgentStore>();
+            RootId = AgentId.NewId();
+            var saved = await store.SaveAsync(AgentRecord.Root(RootId, DateTimeOffset.UtcNow));
+            if (!saved.IsSuccess)
+                throw new InvalidOperationException(
+                    "failed to persist root session: " +
+                    $"[{saved.Error!.Code}] {saved.Error.Message}");
             var handler = _services.GetRequiredService<SendMessageCommandHandler>();
             var lifecycle = _services.GetRequiredService<RootSessionLifecycle>();
             var conversation = _services.GetRequiredService<Conversation>();
@@ -62,7 +74,7 @@ public static class E2E
                 (command, ct, content, reasoning, iterationEnd, toolCall, toolResult) =>
                     handler.Handle(command, ct, content, reasoning, iterationEnd, toolCall, toolResult),
                 lifecycle,
-                AgentId.NewId(),
+                RootId,
                 conversation,
                 SessionModel,
                 requestClose: () => { });
