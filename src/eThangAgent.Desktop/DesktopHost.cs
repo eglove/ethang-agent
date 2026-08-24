@@ -27,7 +27,8 @@ public sealed record DesktopBootstrap(
     Conversation Conversation,
     SendMessageCommandHandler Handler,
     RootSessionLifecycle Lifecycle,
-    string ModelId);
+    string ModelId,
+    AvaloniaClarifyChannel ClarifyChannel);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup begins with workspace selection (a native folder picker with a re-prompt loop);
@@ -66,11 +67,12 @@ public static class DesktopHost
             throw new UnreachableException("unreachable after error dialog shutdown");
         }
 
+        var clarifyChannel = new AvaloniaClarifyChannel(null);
         var services = new ServiceCollection()
             .AddEThangAgentCore(settings, settings.ApiKey,
                 ModelConfig.Create("stealth/ox-alpha", 32 * 1024, 0.7f).Value!,
                 new AgentHostOptions(
-                    new AvaloniaClarifyChannel(PresentLater),
+                    clarifyChannel,
                     new FixedWorkspaceContext(workspaceRoot),
                     new WorkspacePathResolver(workspaceRoot),
                     [new WorkspaceInstructionsPromptProvider(workspaceRoot)]))
@@ -91,7 +93,8 @@ public static class DesktopHost
             services.GetRequiredService<Conversation>(),
             services.GetRequiredService<SendMessageCommandHandler>(),
             services.GetRequiredService<RootSessionLifecycle>(),
-            services.GetRequiredService<ModelConfig>().ModelId);
+            services.GetRequiredService<ModelConfig>().ModelId,
+            clarifyChannel);
     }
 
     /// <summary>Defers shutdown while startup runs. Between framework initialization and
@@ -211,10 +214,11 @@ public static class DesktopHost
     {
         Dispatcher.UIThread.VerifyAccess();
 
-        // The clarify channel's present hook resolves the view-model lazily: the channel is
+        // The clarify channel's presenter resolves the view-model lazily: the channel is
         // created before the VM exists, but presenting only happens mid-turn when it does.
         MainViewModel? viewModel = null;
-        var channel = new AvaloniaClarifyChannel(q =>
+        var channel = boot.ClarifyChannel;
+        channel.SetPresenter(q =>
             PresentOnUIThread(() => viewModel!.PresentClarifyAsync(q)));
 
         var vm = new MainViewModel(
@@ -289,9 +293,6 @@ public static class DesktopHost
         };
     }
 
-    private static Task<ClarifyViewModel> PresentLater(ClarifyQuestion question) =>
-        throw new InvalidOperationException(
-            "clarify presenter is attached by the host once the view-model exists");
 
     /// <summary>Marshals clarify presentation onto the UI thread, propagating both the
     ///     presented view-model and any fault back to the awaiting agent thread.</summary>
