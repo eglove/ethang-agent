@@ -53,11 +53,12 @@ public static class ExecGuide
 
     ### Running external commands
 
-    Shell() runs an external command line through powershell -NoProfile and returns
-    exit code, stdout, and stderr. Every argument after the exe is one token of a single
-    native command line; a multi-token piece such as "build -c Release" is re-parsed as
-    separate tokens instead of reaching the exe as one quoted literal argument. The
-    native exit code propagates verbatim.
+    Shell() runs an external command line spawned directly with native .NET process
+    APIs — no shell intermediary — and returns exit code, stdout, and stderr. Every
+    argument after the exe is one token of a single native command line; the joined line
+    is re-parsed with Windows argv rules (CommandLineToArgvW semantics), so a multi-token
+    piece such as "build -c Release" becomes separate tokens instead of reaching the exe
+    as one quoted literal argument. The native exit code propagates verbatim.
 
         var r = Shell("git", "status", "--short");
         if (r.ExitCode != 0) { Output(r.Stderr); return "not a repo?"; }

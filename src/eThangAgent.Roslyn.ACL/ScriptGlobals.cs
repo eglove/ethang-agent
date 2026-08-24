@@ -40,24 +40,22 @@ public sealed class ScriptGlobals
 
     /// <summary>Run an external command line and return stdout, stderr, and exit code.
     ///     Every argument after <paramref name="exe"/> is one token of a single native
-    ///     command line. Execution routes through PowerShell (-NoProfile) with the whole
-    ///     line passed via -EncodedCommand, so a multi-token piece such as "build -c
-    ///     Release" is re-parsed as separate tokens instead of reaching the exe as one
-    ///     quoted literal argument, and the native exit code propagates verbatim
-    ///     (bare -Command maps inner failures to 1; the explicit exit guard prevents
-    ///     that). No intermediate quoting layer exists: the line travels base64-encoded.</summary>
+    ///     command line: the joined line is re-parsed into argv tokens with Windows
+    ///     CommandLineToArgvW semantics (<see cref="NativeCommandLine.Split"/>), so a
+    ///     multi-token piece such as "build -c Release" reaches the exe as separate
+    ///     arguments instead of one quoted literal. The process is spawned directly
+    ///     with native .NET <see cref="Process"/> APIs — no shell intermediary — and
+    ///     the native exit code propagates verbatim.</summary>
     public ShellResult Shell(string exe, params string[] args)
     {
         var commandLine = string.Join(" ", new[] { exe }.Concat(args));
-        var script =
-            commandLine + "\n" +
-            "if ($LASTEXITCODE -is [int]) { exit $LASTEXITCODE }\n" +
-            "elseif ($?) { exit 0 } else { exit 1 }";
-        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        var tokens = NativeCommandLine.Split(commandLine);
+        if (tokens.Count == 0)
+            return new ShellResult(-1, "", "Shell() requires an executable.");
 
         var psi = new ProcessStartInfo
         {
-            FileName = "powershell",
+            FileName = tokens[0],
             WorkingDirectory = Workspace,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -66,9 +64,8 @@ public sealed class ScriptGlobals
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
-        psi.ArgumentList.Add("-NoProfile");
-        psi.ArgumentList.Add("-EncodedCommand");
-        psi.ArgumentList.Add(encoded);
+        for (var i = 1; i < tokens.Count; i++)
+            psi.ArgumentList.Add(tokens[i]);
 
         try
         {

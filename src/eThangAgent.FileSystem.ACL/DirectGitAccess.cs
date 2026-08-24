@@ -7,9 +7,8 @@ namespace eThangAgent.FileSystem.ACL;
 
 /// <summary>
 /// Read-only git queries and index-only commits implemented by shelling out to the
-/// <c>git</c> CLI directly via <see cref="ProcessStartInfo"/> (no PowerShell). The
-/// contract is identical to <see cref="PowerShellGitAccess"/>: same scope vocabulary
-/// (<c>Staged</c>/<c>Unstaged</c>/<c>All</c>), same branch resolution, same
+/// <c>git</c> CLI directly via <see cref="ProcessStartInfo"/> (no shell intermediary).
+/// Same scope vocabulary (<c>Staged</c>/<c>Unstaged</c>/<c>All</c>), same branch resolution, same
 /// <c>NothingStaged</c> guard, same verbatim commit message handling, same patch cap.
 /// Every git invocation is anchored at the repository root with <c>-C</c>, so no
 /// working-directory juggling takes place. stdout/stderr are captured separately

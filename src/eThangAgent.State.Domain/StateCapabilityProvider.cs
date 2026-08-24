@@ -58,7 +58,7 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
             [new ActionParameter("from", "String", "Prior state label."),
              new ActionParameter("to", "String", "New state label."),
              new ActionParameter("summary", "String", "What this claim asserts."),
-             new ActionParameter("evidence", "String[]", "PowerShell commands that, when run, should confirm the claim.")]),
+             new ActionParameter("evidence", "String[]", "C# boolean expressions that, when evaluated, should confirm the claim.")]),
         new("verify", "Run attached evidence fail-closed and certify.",
             "Runs the evidence for the selected transitions (default: all pending) fail-closed. Certifies only when every command confirms; otherwise reports violated with blocking reasons and revokes any head certificate first.",
             [new ActionParameter("ids", "String[]", "Optional transition ids; default all pending.")]),
