@@ -259,4 +259,5 @@ public sealed class AppDatabase
         command.CommandText = sql;
         command.ExecuteNonQuery();
         transaction.Commit();
-    }}
+    }
+}

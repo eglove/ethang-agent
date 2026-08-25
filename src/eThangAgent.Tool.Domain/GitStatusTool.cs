@@ -89,7 +89,7 @@ public sealed class GitStatusTool : ITool
         var baseParse = ToolArguments.ParseObject(jsonArguments);
         if (!baseParse.IsSuccess)
             return Result<bool>.Failure(baseParse.Error!);
-;
+        ;
 
         var budget = ToolTimeout.Parse(baseParse.Value);
         if (!budget.IsSuccess)

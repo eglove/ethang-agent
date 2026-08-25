@@ -224,13 +224,13 @@ public class StateServiceTests
             return Task.FromResult(true);
         }
 
-                public Task<int> DeleteNamespacePrefixAsync(string workspaceId, string nsPrefix, CancellationToken ct = default)
-            => Task.FromResult(0);
+        public Task<int> DeleteNamespacePrefixAsync(string workspaceId, string nsPrefix, CancellationToken ct = default)
+    => Task.FromResult(0);
 
         public Task<Result<IReadOnlyList<StateSearchHit>>> SearchKeysAsync(string workspaceId, string query, int limit, CancellationToken ct = default)
             => Task.FromResult(Result<IReadOnlyList<StateSearchHit>>.Success([]));
 
-public Task<TransitionRecord> InsertTransitionAsync(string workspaceId, TransitionRecord transition, CancellationToken ct = default)
+        public Task<TransitionRecord> InsertTransitionAsync(string workspaceId, TransitionRecord transition, CancellationToken ct = default)
         {
             _transitions[transition.Id] = transition;
             OperationLog.Add("insert-transition");

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-coverage:
+    name: Build & Test (coverage)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        run: dotnet build eThangAgent.slnx -c Release --nologo
+
+      - name: Test (with coverage)
+        run: >-
+          dotnet test eThangAgent.slnx -c Release --no-build --nologo
+          --collect:"XPlat Code Coverage"
+          --results-directory ./coverage
+
+      - name: Upload coverage reports
+        if: success() || failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-reports
+          path: ./coverage/**/coverage.cobertura.xml
+          if-no-files-found: error
+
+  lint:
+    name: Lint (dotnet format)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Verify formatting
+        run: dotnet format eThangAgent.slnx --verify-no-changes --severity warn

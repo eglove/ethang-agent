@@ -204,4 +204,5 @@ public class DesktopAgentCapabilityE2ETests
         var assistant = string.Join("", host.Vm.Transcript.Entries
             .OfType<AssistantTextEntry>().Select(a => a.Text));
         Assert.Contains("recalled.", assistant, StringComparison.OrdinalIgnoreCase);
-    }}
+    }
+}

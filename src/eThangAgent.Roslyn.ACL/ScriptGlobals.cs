@@ -158,13 +158,13 @@ public sealed class ScriptTools
         _globals = globals;
 
         foreach (var provider in registry.Providers)
-        foreach (var action in provider.Actions)
-        {
-            var name = action.Name;
-            // Only register as convenience method if the name is a valid C# identifier
-            if (IsValidIdentifier(name))
-                _methods[name] = args => InvokeCore(name, args);
-        }
+            foreach (var action in provider.Actions)
+            {
+                var name = action.Name;
+                // Only register as convenience method if the name is a valid C# identifier
+                if (IsValidIdentifier(name))
+                    _methods[name] = args => InvokeCore(name, args);
+            }
     }
 
     /// <summary>Invoke a tool by name and return the raw tool result text.

@@ -131,4 +131,5 @@ public class DesktopE2ETests
         Assert.Contains("ExecParseError", host.Mock.RequestBodies[1]);
         Assert.Contains("ExecParseError", host.Mock.RequestBodies[2]);
         Assert.Contains("corrected output", host.Mock.RequestBodies[2]);
-    }}
+    }
+}

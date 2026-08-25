@@ -15,7 +15,7 @@ public class CycleCheckToolTests
     [Fact]
     public void EagerCycle_FromTlcCounterexample_ReportsDeadlockRisk()
     {
-        var edges = Chain("F","R","A","S","W","T","E")
+        var edges = Chain("F", "R", "A", "S", "W", "T", "E")
             .Append(new DependencyEdge("E", "F", Deferred: false))
             .ToList();
 
