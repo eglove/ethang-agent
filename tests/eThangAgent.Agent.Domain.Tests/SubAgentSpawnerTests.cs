@@ -129,7 +129,14 @@ public class SubAgentSpawnerTests
         Assert.Contains(request.Tools!, t => t.Name == "read_file");
         Assert.Equal(Role.User, request.Messages[0].Role);
         Assert.Equal("read it", request.Messages[0].Content);
-        Assert.Equal("file content", request.Messages[2].Content); // tool result fed back
+
+        // The tool result was appended after request 1 was sent, so it lives in the child's
+        // conversation — requests are frozen snapshots, not live views of the growing list.
+        var outcomeChildId = store.Updated.Single().Id;
+        var transcript = await store.GetTranscriptAsync(outcomeChildId);
+        Assert.True(transcript.IsSuccess);
+        Assert.Equal(4, transcript.Value!.Count);
+        Assert.Equal("file content", transcript.Value[2].Content); // tool result fed back
     }
 
     // --- failure paths ---

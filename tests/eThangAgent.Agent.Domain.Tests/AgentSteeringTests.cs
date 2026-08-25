@@ -24,9 +24,8 @@ public class AgentSteeringTests
         public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
             CancellationToken ct = default)
         {
-            // Snapshot: Conversation.Messages is a live view over the same list, so an
-            // un-copied request would keep mutating as the turn proceeds.
-            RequestsSeen.Add(request with { Messages = request.Messages.ToList() });
+            // No defensive copy needed: the loop snapshots messages per request.
+            RequestsSeen.Add(request);
             return Task.FromResult(Result<ModelResponse>.Success(
                 _responses.Count > 0 ? _responses.Dequeue() : new ModelResponse("done", [])));
         }
@@ -42,6 +41,29 @@ public class AgentSteeringTests
             run();
             return Task.FromResult(new ToolResult("ok", false));
         }
+    }
+
+    /// <summary>Regression pin for the live-view hazard: Conversation.Messages is a live
+    /// wrapper over the growing list, so requests built from it directly would mutate after
+    /// being sent. The loop must hand each provider call its own frozen copy.</summary>
+    [Fact]
+    public async Task CapturedRequest_IsFrozen_DoesNotMutateAsTurnContinues()
+    {
+        var inbox = new AgentInbox();
+        var provider = new ScriptedProvider(
+            new ModelResponse(null, [new ToolCallRequest("call_1", "steer", "{}")]));
+        var tool = new ActionTool("steer", () => inbox.Post("later message"));
+        var agent = new Agent(provider, new Conversation(), DefaultConfig,
+            new ToolRegistry([tool]));
+
+        await agent.SendMessage("start", default, inbox: inbox);
+
+        // The turn added a tool result, a steered user message, and a final answer after
+        // request 1 was sent — none of it may appear in the captured first request.
+        var firstRequest = provider.RequestsSeen[0];
+        Assert.Single(firstRequest.Messages);
+        Assert.Equal("start", firstRequest.Messages[0].Content);
+        Assert.Equal(5, agent.Conversation.Messages.Count); // turn grew the conversation, not request 1
     }
 
     [Fact]

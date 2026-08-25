@@ -100,8 +100,11 @@ public class Agent
                 ct.ThrowIfCancellationRequested();
                 DrainInbox(inbox);
 
+                // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
+                // list, so handing it out directly would let every consumer of this request
+                // (retries, logging, tests) read messages added by later iterations.
                 var request = new ModelRequest(
-                    Conversation.Messages, _tools.Definitions, _systemPrompt?.Build());
+                    Conversation.Messages.ToList(), _tools.Definitions, _systemPrompt?.Build());
                 var result = await _provider.SendStreamingAsync(Config, request,
                     onContentDelta, onReasoningDelta, ct);
                 if (!result.IsSuccess)
