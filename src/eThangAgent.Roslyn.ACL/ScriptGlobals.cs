@@ -169,8 +169,11 @@ public sealed class ScriptTools
 
     /// <summary>Invoke a tool by name and return the raw tool result text.
     ///     Every invocation MUST carry timeoutSeconds (whole seconds, 1..3600): it is
-    ///     validated here, converted to the call's cancellation token, and STRIPPED from
-    ///     the arguments before dispatch so providers never see a harness-reserved key.</summary>
+    ///     validated here and STRIPPED from the arguments before dispatch so providers
+    ///     never see a harness-reserved key. Enforcement follows the action's TimeoutPolicy:
+    ///     HarnessEnforced actions are cancelled when the budget elapses (Error [ToolTimeout]);
+    ///     SelfManaged actions apply their own declared budget internally (clarify waits on
+    ///     the human without any bound), so the harness validates but never cancels on them.</summary>
     public string Invoke(string name, object? args)
     {
         var resolved = _registry.Resolve(name);
@@ -218,7 +221,11 @@ public sealed class ScriptTools
             scheduled = Task.Run(async () =>
             {
                 using var cts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
-                cts.CancelAfter(budget.Value);
+                // SelfManaged actions own their budget; an infinite CancelAfter never fires,
+                // and caller cancellation is not threaded here by design (see Invoke docs).
+                cts.CancelAfter(resolved.Value!.Action.Timeout == TimeoutPolicy.SelfManaged
+                    ? Timeout.InfiniteTimeSpan
+                    : budget.Value);
                 try
                 {
                     return await _registry.InvokeAsync(resolved.Value!, stripped, cts.Token);

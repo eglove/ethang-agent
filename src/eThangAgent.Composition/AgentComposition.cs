@@ -147,27 +147,30 @@ public static class AgentComposition
             .AddSingleton<StateCapabilityProvider>()
             .AddSingleton<MemoryCapabilityProvider>()
             .AddSingleton<ICapabilityRegistry>(sp =>
-                CapabilityRegistry.Create(
-                [
-                    new MergedCapabilityProvider("agent",
-                    [
-                        sp.GetRequiredService<AgentToolsProvider>(),
-                        sp.GetRequiredService<AgentCapabilityProvider>(),
-                    ]),
-                    sp.GetRequiredService<StateCapabilityProvider>(),
-                    sp.GetRequiredService<MemoryCapabilityProvider>(),
-                    new CuratedMemoryCapabilityProvider(
-                        sp.GetRequiredService<ICuratedMemoryStore>(),
-                        () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
-                        () => SubAgentSpawner.RunningChild?.Id.ToString(),
-                        sp.GetRequiredService<SessionMemoryWriteCounter>().Increment,
-                        () => DateTimeOffset.UtcNow),
-                ]))
+                CapabilityRegistry.Create(AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())))
+            // MUST stay lazy inside this closure: the agent surface reaches back to
+            // IExecEngine (agent -> spawn -> tool registry -> exec tool), so building any
+            // registry eagerly here would re-enter this not-yet-finished singleton and
+            // park forever on the container's in-progress slot (TLC-proven deadlock,
+            // DiResolution.tla). Deferred like the Lazy<> wiring this replaced.
+            .AddSingleton<Func<ICapabilityRegistry>>(sp =>
+            {
+                var tools = new Lazy<AgentToolsProvider>(() =>
+                    // Human-facing actions never reach sub-agents: clarify blocks on the
+                    // user, and a machine-owned child must neither wait on nor interrupt them.
+                    sp.GetRequiredService<AgentToolsProvider>().Except(HumanFacingActions));
+                var root = new Lazy<ICapabilityRegistry>(() => CapabilityRegistry.Create(
+                    AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())));
+                var child = new Lazy<ICapabilityRegistry>(() => CapabilityRegistry.Create(
+                    AgentSurface(sp, tools.Value)));
+                return () => SubAgentSpawner.RunningChild is null ? root.Value : child.Value;
+            })
             .AddSingleton<IExecEngine>(sp => new CSharpScriptExecEngine(
-                new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>()),
+                sp.GetRequiredService<Func<ICapabilityRegistry>>(),
                 sp.GetRequiredService<ExecOptions>(),
-                // Resolved per execution so concurrent sessions in one process each
-                // see their own workspace root, never a stale construction-time value.
+                // Registry and workspace are both resolved per execution so concurrent
+                // sessions in one process each see their own context, never a stale
+                // construction-time value pinned to whichever container was built first.
                 () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
             .AddSingleton<ITool>(sp => new ExecTool(
                 sp.GetRequiredService<IExecEngine>(),
@@ -205,6 +208,30 @@ public static class AgentComposition
             .AddSingleton<RootSessionLifecycle>()
             ;
     }
+
+    /// <summary>Actions only a root agent may invoke: they present UI to the human,
+    ///     and a machine-owned child must never block on (or interrupt) the user.</summary>
+    private static readonly string[] HumanFacingActions = ["clarify"];
+
+    /// <summary>The capability providers every agent surface shares, parameterized by the
+    ///     agent-tools provider so root and child surfaces differ only in human actions.</summary>
+    private static IReadOnlyList<ICapabilityProvider> AgentSurface(
+        IServiceProvider sp, AgentToolsProvider tools) =>
+    [
+        new MergedCapabilityProvider("agent",
+        [
+            tools,
+            sp.GetRequiredService<AgentCapabilityProvider>(),
+        ]),
+        sp.GetRequiredService<StateCapabilityProvider>(),
+        sp.GetRequiredService<MemoryCapabilityProvider>(),
+        new CuratedMemoryCapabilityProvider(
+            sp.GetRequiredService<ICuratedMemoryStore>(),
+            () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+            () => SubAgentSpawner.RunningChild?.Id.ToString(),
+            sp.GetRequiredService<SessionMemoryWriteCounter>().Increment,
+            () => DateTimeOffset.UtcNow),
+    ];
 
     /// <summary>Child-agent options with the default-model fallback applied: when
     ///     configuration omits the SubAgent DefaultModel key, children inherit the host's

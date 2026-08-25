@@ -12,7 +12,7 @@ namespace eThangAgent.Roslyn.ACL;
 
 public sealed class CSharpScriptExecEngine : IExecEngine
 {
-    private readonly Lazy<ICapabilityRegistry> _registry;
+    private readonly Func<ICapabilityRegistry> _registry;
     private readonly ExecOptions _options;
     private readonly Func<string> _workspaceRoot;
 
@@ -22,20 +22,21 @@ public sealed class CSharpScriptExecEngine : IExecEngine
             "System.Text", "System.Text.RegularExpressions")
         .AddReferences(typeof(ScriptGlobals).Assembly);
 
-    public CSharpScriptExecEngine(Lazy<ICapabilityRegistry> registry, ExecOptions options,
+    public CSharpScriptExecEngine(Func<ICapabilityRegistry> registry, ExecOptions options,
         Func<string>? workspaceRoot = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        // Resolved per execution rather than captured at construction: several agents
-        // share one process, each with its own workspace root — a construction-time
-        // value would pin every session to whichever container was built first.
+        // Both the capability surface and the workspace root are resolved per execution
+        // rather than captured at construction: several agents share one process, each
+        // with its own workspace root, and a sub-agent's run must resolve its own surface
+        // (the composition root hides human-facing actions from child contexts).
         _workspaceRoot = workspaceRoot ?? ThrowMissingWorkspace;
     }
 
     public CSharpScriptExecEngine(ICapabilityRegistry registry, ExecOptions options,
         Func<string>? workspaceRoot = null)
-        : this(new Lazy<ICapabilityRegistry>(() => registry), options, workspaceRoot) { }
+        : this(() => registry, options, workspaceRoot) { }
 
     /// <summary>Executes against the ambient workspace identity when the host supplies
     ///     none. The scripts' globals must name the agent's own workspace root; without
@@ -67,7 +68,7 @@ public sealed class CSharpScriptExecEngine : IExecEngine
     public async Task<ExecRunResult> ExecuteAsync(ExecProgram program, CancellationToken ct = default)
     {
         var globals = new ScriptGlobals(
-            _registry.Value,
+            _registry(),
             _workspaceRoot(),
             Path.GetTempPath());
 

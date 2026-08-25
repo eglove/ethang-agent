@@ -5,8 +5,10 @@ using Xunit;
 namespace eThangAgent.Roslyn.ACL.Tests;
 
 /// <summary>Universal tool-call budget: ScriptTools REQUIRES timeoutSeconds on every
-/// capability invocation, validates it, honors it via cancellation, and strips it before
-/// the provider sees the arguments — so providers never reject it as unknown.</summary>
+/// capability invocation, validates it, and strips it before the provider sees the
+/// arguments — so providers never reject it as unknown. Enforcement follows the action's
+/// TimeoutPolicy: HarnessEnforced actions are cancelled on elapsed budgets; SelfManaged
+/// actions (the ITool-backed agent tools, incl. deliberately unbounded clarify) never are.</summary>
 public class ScriptToolsTimeoutTests
 {
     private sealed class CapturingProvider : ICapabilityProvider
@@ -83,6 +85,48 @@ public class ScriptToolsTimeoutTests
         var (tools, _) = Make();
         var result = tools.Invoke("do", """{"x":"y"}""");
         Assert.Contains("Error [MissingParameter]:", result);
+    }
+
+    [Fact]
+    public async Task SelfManagedAction_BeyondBudget_StillCompletes_NoToolTimeout()
+    {
+        var selfManaged = new DelayingProvider(TimeoutPolicy.SelfManaged);
+        var globals = new ScriptGlobals(
+            CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
+
+        // Budget elapses while the action runs — a HarnessEnforced action dies here;
+        // a SelfManaged action (clarify waiting on the human) completes regardless.
+        var result = await Task.Run(() => globals.Tools.Invoke("waiter", new { timeoutSeconds = 1 }));
+
+        Assert.Equal("late-but-done", result);
+    }
+
+    [Fact]
+    public void SelfManagedAction_StillRequiresValidBudget()
+    {
+        var selfManaged = new DelayingProvider(TimeoutPolicy.SelfManaged);
+        var globals = new ScriptGlobals(
+            CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
+
+        var missing = globals.Tools.Invoke("waiter", new { });
+        Assert.Contains("Error [MissingParameter]:", missing);
+    }
+
+    /// <summary>Completes after 1.2s — beyond any 1-second budget.</summary>
+    private sealed class DelayingProvider(TimeoutPolicy policy) : ICapabilityProvider
+    {
+        public string Id => "delayer";
+        public IReadOnlyList<ActionDescriptor> Actions { get; } =
+        [
+            new ActionDescriptor("waiter", "Waits.", "Outlives its budget.",
+                [], RequiredParameters: null, Timeout: policy),
+        ];
+        public async Task<CapabilityInvocationResult> InvokeAsync(string actionName,
+            string jsonArguments, CancellationToken ct = default)
+        {
+            await Task.Delay(1_200, CancellationToken.None);
+            return CapabilityInvocationResult.Ok("late-but-done");
+        }
     }
 
     private sealed class SlowProvider : ICapabilityProvider
