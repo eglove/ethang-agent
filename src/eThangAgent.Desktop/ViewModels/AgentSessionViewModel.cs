@@ -49,6 +49,14 @@ public sealed partial class AgentSessionViewModel : ObservableObject
     [ObservableProperty]
     private ClarifyViewModel? _clarify;
 
+    private readonly IAgentInbox? _inbox;
+    private readonly IAgentRuntime? _childRuntime;
+
+    /// <summary>The active turn's cancellation source, or null between turns. Assigned on the UI
+    /// thread at turn start; cleared at turn end. Never disposed inline — cancelling a disposed
+    /// source from the UI thread would race the worker's teardown.</summary>
+    private CancellationTokenSource? _turnCts;
+
     public AgentSessionViewModel(TurnRunner runner,
         RootSessionLifecycle lifecycle,
         AgentId rootId,
@@ -56,7 +64,9 @@ public sealed partial class AgentSessionViewModel : ObservableObject
         string modelId,
         string workspaceRoot,
         Func<ClarifyQuestion, Task<ClarifyViewModel>>? presentClarify = null,
-        Func<UiStreamEvent, Task>? uiStreamSink = null)
+        Func<UiStreamEvent, Task>? uiStreamSink = null,
+        IAgentInbox? inbox = null,
+        IAgentRuntime? childRuntime = null)
     {
         WorkspaceRoot = workspaceRoot;
         // Turns must never run on the UI thread: their awaits would post back to
@@ -76,6 +86,8 @@ public sealed partial class AgentSessionViewModel : ObservableObject
         // always land on the UI thread.
         _streamSink = uiStreamSink ?? (evt => { ApplyStreamEvent(evt); return Task.CompletedTask; });
         Status = new StatusViewModel(modelId);
+        _inbox = inbox;
+        _childRuntime = childRuntime;
     }
     /// <summary>Stores the clarify channel seam the clarify tool answers through.</summary>
     public void AttachClarifyChannel(IClarifyChannel channel) => _clarifyChannel = channel;
@@ -116,6 +128,14 @@ public sealed partial class AgentSessionViewModel : ObservableObject
         var input = rawInput?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(input)) return Task.CompletedTask;
 
+        // Stop outranks everything: it must reach a busy turn even while a clarify question
+        // from that same turn is pending.
+        if (DesktopCommands.IsStop(input))
+        {
+            RequestStop();
+            return Task.CompletedTask;
+        }
+
         // A pending clarify question intercepts input before anything else — even while a
         // turn is in flight (IsBusy) awaiting the answer.
         if (Clarify is { } pending)
@@ -124,7 +144,13 @@ public sealed partial class AgentSessionViewModel : ObservableObject
             return Task.CompletedTask;
         }
 
-        if (IsBusy) return Task.CompletedTask;
+        // While a turn runs, input steers it: posted to the session inbox for delivery at the
+        // loop's next safe point, and echoed into the transcript immediately. Never dropped.
+        if (IsBusy)
+        {
+            Steer(input);
+            return Task.CompletedTask;
+        }
 
         if (DesktopCommands.IsQuit(input))
         {
@@ -167,6 +193,9 @@ public sealed partial class AgentSessionViewModel : ObservableObject
         Status.Phase = TurnPhase.Thinking;
         IsBusy = true;
 
+        var cts = new CancellationTokenSource();
+        _turnCts = cts;
+
         var bridge = new StreamBridge(_streamSink);
         bridge.Start();
 
@@ -178,7 +207,7 @@ public sealed partial class AgentSessionViewModel : ObservableObject
         {
             result = await _runner(
                 new SendMessageCommand(input),
-                CancellationToken.None,
+                cts.Token,
                 onContentDelta: d => { sawStream = true; bridge.OnContentDelta(d); },
                 onReasoningDelta: bridge.OnReasoningDelta,
                 onIterationEnd: bridge.OnIterationEnd,
@@ -212,9 +241,43 @@ public sealed partial class AgentSessionViewModel : ObservableObject
         }
         finally
         {
+            _turnCts = null;
             Status.Phase = TurnPhase.Ready;
             IsBusy = false;
         }
+    }
+
+    /// <summary>
+    /// Interrupts the running turn and all of this session's sub-agents. Hard cancel: the
+    /// domain repairs any half-finished tool batch so history stays valid, and surfaces the
+    /// interruption as a TurnCancelled result. No-op with a notice when idle. Safe to call
+    /// repeatedly; only the first call per turn has effect.
+    /// </summary>
+    public void RequestStop()
+    {
+        var cts = _turnCts;
+        if (!IsBusy || cts is null)
+        {
+            Transcript.AddNotice("No active turn to stop.");
+            return;
+        }
+        _childRuntime?.Interrupt();
+        cts.Cancel();
+    }
+
+    /// <summary>Posts input to the session inbox as steering for the running turn and echoes
+    /// it into the transcript. The model sees it on the provider call after the current tool
+    /// batch completes; if the turn ends first, it opens the next one.</summary>
+    private void Steer(string input)
+    {
+        if (_inbox is null)
+        {
+            Transcript.AddNotice("Error [NoInbox]: This session cannot accept steering messages.");
+            return;
+        }
+        _inbox.Post(input);
+        MessageCount++;
+        Transcript.AddUser(input);
     }
 
     private void ApplyStreamEvent(UiStreamEvent evt)

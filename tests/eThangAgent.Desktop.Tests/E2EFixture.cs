@@ -76,7 +76,9 @@ public static class E2E
                 _services!, RootId, conversation, handler, lifecycle,
                 ModelConfig.Create(SessionModel, 32 * 1024, 0.7f).Value!,
                 WorkspaceRoot: Directory.GetCurrentDirectory(),
-                ClarifyChannel: new NeverClarifyChannel());
+                ClarifyChannel: new NeverClarifyChannel(),
+                Inbox: _services!.GetRequiredService<IAgentInbox>(),
+                ChildRuntime: _services!.GetRequiredService<IAgentRuntime>());
             // No live Avalonia session exists in headless tests, so the production sink
             // (ApplyUiStreamEventOnUIThreadAsync) posts onto Dispatcher.UIThread, where queued
             // operations never execute (shut-down unit-test dispatcher) — wedging every turn

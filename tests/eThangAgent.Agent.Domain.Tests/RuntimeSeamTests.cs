@@ -8,6 +8,8 @@ public class RuntimeSeamTests
     {
         public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
             => Task.FromResult(Result<AgentId>.Success(record.Id));
+
+        public void Interrupt(AgentId? childId = null) { }
     }
 
     private sealed class FakeRunner : IAgentRunner

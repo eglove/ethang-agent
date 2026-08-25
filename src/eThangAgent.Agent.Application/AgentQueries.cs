@@ -47,6 +47,8 @@ public sealed class AgentQueries : IAgentQueries
             "Error [Timeout]: child agent timed out before completing.",
         AgentFailureReason.ProviderError =>
             "Error [ProviderError]: agent failed without a report.",
+        AgentFailureReason.Interrupted =>
+            "Error [Interrupted]: the child agent was interrupted by the user before completing.",
         _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
     };
 }

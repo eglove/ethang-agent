@@ -120,6 +120,7 @@ public sealed class AgentCapabilityProvider(
         AgentFailureReason.MaxIterations => "max-iterations",
         AgentFailureReason.Timeout => "timeout",
         AgentFailureReason.ProviderError => "provider-error",
+        AgentFailureReason.Interrupted => "interrupted",
         _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
     };
 

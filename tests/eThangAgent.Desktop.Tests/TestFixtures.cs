@@ -13,6 +13,20 @@ namespace eThangAgent.Desktop.Tests;
 ///     persistence semantics.</summary>
 public static class TestFixtures
 {
+    /// <summary>Runtime stub for view-model tests: records interrupt calls, never starts runs.</summary>
+    public sealed class StubAgentRuntime : IAgentRuntime
+    {
+        public int InterruptAllCount { get; private set; }
+
+        public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
+            => Task.FromResult(Result<AgentId>.Success(record.Id));
+
+        public void Interrupt(AgentId? childId = null)
+        {
+            if (childId is null) InterruptAllCount++;
+        }
+    }
+
     public sealed class StubStore : IAgentStore
     {
         public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)

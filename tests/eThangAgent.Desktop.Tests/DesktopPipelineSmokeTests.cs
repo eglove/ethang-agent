@@ -51,7 +51,9 @@ public class DesktopPipelineSmokeTests
             services, AgentId.NewId(), conversation, handler, lifecycle,
             ModelConfig.Create("mock/model", 256, 0.2f).Value!,
             WorkspaceRoot: Directory.GetCurrentDirectory(),
-            ClarifyChannel: new StubClarifyChannel());
+            ClarifyChannel: new StubClarifyChannel(),
+            Inbox: services.GetRequiredService<IAgentInbox>(),
+            ChildRuntime: services.GetRequiredService<IAgentRuntime>());
         var shell = await MainViewModel.ForPrebuiltSessionAsync(session);
         var vm = shell.Tabs[0].ViewModel;
 

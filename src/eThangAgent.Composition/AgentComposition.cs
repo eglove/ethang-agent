@@ -121,6 +121,7 @@ public static class AgentComposition
             .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
             .AddSingleton<SqliteCuratedMemoryStore>()
             .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
+            .AddSingleton<IAgentInbox, AgentInbox>()
             .AddSingleton<SessionMemoryWriteCounter>()
             .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy(() => DateTimeOffset.UtcNow))
             .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
@@ -208,7 +209,8 @@ public static class AgentComposition
                 sp.GetRequiredService<Ag>(),
                 sp.GetRequiredService<Conversation>(),
                 sp.GetRequiredService<INudgePolicy>(),
-                () => sp.GetRequiredService<SessionMemoryWriteCounter>().Count))
+                () => sp.GetRequiredService<SessionMemoryWriteCounter>().Count,
+                sp.GetRequiredService<IAgentInbox>()))
             .AddSingleton<RootSessionLifecycle>()
             ;
     }

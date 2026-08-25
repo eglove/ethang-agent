@@ -79,4 +79,9 @@ public sealed class FakeAgentRuntime(List<string>? callLog = null) : IAgentRunti
         callLog?.Add($"start:{record.Id}");
         return Task.FromResult(StartOutcome ?? Result<AgentId>.Success(record.Id));
     }
+
+    /// <summary>Interrupts observed by tests; never throws.</summary>
+    public void Interrupt(AgentId? childId = null) => Interrupted.Add(childId);
+
+    public List<AgentId?> Interrupted { get; } = [];
 }

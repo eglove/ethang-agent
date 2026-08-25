@@ -1,5 +1,6 @@
 using Ag = eThangAgent.AgentDomain.Agent;
 using eThangAgent.Agent.Application.Nudges;
+using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
@@ -18,15 +19,17 @@ public class SendMessageCommandHandler
     private readonly Conversation? _conversation;
     private readonly INudgePolicy? _nudgePolicy;
     private readonly Func<int>? _memoriesWritten;
+    private readonly IAgentInbox? _inbox;
     private int _turnCount;
 
     public SendMessageCommandHandler(Ag agent, Conversation? conversation = null,
-        INudgePolicy? policy = null, Func<int>? memoriesWritten = null)
+        INudgePolicy? policy = null, Func<int>? memoriesWritten = null, IAgentInbox? inbox = null)
     {
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         _conversation = conversation;
         _nudgePolicy = policy;
         _memoriesWritten = memoriesWritten;
+        _inbox = inbox;
     }
 
     public async Task<Result<string>> Handle(SendMessageCommand command, CancellationToken ct = default,
@@ -39,7 +42,7 @@ public class SendMessageCommandHandler
         var turnNumber = Interlocked.Increment(ref _turnCount);
 
         var result = await _agent.SendMessage(command.Text, ct,
-            onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult);
+            onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult, _inbox);
         if (!result.IsSuccess)
             return result;
 

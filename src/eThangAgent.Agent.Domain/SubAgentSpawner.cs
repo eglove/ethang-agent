@@ -76,10 +76,17 @@ public sealed class SubAgentSpawner : IAgentRunner
         RunningChildCurrent.Value = child;
         try
         {
-            var run = await agent.SendMessage(child.TaskPrompt, timeoutCts.Token);
+            var run = await agent.SendMessage(child.TaskPrompt, timeoutCts.Token,
+                inbox: null);
             if (run.IsSuccess)
             {
                 report = run.Value!;
+            }
+            // The caller's token firing means an explicit interrupt (user stop), which is
+            // distinct from this run's own timeout budget expiring.
+            else if (ct.IsCancellationRequested)
+            {
+                failureReason = AgentFailureReason.Interrupted;
             }
             else if (timeoutCts.IsCancellationRequested)
             {
@@ -92,8 +99,9 @@ public sealed class SubAgentSpawner : IAgentRunner
         }
         catch (OperationCanceledException)
         {
-            // Timeout and parent cancellation (Ctrl+C) both record Failed(Timeout), per design.
-            failureReason = AgentFailureReason.Timeout;
+            failureReason = ct.IsCancellationRequested
+                ? AgentFailureReason.Interrupted
+                : AgentFailureReason.Timeout;
         }
         catch (Exception)
         {
@@ -149,6 +157,7 @@ public sealed class SubAgentSpawner : IAgentRunner
     {
         AgentFailureReason.Timeout => "child agent timed out before completing.",
         AgentFailureReason.MaxIterations => "child agent hit the tool-iteration limit without a final report.",
+        AgentFailureReason.Interrupted => "child agent was interrupted by the user before completing.",
         _ => "child agent's model provider failed.",
     };
 }

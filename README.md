@@ -24,6 +24,12 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
   appended, and the loop resumes — bounded per turn, with `MaxOutputContinuations` raised
   as a visible error if the cap is exhausted. A stream cut off without its terminator is a
   `StreamInterrupted` error, never a silently truncated "answer"
+- Turn steering and interruption — input typed while a turn runs is never dropped: it is
+  posted to a session inbox and delivered to the model as a user message at the next safe
+  point (never splitting a tool call from its results). `/stop` (or the Stop button) hard-cancels
+  the active turn and all of this session's sub-agents; half-finished tool batches are repaired
+  in place so conversation history stays valid, and the interruption surfaces as
+  `Error [TurnCancelled]` / child `interrupted` outcomes rather than crashes or lost state
 - Selectable transcript text in the desktop app — select any message or reasoning block
   and copy it with Ctrl+C
 - `exec` tool — in-process C# scripting via Roslyn with artifact capture and structured output

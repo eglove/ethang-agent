@@ -117,7 +117,9 @@ public sealed partial class MainViewModel : ObservableObject
                 session.WorkspaceRoot,
                 uiStreamSink: _streamSink ?? (evt => (sessionVmRef ??
                     throw new InvalidOperationException("session view-model not initialized"))
-                    .ApplyUiStreamEventOnUIThreadAsync(evt)));
+                    .ApplyUiStreamEventOnUIThreadAsync(evt)),
+                inbox: session.Inbox,
+                childRuntime: session.ChildRuntime);
             sessionVmRef = sessionVm;
             AttachClarifyChannel(sessionVm, session.ClarifyChannel);
 

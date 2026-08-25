@@ -105,6 +105,71 @@ public class InProcessAgentRuntimeTests
         Assert.Empty(store.Updates);
     }
 
+    /// <summary>Runner that parks until its token fires, then reports Failed(Interrupted) —
+    /// the same shape SubAgentSpawner produces when the runtime cancels a live child.</summary>
+    private sealed class CancellingRunner : IAgentRunner
+    {
+        private readonly TaskCompletionSource<AgentRecord> _firstCall =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public CancellationToken ObservedToken { get; private set; }
+        public Task FirstCall => _firstCall.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
+        {
+            ObservedToken = ct;
+            _firstCall.TrySetResult(child);
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // bounded: the token is the only thing that settles this await
+            }
+            return new AgentRunOutcome(child.Id, AgentStatus.Failed,
+                AgentFailureReason.Interrupted, "child agent was interrupted.", child.ModelUsed, child.Depth);
+        }
+    }
+
+    [Fact]
+    public async Task Interrupt_All_CancelsActiveRunToken_AndPersistsItsTerminalOutcome()
+    {
+        var runner = new CancellingRunner();
+        var store = new FakeStore();
+        var runtime = new InProcessAgentRuntime(runner, store, maxConcurrentAgents: 1);
+        var child = RunningChild();
+
+        await runtime.Start(child);
+        await runner.FirstCall; // run is in-flight and parked on its token
+
+        runtime.Interrupt(); // stop everything in this session's runtime
+
+        var updated = await store.FirstUpdate;
+        Assert.True(runner.ObservedToken.IsCancellationRequested);
+        Assert.Equal(AgentStatus.Failed, updated.Status);
+        Assert.Equal(AgentFailureReason.Interrupted, updated.FailureReason);
+    }
+
+    [Fact]
+    public async Task Interrupt_UnknownId_IsANoOp_AndDoesNotDisturbActiveRuns()
+    {
+        var runner = new GateRunner();
+        var store = new FakeStore();
+        var runtime = new InProcessAgentRuntime(runner, store, maxConcurrentAgents: 1);
+        var child = RunningChild();
+
+        await runtime.Start(child);
+        await runner.FirstCall;
+
+        runtime.Interrupt(new AgentId(Guid.NewGuid()));
+
+        Assert.Empty(store.Updates); // active run untouched, still parked behind the gate
+        runner.Complete(CompletedOutcome(child.Id, "still finished fine"));
+        var updated = await store.FirstUpdate;
+        Assert.Equal(AgentStatus.Completed, updated.Status);
+    }
+
     [Fact]
     public async Task RunnerCompletes_Lands_CompletedUpdate_CarryingReport()
     {

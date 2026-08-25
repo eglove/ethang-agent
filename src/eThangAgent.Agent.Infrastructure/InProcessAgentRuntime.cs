@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 
@@ -5,12 +6,16 @@ namespace eThangAgent.AgentInfrastructure;
 
 /// <summary>In-process actor runtime: every accepted child runs to completion on one background task
 /// while the caller continues. A strict concurrency cap is enforced with a zero-timeout slot wait —
-/// at-capacity starts fail with <see cref="RuntimeErrors.CapReached"/> and produce no side effects.</summary>
+/// at-capacity starts fail with <see cref="RuntimeErrors.CapReached"/> and produce no side effects.
+/// Each active run owns a CancellationTokenSource registered here, so <see cref="Interrupt"/> can
+/// cancel one or all runs; runners observe the token and persist well-formed terminal outcomes. a CancellationTokenSource registered here, so <see cref="Interrupt"/> can
+/// cancel one or all runs; runners observe the token and persist well-formed terminal outcomes.</summary>
 public sealed class InProcessAgentRuntime : IAgentRuntime
 {
     private readonly IAgentRunner _runner;
     private readonly IAgentStore _store;
     private readonly SemaphoreSlim _slots;
+    private readonly ConcurrentDictionary<AgentId, CancellationTokenSource> _active = [];
 
     public InProcessAgentRuntime(IAgentRunner runner, IAgentStore store, int maxConcurrentAgents)
     {
@@ -29,15 +34,29 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
         if (!_slots.Wait(0))
             return Task.FromResult(Result<AgentId>.Failure(CapError()));
 
-        _ = Task.Run(() => RunToCompletionAsync(record));
+        var cts = new CancellationTokenSource();
+        _active[record.Id] = cts;
+        _ = Task.Run(() => RunToCompletionAsync(record, cts));
         return Task.FromResult(Result<AgentId>.Success(record.Id));
     }
 
-    private async Task RunToCompletionAsync(AgentRecord record)
+    public void Interrupt(AgentId? childId = null)
+    {
+        if (childId is { } id)
+        {
+            if (_active.TryRemove(id, out var cts))
+                cts.Cancel();
+            return;
+        }
+        foreach (var runningId in _active.Keys)
+            Interrupt(runningId);
+    }
+
+    private async Task RunToCompletionAsync(AgentRecord record, CancellationTokenSource cts)
     {
         try
         {
-            var outcome = await _runner.RunAsync(record);
+            var outcome = await _runner.RunAsync(record, cts.Token);
             await _store.UpdateAsync(record with
             {
                 Status = outcome.Status,
@@ -60,6 +79,8 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
         }
         finally
         {
+            if (_active.TryRemove(record.Id, out var removed))
+                removed.Dispose();
             _slots.Release();
         }
     }

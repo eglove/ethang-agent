@@ -86,7 +86,9 @@ public sealed class AgentSessionFactory
                 services.GetRequiredService<RootSessionLifecycle>(),
                 services.GetRequiredService<ModelConfig>(),
                 workspaceRoot,
-                clarifyChannel));
+                clarifyChannel,
+                services.GetRequiredService<IAgentInbox>(),
+                services.GetRequiredService<IAgentRuntime>()));
         }
         catch
         {

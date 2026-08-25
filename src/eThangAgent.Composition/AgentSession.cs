@@ -22,7 +22,9 @@ public sealed record AgentSession(
     RootSessionLifecycle Lifecycle,
     ModelConfig Model,
     string WorkspaceRoot,
-    IClarifyChannel ClarifyChannel)
+    IClarifyChannel ClarifyChannel,
+    IAgentInbox Inbox,
+    IAgentRuntime ChildRuntime)
 {
     public string ModelId => Model.ModelId;
 }

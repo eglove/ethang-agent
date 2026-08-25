@@ -135,6 +135,11 @@ public partial class AgentView : UserControl
         InputBox.Focus();
     }
 
+    private void OnStopClick(object? sender, RoutedEventArgs e)
+    {
+        Vm?.RequestStop();
+    }
+
     private async void OnClarifyOption(object? sender, RoutedEventArgs e)
     {
         var vm = Vm;

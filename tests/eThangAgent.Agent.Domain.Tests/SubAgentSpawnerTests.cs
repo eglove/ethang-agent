@@ -135,6 +135,22 @@ public class SubAgentSpawnerTests
     // --- failure paths ---
 
     [Fact]
+    public async Task RunAsync_UserInterruption_RecordsFailedInterrupted_DistinctFromTimeout()
+    {
+        var store = new FakeAgentStore();
+        var spawner = MakeRunner(new BlockingProvider(), store);
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync(); // the runtime interrupts by cancelling this token
+
+        var outcome = await spawner.RunAsync(Child(), cts.Token);
+
+        Assert.Equal(AgentStatus.Failed, outcome.Status);
+        Assert.Equal(AgentFailureReason.Interrupted, outcome.Reason);
+        var updated = Assert.Single(store.Updated);
+        Assert.Equal(AgentFailureReason.Interrupted, updated.FailureReason);
+    }
+
+    [Fact]
     public async Task RunAsync_Timeout_ReturnsFailedOutcome_PersistsFailedTimeout()
     {
         var store = new FakeAgentStore();

@@ -29,7 +29,7 @@ public class AgentViewTests
     }
 
     [AvaloniaFact]
-    public void Slash_Opens_Autocomplete_Listing_Three_Commands()
+    public void Slash_Opens_Autocomplete_Listing_All_Commands()
     {
         var vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
         var window = new Window { Content = new AgentView { DataContext = vm } };
@@ -45,7 +45,7 @@ public class AgentViewTests
         input.Text = "/";
 
         Assert.True(popup.IsOpen);
-        Assert.Equal(3, list.ItemCount);
+        Assert.Equal(DesktopCommands.All.Count, list.ItemCount);
     }
 
     [AvaloniaFact]

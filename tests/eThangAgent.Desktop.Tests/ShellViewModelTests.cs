@@ -41,7 +41,9 @@ public class ShellViewModelTests
             Lifecycle: new eThangAgent.Composition.RootSessionLifecycle(new TestFixtures.StubStore()),
             Model: eThangAgent.ModelDomain.ModelConfig.Create("test/model", 128, 0.1f).Value!,
             WorkspaceRoot: root,
-            ClarifyChannel: null!);
+            ClarifyChannel: null!,
+            Inbox: new eThangAgent.AgentDomain.AgentInbox(),
+            ChildRuntime: new TestFixtures.StubAgentRuntime());
     }
 
     [Fact]
