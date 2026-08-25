@@ -103,6 +103,10 @@ public static class AgentComposition
                     new GitCommitTool(sp.GetRequiredService<IPathResolver>(),
                         sp.GetRequiredService<IGitCommitAccess>()),
                     "Commit the current index with a validated conventional or gitmoji message."),
+                // Pure graph math, no external access: safe for sub-agents too.
+                new AgentToolBinding(
+                    new CycleCheckTool(),
+                    "Detect dependency cycles in a supplied construction graph and classify deadlock risk."),
             ]))
             .AddSingleton(host.WorkspaceContext)
             .AddSingleton(host.PathResolver)
