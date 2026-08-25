@@ -1,4 +1,3 @@
-using Ag = eThangAgent.AgentDomain.Agent;
 using eThangAgent.Agent.Application;
 using eThangAgent.Agent.Application.Memory;
 using eThangAgent.Agent.Application.Nudges;
@@ -17,6 +16,7 @@ using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
+using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Composition;
 

@@ -1,4 +1,3 @@
-using Ag = eThangAgent.AgentDomain.Agent;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
@@ -9,12 +8,13 @@ using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.Roslyn.ACL;
-using eThangAgent.SkillDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
+using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Composition.Tests;
 

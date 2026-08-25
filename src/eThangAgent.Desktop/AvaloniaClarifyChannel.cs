@@ -1,9 +1,9 @@
-namespace eThangAgent.Desktop;
 
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
+namespace eThangAgent.Desktop;
 /// <summary>
 ///     Clarify channel for the desktop UI. Presents a question through the injected
 ///     <paramref name="present" /> hook, which builds (and surfaces) a

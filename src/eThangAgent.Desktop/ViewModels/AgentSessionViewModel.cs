@@ -2,9 +2,9 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
+using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
-using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 

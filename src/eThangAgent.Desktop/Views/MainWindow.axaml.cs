@@ -1,7 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Media;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using eThangAgent.Desktop.ViewModels;
 

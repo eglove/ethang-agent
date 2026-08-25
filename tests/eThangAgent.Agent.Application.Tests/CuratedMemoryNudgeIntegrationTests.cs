@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Ag = eThangAgent.AgentDomain.Agent;
 using eThangAgent.Agent.Application.Nudges;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ConversationDomain;
@@ -7,6 +6,7 @@ using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
+using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Agent.Application.Tests;
 

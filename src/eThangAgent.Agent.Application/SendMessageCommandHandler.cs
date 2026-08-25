@@ -1,8 +1,8 @@
-using Ag = eThangAgent.AgentDomain.Agent;
 using eThangAgent.Agent.Application.Nudges;
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
+using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Agent.Application;
 

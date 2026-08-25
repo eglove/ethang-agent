@@ -1,8 +1,8 @@
-using Ag = eThangAgent.AgentDomain.Agent;
-using eThangAgent.ModelDomain;
 using eThangAgent.ConversationDomain;
-using eThangAgent.ToolDomain;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
+using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Agent.Application.Tests;
 
