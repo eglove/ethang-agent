@@ -84,6 +84,49 @@ public class CSharpScriptExecEngineTests
         Assert.Equal(ExecRunStatus.Completed, run.Status);
         Assert.Contains("hello", run.Output);
     }
+
+
+    private const string HungCommand =
+        "var r = Shell(\"cmd\", \"/c\", \"ping -n 60 127.0.0.1 > nul\"); return r.ExitCode;";
+
+    /// <summary>Stop-button regression: cancelling the caller's token must kill the hung
+    ///     child process tree so the turn actually ends, not just the token firing.</summary>
+    [Fact]
+    public async Task CallerCancellation_KillsHungShellProcessTree()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var engine = CreateEngine();
+
+        var run = await engine.ExecuteAsync(new ExecProgram(HungCommand), cts.Token);
+
+        Assert.Equal(ExecRunStatus.Cancelled, run.Status);
+    }
+
+    /// <summary>Budget regression: an expired exec budget must kill the hung child tree and
+    ///     surface Timeout — previously Shell blocked forever past its own WaitForExit cap.</summary>
+    [Fact]
+    public async Task ElapsedBudget_KillsHungShellProcessTree()
+    {
+        var options = ExecOptions.Default with { Timeout = TimeSpan.FromSeconds(2) };
+        var engine = CreateEngine(options);
+
+        var run = await engine.ExecuteAsync(new ExecProgram(HungCommand));
+
+        Assert.Equal(ExecRunStatus.Timeout, run.Status);
+    }
+
+    /// <summary>Pipe-deadlock regression: chatty stderr under quiet stdout must not block a
+    ///     sequential stdout ReadToEnd — both pipes now drain concurrently.</summary>
+    [Fact]
+    public async Task ChattyStderr_DoesNotDeadlockShell()
+    {
+        var engine = CreateEngine();
+        var program = "var r = Shell(\"cmd\", \"/c\", \"for /L %i in (1,1,500) do @echo stderr-line-%i 1>&2\"); return r.Stderr.Length;";
+        var run = await engine.ExecuteAsync(new ExecProgram(program));
+
+        Assert.Equal(ExecRunStatus.Completed, run.Status);
+        Assert.True(int.Parse(run.Output) > 4096, $"stderr drained: {run.Output}");
+    }
     [Fact]
     public async Task Workspace_Global_Reflects_Injected_Resolver_PerExecution()
     {

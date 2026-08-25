@@ -16,13 +16,20 @@ public sealed class ScriptGlobals
     private readonly bool _captureStdout;
     private TextWriter? _originalOut;
 
+    /// <summary>The execution's cancellation source: caller interrupt (user stop) and the
+    ///     elapsed exec budget both fire it. Synchronous members such as <see cref="Shell"/>
+    ///     cannot be interrupted by Roslyn's cooperative cancellation checks, so they must
+    ///     honor this token directly.</summary>
+    private readonly CancellationToken _ct;
+
     public ScriptGlobals(ICapabilityRegistry registry, string workspace, string temp,
-        bool captureStdout = true)
+        bool captureStdout = true, CancellationToken shellToken = default)
     {
         _registry = registry;
         Workspace = workspace;
         Temp = temp;
         _captureStdout = captureStdout;
+        _ct = shellToken;
         Tools = new ScriptTools(registry, this);
     }
 
@@ -70,10 +77,44 @@ public sealed class ScriptGlobals
         try
         {
             using var p = Process.Start(psi)!;
-            var stdout = p.StandardOutput.ReadToEnd();
-            var stderr = p.StandardError.ReadToEnd();
-            p.WaitForExit(120_000);
-            return new ShellResult(p.ExitCode, stdout, stderr);
+            // Drain both pipes concurrently: sequential ReadToEnd calls deadlock when the
+            // child fills the pipe that is not being read (chatty stderr under quiet stdout).
+            var stdoutTask = p.StandardOutput.ReadToEndAsync();
+            var stderrTask = p.StandardError.ReadToEndAsync();
+            // Kill the whole tree when the exec budget elapses or the turn is stopped:
+            // a synchronous Shell cannot observe the token any other way. Killing closes
+            // the pipes, which completes the drain tasks.
+            using var reg = _ct.Register(() =>
+            {
+                try { p.Kill(entireProcessTree: true); }
+                catch { /* already exited */ }
+            });
+            try
+            {
+                Task.WaitAll([stdoutTask, stderrTask], _ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when the budget elapses or the turn is stopped.
+            }
+
+            // Killing the tree closes its pipes, so the drain tasks finish promptly; the
+            // WaitAll above can still return cleanly if they beat the token. Check the
+            // token explicitly and unwind: the engine maps this to Cancelled/Timeout —
+            // a stopped turn must never surface as a successful shell result.
+            if (_ct.IsCancellationRequested)
+            {
+                Task.WaitAll([stdoutTask, stderrTask]);
+                p.WaitForExit(); // flushes output handlers before the tree dies fully
+                throw new OperationCanceledException(_ct);
+            }
+
+            p.WaitForExit(); // flushes output handlers so the exit code is final
+            return new ShellResult(p.ExitCode, stdoutTask.Result, stderrTask.Result);
+        }
+        catch (OperationCanceledException)
+        {
+            throw; // never swallowed by the generic handler below
         }
         catch (Exception ex)
         {

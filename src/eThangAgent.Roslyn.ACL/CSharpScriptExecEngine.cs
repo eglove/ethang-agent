@@ -67,10 +67,16 @@ public sealed class CSharpScriptExecEngine : IExecEngine
 
     public async Task<ExecRunResult> ExecuteAsync(ExecProgram program, CancellationToken ct = default)
     {
+        // The budget source is created up front so synchronous script surfaces (Shell) can
+        // honor it: caller interrupt (user stop) and the elapsed exec budget both fire it.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(_options.Timeout);
+
         var globals = new ScriptGlobals(
             _registry(),
             _workspaceRoot(),
-            Path.GetTempPath());
+            Path.GetTempPath(),
+            shellToken: cts.Token);
 
         var script = CSharpScript.Create(program.Text, ScriptOpts, typeof(ScriptGlobals));
         var compileDiagnostics = script.Compile(ct);
@@ -84,9 +90,6 @@ public sealed class CSharpScriptExecEngine : IExecEngine
         globals.BeginCapture();
         try
         {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(_options.Timeout);
-
             // Scripts are synchronous model-authored code; they may legitimately block
             // (Tools.Invoke, Shell). Schedule the submission on the worker pool with the
             // caller's execution context suppressed: Task.Run alone still FLOWS the
@@ -100,6 +103,18 @@ public sealed class CSharpScriptExecEngine : IExecEngine
             // The ACL is context-free by contract: its resumptions must never depend
             // on the caller's pump, so shed the captured context here as well.
             var state = await scheduled.ConfigureAwait(false);
+
+            // An OCE thrown from synchronous script surfaces (Shell killed by the budget or
+            // a user stop) does NOT propagate: Roslyn's cancelOnError predicate ends the
+            // submission loop gracefully, so RunAsync returns an empty state instead.
+            // Classify the outcome explicitly rather than trusting the completion shape.
+            if (ct.IsCancellationRequested)
+                return new ExecRunResult(ExecRunStatus.Cancelled,
+                    string.Join("\n", globals.OutputLines), [], "Execution was cancelled.");
+            if (cts.IsCancellationRequested)
+                return new ExecRunResult(ExecRunStatus.Timeout,
+                    string.Join("\n", globals.OutputLines), [],
+                    $"Execution timed out after {_options.Timeout.TotalSeconds:0} seconds; script stopped.");
 
             var outputLines = new List<string>(globals.OutputLines);
             if (state.ReturnValue is not null && state.ReturnValue is not ScriptGlobals)
