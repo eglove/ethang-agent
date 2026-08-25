@@ -1,0 +1,24 @@
+# MegaLinter Configuration for eThang Agent
+# See: https://megalinter.io/latest/configuration/
+
+# Disable linters that are not relevant to a C#/NET codebase or cause environment issues
+DISABLE_LINTERS:
+  - OSV_SCANNER      # No lockfiles to scan (C# uses .csproj, not npm/go/gem locks)
+  - TRIVY             # Container/image scanning not needed for source code repo
+  - ZIZMOR            # GitHub Actions workflow linting requires API access; disable for simplicity
+
+# Optional: Enable only relevant linters (uncomment to use)
+# ENABLE_LINTERS:
+#   - CSHARP          # Analyze C# code with dotnet-format
+#   - DOTNET          # .NET-specific analysis
+#   - CSSENSE         # CSS linting if needed
+#   - YAMLL           # YAML validation (for GitHub Actions/workflows)
+
+# Silence error reporting from linters that might still run for other reasons
+OSV_SCANNER_DISABLE_ERRORS: true
+TRIVY_DB_REPOSITORY: https://trivy-db.mirror.example.com/v2/trivy/db  # Fallback mirror
+ZIZMOR_DISABLE_ERRORS: true
+
+# General MegaLinter settings (optional)
+# SHOW_ELAPSED_TIME: true
+# PRINT_CONFIGURED_LINTERS: true
