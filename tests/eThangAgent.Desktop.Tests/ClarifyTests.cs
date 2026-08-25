@@ -216,4 +216,52 @@ public class ClarifyTests
         Assert.Contains(vm.Transcript.Entries.OfType<NoticeEntry>(),
             n => n.Text.Contains("turn done"));
     }
+
+    // ── Panel lifecycle: every settlement path must close the pending question ──
+
+    [Fact]
+    public void Settled_Event_Fires_Exactly_Once_Per_Question()
+    {
+        var vm = new ClarifyViewModel(Sample());
+        var fired = new List<int>();
+        vm.Settled += (_, _) => fired.Add(1);
+
+        vm.ChooseOption(1);
+        vm.Cancel();      // late settlers must be no-ops
+        vm.SubmitFreeText();
+
+        Assert.Single(fired); // settlement is exactly-once, and so is the event
+    }
+
+    private static async Task<AgentSessionViewModel> PresentedSessionAsync()
+    {
+        var vm = new AgentSessionViewModel(
+            (_, _, _, _, _, _, _) => Task.FromResult(Result<string>.Success("unused")),
+            new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+            "m", workspaceRoot: @"C:\work\demo");
+        await vm.PresentClarifyAsync(Sample());
+        return vm;
+    }
+
+    [Fact]
+    public async Task SessionViewModel_Closes_Panel_When_Option_Button_Settles_Question()
+    {
+        var vm = await PresentedSessionAsync();
+        Assert.NotNull(vm.Clarify);
+
+        vm.Clarify!.ChooseOption(1); // the option-button path — no typed input involved
+
+        Assert.Null(vm.Clarify);
+    }
+
+    [Fact]
+    public async Task SessionViewModel_Closes_Panel_When_Cancel_Button_Settles_Question()
+    {
+        var vm = await PresentedSessionAsync();
+        Assert.NotNull(vm.Clarify);
+
+        vm.Clarify!.Cancel(); // the Cancel button path — equally settlement
+
+        Assert.Null(vm.Clarify);
+    }
 }

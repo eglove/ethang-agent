@@ -55,6 +55,15 @@ public class ToolContractAdvertisementTests
         Assert.Equal("InvalidParameterType", parsed.Error!.Code);
     }
 
+
+    [Fact]
+    public void Clarify_Description_StatesTheHumanWaitHasNoTimeLimit()
+    {
+        // Format contract: the model must know the clarify wait cannot time out.
+        var tool = new ClarifyTool(new StubClarifyChannel());
+        Assert.Contains("NO time limit", tool.Definition.Description);
+        Assert.Contains("Error [ToolTimeout]", tool.Definition.Description);
+    }
     [Fact]
     public void Clarify_Options_Omitted_StillSucceeds()
     {

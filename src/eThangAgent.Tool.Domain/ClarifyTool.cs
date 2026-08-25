@@ -11,7 +11,9 @@ public sealed class ClarifyTool : ITool
         "Ask the human a single clarifying question and receive their answer. The question " +
         "is presented with numbered options when options are provided; the human replies with " +
         "an option number (1-based) or free text. Set allowFreeText to false to restrict the " +
-        "human to the numbered options. Output is a single annotation line in [brackets]: " +
+        "human to the numbered options. Waiting for the human has NO time limit: " +
+        "timeoutSeconds is validated like on every tool but never elapses here, so this call " +
+        "cannot fail with Error [ToolTimeout]. Output is a single annotation line in [brackets]: " +
         "`[clarify] answered: <text>` where <text> is the chosen option text or the free-text " +
         "answer verbatim. If the human cancels (Ctrl+C or end of input) the error is " +
         "`Error [Cancelled]:`. Other errors begin with `Error [Code]:`.",
@@ -44,7 +46,11 @@ public sealed class ClarifyTool : ITool
             return Task.FromResult(Err(budget.Error!));
 
         var v = parsed.Value!;
-        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
+        // Human thinking time is not machine work: the envelope budget is validated
+        // above but must never bound the wait, so it is deliberately not passed on.
+        // An unbounded ask still honors caller cancellation (a turn abort), which
+        // propagates as cancellation — not as Error [Cancelled] and not as ToolTimeout.
+        return ToolExecution.RunAsync(input.Name, Timeout.InfiniteTimeSpan, token =>
             AskAsync(v, token), ct);
     }
 

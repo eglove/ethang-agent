@@ -201,16 +201,78 @@ public class ClarifyToolTests
         Assert.Contains("Error [TerminalLost]: the terminal went away", result.Content);
     }
 
-    private sealed class ScriptedClarifyChannel(params Result<string>[] answers) : IClarifyChannel
+    // ---- Execution budget semantics ----
+
+    [Fact]
+    public async Task HumanWait_IsNotBoundedByTimeoutSeconds()
     {
+        // timeoutSeconds budgets machine work; human thinking time is not machine
+        // work. A human answering after even a 1-second budget must still get their
+        // answer through — before the fix this died as Error [ToolTimeout], leaking
+        // the channel's Error [Cancelled] contract along the way.
+        var channel = new ScriptedClarifyChannel(async (_, ct) =>
+        {
+            await Task.Delay(2000, ct); // far beyond the 1s stated budget
+            return Result<string>.Success("late answer");
+        });
+
+        var result = await new ClarifyTool(channel).ExecuteAsync(new RawToolInput("clarify",
+            """{"timeoutSeconds":1,"question":"Take your time","allowFreeText":true}"""));
+
+        Assert.False(result.IsError);
+        Assert.Equal("[clarify] answered: late answer", result.Content);
+    }
+
+
+    [Fact]
+    public async Task CallerCancellation_Aborts_AnUnboundedWait()
+    {
+        // With no budget bound, the only way off the wait is the caller's own
+        // cancellation (a turn abort): cancelling the caller must settle the ask.
+        using var caller = new CancellationTokenSource();
+        var channel = new ScriptedClarifyChannel(async (_, ct) =>
+        {
+            var tcs = new TaskCompletionSource<Result<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await using var reg = ct.Register(() =>
+                tcs.TrySetResult(Result<string>.Failure(new Error("Cancelled", "Cancelled by the user."))));
+            return await tcs.Task;
+        });
+
+        var run = new ClarifyTool(channel).ExecuteAsync(new RawToolInput("clarify",
+            """{"timeoutSeconds":120,"question":"Take your time","allowFreeText":true}"""), caller.Token);
+        caller.Cancel();
+
+        var result = await run;
+        Assert.True(result.IsError);
+        Assert.StartsWith("Error [Cancelled]", result.Content);
+    }
+    private sealed class ScriptedClarifyChannel : IClarifyChannel
+    {
+        private readonly Func<ClarifyQuestion, CancellationToken, Task<Result<string>>>? _ask;
+        private readonly Result<string>[] _answers;
         private int _index;
+
+        public ScriptedClarifyChannel(params Result<string>[] answers) : this(null, answers) { }
+
+        public ScriptedClarifyChannel(Func<ClarifyQuestion, CancellationToken, Task<Result<string>>> ask)
+            : this(ask, []) { }
+
+        private ScriptedClarifyChannel(
+            Func<ClarifyQuestion, CancellationToken, Task<Result<string>>>? ask,
+            Result<string>[] answers)
+        {
+            _ask = ask;
+            _answers = answers;
+        }
 
         public ClarifyQuestion? LastQuestion { get; private set; }
 
         public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
         {
             LastQuestion = question;
-            return Task.FromResult(answers[_index++]);
+            return _ask is not null
+                ? _ask(question, ct)
+                : Task.FromResult(_answers[_index++]);
         }
     }
 }

@@ -88,7 +88,21 @@ public sealed partial class AgentSessionViewModel : ObservableObject
     public async Task<ClarifyViewModel> PresentClarifyAsync(ClarifyQuestion question)
     {
         var vm = await _presentClarify(question);
+        // The panel must close whenever the question settles through ANY path —
+        // routed input, option buttons, free-text submit, or cancel — not just the
+        // routed-input path that clears it below. Settlement raises the view-model's
+        // Settled event synchronously, so the close is deterministic and needs no
+        // polling, timers, or fire-and-forget tasks.
+        vm.Settled += (_, _) =>
+        {
+            if (ReferenceEquals(Clarify, vm))
+                Clarify = null;
+        };
         Clarify = vm;
+        // A presenter may hand back an already-settled view-model (its answer was
+        // known before presentation): the event has already fired, so close now.
+        if (ReferenceEquals(Clarify, vm) && vm.Completion.IsCompleted)
+            Clarify = null;
         return vm;
     }
 

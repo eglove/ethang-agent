@@ -37,6 +37,13 @@ public sealed partial class ClarifyViewModel : ObservableObject
     [ObservableProperty]
     private string _validationMessage = "";
 
+    /// <summary>Raised exactly once when the question settles — valid answer or
+    /// cancel — synchronously within <see cref="Settle"/> and on the settling
+    /// thread (every production settler acts on the UI thread). The owning session
+    /// view-model listens for this to close the clarify panel no matter which path
+    /// settled the question.</summary>
+    public event EventHandler? Settled;
+
     /// <summary>Resolves exactly once — on a valid answer or cancel.</summary>
     public Task<Result<string>> Completion => _completion.Task;
 
@@ -81,5 +88,6 @@ public sealed partial class ClarifyViewModel : ObservableObject
         if (Interlocked.Exchange(ref _settled, 1) == 1) return;
         ValidationMessage = "";
         _completion.TrySetResult(result);
+        Settled?.Invoke(this, EventArgs.Empty);
     }
 }
