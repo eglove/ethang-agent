@@ -11,7 +11,7 @@ public sealed record ToolDefinition(
     IReadOnlyList<ToolParameter> Parameters,
     IReadOnlyList<string>? RequiredParameters = null)
 {
-    /// <summary>Parameter names the caller must supply; defaults to every parameter.</summary>
-    public IReadOnlyList<string> RequiredParameters { get; init; } =
-        RequiredParameters ?? Parameters.Select(p => p.Name).ToArray();
+  /// <summary>Parameter names the caller must supply; defaults to every parameter.</summary>
+  public IReadOnlyList<string> RequiredParameters { get; init; } =
+      RequiredParameters ?? [.. Parameters.Select(p => p.Name)];
 }

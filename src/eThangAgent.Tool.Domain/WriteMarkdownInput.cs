@@ -12,56 +12,76 @@ public sealed record WriteMarkdownInput(
     string? Path,
     bool? Overwrite)
 {
-    public static Result<WriteMarkdownInput> Create(string jsonArguments)
+  public static Result<WriteMarkdownInput> Create(string jsonArguments)
+  {
+    Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
+    if (!baseParse.IsSuccess)
     {
-        var baseParse = ToolArguments.ParseObject(jsonArguments);
-        if (!baseParse.IsSuccess)
-            return Fail(baseParse.Error!);
-        var json = baseParse.Value;
-
-        var known = new HashSet<string>(["path", "document", "overwrite", ToolTimeout.ParameterName], StringComparer.Ordinal);
-        var unknown = json.EnumerateObject()
-            .Where(p => !known.Contains(p.Name))
-            .Select(p => p.Name)
-            .ToList();
-        if (unknown.Count > 0)
-            return Fail(new Error("UnknownParameter",
-                $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, document, overwrite, {ToolTimeout.ParameterName}."));
-
-        if (!json.TryGetProperty("document", out var docEl))
-            return Fail(new Error("MissingParameter",
-                "Missing required parameter 'document'. This tool requires timeoutSeconds and document."));
-        var parsedDoc = MarkdownDocumentParser.Parse(docEl, "document");
-        if (!parsedDoc.IsSuccess)
-            return Fail(parsedDoc.Error!);
-
-        string? path = null;
-        bool? overwrite = null;
-
-        if (json.TryGetProperty("path", out var pathEl))
-        {
-            if (pathEl.ValueKind != JsonValueKind.String)
-                return Fail(new Error("InvalidParameterType", "'path' must be a string."));
-            path = pathEl.GetString()!;
-            if (path.Length == 0)
-                return Fail(new Error("InvalidParameterValue", "'path' must be a non-empty string."));
-
-            if (!json.TryGetProperty("overwrite", out var owEl))
-                return Fail(new Error("MissingParameter",
-                    "'overwrite' is required when 'path' is present (true replaces an existing file, false refuses)."));
-            if (owEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-                return Fail(new Error("InvalidParameterType", "'overwrite' must be a boolean."));
-            overwrite = owEl.GetBoolean();
-        }
-        else if (json.TryGetProperty("overwrite", out var orphanEl))
-        {
-            return Fail(new Error("UnknownParameter",
-                "'overwrite' is only valid together with 'path'; without a file target the rendered markdown is returned instead."));
-        }
-
-        return Result<WriteMarkdownInput>.Success(new(parsedDoc.Value!, path, overwrite));
+      return Fail(baseParse.Error!);
     }
 
-    private static Result<WriteMarkdownInput> Fail(Error err) =>
-        Result<WriteMarkdownInput>.Failure(err);
+    JsonElement json = baseParse.Value;
+
+    HashSet<string> known = new(["path", "document", "overwrite", ToolTimeout.ParameterName], StringComparer.Ordinal);
+    List<string> unknown = [.. json.EnumerateObject()
+        .Where(p => !known.Contains(p.Name))
+        .Select(p => p.Name)];
+    if (unknown.Count > 0)
+    {
+      return Fail(new DomainError("UnknownParameter",
+          $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, document, overwrite, {ToolTimeout.ParameterName}."));
+    }
+
+    if (!json.TryGetProperty("document", out JsonElement docEl))
+    {
+      return Fail(new DomainError("MissingParameter",
+          "Missing required parameter 'document'. This tool requires timeoutSeconds and document."));
+    }
+
+    Result<MarkdownDocument> parsedDoc = MarkdownDocumentParser.Parse(docEl, "document");
+    if (!parsedDoc.IsSuccess)
+    {
+      return Fail(parsedDoc.Error!);
+    }
+
+    string? path = null;
+    bool? overwrite = null;
+
+    if (json.TryGetProperty("path", out JsonElement pathEl))
+    {
+      if (pathEl.ValueKind != JsonValueKind.String)
+      {
+        return Fail(new DomainError("InvalidParameterType", "'path' must be a string."));
+      }
+
+      path = pathEl.GetString()!;
+      if (path.Length == 0)
+      {
+        return Fail(new DomainError("InvalidParameterValue", "'path' must be a non-empty string."));
+      }
+
+      if (!json.TryGetProperty("overwrite", out JsonElement owEl))
+      {
+        return Fail(new DomainError("MissingParameter",
+            "'overwrite' is required when 'path' is present (true replaces an existing file, false refuses)."));
+      }
+
+      if (owEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+      {
+        return Fail(new DomainError("InvalidParameterType", "'overwrite' must be a boolean."));
+      }
+
+      overwrite = owEl.GetBoolean();
+    }
+    else if (json.TryGetProperty("overwrite", out JsonElement orphanEl))
+    {
+      return Fail(new DomainError("UnknownParameter",
+          "'overwrite' is only valid together with 'path'; without a file target the rendered markdown is returned instead."));
+    }
+
+    return Result.Success<WriteMarkdownInput>(new(parsedDoc.Value!, path, overwrite));
+  }
+
+  private static Result<WriteMarkdownInput> Fail(DomainError err) =>
+      Result.Failure<WriteMarkdownInput>(err);
 }

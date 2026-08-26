@@ -2,9 +2,9 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "2.4";
+  public const string Version = "2.4";
 
-    public const string Text = """
+  public const string Text = """
     ## exec — writing C# programs
 
     `exec` runs a C# program you write. Its parameters are `timeoutSeconds` (required

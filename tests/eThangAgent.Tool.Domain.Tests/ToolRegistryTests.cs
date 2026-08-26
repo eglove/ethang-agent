@@ -1,68 +1,63 @@
-using eThangAgent.ToolDomain;
-
 namespace eThangAgent.ToolDomain.Tests;
 
 public class ToolRegistryTests
 {
-    private static ITool MakeTool(string name) => new FakeTool(new ToolDefinition(name, "desc", []));
+  private static FakeTool MakeTool(string name) => new(new ToolDefinition(name, "desc", []));
 
-    [Fact]
-    public void Find_KnownName_ReturnsTool()
-    {
-        var tool = MakeTool("read");
-        var registry = new ToolRegistry([tool]);
+  [Fact]
+  public void Find_KnownName_ReturnsTool()
+  {
+    FakeTool tool = MakeTool("read");
+    ToolRegistry registry = new([tool]);
 
-        var found = registry.Find("read");
+    ITool? found = registry.Find("read");
 
-        Assert.NotNull(found);
-        Assert.Same(tool, found);
-    }
+    Assert.NotNull(found);
+    Assert.Same(tool, found);
+  }
 
-    [Fact]
-    public void Find_UnknownName_ReturnsNull()
-    {
-        var registry = new ToolRegistry([MakeTool("read")]);
+  [Fact]
+  public void Find_UnknownName_ReturnsNull()
+  {
+    ToolRegistry registry = new([MakeTool("read")]);
 
-        var found = registry.Find("nope");
+    ITool? found = registry.Find("nope");
 
-        Assert.Null(found);
-    }
+    Assert.Null(found);
+  }
 
-    [Fact]
-    public void Find_MatchesCaseSensitive()
-    {
-        var registry = new ToolRegistry([MakeTool("read")]);
+  [Fact]
+  public void Find_MatchesCaseSensitive()
+  {
+    ToolRegistry registry = new([MakeTool("read")]);
 
-        var found = registry.Find("READ");
+    ITool? found = registry.Find("READ");
 
-        Assert.Null(found);
-    }
+    Assert.Null(found);
+  }
 
-    [Fact]
-    public void Definitions_ReturnsAll()
-    {
-        var a = MakeTool("read");
-        var b = MakeTool("grep");
-        var registry = new ToolRegistry([a, b]);
+  [Fact]
+  public void Definitions_ReturnsAll()
+  {
+    FakeTool a = MakeTool("read");
+    FakeTool b = MakeTool("grep");
+    ToolRegistry registry = new([a, b]);
 
-        var defs = registry.Definitions;
+    IReadOnlyList<ToolDefinition> defs = registry.Definitions;
 
-        Assert.Equal(2, defs.Count);
-        Assert.Contains(defs, d => d.Name == "read");
-        Assert.Contains(defs, d => d.Name == "grep");
-    }
+    Assert.Equal(2, defs.Count);
+    Assert.Contains(defs, d => d.Name == "read");
+    Assert.Contains(defs, d => d.Name == "grep");
+  }
 
-    [Fact]
-    public void Registry_WithDuplicateName_ThrowsArgumentsException()
-    {
-        Assert.Throws<ArgumentException>(() => new ToolRegistry([MakeTool("read"), MakeTool("read")]));
-    }
+  [Fact]
+  public void Registry_WithDuplicateName_ThrowsArgumentsException() => _ = Assert.Throws<ArgumentException>(() => new ToolRegistry([MakeTool("read"), MakeTool("read")]));
 
-    private sealed class FakeTool : ITool
-    {
-        public ToolDefinition Definition { get; }
-        public FakeTool(ToolDefinition def) => Definition = def;
-        public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
-            => throw new NotImplementedException();
-    }
+  private sealed class FakeTool(ToolDefinition def) : ITool
+  {
+    public ToolDefinition Definition { get; } = def;
+
+    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+        => throw new NotImplementedException();
+  }
 }

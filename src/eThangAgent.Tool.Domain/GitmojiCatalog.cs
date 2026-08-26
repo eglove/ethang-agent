@@ -1,3 +1,4 @@
+using System.Reflection;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
@@ -12,70 +13,67 @@ public sealed record Gitmoji(string Key, string Emoji, string Description);
 /// </summary>
 public static class GitmojiCatalog
 {
-    private const string ResourceName = "eThangAgent.Tool.Domain.gitmoji.tsv";
+  private const string ResourceName = "eThangAgent.Tool.Domain.gitmoji.tsv";
 
-    private static readonly Lazy<IReadOnlyList<Gitmoji>> Entries = new(Load);
+  private static readonly Lazy<IReadOnlyList<Gitmoji>> Entries = new(Load);
 
-    private static readonly Lazy<IReadOnlyDictionary<string, Gitmoji>> ByKey =
-        new(() => Entries.Value.ToDictionary(e => e.Key, StringComparer.Ordinal));
+  private static readonly Lazy<IReadOnlyDictionary<string, Gitmoji>> ByKey =
+      new(() => Entries.Value.ToDictionary(e => e.Key, StringComparer.Ordinal));
 
-    /// <summary>Every catalog entry in file order.</summary>
-    public static IReadOnlyList<Gitmoji> All => Entries.Value;
+  /// <summary>Every catalog entry in file order.</summary>
+  public static IReadOnlyList<Gitmoji> All => Entries.Value;
 
-    /// <summary>
-    ///     Looks up a gitmoji by its exact colon-wrapped key (ordinal match).
-    /// </summary>
-    public static Result<Gitmoji> Lookup(string key)
+  /// <summary>
+  ///     Looks up a gitmoji by its exact colon-wrapped key (ordinal match).
+  /// </summary>
+  public static Result<Gitmoji> Lookup(string key)
+  {
+    ArgumentNullException.ThrowIfNull(key);
+    IReadOnlyList<Gitmoji> entries = Entries.Value;
+    return ByKey.Value.TryGetValue(key, out Gitmoji? gitmoji)
+        ? Result.Success<Gitmoji>(gitmoji)
+        : Result.Failure<Gitmoji>(new DomainError("UnknownEmojiKey",
+            $"'{key}' is not a known gitmoji key. Keys use the ':name:' format " +
+            $"(colon-wrapped, exact ordinal match) — for example: " +
+            $"{string.Join(", ", entries.Take(3).Select(e => e.Key))}. " +
+            $"The catalog contains {entries.Count} keys."));
+  }
+
+  private static List<Gitmoji> Load()
+  {
+    Assembly assembly = typeof(GitmojiCatalog).Assembly;
+    using Stream stream = assembly.GetManifestResourceStream(ResourceName)
+        ?? throw new InvalidOperationException(
+            $"Embedded resource '{ResourceName}' is missing from " +
+            $"'{assembly.GetName().Name}' (packaging defect).");
+
+    using StreamReader reader = new(stream);
+    List<Gitmoji> entries = [];
+    string? line;
+    int lineNumber = 0;
+    while ((line = reader.ReadLine()) is not null)
     {
-        ArgumentNullException.ThrowIfNull(key);
-        var entries = Entries.Value;
-        return ByKey.Value.TryGetValue(key, out var gitmoji)
-            ? Result<Gitmoji>.Success(gitmoji)
-            : Result<Gitmoji>.Failure(new Error("UnknownEmojiKey",
-                $"'{key}' is not a known gitmoji key. Keys use the ':name:' format " +
-                $"(colon-wrapped, exact ordinal match) — for example: " +
-                $"{string.Join(", ", entries.Take(3).Select(e => e.Key))}. " +
-                $"The catalog contains {entries.Count} keys."));
+      lineNumber++;
+      if (lineNumber == 1)
+      {
+        continue; // header row
+      }
+
+      string[] fields = line.Split('\t');
+      if (fields.Length != 3 || fields.Any(f => f.Length == 0))
+      {
+        throw new InvalidOperationException(
+            $"Malformed row {lineNumber} in '{ResourceName}': expected exactly " +
+            "3 non-empty TAB-separated fields (key, emoji, description) " +
+            "(packaging defect).");
+      }
+
+      entries.Add(new Gitmoji(fields[0], fields[1], fields[2]));
     }
 
-    private static IReadOnlyList<Gitmoji> Load()
-    {
-        var assembly = typeof(GitmojiCatalog).Assembly;
-        using var stream = assembly.GetManifestResourceStream(ResourceName)
-            ?? throw new InvalidOperationException(
-                $"Embedded resource '{ResourceName}' is missing from " +
-                $"'{assembly.GetName().Name}' (packaging defect).");
-
-        using var reader = new StreamReader(stream);
-        var entries = new List<Gitmoji>();
-        string? line;
-        var lineNumber = 0;
-        while ((line = reader.ReadLine()) is not null)
-        {
-            lineNumber++;
-            if (lineNumber == 1)
-            {
-                continue; // header row
-            }
-
-            var fields = line.Split('\t');
-            if (fields.Length != 3 || fields.Any(f => f.Length == 0))
-            {
-                throw new InvalidOperationException(
-                    $"Malformed row {lineNumber} in '{ResourceName}': expected exactly " +
-                    "3 non-empty TAB-separated fields (key, emoji, description) " +
-                    "(packaging defect).");
-            }
-
-            entries.Add(new Gitmoji(fields[0], fields[1], fields[2]));
-        }
-
-        if (entries.Count == 0)
-        {
-            throw new InvalidOperationException(
-                $"Embedded resource '{ResourceName}' contains no data rows (packaging defect).");
-        }
-
-        return entries;
-    }
+    return entries.Count == 0
+      ? throw new InvalidOperationException(
+          $"Embedded resource '{ResourceName}' contains no data rows (packaging defect).")
+      : entries;
+  }
 }

@@ -1,17 +1,12 @@
 namespace eThangAgent.ToolDomain;
 
-public sealed class ToolRegistry : IToolRegistry
+public sealed class ToolRegistry(IEnumerable<ITool> tools) : IToolRegistry
 {
-    private readonly Dictionary<string, ITool> _tools;
+  private readonly Dictionary<string, ITool> _tools = tools.ToDictionary(t => t.Definition.Name, StringComparer.Ordinal);
 
-    public ToolRegistry(IEnumerable<ITool> tools)
-    {
-        _tools = tools.ToDictionary(t => t.Definition.Name, StringComparer.Ordinal);
-    }
+  public ITool? Find(string name)
+      => _tools.TryGetValue(name, out ITool? tool) ? tool : null;
 
-    public ITool? Find(string name)
-        => _tools.TryGetValue(name, out var tool) ? tool : null;
-
-    public IReadOnlyList<ToolDefinition> Definitions
-        => _tools.Values.Select(t => t.Definition).ToList();
+  public IReadOnlyList<ToolDefinition> Definitions
+      => [.. _tools.Values.Select(t => t.Definition)];
 }

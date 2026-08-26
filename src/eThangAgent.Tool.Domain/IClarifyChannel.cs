@@ -8,5 +8,5 @@ public sealed record ClarifyQuestion(string Question, IReadOnlyList<string> Opti
 /// <summary>Seam between the clarify tool and whatever can reach the human.</summary>
 public interface IClarifyChannel
 {
-    Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default);
+  Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default);
 }

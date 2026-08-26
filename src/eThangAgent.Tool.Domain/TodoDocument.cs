@@ -16,129 +16,158 @@ public sealed record TodoItem(int Id, string Description, TodoStatus Status);
 ///     silently resets it.</summary>
 public static class TodoDocument
 {
-    public static IReadOnlyList<TodoItem> Empty { get; } = [];
+  public static IReadOnlyList<TodoItem> Empty { get; } = [];
 
-    public static Result<IReadOnlyList<TodoItem>> Parse(string json)
+  public static Result<IReadOnlyList<TodoItem>> Parse(string json)
+  {
+    JsonDocument doc;
+    try
     {
-        JsonDocument doc;
-        try
-        {
-            doc = JsonDocument.Parse(json);
-        }
-        catch (JsonException ex)
-        {
-            return Fail($"value is not valid JSON ({ex.Message}).");
-        }
-
-        using (doc)
-        {
-            if (doc.RootElement.ValueKind != JsonValueKind.Array)
-                return Fail($"value must be a JSON array, but got {doc.RootElement.ValueKind}.");
-
-            var items = new List<TodoItem>();
-            var seenIds = new HashSet<int>();
-            var index = 0;
-            foreach (var element in doc.RootElement.EnumerateArray())
-            {
-                index++;
-                var item = ParseItem(element, index);
-                if (!item.IsSuccess) return Result<IReadOnlyList<TodoItem>>.Failure(item.Error!);
-                if (!seenIds.Add(item.Value!.Id))
-                    return Fail($"item {index} repeats id {item.Value.Id}; ids must be unique.");
-                items.Add(item.Value!);
-            }
-
-            return Result<IReadOnlyList<TodoItem>>.Success(items);
-        }
+      doc = JsonDocument.Parse(json);
+    }
+    catch (JsonException ex)
+    {
+      return Fail($"value is not valid JSON ({ex.Message}).");
     }
 
-    public static string Serialize(IReadOnlyList<TodoItem> items)
+    using (doc)
     {
-        var buffer = new ArrayBufferWriter<byte>();
-        using var writer = new Utf8JsonWriter(buffer);
-        writer.WriteStartArray();
-        foreach (var item in items)
+      if (doc.RootElement.ValueKind != JsonValueKind.Array)
+      {
+        return Fail($"value must be a JSON array, but got {doc.RootElement.ValueKind}.");
+      }
+
+      List<TodoItem> items = [];
+      HashSet<int> seenIds = [];
+      int index = 0;
+      foreach (JsonElement element in doc.RootElement.EnumerateArray())
+      {
+        index++;
+        Result<TodoItem> item = ParseItem(element, index);
+        if (!item.IsSuccess)
         {
-            writer.WriteStartObject();
-            writer.WriteNumber("id", item.Id);
-            writer.WriteString("description", item.Description);
-            writer.WriteString("status", StatusText(item.Status));
-            writer.WriteEndObject();
-        }
-        writer.WriteEndArray();
-        writer.Flush();
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
-    }
-
-    public static string StatusText(TodoStatus status) => status switch
-    {
-        TodoStatus.Pending => nameof(TodoStatus.Pending),
-        TodoStatus.InProgress => nameof(TodoStatus.InProgress),
-        _ => nameof(TodoStatus.Completed),
-    };
-
-    private static Result<TodoItem> ParseItem(JsonElement element, int index)
-    {
-        if (element.ValueKind != JsonValueKind.Object)
-            return ItemFail(index, $"must be a JSON object, but got {element.ValueKind}.");
-
-        int id = 0;
-        string? description = null;
-        TodoStatus status = default;
-        var hasId = false;
-
-        foreach (var property in element.EnumerateObject())
-        {
-            switch (property.Name)
-            {
-                case "id":
-                    if (property.Value.ValueKind != JsonValueKind.Number ||
-                        !property.Value.TryGetInt32(out id))
-                        return ItemFail(index, "'id' must be an integer.");
-                    hasId = true;
-                    break;
-
-                case "description":
-                    if (property.Value.ValueKind != JsonValueKind.String)
-                        return ItemFail(index,
-                            $"'description' must be a string, but got {property.Value.ValueKind}.");
-                    description = property.Value.GetString();
-                    break;
-
-                case "status":
-                    if (property.Value.ValueKind != JsonValueKind.String)
-                        return ItemFail(index,
-                            $"'status' must be a string, but got {property.Value.ValueKind}.");
-                    var statusText = property.Value.GetString();
-                    if (statusText is not (nameof(TodoStatus.Pending)
-                        or nameof(TodoStatus.InProgress) or nameof(TodoStatus.Completed)))
-                        return ItemFail(index,
-                            $"'status' must be one of Pending, InProgress, Completed, but got '{statusText}'.");
-                    status = statusText switch
-                    {
-                        nameof(TodoStatus.Pending) => TodoStatus.Pending,
-                        nameof(TodoStatus.InProgress) => TodoStatus.InProgress,
-                        _ => TodoStatus.Completed,
-                    };
-                    break;
-
-                default:
-                    return ItemFail(index, $"has unknown field '{property.Name}'.");
-            }
+          return Result.Failure<IReadOnlyList<TodoItem>>(item.Error!);
         }
 
-        if (!hasId) return ItemFail(index, "is missing 'id'.");
-        if (id <= 0) return ItemFail(index, "'id' must be a positive integer.");
-        if (description is null) return ItemFail(index, "is missing 'description'.");
-        if (description.Length == 0) return ItemFail(index, "'description' must be a non-empty string.");
+        if (!seenIds.Add(item.Value!.Id))
+        {
+          return Fail($"item {index} repeats id {item.Value.Id}; ids must be unique.");
+        }
 
-        return Result<TodoItem>.Success(new TodoItem(id, description, status));
+        items.Add(item.Value!);
+      }
+
+      return Result.Success<IReadOnlyList<TodoItem>>(items);
+    }
+  }
+
+  public static string Serialize(IReadOnlyList<TodoItem> items)
+  {
+    ArgumentNullException.ThrowIfNull(items);
+    ArrayBufferWriter<byte> buffer = new();
+    using Utf8JsonWriter writer = new(buffer);
+    writer.WriteStartArray();
+    foreach (TodoItem item in items)
+    {
+      writer.WriteStartObject();
+      writer.WriteNumber("id", item.Id);
+      writer.WriteString("description", item.Description);
+      writer.WriteString("status", StatusText(item.Status));
+      writer.WriteEndObject();
+    }
+    writer.WriteEndArray();
+    writer.Flush();
+    return Encoding.UTF8.GetString(buffer.WrittenSpan);
+  }
+
+  public static string StatusText(TodoStatus status) => status switch
+  {
+    TodoStatus.Pending => nameof(TodoStatus.Pending),
+    TodoStatus.InProgress => nameof(TodoStatus.InProgress),
+    TodoStatus.Completed => nameof(TodoStatus.Completed),
+    // Unnamed enum values cannot occur; fall through to the same text.
+    _ => nameof(TodoStatus.Completed),
+  };
+
+  private static Result<TodoItem> ParseItem(JsonElement element, int index)
+  {
+    if (element.ValueKind != JsonValueKind.Object)
+    {
+      return ItemFail(index, $"must be a JSON object, but got {element.ValueKind}.");
     }
 
-    private static Result<TodoItem> ItemFail(int index, string detail) =>
-        Result<TodoItem>.Failure(new Error("StorageCorrupt", $"item {index} {detail}"));
+    int id = 0;
+    string? description = null;
+    TodoStatus status = default;
+    bool hasId = false;
 
-    private static Result<IReadOnlyList<TodoItem>> Fail(string detail) =>
-        Result<IReadOnlyList<TodoItem>>.Failure(new Error("StorageCorrupt",
-            $"Stored todo document is invalid: {detail}"));
+    foreach (JsonProperty property in element.EnumerateObject())
+    {
+      switch (property.Name)
+      {
+        case "id":
+          if (property.Value.ValueKind != JsonValueKind.Number ||
+              !property.Value.TryGetInt32(out id))
+          {
+            return ItemFail(index, "'id' must be an integer.");
+          }
+
+          hasId = true;
+          break;
+
+        case "description":
+          if (property.Value.ValueKind != JsonValueKind.String)
+          {
+            return ItemFail(index,
+                $"'description' must be a string, but got {property.Value.ValueKind}.");
+          }
+
+          description = property.Value.GetString();
+          break;
+
+        case "status":
+          if (property.Value.ValueKind != JsonValueKind.String)
+          {
+            return ItemFail(index,
+                $"'status' must be a string, but got {property.Value.ValueKind}.");
+          }
+
+          string? statusText = property.Value.GetString();
+          if (statusText is not (nameof(TodoStatus.Pending)
+              or nameof(TodoStatus.InProgress) or nameof(TodoStatus.Completed)))
+          {
+            return ItemFail(index,
+                $"'status' must be one of Pending, InProgress, Completed, but got '{statusText}'.");
+          }
+
+          status = statusText switch
+          {
+            nameof(TodoStatus.Pending) => TodoStatus.Pending,
+            nameof(TodoStatus.InProgress) => TodoStatus.InProgress,
+            _ => TodoStatus.Completed,
+          };
+          break;
+
+        default:
+          return ItemFail(index, $"has unknown field '{property.Name}'.");
+      }
+    }
+
+    return !hasId
+      ? ItemFail(index, "is missing 'id'.")
+      : id <= 0
+      ? ItemFail(index, "'id' must be a positive integer.")
+      : description is null
+      ? ItemFail(index, "is missing 'description'.")
+      : description.Length == 0
+      ? ItemFail(index, "'description' must be a non-empty string.")
+      : Result.Success<TodoItem>(new TodoItem(id, description, status));
+  }
+
+  private static Result<TodoItem> ItemFail(int index, string detail) =>
+      Result.Failure<TodoItem>(new DomainError("StorageCorrupt", $"item {index} {detail}"));
+
+  private static Result<IReadOnlyList<TodoItem>> Fail(string detail) =>
+      Result.Failure<IReadOnlyList<TodoItem>>(new DomainError("StorageCorrupt",
+          $"Stored todo document is invalid: {detail}"));
 }

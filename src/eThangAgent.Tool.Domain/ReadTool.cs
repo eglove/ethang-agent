@@ -1,67 +1,78 @@
+using System.Globalization;
+using System.Text;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class ReadTool : ITool
+public sealed class ReadTool(IFileSystemAccess files) : ITool
 {
-    private readonly IFileSystemAccess _files;
+  private readonly IFileSystemAccess _files = files ?? throw new ArgumentNullException(nameof(files));
 
-    public ToolDefinition Definition { get; } = new(
-        "read",
-        "Read a range of lines from a text file. timeoutSeconds, path, startLine, and endLine are all mandatory; line numbers are 1-based and inclusive. Output begins with an annotation line in [brackets] — it is metadata, not file content. Each content line is prefixed with its line number and →; the number and arrow are never part of the file. Never reproduce line numbers or arrows when creating or editing files. Cite line numbers as shown when referencing locations. If endLine exceeds the file length it is clamped and a [warning] is appended. Maximum range: 1000 lines per call.",
-        [
-            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.Integer, ToolTimeout.ParameterDescription, Minimum: 1),
-            new ToolParameter("path", ToolParameterType.String, "Path to the file to read."),
-            new ToolParameter("startLine", ToolParameterType.Integer, "First line to read (1-based, inclusive).", Minimum: 1),
-            new ToolParameter("endLine", ToolParameterType.Integer, "Last line to read (1-based, inclusive).", Minimum: 1),
-        ]);
+  public ToolDefinition Definition { get; } = new(
+      "read",
+      "Read a range of lines from a text file. timeoutSeconds, path, startLine, and endLine are all mandatory; line numbers are 1-based and inclusive. Output begins with an annotation line in [brackets] — it is metadata, not file content. Each content line is prefixed with its line number and →; the number and arrow are never part of the file. Never reproduce line numbers or arrows when creating or editing files. Cite line numbers as shown when referencing locations. If endLine exceeds the file length it is clamped and a [warning] is appended. Maximum range: 1000 lines per call.",
+      [
+          new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
+            new ToolParameter("path", ToolParameterType.Text, "Path to the file to read."),
+            new ToolParameter("startLine", ToolParameterType.WholeNumber, "First line to read (1-based, inclusive).", Minimum: 1),
+            new ToolParameter("endLine", ToolParameterType.WholeNumber, "Last line to read (1-based, inclusive).", Minimum: 1),
+      ]);
 
-    public ReadTool(IFileSystemAccess files)
+  public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(input);
+    Result<ReadToolInput> parsed = ReadToolInput.Create(input.JsonArguments);
+    if (!parsed.IsSuccess)
     {
-        _files = files ?? throw new ArgumentNullException(nameof(files));
+      return Task.FromResult(Err(parsed.Error!));
     }
 
-    public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+    ReadToolInput args = parsed.Value!;
+
+    Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+    return !budget.IsSuccess
+      ? Task.FromResult(Err(budget.Error!))
+      : ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
+        ReadAsync(args, token), ct);
+  }
+
+  private async Task<ToolResult> ReadAsync(ReadToolInput args, CancellationToken ct)
+  {
+    Result<FileRead> read = await _files.ReadLinesAsync(args.Path, args.StartLine, args.EndLine, ct).ConfigureAwait(false);
+    if (!read.IsSuccess)
     {
-        var parsed = ReadToolInput.Create(input.JsonArguments);
-        if (!parsed.IsSuccess)
-            return Task.FromResult(Error(parsed.Error!));
-        var args = parsed.Value!;
-
-        var budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
-        if (!budget.IsSuccess)
-            return Task.FromResult(Error(budget.Error!));
-
-        return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
-            ReadAsync(args, token), ct);
+      return Err(read.Error!);
     }
 
-    private async Task<ToolResult> ReadAsync(ReadToolInput args, CancellationToken ct)
+    FileRead file = read.Value!;
+    if (file.LastLineRead == 0)
     {
-        var read = await _files.ReadLinesAsync(args.Path, args.StartLine, args.EndLine, ct);
-        if (!read.IsSuccess)
-            return Error(read.Error!);
-
-        var file = read.Value!;
-        if (file.LastLineRead == 0)
-            return Error(new Error("StartLineBeyondEof",
-                $"'startLine' {args.StartLine} exceeds file length ({file.TotalLines} lines)."));
-
-        var clamped = file.TotalLines < args.EndLine;
-        var last = clamped ? file.TotalLines : args.EndLine;
-        var width = last.ToString().Length;
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"[read {args.Path} lines {args.StartLine}-{last} of {file.TotalLines} total]");
-        foreach (var (text, i) in file.Lines.Select((t, i) => (t, i)))
-            sb.AppendLine($"{(args.StartLine + i).ToString().PadLeft(width)}→ {text}");
-        if (clamped)
-            sb.Append($"[warning] endLine {args.EndLine} exceeded file length ({file.TotalLines}); clamped");
-        else
-            sb.Length -= Environment.NewLine.Length;  // trim trailing newline
-
-        return new ToolResult(sb.ToString(), false);
+      return Err(new DomainError("StartLineBeyondEof",
+          $"'startLine' {args.StartLine} exceeds file length ({file.TotalLines} lines)."));
     }
 
-    private static ToolResult Error(Error error) => new(
-        $"Error [{error.Code}]: {error.Message}", true);
+    bool clamped = file.TotalLines < args.EndLine;
+    int last = clamped ? file.TotalLines : args.EndLine;
+    int width = last.ToString(CultureInfo.InvariantCulture).Length;
+    StringBuilder sb = new();
+    _ = sb.AppendLine(CultureInfo.InvariantCulture, $"[read {args.Path} lines {args.StartLine}-{last} of {file.TotalLines} total]");
+    foreach ((string? text, int i) in file.Lines.Select((t, i) => (t, i)))
+    {
+      _ = sb.AppendLine(CultureInfo.InvariantCulture, $"{(args.StartLine + i).ToString(CultureInfo.InvariantCulture).PadLeft(width)}→ {text}");
+    }
+
+    if (clamped)
+    {
+      _ = sb.Append(CultureInfo.InvariantCulture, $"[warning] endLine {args.EndLine} exceeded file length ({file.TotalLines}); clamped");
+    }
+    else
+    {
+      sb.Length -= Environment.NewLine.Length;  // trim trailing newline
+    }
+
+    return new ToolResult(sb.ToString(), false);
+  }
+
+  private static ToolResult Err(DomainError error) => new(
+      $"Error [{error.Code}]: {error.Message}", true);
 }

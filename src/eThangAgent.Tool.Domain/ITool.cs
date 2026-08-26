@@ -1,6 +1,3 @@
-using System;
-using System.Threading.Tasks;
-
 namespace eThangAgent.ToolDomain;
 
 /// <summary>Base contract for a model-callable tool. <see cref="ExecuteAsync"/> receives
@@ -9,6 +6,6 @@ namespace eThangAgent.ToolDomain;
 ///     <see cref="ToolTimeout"/>) and is enforced by <see cref="ToolExecution.RunAsync"/>.</summary>
 public interface ITool
 {
-    ToolDefinition Definition { get; }
-    Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default);
+  ToolDefinition Definition { get; }
+  Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default);
 }

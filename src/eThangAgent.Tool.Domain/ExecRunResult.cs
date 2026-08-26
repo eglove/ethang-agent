@@ -6,6 +6,6 @@ public sealed record ExecRunResult(
     IReadOnlyList<string> ErrorLines,
     string? ErrorMessage = null)
 {
-    public static ExecRunResult Completed(string output)
-        => new(ExecRunStatus.Completed, output, []);
+  public static ExecRunResult Completed(string output)
+      => new(ExecRunStatus.Completed, output, []);
 }

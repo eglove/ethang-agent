@@ -1,5 +1,5 @@
+using System.Text.Json;
 using eThangAgent.SharedKernel;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ToolDomain.Tests;
 
@@ -8,75 +8,73 @@ namespace eThangAgent.ToolDomain.Tests;
 ///     typed errors; nothing is coerced or defaulted.</summary>
 public class ToolTimeoutTests
 {
-    private static Result<TimeSpan> Parse(string json)
-    {
-        var parsed = ToolArguments.ParseObject(json);
-        if (!parsed.IsSuccess)
-            return Result<TimeSpan>.Failure(parsed.Error!);
-        return ToolTimeout.Parse(parsed.Value);
-    }
+  private static Result<TimeSpan> Parse(string json)
+  {
+    Result<JsonElement> parsed = ToolArguments.ParseObject(json);
+    return !parsed.IsSuccess ? Result.Failure<TimeSpan>(parsed.Error!) : ToolTimeout.Parse(parsed.Value);
+  }
 
-    [Fact]
-    public void Valid_Budget_Parses()
-    {
-        var r = Parse("""{"timeoutSeconds": 30}""");
-        Assert.True(r.IsSuccess);
-        Assert.Equal(TimeSpan.FromSeconds(30), r.Value);
-    }
+  [Fact]
+  public void Valid_Budget_Parses()
+  {
+    Result<TimeSpan> r = Parse(/*lang=json,strict*/ """{"timeoutSeconds": 30}""");
+    Assert.True(r.IsSuccess);
+    Assert.Equal(TimeSpan.FromSeconds(30), r.Value);
+  }
 
-    [Fact]
-    public void Max_Budget_Is_Accepted()
-    {
-        var r = Parse($$"""{"timeoutSeconds": {{ToolTimeout.MaxSeconds}}}""");
-        Assert.True(r.IsSuccess);
-    }
+  [Fact]
+  public void Max_Budget_Is_Accepted()
+  {
+    Result<TimeSpan> r = Parse($$"""{"timeoutSeconds": {{ToolTimeout.MaxSeconds}}}""");
+    Assert.True(r.IsSuccess);
+  }
 
-    [Fact]
-    public void Missing_Timeout_Fails_MissingParameter()
-    {
-        var r = Parse("{}");
-        Assert.False(r.IsSuccess);
-        Assert.Equal("MissingParameter", r.Error!.Code);
-        Assert.Contains("timeoutSeconds", r.Error.Message);
-    }
+  [Fact]
+  public void Missing_Timeout_Fails_MissingParameter()
+  {
+    Result<TimeSpan> r = Parse("{}");
+    Assert.False(r.IsSuccess);
+    Assert.Equal("MissingParameter", r.Error!.Code);
+    Assert.Contains("timeoutSeconds", r.Error.Message, StringComparison.Ordinal);
+  }
 
-    [Theory]
-    [InlineData("""{"timeoutSeconds": "30"}""", "InvalidParameterType")]
-    [InlineData("""{"timeoutSeconds": true}""", "InvalidParameterType")]
-    [InlineData("""{"timeoutSeconds": 0}""", "InvalidParameterValue")]
-    [InlineData("""{"timeoutSeconds": -5}""", "InvalidParameterValue")]
-    [InlineData("""{"timeoutSeconds": 3601}""", "InvalidParameterValue")]
-    public void Invalid_Timeouts_Fail_WithTypedErrors(string json, string expectedCode)
-    {
-        var r = Parse(json);
-        Assert.False(r.IsSuccess);
-        Assert.Equal(expectedCode, r.Error!.Code);
-    }
+  [Theory]
+  [InlineData(/*lang=json,strict*/ """{"timeoutSeconds": "30"}""", "InvalidParameterType")]
+  [InlineData(/*lang=json,strict*/ """{"timeoutSeconds": true}""", "InvalidParameterType")]
+  [InlineData(/*lang=json,strict*/ """{"timeoutSeconds": 0}""", "InvalidParameterValue")]
+  [InlineData(/*lang=json,strict*/ """{"timeoutSeconds": -5}""", "InvalidParameterValue")]
+  [InlineData(/*lang=json,strict*/ """{"timeoutSeconds": 3601}""", "InvalidParameterValue")]
+  public void Invalid_Timeouts_Fail_WithTypedErrors(string json, string expectedCode)
+  {
+    Result<TimeSpan> r = Parse(json);
+    Assert.False(r.IsSuccess);
+    Assert.Equal(expectedCode, r.Error!.Code);
+  }
 
-    [Fact]
-    public void Malformed_Json_Fails()
-    {
-        var r = Parse("{bad");
-        Assert.False(r.IsSuccess);
-        Assert.Equal("InvalidJsonArguments", r.Error!.Code);
-    }
+  [Fact]
+  public void Malformed_Json_Fails()
+  {
+    Result<TimeSpan> r = Parse("{bad");
+    Assert.False(r.IsSuccess);
+    Assert.Equal("InvalidJsonArguments", r.Error!.Code);
+  }
 
-    [Fact]
-    public void Non_Object_Arguments_Fail()
-    {
-        var r = Parse("[1]");
-        Assert.False(r.IsSuccess);
-        Assert.Equal("InvalidJsonArguments", r.Error!.Code);
-    }
+  [Fact]
+  public void Non_Object_Arguments_Fail()
+  {
+    Result<TimeSpan> r = Parse("[1]");
+    Assert.False(r.IsSuccess);
+    Assert.Equal("InvalidJsonArguments", r.Error!.Code);
+  }
 
-    [Fact]
-    public void TimedOut_Result_Documents_The_Contract()
-    {
-        var result = ToolTimeout.TimedOut("read", TimeSpan.FromSeconds(45));
-        Assert.True(result.IsError);
-        Assert.StartsWith("Error [ToolTimeout]:", result.Content);
-        Assert.Contains("'read'", result.Content);
-        Assert.Contains("45s", result.Content);
-        Assert.Contains("timeoutSeconds", result.Content);
-    }
+  [Fact]
+  public void TimedOut_Result_Documents_The_Contract()
+  {
+    ToolResult result = ToolTimeout.TimedOut("read", TimeSpan.FromSeconds(45));
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [ToolTimeout]:", result.Content, StringComparison.Ordinal);
+    Assert.Contains("'read'", result.Content, StringComparison.Ordinal);
+    Assert.Contains("45s", result.Content, StringComparison.Ordinal);
+    Assert.Contains("timeoutSeconds", result.Content, StringComparison.Ordinal);
+  }
 }
