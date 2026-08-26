@@ -2,5 +2,5 @@ namespace eThangAgent.StateDomain;
 
 public interface IWorkspaceContext
 {
-    string WorkspaceId { get; }
+  string WorkspaceId { get; }
 }

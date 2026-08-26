@@ -1,30 +1,29 @@
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.StateDomain;
 
-public sealed class StateCapabilityProvider : ICapabilityProvider
+public sealed class StateCapabilityProvider(IStateService service) : ICapabilityProvider
 {
-    public const string ProviderId = "state";
+  public const string ProviderId = "state";
 
-    /// <summary>Namespace owned by the todo tool's list storage. The reservation is
-    ///     enforced HERE, at the model-facing capability boundary: a 'foreign write'
-    ///     is a model-invoked state.set/state.delete, so only those are gated, while
-    ///     internal composition (the todo tool's own adapter over IStateService)
-    ///     flows unrestricted.</summary>
-    private const string ReservedTodoNamespace = "todo";
+  /// <summary>Namespace owned by the todo tool's list storage. The reservation is
+  ///     enforced HERE, at the model-facing capability boundary: a 'foreign write'
+  ///     is a model-invoked state.set/state.delete, so only those are gated, while
+  ///     internal composition (the todo tool's own adapter over IStateService)
+  ///     flows unrestricted.</summary>
+  private const string ReservedTodoNamespace = "todo";
 
-    private readonly IStateService _service;
+  private readonly IStateService _service = service ?? throw new ArgumentNullException(nameof(service));
 
-    public StateCapabilityProvider(IStateService service)
-        => _service = service ?? throw new ArgumentNullException(nameof(service));
+  public string Id => ProviderId;
 
-    public string Id => ProviderId;
-
-    public IReadOnlyList<ActionDescriptor> Actions { get; } =
-    [
-        new("get", "Read a durable state value, or a line range of it.",
+  public IReadOnlyList<ActionDescriptor> Actions { get; } =
+  [
+      new("get", "Read a durable state value, or a line range of it.",
             "Reads one namespaced key. Fails with KeyNotFound when absent. Optional startLine/endLine return only that range under an envelope '[<key> v<version> | lines <S>-<E> of <T>]'; an endLine past the last line is clamped with a visible '[note] ... clamped.' warning. Range errors: both-or-neither, startLine >= 1, endLine >= startLine — violations are InvalidActionInput.",
             [new ActionParameter("key", "String", "Namespaced key, e.g. current/head."),
              new ActionParameter("startLine", "Integer", "Optional, only together with endLine. First line to read, >= 1."),
@@ -70,243 +69,293 @@ public sealed class StateCapabilityProvider : ICapabilityProvider
             [new ActionParameter("limit", "Integer", "Optional. Default 20.")]),
     ];
 
-    public async Task<CapabilityInvocationResult> InvokeAsync(
-        string actionName, string jsonArguments, CancellationToken ct = default)
+  public async Task<CapabilityInvocationResult> InvokeAsync(
+      string actionName, string jsonArguments, CancellationToken ct = default)
+  {
+    try
     {
-        try
-        {
-            return actionName switch
-            {
-                "get" => await GetAsync(jsonArguments),
-                "find" => await SearchAsync(jsonArguments),
-                "append" => await AppendAsync(jsonArguments),
-                "prune" => await PruneAsync(jsonArguments),
-                "set" => await SetAsync(jsonArguments),
-                "delete" => await DeleteAsync(jsonArguments),
-                "list" => await ListAsync(jsonArguments),
-                "transition" => await TransitionAsync(jsonArguments),
-                "verify" => await VerifyAsync(jsonArguments),
-                "checkgoal" => await CheckGoalAsync(),
-                "history" => await HistoryAsync(jsonArguments),
-                _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
-            };
-        }
-        catch (StateInputException ex)
-        {
-            return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {ex.Message}");
-        }
+      return actionName switch
+      {
+        "get" => await GetAsync(jsonArguments).ConfigureAwait(false),
+        "find" => await SearchAsync(jsonArguments).ConfigureAwait(false),
+        "append" => await AppendAsync(jsonArguments).ConfigureAwait(false),
+        "prune" => await PruneAsync(jsonArguments).ConfigureAwait(false),
+        "set" => await SetAsync(jsonArguments).ConfigureAwait(false),
+        "delete" => await DeleteAsync(jsonArguments).ConfigureAwait(false),
+        "list" => await ListAsync(jsonArguments).ConfigureAwait(false),
+        "transition" => await TransitionAsync(jsonArguments).ConfigureAwait(false),
+        "verify" => await VerifyAsync(jsonArguments).ConfigureAwait(false),
+        "checkgoal" => await CheckGoalAsync().ConfigureAwait(false),
+        "history" => await HistoryAsync(jsonArguments).ConfigureAwait(false),
+        _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
+      };
+    }
+    catch (StateInputException ex)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {ex.Message}");
+    }
+  }
+
+  private async Task<CapabilityInvocationResult> GetAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "startLine", "endLine"));
+    string key = ReqString(args, "key");
+    if (!args.ContainsKey("startLine") && !args.ContainsKey("endLine"))
+    {
+      return ToResult(await _service.GetAsync(key).ConfigureAwait(false));
     }
 
-    private async Task<CapabilityInvocationResult> GetAsync(string json)
+    // Strict range validation: both-or-neither, start >= 1, end >= start.
+    if (!args.TryGetValue("startLine", out JsonElement sEl) || sEl.ValueKind != JsonValueKind.Number || !sEl.TryGetInt32(out int start))
     {
-        var args = ParseArgs(json, Allowed("key", "startLine", "endLine"));
-        var key = ReqString(args, "key");
-        if (!args.ContainsKey("startLine") && !args.ContainsKey("endLine"))
-            return ToResult(await _service.GetAsync(key));
+      throw new StateInputException("'startLine' is required together with 'endLine' and must be an integer.");
+    }
 
-        // Strict range validation: both-or-neither, start >= 1, end >= start.
-        if (!args.TryGetValue("startLine", out var sEl) || sEl.ValueKind != JsonValueKind.Number || !sEl.TryGetInt32(out var start))
-            throw new StateInputException("'startLine' is required together with 'endLine' and must be an integer.");
-        if (!args.TryGetValue("endLine", out var eEl) || eEl.ValueKind != JsonValueKind.Number || !eEl.TryGetInt32(out var end))
-            throw new StateInputException("'endLine' is required together with 'startLine' and must be an integer.");
-        if (start < 1)
-            throw new StateInputException("'startLine' must be >= 1.");
-        if (end < start)
-            throw new StateInputException("'endLine' must be >= 'startLine'.");
+    if (!args.TryGetValue("endLine", out JsonElement eEl) || eEl.ValueKind != JsonValueKind.Number || !eEl.TryGetInt32(out int end))
+    {
+      throw new StateInputException("'endLine' is required together with 'startLine' and must be an integer.");
+    }
 
-        var value = await _service.GetAsync(key);
-        if (!value.IsSuccess) return Gutter(value.Error!);
-        var lines = value.Value!.Split('\n');
-        var total = lines.Length;
-        var clampedEnd = Math.Min(end, total);
-        var slice = string.Join("\n", lines[(start - 1)..clampedEnd]);
+    if (start < 1)
+    {
+      throw new StateInputException("'startLine' must be >= 1.");
+    }
 
-        // Version comes from ListAsync(ns) so IStateService signatures stay untouched.
-        string? versionPart = null;
-        var slashAt = key.IndexOf('/');
-        var keys = await _service.ListAsync(key[..slashAt]);
-        if (keys.IsSuccess)
-        {
-            var prefix = key + " v";
-            var match = keys.Value!.FirstOrDefault(k => k.StartsWith(prefix, StringComparison.Ordinal));
-            if (match is not null)
-                versionPart = "v" + match[prefix.Length..];
-        }
+    if (end < start)
+    {
+      throw new StateInputException("'endLine' must be >= 'startLine'.");
+    }
 
-        var header = versionPart is null
+    Result<string> value = await _service.GetAsync(key).ConfigureAwait(false);
+    if (!value.IsSuccess)
+    {
+      return Gutter(value.Error!);
+    }
+
+    string[] lines = value.Value!.Split('\n');
+    int total = lines.Length;
+    int clampedEnd = Math.Min(end, total);
+    string slice = string.Join("\n", lines[(start - 1)..clampedEnd]);
+
+    // Version comes from ListAsync(ns) so IStateService signatures stay untouched.
+    string? versionPart = null;
+    int slashAt = key.IndexOf('/', StringComparison.Ordinal);
+    Result<IReadOnlyList<string>> keys = await _service.ListAsync(key[..slashAt]).ConfigureAwait(false);
+    if (keys.IsSuccess)
+    {
+      string prefix = key + " v";
+      string? match = keys.Value!.FirstOrDefault(k => k.StartsWith(prefix, StringComparison.Ordinal));
+      if (match is not null)
+      {
+        versionPart = "v" + match[prefix.Length..];
+      }
+    }
+
+    string header = versionPart is null
             ? $"[{key} | lines {start}-{clampedEnd} of {total}]"
             : $"[{key} {versionPart} | lines {start}-{clampedEnd} of {total}]";
-        var output = header + "\n" + slice;
-        if (end > total)
-            output += $"\n[note] endLine {end} exceeds last line {total}; clamped.";
-        return CapabilityInvocationResult.Ok(output);
-    }
-
-    private async Task<CapabilityInvocationResult> SearchAsync(string json)
+    string output = header + "\n" + slice;
+    if (end > total)
     {
-        var args = ParseArgs(json, Allowed("query", "limit"));
-        var query = ReqString(args, "query");
-        var limit = OptInt(args, "limit") ?? 20;
-        var result = await _service.SearchAsync(query, limit);
-        if (!result.IsSuccess) return Gutter(result.Error!);
-        var sb = new System.Text.StringBuilder();
-        sb.Append($"[state.find '{query}'] {result.Value!.Count} hit(s)");
-        foreach (var hit in result.Value!)
-        {
-            sb.Append($"\n{hit.Ns}/{hit.Name}");
-            sb.Append($"\n  {hit.Snippet}");
-        }
-        return CapabilityInvocationResult.Ok(sb.ToString());
+      output += $"\n[note] endLine {end} exceeds last line {total}; clamped.";
     }
 
-    private async Task<CapabilityInvocationResult> SetAsync(string json)
+    return CapabilityInvocationResult.Ok(output);
+  }
+
+  private async Task<CapabilityInvocationResult> SearchAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("query", "limit"));
+    string query = ReqString(args, "query");
+    int limit = OptInt(args, "limit") ?? 20;
+    Result<IReadOnlyList<StateSearchHit>> result = await _service.SearchAsync(query, limit).ConfigureAwait(false);
+    if (!result.IsSuccess)
     {
-        var args = ParseArgs(json, Allowed("key", "value", "expectedVersion"));
-        if (ReservedNamespaceError(ReqString(args, "key")) is { } setError)
-            return Gutter(setError);
-        var saved = await _service.SetAsync(ReqString(args, "key"), ReqString(args, "value"), OptInt(args, "expectedVersion"));
-        return saved.IsSuccess
-            ? CapabilityInvocationResult.Ok($"saved {saved.Value!.Ns}/{saved.Value.Name} v{saved.Value.Version}")
-            : Gutter(saved.Error!);
+      return Gutter(result.Error!);
     }
 
-    private async Task<CapabilityInvocationResult> DeleteAsync(string json)
+    StringBuilder sb = new();
+    _ = sb.Append(CultureInfo.InvariantCulture, $"[state.find '{query}'] {result.Value!.Count} hit(s)");
+    foreach (StateSearchHit hit in result.Value!)
     {
-        var args = ParseArgs(json, Allowed("key", "expectedVersion"));
-        var key = ReqString(args, "key");
-        if (ReservedNamespaceError(key) is { } deleteError)
-            return Gutter(deleteError);
-        return ToResult(await _service.DeleteAsync(key, OptInt(args, "expectedVersion")));
+      _ = sb.Append(CultureInfo.InvariantCulture, $"\n{hit.Ns}/{hit.Name}");
+      _ = sb.Append(CultureInfo.InvariantCulture, $"\n  {hit.Snippet}");
     }
+    return CapabilityInvocationResult.Ok(sb.ToString());
+  }
 
-    /// <summary>Parses the key's namespace exactly as the service will (StateKey.Parse)
-    ///     and returns the ReservedNamespace error when it names the todo tool's
-    ///     namespace; null when the write may proceed to the service.</summary>
-    private static Error? ReservedNamespaceError(string key)
+  private async Task<CapabilityInvocationResult> SetAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "value", "expectedVersion"));
+    if (ReservedNamespaceError(ReqString(args, "key")) is { } setError)
     {
-        var parsed = StateKey.Parse(key);
-        return parsed.IsSuccess && parsed.Value.Ns == ReservedTodoNamespace
-            ? new Error("ReservedNamespace",
-                $"'{key}' uses reserved namespace '{ReservedTodoNamespace}', which is owned by " +
-                "the todo tool. Choose a different namespace.")
-            : null;
+      return Gutter(setError);
     }
 
-    private async Task<CapabilityInvocationResult> ListAsync(string json)
-        => ToResult(await _service.ListAsync(OptString(ParseArgs(json, Allowed("ns")), "ns")));
+    Result<StateKeyValue> saved = await _service.SetAsync(ReqString(args, "key"), ReqString(args, "value"), OptInt(args, "expectedVersion")).ConfigureAwait(false);
+    return saved.IsSuccess
+        ? CapabilityInvocationResult.Ok($"saved {saved.Value!.Ns}/{saved.Value.Name} v{saved.Value.Version}")
+        : Gutter(saved.Error!);
+  }
 
-    private async Task<CapabilityInvocationResult> TransitionAsync(string json)
-    {
-        var args = ParseArgs(json, Allowed("from", "to", "summary", "evidence"));
-        return ToResult(await _service.TransitionAsync(
-            ReqString(args, "from"), ReqString(args, "to"), ReqString(args, "summary"),
-            OptStringArray(args, "evidence")));
-    }
+  private async Task<CapabilityInvocationResult> DeleteAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "expectedVersion"));
+    string key = ReqString(args, "key");
+    return ReservedNamespaceError(key) is { } deleteError
+          ? Gutter(deleteError)
+          : ToResult(await _service.DeleteAsync(key, OptInt(args, "expectedVersion")).ConfigureAwait(false));
+  }
 
-    private async Task<CapabilityInvocationResult> VerifyAsync(string json)
-    {
-        var report = await _service.VerifyAsync(OptStringArray(ParseArgs(json, Allowed("ids")), "ids"));
-        return Report(report);
-    }
+  /// <summary>Parses the key's namespace exactly as the service will (StateKey.Parse)
+  ///     and returns the ReservedNamespace error when it names the todo tool's
+  ///     namespace; null when the write may proceed to the service.</summary>
+  private static DomainError? ReservedNamespaceError(string key)
+  {
+    Result<(string Ns, string Name)> parsed = StateKey.Parse(key);
+    return parsed.IsSuccess && parsed.Value.Ns == ReservedTodoNamespace
+        ? new DomainError("ReservedNamespace",
+            $"'{key}' uses reserved namespace '{ReservedTodoNamespace}', which is owned by " +
+            "the todo tool. Choose a different namespace.")
+        : null;
+  }
 
-    private async Task<CapabilityInvocationResult> CheckGoalAsync()
-        => Report(await _service.CheckGoalAsync());
+  private async Task<CapabilityInvocationResult> ListAsync(string json)
+      => ToResult(await _service.ListAsync(OptString(ParseArgs(json, Allowed("ns")), "ns")).ConfigureAwait(false));
 
-    private async Task<CapabilityInvocationResult> HistoryAsync(string json)
-        => ToResult(await _service.HistoryAsync(OptInt(ParseArgs(json, Allowed("limit")), "limit") ?? 20));
+  private async Task<CapabilityInvocationResult> TransitionAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("from", "to", "summary", "evidence"));
+    return ToResult(await _service.TransitionAsync(
+        ReqString(args, "from"), ReqString(args, "to"), ReqString(args, "summary"),
+        OptStringArray(args, "evidence")).ConfigureAwait(false));
+  }
 
-    private async Task<CapabilityInvocationResult> AppendAsync(string json)
-    {
-        var args = ParseArgs(json, Allowed("key", "text", "expectedVersion"));
-        var saved = await _service.AppendAsync(ReqString(args, "key"), ReqString(args, "text"), OptInt(args, "expectedVersion"));
-        return saved.IsSuccess
-            ? CapabilityInvocationResult.Ok($"appended to {saved.Value!.Ns}/{saved.Value.Name} v{saved.Value.Version}")
-            : Gutter(saved.Error!);
-    }
+  private async Task<CapabilityInvocationResult> VerifyAsync(string json)
+  {
+    CertificationReport report = await _service.VerifyAsync(OptStringArray(ParseArgs(json, Allowed("ids")), "ids")).ConfigureAwait(false);
+    return Report(report);
+  }
 
-    private async Task<CapabilityInvocationResult> PruneAsync(string json)
-    {
-        var args = ParseArgs(json, Allowed("prefix"));
-        var result = await _service.DeletePrefixAsync(ReqString(args, "prefix"));
-        if (!result.IsSuccess) return Gutter(result.Error!);
-        return CapabilityInvocationResult.Ok($"[prune {ReqString(args, "prefix")}] {result.Value} key(s) removed");
-    }
+  private async Task<CapabilityInvocationResult> CheckGoalAsync()
+      => Report(await _service.CheckGoalAsync().ConfigureAwait(false));
 
-    private static CapabilityInvocationResult ToResult<T>(Result<T> result)
+  private async Task<CapabilityInvocationResult> HistoryAsync(string json)
+      => ToResult(await _service.HistoryAsync(OptInt(ParseArgs(json, Allowed("limit")), "limit") ?? 20).ConfigureAwait(false));
+
+  private async Task<CapabilityInvocationResult> AppendAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "text", "expectedVersion"));
+    Result<StateKeyValue> saved = await _service.AppendAsync(ReqString(args, "key"), ReqString(args, "text"), OptInt(args, "expectedVersion")).ConfigureAwait(false);
+    return saved.IsSuccess
+        ? CapabilityInvocationResult.Ok($"appended to {saved.Value!.Ns}/{saved.Value.Name} v{saved.Value.Version}")
+        : Gutter(saved.Error!);
+  }
+
+  private async Task<CapabilityInvocationResult> PruneAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("prefix"));
+    Result<int> result = await _service.DeletePrefixAsync(ReqString(args, "prefix")).ConfigureAwait(false);
+    return !result.IsSuccess
+          ? Gutter(result.Error!)
+          : CapabilityInvocationResult.Ok($"[prune {ReqString(args, "prefix")}] {result.Value} key(s) removed");
+  }
+
+  private static CapabilityInvocationResult ToResult<T>(Result<T> result)
         => result.IsSuccess
             ? CapabilityInvocationResult.Ok(result.Value!.ToString() ?? "")
             : Gutter(result.Error!);
 
-    private static CapabilityInvocationResult Gutter(Error error)
-        => CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");
+  private static CapabilityInvocationResult Gutter(DomainError error)
+      => CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");
 
-    private static CapabilityInvocationResult Report(CertificationReport report)
-        => CapabilityInvocationResult.Ok(JsonSerializer.Serialize(report));
+  private static CapabilityInvocationResult Report(CertificationReport report)
+      => CapabilityInvocationResult.Ok(JsonSerializer.Serialize(report));
 
-    private static IReadOnlySet<string> Allowed(params string[] names) => new HashSet<string>(names, StringComparer.Ordinal);
+  private static HashSet<string> Allowed(params string[] names) => new(names, StringComparer.Ordinal);
 
-    private static Dictionary<string, JsonElement> ParseArgs(string json, IReadOnlySet<string> allowed)
+  private static Dictionary<string, JsonElement> ParseArgs(string json, HashSet<string> allowed)
+  {
+    JsonElement root;
+    try
     {
-        JsonElement root;
-        try
-        {
-            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
-            root = doc.RootElement.Clone();
-        }
-        catch (JsonException ex)
-        {
-            throw new StateInputException($"Arguments are not valid JSON: {ex.Message}");
-        }
-        if (root.ValueKind != JsonValueKind.Object)
-            throw new StateInputException("Arguments must be a JSON object.");
-        var args = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        foreach (var property in root.EnumerateObject())
-        {
-            if (!allowed.Contains(property.Name))
-                throw new StateInputException($"Unknown parameter '{property.Name}'.");
-            args[property.Name] = property.Value.Clone();
-        }
-        return args;
+      using JsonDocument doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+      root = doc.RootElement.Clone();
+    }
+    catch (JsonException ex)
+    {
+      throw new StateInputException($"Arguments are not valid JSON: {ex.Message}");
+    }
+    if (root.ValueKind != JsonValueKind.Object)
+    {
+      throw new StateInputException("Arguments must be a JSON object.");
     }
 
-    private static string ReqString(Dictionary<string, JsonElement> args, string name)
+    Dictionary<string, JsonElement> args = new(StringComparer.Ordinal);
+    foreach (JsonProperty property in root.EnumerateObject())
     {
-        if (!args.TryGetValue(name, out var element)
+      if (!allowed.Contains(property.Name))
+      {
+        throw new StateInputException($"Unknown parameter '{property.Name}'.");
+      }
+
+      args[property.Name] = property.Value.Clone();
+    }
+    return args;
+  }
+
+  private static string ReqString(Dictionary<string, JsonElement> args, string name)
+  {
+    return !args.TryGetValue(name, out JsonElement element)
             || element.ValueKind != JsonValueKind.String
-            || string.IsNullOrEmpty(element.GetString()))
-            throw new StateInputException($"'{name}' is required and must be a non-empty string.");
-        return element.GetString()!;
-    }
+            || string.IsNullOrEmpty(element.GetString())
+          ? throw new StateInputException($"'{name}' is required and must be a non-empty string.")
+          : element.GetString()!;
+  }
 
-    private static string? OptString(Dictionary<string, JsonElement> args, string name)
-        => args.TryGetValue(name, out var element) && element.ValueKind == JsonValueKind.String
+  private static string? OptString(Dictionary<string, JsonElement> args, string name)
+        => args.TryGetValue(name, out JsonElement element) && element.ValueKind == JsonValueKind.String
             ? element.GetString()
             : null;
 
-    private static int? OptInt(Dictionary<string, JsonElement> args, string name)
-        => args.TryGetValue(name, out var element) && element.ValueKind == JsonValueKind.Number
-            && element.TryGetInt32(out var value)
-            ? value
-            : null;
+  private static int? OptInt(Dictionary<string, JsonElement> args, string name)
+      => args.TryGetValue(name, out JsonElement element) && element.ValueKind == JsonValueKind.Number
+          && element.TryGetInt32(out int value)
+          ? value
+          : null;
 
-    private static IReadOnlyList<string> OptStringArray(Dictionary<string, JsonElement> args, string name)
+  private static List<string> OptStringArray(Dictionary<string, JsonElement> args, string name)
+  {
+    if (!args.TryGetValue(name, out JsonElement element))
     {
-        if (!args.TryGetValue(name, out var element))
-            return [];
-        if (element.ValueKind != JsonValueKind.Array)
-            throw new StateInputException($"'{name}' must be an array of strings.");
-        var items = new List<string>();
-        foreach (var item in element.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.String)
-                throw new StateInputException($"'{name}' must contain only strings.");
-            items.Add(item.GetString()!);
-        }
-        return items;
+      return [];
     }
 
-    private sealed class StateInputException : Exception
+    if (element.ValueKind != JsonValueKind.Array)
     {
-        public StateInputException(string message) : base(message) { }
+      throw new StateInputException($"'{name}' must be an array of strings.");
     }
+
+    List<string> items = [];
+    foreach (JsonElement item in element.EnumerateArray())
+    {
+      if (item.ValueKind != JsonValueKind.String)
+      {
+        throw new StateInputException($"'{name}' must contain only strings.");
+      }
+
+      items.Add(item.GetString()!);
+    }
+    return items;
+  }
+}
+
+/// <summary>Signals malformed capability arguments during parsing. Public only because
+///     CA1064 forbids non-public exception types; it never escapes the provider -
+///     every action catches it and renders the message as a typed tool error.</summary>
+public sealed class StateInputException : Exception
+{
+  public StateInputException() : base("Invalid capability arguments.") { }
+  public StateInputException(string message) : base(message) { }
+  public StateInputException(string message, Exception innerException) : base(message, innerException) { }
 }

@@ -3,245 +3,290 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.StateDomain;
 
-public sealed class StateService : IStateService
+public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
+    IWorkspaceContext workspace, EvidenceOptions? options = null) : IStateService
 {
-    public const string HeadNs = "current";
-    public const string HeadName = "head";
-    public const string CertificateNs = "current";
-    public const string CertificateName = "certificate";
-    public const string GoalNs = "goal";
-    public const string GoalName = "check";
-    private const string CurrentPrefix = "current";
-    private const string ReservedTodoCheck = "todo";
+  // options retained for API compatibility; currently carries no behavior.
+#pragma warning disable IDE0051 // Remove unread private member
+  private EvidenceOptions? OptionsUnused => options;
+#pragma warning restore IDE0051
+  public const string HeadNs = "current";
+  public const string HeadName = "head";
+  public const string CertificateNs = "current";
+  public const string CertificateName = "certificate";
+  public const string GoalNs = "goal";
+  public const string GoalName = "check";
+  private const string CurrentPrefix = "current";
 
-    private readonly IStateStore _store;
-    private readonly IEvidenceRunner _evidence;
-    private readonly IWorkspaceContext _workspace;
-    private readonly EvidenceOptions _options;
+  private readonly IStateStore _store = store ?? throw new ArgumentNullException(nameof(store));
+  private readonly IEvidenceRunner _evidence = evidence ?? throw new ArgumentNullException(nameof(evidence));
+  private readonly IWorkspaceContext _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
 
-    public StateService(IStateStore store, IEvidenceRunner evidence,
-        IWorkspaceContext workspace, EvidenceOptions? options = null)
+  public async Task<Result<string>> GetAsync(string key, CancellationToken ct = default)
+  {
+    Result<(string Ns, string Name)> parsed = StateKey.Parse(key);
+    if (!parsed.IsSuccess)
     {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
-        _evidence = evidence ?? throw new ArgumentNullException(nameof(evidence));
-        _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
-        _options = options ?? EvidenceOptions.Default;
+      return Result.Failure<string>(parsed.Error!);
     }
 
-    public async Task<Result<string>> GetAsync(string key, CancellationToken ct = default)
+    (string? ns, string? name) = parsed.Value;
+    StateKeyValue? kv = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct).ConfigureAwait(false);
+    return kv is null
+        ? Result.Failure<string>(new DomainError("KeyNotFound", $"'{key}' does not exist."))
+        : Result.Success<string>(kv.Value);
+  }
+
+  public async Task<Result<StateKeyValue>> SetAsync(string key, string value,
+      int? expectedVersion, CancellationToken ct = default)
+  {
+    Result<(string Ns, string Name)> parsed = StateKey.Parse(key);
+    if (!parsed.IsSuccess)
     {
-        var parsed = StateKey.Parse(key);
-        if (!parsed.IsSuccess) return Result<string>.Failure(parsed.Error!);
-        var (ns, name) = parsed.Value;
-        var kv = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct);
-        return kv is null
-            ? Result<string>.Failure(new Error("KeyNotFound", $"'{key}' does not exist."))
-            : Result<string>.Success(kv.Value);
+      return Result.Failure<StateKeyValue>(parsed.Error!);
     }
 
-    public async Task<Result<StateKeyValue>> SetAsync(string key, string value,
-        int? expectedVersion, CancellationToken ct = default)
+    (string? ns, string? name) = parsed.Value;
+    StateKeyValue? saved = await _store.SetKeyCasAsync(_workspace.WorkspaceId, ns, name, value, expectedVersion, ct).ConfigureAwait(false);
+    if (saved is not null)
     {
-        var parsed = StateKey.Parse(key);
-        if (!parsed.IsSuccess) return Result<StateKeyValue>.Failure(parsed.Error!);
-        var (ns, name) = parsed.Value;
-        var saved = await _store.SetKeyCasAsync(_workspace.WorkspaceId, ns, name, value, expectedVersion, ct);
-        if (saved is not null) return Result<StateKeyValue>.Success(saved);
-        var current = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct);
-        return Result<StateKeyValue>.Failure(new Error("VersionConflict",
-            $"Version conflict for '{key}': current version is {current?.Version ?? 0}."));
+      return Result.Success<StateKeyValue>(saved);
     }
 
-    public async Task<Result<string>> DeleteAsync(string key, int? expectedVersion, CancellationToken ct = default)
+    StateKeyValue? current = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct).ConfigureAwait(false);
+    return Result.Failure<StateKeyValue>(new DomainError("VersionConflict",
+        $"Version conflict for '{key}': current version is {current?.Version ?? 0}."));
+  }
+
+  public async Task<Result<string>> DeleteAsync(string key, int? expectedVersion, CancellationToken ct = default)
+  {
+    Result<(string Ns, string Name)> parsed = StateKey.Parse(key);
+    if (!parsed.IsSuccess)
     {
-        var parsed = StateKey.Parse(key);
-        if (!parsed.IsSuccess) return Result<string>.Failure(parsed.Error!);
-        var (ns, name) = parsed.Value;
-        var existing = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct);
-        if (existing is null)
-            return Result<string>.Failure(new Error("KeyNotFound", $"'{key}' does not exist."));
-        var deleted = await _store.DeleteKeyCasAsync(_workspace.WorkspaceId, ns, name, expectedVersion, ct);
-        return deleted
-            ? Result<string>.Success($"deleted {key}")
-            : Result<string>.Failure(new Error("VersionConflict",
-                $"Version conflict for '{key}': current version is {existing.Version}."));
+      return Result.Failure<string>(parsed.Error!);
     }
 
-    public async Task<Result<IReadOnlyList<string>>> ListAsync(string? ns, CancellationToken ct = default)
+    (string? ns, string? name) = parsed.Value;
+    StateKeyValue? existing = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct).ConfigureAwait(false);
+    if (existing is null)
     {
-        var keys = await _store.ListKeysAsync(_workspace.WorkspaceId, ns, ct);
-        return Result<IReadOnlyList<string>>.Success(
-            keys.Select(k => $"{k.Ns}/{k.Name} v{k.Version}").ToList());
+      return Result.Failure<string>(new DomainError("KeyNotFound", $"'{key}' does not exist."));
     }
 
-    public async Task<Result<StateKeyValue>> AppendAsync(string key, string text,
-        int? expectedVersion, CancellationToken ct = default)
+    bool deleted = await _store.DeleteKeyCasAsync(_workspace.WorkspaceId, ns, name, expectedVersion, ct).ConfigureAwait(false);
+    return deleted
+        ? Result.Success<string>($"deleted {key}")
+        : Result.Failure<string>(new DomainError("VersionConflict",
+            $"Version conflict for '{key}': current version is {existing.Version}."));
+  }
+
+  public async Task<Result<IReadOnlyList<string>>> ListAsync(string? ns, CancellationToken ct = default)
+  {
+    IReadOnlyList<StateKeyValue> keys = await _store.ListKeysAsync(_workspace.WorkspaceId, ns, ct).ConfigureAwait(false);
+    return Result.Success<IReadOnlyList<string>>(
+        [.. keys.Select(k => $"{k.Ns}/{k.Name} v{k.Version}")]);
+  }
+
+  public async Task<Result<StateKeyValue>> AppendAsync(string key, string text,
+      int? expectedVersion, CancellationToken ct = default)
+  {
+    if (string.IsNullOrWhiteSpace(text) || text.Trim() != text || text.Contains('\n', StringComparison.Ordinal) || text.Contains('\r', StringComparison.Ordinal))
     {
-        if (string.IsNullOrWhiteSpace(text) || text.Trim() != text || text.Contains('\n') || text.Contains('\r'))
-            return Result<StateKeyValue>.Failure(new Error("InvalidText",
+      return Result.Failure<StateKeyValue>(new DomainError("InvalidText",
                 "Append text must be a single line without leading or trailing whitespace."));
-
-        // Read the stored row for its version (GetAsync returns only the value).
-        var parsedKey = StateKey.Parse(key);
-        if (!parsedKey.IsSuccess) return Result<StateKeyValue>.Failure(parsedKey.Error!);
-        var (ns, name) = parsedKey.Value;
-        var row = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct);
-
-        if (row is null)
-        {
-            if (expectedVersion.HasValue)
-                return Result<StateKeyValue>.Failure(new Error("VersionConflict",
-                    $"Version conflict for '{key}': it does not exist (expected version {expectedVersion.Value})."));
-            return await SetAsync(key, text, null, ct);
-        }
-
-        if (expectedVersion.HasValue && expectedVersion.Value != row.Version)
-        {
-            return Result<StateKeyValue>.Failure(new Error("VersionConflict",
-                $"Version conflict for '{key}': current version is {row.Version}."));
-        }
-
-        return await SetAsync(key, row.Value + "\n" + text, row.Version, ct);
     }
 
-    public async Task<Result<int>> DeletePrefixAsync(string nsPrefix, CancellationToken ct = default)
+    // Read the stored row for its version (GetAsync returns only the value).
+    Result<(string Ns, string Name)> parsedKey = StateKey.Parse(key);
+    if (!parsedKey.IsSuccess)
     {
-        if (string.IsNullOrWhiteSpace(nsPrefix) || nsPrefix.Trim() != nsPrefix
-            || nsPrefix.Contains('/') || nsPrefix.Any(char.IsWhiteSpace))
-            return Result<int>.Failure(new Error("InvalidKey",
-                "Namespace prefix must be a legal namespace segment: non-empty, whitespace-free, no slash."));
-        if (nsPrefix == "todo" || nsPrefix.StartsWith("todo.", StringComparison.Ordinal))
-            return Result<int>.Failure(new Error("ReservedNamespace",
-                "'todo' namespaces are owned by the todo tool and cannot be bulk-deleted."));
-        if (nsPrefix == CurrentPrefix)
-            return Result<int>.Failure(new Error("ReservedNamespace",
-                $"'{CurrentPrefix}' namespaces carry head/certificate state and cannot be bulk-deleted."));
-        return Result<int>.Success(await _store.DeleteNamespacePrefixAsync(_workspace.WorkspaceId, nsPrefix, ct));
+      return Result.Failure<StateKeyValue>(parsedKey.Error!);
     }
-    public async Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(
+
+    (string? ns, string? name) = parsedKey.Value;
+    StateKeyValue? row = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct).ConfigureAwait(false);
+
+    return row is null
+      ? expectedVersion.HasValue
+        ? Result.Failure<StateKeyValue>(new DomainError("VersionConflict",
+                    $"Version conflict for '{key}': it does not exist (expected version {expectedVersion.Value})."))
+              : await SetAsync(key, text, null, ct).ConfigureAwait(false)
+      : expectedVersion.HasValue && expectedVersion.Value != row.Version
+          ? Result.Failure<StateKeyValue>(new DomainError("VersionConflict",
+                $"Version conflict for '{key}': current version is {row.Version}."))
+          : await SetAsync(key, row.Value + "\n" + text, row.Version, ct).ConfigureAwait(false);
+  }
+
+  public async Task<Result<int>> DeletePrefixAsync(string nsPrefix, CancellationToken ct = default)
+  {
+    return string.IsNullOrWhiteSpace(nsPrefix) || nsPrefix.Trim() != nsPrefix
+        || nsPrefix.Contains('/', StringComparison.Ordinal) || nsPrefix.Any(char.IsWhiteSpace)
+      ? Result.Failure<int>(new DomainError("InvalidKey",
+                "Namespace prefix must be a legal namespace segment: non-empty, whitespace-free, no slash."))
+      : await ValidateAndDelete(nsPrefix, ct).ConfigureAwait(false);
+  }
+
+  private async Task<Result<int>> ValidateAndDelete(string nsPrefix, CancellationToken ct)
+  {
+    return nsPrefix == "todo" || nsPrefix.StartsWith("todo.", StringComparison.Ordinal)
+      ? Result.Failure<int>(new DomainError("ReservedNamespace",
+                "'todo' namespaces are owned by the todo tool and cannot be bulk-deleted."))
+      : nsPrefix == CurrentPrefix
+          ? Result.Failure<int>(new DomainError("ReservedNamespace",
+                $"'{CurrentPrefix}' namespaces carry head/certificate state and cannot be bulk-deleted."))
+          : Result.Success<int>(await _store.DeleteNamespacePrefixAsync(_workspace.WorkspaceId, nsPrefix, ct).ConfigureAwait(false));
+  }
+  public async Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(
         string query, int limit, CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(query))
-            return Result<IReadOnlyList<StateSearchHit>>.Failure(
-                new Error("InvalidQuery", "Query is required and must contain non-whitespace characters."));
-        if (limit < 1 || limit > 100)
-            return Result<IReadOnlyList<StateSearchHit>>.Failure(
-                new Error("InvalidLimit", $"Limit must be between 1 and 100, got {limit}."));
-        return await _store.SearchKeysAsync(_workspace.WorkspaceId, query.Trim(), limit, ct);
-    }
-    public async Task<Result<string>> TransitionAsync(string from, string to, string summary,
+  {
+    return string.IsNullOrWhiteSpace(query)
+      ? Result.Failure<IReadOnlyList<StateSearchHit>>(
+                new DomainError("InvalidQuery", "Query is required and must contain non-whitespace characters."))
+      : limit is < 1 or > 100
+          ? Result.Failure<IReadOnlyList<StateSearchHit>>(
+                new DomainError("InvalidLimit", $"Limit must be between 1 and 100, got {limit}."))
+          : await _store.SearchKeysAsync(_workspace.WorkspaceId, query.Trim(), limit, ct).ConfigureAwait(false);
+  }
+  public async Task<Result<string>> TransitionAsync(string from, string toState, string summary,
         IReadOnlyList<string> evidence, CancellationToken ct = default)
+  {
+    if (string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(toState) || string.IsNullOrWhiteSpace(summary))
     {
-        if (string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(to) || string.IsNullOrWhiteSpace(summary))
-            return Result<string>.Failure(new Error("InvalidTransition",
+      return Result.Failure<string>(new DomainError("InvalidTransition",
                 "'from', 'to', and 'summary' are required."));
-        var record = new TransitionRecord(
-            $"tr-{Guid.NewGuid():N}", from, to, summary,
+    }
+
+    TransitionRecord record = new(
+            $"tr-{Guid.NewGuid():N}", from, toState, summary,
             evidence ?? [], "pending", DateTimeOffset.UtcNow);
-        var stored = await _store.InsertTransitionAsync(_workspace.WorkspaceId, record, ct);
-        await _store.AppendEventAsync(_workspace.WorkspaceId, "transition.attached",
-            JsonSerializer.Serialize(new { id = stored.Id, from, to, summary }), ct);
-        return Result<string>.Success(stored.Id);
+    TransitionRecord stored = await _store.InsertTransitionAsync(_workspace.WorkspaceId, record, ct).ConfigureAwait(false);
+    await _store.AppendEventAsync(_workspace.WorkspaceId, "transition.attached",
+        JsonSerializer.Serialize(new { id = stored.Id, from, toState, summary }), ct).ConfigureAwait(false);
+    return Result.Success<string>(stored.Id);
+  }
+
+  public async Task<CertificationReport> VerifyAsync(IReadOnlyList<string>? ids, CancellationToken ct = default)
+  {
+    string workspaceId = _workspace.WorkspaceId;
+    IReadOnlyList<TransitionRecord> selected = await _store.GetTransitionsAsync(workspaceId, ids ?? [], ct).ConfigureAwait(false);
+    List<string> blocking = [];
+    List<EvidenceResult> results = [];
+
+    if (ids is { Count: > 0 })
+    {
+      HashSet<string> found = selected.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+      foreach (string id in ids)
+      {
+        if (!found.Contains(id))
+        {
+          blocking.Add($"Missing transition: {id}.");
+        }
+      }
+    }
+    else if (selected.Count == 0)
+    {
+      blocking.Add("No transitions selected (none pending).");
     }
 
-    public async Task<CertificationReport> VerifyAsync(IReadOnlyList<string>? ids, CancellationToken ct = default)
+    StateKeyValue? head = await _store.GetKeyAsync(workspaceId, HeadNs, HeadName, ct).ConfigureAwait(false);
+    string? headValue = head?.Value;
+    bool targetsHead = headValue is not null && selected.Any(t => t.To == headValue);
+
+    foreach (TransitionRecord transition in selected)
     {
-        var workspaceId = _workspace.WorkspaceId;
-        var selected = await _store.GetTransitionsAsync(workspaceId, ids ?? [], ct);
-        var blocking = new List<string>();
-        var results = new List<EvidenceResult>();
-
-        if (ids is { Count: > 0 })
+      if (transition.Evidence.Count == 0)
+      {
+        blocking.Add($"Transition {transition.Id} has no attached evidence.");
+        results.Add(new EvidenceResult("(none)", false, "no evidence attached"));
+        continue;
+      }
+      foreach (string command in transition.Evidence)
+      {
+        EvidenceResult result = await _evidence.RunAsync(command, ct).ConfigureAwait(false);
+        results.Add(result);
+        if (!result.Confirmed)
         {
-            var found = selected.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
-            foreach (var id in ids)
-                if (!found.Contains(id))
-                    blocking.Add($"Missing transition: {id}.");
+          blocking.Add($"Transition {transition.Id}: '{command}' — {result.Detail}");
         }
-        else if (selected.Count == 0)
-            blocking.Add("No transitions selected (none pending).");
+      }
+    }
 
-        var head = await _store.GetKeyAsync(workspaceId, HeadNs, HeadName, ct);
-        var headValue = head?.Value;
-        var targetsHead = headValue is not null && selected.Any(t => t.To == headValue);
+    bool certified = blocking.Count == 0;
 
-        foreach (var transition in selected)
-        {
-            if (transition.Evidence.Count == 0)
+    if (certified)
+    {
+      foreach (TransitionRecord transition in selected)
+      {
+        await _store.SetTransitionStatusAsync(workspaceId, transition.Id, "certified", ct).ConfigureAwait(false);
+      }
+
+      await _store.AppendEventAsync(workspaceId, "state.certified",
+                JsonSerializer.Serialize(new { transitions = selected.Select(t => t.Id).ToArray() }), ct).ConfigureAwait(false);
+      if (targetsHead)
+      {
+        _ = await _store.SetKeyCasAsync(workspaceId, CertificateNs, CertificateName,
+            JsonSerializer.Serialize(new
             {
-                blocking.Add($"Transition {transition.Id} has no attached evidence.");
-                results.Add(new EvidenceResult("(none)", false, "no evidence attached"));
-                continue;
-            }
-            foreach (var command in transition.Evidence)
-            {
-                var result = await _evidence.RunAsync(command, ct);
-                results.Add(result);
-                if (!result.Confirmed)
-                    blocking.Add($"Transition {transition.Id}: '{command}' — {result.Detail}");
-            }
-        }
-
-        var certified = blocking.Count == 0;
-
-        if (certified)
-        {
-            foreach (var transition in selected)
-                await _store.SetTransitionStatusAsync(workspaceId, transition.Id, "certified", ct);
-            await _store.AppendEventAsync(workspaceId, "state.certified",
-                JsonSerializer.Serialize(new { transitions = selected.Select(t => t.Id).ToArray() }), ct);
-            if (targetsHead)
-                await _store.SetKeyCasAsync(workspaceId, CertificateNs, CertificateName,
-                    JsonSerializer.Serialize(new
-                    {
-                        transitions = selected.Select(t => t.Id).ToArray(),
-                        certifiedAt = DateTimeOffset.UtcNow,
-                    }), null, ct);
-        }
-        else
-        {
-            if (targetsHead)
-                await _store.DeleteKeyCasAsync(workspaceId, CertificateNs, CertificateName, null, ct);
-            foreach (var transition in selected)
-                await _store.SetTransitionStatusAsync(workspaceId, transition.Id, "violated", ct);
-            await _store.AppendEventAsync(workspaceId, "state.violated",
-                JsonSerializer.Serialize(new { reasons = blocking }), ct);
-        }
-
-        return new CertificationReport(certified, !certified, results, blocking);
+              transitions = selected.Select(t => t.Id).ToArray(),
+              certifiedAt = DateTimeOffset.UtcNow,
+            }), null, ct).ConfigureAwait(false);
+      }
     }
-
-    public async Task<CertificationReport> CheckGoalAsync(CancellationToken ct = default)
+    else
     {
-        var goal = await _store.GetKeyAsync(_workspace.WorkspaceId, GoalNs, GoalName, ct);
-        if (goal is null)
-            return new CertificationReport(false, true, [], ["No goal/check commands stored."]);
-        List<string> commands;
-        try
-        {
-            commands = JsonSerializer.Deserialize<List<string>>(goal.Value) ?? [];
-        }
-        catch (JsonException)
-        {
-            return new CertificationReport(false, true, [],
-                ["goal/check is not a valid JSON array of commands."]);
-        }
-        var results = new List<EvidenceResult>();
-        var blocking = new List<string>();
-        foreach (var command in commands)
-        {
-            var result = await _evidence.RunAsync(command, ct);
-            results.Add(result);
-            if (!result.Confirmed)
-                blocking.Add($"'{command}' — {result.Detail}");
-        }
-        return new CertificationReport(blocking.Count == 0, blocking.Count > 0, results, blocking);
+      if (targetsHead)
+      {
+        _ = await _store.DeleteKeyCasAsync(workspaceId, CertificateNs, CertificateName, null, ct).ConfigureAwait(false);
+      }
+
+      foreach (TransitionRecord transition in selected)
+      {
+        await _store.SetTransitionStatusAsync(workspaceId, transition.Id, "violated", ct).ConfigureAwait(false);
+      }
+
+      await _store.AppendEventAsync(workspaceId, "state.violated",
+                JsonSerializer.Serialize(new { reasons = blocking }), ct).ConfigureAwait(false);
     }
 
-    public async Task<Result<IReadOnlyList<string>>> HistoryAsync(int limit, CancellationToken ct = default)
+    return new CertificationReport(certified, !certified, results, blocking);
+  }
+
+  public async Task<CertificationReport> CheckGoalAsync(CancellationToken ct = default)
+  {
+    StateKeyValue? goal = await _store.GetKeyAsync(_workspace.WorkspaceId, GoalNs, GoalName, ct).ConfigureAwait(false);
+    if (goal is null)
     {
-        var events = await _store.GetEventsAsync(_workspace.WorkspaceId, limit, ct);
-        return Result<IReadOnlyList<string>>.Success(
-            events.Select(e => $"{e.OccurredAt:u} {e.Kind} {e.PayloadJson}").ToList());
+      return new CertificationReport(false, true, [], ["No goal/check commands stored."]);
     }
+
+    List<string> commands;
+    try
+    {
+      commands = JsonSerializer.Deserialize<List<string>>(goal.Value) ?? [];
+    }
+    catch (JsonException)
+    {
+      return new CertificationReport(false, true, [],
+          ["goal/check is not a valid JSON array of commands."]);
+    }
+    List<EvidenceResult> results = [];
+    List<string> blocking = [];
+    foreach (string command in commands)
+    {
+      EvidenceResult result = await _evidence.RunAsync(command, ct).ConfigureAwait(false);
+      results.Add(result);
+      if (!result.Confirmed)
+      {
+        blocking.Add($"'{command}' — {result.Detail}");
+      }
+    }
+    return new CertificationReport(blocking.Count == 0, blocking.Count > 0, results, blocking);
+  }
+
+  public async Task<Result<IReadOnlyList<string>>> HistoryAsync(int limit, CancellationToken ct = default)
+  {
+    IReadOnlyList<StateEvent> events = await _store.GetEventsAsync(_workspace.WorkspaceId, limit, ct).ConfigureAwait(false);
+    return Result.Success<IReadOnlyList<string>>(
+        [.. events.Select(e => $"{e.OccurredAt:u} {e.Kind} {e.PayloadJson}")]);
+  }
 }
