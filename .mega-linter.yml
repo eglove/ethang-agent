@@ -6,6 +6,7 @@ DISABLE_LINTERS:
   - OSV_SCANNER      # No lockfiles to scan (C# uses .csproj, not npm/go/gem locks)
   - TRIVY             # Container/image scanning not needed for source code repo
   - ZIZMOR            # GitHub Actions workflow linting requires API access; disable for simplicity
+  - CSPELL            # Spell-checking flags domain terms and proper nouns across docs/code
 
 # Optional: Enable only relevant linters (uncomment to use)
 # ENABLE_LINTERS:
