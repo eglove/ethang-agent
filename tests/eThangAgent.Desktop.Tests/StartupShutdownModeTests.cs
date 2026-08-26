@@ -1,12 +1,10 @@
-
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless.XUnit;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>Covers the startup shutdown-mode seams on <see cref="eThangAgent.Desktop.DesktopHost"/>.
+/// <summary>Covers the startup shutdown-mode seams on <see cref="DesktopHost"/>.
 ///
 /// Background: Avalonia's default OnLastWindowClose mode killed the app mid-startup — between
 /// framework initialization and the main window being shown, the ONLY windows are transient
@@ -21,18 +19,18 @@ namespace eThangAgent.Desktop.Tests;
 /// covered by launching the real app.</summary>
 public sealed class StartupShutdownModeTests
 {
-    [AvaloniaFact]
-    public void Deferral_Switches_Lifetime_To_Explicit_Shutdown()
-    {
-        var lifetime = new ClassicDesktopStyleApplicationLifetime();
+  [AvaloniaFact]
+  public void Deferral_Switches_Lifetime_To_Explicit_Shutdown()
+  {
+    using ClassicDesktopStyleApplicationLifetime lifetime = new();
 
-        // Documents the platform default that caused the startup race.
-        Assert.Equal(ShutdownMode.OnLastWindowClose, lifetime.ShutdownMode);
+    // Documents the platform default that caused the startup race.
+    Assert.Equal(ShutdownMode.OnLastWindowClose, lifetime.ShutdownMode);
 
-        eThangAgent.Desktop.DesktopHost.DeferShutdownDuringStartup(lifetime);
-        Assert.Equal(ShutdownMode.OnExplicitShutdown, lifetime.ShutdownMode);
+    DesktopHost.DeferShutdownDuringStartup(lifetime);
+    Assert.Equal(ShutdownMode.OnExplicitShutdown, lifetime.ShutdownMode);
 
-        eThangAgent.Desktop.DesktopHost.EnableWindowCloseShutdown(lifetime);
-        Assert.Equal(ShutdownMode.OnLastWindowClose, lifetime.ShutdownMode);
-    }
+    DesktopHost.EnableWindowCloseShutdown(lifetime);
+    Assert.Equal(ShutdownMode.OnLastWindowClose, lifetime.ShutdownMode);
+  }
 }

@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using eThangAgent.Desktop.ViewModels;
 
 namespace eThangAgent.Desktop.Views;
@@ -9,167 +10,195 @@ namespace eThangAgent.Desktop.Views;
 ///     input row with command autocomplete, clarify mode, and status bar. Binds an
 ///     <see cref="AgentSessionViewModel"/>; every open tab owns one instance, so no
 ///     state here may be shared or static.</summary>
-public partial class AgentView : UserControl
+internal partial class AgentView : UserControl
 {
-    private AgentSessionViewModel? Vm => DataContext as AgentSessionViewModel;
+  private AgentSessionViewModel? Vm => DataContext as AgentSessionViewModel;
 
-    public AgentView()
+  public AgentView()
+  {
+    InitializeComponent();
+    DataContextChanged += (_, _) => WireVm();
+  }
+
+  private void WireVm()
+  {
+    AgentSessionViewModel? vm = Vm;
+    if (vm is null)
     {
-        InitializeComponent();
-        DataContextChanged += (_, _) => WireVm();
+      return;
     }
 
-    private void WireVm()
+    // Auto-scroll this agent's transcript as entries arrive (best effort).
+    vm.Transcript.Entries.CollectionChanged += (_, _) =>
     {
-        var vm = Vm;
-        if (vm is null) return;
+      try
+      {
+        TranscriptScroll.ScrollToEnd();
+      }
+      // Named decision (CA1031): scroll is best effort while layout settles.
+#pragma warning disable CA1031 // Do not catch general exception types
+      catch { /* layout not ready */ }
+#pragma warning restore CA1031
+    };
 
-        // Auto-scroll this agent's transcript as entries arrive (best effort).
-        vm.Transcript.Entries.CollectionChanged += (_, _) =>
-        {
-            try { TranscriptScroll.ScrollToEnd(); } catch { /* layout not ready */ }
-        };
+    // Animated spinner parity with the terminal frame loop (~12 fps): an 80 ms timer
+    // runs only while a turn is busy; Phase transitions reset the displayed state.
+    DispatcherTimer statusTimer = new() { Interval = TimeSpan.FromMilliseconds(80) };
+    statusTimer.Tick += (_, _) => vm.Status.Tick();
+    vm.PropertyChanged += (_, e) =>
+    {
+      if (e.PropertyName != nameof(AgentSessionViewModel.IsBusy))
+      {
+        return;
+      }
 
-        // Animated spinner parity with the terminal frame loop (~12 fps): an 80 ms timer
-        // runs only while a turn is busy; Phase transitions reset the displayed state.
-        var statusTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
-        statusTimer.Tick += (_, _) => vm.Status.Tick();
-        vm.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName != nameof(AgentSessionViewModel.IsBusy)) return;
-            if (vm.IsBusy) statusTimer.Start();
-            else statusTimer.Stop();
-        };
+      if (vm.IsBusy)
+      {
+        statusTimer.Start();
+      }
+      else
+      {
+        statusTimer.Stop();
+      }
+    };
 
-        // Tunnel so Enter/Esc are seen before TextBox class handling consumes them.
-        InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);
+    // Tunnel so Enter/Esc are seen before TextBox class handling consumes them.
+    InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);
 
-        // Drive the command autocomplete from the Text PROPERTY rather than the
-        // TextChanged event: property-changed notifications fire for every change
-        // source, which TextChanged proved not to do reliably under headless testing.
-        InputBox.PropertyChanged += (_, e) =>
-        {
-            if (e.Property == TextBox.TextProperty) UpdateCommandPopup();
-        };
+    // Drive the command autocomplete from the Text PROPERTY rather than the
+    // TextChanged event: property-changed notifications fire for every change
+    // source, which TextChanged proved not to do reliably under headless testing.
+    InputBox.PropertyChanged += (_, e) =>
+    {
+      if (e.Property == TextBox.TextProperty)
+      {
+        UpdateCommandPopup();
+      }
+    };
+  }
+
+  private void OnInputKeyDownTunnel(object? sender, KeyEventArgs e)
+  {
+    AgentSessionViewModel? vm = Vm;
+    if (vm is null)
+    {
+      return;
     }
 
-    private void OnInputKeyDownTunnel(object? sender, KeyEventArgs e)
+    if (e.Key == Key.Escape && CommandPopup.IsOpen)
     {
-        var vm = Vm;
-        if (vm is null) return;
-
-        if (e.Key == Key.Escape && CommandPopup.IsOpen)
-        {
-            CommandPopup.IsOpen = false;
-            e.Handled = true;
-            return;
-        }
-
-        // Accept the highlighted (or first) autocomplete suggestion without submitting.
-        if (CommandPopup.IsOpen && (e.Key == Key.Tab || e.Key == Key.Enter))
-        {
-            ViewModels.DesktopCommand? chosen = CommandList.SelectedItem as ViewModels.DesktopCommand;
-            if (chosen is null && CommandList.ItemsSource is IEnumerable<ViewModels.DesktopCommand> items)
-            {
-                chosen = items.FirstOrDefault();
-            }
-            if (chosen is not null)
-            {
-                InputBox.Text = chosen.Name;
-                InputBox.CaretIndex = InputBox.Text?.Length ?? 0;
-            }
-            CommandPopup.IsOpen = false;
-            e.Handled = true;
-            return;
-        }
-
-        if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
-        {
-            e.Handled = true; // suppress newline insertion
-            var text = InputBox.Text ?? "";
-            InputBox.Text = "";
-            _ = vm.SubmitAsync(text);
-        }
-        // Shift+Enter falls through: TextBox inserts the newline.
+      CommandPopup.IsOpen = false;
+      e.Handled = true;
+      return;
     }
 
-    private void UpdateCommandPopup()
+    // Accept the highlighted (or first) autocomplete suggestion without submitting.
+    if (CommandPopup.IsOpen && (e.Key == Key.Tab || e.Key == Key.Enter))
     {
-        var text = InputBox.Text ?? "";
-        if (!text.StartsWith('/'))
-        {
-            CommandPopup.IsOpen = false;
-            return;
-        }
-
-        var query = text[1..];
-        var matches = DesktopCommands.All
-            .Where(c => c.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        CommandList.ItemsSource = matches;
-        CommandPopup.IsOpen = matches.Count > 0;
+      DesktopCommand? chosen = CommandList.SelectedItem as DesktopCommand;
+      if (chosen is null && CommandList.ItemsSource is IEnumerable<DesktopCommand> items)
+      {
+        chosen = items.FirstOrDefault();
+      }
+      if (chosen is not null)
+      {
+        InputBox.Text = chosen.Name;
+        InputBox.CaretIndex = InputBox.Text?.Length ?? 0;
+      }
+      CommandPopup.IsOpen = false;
+      e.Handled = true;
+      return;
     }
 
-    private void OnCommandChosen(object? sender, RoutedEventArgs e)
+    if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
     {
-        CompleteFromSelection();
+      e.Handled = true; // suppress newline insertion
+      string text = InputBox.Text ?? "";
+      InputBox.Text = "";
+      _ = vm.SubmitAsync(text);
+    }
+    // Shift+Enter falls through: TextBox inserts the newline.
+  }
+
+  private void UpdateCommandPopup()
+  {
+    string text = InputBox.Text ?? "";
+    if (!text.StartsWith('/'))
+    {
+      CommandPopup.IsOpen = false;
+      return;
     }
 
-    private void OnCommandListKeyDown(object? sender, KeyEventArgs e)
+    string query = text[1..];
+    List<DesktopCommand> matches = [.. DesktopCommands.All.Where(c => c.Name.Contains(query, StringComparison.OrdinalIgnoreCase))];
+    CommandList.ItemsSource = matches;
+    CommandPopup.IsOpen = matches.Count > 0;
+  }
+
+  private void OnCommandChosen(object? sender, RoutedEventArgs e) => CompleteFromSelection();
+
+  private void OnCommandListKeyDown(object? sender, KeyEventArgs e)
+  {
+    if (e.Key is Key.Enter or Key.Tab)
     {
-        if (e.Key is Key.Enter or Key.Tab)
-        {
-            CompleteFromSelection();
-            e.Handled = true;
-        }
+      CompleteFromSelection();
+      e.Handled = true;
+    }
+  }
+
+  private void CompleteFromSelection()
+  {
+    if (CommandList.SelectedItem is DesktopCommand chosen)
+    {
+      InputBox.Text = chosen.Name;
+      InputBox.CaretIndex = InputBox.Text?.Length ?? 0;
+    }
+    CommandPopup.IsOpen = false;
+    _ = InputBox.Focus();
+  }
+
+  private void OnStopClick(object? sender, RoutedEventArgs e) => Vm?.RequestStop();
+
+  private async void OnClarifyOption(object? sender, RoutedEventArgs e)
+  {
+    AgentSessionViewModel? vm = Vm;
+    if (vm?.Clarify is not { } pending)
+    {
+      return;
     }
 
-    private void CompleteFromSelection()
+    if (sender is Button { DataContext: string option })
     {
-        if (CommandList.SelectedItem is ViewModels.DesktopCommand chosen)
-        {
-            InputBox.Text = chosen.Name;
-            InputBox.CaretIndex = InputBox.Text?.Length ?? 0;
-        }
-        CommandPopup.IsOpen = false;
-        InputBox.Focus();
+      int index = pending.Options.ToList().IndexOf(option);
+      pending.ChooseOption(index + 1); // 1-based display index
     }
+    await vm.WaitForTurnAsync();
+  }
 
-    private void OnStopClick(object? sender, RoutedEventArgs e)
+  private void OnClarifyInputKeyDown(object? sender, KeyEventArgs e)
+  {
+    if (e.Key == Key.Enter)
     {
-        Vm?.RequestStop();
+      e.Handled = true;
+      Vm?.Clarify?.SubmitFreeText();
     }
+  }
 
-    private async void OnClarifyOption(object? sender, RoutedEventArgs e)
+  private async void OnClarifyAnswer(object? sender, RoutedEventArgs e)
+  {
+    Vm?.Clarify?.SubmitFreeText();
+    if (Vm is not null)
     {
-        var vm = Vm;
-        if (vm?.Clarify is not { } pending) return;
-        if (sender is Button { DataContext: string option })
-        {
-            var index = pending.Options.ToList().IndexOf(option);
-            pending.ChooseOption(index + 1); // 1-based display index
-        }
-        await vm.WaitForTurnAsync();
+      await Vm.WaitForTurnAsync();
     }
+  }
 
-    private void OnClarifyInputKeyDown(object? sender, KeyEventArgs e)
+  private async void OnClarifyCancel(object? sender, RoutedEventArgs e)
+  {
+    Vm?.Clarify?.Cancel();
+    if (Vm is not null)
     {
-        if (e.Key == Key.Enter)
-        {
-            e.Handled = true;
-            Vm?.Clarify?.SubmitFreeText();
-        }
+      await Vm.WaitForTurnAsync();
     }
-
-    private async void OnClarifyAnswer(object? sender, RoutedEventArgs e)
-    {
-        Vm?.Clarify?.SubmitFreeText();
-        if (Vm is not null) await Vm.WaitForTurnAsync();
-    }
-
-    private async void OnClarifyCancel(object? sender, RoutedEventArgs e)
-    {
-        Vm?.Clarify?.Cancel();
-        if (Vm is not null) await Vm.WaitForTurnAsync();
-    }
+  }
 }

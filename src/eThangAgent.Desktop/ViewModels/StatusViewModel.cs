@@ -4,11 +4,11 @@ using Avalonia.Threading;
 namespace eThangAgent.Desktop.ViewModels;
 
 /// <summary>Turn phase for the status bar — parity with the terminal StatusLine states.</summary>
-public enum TurnPhase
+internal enum TurnPhase
 {
-    Ready,
-    Thinking,
-    Streaming,
+  Ready,
+  Thinking,
+  Streaming,
 }
 
 /// <summary>
@@ -17,69 +17,83 @@ public enum TurnPhase
 ///     (agent callbacks run off-UI); property-changed notifications marshal onto the UI
 ///     thread so bindings stay safe.
 /// </summary>
-public sealed class StatusViewModel : INotifyPropertyChanged
+internal sealed class StatusViewModel(string modelId) : INotifyPropertyChanged
 {
-    // Identical glyph set to the terminal spinner (Program.SpinnerFrames).
-    private static readonly string[] Frames =
-    [
-        "\u280b", "\u2819", "\u2839", "\u2838", "\u283c",
+  // Identical glyph set to the terminal spinner (Program.SpinnerFrames).
+  private static readonly string[] Frames =
+  [
+      "\u280b", "\u2819", "\u2839", "\u2838", "\u283c",
         "\u2834", "\u2826", "\u2827", "\u2807", "\u280f",
     ];
 
-    private int _frame;
-    private TurnPhase _phase = TurnPhase.Ready;
+  private int _frame;
 
-    public StatusViewModel(string modelId) => ModelId = modelId;
+  public string ModelId { get; } = modelId;
 
-    public string ModelId { get; }
-
-    public TurnPhase Phase
+  public TurnPhase Phase
+  {
+    get;
+    set
     {
-        get => _phase;
-        set
-        {
-            if (_phase == value) return;
-            _phase = value;
-            RaiseAll();
-        }
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      RaiseAll();
+    }
+  } = TurnPhase.Ready;
+
+  /// <summary>Current spinner frame; empty whenever the turn phase is Ready.</summary>
+  public string Spinner => Phase == TurnPhase.Ready ? "" : Frames[_frame];
+
+  /// <summary>Human-readable phase label: Ready / Thinking… / Streaming…</summary>
+  public string PhaseLabel => Phase switch
+  {
+    TurnPhase.Thinking => "Thinking\u2026",
+    TurnPhase.Streaming => "Streaming\u2026",
+    TurnPhase.Ready => "Ready",
+    _ => "Ready",
+  };
+
+  /// <summary>Advances the spinner frame. Called by an 80 ms DispatcherTimer in the view
+  ///     while busy; a no-op when Ready so an idle status bar never re-renders.</summary>
+  public void Tick()
+  {
+    if (Phase == TurnPhase.Ready)
+    {
+      return;
     }
 
-    /// <summary>Current spinner frame; empty whenever the turn phase is Ready.</summary>
-    public string Spinner => _phase == TurnPhase.Ready ? "" : Frames[_frame];
+    _frame = (_frame + 1) % Frames.Length;
+    Raise(nameof(Spinner));
+  }
 
-    /// <summary>Human-readable phase label: Ready / Thinking… / Streaming…</summary>
-    public string PhaseLabel => _phase switch
-    {
-        TurnPhase.Thinking => "Thinking\u2026",
-        TurnPhase.Streaming => "Streaming\u2026",
-        _ => "Ready",
-    };
+  public event PropertyChangedEventHandler? PropertyChanged;
 
-    /// <summary>Advances the spinner frame. Called by an 80 ms DispatcherTimer in the view
-    ///     while busy; a no-op when Ready so an idle status bar never re-renders.</summary>
-    public void Tick()
+  private void RaiseAll()
+  {
+    Raise(nameof(Phase));
+    Raise(nameof(Spinner));
+    Raise(nameof(PhaseLabel));
+  }
+
+  private void Raise(string name)
+  {
+    PropertyChangedEventHandler? handlers = PropertyChanged;
+    if (handlers is null)
     {
-        if (_phase == TurnPhase.Ready) return;
-        _frame = (_frame + 1) % Frames.Length;
-        Raise(nameof(Spinner));
+      return;
     }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private void RaiseAll()
+    if (Dispatcher.UIThread.CheckAccess())
     {
-        Raise(nameof(Phase));
-        Raise(nameof(Spinner));
-        Raise(nameof(PhaseLabel));
+      handlers(this, new PropertyChangedEventArgs(name));
     }
-
-    private void Raise(string name)
+    else
     {
-        var handlers = PropertyChanged;
-        if (handlers is null) return;
-        if (Dispatcher.UIThread.CheckAccess())
-            handlers(this, new PropertyChangedEventArgs(name));
-        else
-            Dispatcher.UIThread.Post(() => handlers(this, new PropertyChangedEventArgs(name)));
+      Dispatcher.UIThread.Post(() => handlers(this, new PropertyChangedEventArgs(name)));
     }
+  }
 }

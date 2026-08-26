@@ -1,7 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <!-- Named decision (CA2007): this is the UI composition root. Await continuations
+         must resume on Avalonia's UI SynchronizationContext (view-model continuations
+         stay on the UI thread) or hand off to the Dispatcher explicitly. ConfigureAwait(false)
+         would break UI marshaling, so CA2007 is suppressed for this project only;
+         library projects keep it enforced. -->
+    <NoWarn>$(NoWarn);CA2007</NoWarn>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The desktop view-model/streaming surface is exercised headlessly by the test
+         assembly; CA1515 (types can be made internal) does not apply to a friend
+         assembly, so the internal surface is exposed via InternalsVisibleTo instead. -->
+    <InternalsVisibleTo Include="eThangAgent.Desktop.Tests" />
+  </ItemGroup>
   <ItemGroup>
     <None Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

@@ -1,4 +1,3 @@
-using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
@@ -14,17 +13,17 @@ namespace eThangAgent.Desktop.Tests;
 /// RootSessionLifecycle persistence semantics are covered in
 /// eThangAgent.Composition.Tests.
 /// </summary>
-public sealed class RecordingLifecycle(IAgentStore store) : RootSessionLifecycle(store)
+internal sealed class RecordingLifecycle(IAgentStore store) : RootSessionLifecycle(store)
 {
-    public int Exchanges;
+  public int _exchanges;
 
-    public override Task AppendExchangeAsync(
-        AgentId rootId, Conversation c, int before,
-        Result<string> result, Action<string> err)
-    {
-        Exchanges++;
-        return Task.CompletedTask;
-    }
+  public override Task AppendExchangeAsync(
+      AgentId rootId, Conversation conversation, int messageCountBefore,
+      Result<string> result, Action<string> reportError)
+  {
+    _exchanges++;
+    return Task.CompletedTask;
+  }
 }
 
 /// <summary>
@@ -32,186 +31,191 @@ public sealed class RecordingLifecycle(IAgentStore store) : RootSessionLifecycle
 /// callback — mirroring how RootSessionLifecycle surfaces store failures —
 /// while still recording that the exchange was booked.
 /// </summary>
-public sealed class PersistenceErroringLifecycle(IAgentStore store)
+internal sealed class PersistenceErroringLifecycle(IAgentStore store)
     : RootSessionLifecycle(store)
 {
-    public int Exchanges;
+  public int _exchanges;
 
-    public override Task AppendExchangeAsync(
-        AgentId rootId, Conversation c, int before,
-        Result<string> result, Action<string> err)
-    {
-        Exchanges++;
-        err("Error [DbDown]: nope");
-        return Task.CompletedTask;
-    }
+  public override Task AppendExchangeAsync(
+      AgentId rootId, Conversation conversation, int messageCountBefore,
+      Result<string> result, Action<string> reportError)
+  {
+    ArgumentNullException.ThrowIfNull(reportError);
+    _exchanges++;
+    reportError("Error [DbDown]: nope");
+    return Task.CompletedTask;
+  }
 }
 
 public class AgentSessionViewModelTests
 {
-    private static (AgentSessionViewModel Vm, List<string> Errors, RecordingLifecycle Lifecycle)
-        Build(TurnRunner runner)
-    {
-        var store = new StubStore();
-        var lifecycle = new RecordingLifecycle(store);
-        var errors = new List<string>();
-        var vm = new AgentSessionViewModel(
-            runner, lifecycle, AgentId.NewId(), new Conversation(),
-            "test/model", workspaceRoot: @"C:\work\demo");
-        return (vm, errors, lifecycle);
-    }
+  private static (AgentSessionViewModel Vm, List<string> Errors, RecordingLifecycle Lifecycle)
+      Build(TurnRunner runner)
+  {
+    StubStore store = new();
+    RecordingLifecycle lifecycle = new(store);
+    List<string> errors = [];
+    AgentSessionViewModel vm = new(
+        runner, lifecycle, AgentId.NewId(), new Conversation(),
+        "test/model", workspaceRoot: @"C:\work\demo");
+    return (vm, errors, lifecycle);
+  }
 
-    // ── 1. /help ──────────────────────────────────────────────────────────────
+  // ── 1. /help ──────────────────────────────────────────────────────────────
 
-    [Fact]
-    public async Task Help_Prints_Command_List_Not_Sent_To_Model()
+  [Fact]
+  public async Task Help_Prints_Command_List_Not_Sent_To_Model()
+  {
+    int sent = 0;
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
     {
-        var sent = 0;
-        var (vm, _, _) = Build((_, _, _, _, _, _, _) =>
+      sent++;
+      return Task.FromResult(Result.Success<string>(""));
+    });
+
+    await vm.SubmitAsync("/help");
+
+    Assert.Equal(0, sent);
+    Assert.False(vm.IsBusy);
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("/help", notice.Text, StringComparison.Ordinal);
+    Assert.Contains("/exit", notice.Text, StringComparison.Ordinal);
+    Assert.Contains("/quit", notice.Text, StringComparison.Ordinal);
+  }
+
+  // ── 2. /exit, /quit ───────────────────────────────────────────────────────
+
+  [Theory]
+  [InlineData("/exit")]
+  [InlineData("/quit")]
+  public async Task Quit_Commands_Request_Close_Without_Model_Call(string cmd)
+  {
+    int sent = 0;
+    bool closed = false;
+    StubStore store = new();
+    AgentSessionViewModel vm = new(
+        (_, _, _, _, _, _, _) =>
         {
-            sent++;
-            return Task.FromResult(Result<string>.Success(""));
-        });
+          sent++;
+          return Task.FromResult(Result.Success<string>(""));
+        },
+        new RecordingLifecycle(store), AgentId.NewId(), new Conversation(), "m",
+        workspaceRoot: @"C:\work\demo");
+    vm.CloseRequested += (_, _) => closed = true;
 
-        await vm.SubmitAsync("/help");
+    await vm.SubmitAsync(cmd);
 
-        Assert.Equal(0, sent);
-        Assert.False(vm.IsBusy);
-        var notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
-        Assert.Contains("/help", notice.Text);
-        Assert.Contains("/exit", notice.Text);
-        Assert.Contains("/quit", notice.Text);
-    }
+    Assert.True(closed);
+    Assert.Equal(0, sent);
+  }
 
-    // ── 2. /exit, /quit ───────────────────────────────────────────────────────
+  // ── 3. Normal turn ────────────────────────────────────────────────────────
 
-    [Theory]
-    [InlineData("/exit")]
-    [InlineData("/quit")]
-    public async Task Quit_Commands_Request_Close_Without_Model_Call(string cmd)
+  [Fact]
+  public async Task Normal_Turn_Appends_User_Entry_Disables_Input_And_Books_Exchange()
+  {
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle? lifecycle) = Build(async (_, _, onContent, _, _, _, _) =>
     {
-        var sent = 0;
-        var closed = false;
-        var store = new StubStore();
-        var vm = new AgentSessionViewModel(
-            (_, _, _, _, _, _, _) => { sent++; return Task.FromResult(Result<string>.Success("")); },
-            new RecordingLifecycle(store), AgentId.NewId(), new Conversation(), "m",
-            workspaceRoot: @"C:\work\demo");
-        vm.CloseRequested += (_, _) => closed = true;
+      onContent!("hel");
+      onContent!("lo");
+      await Task.Yield();
+      return Result.Success<string>("hello");
+    });
 
-        await vm.SubmitAsync(cmd);
+    Task turnTask = vm.SubmitAsync("hi");
+    await turnTask.ConfigureAwait(true);
+    await vm.WaitForTurnAsync();
 
-        Assert.True(closed);
-        Assert.Equal(0, sent);
-    }
+    _ = Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[0]);
+    AssistantTextEntry last = Assert.IsType<AssistantTextEntry>(vm.Transcript.Entries[^1]);
+    Assert.Equal("hello", last.Text);
+    Assert.False(vm.IsBusy);
+    Assert.Equal(1, lifecycle._exchanges);
+    Assert.Equal(1, vm.MessageCount);
+  }
 
-    // ── 3. Normal turn ────────────────────────────────────────────────────────
+  // ── 3a. Failure produces error notice ─────────────────────────────────────
 
-    [Fact]
-    public async Task Normal_Turn_Appends_User_Entry_Disables_Input_And_Books_Exchange()
-    {
-        var (vm, _, lifecycle) = Build(async (_, _, onContent, _, _, _, _) =>
-        {
-            onContent!("hel");
-            onContent!("lo");
-            await Task.Yield();
-            return Result<string>.Success("hello");
-        });
+  [Fact]
+  public async Task Failure_Produces_Error_Notice_With_Code()
+  {
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
+        Task.FromResult(Result.Failure<string>(new DomainError("RateLimited", "slow down"))));
 
-        var turnTask = vm.SubmitAsync("hi");
-        await turnTask;
-        await vm.WaitForTurnAsync();
+    await vm.SubmitAsync("go");
+    await vm.WaitForTurnAsync();
 
-        Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[0]);
-        var last = Assert.IsType<AssistantTextEntry>(vm.Transcript.Entries[^1]);
-        Assert.Equal("hello", last.Text);
-        Assert.False(vm.IsBusy);
-        Assert.Equal(1, lifecycle.Exchanges);
-        Assert.Equal(1, vm.MessageCount);
-    }
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("Error [RateLimited]: slow down", notice.Text, StringComparison.Ordinal);
+  }
 
-    // ── 3a. Failure produces error notice ─────────────────────────────────────
+  // ── 3b. Success with no deltas falls back to notice ───────────────────────
 
-    [Fact]
-    public async Task Failure_Produces_Error_Notice_With_Code()
-    {
-        var (vm, _, _) = Build((_, _, _, _, _, _, _) =>
-            Task.FromResult(Result<string>.Failure(new Error("RateLimited", "slow down"))));
+  [Fact]
+  public async Task Success_Without_Streamed_Deltas_Falls_Back_To_Final_Text_Notice()
+  {
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
+        Task.FromResult(Result.Success<string>("plain answer")));
 
-        await vm.SubmitAsync("go");
-        await vm.WaitForTurnAsync();
+    await vm.SubmitAsync("q");
+    await vm.WaitForTurnAsync();
 
-        var notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
-        Assert.Contains("Error [RateLimited]: slow down", notice.Text);
-    }
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("plain answer", notice.Text, StringComparison.Ordinal);
+  }
 
-    // ── 3b. Success with no deltas falls back to notice ───────────────────────
+  // ── 4. Busy submissions ignored ───────────────────────────────────────────
 
-    [Fact]
-    public async Task Success_Without_Streamed_Deltas_Falls_Back_To_Final_Text_Notice()
-    {
-        var (vm, _, _) = Build((_, _, _, _, _, _, _) =>
-            Task.FromResult(Result<string>.Success("plain answer")));
+  [Fact]
+  public async Task Submission_While_Busy_Is_Ignored()
+  {
+    TaskCompletionSource release = new();
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
+        release.Task.ContinueWith(_ => Result.Success<string>("done"),
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
 
-        await vm.SubmitAsync("q");
-        await vm.WaitForTurnAsync();
+    Task first = vm.SubmitAsync("one");
+    Assert.True(vm.IsBusy);
 
-        var notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
-        Assert.Contains("plain answer", notice.Text);
-    }
+    await vm.SubmitAsync("two"); // ignored — no second user entry
 
-    // ── 4. Busy submissions ignored ───────────────────────────────────────────
+    release.SetResult();
+    await first.ConfigureAwait(true);
+    await vm.WaitForTurnAsync();
 
-    [Fact]
-    public async Task Submission_While_Busy_Is_Ignored()
-    {
-        var release = new TaskCompletionSource();
-        var (vm, _, _) = Build((_, _, _, _, _, _, _) =>
-            release.Task.ContinueWith(_ => Result<string>.Success("done"),
-                TaskContinuationOptions.ExecuteSynchronously));
+    _ = Assert.Single(vm.Transcript.Entries.OfType<UserMessageEntry>());
+  }
 
-        var first = vm.SubmitAsync("one");
-        Assert.True(vm.IsBusy);
+  // ── 5. Persistence errors route through reportError → notice entries ─────
 
-        await vm.SubmitAsync("two"); // ignored — no second user entry
+  [Fact]
+  public async Task Persistence_Error_Routes_Through_ReportError_To_Notice_Entry()
+  {
+    PersistenceErroringLifecycle lifecycle = new(new StubStore());
+    AgentSessionViewModel vm = new(
+        (_, _, _, _, _, _, _) =>
+            Task.FromResult(Result.Success<string>("answer")),
+        lifecycle, AgentId.NewId(), new Conversation(), "test/model",
+        workspaceRoot: @"C:\work\demo");
 
-        release.SetResult();
-        await first;
-        await vm.WaitForTurnAsync();
+    await vm.SubmitAsync("hi");
+    await vm.WaitForTurnAsync();
 
-        Assert.Single(vm.Transcript.Entries.OfType<UserMessageEntry>());
-    }
+    Assert.Contains(vm.Transcript.Entries.OfType<NoticeEntry>(),
+        n => n.Text.Contains("Error [DbDown]", StringComparison.Ordinal));
+    Assert.Equal(1, lifecycle._exchanges);
+  }
 
-    // ── 5. Persistence errors route through reportError → notice entries ─────
+  // ── 6. Blank input ignored ────────────────────────────────────────────────
 
-    [Fact]
-    public async Task Persistence_Error_Routes_Through_ReportError_To_Notice_Entry()
-    {
-        var lifecycle = new PersistenceErroringLifecycle(new StubStore());
-        var vm = new AgentSessionViewModel(
-            (_, _, _, _, _, _, _) =>
-                Task.FromResult(Result<string>.Success("answer")),
-            lifecycle, AgentId.NewId(), new Conversation(), "test/model",
-            workspaceRoot: @"C:\work\demo");
+  [Fact]
+  public async Task Blank_Input_Is_Ignored()
+  {
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
+        Task.FromResult(Result.Success<string>("x")));
 
-        await vm.SubmitAsync("hi");
-        await vm.WaitForTurnAsync();
+    await vm.SubmitAsync("   ");
 
-        Assert.Contains(vm.Transcript.Entries.OfType<NoticeEntry>(),
-            n => n.Text.Contains("Error [DbDown]"));
-        Assert.Equal(1, lifecycle.Exchanges);
-    }
-
-    // ── 6. Blank input ignored ────────────────────────────────────────────────
-
-    [Fact]
-    public async Task Blank_Input_Is_Ignored()
-    {
-        var (vm, _, _) = Build((_, _, _, _, _, _, _) =>
-            Task.FromResult(Result<string>.Success("x")));
-
-        await vm.SubmitAsync("   ");
-
-        Assert.Empty(vm.Transcript.Entries);
-    }
+    Assert.Empty(vm.Transcript.Entries);
+  }
 }

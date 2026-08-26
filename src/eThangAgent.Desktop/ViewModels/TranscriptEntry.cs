@@ -5,16 +5,16 @@ namespace eThangAgent.Desktop.ViewModels;
 // nested-type syntax. Positional records give init-only properties, enabling
 // non-destructive mutation with `with` when a block is extended.
 
-public abstract record TranscriptEntry;
+internal abstract record TranscriptEntry;
 
-public sealed record UserMessageEntry(string Text) : TranscriptEntry;
+internal sealed record UserMessageEntry(string Text) : TranscriptEntry;
 
-public sealed record AssistantTextEntry(string Text) : TranscriptEntry;
+internal sealed record AssistantTextEntry(string Text) : TranscriptEntry;
 
-public sealed record ReasoningEntry(string Text) : TranscriptEntry;
+internal sealed record ReasoningEntry(string Text) : TranscriptEntry;
 
-public sealed record ToolCallEntry(string Name, string Arguments) : TranscriptEntry;
+internal sealed record ToolCallEntry(string Name, string Arguments) : TranscriptEntry;
 
-public sealed record ToolResultEntry(string Name, string Summary) : TranscriptEntry;
+internal sealed record ToolResultEntry(string Name, string Summary) : TranscriptEntry;
 
-public sealed record NoticeEntry(string Text) : TranscriptEntry;
+internal sealed record NoticeEntry(string Text) : TranscriptEntry;

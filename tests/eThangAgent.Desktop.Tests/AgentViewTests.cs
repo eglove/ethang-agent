@@ -10,61 +10,61 @@ namespace eThangAgent.Desktop.Tests;
 
 public class AgentViewTests
 {
-    [AvaloniaFact]
-    public void Typing_And_Enter_Sends_User_Message_To_Transcript()
-    {
-        var vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
-        var window = new Window { Content = new AgentView { DataContext = vm } };
-        window.Show();
+  [AvaloniaFact]
+  public void Typing_And_Enter_Sends_User_Message_To_Transcript()
+  {
+    AgentSessionViewModel vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
+    Window window = new() { Content = new AgentView { DataContext = vm } };
+    window.Show();
 
-        // Named controls live in the AgentView's own name scope.
-        var view = (AgentView)window.Content!;
+    // Named controls live in the AgentView's own name scope.
+    AgentView view = (AgentView)window.Content;
 
-        var input = view.GetControl<TextBox>("InputBox");
-        input.Focus();
-        input.Text = "hello agent";
-        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+    TextBox input = view.GetControl<TextBox>("InputBox");
+    _ = input.Focus();
+    input.Text = "hello agent";
+    window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
 
-        Assert.Contains(vm.Transcript.Entries, e => e is UserMessageEntry u && u.Text == "hello agent");
-    }
+    Assert.Contains(vm.Transcript.Entries, e => e is UserMessageEntry u && u.Text == "hello agent");
+  }
 
-    [AvaloniaFact]
-    public void Slash_Opens_Autocomplete_Listing_All_Commands()
-    {
-        var vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
-        var window = new Window { Content = new AgentView { DataContext = vm } };
-        window.Show();
+  [AvaloniaFact]
+  public void Slash_Opens_Autocomplete_Listing_All_Commands()
+  {
+    AgentSessionViewModel vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
+    Window window = new() { Content = new AgentView { DataContext = vm } };
+    window.Show();
 
-        // Named controls live in the AgentView's own name scope.
-        var view = (AgentView)window.Content!;
+    // Named controls live in the AgentView's own name scope.
+    AgentView view = (AgentView)window.Content;
 
-        var input = view.GetControl<TextBox>("InputBox");
-        var popup = view.GetControl<Popup>("CommandPopup");
-        var list = view.GetControl<ListBox>("CommandList");
-        input.Focus();
-        input.Text = "/";
+    TextBox input = view.GetControl<TextBox>("InputBox");
+    Popup popup = view.GetControl<Popup>("CommandPopup");
+    ListBox list = view.GetControl<ListBox>("CommandList");
+    _ = input.Focus();
+    input.Text = "/";
 
-        Assert.True(popup.IsOpen);
-        Assert.Equal(DesktopCommands.All.Count, list.ItemCount);
-    }
+    Assert.True(popup.IsOpen);
+    Assert.Equal(DesktopCommands.All.Count, list.ItemCount);
+  }
 
-    [AvaloniaFact]
-    public void Escape_Dismisses_Autocomplete()
-    {
-        var vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
-        var window = new Window { Content = new AgentView { DataContext = vm } };
-        window.Show();
+  [AvaloniaFact]
+  public void Escape_Dismisses_Autocomplete()
+  {
+    AgentSessionViewModel vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
+    Window window = new() { Content = new AgentView { DataContext = vm } };
+    window.Show();
 
-        // Named controls live in the AgentView's own name scope.
-        var view = (AgentView)window.Content!;
+    // Named controls live in the AgentView's own name scope.
+    AgentView view = (AgentView)window.Content;
 
-        var input = view.GetControl<TextBox>("InputBox");
-        var popup = view.GetControl<Popup>("CommandPopup");
-        input.Focus();
-        input.Text = "/e";
-        Assert.True(popup.IsOpen); // /exit matches prefix "e"
+    TextBox input = view.GetControl<TextBox>("InputBox");
+    Popup popup = view.GetControl<Popup>("CommandPopup");
+    _ = input.Focus();
+    input.Text = "/e";
+    Assert.True(popup.IsOpen); // /exit matches prefix "e"
 
-        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
-        Assert.False(popup.IsOpen);
-    }
+    window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+    Assert.False(popup.IsOpen);
+  }
 }
