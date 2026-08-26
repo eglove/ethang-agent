@@ -30,7 +30,7 @@ Thinking "skip TDD just this once"? Stop. That's rationalization.
 
 ## The Iron Law
 
-```
+```text
 NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 ```
 
@@ -87,7 +87,7 @@ test('retries failed operations 3 times', async () => {
   expect(result).toBe('success');
   expect(attempts).toBe(3);
 });
-```
+```text
 Clear name, tests real behavior, one thing
 </Good>
 
@@ -203,7 +203,7 @@ Next failing test for next feature.
 | **Clear** | Name describes behavior | `test('test1')` |
 | **Shows intent** | Demonstrates desired API | Obscures what code should do |
 
-When writing or changing any test, read [writing-good-tests.md](writing-good-tests.md) for the rules that keep tests honest:
+When writing or changing any test, follow these rules to keep tests honest:
 - Name the production change that would make the test fail — before writing it
 - Assert on real behavior, never on mock behavior
 - Keep test-only code in test utilities, out of production classes
@@ -312,7 +312,7 @@ Never fix bugs without a test.
 
 ## Final Rule
 
-```
+```text
 Production code → test exists and failed first
 Otherwise → not TDD
 ```

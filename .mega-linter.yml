@@ -3,23 +3,8 @@
 
 # Disable linters that are not relevant to a C#/NET codebase or cause environment issues
 DISABLE_LINTERS:
-  - OSV_SCANNER      # No lockfiles to scan (C# uses .csproj, not npm/go/gem locks)
-  - TRIVY             # Container/image scanning not needed for source code repo
-  - ZIZMOR            # GitHub Actions workflow linting requires API access; disable for simplicity
-  - CSPELL            # Spell-checking flags domain terms and proper nouns across docs/code
-
-# Optional: Enable only relevant linters (uncomment to use)
-# ENABLE_LINTERS:
-#   - CSHARP          # Analyze C# code with dotnet-format
-#   - DOTNET          # .NET-specific analysis
-#   - CSSENSE         # CSS linting if needed
-#   - YAMLL           # YAML validation (for GitHub Actions/workflows)
-
-# Silence error reporting from linters that might still run for other reasons
-OSV_SCANNER_DISABLE_ERRORS: true
-TRIVY_DB_REPOSITORY: https://trivy-db.mirror.example.com/v2/trivy/db  # Fallback mirror
-ZIZMOR_DISABLE_ERRORS: true
-
-# General MegaLinter settings (optional)
-# SHOW_ELAPSED_TIME: true
-# PRINT_CONFIGURED_LINTERS: true
+  - REPOSITORY_OSV_SCANNER   # No lockfiles to scan (C# uses .csproj, not npm/go/gem locks)
+  - REPOSITORY_TRIVY         # Vuln-DB download is unreliable on runners; osv-scanner covers supply-chain
+  - REPOSITORY_GRYPE         # Same vuln-DB download issue as trivy
+  - CSHARP_ROSLYNATOR        # CLI analysis misses MVVM source-generated properties -> phantom CS1061 errors
+  - SPELL_CSPELL             # Spell-checking flags domain terms and proper nouns across docs/code

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/jscpd@latest/schema/jscpd-schema.json",
+  "min-tokens": 75,
+  "formats-exclude": {},
+  "ignore": ["**/bin/**", "**/obj/**", "**/megalinter-reports/**"]
+}

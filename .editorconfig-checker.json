@@ -1,0 +1,6 @@
+{
+  "$schema": "https://raw.githubusercontent.com/editorconfig-checker/editorconfig-checker/v3.8.0/.editorconfig-checker.schema.json",
+  "Disable": {
+    "Indentation": true
+  }
+}

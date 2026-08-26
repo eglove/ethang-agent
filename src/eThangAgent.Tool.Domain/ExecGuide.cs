@@ -33,7 +33,7 @@ public static class ExecGuide
     Tools are methods on the `Tools` object taking one anonymous object argument:
 
         Tools.read(new { path = "src/App.cs", startLine = 1, endLine = 50 });
-        Tools.search_files(new { pattern = "TODO", regex = false, rootPath = ".", maxResults = 20, contextLines = 2 });
+        Tools.search_files(new { pattern = "FIXME", regex = false, rootPath = ".", maxResults = 20, contextLines = 2 });
 
     The generic form behaves identically:
 

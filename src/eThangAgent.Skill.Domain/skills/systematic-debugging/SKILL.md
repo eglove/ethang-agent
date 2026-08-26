@@ -13,7 +13,7 @@ description: Use when encountering any bug, test failure, or unexpected behavior
 
 ## The Iron Law
 
-```
+```text
 NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST
 ```
 
@@ -72,7 +72,7 @@ You MUST complete each phase before proceeding to the next.
    **WHEN system has multiple components (CI → build → signing, API → service → database):**
 
    **BEFORE proposing fixes, add diagnostic instrumentation:**
-   ```
+   ```text
    For EACH component boundary:
      - Log what data enters component
      - Log what data exits component

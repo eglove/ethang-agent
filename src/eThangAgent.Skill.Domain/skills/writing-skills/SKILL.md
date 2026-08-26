@@ -72,7 +72,7 @@ API docs, syntax guides, tool documentation (office docs)
 ## Directory Structure
 
 
-```
+```text
 skills/
   skill-name/
     SKILL.md              # Main reference (required)
@@ -347,14 +347,14 @@ You're good at porting - one great example is enough.
 ## File Organization
 
 ### Self-Contained Skill
-```
+```text
 defense-in-depth/
   SKILL.md    # Everything inline
 ```
 When: All content fits, no heavy reference needed
 
 ### Skill with Reusable Tool
-```
+```text
 condition-based-waiting/
   SKILL.md    # Overview + patterns
   example.ts  # Working helpers to adapt
@@ -362,7 +362,7 @@ condition-based-waiting/
 When: Tool is reusable code, not just narrative
 
 ### Skill with Heavy Reference
-```
+```text
 pptx/
   SKILL.md       # Overview + workflows
   pptxgenjs.md   # 600 lines API reference
@@ -373,7 +373,7 @@ When: Reference material too large for inline
 
 ## The Iron Law (Same as TDD)
 
-```
+```text
 NO SKILL WITHOUT A FAILING TEST FIRST
 ```
 
@@ -500,7 +500,7 @@ Write code before test? Delete it. Start over.
 - Don't "adapt" it while writing tests
 - Don't look at it
 - Delete means delete
-```
+```xml
 </Good>
 
 ### Address "Spirit vs Letter" Arguments
@@ -584,7 +584,7 @@ Full pressure-scenario runs are the final gate, but they are slow and expensive 
 
 Micro-tests verify wording; they do not replace pressure scenarios for discipline skills.
 
-**Testing methodology:** See [testing-skills-with-subagents.md](testing-skills-with-subagents.md) for the complete testing methodology:
+**Testing methodology:** apply these techniques:
 - How to write pressure scenarios
 - Pressure types (time, sunk cost, authority, exhaustion)
 - Plugging holes systematically

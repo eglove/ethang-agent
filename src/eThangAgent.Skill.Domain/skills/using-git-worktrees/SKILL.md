@@ -103,7 +103,7 @@ which verification command to use — never guess a foreign toolchain.
 
 ### Report
 
-```
+```text
 Worktree ready at <full-path>
 Tests passing (<N> tests, 0 failures)
 Ready to implement <feature-name>

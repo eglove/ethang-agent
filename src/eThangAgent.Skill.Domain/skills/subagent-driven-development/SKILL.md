@@ -326,7 +326,7 @@ Use finishing-a-development-branch.
 
 ## Example Workflow
 
-```
+```text
 You: I'm using Subagent-Driven Development to execute this plan.
 
 [Setup: worktree verified]
@@ -375,7 +375,7 @@ Done! Using finishing-a-development-branch.
 Fill every bracket; delete none. The bracketed values are paths into state, not
 content to paste.
 
-```
+```text
 You are implementing ONE task of a larger plan. You have no access to the plan
 or session history except what is below and what you retrieve yourself.
 
@@ -412,7 +412,7 @@ Rules:
 
 ## Task Reviewer Template
 
-```
+```text
 You are reviewing ONE completed task of a larger plan. You did not write this
 code; judge it cold.
 
@@ -444,7 +444,7 @@ and any ⚠️ items. No praise padding.
 
 ## Re-Review Template
 
-```
+```text
 You are verifying FIXES only. Prior review found these findings:
 <numbered findings, verbatim>
 

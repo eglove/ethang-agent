@@ -17,7 +17,7 @@ Build and run the project's full suite: `dotnet build` then `dotnet test`. If th
 
 **If tests fail**, report the failures and stop — the menu comes after a green suite:
 
-```
+```text
 Tests failing (<N> failures). Must fix before completing:
 
 [Show failures]
@@ -59,7 +59,7 @@ Confirm before merging: merging into the wrong base is expensive to undo.
 
 **Normal repo and named-branch worktree — present exactly these 3 options:**
 
-```
+```text
 Implementation complete. What would you like to do?
 
 1. Merge back to <base-branch> locally
@@ -71,7 +71,7 @@ Which option?
 
 **Detached HEAD — present exactly these 2 options:**
 
-```
+```text
 Implementation complete. You're on a detached HEAD (externally managed workspace).
 
 1. Push as new branch and create a Pull Request
@@ -128,7 +128,7 @@ Report: "Keeping branch <name>. Worktree preserved at <path>."
 This path exists only as a response to an explicit request to throw the
 work away. Confirm first:
 
-```
+```text
 This will permanently delete:
 - Branch <name>
 - All commits: <commit-list>
@@ -170,7 +170,7 @@ partner what is at stake and ask:
 
 Via exec: Shell("git", "-C", worktreePath, "status", "--porcelain", "-uall")
 
-```
+```text
 Worktree removal refused — these files were never committed:
 
 <file list>
