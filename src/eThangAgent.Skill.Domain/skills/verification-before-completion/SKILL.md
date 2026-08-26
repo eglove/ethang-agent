@@ -28,8 +28,8 @@ BEFORE claiming any status or expressing satisfaction:
 2. RUN: Execute the FULL command (fresh, complete)
 3. READ: Full output, check exit code, count failures
 4. VERIFY: Does output confirm the claim?
-   - If NO: State actual status with evidence
-   - If YES: State claim WITH evidence
+  - If NO: State actual status with evidence
+  - If YES: State claim WITH evidence
 5. ONLY THEN: Make the claim
 
 Skip any step = lying, not verifying
@@ -109,9 +109,9 @@ Skip any step = lying, not verifying
 
 1. Build succeeds and the full suite passes (fresh output, this message).
 2. `git status --porcelain` is EMPTY. Every intended change is committed; every
-   unintended change is either reverted or explicitly surfaced to your human
-   partner. Uncommitted work is unfinished work — a rename split across files
-   has silently stranded itself in the working tree before.
+  unintended change is either reverted or explicitly surfaced to your human
+  partner. Uncommitted work is unfinished work — a rename split across files
+  has silently stranded itself in the working tree before.
 3. The claim you are about to make lists BOTH: test evidence AND tree state.
 
 ## When To Apply

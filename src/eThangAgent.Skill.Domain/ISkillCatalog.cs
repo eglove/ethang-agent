@@ -6,6 +6,6 @@ namespace eThangAgent.SkillDomain;
 /// may never shadow these names.</summary>
 public interface ISkillCatalog
 {
-    Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default);
-    Task<Result<SkillDefinition>> GetAsync(string name, CancellationToken ct = default);
+  Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default);
+  Task<Result<SkillDefinition>> GetAsync(string name, CancellationToken ct = default);
 }
