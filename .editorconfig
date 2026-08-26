@@ -5,114 +5,110 @@ charset = utf-8
 end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
-
-[*.cs]
 indent_style = space
-indent_size = 4
+indent_size = 2
 
-# C# style — matches the codebase's actual conventions
-# (all 215 source files use file-scoped namespaces; var usage is mixed)
+# Analyzer escalation: every analyzer diagnostic that is not explicitly
+# configured below is an ERROR. Nothing is off; nothing is downgraded.
+dotnet_analyzer_diagnostic.severity = error
+
+# --- C# language/style preferences -------------------------------------------
+# Each entry states the preferred style; violations are errors via the global
+# escalation above (no per-rule severity suffixes anywhere in this file).
 
 # Namespaces & usings
-csharp_style_namespace_declarations = file_scoped:warning
-csharp_using_directive_placement = outside_namespace:warning
+csharp_style_namespace_declarations = file_scoped
+# Domain namespaces deliberately omit the dot (AGENTS.md), so folder-path
+# matching can never hold; every other namespace rule stays enforced.
+dotnet_style_namespace_match_folder = false
+csharp_using_directive_placement = outside_namespace
 sort_usings = true
+dotnet_sort_system_directives_first = true
 
-# var preferences: mixed usage is intentional, so keep these silent
-csharp_style_var_for_built_in_types = false:suggestion
-csharp_style_var_when_type_is_apparent = false:suggestion
-csharp_style_var_elsewhere = false:suggestion
+# var preferences: explicit types REQUIRED for built-in types (var banned);
+# everything else carries no preference - neither direction is enforced.
+csharp_style_var_for_built_in_types = false
 
 # Expression-bodied members
-csharp_style_expression_bodied_methods = when_on_single_line:suggestion
-csharp_style_expression_bodied_constructors = when_on_single_line:suggestion
-csharp_style_expression_bodied_operators = when_on_single_line:suggestion
-csharp_style_expression_bodied_properties = true:suggestion
-csharp_style_expression_bodied_indexers = true:suggestion
-csharp_style_expression_bodied_accessors = true:suggestion
-csharp_style_expression_bodied_lambdas = true:suggestion
-csharp_style_expression_bodied_local_functions = when_on_single_line:suggestion
+csharp_style_expression_bodied_methods = when_on_single_line
+csharp_style_expression_bodied_constructors = when_on_single_line
+csharp_style_expression_bodied_operators = when_on_single_line
+csharp_style_expression_bodied_properties = true
+csharp_style_expression_bodied_indexers = true
+csharp_style_expression_bodied_accessors = true
+csharp_style_expression_bodied_lambdas = true
+csharp_style_expression_bodied_local_functions = when_on_single_line
 
-# Language keywords
-csharp_style_prefer_switch_expression = true:suggestion
-csharp_style_prefer_pattern_matching = true:suggestion
-csharp_style_prefer_pattern_matching_over_as_with_null_check = true:suggestion
-csharp_style_prefer_not_pattern = true:suggestion
-csharp_style_prefer_extended_property_pattern = true:suggestion
-csharp_style_prefer_conditional_expression_over_assignment = false:suggestion
-csharp_style_prefer_conditional_expression_over_return = false:suggestion
-csharp_style_prefer_compound_assignment = true:suggestion
-csharp_style_prefer_simple_using_statement = true:suggestion
-csharp_style_prefer_system_threading_tasks_over_thread = false:silent
-
-# Modifiers
+# Pattern matching & constructs
+csharp_style_prefer_switch_expression = true
+csharp_style_prefer_pattern_matching = true
+csharp_style_prefer_pattern_matching_over_as_with_null_check = true
+csharp_style_prefer_not_pattern = true
+csharp_style_prefer_extended_property_pattern = true
+csharp_style_prefer_conditional_expression_over_assignment = false
+csharp_style_prefer_conditional_expression_over_return = false
+csharp_style_prefer_compound_assignment = true
 csharp_prefer_simple_using_statement = true
-csharp_style_prefer_static_local_function = true:suggestion
-csharp_style_prefer_local_over_anonymous_function = true:suggestion
+csharp_style_prefer_simple_using_statement = true
+csharp_style_prefer_system_threading_tasks_over_thread = false
 
-# Code blocks
-csharp_style_allow_embedded_statements_on_same_line_experimental = false:silent
-csharp_style_allow_blank_lines_between_consecutive_braces_experimental = false:silent
+# Modifiers & locals
+csharp_style_prefer_static_local_function = true
+csharp_style_prefer_local_over_anonymous_function = true
+csharp_style_allow_embedded_statements_on_same_line_experimental = false
+csharp_style_allow_blank_lines_between_consecutive_braces_experimental = false
 
 # Qualifiers
-csharp_style_qualification_expression = false:silent
-csharp_style_qualification_event = false:silent
-csharp_style_qualification_field = false:silent
-csharp_style_qualification_method = false:silent
-csharp_style_qualification_property = false:silent
+csharp_style_qualification_expression = false
+csharp_style_qualification_event = false
+csharp_style_qualification_field = false
+csharp_style_qualification_method = false
+csharp_style_qualification_property = false
 
-# Unused usings
-csharp_style_unused_value_assignment_preference = discard_variable:suggestion
-csharp_style_unused_value_expression_statement_preference = discard_variable:silent
+# Unused values
+csharp_style_unused_value_assignment_preference = discard_variable
+csharp_style_unused_value_expression_statement_preference = discard_variable
 
-# Null checking
-csharp_style_throw_expression = true:suggestion
-csharp_style_conditional_delegate_call = true:suggestion
-csharp_style_modern_operation = true:suggestion
-csharp_style_inlined_variable_declaration = true:suggestion
-csharp_style_deconstruction_over_foreach_parameters = true:suggestion
-csharp_style_prefer_collection_expression = false:suggestion
+# Null checking & modernization
+csharp_style_throw_expression = true
+csharp_style_conditional_delegate_call = true
+csharp_style_modern_operation = true
+csharp_style_inlined_variable_declaration = true
+csharp_style_deconstruction_over_foreach_parameters = true
+csharp_style_prefer_collection_expression = false
 
-# dotnet_diagnostic severities — analyzers active at warning
-# (only the ones we want to actually enforce; the rest stay default)
-dotnet_diagnostic.IDE0044.severity = none  # readonly modifier suggestion noise
-
-# Naming rules — PascalCase for public members (default is fine, keep explicit)
-dotnet_naming_rule.types_and_namespaces_should_be_pascalcase.severity = suggestion
+# --- Naming ------------------------------------------------------------------
+dotnet_naming_rule.types_and_namespaces_should_be_pascalcase.severity = error
 dotnet_naming_rule.types_and_namespaces_should_be_pascalcase.symbols = types_and_namespaces
 dotnet_naming_rule.types_and_namespaces_should_be_pascalcase.style = pascal_case
-dotnet_naming_symbols.types_and_namespaces.applicable_kinds = class, struct, interface, enum, delegate, namespace
+# namespaces excluded: the product prefix 'eThangAgent' is intentionally lower-camel
+dotnet_naming_symbols.types_and_namespaces.applicable_kinds = class, struct, interface, enum, delegate
 dotnet_naming_style.pascal_case.capitalization = pascal_case
 
-dotnet_naming_rule.interface_should_begin_with_i.severity = suggestion
+dotnet_naming_rule.interface_should_begin_with_i.severity = error
 dotnet_naming_rule.interface_should_begin_with_i.symbols = interfaces
 dotnet_naming_rule.interface_should_begin_with_i.style = begins_with_i
 dotnet_naming_symbols.interfaces.applicable_kinds = interface
 dotnet_naming_style.begins_with_i.required_prefix = I
 
-dotnet_naming_rule.private_fields_should_be_camelcase.severity = suggestion
+# Ordered rules: first matching rule wins.
+# Constants and static readonly members are PascalCase (codebase-wide convention);
+# remaining private fields take the _camelCase prefix.
+dotnet_naming_rule.constants_should_be_pascalcase.severity = error
+dotnet_naming_rule.constants_should_be_pascalcase.symbols = constants
+dotnet_naming_rule.constants_should_be_pascalcase.style = pascal_case
+dotnet_naming_symbols.constants.applicable_kinds = field
+dotnet_naming_symbols.constants.required_modifiers = const
+
+dotnet_naming_rule.static_readonly_should_be_pascalcase.severity = error
+dotnet_naming_rule.static_readonly_should_be_pascalcase.symbols = static_readonly
+dotnet_naming_rule.static_readonly_should_be_pascalcase.style = pascal_case
+dotnet_naming_symbols.static_readonly.applicable_kinds = field
+dotnet_naming_symbols.static_readonly.required_modifiers = static, readonly
+
+dotnet_naming_rule.private_fields_should_be_camelcase.severity = error
 dotnet_naming_rule.private_fields_should_be_camelcase.symbols = private_fields
 dotnet_naming_rule.private_fields_should_be_camelcase.style = camel_case
 dotnet_naming_symbols.private_fields.applicable_kinds = field
-
-dotnet_sort_system_directives_first = true
-
-[*.{yml,yaml}]
-indent_style = space
-indent_size = 2
-
-[*.{json,jsonc}]
-indent_style = space
-indent_size = 2
-
-[*.{md,markdown}]
-indent_style = space
-indent_size = 4
-
-[*.{props,targets,csproj}]
-indent_style = space
-indent_size = 2
-
-[*.ps1]
-indent_style = space
-indent_size = 4
+dotnet_naming_style.camel_case.required_prefix = _
+dotnet_naming_style.camel_case.capitalization = camel_case

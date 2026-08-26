@@ -98,6 +98,19 @@ jobs:
           path: ./coverage-vs/merged.coveragexml
           if-no-files-found: error
 
+      # Autopsy material: when the blame circuit breaker fires it writes hang dumps
+      # and execution sequences here. CI-only testhost lingering (all tests pass,
+      # host refuses to exit) has no local repro - these files are the evidence.
+      - name: Upload test diagnostics
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-diagnostics
+          path: |
+            ./coverage/**/*.dmp
+            ./coverage/**/Sequence_*.xml
+          if-no-files-found: ignore
+
   lint:
     name: Lint (dotnet format)
     runs-on: windows-latest
