@@ -25,8 +25,7 @@ public class AgentConfigurationTests
     [Fact]
     public void Base_Url_Override_Is_Honored()
     {
-        // devskim: ignore DS162092 - overriding to a loopback URL is exactly what this test exercises
-        const string loopback = "http://localhost:5599";
+        const string loopback = "http://localhost:5599"; // devskim: ignore DS162092 - loopback override is the behavior under test
         var s = Load(env: [("OPENROUTER_BASE_URL", loopback)]);
         Assert.Equal(new Uri(loopback), s.BaseUrl);
     }

@@ -24,8 +24,7 @@ public sealed class MockOpenRouterServer : IDisposable
     public void Start()
     {
         var port = GetFreePort();
-        // devskim: ignore DS162092 - an E2E mock provider server must bind to loopback
-        BaseUrl = $"http://127.0.0.1:{port}";
+        BaseUrl = $"http://127.0.0.1:{port}"; // devskim: ignore DS162092 - E2E mock provider server must bind to loopback
         _listener.Prefixes.Add(BaseUrl + "/");
         _listener.Start();
         _loop = Task.Run(LoopAsync);
