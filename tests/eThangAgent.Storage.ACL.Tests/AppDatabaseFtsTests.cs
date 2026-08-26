@@ -1,4 +1,3 @@
-using eThangAgent.Storage.ACL;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
@@ -7,146 +6,157 @@ namespace eThangAgent.Storage.ACL.Tests;
 /// sync by triggers, with existing rows backfilled at migration time.</summary>
 public class AppDatabaseFtsTests : IDisposable
 {
-    private readonly string _dbPath = Path.Combine(
-        Path.GetTempPath(), $"ethang-fts-{Guid.NewGuid():N}.db");
-    private readonly AppDatabase _database;
+  private readonly string _dbPath = Path.Combine(
+      Path.GetTempPath(), $"ethang-fts-{Guid.NewGuid():N}.db");
+  private readonly AppDatabase _database;
 
-    public AppDatabaseFtsTests() => _database = new AppDatabase(_dbPath);
+  public AppDatabaseFtsTests() => _database = new AppDatabase(_dbPath);
 
-    public void Dispose()
+  public void Dispose()
+  {
+    try
     {
-        try { File.Delete(_dbPath); } catch { }
+      File.Delete(_dbPath);
+    }
+    catch { }
+  }
+
+  [Fact]
+  public void FreshDatabase_MigratesToVersion5()
+  {
+    using SqliteConnection connection = _database.Open();
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "PRAGMA user_version;";
+    Assert.Equal(5, Convert.ToInt32(command.ExecuteScalar()));
+  }
+
+  [Fact]
+  public void StateKeysFts_VirtualTableAndTriggers_Exist()
+  {
+    using SqliteConnection connection = _database.Open();
+    Assert.Equal(1L, Scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='state_keys_fts';"));
+    Assert.Equal(3L, Scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('state_ai','state_ad','state_au');"));
+  }
+
+  [Fact]
+  public Task InsertedStateRows_AreSearchable_ViaTriggers()
+  {
+    InsertKey("ws1", "plans", "my-plan", "rewrite the SDD ledger flow");
+    InsertKey("ws1", "notes", "scratch", "unrelated content");
+
+    using SqliteConnection connection = _database.Open();
+    Assert.Equal(1L, CountMatches(connection, "ws1", "ledger"));
+    return Task.CompletedTask;
+  }
+
+  [Fact]
+  public Task UpdatedAndDeletedRows_StaysSynced_ViaTriggers()
+  {
+    InsertKey("ws1", "notes", "doc", "original searchable text");
+
+    UpdateKey("ws1", "notes", "doc", "replaced content entirely");
+    using (SqliteConnection connection = _database.Open())
+    {
+      Assert.Equal(0L, CountMatches(connection, "ws1", "searchable"));
     }
 
-    [Fact]
-    public void FreshDatabase_MigratesToVersion5()
+    DeleteKey("ws1", "notes", "doc");
+    using (SqliteConnection connection = _database.Open())
     {
-        using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA user_version;";
-        Assert.Equal(5, Convert.ToInt32(command.ExecuteScalar()));
+      Assert.Equal(0L, CountMatches(connection, "ws1", "replaced"));
     }
 
-    [Fact]
-    public void StateKeysFts_VirtualTableAndTriggers_Exist()
-    {
-        using var connection = _database.Open();
-        Assert.Equal(1L, Scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='state_keys_fts';"));
-        Assert.Equal(3L, Scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('state_ai','state_ad','state_au');"));
-    }
+    return Task.CompletedTask;
+  }
 
-    [Fact]
-    public async Task InsertedStateRows_AreSearchable_ViaTriggers()
-    {
-        InsertKey("ws1", "plans", "my-plan", "rewrite the SDD ledger flow");
-        InsertKey("ws1", "notes", "scratch", "unrelated content");
+  [Fact]
+  public void Backfill_CoversPreExistingRows()
+  {
+    // Simulate a pre-V5 row: insert while the sync triggers are dropped,
+    // then re-run the migration's backfill statement.
+    DropTriggers();
+    InsertKey("ws2", "notes", "legacy", "quartz tuning fork");
+    RecreateTriggers();
+    Backfill();
 
-        using var connection = _database.Open();
-        Assert.Equal(1L, CountMatches(connection, "ws1", "ledger"));
-    }
+    using SqliteConnection connection = _database.Open();
+    Assert.Equal(1L, CountMatches(connection, "ws2", "quartz"));
+  }
 
-    [Fact]
-    public async Task UpdatedAndDeletedRows_StaysSynced_ViaTriggers()
-    {
-        InsertKey("ws1", "notes", "doc", "original searchable text");
+  private long Scalar(string sql)
+  {
+    using SqliteConnection connection = _database.Open();
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = sql;
+    return Convert.ToInt64(command.ExecuteScalar());
+  }
 
-        UpdateKey("ws1", "notes", "doc", "replaced content entirely");
-        using (var connection = _database.Open())
-            Assert.Equal(0L, CountMatches(connection, "ws1", "searchable"));
-
-        DeleteKey("ws1", "notes", "doc");
-        using (var connection = _database.Open())
-            Assert.Equal(0L, CountMatches(connection, "ws1", "replaced"));
-    }
-
-    [Fact]
-    public void Backfill_CoversPreExistingRows()
-    {
-        // Simulate a pre-V5 row: insert while the sync triggers are dropped,
-        // then re-run the migration's backfill statement.
-        DropTriggers();
-        InsertKey("ws2", "notes", "legacy", "quartz tuning fork");
-        RecreateTriggers();
-        Backfill();
-
-        using var connection = _database.Open();
-        Assert.Equal(1L, CountMatches(connection, "ws2", "quartz"));
-    }
-
-    private long Scalar(string sql)
-    {
-        using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        return Convert.ToInt64(command.ExecuteScalar());
-    }
-
-    private static long CountMatches(SqliteConnection connection, string workspaceId, string query)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = """
+  private static long CountMatches(SqliteConnection connection, string workspaceId, string query)
+  {
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = """
             SELECT COUNT(*) FROM state_keys_fts f
             JOIN state_keys k ON k.rowid = f.rowid
             WHERE k.workspace_id = @w AND state_keys_fts MATCH @q;
             """;
-        command.Parameters.AddWithValue("@w", workspaceId);
-        command.Parameters.AddWithValue("@q", query);
-        return Convert.ToInt64(command.ExecuteScalar());
-    }
+    _ = command.Parameters.AddWithValue("@w", workspaceId);
+    _ = command.Parameters.AddWithValue("@q", query);
+    return Convert.ToInt64(command.ExecuteScalar());
+  }
 
-    private void InsertKey(string workspaceId, string ns, string name, string value)
-    {
-        using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = """
+  private void InsertKey(string workspaceId, string ns, string name, string value)
+  {
+    using SqliteConnection connection = _database.Open();
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = """
             INSERT INTO state_keys (workspace_id, ns, name, value, version, updated_at)
             VALUES (@w, @ns, @n, @v, 1, '2026-08-24T00:00:00.0000000+00:00');
             """;
-        command.Parameters.AddWithValue("@w", workspaceId);
-        command.Parameters.AddWithValue("@ns", ns);
-        command.Parameters.AddWithValue("@n", name);
-        command.Parameters.AddWithValue("@v", value);
-        command.ExecuteNonQuery();
-    }
+    _ = command.Parameters.AddWithValue("@w", workspaceId);
+    _ = command.Parameters.AddWithValue("@ns", ns);
+    _ = command.Parameters.AddWithValue("@n", name);
+    _ = command.Parameters.AddWithValue("@v", value);
+    _ = command.ExecuteNonQuery();
+  }
 
-    private void UpdateKey(string workspaceId, string ns, string name, string value)
-    {
-        using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE state_keys SET value=@v WHERE workspace_id=@w AND ns=@ns AND name=@n;";
-        command.Parameters.AddWithValue("@v", value);
-        command.Parameters.AddWithValue("@w", workspaceId);
-        command.Parameters.AddWithValue("@ns", ns);
-        command.Parameters.AddWithValue("@n", name);
-        command.ExecuteNonQuery();
-    }
+  private void UpdateKey(string workspaceId, string ns, string name, string value)
+  {
+    using SqliteConnection connection = _database.Open();
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "UPDATE state_keys SET value=@v WHERE workspace_id=@w AND ns=@ns AND name=@n;";
+    _ = command.Parameters.AddWithValue("@v", value);
+    _ = command.Parameters.AddWithValue("@w", workspaceId);
+    _ = command.Parameters.AddWithValue("@ns", ns);
+    _ = command.Parameters.AddWithValue("@n", name);
+    _ = command.ExecuteNonQuery();
+  }
 
-    private void DeleteKey(string workspaceId, string ns, string name)
-    {
-        using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM state_keys WHERE workspace_id=@w AND ns=@ns AND name=@n;";
-        command.Parameters.AddWithValue("@w", workspaceId);
-        command.Parameters.AddWithValue("@ns", ns);
-        command.Parameters.AddWithValue("@n", name);
-        command.ExecuteNonQuery();
-    }
+  private void DeleteKey(string workspaceId, string ns, string name)
+  {
+    using SqliteConnection connection = _database.Open();
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "DELETE FROM state_keys WHERE workspace_id=@w AND ns=@ns AND name=@n;";
+    _ = command.Parameters.AddWithValue("@w", workspaceId);
+    _ = command.Parameters.AddWithValue("@ns", ns);
+    _ = command.Parameters.AddWithValue("@n", name);
+    _ = command.ExecuteNonQuery();
+  }
 
-    private void DropTriggers()
+  private void DropTriggers()
+  {
+    using SqliteConnection connection = _database.Open();
+    foreach (string? trigger in new[] { "state_ai", "state_ad", "state_au" })
     {
-        using var connection = _database.Open();
-        foreach (var trigger in new[] { "state_ai", "state_ad", "state_au" })
-        {
-            using var command = connection.CreateCommand();
-            command.CommandText = $"DROP TRIGGER IF EXISTS {trigger};";
-            command.ExecuteNonQuery();
-        }
+      using SqliteCommand command = connection.CreateCommand();
+      command.CommandText = $"DROP TRIGGER IF EXISTS {trigger};";
+      _ = command.ExecuteNonQuery();
     }
+  }
 
-    private void RecreateTriggers()
-    {
-        using var connection = _database.Open();
-        var sql = """
+  private void RecreateTriggers()
+  {
+    using SqliteConnection connection = _database.Open();
+    string sql = """
             CREATE TRIGGER IF NOT EXISTS state_ai AFTER INSERT ON state_keys BEGIN
                 INSERT INTO state_keys_fts(rowid, value, ns, name)
                 VALUES (new.rowid, new.value, new.ns, new.name);
@@ -162,16 +172,16 @@ public class AppDatabaseFtsTests : IDisposable
                 VALUES (new.rowid, new.value, new.ns, new.name);
             END;
             """;
-        using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
-    }
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = sql;
+    _ = command.ExecuteNonQuery();
+  }
 
-    private void Backfill()
-    {
-        using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO state_keys_fts(rowid, value, ns, name) SELECT rowid, value, ns, name FROM state_keys;";
-        command.ExecuteNonQuery();
-    }
+  private void Backfill()
+  {
+    using SqliteConnection connection = _database.Open();
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "INSERT INTO state_keys_fts(rowid, value, ns, name) SELECT rowid, value, ns, name FROM state_keys;";
+    _ = command.ExecuteNonQuery();
+  }
 }

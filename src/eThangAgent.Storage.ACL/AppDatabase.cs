@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL;
@@ -7,74 +8,78 @@ namespace eThangAgent.Storage.ACL;
 ///     This database is the beachhead for later app tables (kanban, agent statuses).</summary>
 public sealed class AppDatabase
 {
-    private readonly string _connectionString;
+  private readonly string _connectionString;
 
-    public AppDatabase(string? databasePath = null)
+  public AppDatabase(string? databasePath = null)
+  {
+    string path = databasePath
+        ?? Environment.GetEnvironmentVariable("ETHANG_AGENT_DB")
+        ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "eThangAgent", "eThangAgent.db");
+    _ = Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+    _connectionString = new SqliteConnectionStringBuilder { DataSource = path }.ToString();
+    Migrate();
+  }
+
+  public SqliteConnection Open()
+  {
+    SqliteConnection connection = new(_connectionString);
+    connection.Open();
+    return connection;
+  }
+
+  private void Migrate()
+  {
+    using SqliteConnection connection = Open();
+    if (GetVersion(connection) < 1)
     {
-        var path = databasePath
-            ?? Environment.GetEnvironmentVariable("ETHANG_AGENT_DB")
-            ?? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "eThangAgent", "eThangAgent.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        _connectionString = new SqliteConnectionStringBuilder { DataSource = path }.ToString();
-        Migrate();
+      ApplyV1(connection);
+      SetVersion(connection, 1);
     }
-
-    public SqliteConnection Open()
+    if (GetVersion(connection) < 2)
     {
-        var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        return connection;
+      ApplyV2(connection);
+      SetVersion(connection, 2);
     }
-
-    private void Migrate()
+    if (GetVersion(connection) < 3)
     {
-        using var connection = Open();
-        if (GetVersion(connection) < 1)
-        {
-            ApplyV1(connection);
-            SetVersion(connection, 1);
-        }
-        if (GetVersion(connection) < 2)
-        {
-            ApplyV2(connection);
-            SetVersion(connection, 2);
-        }
-        if (GetVersion(connection) < 3)
-        {
-            ApplyV3(connection);
-            SetVersion(connection, 3);
-        }
-        if (GetVersion(connection) < 4)
-        {
-            ApplyV4(connection);
-            SetVersion(connection, 4);
-        }
-        if (GetVersion(connection) < 5)
-        {
-            ApplyV5(connection);
-            SetVersion(connection, 5);
-        }
+      ApplyV3(connection);
+      SetVersion(connection, 3);
     }
-
-    private static int GetVersion(SqliteConnection connection)
+    if (GetVersion(connection) < 4)
     {
-        using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA user_version;";
-        return Convert.ToInt32(command.ExecuteScalar());
+      ApplyV4(connection);
+      SetVersion(connection, 4);
     }
-
-    private static void SetVersion(SqliteConnection connection, int version)
+    if (GetVersion(connection) < 5)
     {
-        using var command = connection.CreateCommand();
-        command.CommandText = $"PRAGMA user_version = {version};";
-        command.ExecuteNonQuery();
+      ApplyV5(connection);
+      SetVersion(connection, 5);
     }
+  }
 
-    private static void ApplyV1(SqliteConnection connection)
-    {
-        var sql = """
+  private static int GetVersion(SqliteConnection connection)
+  {
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "PRAGMA user_version;";
+    return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+  }
+
+  private static void SetVersion(SqliteConnection connection, int version)
+  {
+    using SqliteCommand command = connection.CreateCommand();
+    // Named decision (CA2100): value is a constant integer from our own migration table,
+    // never user input.
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+    command.CommandText = $"PRAGMA user_version = {version};";
+#pragma warning restore CA2100 // Review SQL query for security vulnerabilities
+    _ = command.ExecuteNonQuery();
+  }
+
+  private static void ApplyV1(SqliteConnection connection)
+  {
+    string sql = """
             CREATE TABLE IF NOT EXISTS state_keys (
                 workspace_id TEXT NOT NULL,
                 ns           TEXT NOT NULL,
@@ -104,17 +109,17 @@ public sealed class AppDatabase
             );
             CREATE INDEX IF NOT EXISTS ix_state_events_ws ON state_events (workspace_id, id);
             """;
-        using var transaction = connection.BeginTransaction();
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
-        transaction.Commit();
-    }
+    using SqliteTransaction transaction = connection.BeginTransaction();
+    using SqliteCommand command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText = sql;
+    _ = command.ExecuteNonQuery();
+    transaction.Commit();
+  }
 
-    private static void ApplyV2(SqliteConnection connection)
-    {
-        var sql = """
+  private static void ApplyV2(SqliteConnection connection)
+  {
+    string sql = """
             CREATE TABLE IF NOT EXISTS agents (
                 id             TEXT PRIMARY KEY,
                 parent_id      TEXT NULL,
@@ -144,17 +149,17 @@ public sealed class AppDatabase
                 payload_json TEXT NOT NULL
             );
             """;
-        using var transaction = connection.BeginTransaction();
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
-        transaction.Commit();
-    }
+    using SqliteTransaction transaction = connection.BeginTransaction();
+    using SqliteCommand command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText = sql;
+    _ = command.ExecuteNonQuery();
+    transaction.Commit();
+  }
 
-    private static void ApplyV3(SqliteConnection connection)
-    {
-        var sql = """
+  private static void ApplyV3(SqliteConnection connection)
+  {
+    string sql = """
             CREATE TABLE IF NOT EXISTS learned_skills (
                 name TEXT PRIMARY KEY,
                 description TEXT NOT NULL,
@@ -179,17 +184,17 @@ public sealed class AppDatabase
             );
             CREATE INDEX IF NOT EXISTS ix_skill_usage_name ON skill_usage (skill_name);
             """;
-        using var transaction = connection.BeginTransaction();
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
-        transaction.Commit();
-    }
+    using SqliteTransaction transaction = connection.BeginTransaction();
+    using SqliteCommand command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText = sql;
+    _ = command.ExecuteNonQuery();
+    transaction.Commit();
+  }
 
-    private static void ApplyV4(SqliteConnection connection)
-    {
-        var sql = """
+  private static void ApplyV4(SqliteConnection connection)
+  {
+    string sql = """
             CREATE TABLE IF NOT EXISTS curated_memories (
                 id            TEXT PRIMARY KEY,
                 workspace_id  TEXT NOT NULL,
@@ -222,17 +227,17 @@ public sealed class AppDatabase
                 VALUES (new.rowid, new.content, new.tags, new.usage_hint);
             END;
             """;
-        using var transaction = connection.BeginTransaction();
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
-        transaction.Commit();
-    }
+    using SqliteTransaction transaction = connection.BeginTransaction();
+    using SqliteCommand command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText = sql;
+    _ = command.ExecuteNonQuery();
+    transaction.Commit();
+  }
 
-    private static void ApplyV5(SqliteConnection connection)
-    {
-        var sql = """
+  private static void ApplyV5(SqliteConnection connection)
+  {
+    string sql = """
             CREATE VIRTUAL TABLE IF NOT EXISTS state_keys_fts USING fts5(
                 value, ns, name, content='state_keys', content_rowid='rowid'
             );
@@ -253,11 +258,11 @@ public sealed class AppDatabase
             INSERT INTO state_keys_fts(rowid, value, ns, name)
                 SELECT rowid, value, ns, name FROM state_keys;
             """;
-        using var transaction = connection.BeginTransaction();
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
-        transaction.Commit();
-    }
+    using SqliteTransaction transaction = connection.BeginTransaction();
+    using SqliteCommand command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText = sql;
+    _ = command.ExecuteNonQuery();
+    transaction.Commit();
+  }
 }
