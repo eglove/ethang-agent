@@ -4,10 +4,10 @@ namespace eThangAgent.CapabilityDomain;
 
 public interface ICapabilityRegistry
 {
-    Result<ResolvedCapability> Resolve(string nameOrRef);
+  Result<ResolvedCapability> Resolve(string nameOrRef);
 
-    IReadOnlyList<ProviderCapabilities> Providers { get; }
+  IReadOnlyList<ProviderCapabilities> Providers { get; }
 
-    Task<CapabilityInvocationResult> InvokeAsync(
-        ResolvedCapability capability, string jsonArguments, CancellationToken ct = default);
+  Task<CapabilityInvocationResult> InvokeAsync(
+      ResolvedCapability capability, string jsonArguments, CancellationToken ct = default);
 }

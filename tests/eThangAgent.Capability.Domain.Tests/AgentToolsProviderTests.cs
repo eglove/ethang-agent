@@ -6,69 +6,71 @@ namespace eThangAgent.Capability.Domain.Tests;
 
 public class AgentToolsProviderTests
 {
-    private static AgentToolsProvider Create() =>
-        new("agent",
-            [new AgentToolBinding(new ReadTool(new FakeFileSystemAccess()), "Read lines from a text file.")]);
+  private static AgentToolsProvider Create() =>
+      new("agent",
+          [new AgentToolBinding(new ReadTool(new FakeFileSystemAccess()), "Read lines from a text file.")]);
 
-    [Fact]
-    public void Actions_MappedFromToolDefinitions()
-    {
-        var action = Assert.Single(Create().Actions);
+  [Fact]
+  public void Actions_MappedFromToolDefinitions()
+  {
+    ActionDescriptor action = Assert.Single(Create().Actions);
 
-        Assert.Equal("read", action.Name);
-        Assert.Equal("Read lines from a text file.", action.Summary);
-        Assert.Contains("annotation", action.Description);
-        Assert.Equal(4, action.Parameters.Count);
-        Assert.Contains(action.Parameters, p => p.Name == ToolTimeout.ParameterName && p.Type == "Integer");
-        Assert.Contains(action.Parameters, p => p.Name == "path" && p.Type == "String");
-        Assert.Contains(action.Parameters, p => p.Name == "startLine" && p.Type == "Integer");
-    }
+    Assert.Equal("read", action.Name);
+    Assert.Equal("Read lines from a text file.", action.Summary);
+    Assert.Contains("annotation", action.Description, StringComparison.Ordinal);
+    Assert.Equal(4, action.Parameters.Count);
+    Assert.Contains(action.Parameters, p => p.Name == ToolTimeout.ParameterName && p.Type == "WholeNumber");
+    Assert.Contains(action.Parameters, p => p.Name == "path" && p.Type == "Text");
+    Assert.Contains(action.Parameters, p => p.Name == "startLine" && p.Type == "WholeNumber");
+  }
 
-    [Fact]
-    public async Task InvokeAsync_DelegatesToTool_AndReturnsContent()
-    {
-        var result = await Create().InvokeAsync("read",
-            """{"timeoutSeconds":120,"path":"x.txt","startLine":1,"endLine":2}""");
+  [Fact]
+  public async Task InvokeAsync_DelegatesToTool_AndReturnsContent()
+  {
+    CapabilityInvocationResult result = await Create().InvokeAsync("read",
+                             /*lang=json,strict*/
+                             """{"timeoutSeconds":120,"path":"x.txt","startLine":1,"endLine":2}""");
 
-        Assert.False(result.IsError);
-        Assert.Contains("[read x.txt lines 1-2 of 2 total]", result.Content);
-        Assert.Contains("alpha", result.Content);
-    }
+    Assert.False(result.IsError);
+    Assert.Contains("[read x.txt lines 1-2 of 2 total]", result.Content, StringComparison.Ordinal);
+    Assert.Contains("alpha", result.Content, StringComparison.Ordinal);
+  }
 
-    [Fact]
-    public async Task InvokeAsync_ToolError_CarriesIsErrorAndGutter()
-    {
-        var provider = new AgentToolsProvider("agent",
-            [new AgentToolBinding(new ReadTool(new FailingFileSystemAccess()), "Read lines.")]);
+  [Fact]
+  public async Task InvokeAsync_ToolError_CarriesIsErrorAndGutter()
+  {
+    AgentToolsProvider provider = new("agent",
+        [new AgentToolBinding(new ReadTool(new FailingFileSystemAccess()), "Read lines.")]);
 
-        var result = await provider.InvokeAsync("read",
-            """{"timeoutSeconds":120,"path":"missing.txt","startLine":1,"endLine":5}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("read",
+                             /*lang=json,strict*/
+                             """{"timeoutSeconds":120,"path":"missing.txt","startLine":1,"endLine":5}""");
 
-        Assert.True(result.IsError);
-        Assert.Contains("Error [FileNotFound]:", result.Content);
-    }
+    Assert.True(result.IsError);
+    Assert.Contains("Error [FileNotFound]:", result.Content, StringComparison.Ordinal);
+  }
 
-    [Fact]
-    public async Task InvokeAsync_UnknownAction_ReturnsError()
-    {
-        var result = await Create().InvokeAsync("nope", "{}");
+  [Fact]
+  public async Task InvokeAsync_UnknownAction_ReturnsError()
+  {
+    CapabilityInvocationResult result = await Create().InvokeAsync("nope", "{}");
 
-        Assert.True(result.IsError);
-        Assert.Contains("Error [UnknownAction]: Unknown action: nope", result.Content);
-    }
+    Assert.True(result.IsError);
+    Assert.Contains("Error [UnknownAction]: Unknown action: nope", result.Content, StringComparison.Ordinal);
+  }
 
-    private sealed class FakeFileSystemAccess : IFileSystemAccess
-    {
-        public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
-            CancellationToken ct = default)
-            => Task.FromResult(Result<FileRead>.Success(new FileRead(["alpha", "beta"], 2, 2)));
-    }
+  private sealed class FakeFileSystemAccess : IFileSystemAccess
+  {
+    public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
+        CancellationToken ct = default)
+        => Task.FromResult(Result.Success<FileRead>(new FileRead(["alpha", "beta"], 2, 2)));
+  }
 
-    private sealed class FailingFileSystemAccess : IFileSystemAccess
-    {
-        public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
-            CancellationToken ct = default)
-            => Task.FromResult(Result<FileRead>.Failure(
-                new Error("FileNotFound", $"File not found: {path}.")));
-    }
+  private sealed class FailingFileSystemAccess : IFileSystemAccess
+  {
+    public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
+        CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<FileRead>(
+            new DomainError("FileNotFound", $"File not found: {path}.")));
+  }
 }

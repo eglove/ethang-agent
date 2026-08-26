@@ -4,10 +4,10 @@ namespace eThangAgent.CapabilityDomain;
 ///     call cancellation.</summary>
 public enum TimeoutPolicy
 {
-    /// <summary>The harness (e.g. ScriptTools.Invoke) cancels the call when the budget elapses.</summary>
-    HarnessEnforced,
-    /// <summary>The action applies its declared budget itself; the harness validates but never cancels on it.</summary>
-    SelfManaged,
+  /// <summary>The harness (e.g. ScriptTools.Invoke) cancels the call when the budget elapses.</summary>
+  HarnessEnforced,
+  /// <summary>The action applies its declared budget itself; the harness validates but never cancels on it.</summary>
+  SelfManaged,
 }
 
 public sealed record ActionDescriptor(
