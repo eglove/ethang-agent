@@ -290,3 +290,6 @@ dist/
 
 # isolated feature worktrees
 .worktrees/
+
+# SonarScanner for .NET working directory (analysis config, output)
+.sonarqube/
