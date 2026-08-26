@@ -21,6 +21,11 @@ public static class LexicalTokenizer
     }
 
     string normalized = text.Normalize(NormalizationForm.FormKC);
+    // Canonical token form is LOWERCASE: persisted memories were written lowercased.
+    // CA1308 suggests ToUpperInvariant, which would break every stored token.
+#pragma warning disable CA1308 // Normalize strings to uppercase
+
     return [.. TokenPattern.Matches(normalized).Select(m => m.Value.ToLowerInvariant())];
+#pragma warning restore CA1308 // Normalize strings to uppercase
   }
 }

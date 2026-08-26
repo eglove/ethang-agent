@@ -86,10 +86,10 @@ public sealed class CuratedMemoryCapabilityProvider(
     {
       return actionName switch
       {
-        "search" => await SearchAsync(jsonArguments),
-        "add" => await AddAsync(jsonArguments),
-        "update" => await UpdateAsync(jsonArguments),
-        "remove" => await RemoveAsync(jsonArguments),
+        "search" => await SearchAsync(jsonArguments).ConfigureAwait(false),
+        "add" => await AddAsync(jsonArguments).ConfigureAwait(false),
+        "update" => await UpdateAsync(jsonArguments).ConfigureAwait(false),
+        "remove" => await RemoveAsync(jsonArguments).ConfigureAwait(false),
         _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
       };
     }
@@ -154,7 +154,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     }
 
     Result<IReadOnlyList<CuratedMemory>> search = await _store.SearchAsync(
-        _workspaceId(), OptString(args, "query"), category, tagFilters, limit);
+        _workspaceId(), OptString(args, "query"), category, tagFilters, limit).ConfigureAwait(false);
     if (!search.IsSuccess)
     {
       return Fail(search.Error!);
@@ -263,7 +263,7 @@ public sealed class CuratedMemoryCapabilityProvider(
         now,
         now);
 
-    Result<CuratedMemory> added = await _store.AddAsync(memory);
+    Result<CuratedMemory> added = await _store.AddAsync(memory).ConfigureAwait(false);
     if (!added.IsSuccess)
     {
       return Fail(added.Error!);
@@ -343,7 +343,7 @@ public sealed class CuratedMemoryCapabilityProvider(
       usageHint = hint;
     }
 
-    Result<CuratedMemory?> fetched = await _store.GetAsync(id);
+    Result<CuratedMemory?> fetched = await _store.GetAsync(id).ConfigureAwait(false);
     if (!fetched.IsSuccess)
     {
       return Fail(fetched.Error!);
@@ -374,7 +374,7 @@ public sealed class CuratedMemoryCapabilityProvider(
       UsageHint = touchesHint ? usageHint : stored.UsageHint,
     };
 
-    Result<CuratedMemory> saved = await _store.UpdateAsync(updated);
+    Result<CuratedMemory> saved = await _store.UpdateAsync(updated).ConfigureAwait(false);
     return !saved.IsSuccess
       ? Fail(saved.Error!)
       : CapabilityInvocationResult.Ok(
@@ -397,7 +397,7 @@ public sealed class CuratedMemoryCapabilityProvider(
           "'confirm' must be exactly boolean true to remove a memory."));
     }
 
-    Result<bool> deleted = await _store.DeleteAsync(id);
+    Result<bool> deleted = await _store.DeleteAsync(id).ConfigureAwait(false);
     return !deleted.IsSuccess
       ? Fail(deleted.Error!)
       : !deleted.Value
@@ -432,7 +432,7 @@ public sealed class CuratedMemoryCapabilityProvider(
       return null;
     }
 
-    IReadOnlyList<string> tags = OptStringArray(args, "tags");
+    List<string> tags = OptStringArray(args, "tags");
     if (tags.Count > MaxTags)
     {
       return new DomainError("TooManyTags",
@@ -496,9 +496,9 @@ public sealed class CuratedMemoryCapabilityProvider(
   private static CapabilityInvocationResult Fail(DomainError error)
       => CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");
 
-  private static IReadOnlySet<string> Allowed(params string[] names) => new HashSet<string>(names, StringComparer.Ordinal);
+  private static HashSet<string> Allowed(params string[] names) => new(names, StringComparer.Ordinal);
 
-  private static Dictionary<string, JsonElement> ParseArgs(string json, IReadOnlySet<string> allowed)
+  private static Dictionary<string, JsonElement> ParseArgs(string json, HashSet<string> allowed)
   {
     JsonElement root;
     try
@@ -539,7 +539,7 @@ public sealed class CuratedMemoryCapabilityProvider(
           ? value
           : null;
 
-  private static IReadOnlyList<string> OptStringArray(Dictionary<string, JsonElement> args, string name)
+  private static List<string> OptStringArray(Dictionary<string, JsonElement> args, string name)
   {
     if (!args.TryGetValue(name, out JsonElement element))
     {
@@ -563,8 +563,14 @@ public sealed class CuratedMemoryCapabilityProvider(
     }
     return items;
   }
+}
 
-  private sealed class MemoryInputException(string message) : Exception(message)
-  {
-  }
+/// <summary>Signals malformed capability arguments during parsing. Public only because
+///     CA1064 forbids non-public exception types; never escapes the provider - each
+///     action catches it and renders the message as a typed tool error.</summary>
+public sealed class MemoryInputException : Exception
+{
+  public MemoryInputException() : base("Invalid capability arguments.") { }
+  public MemoryInputException(string message) : base(message) { }
+  public MemoryInputException(string message, Exception innerException) : base(message, innerException) { }
 }

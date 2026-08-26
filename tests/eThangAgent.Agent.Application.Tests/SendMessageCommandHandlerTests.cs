@@ -8,42 +8,41 @@ namespace eThangAgent.Agent.Application.Tests;
 
 public class SendMessageCommandHandlerTests
 {
-    [Fact]
-    public async Task Handle_DelegatesToAgentAndReturnsResult()
-    {
-        var provider = new StubModelProvider(
-            Result<ModelResponse>.Success(new ModelResponse("response", [])));
-        var agent = new Ag(provider, new Conversation(),
-            ModelConfig.Create("m", 100, 0.5f).Value!, new ToolRegistry([]));
-        var handler = new SendMessageCommandHandler(agent);
+  [Fact]
+  public async Task Handle_DelegatesToAgentAndReturnsResult()
+  {
+    StubModelProvider provider = new(
+        Result.Success<ModelResponse>(new ModelResponse("response", [])));
+    Ag agent = new(provider, new Conversation(),
+        ModelConfig.Create("m", 100, 0.5f).Value!, new ToolRegistry([]));
+    SendMessageCommandHandler handler = new(agent);
 
-        var result = await handler.Handle(new SendMessageCommand("hello"));
+    Result<string> result = await handler.Handle(new SendMessageCommand("hello"));
 
-        Assert.True(result.IsSuccess);
-        Assert.Equal("response", result.Value);
-    }
+    Assert.True(result.IsSuccess);
+    Assert.Equal("response", result.Value);
+  }
 
-    [Fact]
-    public async Task Handle_PropagatesFailure()
-    {
-        var error = new Error("FAIL", "bad");
-        var provider = new StubModelProvider(Result<ModelResponse>.Failure(error));
-        var agent = new Ag(provider, new Conversation(),
-            ModelConfig.Create("m", 100, 0.5f).Value!, new ToolRegistry([]));
-        var handler = new SendMessageCommandHandler(agent);
+  [Fact]
+  public async Task Handle_PropagatesFailure()
+  {
+    DomainError error = new("FAIL", "bad");
+    StubModelProvider provider = new(Result.Failure<ModelResponse>(error));
+    Ag agent = new(provider, new Conversation(),
+        ModelConfig.Create("m", 100, 0.5f).Value!, new ToolRegistry([]));
+    SendMessageCommandHandler handler = new(agent);
 
-        var result = await handler.Handle(new SendMessageCommand("hello"));
+    Result<string> result = await handler.Handle(new SendMessageCommand("hello"));
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(error, result.Error);
-    }
+    Assert.False(result.IsSuccess);
+    Assert.Equal(error, result.Error);
+  }
 
-    private sealed class StubModelProvider : IModelProvider
-    {
-        private readonly Result<ModelResponse> _result;
-        public StubModelProvider(Result<ModelResponse> result) => _result = result;
+  private sealed class StubModelProvider(Result<ModelResponse> result) : IModelProvider
+  {
+    private readonly Result<ModelResponse> _result = result;
 
-        public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct)
-            => Task.FromResult(_result);
-    }
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct)
+        => Task.FromResult(_result);
+  }
 }

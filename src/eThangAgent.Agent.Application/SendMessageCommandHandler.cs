@@ -13,47 +13,42 @@ namespace eThangAgent.Agent.Application;
 /// memory-write counter are all supplied; with any of them absent the handler behaves
 /// exactly as before (turns pass through, nothing is appended).
 /// </summary>
-public class SendMessageCommandHandler
+public class SendMessageCommandHandler(Ag agent, Conversation? conversation = null,
+    INudgePolicy? policy = null, Func<int>? memoriesWritten = null, IAgentInbox? inbox = null)
 {
-    private readonly Ag _agent;
-    private readonly Conversation? _conversation;
-    private readonly INudgePolicy? _nudgePolicy;
-    private readonly Func<int>? _memoriesWritten;
-    private readonly IAgentInbox? _inbox;
-    private int _turnCount;
+  private readonly Ag _agent = agent ?? throw new ArgumentNullException(nameof(agent));
+  private readonly Conversation? _conversation = conversation;
+  private readonly INudgePolicy? _nudgePolicy = policy;
+  private readonly Func<int>? _memoriesWritten = memoriesWritten;
+  private readonly IAgentInbox? _inbox = inbox;
+  private int _turnCount;
 
-    public SendMessageCommandHandler(Ag agent, Conversation? conversation = null,
-        INudgePolicy? policy = null, Func<int>? memoriesWritten = null, IAgentInbox? inbox = null)
+  public async Task<Result<string>> Handle(SendMessageCommand command, CancellationToken ct = default,
+      Action<string>? onContentDelta = null,
+      Action<string>? onReasoningDelta = null,
+      Action? onIterationEnd = null,
+      Action<string, string>? onToolCall = null,
+      Action<string, string>? onToolResult = null)
+  {
+    int turnNumber = Interlocked.Increment(ref _turnCount);
+
+    Result<string> result = await _agent.SendMessage(command.Text, ct,
+        onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult, _inbox);
+    if (!result.IsSuccess)
     {
-        _agent = agent ?? throw new ArgumentNullException(nameof(agent));
-        _conversation = conversation;
-        _nudgePolicy = policy;
-        _memoriesWritten = memoriesWritten;
-        _inbox = inbox;
+      return result;
     }
 
-    public async Task<Result<string>> Handle(SendMessageCommand command, CancellationToken ct = default,
-        Action<string>? onContentDelta = null,
-        Action<string>? onReasoningDelta = null,
-        Action? onIterationEnd = null,
-        Action<string, string>? onToolCall = null,
-        Action<string, string>? onToolResult = null)
+    if (_conversation is not null && _nudgePolicy is not null && _memoriesWritten is not null)
     {
-        var turnNumber = Interlocked.Increment(ref _turnCount);
-
-        var result = await _agent.SendMessage(command.Text, ct,
-            onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult, _inbox);
-        if (!result.IsSuccess)
-            return result;
-
-        if (_conversation is not null && _nudgePolicy is not null && _memoriesWritten is not null)
-        {
-            var line = _nudgePolicy.Evaluate(
-                new NudgeContext(turnNumber, _agent.LastTurnToolCalls, _memoriesWritten()));
-            if (line is not null)
-                _conversation.AddSystemMessage(line);
-        }
-
-        return result;
+      string? line = _nudgePolicy.Evaluate(
+          new NudgeContext(turnNumber, _agent.LastTurnToolCalls, _memoriesWritten()));
+      if (line is not null)
+      {
+        _conversation.AddSystemMessage(line);
+      }
     }
+
+    return result;
+  }
 }

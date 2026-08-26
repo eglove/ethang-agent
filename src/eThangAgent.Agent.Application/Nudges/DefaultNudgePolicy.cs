@@ -9,21 +9,16 @@ namespace eThangAgent.Agent.Application.Nudges;
 /// </summary>
 public sealed class DefaultNudgePolicy(Func<DateTimeOffset> clock) : INudgePolicy
 {
-    /// <summary>The exact line appended to the conversation when the policy fires.</summary>
-    public const string ReminderLine =
-        "[nudge] This turn involved several tools and nothing has been saved to curated memories yet. " +
-        "If any durable convention, preference, insight, failure, or reference emerged, consider " +
-        "memories.add — otherwise continue.";
+  /// <summary>The exact line appended to the conversation when the policy fires.</summary>
+  public const string ReminderLine =
+      "[nudge] This turn involved several tools and nothing has been saved to curated memories yet. " +
+      "If any durable convention, preference, insight, failure, or reference emerged, consider " +
+      "memories.add — otherwise continue.";
 
-    public string? Evaluate(NudgeContext context)
-    {
-        if (context.TurnNumber % 5 != 0)
-            return null;
-        if (context.LastToolCalls < 3)
-            return null;
-        if (context.MemoriesWrittenTotal != 0)
-            return null;
-
-        return ReminderLine;
-    }
+  public string? Evaluate(NudgeContext context)
+  {
+    return context.TurnNumber % 5 != 0
+      ? null
+      : context.LastToolCalls < 3 ? null : context.MemoriesWrittenTotal != 0 ? null : ReminderLine;
+  }
 }

@@ -11,11 +11,11 @@ namespace eThangAgent.Agent.Application.Nudges;
 /// </summary>
 public sealed class SessionMemoryWriteCounter
 {
-    private int _count;
+  private int _count;
 
-    /// <summary>Records one successful memory write; called only by the provider.</summary>
-    public int Increment() => Interlocked.Increment(ref _count);
+  /// <summary>Records one successful memory write; called only by the provider.</summary>
+  public int Increment() => Interlocked.Increment(ref _count);
 
-    /// <summary>Observes the current write total; side-effect-free.</summary>
-    public int Count => Volatile.Read(ref _count);
+  /// <summary>Observes the current write total; side-effect-free.</summary>
+  public int Count => Volatile.Read(ref _count);
 }

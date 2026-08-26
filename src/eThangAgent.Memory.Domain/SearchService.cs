@@ -3,13 +3,14 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.MemoryDomain;
 
-/// <summary>Success carries the paged result; failure carries the rendered typed error line.</summary>
-public abstract record SearchOutcome
-{
-  public sealed record Ok(SearchResult Result) : SearchOutcome;
+/// <summary>Success outcome: carries the paged result.</summary>
+public sealed record SearchOk(SearchResult Result) : SearchOutcome;
 
-  public sealed record Fail(string DomainError) : SearchOutcome;
-}
+/// <summary>Failure outcome: carries the rendered typed error line.</summary>
+public sealed record SearchFail(string DomainError) : SearchOutcome;
+
+/// <summary>Success carries the paged result; failure carries the rendered typed error line.</summary>
+public abstract record SearchOutcome;
 
 /// <summary>One ordered page of matches over the whole (unpaged) match set.</summary>
 public sealed record SearchResult(IReadOnlyList<Hit> Hits, int TotalMatched, int Page, int Pages);
@@ -29,7 +30,7 @@ public sealed class SearchService
   /// the capability layer validates wire input before the domain is reached; a violation
   /// here is programmer error.
   /// </summary>
-  public SearchOutcome Search(
+  public static SearchOutcome Search(
       IReadOnlyList<SessionCorpus> sessions,
       MemoryQueryPlan plan,
       SessionScope scope,
@@ -66,8 +67,8 @@ public sealed class SearchService
 
     return plan switch
     {
-      MemoryQueryPlan.RegexPattern regex => MatchByRegex(ordered, regex.Pattern, page, pageSize),
-      MemoryQueryPlan.Terms terms => Page(FilterByTerms(ordered, terms.Tokens), page, pageSize),
+      RegexPatternPlan regex => MatchByRegex(ordered, regex.Pattern, page, pageSize),
+      TermsPlan terms => Page(FilterByTerms(ordered, terms.Tokens), page, pageSize),
       _ => Page(ordered, page, pageSize),
     };
   }
@@ -75,8 +76,8 @@ public sealed class SearchService
   private static List<SessionCorpus> InScope(IReadOnlyList<SessionCorpus> sessions, SessionScope scope)
       => scope switch
       {
-        SessionScope.Global => [.. sessions],
-        SessionScope.Session s => [.. sessions.Where(c => c.Id == s.Id)],
+        AllSessionsScope => [.. sessions],
+        SingleSessionScope s => [.. sessions.Where(c => c.Id == s.Id)],
         _ => throw new NotSupportedException($"Unhandled scope type {scope.GetType().Name}."),
       };
 
@@ -166,14 +167,14 @@ public sealed class SearchService
     Result<IReadOnlyList<int>> result = BoundedRegex.Execute(pattern, [.. ordered.Select(e => e.Content)]);
     if (!result.IsSuccess)
     {
-      return new SearchOutcome.Fail($"Error [{result.Error!.Code}]: {result.Error.Message}");
+      return new SearchFail($"Error [{result.Error!.Code}]: {result.Error.Message}");
     }
 
     List<MemoryEntry> matched = [.. result.Value!.Select(i => ordered[i])];
     return Page(matched, page, pageSize);
   }
 
-  private static SearchOutcome Page(List<MemoryEntry> matched, int page, int pageSize)
+  private static SearchOk Page(List<MemoryEntry> matched, int page, int pageSize)
   {
     int total = matched.Count;
     int pages = Math.Max(1, (int)Math.Ceiling(total / (double)pageSize));
@@ -182,6 +183,6 @@ public sealed class SearchService
         .Take(pageSize)
         .Select(e => new Hit(e))];
 
-    return new SearchOutcome.Ok(new SearchResult(hits, total, page, pages));
+    return new SearchOk(new SearchResult(hits, total, page, pages));
   }
 }

@@ -3,28 +3,30 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.MemoryDomain;
 
+/// <summary>Recall breadth: everything persisted.</summary>
+public sealed record AllSessionsScope : SessionScope;
+
+/// <summary>Recall breadth: exactly one agent session.</summary>
+public sealed record SingleSessionScope(AgentId Id) : SessionScope;
+
 /// <summary>
 /// Recall breadth: everything persisted, or exactly one agent session.
 /// </summary>
 public abstract record SessionScope
 {
-  public sealed record Global : SessionScope;
-
-  public sealed record Session(AgentId Id) : SessionScope;
-
   /// <summary>
   /// Parses the wire form strictly — no silent fallbacks. Null or "global"
-  /// (case-insensitive) yields <see cref="Global"/>; "session:&lt;guid&gt;" with the
-  /// remainder in exact 'D' format yields <see cref="Session"/>; anything else fails
+  /// (case-insensitive) yields <see cref="AllSessionsScope"/>; "session:&lt;guid&gt;" with the
+  /// remainder in exact 'D' format yields <see cref="SingleSessionScope"/>; anything else fails
   /// with the raw input echoed and both valid forms named.
   /// </summary>
   public static Result<SessionScope> Parse(string? raw)
   {
     return raw is null || string.Equals(raw, "global", StringComparison.OrdinalIgnoreCase)
-      ? Result.Success<SessionScope>(new Global())
+      ? Result.Success<SessionScope>(new AllSessionsScope())
       : raw.StartsWith("session:", StringComparison.Ordinal) &&
         Guid.TryParseExact(raw["session:".Length..], "D", out Guid id)
-      ? Result.Success<SessionScope>(new Session(new AgentId(id)))
+      ? Result.Success<SessionScope>(new SingleSessionScope(new AgentId(id)))
       : Result.Failure<SessionScope>(new DomainError(
         "InvalidScope",
         $"Unknown scope '{raw}'. Valid scopes: global | session:<agentId>."));

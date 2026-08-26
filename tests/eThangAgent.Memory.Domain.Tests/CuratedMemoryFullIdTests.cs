@@ -33,13 +33,13 @@ public class CuratedMemoryFullIdTests
   public async Task Search_RendersFullGuid()
   {
     Harness h = new();
-    h.Store.Rows[KnownId] = Row(KnownId);
+    h.Store._rows[KnownId] = Row(KnownId);
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}");
 
     Assert.False(result.IsError);
-    Assert.Contains("id=" + KnownId.ToString() + " ", result.Content);
-    Assert.DoesNotContain("id=3f2a9f0e ", result.Content); // no truncated prefix form
+    Assert.Contains("id=" + KnownId.ToString() + " ", result.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("id=3f2a9f0e ", result.Content, StringComparison.Ordinal); // no truncated prefix form
   }
 
   [Fact]
@@ -52,7 +52,7 @@ public class CuratedMemoryFullIdTests
 
     Assert.False(result.IsError, "add failed: " + result.Content);
     string ack = result.Content.Split('\n')[0];
-    string idPart = ack.Replace("[memories] added ", "")[..36]; // 32 hex + 4 dashes
+    string idPart = ack.Replace("[memories] added ", "", StringComparison.Ordinal)[..36]; // 32 hex + 4 dashes
     Assert.True(Guid.TryParseExact(idPart, "D", out _), "full guid expected: " + ack);
   }
 
@@ -60,13 +60,13 @@ public class CuratedMemoryFullIdTests
   public async Task Remove_AcknowledgesFullGuid()
   {
     Harness h = new();
-    h.Store.Rows[KnownId] = Row(KnownId);
+    h.Store._rows[KnownId] = Row(KnownId);
 
     string json = "{" + Q("id") + ":" + Q(KnownId.ToString()) + "," + Q("confirm") + ":true}";
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("remove", json);
 
     Assert.False(result.IsError);
-    Assert.Contains("removed " + KnownId.ToString(), result.Content);
+    Assert.Contains("removed " + KnownId.ToString(), result.Content, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -74,28 +74,28 @@ public class CuratedMemoryFullIdTests
   {
     CuratedMemoryCapabilityProvider provider = new Harness().Provider();
     ActionDescriptor search = Assert.Single(provider.Actions, a => a.Name == "search");
-    Assert.Contains("[mem] id=<guid>", search.Description);
-    Assert.DoesNotContain("<first8>", search.Description);
+    Assert.Contains("[mem] id=<guid>", search.Description, StringComparison.Ordinal);
+    Assert.DoesNotContain("<first8>", search.Description, StringComparison.Ordinal);
   }
 
   private sealed class FakeCuratedMemoryStore : ICuratedMemoryStore
   {
-    public Dictionary<Guid, CuratedMemory> Rows = [];
+    internal Dictionary<Guid, CuratedMemory> _rows = [];
 
     public Task<Result<CuratedMemory>> AddAsync(CuratedMemory memory, CancellationToken ct = default)
     {
-      Rows[memory.Id] = memory;
+      _rows[memory.Id] = memory;
       return Task.FromResult(Result.Success<CuratedMemory>(memory));
     }
 
     public Task<Result<CuratedMemory?>> GetAsync(Guid id, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<CuratedMemory?>(Rows.GetValueOrDefault(id)));
+        => Task.FromResult(Result.Success<CuratedMemory?>(_rows.GetValueOrDefault(id)));
 
     public Task<Result<IReadOnlyList<CuratedMemory>>> SearchAsync(
         string? workspaceId, string? query, MemoryCategory? category,
         IReadOnlyList<string>? tags, int limit, CancellationToken ct = default)
     {
-      IEnumerable<CuratedMemory> visible = Rows.Values
+      IEnumerable<CuratedMemory> visible = _rows.Values
           .Where(m => m.Scope == MemoryScope.Global || m.WorkspaceId == workspaceId)
           .OrderByDescending(m => m.UpdatedAt);
       if (!string.IsNullOrWhiteSpace(query))
@@ -108,11 +108,11 @@ public class CuratedMemoryFullIdTests
 
     public Task<Result<CuratedMemory>> UpdateAsync(CuratedMemory updated, CancellationToken ct = default)
     {
-      Rows[updated.Id] = updated;
+      _rows[updated.Id] = updated;
       return Task.FromResult(Result.Success<CuratedMemory>(updated));
     }
 
     public Task<Result<bool>> DeleteAsync(Guid id, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<bool>(Rows.Remove(id)));
+        => Task.FromResult(Result.Success<bool>(_rows.Remove(id)));
   }
 }

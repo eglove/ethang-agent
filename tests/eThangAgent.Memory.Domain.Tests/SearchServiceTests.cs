@@ -24,7 +24,7 @@ public class SearchServiceTests
     Result<SessionScope> result = SessionScope.Parse(raw);
 
     Assert.True(result.IsSuccess);
-    _ = Assert.IsType<SessionScope.Global>(result.Value);
+    _ = Assert.IsType<AllSessionsScope>(result.Value);
   }
 
   [Fact]
@@ -33,7 +33,7 @@ public class SearchServiceTests
     Result<SessionScope> result = SessionScope.Parse(null);
 
     Assert.True(result.IsSuccess);
-    _ = Assert.IsType<SessionScope.Global>(result.Value);
+    _ = Assert.IsType<AllSessionsScope>(result.Value);
   }
 
   [Fact]
@@ -44,7 +44,7 @@ public class SearchServiceTests
     Result<SessionScope> result = SessionScope.Parse($"session:{id:D}");
 
     Assert.True(result.IsSuccess);
-    SessionScope.Session session = Assert.IsType<SessionScope.Session>(result.Value);
+    SingleSessionScope session = Assert.IsType<SingleSessionScope>(result.Value);
     Assert.Equal(new AgentId(id), session.Id);
   }
 
@@ -116,13 +116,12 @@ public class SearchServiceTests
             new(a, null, 0, [new(a, 1, "user", "alpha from a", At(1))]),
             new(b, null, 0, [new(b, 1, "user", "beta from b", At(2))]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, new MemoryQueryPlan.Browse(), SessionScope.Parse($"session:{b}").Value!,
+    SearchOutcome outcome = SearchService.Search(
+        sessions, new BrowsePlan(), SessionScope.Parse($"session:{b}").Value!,
         BranchMode.AllBranches, null, 1, 10);
 
-    SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+    SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Equal(["beta from b"], ok.Result.Hits.Select(h => h.Entry.Content));
     Assert.Equal(1, ok.Result.TotalMatched);
   }
@@ -147,13 +146,12 @@ public class SearchServiceTests
             new(orphanId, missingAncestorId, 1, [new(orphanId, 1, "user", "orphan line", At(3))]),
             new(orphanChildId, orphanId, 2, [new(orphanChildId, 1, "user", "orphan child line", At(4))]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+    SearchOutcome outcome = SearchService.Search(
+        sessions, new BrowsePlan(), new AllSessionsScope(),
         BranchMode.ActivePath, null, 1, 50);
 
-    SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+    SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Equal(
         ["grandchild line", "child line", "root line"],
         ok.Result.Hits.Select(h => h.Entry.Content));
@@ -171,13 +169,12 @@ public class SearchServiceTests
             new(rootId, null, 0, [new(rootId, 1, "user", "root line", At(0))]),
             new(orphanId, missingAncestorId, 1, [new(orphanId, 1, "user", "orphan line", At(3))]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+    SearchOutcome outcome = SearchService.Search(
+        sessions, new BrowsePlan(), new AllSessionsScope(),
         BranchMode.AllBranches, null, 1, 50);
 
-    SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+    SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Equal(["orphan line", "root line"], ok.Result.Hits.Select(h => h.Entry.Content));
     Assert.Equal(2, ok.Result.TotalMatched);
   }
@@ -197,13 +194,12 @@ public class SearchServiceTests
                 new(id, 1, "tool", "BETA-ALPHA both canonical tokens", At(1)),
             ]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, MemoryQueryPlan.Plan("alpha beta"), new SessionScope.Global(),
+    SearchOutcome outcome = SearchService.Search(
+        sessions, MemoryQueryPlan.Plan("alpha beta"), new AllSessionsScope(),
         BranchMode.ActivePath, null, 1, 10);
 
-    SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+    SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Equal(
         ["alpha beta together", "BETA-ALPHA both canonical tokens"],
         ok.Result.Hits.Select(h => h.Entry.Content));
@@ -222,13 +218,12 @@ public class SearchServiceTests
                 new(id, 1, "user", "zebra there", At(1)),
             ]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, MemoryQueryPlan.Plan("alpha zebra"), new SessionScope.Global(),
+    SearchOutcome outcome = SearchService.Search(
+        sessions, MemoryQueryPlan.Plan("alpha zebra"), new AllSessionsScope(),
         BranchMode.ActivePath, null, 1, 10);
 
-    SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+    SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Empty(ok.Result.Hits);
     Assert.Equal(0, ok.Result.TotalMatched);
     Assert.Equal(1, ok.Result.Pages);
@@ -249,13 +244,12 @@ public class SearchServiceTests
                 new(id, 2, "user", "CAT-22 report", At(2)),
             ]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, new MemoryQueryPlan.RegexPattern("cat.{0,2}22"), new SessionScope.Global(),
+    SearchOutcome outcome = SearchService.Search(
+        sessions, new RegexPatternPlan("cat.{0,2}22"), new AllSessionsScope(),
         BranchMode.ActivePath, null, 1, 10);
 
-    SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+    SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Equal(["catch22 details", "CAT-22 report"], ok.Result.Hits.Select(h => h.Entry.Content));
     Assert.Equal(2, ok.Result.TotalMatched);
   }
@@ -268,14 +262,13 @@ public class SearchServiceTests
         [
             new(id, null, 0, [new(id, 1, "user", "content", At(1))]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, new MemoryQueryPlan.RegexPattern("(["), new SessionScope.Global(),
+    SearchOutcome outcome = SearchService.Search(
+        sessions, new RegexPatternPlan("(["), new AllSessionsScope(),
         BranchMode.ActivePath, null, 1, 10);
 
-    SearchOutcome.Fail fail = Assert.IsType<SearchOutcome.Fail>(outcome);
-    Assert.StartsWith("Error [invalid_regex]:", fail.Error);
+    SearchFail fail = Assert.IsType<SearchFail>(outcome);
+    Assert.StartsWith("Error [invalid_regex]:", fail.DomainError, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -286,16 +279,15 @@ public class SearchServiceTests
         [
             new(id, null, 0, [new(id, 1, "user", "content", At(1))]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, new MemoryQueryPlan.RegexPattern(new string('a', 1100)),
-        new SessionScope.Global(), BranchMode.ActivePath, null, 1, 10);
+    SearchOutcome outcome = SearchService.Search(
+        sessions, new RegexPatternPlan(new string('a', 1100)),
+        new AllSessionsScope(), BranchMode.ActivePath, null, 1, 10);
 
-    SearchOutcome.Fail fail = Assert.IsType<SearchOutcome.Fail>(outcome);
+    SearchFail fail = Assert.IsType<SearchFail>(outcome);
     Assert.Equal(
         "Error [regex_pattern_too_large]: Regex pattern exceeds 1024 bytes.",
-        fail.Error);
+        fail.DomainError);
   }
 
   // ---- Role filter ----
@@ -312,13 +304,12 @@ public class SearchServiceTests
                 new(id, 1, "user", "alpha from user", At(1)),
             ]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, MemoryQueryPlan.Plan("alpha"), new SessionScope.Global(),
+    SearchOutcome outcome = SearchService.Search(
+        sessions, MemoryQueryPlan.Plan("alpha"), new AllSessionsScope(),
         BranchMode.ActivePath, "user", 1, 10);
 
-    SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+    SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Equal(["alpha from user"], ok.Result.Hits.Select(h => h.Entry.Content));
     Assert.Equal(1, ok.Result.TotalMatched);
   }
@@ -335,13 +326,12 @@ public class SearchServiceTests
                 new(id, 1, "user", "user line", At(1)),
             ]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+    SearchOutcome outcome = SearchService.Search(
+        sessions, new BrowsePlan(), new AllSessionsScope(),
         BranchMode.ActivePath, "USER", 1, 10);
 
-    SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+    SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Equal(["user line"], ok.Result.Hits.Select(h => h.Entry.Content));
   }
 
@@ -357,15 +347,14 @@ public class SearchServiceTests
                 new(id, 1, "user", "user line", At(1)),
             ]),
         ];
-    SearchService service = new();
 
     foreach (string? role in new[] { null, "", "   " })
     {
-      SearchOutcome outcome = service.Search(
-          sessions, new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+      SearchOutcome outcome = SearchService.Search(
+          sessions, new BrowsePlan(), new AllSessionsScope(),
           BranchMode.ActivePath, role, 1, 10);
 
-      SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+      SearchOk ok = Assert.IsType<SearchOk>(outcome);
       Assert.Equal(2, ok.Result.TotalMatched);
     }
   }
@@ -397,13 +386,12 @@ public class SearchServiceTests
                 new(left, 4, "user", "early left seq4", At(0)),
             ]),
         ];
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        sessions, new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+    SearchOutcome outcome = SearchService.Search(
+        sessions, new BrowsePlan(), new AllSessionsScope(),
         BranchMode.ActivePath, null, 1, 50);
 
-    SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+    SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Equal(
         ["late left", "late right", "early left seq4", "early right seq4"],
         ok.Result.Hits.Select(h => h.Entry.Content));
@@ -417,16 +405,15 @@ public class SearchServiceTests
     AgentId id = NewId();
     List<MemoryEntry> entries = [.. Enumerable.Range(1, 25).Select(n => new MemoryEntry(id, n, "user", $"entry {n}", Base.AddSeconds(n)))];
     List<SessionCorpus> sessions = [new(id, null, 0, entries)];
-    SearchService service = new();
 
-    SearchResult page1 = Assert.IsType<SearchOutcome.Ok>(service.Search(
-        sessions, new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+    SearchResult page1 = Assert.IsType<SearchOk>(SearchService.Search(
+        sessions, new BrowsePlan(), new AllSessionsScope(),
         BranchMode.ActivePath, null, 1, 10)).Result;
-    SearchResult page2 = Assert.IsType<SearchOutcome.Ok>(service.Search(
-        sessions, new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+    SearchResult page2 = Assert.IsType<SearchOk>(SearchService.Search(
+        sessions, new BrowsePlan(), new AllSessionsScope(),
         BranchMode.ActivePath, null, 2, 10)).Result;
-    SearchResult page3 = Assert.IsType<SearchOutcome.Ok>(service.Search(
-        sessions, new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+    SearchResult page3 = Assert.IsType<SearchOk>(SearchService.Search(
+        sessions, new BrowsePlan(), new AllSessionsScope(),
         BranchMode.ActivePath, null, 3, 10)).Result;
 
     Assert.Equal(25, page1.TotalMatched);
@@ -446,13 +433,12 @@ public class SearchServiceTests
   [Fact]
   public void Search_EmptyCorpus_YieldsZeroHitsAndOnePage()
   {
-    SearchService service = new();
 
-    SearchOutcome outcome = service.Search(
-        [], new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+    SearchOutcome outcome = SearchService.Search(
+        [], new BrowsePlan(), new AllSessionsScope(),
         BranchMode.ActivePath, null, 1, 10);
 
-    SearchOutcome.Ok ok = Assert.IsType<SearchOutcome.Ok>(outcome);
+    SearchOk ok = Assert.IsType<SearchOk>(outcome);
     Assert.Empty(ok.Result.Hits);
     Assert.Equal(0, ok.Result.TotalMatched);
     Assert.Equal(1, ok.Result.Pages);
@@ -464,20 +450,18 @@ public class SearchServiceTests
   [Fact]
   public void Search_PageBelowOne_IsProgrammerError()
   {
-    SearchService service = new();
 
-    _ = Assert.Throws<ArgumentException>(() => service.Search(
-        [], new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+    _ = Assert.Throws<ArgumentException>(() => SearchService.Search(
+        [], new BrowsePlan(), new AllSessionsScope(),
         BranchMode.ActivePath, null, page: 0, pageSize: 10));
   }
 
   [Fact]
   public void Search_PageSizeBelowOne_IsProgrammerError()
   {
-    SearchService service = new();
 
-    _ = Assert.Throws<ArgumentException>(() => service.Search(
-        [], new MemoryQueryPlan.Browse(), new SessionScope.Global(),
+    _ = Assert.Throws<ArgumentException>(() => SearchService.Search(
+        [], new BrowsePlan(), new AllSessionsScope(),
         BranchMode.ActivePath, null, page: 1, pageSize: 0));
   }
 

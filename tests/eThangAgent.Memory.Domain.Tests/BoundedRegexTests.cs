@@ -51,7 +51,7 @@ public class BoundedRegexTests
     Result<IReadOnlyList<int>> result = BoundedRegex.Execute("([", ["x"]);
 
     Assert.False(result.IsSuccess);
-    Assert.StartsWith("Error [invalid_regex]:", Rendered(result));
+    Assert.StartsWith("Error [invalid_regex]:", Rendered(result), StringComparison.Ordinal);
   }
 
   [Fact]
