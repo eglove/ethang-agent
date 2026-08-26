@@ -97,9 +97,9 @@ public class CSharpScriptExecEngineTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         var engine = CreateEngine();
 
-        var run = await engine.ExecuteAsync(new ExecProgram(HungCommand), cts.Token);
-
-        Assert.Equal(ExecRunStatus.Cancelled, run.Status);
+        // Cancellation propagates for classification at the tool layer.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => engine.ExecuteAsync(new ExecProgram(HungCommand), cts.Token));
     }
 
     /// <summary>Budget regression: an expired exec budget must kill the hung child tree and
@@ -107,12 +107,12 @@ public class CSharpScriptExecEngineTests
     [Fact]
     public async Task ElapsedBudget_KillsHungShellProcessTree()
     {
-        var options = ExecOptions.Default with { Timeout = TimeSpan.FromSeconds(2) };
-        var engine = CreateEngine(options);
+        // The budget arrives through the caller's token - ExecOptions carries none.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var engine = CreateEngine();
 
-        var run = await engine.ExecuteAsync(new ExecProgram(HungCommand));
-
-        Assert.Equal(ExecRunStatus.Timeout, run.Status);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => engine.ExecuteAsync(new ExecProgram(HungCommand), cts.Token));
     }
 
     /// <summary>Pipe-deadlock regression: chatty stderr under quiet stdout must not block a

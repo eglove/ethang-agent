@@ -67,10 +67,11 @@ public sealed class CSharpScriptExecEngine : IExecEngine
 
     public async Task<ExecRunResult> ExecuteAsync(ExecProgram program, CancellationToken ct = default)
     {
-        // The budget source is created up front so synchronous script surfaces (Shell) can
-        // honor it: caller interrupt (user stop) and the elapsed exec budget both fire it.
+        // The token source exists ONLY to hand the flowing cancellation token to
+        // synchronous script surfaces (Shell). No engine-side budget is imposed:
+        // the required per-call timeoutSeconds is the sole authority, enforced by the
+        // tool layer, which also owns classification (Error [ToolTimeout]).
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(_options.Timeout);
 
         var globals = new ScriptGlobals(
             _registry(),
@@ -108,13 +109,11 @@ public sealed class CSharpScriptExecEngine : IExecEngine
             // a user stop) does NOT propagate: Roslyn's cancelOnError predicate ends the
             // submission loop gracefully, so RunAsync returns an empty state instead.
             // Classify the outcome explicitly rather than trusting the completion shape.
-            if (ct.IsCancellationRequested)
-                return new ExecRunResult(ExecRunStatus.Cancelled,
-                    string.Join("\n", globals.OutputLines), [], "Execution was cancelled.");
-            if (cts.IsCancellationRequested)
-                return new ExecRunResult(ExecRunStatus.Timeout,
-                    string.Join("\n", globals.OutputLines), [],
-                    $"Execution timed out after {_options.Timeout.TotalSeconds:0} seconds; script stopped.");
+            // Single budget authority: propagate rather than classify. An elapsed
+            // per-call budget surfaces as Error [ToolTimeout] at the tool layer; a
+            // user stop flows to the turn loop. (Roslyn ends submissions gracefully
+            // when synchronous script surfaces throw, so check explicitly.)
+            ct.ThrowIfCancellationRequested();
 
             var outputLines = new List<string>(globals.OutputLines);
             if (state.ReturnValue is not null && state.ReturnValue is not ScriptGlobals)
@@ -131,17 +130,10 @@ public sealed class CSharpScriptExecEngine : IExecEngine
             var output = string.Join("\n", outputLines);
             return new ExecRunResult(ExecRunStatus.Completed, output, []);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            return new ExecRunResult(ExecRunStatus.Cancelled,
-                string.Join("\n", globals.OutputLines), [],
-                "Execution was cancelled.");
-        }
         catch (OperationCanceledException)
         {
-            return new ExecRunResult(ExecRunStatus.Timeout,
-                string.Join("\n", globals.OutputLines), [],
-                $"Execution timed out after {_options.Timeout.TotalSeconds:0} seconds; script stopped.");
+            // Propagate for classification at the tool layer - see the comment above.
+            throw;
         }
         catch (Exception ex)
         {

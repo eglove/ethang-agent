@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-    public const string Version = "2.3";
+    public const string Version = "2.4";
 
     public const string Text = """
     ## exec — writing C# programs
@@ -170,8 +170,8 @@ public static class ExecGuide
     - Return value is the output. null/void produces empty output.
     - Output over 50,000 characters is truncated; full text saved to [exec:artifact <path>].
     - exec cannot call itself (no nested exec).
-    - The script is stopped at your timeoutSeconds budget and also at a 120s hard cap,
-      whichever comes first.
+    - timeoutSeconds is the only execution budget; when it elapses the call fails
+      with Error [ToolTimeout]. There is no other cap.
     - Every tool call — exec and every action inside scripts — REQUIRES a timeoutSeconds
       argument: a whole-second budget, 1..3600. A call without it fails with MissingParameter,
       and a call exceeding its budget fails with Error [ToolTimeout]; re-issue with a larger
