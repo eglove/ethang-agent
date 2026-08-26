@@ -88,7 +88,7 @@ The window opens directly on the shell: no workspace is required up front. Click
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. |
 | Sub-agent settings (`DefaultModel`, `ChildTimeoutSeconds`, `MaxConcurrentAgents`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. |
 
-The default model is declared at the composition root (`src/eThangAgent.Desktop/DesktopHost.cs`, currently `stealth/ox-alpha`).
+The default model is declared at the composition root (`src/eThangAgent.Desktop/DesktopHost.cs`, currently `openrouter/auto`).
 
 ### Where your data lives
 

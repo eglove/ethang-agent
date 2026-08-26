@@ -72,7 +72,7 @@ public class MockOpenRouterServerTests
       });
 
   private static string ChatRequest(params object[] messages) =>
-      System.Text.Json.JsonSerializer.Serialize(new { model = "stealth/ox-alpha", messages });
+      System.Text.Json.JsonSerializer.Serialize(new { model = "openrouter/auto", messages });
 
   private static object Message(string role, string content) => new { role, content };
 

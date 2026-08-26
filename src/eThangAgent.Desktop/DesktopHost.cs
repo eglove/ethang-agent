@@ -44,7 +44,7 @@ internal static class DesktopHost
       throw new UnreachableException("unreachable after error dialog shutdown");
     }
 
-    ModelConfig defaultModel = ModelConfig.Create("stealth/ox-alpha", 32 * 1024, 0.7f).Value!;
+    ModelConfig defaultModel = ModelConfig.Create("openrouter/auto", 32 * 1024, 0.7f).Value!;
     // ONE app-owned database for every opened session (rows are keyed by workspace id).
     AppDatabase database = new();
     return new DesktopBootstrap(

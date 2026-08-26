@@ -20,7 +20,7 @@ namespace eThangAgent.Desktop.Tests;
 internal static class E2E
 {
   /// <summary>The session model id wired at the composition root (mirrors DesktopHost).</summary>
-  public const string SessionModel = "stealth/ox-alpha";
+  public const string SessionModel = "openrouter/auto";
 
   /// <summary>A disposable headless agent host: mock server + services + view-model,
   /// with storage isolated to a temp database via ETHANG_AGENT_DB.</summary>
