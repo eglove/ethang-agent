@@ -65,6 +65,10 @@ public static class AgentComposition
                         sp.GetRequiredService<IFileWriteAccess>()),
                     "Create or overwrite a workspace file."),
                 new AgentToolBinding(
+                    new WriteMarkdownTool(sp.GetRequiredService<IPathResolver>(),
+                        sp.GetRequiredService<IFileWriteAccess>()),
+                    "Render a structured JSON document into markdown; return it or write it to a workspace file."),
+                new AgentToolBinding(
                     new EditTool(sp.GetRequiredService<IPathResolver>(),
                         sp.GetRequiredService<IFileEditAccess>()),
                     "Edit a file by exact literal replacement."),

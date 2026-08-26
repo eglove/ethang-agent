@@ -40,6 +40,7 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 - `read` tool — bounded, line-range text file reads
 - `write` tool — create/replace files behind an explicit overwrite gate
 - `edit` tool — exact literal replacements with occurrence verification
+- `write_markdown` tool — renders a structured JSON document into well-formed markdown deterministically (headers, lists, tables, alerts, frontmatter); returns the string or writes it to a workspace file behind the same overwrite gate as `write`
 - `search_files` tool — bounded workspace search (literal or regex, glob-filtered)
 - `git_status` / `working_diff` tools — inspect branch state and bounded diffs
 - `git_commit` tool — index-only commits with validated conventional or gitmoji messages
