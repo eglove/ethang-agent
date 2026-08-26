@@ -1,7 +1,5 @@
 using eThangAgent.CapabilityDomain;
-using eThangAgent.Roslyn.ACL;
 using eThangAgent.ToolDomain;
-using Xunit;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
 
@@ -12,62 +10,65 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 /// literal argument.</summary>
 public class ShellArgumentTests
 {
-    private readonly CSharpScriptExecEngine _engine =
-        new(CapabilityRegistry.Create([]), ExecOptions.Default,
-            workspaceRoot: () => AppContext.BaseDirectory);
+  private readonly CSharpScriptExecEngine _engine =
+      new(CapabilityRegistry.Create([]), ExecOptions.Default,
+          workspaceRoot: () => AppContext.BaseDirectory);
 
-    [Fact]
-    public async Task MultiTokenArguments_ArePassedAsSeparateTokens()
+  [Fact]
+  public async Task MultiTokenArguments_ArePassedAsSeparateTokens()
+  {
+    ExecRunResult run = await _engine.ExecuteAsync(new ExecProgram(
+        "var r = Shell(\"cmd\", \"/c\", \"echo\", \"hello world\"); return r.Stdout;"));
+    Assert.Equal(ExecRunStatus.Completed, run.Status);
+    Assert.Contains("hello world", run.Output);
+  }
+
+  [Fact]
+  public async Task GitStatusShort_ParsesMultiTokenFlag()
+  {
+    ExecRunResult run = await _engine.ExecuteAsync(new ExecProgram(
+        "var r = Shell(\"git\", \"status\", \"--short\"); return r.ExitCode.ToString();"));
+    Assert.Equal(ExecRunStatus.Completed, run.Status);
+    Assert.Equal("0", run.Output.Trim());
+  }
+
+  [Fact]
+  public async Task WholeCommandLineAsSingleArgument_IsReparsedAsTokens()
+  {
+    // Regression pin: the second Shell argument below is ONE string holding several
+    // tokens plus a quoted path; git must receive them as separate argv entries.
+    DirectoryInfo tmp = Directory.CreateTempSubdirectory("shellarg-repro");
+    try
     {
-        var run = await _engine.ExecuteAsync(new ExecProgram(
-            "var r = Shell(\"cmd\", \"/c\", \"echo\", \"hello world\"); return r.Stdout;"));
-        Assert.Equal(ExecRunStatus.Completed, run.Status);
-        Assert.Contains("hello world", run.Output);
+      string dir = tmp.FullName.Replace("\\", "/");
+
+      string initScript =
+          $"var r = Shell(\"git\", \"init \\\"{dir}\\\"\"); return r.ExitCode.ToString();";
+      ExecRunResult init = await _engine.ExecuteAsync(new ExecProgram(initScript));
+      Assert.True(init.Output.Trim() == "0",
+          $"git init failed: {init.Output} {string.Join(';', init.ErrorLines)}");
+
+      string commitScript =
+          $"var r = Shell(\"git\", \"-c user.email=t@t -c user.name=t -C \\\"{dir}\\\"" +
+          $" commit --allow-empty -m x\"); return r.ExitCode.ToString();";
+      ExecRunResult commit = await _engine.ExecuteAsync(new ExecProgram(commitScript));
+      Assert.True(commit.Output.Trim() == "0",
+          $"expected exit 0 from git invoked with a multi-token single argument; got: " +
+          $"{commit.Output} {string.Join(';', commit.ErrorLines)}");
     }
-
-    [Fact]
-    public async Task GitStatusShort_ParsesMultiTokenFlag()
+    finally
     {
-        var run = await _engine.ExecuteAsync(new ExecProgram(
-            "var r = Shell(\"git\", \"status\", \"--short\"); return r.ExitCode.ToString();"));
-        Assert.Equal(ExecRunStatus.Completed, run.Status);
-        Assert.Equal("0", run.Output.Trim());
-    }
-
-    [Fact]
-    public async Task WholeCommandLineAsSingleArgument_IsReparsedAsTokens()
-    {
-        // Regression pin: the second Shell argument below is ONE string holding several
-        // tokens plus a quoted path; git must receive them as separate argv entries.
-        var tmp = Directory.CreateTempSubdirectory("shellarg-repro");
-        try
+      // git marks its object files read-only; clear attributes before deleting.
+      try
+      {
+        foreach (string f in Directory.EnumerateFiles(tmp.FullName, "*", SearchOption.AllDirectories))
         {
-            var dir = tmp.FullName.Replace("\\", "/");
-
-            var initScript =
-                $"var r = Shell(\"git\", \"init \\\"{dir}\\\"\"); return r.ExitCode.ToString();";
-            var init = await _engine.ExecuteAsync(new ExecProgram(initScript));
-            Assert.True(init.Output.Trim() == "0",
-                $"git init failed: {init.Output} {string.Join(';', init.ErrorLines)}");
-
-            var commitScript =
-                $"var r = Shell(\"git\", \"-c user.email=t@t -c user.name=t -C \\\"{dir}\\\"" +
-                $" commit --allow-empty -m x\"); return r.ExitCode.ToString();";
-            var commit = await _engine.ExecuteAsync(new ExecProgram(commitScript));
-            Assert.True(commit.Output.Trim() == "0",
-                $"expected exit 0 from git invoked with a multi-token single argument; got: " +
-                $"{commit.Output} {string.Join(';', commit.ErrorLines)}");
+          File.SetAttributes(f, FileAttributes.Normal);
         }
-        finally
-        {
-            // git marks its object files read-only; clear attributes before deleting.
-            try
-            {
-                foreach (var f in Directory.EnumerateFiles(tmp.FullName, "*", SearchOption.AllDirectories))
-                    File.SetAttributes(f, FileAttributes.Normal);
-                tmp.Delete(recursive: true);
-            }
-            catch { /* best effort */ }
-        }
+
+        tmp.Delete(recursive: true);
+      }
+      catch { /* best effort */ }
     }
+  }
 }

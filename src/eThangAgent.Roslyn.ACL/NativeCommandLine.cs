@@ -11,72 +11,90 @@ namespace eThangAgent.Roslyn.ACL;
 /// in-process and the process itself is spawned directly.</summary>
 public static class NativeCommandLine
 {
-    public static IReadOnlyList<string> Split(string commandLine)
+  public static IReadOnlyList<string> Split(string commandLine)
+  {
+    List<string> tokens = [];
+    if (string.IsNullOrEmpty(commandLine))
     {
-        var tokens = new List<string>();
-        if (string.IsNullOrEmpty(commandLine)) return tokens;
+      return tokens;
+    }
 
-        var current = new StringBuilder();
-        var inQuotes = false;
-        var tokenStarted = false;
-        var i = 0;
+    StringBuilder current = new();
+    bool inQuotes = false;
+    bool tokenStarted = false;
+    int i = 0;
 
-        while (i < commandLine.Length)
+    while (i < commandLine.Length)
+    {
+      char c = commandLine[i];
+
+      if (c is ' ' or '\t')
+      {
+        if (inQuotes)
         {
-            var c = commandLine[i];
-
-            if (c == ' ' || c == '\t')
-            {
-                if (inQuotes) current.Append(c);
-                else if (tokenStarted)
-                {
-                    tokens.Add(current.ToString());
-                    current.Clear();
-                    tokenStarted = false;
-                }
-                i++;
-                continue;
-            }
-
-            if (c == '"')
-            {
-                tokenStarted = true;
-                var backslashes = TrailingBackslashes(current);
-                if (backslashes > 0)
-                {
-                    current.Remove(current.Length - backslashes, backslashes);
-                    for (var k = 0; k < backslashes / 2; k++) current.Append('\\');
-                    if (backslashes % 2 == 1)
-                    {
-                        current.Append('"');   // odd run: the quote is literal
-                        i++;
-                        continue;
-                    }
-                }
-                else if (inQuotes && i + 1 < commandLine.Length && commandLine[i + 1] == '"')
-                {
-                    current.Append('"');       // doubled quote: one literal quote
-                    i += 2;
-                    continue;
-                }
-                inQuotes = !inQuotes;          // even run (or none): toggle quoting
-                i++;
-                continue;
-            }
-
-            tokenStarted = true;
-            current.Append(c);
-            i++;
+          _ = current.Append(c);
         }
+        else if (tokenStarted)
+        {
+          tokens.Add(current.ToString());
+          _ = current.Clear();
+          tokenStarted = false;
+        }
+        i++;
+        continue;
+      }
 
-        if (tokenStarted) tokens.Add(current.ToString());
-        return tokens;
+      if (c == '"')
+      {
+        tokenStarted = true;
+        int backslashes = TrailingBackslashes(current);
+        if (backslashes > 0)
+        {
+          _ = current.Remove(current.Length - backslashes, backslashes);
+          for (int k = 0; k < backslashes / 2; k++)
+          {
+            _ = current.Append('\\');
+          }
+
+          if (backslashes % 2 == 1)
+          {
+            _ = current.Append('"');   // odd run: the quote is literal
+            i++;
+            continue;
+          }
+        }
+        else if (inQuotes && i + 1 < commandLine.Length && commandLine[i + 1] == '"')
+        {
+          _ = current.Append('"');       // doubled quote: one literal quote
+          i += 2;
+          continue;
+        }
+        inQuotes = !inQuotes;          // even run (or none): toggle quoting
+        i++;
+        continue;
+      }
+
+      tokenStarted = true;
+      _ = current.Append(c);
+      i++;
     }
 
-    private static int TrailingBackslashes(StringBuilder sb)
+    if (tokenStarted)
     {
-        var n = 0;
-        while (n < sb.Length && sb[sb.Length - 1 - n] == '\\') n++;
-        return n;
+      tokens.Add(current.ToString());
     }
+
+    return tokens;
+  }
+
+  private static int TrailingBackslashes(StringBuilder sb)
+  {
+    int n = 0;
+    while (n < sb.Length && sb[sb.Length - 1 - n] == '\\')
+    {
+      n++;
+    }
+
+    return n;
+  }
 }

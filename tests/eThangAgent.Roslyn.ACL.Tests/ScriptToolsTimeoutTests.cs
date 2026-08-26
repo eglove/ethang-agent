@@ -1,6 +1,4 @@
 using eThangAgent.CapabilityDomain;
-using eThangAgent.Roslyn.ACL;
-using Xunit;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
 
@@ -11,136 +9,136 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 /// actions (the ITool-backed agent tools, incl. deliberately unbounded clarify) never are.</summary>
 public class ScriptToolsTimeoutTests
 {
-    private sealed class CapturingProvider : ICapabilityProvider
-    {
-        public string Id => "cap";
-        public string? LastJson { get; private set; }
-        public IReadOnlyList<ActionDescriptor> Actions { get; } =
-        [
-            new ActionDescriptor("do", "Does a thing.",
+  private sealed class CapturingProvider : ICapabilityProvider
+  {
+    public string Id => "cap";
+    public string? LastJson { get; private set; }
+    public IReadOnlyList<ActionDescriptor> Actions { get; } =
+    [
+        new ActionDescriptor("do", "Does a thing.",
                 "Contract text.", [new ActionParameter("x", "String", "Some value.")]),
         ];
-        public Task<CapabilityInvocationResult> InvokeAsync(string actionName,
-            string jsonArguments, CancellationToken ct = default)
-        {
-            LastJson = jsonArguments;
-            return Task.FromResult(CapabilityInvocationResult.Ok("done"));
-        }
-    }
-
-    private static (ScriptTools Tools, CapturingProvider Provider) Make()
+    public Task<CapabilityInvocationResult> InvokeAsync(string actionName,
+        string jsonArguments, CancellationToken ct = default)
     {
-        var provider = new CapturingProvider();
-        var registry = CapabilityRegistry.Create([provider]);
-        var globals = new ScriptGlobals(registry, ".", Path.GetTempPath());
-        return (globals.Tools, provider);
+      LastJson = jsonArguments;
+      return Task.FromResult(CapabilityInvocationResult.Ok("done"));
     }
+  }
 
-    [Fact]
-    public void MissingTimeout_FailsWithMissingParameter()
-    {
-        var (tools, _) = Make();
-        var result = tools.Invoke("do", new { x = "y" });
-        Assert.Contains("Error [MissingParameter]:", result);
-        Assert.Contains("timeoutSeconds", result);
-    }
+  private static (ScriptTools Tools, CapturingProvider Provider) Make()
+  {
+    CapturingProvider provider = new();
+    CapabilityRegistry registry = CapabilityRegistry.Create([provider]);
+    ScriptGlobals globals = new(registry, ".", Path.GetTempPath());
+    return (globals.Tools, provider);
+  }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-5)]
-    [InlineData(3601)]
-    public void OutOfRangeTimeout_Fails(int seconds)
-    {
-        var (tools, _) = Make();
-        var result = tools.Invoke("do", new { x = "y", timeoutSeconds = seconds });
-        Assert.Contains("Error [InvalidParameterValue]:", result);
-    }
+  [Fact]
+  public void MissingTimeout_FailsWithMissingParameter()
+  {
+    (ScriptTools? tools, CapturingProvider _) = Make();
+    string result = tools.Invoke("do", new { x = "y" });
+    Assert.Contains("Error [MissingParameter]:", result);
+    Assert.Contains("timeoutSeconds", result);
+  }
 
-    [Fact]
-    public void ValidTimeout_ReachesProvider_StrippedFromArguments()
-    {
-        var (tools, provider) = Make();
-        var result = tools.Invoke("do", new { x = "y", timeoutSeconds = 30 });
-        Assert.Equal("done", result);
-        Assert.NotNull(provider.LastJson);
-        Assert.DoesNotContain("timeoutSeconds", provider.LastJson!);
-        Assert.Contains("\"x\"", provider.LastJson);
-    }
+  [Theory]
+  [InlineData(0)]
+  [InlineData(-5)]
+  [InlineData(3601)]
+  public void OutOfRangeTimeout_Fails(int seconds)
+  {
+    (ScriptTools? tools, CapturingProvider _) = Make();
+    string result = tools.Invoke("do", new { x = "y", timeoutSeconds = seconds });
+    Assert.Contains("Error [InvalidParameterValue]:", result);
+  }
 
-    [Fact]
-    public async Task ElapsedTimeout_SurfacesAsToolTimeout()
-    {
-        var slow = new SlowProvider();
-        var registry = CapabilityRegistry.Create([slow]);
-        var globals = new ScriptGlobals(registry, ".", Path.GetTempPath());
+  [Fact]
+  public void ValidTimeout_ReachesProvider_StrippedFromArguments()
+  {
+    (ScriptTools? tools, CapturingProvider? provider) = Make();
+    string result = tools.Invoke("do", new { x = "y", timeoutSeconds = 30 });
+    Assert.Equal("done", result);
+    Assert.NotNull(provider.LastJson);
+    Assert.DoesNotContain("timeoutSeconds", provider.LastJson);
+    Assert.Contains("\"x\"", provider.LastJson);
+  }
 
-        var result = await Task.Run(() => globals.Tools.Invoke("slow", new { timeoutSeconds = 1 }));
+  [Fact]
+  public async Task ElapsedTimeout_SurfacesAsToolTimeout()
+  {
+    SlowProvider slow = new();
+    CapabilityRegistry registry = CapabilityRegistry.Create([slow]);
+    ScriptGlobals globals = new(registry, ".", Path.GetTempPath());
 
-        Assert.Contains("Error [ToolTimeout]:", result);
-    }
+    string result = await Task.Run(() => globals.Tools.Invoke("slow", new { timeoutSeconds = 1 }));
 
-    [Fact]
-    public void StringArguments_Form_EnforcesTimeoutToo()
-    {
-        var (tools, _) = Make();
-        var result = tools.Invoke("do", """{"x":"y"}""");
-        Assert.Contains("Error [MissingParameter]:", result);
-    }
+    Assert.Contains("Error [ToolTimeout]:", result);
+  }
 
-    [Fact]
-    public async Task SelfManagedAction_BeyondBudget_StillCompletes_NoToolTimeout()
-    {
-        var selfManaged = new DelayingProvider(TimeoutPolicy.SelfManaged);
-        var globals = new ScriptGlobals(
-            CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
+  [Fact]
+  public void StringArguments_Form_EnforcesTimeoutToo()
+  {
+    (ScriptTools? tools, CapturingProvider _) = Make();
+    string result = tools.Invoke("do", /*lang=json,strict*/ """{"x":"y"}""");
+    Assert.Contains("Error [MissingParameter]:", result);
+  }
 
-        // Budget elapses while the action runs — a HarnessEnforced action dies here;
-        // a SelfManaged action (clarify waiting on the human) completes regardless.
-        var result = await Task.Run(() => globals.Tools.Invoke("waiter", new { timeoutSeconds = 1 }));
+  [Fact]
+  public async Task SelfManagedAction_BeyondBudget_StillCompletes_NoToolTimeout()
+  {
+    DelayingProvider selfManaged = new(TimeoutPolicy.SelfManaged);
+    ScriptGlobals globals = new(
+        CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
 
-        Assert.Equal("late-but-done", result);
-    }
+    // Budget elapses while the action runs — a HarnessEnforced action dies here;
+    // a SelfManaged action (clarify waiting on the human) completes regardless.
+    string result = await Task.Run(() => globals.Tools.Invoke("waiter", new { timeoutSeconds = 1 }));
 
-    [Fact]
-    public void SelfManagedAction_StillRequiresValidBudget()
-    {
-        var selfManaged = new DelayingProvider(TimeoutPolicy.SelfManaged);
-        var globals = new ScriptGlobals(
-            CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
+    Assert.Equal("late-but-done", result);
+  }
 
-        var missing = globals.Tools.Invoke("waiter", new { });
-        Assert.Contains("Error [MissingParameter]:", missing);
-    }
+  [Fact]
+  public void SelfManagedAction_StillRequiresValidBudget()
+  {
+    DelayingProvider selfManaged = new(TimeoutPolicy.SelfManaged);
+    ScriptGlobals globals = new(
+        CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
 
-    /// <summary>Completes after 1.2s — beyond any 1-second budget.</summary>
-    private sealed class DelayingProvider(TimeoutPolicy policy) : ICapabilityProvider
-    {
-        public string Id => "delayer";
-        public IReadOnlyList<ActionDescriptor> Actions { get; } =
-        [
-            new ActionDescriptor("waiter", "Waits.", "Outlives its budget.",
+    string missing = globals.Tools.Invoke("waiter", new { });
+    Assert.Contains("Error [MissingParameter]:", missing);
+  }
+
+  /// <summary>Completes after 1.2s — beyond any 1-second budget.</summary>
+  private sealed class DelayingProvider(TimeoutPolicy policy) : ICapabilityProvider
+  {
+    public string Id => "delayer";
+    public IReadOnlyList<ActionDescriptor> Actions { get; } =
+    [
+        new ActionDescriptor("waiter", "Waits.", "Outlives its budget.",
                 [], RequiredParameters: null, Timeout: policy),
         ];
-        public async Task<CapabilityInvocationResult> InvokeAsync(string actionName,
-            string jsonArguments, CancellationToken ct = default)
-        {
-            await Task.Delay(1_200, CancellationToken.None);
-            return CapabilityInvocationResult.Ok("late-but-done");
-        }
-    }
-
-    private sealed class SlowProvider : ICapabilityProvider
+    public async Task<CapabilityInvocationResult> InvokeAsync(string actionName,
+        string jsonArguments, CancellationToken ct = default)
     {
-        public string Id => "slowp";
-        public IReadOnlyList<ActionDescriptor> Actions { get; } =
-        [
-            new ActionDescriptor("slow", "Takes forever.", "Never returns in time.", []),
-        ];
-        public async Task<CapabilityInvocationResult> InvokeAsync(string actionName,
-            string jsonArguments, CancellationToken ct = default)
-        {
-            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
-            return CapabilityInvocationResult.Ok("never");
-        }
+      await Task.Delay(1_200, CancellationToken.None);
+      return CapabilityInvocationResult.Ok("late-but-done");
     }
+  }
+
+  private sealed class SlowProvider : ICapabilityProvider
+  {
+    public string Id => "slowp";
+    public IReadOnlyList<ActionDescriptor> Actions { get; } =
+    [
+        new ActionDescriptor("slow", "Takes forever.", "Never returns in time.", []),
+        ];
+    public async Task<CapabilityInvocationResult> InvokeAsync(string actionName,
+        string jsonArguments, CancellationToken ct = default)
+    {
+      await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+      return CapabilityInvocationResult.Ok("never");
+    }
+  }
 }
