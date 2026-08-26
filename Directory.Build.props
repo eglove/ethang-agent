@@ -3,5 +3,21 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- No warnings. Ever. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- Run all CA analyzers + IDE style rules at build time;
+         .editorconfig escalates every diagnostic to error. -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-all</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!-- Required by EnforceCodeStyleInBuild so IDE0005 (unused usings) can be
+         evaluated at build time. Named decision: the doc file exists for that
+         analyzer, not as a documentation mandate — CS1591 (missing XML doc)
+         stays off. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 </Project>

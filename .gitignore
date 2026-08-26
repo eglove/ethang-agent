@@ -293,3 +293,6 @@ dist/
 
 # SonarScanner for .NET working directory (analysis config, output)
 .sonarqube/
+
+# Agent scratch space
+.work/

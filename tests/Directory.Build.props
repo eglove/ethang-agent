@@ -1,15 +1,25 @@
 <Project>
+  <!-- Chain to the repo-root props so warning/analyzer policy has one source of
+       truth (TFM, Nullable, TreatWarningsAsErrors are inherited, not duplicated);
+       then layer test-only settings and overrides below. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', $(MSBuildThisFileDirectory)..))" />
+
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.*" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
   </ItemGroup>
+
+  <!-- Test assemblies use the xUnit Method_Scenario_Expected naming convention,
+       which requires underscores. CA1707 stays enforced in src/; here it is
+       deliberately suppressed (named decision, not blanket leniency). -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
 </Project>
