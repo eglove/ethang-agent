@@ -21,6 +21,7 @@ jobs:
   build-test-coverage:
     name: Build & Test (coverage)
     runs-on: windows-latest
+    timeout-minutes: 30  # outer bound: no step may hold the runner hostage past this
 
     steps:
       - name: Set up JDK 17
@@ -70,7 +71,9 @@ jobs:
           ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"eglove_ethang-agent" /o:"eglove" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.cs.cobertura.reportPaths="./coverage/**/coverage.cobertura.xml"
           dotnet build eThangAgent.slnx -c Release --nologo
           $buildExit = $LASTEXITCODE
-          dotnet test eThangAgent.slnx -c Release --no-build --nologo --collect:"XPlat Code Coverage" --results-directory ./coverage
+          # Circuit breaker: a hung test produces a named dump instead of freezing
+          # the runner until the next push cancels it (runs 32923889217, 32918551633).
+          dotnet test eThangAgent.slnx -c Release --no-build --nologo --collect:"XPlat Code Coverage" --results-directory ./coverage --blame-hang-timeout 5m --blame-hang-dump-type mini
           $testExit = $LASTEXITCODE
           ${{ runner.temp }}\scanner\dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
           $endExit = $LASTEXITCODE

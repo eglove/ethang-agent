@@ -116,10 +116,17 @@ public class DesktopAgentCapabilityE2ETests
         // Parent script, keyed by the session model: spawn, status, poll-then-fetch result,
         // final text. Turn 3 polls status inside exec so the async child's terminal write is
         // observed before agent.result runs.
+        // The poll is BOUNDED: a child that settles failed/error never reports
+        // status=completed, and an unbounded loop here hung the whole test host on CI
+        // (run 32923889217). On timeout the last observed status becomes the exec
+        // result, so assertions fail with diagnostics instead of freezing forever.
         const string pollThenResult = """
-            var status = "";
-            while (!status.Contains("status=completed"))
+            var deadline = System.DateTime.UtcNow.AddSeconds(30);
+            var status = Tools.Invoke("agent.status", new { timeoutSeconds = 60, id = "{{child_id}}" });
+            while (!status.Contains("status=completed") && !status.Contains("status=failed"))
             {
+                if (System.DateTime.UtcNow > deadline)
+                    return "poll-timeout; last status: " + status;
                 await System.Threading.Tasks.Task.Delay(50);
                 status = Tools.Invoke("agent.status", new { timeoutSeconds = 60, id = "{{child_id}}" });
             }
@@ -136,7 +143,10 @@ public class DesktopAgentCapabilityE2ETests
             E2E.ExecToolCall("child_call_1", E2E.ExecProgram("return \"child report done\";")),
             RawCompletion("child report done"));
 
-        await host.Vm.RunTurnAsync("delegate a subtask and fetch its result");
+        // Bounded like every other settle gate: a stuck turn must fail the test,
+        // not hold the runner hostage (the only unbounded await left in the suite).
+        await host.Vm.RunTurnAsync("delegate a subtask and fetch its result")
+            .WaitAsync(TimeSpan.FromSeconds(120));
 
         var parentBodies = host.Mock.RequestBodies
             .Where(body => MockOpenRouterServer.TryGetRequestModel(body) == E2E.SessionModel)

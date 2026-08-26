@@ -1,0 +1,6 @@
+# Every text file is stored AND checked out with LF endings, on every OS.
+# The repo's blobs are already all-LF; pinning checkout prevents windows-latest
+# runners (where core.autocrlf=true is the image default) from materializing
+# CRLF working trees, which broke `dotnet format --verify-no-changes` and
+# newline-exact tool output tests - both only on CI, never locally.
+* text=auto eol=lf
