@@ -1,4 +1,3 @@
-using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -11,100 +10,103 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     bounded by a per-turn auto-continuation cap.</summary>
 public class AgentContinuationTests
 {
-    private static ModelConfig DefaultConfig =>
-        ModelConfig.Create("test-model", 100, 0.5f).Value!;
+  private static ModelConfig DefaultConfig =>
+      ModelConfig.Create("test-model", 100, 0.5f).Value!;
 
-    [Fact]
-    public async Task LengthTruncatedAnswer_AutoContinues_ToCompletion()
+  [Fact]
+  public async Task LengthTruncatedAnswer_AutoContinues_ToCompletion()
+  {
+    StreamingFakeProvider provider = new(
+        (["partial an"], new ModelResponse("partial answer cut off", [], FinishReason.Length)),
+        ([" and the rest"], new ModelResponse("partial answer cut off and the rest", [])));
+    Agent agent = new(provider, new Conversation(), DefaultConfig,
+        new ToolRegistry([]));
+
+    Result<string> result = await agent.SendMessage("hi", default);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal(2, provider.Calls);
+    // History order: partial assistant message, system continuation line, final answer.
+    IReadOnlyList<Message> messages = agent.Conversation.Messages;
+    Assert.Equal(Role.Assistant, messages[^3].Role);
+    Assert.Equal("partial answer cut off", messages[^3].Content);
+    Assert.Equal(Role.System, messages[^2].Role);
+    Assert.Contains("output limit", messages[^2].Content, StringComparison.Ordinal);
+    Assert.Equal(Role.Assistant, messages[^1].Role);
+    Assert.Equal("partial answer cut off and the rest", messages[^1].Content);
+  }
+
+  [Fact]
+  public async Task LengthTruncation_BeyondCap_Fails_WithMaxOutputContinuations()
+  {
+    AlwaysTruncatedProvider alwaysTruncated = new();
+    Agent agent = new(alwaysTruncated, new Conversation(), DefaultConfig,
+        new ToolRegistry([]), maxAutoContinuations: 2);
+
+    Result<string> result = await agent.SendMessage("hi", default);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("MaxOutputContinuations", result.Error!.Code);
+    Assert.Equal(3, alwaysTruncated.Calls); // initial + 2 continuations
+  }
+
+  [Fact]
+  public async Task StopFinishReason_DoesNotContinue()
+  {
+    StreamingFakeProvider provider = new(
+        ([], new ModelResponse("complete answer", [])));
+    Agent agent = new(provider, new Conversation(), DefaultConfig,
+        new ToolRegistry([]));
+
+    Result<string> result = await agent.SendMessage("hi", default);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal(1, provider.Calls);
+    Assert.DoesNotContain(agent.Conversation.Messages, m => m.Role == Role.System);
+  }
+
+  private sealed class StreamingFakeProvider(params (string[] Deltas, ModelResponse Response)[] turns)
+      : IModelProvider
+  {
+    private readonly Queue<(string[] Deltas, ModelResponse Response)> _turns = new(turns);
+    public int Calls { get; private set; }
+
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
+        CancellationToken ct = default)
+        => throw new NotSupportedException("the agent loop must use SendStreamingAsync.");
+
+    public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
+        Action<string>? onContentDelta = null,
+        Action<string>? onReasoningDelta = null,
+        CancellationToken ct = default)
     {
-        var provider = new StreamingFakeProvider(
-            (["partial an"], new ModelResponse("partial answer cut off", [], FinishReason.Length)),
-            ([" and the rest"], new ModelResponse("partial answer cut off and the rest", [])));
-        var agent = new Agent(provider, new Conversation(), DefaultConfig,
-            new ToolRegistry([]));
+      Calls++;
+      (string[]? deltas, ModelResponse? response) = _turns.Dequeue();
+      foreach (string delta in deltas)
+      {
+        onContentDelta?.Invoke(delta);
+      }
 
-        var result = await agent.SendMessage("hi", default);
-
-        Assert.True(result.IsSuccess);
-        Assert.Equal(2, provider.Calls);
-        // History order: partial assistant message, system continuation line, final answer.
-        var messages = agent.Conversation.Messages;
-        Assert.Equal(Role.Assistant, messages[^3].Role);
-        Assert.Equal("partial answer cut off", messages[^3].Content);
-        Assert.Equal(Role.System, messages[^2].Role);
-        Assert.Contains("output limit", messages[^2].Content);
-        Assert.Equal(Role.Assistant, messages[^1].Role);
-        Assert.Equal("partial answer cut off and the rest", messages[^1].Content);
+      return Task.FromResult(Result.Success<ModelResponse>(response));
     }
+  }
 
-    [Fact]
-    public async Task LengthTruncation_BeyondCap_Fails_WithMaxOutputContinuations()
+  private sealed class AlwaysTruncatedProvider : IModelProvider
+  {
+    public int Calls { get; private set; }
+
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
+        CancellationToken ct = default)
+        => throw new NotSupportedException("the agent loop must use SendStreamingAsync.");
+
+    public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
+        Action<string>? onContentDelta = null,
+        Action<string>? onReasoningDelta = null,
+        CancellationToken ct = default)
     {
-        var alwaysTruncated = new AlwaysTruncatedProvider();
-        var agent = new Agent(alwaysTruncated, new Conversation(), DefaultConfig,
-            new ToolRegistry([]), maxAutoContinuations: 2);
-
-        var result = await agent.SendMessage("hi", default);
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal("MaxOutputContinuations", result.Error!.Code);
-        Assert.Equal(3, alwaysTruncated.Calls); // initial + 2 continuations
+      Calls++;
+      return Task.FromResult(Result.Success<ModelResponse>(
+          new ModelResponse($"fragment {Calls}", [], FinishReason.Length)));
     }
-
-    [Fact]
-    public async Task StopFinishReason_DoesNotContinue()
-    {
-        var provider = new StreamingFakeProvider(
-            ([], new ModelResponse("complete answer", [])));
-        var agent = new Agent(provider, new Conversation(), DefaultConfig,
-            new ToolRegistry([]));
-
-        var result = await agent.SendMessage("hi", default);
-
-        Assert.True(result.IsSuccess);
-        Assert.Equal(1, provider.Calls);
-        Assert.DoesNotContain(agent.Conversation.Messages, m => m.Role == Role.System);
-    }
-
-    private sealed class StreamingFakeProvider(params (string[] Deltas, ModelResponse Response)[] turns)
-        : IModelProvider
-    {
-        private readonly Queue<(string[] Deltas, ModelResponse Response)> _turns = new(turns);
-        public int Calls { get; private set; }
-
-        public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
-            CancellationToken ct = default)
-            => throw new NotSupportedException("the agent loop must use SendStreamingAsync.");
-
-        public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
-            Action<string>? onContentDelta = null,
-            Action<string>? onReasoningDelta = null,
-            CancellationToken ct = default)
-        {
-            Calls++;
-            var (deltas, response) = _turns.Dequeue();
-            foreach (var delta in deltas)
-                onContentDelta?.Invoke(delta);
-            return Task.FromResult(Result<ModelResponse>.Success(response));
-        }
-    }
-
-    private sealed class AlwaysTruncatedProvider : IModelProvider
-    {
-        public int Calls { get; private set; }
-
-        public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
-            CancellationToken ct = default)
-            => throw new NotSupportedException("the agent loop must use SendStreamingAsync.");
-
-        public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
-            Action<string>? onContentDelta = null,
-            Action<string>? onReasoningDelta = null,
-            CancellationToken ct = default)
-        {
-            Calls++;
-            return Task.FromResult(Result<ModelResponse>.Success(
-                new ModelResponse($"fragment {Calls}", [], FinishReason.Length)));
-        }
-    }
+  }
 }

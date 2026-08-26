@@ -5,9 +5,9 @@ namespace eThangAgent.ModelDomain;
 ///     Length means the output-token budget was exhausted mid-response.</summary>
 public enum FinishReason
 {
-    Stop,
-    Length,
-    ToolCalls,
-    ContentFilter,
-    Unknown,
+  Stop,
+  Length,
+  ToolCalls,
+  ContentFilter,
+  Unknown,
 }

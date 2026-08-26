@@ -10,13 +10,17 @@ namespace eThangAgent.MemoryDomain;
 /// </summary>
 public static class LexicalTokenizer
 {
-    private static readonly Regex TokenPattern =
-        new("[\\p{L}\\p{N}_]+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(10));
+  private static readonly Regex TokenPattern =
+      new("[\\p{L}\\p{N}_]+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(10));
 
-    public static IReadOnlyList<string> Tokenize(string text)
+  public static IReadOnlyList<string> Tokenize(string text)
+  {
+    if (string.IsNullOrEmpty(text))
     {
-        if (string.IsNullOrEmpty(text)) return [];
-        var normalized = text.Normalize(NormalizationForm.FormKC);
-        return [.. TokenPattern.Matches(normalized).Select(m => m.Value.ToLowerInvariant())];
+      return [];
     }
+
+    string normalized = text.Normalize(NormalizationForm.FormKC);
+    return [.. TokenPattern.Matches(normalized).Select(m => m.Value.ToLowerInvariant())];
+  }
 }

@@ -4,14 +4,14 @@ namespace eThangAgent.ModelDomain;
 
 public sealed record ModelConfig(string ModelId, int MaxTokens, float Temperature)
 {
-    public static Result<ModelConfig> Create(string modelId, int maxTokens, float temperature)
-    {
-        if (string.IsNullOrWhiteSpace(modelId))
-            return Result<ModelConfig>.Failure(new Error("InvalidModel", "Model ID is required."));
-        if (maxTokens < 1)
-            return Result<ModelConfig>.Failure(new Error("InvalidModel", "MaxTokens must be positive."));
-        if (temperature < 0f || temperature > 2f)
-            return Result<ModelConfig>.Failure(new Error("InvalidModel", "Temperature must be between 0 and 2."));
-        return Result<ModelConfig>.Success(new ModelConfig(modelId, maxTokens, temperature));
-    }
+  public static Result<ModelConfig> Create(string modelId, int maxTokens, float temperature)
+  {
+    return string.IsNullOrWhiteSpace(modelId)
+      ? Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Model ID is required."))
+      : maxTokens < 1
+      ? Result.Failure<ModelConfig>(new DomainError("InvalidModel", "MaxTokens must be positive."))
+      : temperature is < 0f or > 2f
+      ? Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Temperature must be between 0 and 2."))
+      : Result.Success<ModelConfig>(new ModelConfig(modelId, maxTokens, temperature));
+  }
 }

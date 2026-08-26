@@ -10,17 +10,17 @@ namespace eThangAgent.AgentDomain;
 public sealed class AgentCapabilityProvider(
     IAgentSpawnCommand spawnCommand, IAgentQueries queries, Func<AgentRecord> parentContext) : ICapabilityProvider
 {
-    public const string ProviderId = "agent";
+  public const string ProviderId = "agent";
 
-    private readonly IAgentSpawnCommand _spawnCommand = spawnCommand ?? throw new ArgumentNullException(nameof(spawnCommand));
-    private readonly IAgentQueries _queries = queries ?? throw new ArgumentNullException(nameof(queries));
-    private readonly Func<AgentRecord> _parentContext = parentContext ?? throw new ArgumentNullException(nameof(parentContext));
+  private readonly IAgentSpawnCommand _spawnCommand = spawnCommand ?? throw new ArgumentNullException(nameof(spawnCommand));
+  private readonly IAgentQueries _queries = queries ?? throw new ArgumentNullException(nameof(queries));
+  private readonly Func<AgentRecord> _parentContext = parentContext ?? throw new ArgumentNullException(nameof(parentContext));
 
-    public string Id => ProviderId;
+  public string Id => ProviderId;
 
-    public IReadOnlyList<ActionDescriptor> Actions { get; } =
-    [
-        new("spawn", "Spawn a child agent that runs autonomously in the background and returns immediately.",
+  public IReadOnlyList<ActionDescriptor> Actions { get; } =
+  [
+      new("spawn", "Spawn a child agent that runs autonomously in the background and returns immediately.",
             """
             Starts a child agent on a self-contained task and returns right away — never wait on the spawn call itself. Continue useful work or fan out siblings, then poll status and fetch result. Children may spawn their own children; depth limit is 3.
             Start failures return canonical error lines: InvalidSpawnRequest, DepthExceeded, MissingModel, ConcurrencyCapReached.
@@ -53,184 +53,203 @@ public sealed class AgentCapabilityProvider(
             ]),
     ];
 
-    public async Task<CapabilityInvocationResult> InvokeAsync(
-        string actionName, string jsonArguments, CancellationToken ct = default)
+  public async Task<CapabilityInvocationResult> InvokeAsync(
+      string actionName, string jsonArguments, CancellationToken ct = default)
+  {
+    return actionName switch
     {
-        return actionName switch
-        {
-            "spawn" => await Spawn(jsonArguments, ct),
-            "status" => await Status(jsonArguments, ct),
-            "result" => await Result(jsonArguments, ct),
-            _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
-        };
-    }
-
-    /// <summary>Starts the child as an independent actor and returns immediately. The report is
-    ///     retrieved later through agent.status / agent.result; failures of the start itself are
-    ///     passed through as canonical error lines.</summary>
-    private async Task<CapabilityInvocationResult> Spawn(string json, CancellationToken ct)
-    {
-        var (request, parseError) = ParseArgs(json);
-        if (parseError is not null)
-            return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
-
-        var started = await _spawnCommand.Execute(_parentContext(), request!, ct);
-        return started.IsSuccess
-            ? CapabilityInvocationResult.Ok($"id={started.Value} status=running")
-            : CapabilityInvocationResult.Fail($"Error [{started.Error!.Code}]: {started.Error.Message}");
-    }
-
-    private async Task<CapabilityInvocationResult> Status(string json, CancellationToken ct)
-    {
-        var id = ParseIdArgument(json);
-        if (!id.IsSuccess)
-            return CapabilityInvocationResult.Fail($"Error [{id.Error!.Code}]: {id.Error.Message}");
-
-        var lookup = await _queries.GetStatus(id.Value, ct);
-        return lookup.IsSuccess
-            ? CapabilityInvocationResult.Ok(StateLine(lookup.Value!))
-            : CapabilityInvocationResult.Fail($"Error [{lookup.Error!.Code}]: {lookup.Error.Message}");
-    }
-
-    private async Task<CapabilityInvocationResult> Result(string json, CancellationToken ct)
-    {
-        var id = ParseIdArgument(json);
-        if (!id.IsSuccess)
-            return CapabilityInvocationResult.Fail($"Error [{id.Error!.Code}]: {id.Error.Message}");
-
-        var report = await _queries.GetResult(id.Value, ct);
-        return report.IsSuccess
-            ? CapabilityInvocationResult.Ok(report.Value!)
-            : CapabilityInvocationResult.Fail($"Error [{report.Error!.Code}]: {report.Error.Message}");
-    }
-
-    /// <summary>Renders the status output contract: the state line, plus the reason suffix
-    ///     exactly when status=failed. A Failed row without a reason violates the record
-    ///     invariant and aborts loudly rather than inventing output.</summary>
-    private static string StateLine(AgentRecord record) => record.Status switch
-    {
-        AgentStatus.Running => $"id={record.Id} status=running",
-        AgentStatus.Completed => $"id={record.Id} status=completed",
-        AgentStatus.Failed => $"id={record.Id} status=failed reason={ReasonText(record.FailureReason)}",
-        _ => throw new InvalidOperationException($"Unknown agent status '{record.Status}' for agent '{record.Id}'."),
+      "spawn" => await Spawn(jsonArguments, ct).ConfigureAwait(false),
+      "status" => await Status(jsonArguments, ct).ConfigureAwait(false),
+      "result" => await GetResult(jsonArguments, ct).ConfigureAwait(false),
+      _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
     };
+  }
 
-    private static string ReasonText(AgentFailureReason? reason) => reason switch
+  /// <summary>Starts the child as an independent actor and returns immediately. The report is
+  ///     retrieved later through agent.status / agent.result; failures of the start itself are
+  ///     passed through as canonical error lines.</summary>
+  private async Task<CapabilityInvocationResult> Spawn(string json, CancellationToken ct)
+  {
+    (SpawnRequest? request, string? parseError) = ParseArgs(json);
+    if (parseError is not null)
     {
-        AgentFailureReason.MaxIterations => "max-iterations",
-        AgentFailureReason.Timeout => "timeout",
-        AgentFailureReason.ProviderError => "provider-error",
-        AgentFailureReason.Interrupted => "interrupted",
-        _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
-    };
-
-    /// <summary>Ids cross into the domain strictly: a JSON object carrying exactly one "id"
-    ///     member whose value is a Guid in "D" format. Anything else is a typed argument
-    ///     error — never coerced, defaulted, or clamped.</summary>
-    private static Result<AgentId> ParseIdArgument(string json)
-    {
-        JsonDocument doc;
-        try
-        {
-            doc = JsonDocument.Parse(json);
-        }
-        catch (JsonException)
-        {
-            return Result<AgentId>.Failure(new Error("InvalidActionInput",
-                "arguments must be a valid JSON object."));
-        }
-
-        using (doc)
-        {
-            if (doc.RootElement.ValueKind is not JsonValueKind.Object)
-                return Result<AgentId>.Failure(new Error("InvalidActionInput",
-                    "arguments must be a JSON object."));
-
-            var allowed = new HashSet<string>(StringComparer.Ordinal) { "id" };
-            var unknown = doc.RootElement.EnumerateObject()
-                .Where(p => !allowed.Contains(p.Name))
-                .Select(p => p.Name)
-                .ToArray();
-            if (unknown.Length > 0)
-                return Result<AgentId>.Failure(new Error("InvalidActionInput",
-                    $"unknown parameter(s): {string.Join(", ", unknown)}."));
-
-            if (!doc.RootElement.TryGetProperty("id", out var el)
-                || el.ValueKind is not JsonValueKind.String
-                || el.GetString() is not { } raw
-                || !Guid.TryParseExact(raw, "D", out var guid))
-                return Result<AgentId>.Failure(new Error("InvalidArgument",
-                    "'id' must be a GUID string."));
-
-            return Result<AgentId>.Success(new AgentId(guid));
-        }
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
     }
 
-    private static (SpawnRequest? Request, string? Error) ParseArgs(string json)
+    Result<AgentId> started = await _spawnCommand.Execute(_parentContext(), request!, ct).ConfigureAwait(false);
+    return started.IsSuccess
+        ? CapabilityInvocationResult.Ok($"id={started.Value} status=running")
+        : CapabilityInvocationResult.Fail($"Error [{started.Error!.Code}]: {started.Error.Message}");
+  }
+
+  private async Task<CapabilityInvocationResult> Status(string json, CancellationToken ct)
+  {
+    Result<AgentId> id = ParseIdArgument(json);
+    if (!id.IsSuccess)
     {
-        JsonDocument doc;
-        try
-        {
-            doc = JsonDocument.Parse(json);
-        }
-        catch (JsonException)
-        {
-            return (null, "arguments must be a valid JSON object.");
-        }
-
-        using (doc)
-        {
-            if (doc.RootElement.ValueKind is not JsonValueKind.Object)
-                return (null, "arguments must be a JSON object.");
-
-            var allowed = new HashSet<string>(StringComparer.Ordinal) { "taskPrompt", "model", "label" };
-            var unknown = doc.RootElement.EnumerateObject()
-                .Where(p => !allowed.Contains(p.Name))
-                .Select(p => p.Name)
-                .ToArray();
-            if (unknown.Length > 0)
-                return (null, $"unknown parameter(s): {string.Join(", ", unknown)}.");
-
-            if (!TryGetString(doc.RootElement, "taskPrompt", required: true, out var taskPrompt, out var tpError))
-                return (null, tpError);
-            if (!TryGetString(doc.RootElement, "model", required: false, out var model, out var modelError))
-                return (null, modelError);
-            if (!TryGetString(doc.RootElement, "label", required: false, out var label, out var labelError))
-                return (null, labelError);
-
-            return (new SpawnRequest(taskPrompt!, string.IsNullOrEmpty(model) ? null : model,
-                string.IsNullOrEmpty(label) ? null : label), null);
-        }
+      return CapabilityInvocationResult.Fail($"Error [{id.Error!.Code}]: {id.Error.Message}");
     }
 
-    private static bool TryGetString(JsonElement root, string name, bool required, out string? value, out string? error)
+    Result<AgentRecord> lookup = await _queries.GetStatus(id.Value, ct).ConfigureAwait(false);
+    return lookup.IsSuccess
+        ? CapabilityInvocationResult.Ok(StateLine(lookup.Value!))
+        : CapabilityInvocationResult.Fail($"Error [{lookup.Error!.Code}]: {lookup.Error.Message}");
+  }
+
+  private async Task<CapabilityInvocationResult> GetResult(string json, CancellationToken ct)
+  {
+    Result<AgentId> id = ParseIdArgument(json);
+    if (!id.IsSuccess)
     {
-        value = null;
-        error = null;
-        if (!root.TryGetProperty(name, out var el))
-        {
-            if (required)
-                error = $"{name} is required and must be a non-empty string.";
-            return !required;
-        }
-
-        if (el.ValueKind is not JsonValueKind.String)
-        {
-            error = $"{name} must be a string.";
-            return false;
-        }
-
-        var s = el.GetString();
-        if (string.IsNullOrWhiteSpace(s))
-        {
-            if (required || s is not null)
-            {
-                error = $"{name} must be a non-empty string.";
-                return false;
-            }
-        }
-
-        value = s;
-        return true;
+      return CapabilityInvocationResult.Fail($"Error [{id.Error!.Code}]: {id.Error.Message}");
     }
+
+    Result<string> report = await _queries.GetResult(id.Value, ct).ConfigureAwait(false);
+    return report.IsSuccess
+        ? CapabilityInvocationResult.Ok(report.Value!)
+        : CapabilityInvocationResult.Fail($"Error [{report.Error!.Code}]: {report.Error.Message}");
+  }
+
+  /// <summary>Renders the status output contract: the state line, plus the reason suffix
+  ///     exactly when status=failed. A Failed row without a reason violates the record
+  ///     invariant and aborts loudly rather than inventing output.</summary>
+  private static string StateLine(AgentRecord record) => record.Status switch
+  {
+    AgentStatus.Running => $"id={record.Id} status=running",
+    AgentStatus.Completed => $"id={record.Id} status=completed",
+    AgentStatus.Failed => $"id={record.Id} status=failed reason={ReasonText(record.FailureReason)}",
+    _ => throw new InvalidOperationException($"Unknown agent status '{record.Status}' for agent '{record.Id}'."),
+  };
+
+  private static string ReasonText(AgentFailureReason? reason) => reason switch
+  {
+    AgentFailureReason.MaxIterations => "max-iterations",
+    AgentFailureReason.Timeout => "timeout",
+    AgentFailureReason.ProviderError => "provider-error",
+    AgentFailureReason.Interrupted => "interrupted",
+    _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
+  };
+
+  /// <summary>Ids cross into the domain strictly: a JSON object carrying exactly one "id"
+  ///     member whose value is a Guid in "D" format. Anything else is a typed argument
+  ///     error — never coerced, defaulted, or clamped.</summary>
+  private static Result<AgentId> ParseIdArgument(string json)
+  {
+    JsonDocument doc;
+    try
+    {
+      doc = JsonDocument.Parse(json);
+    }
+    catch (JsonException)
+    {
+      return Result.Failure<AgentId>(new DomainError("InvalidActionInput",
+          "arguments must be a valid JSON object."));
+    }
+
+    using (doc)
+    {
+      if (doc.RootElement.ValueKind is not JsonValueKind.Object)
+      {
+        return Result.Failure<AgentId>(new DomainError("InvalidActionInput",
+            "arguments must be a JSON object."));
+      }
+
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "id" };
+      string[] unknown = [.. doc.RootElement.EnumerateObject()
+          .Where(p => !allowed.Contains(p.Name))
+          .Select(p => p.Name)];
+      return unknown.Length > 0
+        ? Result.Failure<AgentId>(new DomainError("InvalidActionInput",
+            $"unknown parameter(s): {string.Join(", ", unknown)}."))
+        : !doc.RootElement.TryGetProperty("id", out JsonElement el)
+          || el.ValueKind is not JsonValueKind.String
+          || el.GetString() is not { } raw
+          || !Guid.TryParseExact(raw, "D", out Guid guid)
+        ? Result.Failure<AgentId>(new DomainError("InvalidArgument",
+            "'id' must be a GUID string."))
+        : Result.Success<AgentId>(new AgentId(guid));
+    }
+  }
+
+  private static (SpawnRequest? Request, string? DomainError) ParseArgs(string json)
+  {
+    JsonDocument doc;
+    try
+    {
+      doc = JsonDocument.Parse(json);
+    }
+    catch (JsonException)
+    {
+      return (null, "arguments must be a valid JSON object.");
+    }
+
+    using (doc)
+    {
+      if (doc.RootElement.ValueKind is not JsonValueKind.Object)
+      {
+        return (null, "arguments must be a JSON object.");
+      }
+
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "taskPrompt", "model", "label" };
+      string[] unknown = [.. doc.RootElement.EnumerateObject()
+          .Where(p => !allowed.Contains(p.Name))
+          .Select(p => p.Name)];
+      if (unknown.Length > 0)
+      {
+        return (null, $"unknown parameter(s): {string.Join(", ", unknown)}.");
+      }
+
+      if (!TryGetString(doc.RootElement, "taskPrompt", required: true, out string? taskPrompt, out string? tpError))
+      {
+        return (null, tpError);
+      }
+
+      if (!TryGetString(doc.RootElement, "model", required: false, out string? model, out string? modelError))
+      {
+        return (null, modelError);
+      }
+
+      if (!TryGetString(doc.RootElement, "label", required: false, out string? label, out string? labelError))
+      {
+        return (null, labelError);
+      }
+
+      return (new SpawnRequest(taskPrompt!, string.IsNullOrEmpty(model) ? null : model,
+          string.IsNullOrEmpty(label) ? null : label), null);
+    }
+  }
+
+  private static bool TryGetString(JsonElement root, string name, bool required, out string? value, out string? error)
+  {
+    value = null;
+    error = null;
+    if (!root.TryGetProperty(name, out JsonElement el))
+    {
+      if (required)
+      {
+        error = $"{name} is required and must be a non-empty string.";
+      }
+
+      return !required;
+    }
+
+    if (el.ValueKind is not JsonValueKind.String)
+    {
+      error = $"{name} must be a string.";
+      return false;
+    }
+
+    string? s = el.GetString();
+    if (string.IsNullOrWhiteSpace(s))
+    {
+      if (required || s is not null)
+      {
+        error = $"{name} must be a non-empty string.";
+        return false;
+      }
+    }
+
+    value = s;
+    return true;
+  }
 }

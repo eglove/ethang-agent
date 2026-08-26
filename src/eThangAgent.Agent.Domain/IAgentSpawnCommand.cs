@@ -7,5 +7,5 @@ namespace eThangAgent.AgentDomain;
 ///     Implemented by StartSpawnHandler; faked in tests.</summary>
 public interface IAgentSpawnCommand
 {
-    Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default);
+  Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default);
 }

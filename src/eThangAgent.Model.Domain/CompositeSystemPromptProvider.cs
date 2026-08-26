@@ -1,14 +1,11 @@
 namespace eThangAgent.ModelDomain;
 
-public sealed class CompositeSystemPromptProvider : ISystemPromptProvider
+public sealed class CompositeSystemPromptProvider(IEnumerable<ISystemPromptProvider> providers) : ISystemPromptProvider
 {
-    private readonly IReadOnlyList<ISystemPromptProvider> _providers;
+  private readonly IReadOnlyList<ISystemPromptProvider> _providers = [.. providers];
 
-    public CompositeSystemPromptProvider(IEnumerable<ISystemPromptProvider> providers)
-        => _providers = providers.ToList();
-
-    public string Build()
-        => string.Join("\n\n", _providers
-            .Select(p => p.Build())
-            .Where(s => !string.IsNullOrWhiteSpace(s)));
+  public string Build()
+      => string.Join("\n\n", _providers
+          .Select(p => p.Build())
+          .Where(s => !string.IsNullOrWhiteSpace(s)));
 }

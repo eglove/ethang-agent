@@ -10,38 +10,40 @@ namespace eThangAgent.AgentDomain;
 /// </summary>
 public interface IAgentInbox
 {
-    /// <summary>Queues a steering message for delivery at the next safe point. Null, empty,
-    /// or whitespace text is rejected.</summary>
-    void Post(string text);
+  /// <summary>Queues a steering message for delivery at the next safe point. Null, empty,
+  /// or whitespace text is rejected.</summary>
+  void Post(string text);
 
-    /// <summary>Takes the oldest queued message, or returns false when the inbox is empty.</summary>
-    bool TryTake(out string text);
+  /// <summary>Takes the oldest queued message, or returns false when the inbox is empty.</summary>
+  bool TryTake(out string text);
 }
 
 /// <summary>Default lock-guarded inbox. One instance per agent session.</summary>
 public sealed class AgentInbox : IAgentInbox
 {
-    private readonly object _gate = new();
-    private readonly Queue<string> _pending = [];
+  private readonly Lock _gate = new();
+  private readonly Queue<string> _pending = [];
 
-    public void Post(string text)
+  public void Post(string text)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(text);
+    lock (_gate)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
-        lock (_gate)
-            _pending.Enqueue(text);
+      _pending.Enqueue(text);
     }
+  }
 
-    public bool TryTake(out string text)
+  public bool TryTake(out string text)
+  {
+    lock (_gate)
     {
-        lock (_gate)
-        {
-            if (_pending.Count == 0)
-            {
-                text = "";
-                return false;
-            }
-            text = _pending.Dequeue();
-            return true;
-        }
+      if (_pending.Count == 0)
+      {
+        text = "";
+        return false;
+      }
+      text = _pending.Dequeue();
+      return true;
     }
+  }
 }

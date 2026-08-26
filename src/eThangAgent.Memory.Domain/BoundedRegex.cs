@@ -19,61 +19,69 @@ namespace eThangAgent.MemoryDomain;
 /// </remarks>
 public static class BoundedRegex
 {
-    public const int MaxPatternBytes = 1024;
-    public const int MaxHaystackBytes = 2 * 1024 * 1024;
-    public const int TimeoutMs = 250;
+  public const int MaxPatternBytes = 1024;
+  public const int MaxHaystackBytes = 2 * 1024 * 1024;
+  public const int TimeoutMs = 250;
 
-    /// <summary>
-    /// Returns the indices of every haystack matched by <paramref name="pattern"/>,
-    /// or a typed failure: oversized pattern, unparseable pattern, or timeout.
-    /// A timeout ends the run immediately — later haystacks are not tested.
-    /// </summary>
-    public static Result<IReadOnlyList<int>> Execute(string pattern, IReadOnlyList<string> haystacks)
+  /// <summary>
+  /// Returns the indices of every haystack matched by <paramref name="pattern"/>,
+  /// or a typed failure: oversized pattern, unparseable pattern, or timeout.
+  /// A timeout ends the run immediately — later haystacks are not tested.
+  /// </summary>
+  public static Result<IReadOnlyList<int>> Execute(string pattern, IReadOnlyList<string> haystacks)
+  {
+    if (haystacks is null || haystacks.Count == 0)
     {
-        if (haystacks is null || haystacks.Count == 0)
-            return Result<IReadOnlyList<int>>.Success([]);
-
-        if (Encoding.UTF8.GetByteCount(pattern) > MaxPatternBytes)
-            return Result<IReadOnlyList<int>>.Failure(
-                new Error("regex_pattern_too_large", $"Regex pattern exceeds {MaxPatternBytes} bytes."));
-
-        Regex regex;
-        try
-        {
-            regex = new Regex(
-                pattern,
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-                TimeSpan.FromMilliseconds(TimeoutMs));
-        }
-        catch (ArgumentException ex)
-        {
-            return Result<IReadOnlyList<int>>.Failure(new Error("invalid_regex", ex.Message));
-        }
-
-        List<int> matches = [];
-        for (var index = 0; index < haystacks.Count; index++)
-        {
-            var content = haystacks[index];
-
-            // Per-entry budget: content past the cap is truncated to its first
-            // MaxHaystackBytes characters before testing. Char-based truncation is a
-            // deliberate simplification (see type remarks); the tail beyond the cap
-            // is never searched.
-            if (Encoding.UTF8.GetByteCount(content) > MaxHaystackBytes)
-                content = content[..MaxHaystackBytes];
-
-            try
-            {
-                if (regex.IsMatch(content))
-                    matches.Add(index);
-            }
-            catch (RegexMatchTimeoutException)
-            {
-                return Result<IReadOnlyList<int>>.Failure(
-                    new Error("regex_timeout", $"Regex exceeded the {TimeoutMs} ms budget."));
-            }
-        }
-
-        return Result<IReadOnlyList<int>>.Success(matches);
+      return Result.Success<IReadOnlyList<int>>([]);
     }
+
+    if (Encoding.UTF8.GetByteCount(pattern) > MaxPatternBytes)
+    {
+      return Result.Failure<IReadOnlyList<int>>(
+          new DomainError("regex_pattern_too_large", $"Regex pattern exceeds {MaxPatternBytes} bytes."));
+    }
+
+    Regex regex;
+    try
+    {
+      regex = new Regex(
+          pattern,
+          RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+          TimeSpan.FromMilliseconds(TimeoutMs));
+    }
+    catch (ArgumentException ex)
+    {
+      return Result.Failure<IReadOnlyList<int>>(new DomainError("invalid_regex", ex.Message));
+    }
+
+    List<int> matches = [];
+    for (int index = 0; index < haystacks.Count; index++)
+    {
+      string content = haystacks[index];
+
+      // Per-entry budget: content past the cap is truncated to its first
+      // MaxHaystackBytes characters before testing. Char-based truncation is a
+      // deliberate simplification (see type remarks); the tail beyond the cap
+      // is never searched.
+      if (Encoding.UTF8.GetByteCount(content) > MaxHaystackBytes)
+      {
+        content = content[..MaxHaystackBytes];
+      }
+
+      try
+      {
+        if (regex.IsMatch(content))
+        {
+          matches.Add(index);
+        }
+      }
+      catch (RegexMatchTimeoutException)
+      {
+        return Result.Failure<IReadOnlyList<int>>(
+            new DomainError("regex_timeout", $"Regex exceeded the {TimeoutMs} ms budget."));
+      }
+    }
+
+    return Result.Success<IReadOnlyList<int>>(matches);
+  }
 }

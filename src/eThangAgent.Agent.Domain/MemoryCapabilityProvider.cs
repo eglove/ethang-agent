@@ -11,20 +11,20 @@ namespace eThangAgent.AgentDomain;
 public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMemorySessionsQuery sessionsQuery)
     : ICapabilityProvider
 {
-    public const string ProviderId = "memory";
+  public const string ProviderId = "memory";
 
-    private const int MaxSnippetLength = 120;
+  private const int MaxSnippetLength = 120;
 
-    private readonly IMemoryRecallQuery _recallQuery =
-        recallQuery ?? throw new ArgumentNullException(nameof(recallQuery));
-    private readonly IMemorySessionsQuery _sessionsQuery =
-        sessionsQuery ?? throw new ArgumentNullException(nameof(sessionsQuery));
+  private readonly IMemoryRecallQuery _recallQuery =
+      recallQuery ?? throw new ArgumentNullException(nameof(recallQuery));
+  private readonly IMemorySessionsQuery _sessionsQuery =
+      sessionsQuery ?? throw new ArgumentNullException(nameof(sessionsQuery));
 
-    public string Id => ProviderId;
+  public string Id => ProviderId;
 
-    public IReadOnlyList<ActionDescriptor> Actions { get; } =
-    [
-        new("recall", "Search persisted conversation transcripts across sessions.",
+  public IReadOnlyList<ActionDescriptor> Actions { get; } =
+  [
+      new("recall", "Search persisted conversation transcripts across sessions.",
             """
             All arguments optional except none; empty query browses. Hits render annotation-style, one per line: [mem] session=<id> seq=<n> role=<r> <snippet≤120 chars>, followed by a --- memory: <total> hits, page <p>/<pages> --- footer. Regex failures render their typed error line.
             Output contract:
@@ -55,158 +55,204 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
             ]),
     ];
 
-    public async Task<CapabilityInvocationResult> InvokeAsync(
-        string actionName, string jsonArguments, CancellationToken ct = default)
+  public async Task<CapabilityInvocationResult> InvokeAsync(
+      string actionName, string jsonArguments, CancellationToken ct = default)
+  {
+    return actionName switch
     {
-        return actionName switch
-        {
-            "recall" => await Recall(jsonArguments, ct),
-            "sessions" => await Sessions(jsonArguments, ct),
-            _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
-        };
+      "recall" => await Recall(jsonArguments, ct).ConfigureAwait(false),
+      "sessions" => await Sessions(jsonArguments, ct).ConfigureAwait(false),
+      _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
+    };
+  }
+
+  private async Task<CapabilityInvocationResult> Recall(string json, CancellationToken ct)
+  {
+    Result<JsonElement> root = ParseObjectRoot(json);
+    if (!root.IsSuccess)
+    {
+      return Fail(root.Error!);
     }
 
-    private async Task<CapabilityInvocationResult> Recall(string json, CancellationToken ct)
-    {
-        var root = ParseObjectRoot(json);
-        if (!root.IsSuccess)
-            return Fail(root.Error!);
-
-        var allowed = new HashSet<string>(StringComparer.Ordinal)
+    HashSet<string> allowed = new(StringComparer.Ordinal)
             { "query", "queryMode", "scope", "branches", "role", "page", "pageSize" };
-        if (UnknownArgument(root.Value!, allowed) is { } unknown)
-            return Fail(new Error("InvalidArgument", $"unknown argument '{unknown}'."));
-
-        var query = OptionalString(root.Value!, "query");
-        if (!query.IsSuccess) return Fail(query.Error!);
-        var queryMode = OptionalString(root.Value!, "queryMode");
-        if (!queryMode.IsSuccess) return Fail(queryMode.Error!);
-        var scope = OptionalString(root.Value!, "scope");
-        if (!scope.IsSuccess) return Fail(scope.Error!);
-        var branches = OptionalString(root.Value!, "branches");
-        if (!branches.IsSuccess) return Fail(branches.Error!);
-        var role = OptionalString(root.Value!, "role");
-        if (!role.IsSuccess) return Fail(role.Error!);
-        var page = OptionalNumber(root.Value!, "page", fallback: 1);
-        if (!page.IsSuccess) return Fail(page.Error!);
-        var pageSize = OptionalNumber(root.Value!, "pageSize", fallback: 25);
-        if (!pageSize.IsSuccess) return Fail(pageSize.Error!);
-
-        var recalled = await _recallQuery.Execute(
-            query.Value, queryMode.Value ?? "literal", scope.Value ?? "global",
-            branches.Value ?? "active", role.Value, page.Value, pageSize.Value, ct);
-        return recalled.IsSuccess
-            ? CapabilityInvocationResult.Ok(RenderPage(recalled.Value!))
-            : Fail(recalled.Error!);
+    if (UnknownArgument(root.Value!, allowed) is { } unknown)
+    {
+      return Fail(new DomainError("InvalidArgument", $"unknown argument '{unknown}'."));
     }
 
-    private async Task<CapabilityInvocationResult> Sessions(string json, CancellationToken ct)
+    Result<string?> query = OptionalString(root.Value!, "query");
+    if (!query.IsSuccess)
     {
-        var root = ParseObjectRoot(json);
-        if (!root.IsSuccess)
-            return Fail(root.Error!);
-
-        var allowed = new HashSet<string>(StringComparer.Ordinal) { "scope", "branches", "limit" };
-        if (UnknownArgument(root.Value!, allowed) is { } unknown)
-            return Fail(new Error("InvalidArgument", $"unknown argument '{unknown}'."));
-
-        var scope = OptionalString(root.Value!, "scope");
-        if (!scope.IsSuccess) return Fail(scope.Error!);
-        var branches = OptionalString(root.Value!, "branches");
-        if (!branches.IsSuccess) return Fail(branches.Error!);
-        var limit = OptionalNumber(root.Value!, "limit", fallback: 50);
-        if (!limit.IsSuccess) return Fail(limit.Error!);
-
-        var listed = await _sessionsQuery.Execute(
-            scope.Value ?? "global", branches.Value ?? "active", limit.Value, ct);
-        return listed.IsSuccess
-            ? CapabilityInvocationResult.Ok(RenderSummaries(listed.Value!))
-            : Fail(listed.Error!);
+      return Fail(query.Error!);
     }
 
-    /// <summary>Renders the recall output contract: one annotation line per hit, then the
-    ///     paging footer. A zero-hit page renders the footer alone.</summary>
-    private static string RenderPage(RecallPage page)
+    Result<string?> queryMode = OptionalString(root.Value!, "queryMode");
+    if (!queryMode.IsSuccess)
     {
-        List<string> lines = [.. page.Hits.Select(hit =>
+      return Fail(queryMode.Error!);
+    }
+
+    Result<string?> scope = OptionalString(root.Value!, "scope");
+    if (!scope.IsSuccess)
+    {
+      return Fail(scope.Error!);
+    }
+
+    Result<string?> branches = OptionalString(root.Value!, "branches");
+    if (!branches.IsSuccess)
+    {
+      return Fail(branches.Error!);
+    }
+
+    Result<string?> role = OptionalString(root.Value!, "role");
+    if (!role.IsSuccess)
+    {
+      return Fail(role.Error!);
+    }
+
+    Result<int> page = OptionalNumber(root.Value!, "page", fallback: 1);
+    if (!page.IsSuccess)
+    {
+      return Fail(page.Error!);
+    }
+
+    Result<int> pageSize = OptionalNumber(root.Value!, "pageSize", fallback: 25);
+    if (!pageSize.IsSuccess)
+    {
+      return Fail(pageSize.Error!);
+    }
+
+    Result<RecallPage> recalled = await _recallQuery.Execute(
+        query.Value, queryMode.Value ?? "literal", scope.Value ?? "global",
+        branches.Value ?? "active", role.Value, page.Value, pageSize.Value, ct).ConfigureAwait(false);
+    return recalled.IsSuccess
+        ? CapabilityInvocationResult.Ok(RenderPage(recalled.Value!))
+        : Fail(recalled.Error!);
+  }
+
+  private async Task<CapabilityInvocationResult> Sessions(string json, CancellationToken ct)
+  {
+    Result<JsonElement> root = ParseObjectRoot(json);
+    if (!root.IsSuccess)
+    {
+      return Fail(root.Error!);
+    }
+
+    HashSet<string> allowed = new(StringComparer.Ordinal) { "scope", "branches", "limit" };
+    if (UnknownArgument(root.Value!, allowed) is { } unknown)
+    {
+      return Fail(new DomainError("InvalidArgument", $"unknown argument '{unknown}'."));
+    }
+
+    Result<string?> scope = OptionalString(root.Value!, "scope");
+    if (!scope.IsSuccess)
+    {
+      return Fail(scope.Error!);
+    }
+
+    Result<string?> branches = OptionalString(root.Value!, "branches");
+    if (!branches.IsSuccess)
+    {
+      return Fail(branches.Error!);
+    }
+
+    Result<int> limit = OptionalNumber(root.Value!, "limit", fallback: 50);
+    if (!limit.IsSuccess)
+    {
+      return Fail(limit.Error!);
+    }
+
+    Result<IReadOnlyList<SessionSummary>> listed = await _sessionsQuery.Execute(
+        scope.Value ?? "global", branches.Value ?? "active", limit.Value, ct).ConfigureAwait(false);
+    return listed.IsSuccess
+        ? CapabilityInvocationResult.Ok(RenderSummaries(listed.Value!))
+        : Fail(listed.Error!);
+  }
+
+  /// <summary>Renders the recall output contract: one annotation line per hit, then the
+  ///     paging footer. A zero-hit page renders the footer alone.</summary>
+  private static string RenderPage(RecallPage page)
+  {
+    List<string> lines = [.. page.Hits.Select(hit =>
             $"[mem] session={hit.Session} seq={hit.Seq} role={hit.Role} {Snippet(hit.Content)}")];
-        lines.Add($"--- memory: {page.TotalMatched} hits, page {page.Page}/{page.Pages} ---");
-        return string.Join("\n", lines);
-    }
+    lines.Add($"--- memory: {page.TotalMatched} hits, page {page.Page}/{page.Pages} ---");
+    return string.Join("\n", lines);
+  }
 
-    /// <summary>Newlines collapse to single spaces so one hit stays exactly one output line;
-    ///     longer content truncates at 120 characters rather than wrapping.</summary>
-    private static string Snippet(string content)
+  /// <summary>Newlines collapse to single spaces so one hit stays exactly one output line;
+  ///     longer content truncates at 120 characters rather than wrapping.</summary>
+  private static string Snippet(string content)
+  {
+    string collapsed = content.Replace('\r', ' ').Replace('\n', ' ');
+    return collapsed.Length <= MaxSnippetLength ? collapsed : collapsed[..MaxSnippetLength];
+  }
+
+  private static string RenderSummaries(IReadOnlyList<SessionSummary> summaries)
+      => string.Join("\n", summaries.Select(summary =>
+          $"session={summary.Id} label={summary.Label} depth={summary.Depth} " +
+          $"entries={summary.EntryCount} status={summary.Status} tier={summary.Tier}"));
+
+  private static CapabilityInvocationResult Fail(DomainError error)
+      => CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");
+
+  /// <summary>Arguments cross into the queries strictly: a JSON object root, known keys
+  ///     only, exact JSON types. Nothing external becomes load-bearing here — parse
+  ///     shapes are typed errors, never coercion.</summary>
+  private static Result<JsonElement> ParseObjectRoot(string json)
+  {
+    JsonDocument doc;
+    try
     {
-        var collapsed = content.Replace('\r', ' ').Replace('\n', ' ');
-        return collapsed.Length <= MaxSnippetLength ? collapsed : collapsed[..MaxSnippetLength];
+      doc = JsonDocument.Parse(json);
     }
-
-    private static string RenderSummaries(IReadOnlyList<SessionSummary> summaries)
-        => string.Join("\n", summaries.Select(summary =>
-            $"session={summary.Id} label={summary.Label} depth={summary.Depth} " +
-            $"entries={summary.EntryCount} status={summary.Status} tier={summary.Tier}"));
-
-    private static CapabilityInvocationResult Fail(Error error)
-        => CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");
-
-    /// <summary>Arguments cross into the queries strictly: a JSON object root, known keys
-    ///     only, exact JSON types. Nothing external becomes load-bearing here — parse
-    ///     shapes are typed errors, never coercion.</summary>
-    private static Result<JsonElement> ParseObjectRoot(string json)
+    catch (JsonException)
     {
-        JsonDocument doc;
-        try
-        {
-            doc = JsonDocument.Parse(json);
-        }
-        catch (JsonException)
-        {
-            return Result<JsonElement>.Failure(new Error("InvalidActionInput",
-                "arguments must be a valid JSON object."));
-        }
-
-        using (doc)
-        {
-            return doc.RootElement.ValueKind is JsonValueKind.Object
-                ? Result<JsonElement>.Success(doc.RootElement.Clone())
-                : Result<JsonElement>.Failure(new Error("InvalidArgument",
-                    "arguments must be a JSON object."));
-        }
+      return Result.Failure<JsonElement>(new DomainError("InvalidActionInput",
+          "arguments must be a valid JSON object."));
     }
 
-    private static string? UnknownArgument(JsonElement args, IReadOnlySet<string> allowed)
+    using (doc)
     {
-        // JsonProperty is a struct: FirstOrDefault on an exhausted sequence yields
-        // default(JsonProperty), and reading .Name off it throws — so enumerate manually.
-        foreach (var property in args.EnumerateObject())
-        {
-            if (!allowed.Contains(property.Name))
-                return property.Name;
-        }
-
-        return null;
+      return doc.RootElement.ValueKind is JsonValueKind.Object
+          ? Result.Success<JsonElement>(doc.RootElement.Clone())
+          : Result.Failure<JsonElement>(new DomainError("InvalidArgument",
+              "arguments must be a JSON object."));
     }
+  }
 
-    private static Result<string?> OptionalString(JsonElement args, string key)
+  private static string? UnknownArgument(JsonElement args, HashSet<string> allowed)
+  {
+    // JsonProperty is a struct: FirstOrDefault on an exhausted sequence yields
+    // default(JsonProperty), and reading .Name off it throws — so enumerate manually.
+    foreach (JsonProperty property in args.EnumerateObject())
     {
-        if (!args.TryGetProperty(key, out var element))
-            return Result<string?>.Success(null);
-
-        return element.ValueKind is JsonValueKind.String
-            ? Result<string?>.Success(element.GetString())
-            : Result<string?>.Failure(new Error("InvalidArgument",
-                $"argument '{key}' must be a string."));
+      if (!allowed.Contains(property.Name))
+      {
+        return property.Name;
+      }
     }
 
-    private static Result<int> OptionalNumber(JsonElement args, string key, int fallback)
-    {
-        if (!args.TryGetProperty(key, out var element))
-            return Result<int>.Success(fallback);
+    return null;
+  }
 
-        return element.ValueKind is JsonValueKind.Number && element.TryGetInt32(out var value)
-            ? Result<int>.Success(value)
-            : Result<int>.Failure(new Error("InvalidArgument",
-                $"argument '{key}' must be a number."));
-    }
+  private static Result<string?> OptionalString(JsonElement args, string key)
+  {
+    return !args.TryGetProperty(key, out JsonElement element)
+      ? Result.Success<string?>(null)
+      : element.ValueKind is JsonValueKind.String
+        ? Result.Success<string?>(element.GetString())
+        : Result.Failure<string?>(new DomainError("InvalidArgument",
+            $"argument '{key}' must be a string."));
+  }
+
+  private static Result<int> OptionalNumber(JsonElement args, string key, int fallback)
+  {
+    return !args.TryGetProperty(key, out JsonElement element)
+      ? Result.Success<int>(fallback)
+      : element.ValueKind is JsonValueKind.Number && element.TryGetInt32(out int value)
+        ? Result.Success<int>(value)
+        : Result.Failure<int>(new DomainError("InvalidArgument",
+            $"argument '{key}' must be a number."));
+  }
 }
