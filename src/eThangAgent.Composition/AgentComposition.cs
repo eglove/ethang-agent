@@ -10,7 +10,6 @@ using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.Roslyn.ACL;
-using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
@@ -22,42 +21,45 @@ namespace eThangAgent.Composition;
 
 public static class AgentComposition
 {
-    /// <summary>Registers every host-agnostic piece of the agent: OpenRouter and platform
-    ///     ACLs, the agent loop, capability registry, stores, nudge policy, system prompts,
-    ///     and session lifecycle. Frontends supply exactly three decisions via AgentHostOptions.
-    ///     Registration order and lifetimes mirror the CLI composition root this replaces.
-    ///     <paramref name="database"/> lets multi-session hosts share ONE app database;
-    ///     when omitted each container constructs its own (single-session hosts).</summary>
-    public static IServiceCollection AddEThangAgentCore(this IServiceCollection services,
-        AgentSettings settings, string apiKey, ModelConfig defaultModel, AgentHostOptions host,
-        AppDatabase? database = null)
-    {
-        return services
-            .AddSingleton(new OpenRouterConfiguration(apiKey, settings.BaseUrl))
-            .AddHttpClient("OpenRouter", client => { client.Timeout = TimeSpan.FromSeconds(120); })
-            .Services
-            .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
-            {
-                client.Timeout = TimeSpan.FromSeconds(120);
-            })
-            .Services
-            .AddSingleton(defaultModel)
-            .AddSingleton<Conversation>()
-            .AddSingleton<IConversationRepository, InMemoryConversationRepository>()
-            .AddSingleton<DirectFileSystemAccess>()
-            .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
-            .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
-            .AddSingleton<IFileEditAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
-            .AddSingleton<ISearchAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
-            .AddSingleton<DirectGitAccess>()
-            .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
-            .AddSingleton<IGitCommitAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
-            .AddSingleton(ExecOptions.Default)
-            .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
-            .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
-            .AddSingleton(sp => new AgentToolsProvider("agent",
-            [
-                new AgentToolBinding(
+  /// <summary>Registers every host-agnostic piece of the agent: OpenRouter and platform
+  ///     ACLs, the agent loop, capability registry, stores, nudge policy, system prompts,
+  ///     and session lifecycle. Frontends supply exactly three decisions via AgentHostOptions.
+  ///     Registration order and lifetimes mirror the CLI composition root this replaces.
+  ///     <paramref name="database"/> lets multi-session hosts share ONE app database;
+  ///     when omitted each container constructs its own (single-session hosts).</summary>
+  public static IServiceCollection AddEThangAgentCore(this IServiceCollection services,
+      AgentSettings settings, string apiKey, ModelConfig defaultModel, AgentHostOptions host,
+      AppDatabase? database = null)
+  {
+    ArgumentNullException.ThrowIfNull(settings);
+    ArgumentNullException.ThrowIfNull(defaultModel);
+    ArgumentNullException.ThrowIfNull(host);
+    return services
+        .AddSingleton(new OpenRouterConfiguration(apiKey, settings.BaseUrl))
+        .AddHttpClient("OpenRouter", client => { client.Timeout = TimeSpan.FromSeconds(120); })
+        .Services
+        .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
+        {
+          client.Timeout = TimeSpan.FromSeconds(120);
+        })
+        .Services
+        .AddSingleton(defaultModel)
+        .AddSingleton<Conversation>()
+        .AddSingleton<IConversationRepository, InMemoryConversationRepository>()
+        .AddSingleton<DirectFileSystemAccess>()
+        .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
+        .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
+        .AddSingleton<IFileEditAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
+        .AddSingleton<ISearchAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
+        .AddSingleton<DirectGitAccess>()
+        .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
+        .AddSingleton<IGitCommitAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
+        .AddSingleton(ExecOptions.Default)
+        .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
+        .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
+        .AddSingleton(sp => new AgentToolsProvider("agent",
+        [
+            new AgentToolBinding(
                     new ReadTool(sp.GetRequiredService<IFileSystemAccess>()),
                     "Read lines from a text file."),
                 new AgentToolBinding(
@@ -111,86 +113,86 @@ public static class AgentComposition
                 new AgentToolBinding(
                     new CycleCheckTool(),
                     "Detect dependency cycles in a supplied construction graph and classify deadlock risk."),
-            ]))
-            .AddSingleton(host.WorkspaceContext)
-            .AddSingleton(host.PathResolver)
-            .AddSingleton(host.ClarifyChannel)
-            // One app-owned database: hosts opening several sessions pass a shared
-            // instance here so every session's stores hit the same SQLite file.
-            .AddSingleton(_ => database ?? new AppDatabase())
-            .AddSingleton<IStateStore, SqliteStateStore>()
-            .AddSingleton<IAgentStore, SqliteAgentStore>()
-            .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
-            .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
-            .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
-            .AddSingleton<SqliteCuratedMemoryStore>()
-            .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
-            .AddSingleton<IAgentInbox, AgentInbox>()
-            .AddSingleton<SessionMemoryWriteCounter>()
-            .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy(() => DateTimeOffset.UtcNow))
-            .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
-                sp.GetRequiredService<OpenRouterConfiguration>(),
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
-            .AddSingleton<SubAgentSpawner>()
-            .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
-                sp.GetRequiredService<SubAgentSpawner>(),
-                sp.GetRequiredService<IAgentStore>(),
-                settings.SubAgents.MaxConcurrentAgents))
-            .AddSingleton<IAgentSpawnCommand, StartSpawnHandler>()
-            .AddSingleton<IAgentQueries, AgentQueries>()
-            .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
-            .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
-            .AddSingleton<AgentCapabilityProvider>(sp =>
-            {
-                var rootRecord = AgentRecord.Spawned(AgentId.NewId(), null, 0,
-                    sp.GetRequiredService<ModelConfig>().ModelId, null,
-                    "root session", DateTimeOffset.UtcNow);
-                return new AgentCapabilityProvider(
-                    sp.GetRequiredService<IAgentSpawnCommand>(),
-                    sp.GetRequiredService<IAgentQueries>(),
-                    () => SubAgentSpawner.RunningChild ?? rootRecord);
-            })
-            .AddSingleton<EvidenceOptions>(_ => EvidenceOptions.Default)
-            .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()
-            .AddSingleton<IStateService, StateService>()
-            .AddSingleton<StateCapabilityProvider>()
-            .AddSingleton<MemoryCapabilityProvider>()
-            .AddSingleton<ICapabilityRegistry>(sp =>
-                CapabilityRegistry.Create(AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())))
-            // MUST stay lazy inside this closure: the agent surface reaches back to
-            // IExecEngine (agent -> spawn -> tool registry -> exec tool), so building any
-            // registry eagerly here would re-enter this not-yet-finished singleton and
-            // park forever on the container's in-progress slot (TLC-proven deadlock,
-            // DiResolution.tla). Deferred like the Lazy<> wiring this replaced.
-            .AddSingleton<Func<ICapabilityRegistry>>(sp =>
-            {
-                var tools = new Lazy<AgentToolsProvider>(() =>
-                    // Human-facing actions never reach sub-agents: clarify blocks on the
-                    // user, and a machine-owned child must neither wait on nor interrupt them.
-                    sp.GetRequiredService<AgentToolsProvider>().Except(HumanFacingActions));
-                var root = new Lazy<ICapabilityRegistry>(() => CapabilityRegistry.Create(
-                    AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())));
-                var child = new Lazy<ICapabilityRegistry>(() => CapabilityRegistry.Create(
-                    AgentSurface(sp, tools.Value)));
-                return () => SubAgentSpawner.RunningChild is null ? root.Value : child.Value;
-            })
-            .AddSingleton<IExecEngine>(sp => new CSharpScriptExecEngine(
-                sp.GetRequiredService<Func<ICapabilityRegistry>>(),
-                sp.GetRequiredService<ExecOptions>(),
-                // Registry and workspace are both resolved per execution so concurrent
-                // sessions in one process each see their own context, never a stale
-                // construction-time value pinned to whichever container was built first.
-                () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
-            .AddSingleton<ITool>(sp => new ExecTool(
-                sp.GetRequiredService<IExecEngine>(),
-                sp.GetRequiredService<ExecOptions>(),
-                sp.GetRequiredService<IExecOutputStore>(),
-                sp.GetRequiredService<IExecActivitySink>()))
-            .AddSingleton<IToolRegistry>(sp =>
-                new ToolRegistry([sp.GetRequiredService<ITool>()]))
-            .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
-            [
-                new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>()),
+        ]))
+        .AddSingleton(host.WorkspaceContext)
+        .AddSingleton(host.PathResolver)
+        .AddSingleton(host.ClarifyChannel)
+        // One app-owned database: hosts opening several sessions pass a shared
+        // instance here so every session's stores hit the same SQLite file.
+        .AddSingleton(_ => database ?? new AppDatabase())
+        .AddSingleton<IStateStore, SqliteStateStore>()
+        .AddSingleton<IAgentStore, SqliteAgentStore>()
+        .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
+        .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
+        .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
+        .AddSingleton<SqliteCuratedMemoryStore>()
+        .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
+        .AddSingleton<IAgentInbox, AgentInbox>()
+        .AddSingleton<SessionMemoryWriteCounter>()
+        .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy(() => DateTimeOffset.UtcNow))
+        .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
+            sp.GetRequiredService<OpenRouterConfiguration>(),
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
+        .AddSingleton<SubAgentSpawner>()
+        .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
+            sp.GetRequiredService<SubAgentSpawner>(),
+            sp.GetRequiredService<IAgentStore>(),
+            settings.SubAgents.MaxConcurrentAgents))
+        .AddSingleton<IAgentSpawnCommand, StartSpawnHandler>()
+        .AddSingleton<IAgentQueries, AgentQueries>()
+        .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
+        .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
+        .AddSingleton(sp =>
+        {
+          AgentRecord rootRecord = AgentRecord.Spawned(AgentId.NewId(), null, 0,
+                  sp.GetRequiredService<ModelConfig>().ModelId, null,
+                  "root session", DateTimeOffset.UtcNow);
+          return new AgentCapabilityProvider(
+                  sp.GetRequiredService<IAgentSpawnCommand>(),
+                  sp.GetRequiredService<IAgentQueries>(),
+                  () => SubAgentSpawner.RunningChild ?? rootRecord);
+        })
+        .AddSingleton(_ => EvidenceOptions.Default)
+        .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()
+        .AddSingleton<IStateService, StateService>()
+        .AddSingleton<StateCapabilityProvider>()
+        .AddSingleton<MemoryCapabilityProvider>()
+        .AddSingleton<ICapabilityRegistry>(sp =>
+            CapabilityRegistry.Create(AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())))
+        // MUST stay lazy inside this closure: the agent surface reaches back to
+        // IExecEngine (agent -> spawn -> tool registry -> exec tool), so building any
+        // registry eagerly here would re-enter this not-yet-finished singleton and
+        // park forever on the container's in-progress slot (TLC-proven deadlock,
+        // DiResolution.tla). Deferred like the Lazy<> wiring this replaced.
+        .AddSingleton<Func<ICapabilityRegistry>>(sp =>
+        {
+          Lazy<AgentToolsProvider> tools = new(() =>
+                  // Human-facing actions never reach sub-agents: clarify blocks on the
+                  // user, and a machine-owned child must neither wait on nor interrupt them.
+                  sp.GetRequiredService<AgentToolsProvider>().Except(HumanFacingActions));
+          Lazy<ICapabilityRegistry> root = new(() => CapabilityRegistry.Create(
+                  AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())));
+          Lazy<ICapabilityRegistry> child = new(() => CapabilityRegistry.Create(
+                  AgentSurface(sp, tools.Value)));
+          return () => SubAgentSpawner.RunningChild is null ? root.Value : child.Value;
+        })
+        .AddSingleton<IExecEngine>(sp => new CSharpScriptExecEngine(
+            sp.GetRequiredService<Func<ICapabilityRegistry>>(),
+            sp.GetRequiredService<ExecOptions>(),
+            // Registry and workspace are both resolved per execution so concurrent
+            // sessions in one process each see their own context, never a stale
+            // construction-time value pinned to whichever container was built first.
+            () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton<ITool>(sp => new ExecTool(
+            sp.GetRequiredService<IExecEngine>(),
+            sp.GetRequiredService<ExecOptions>(),
+            sp.GetRequiredService<IExecOutputStore>(),
+            sp.GetRequiredService<IExecActivitySink>()))
+        .AddSingleton<IToolRegistry>(sp =>
+            new ToolRegistry([sp.GetRequiredService<ITool>()]))
+        .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
+        [
+            new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>()),
                 new StaticPromptProvider(
                     "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
                     "workspace, prefer the provided tools over guessing, and keep responses tight."),
@@ -198,37 +200,37 @@ public static class AgentComposition
                     new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
                 new CuratedMemoryGuidePromptProvider(),
                 ..host.ExtraPromptProviders,
-            ]))
-            .AddSingleton(subAgents(settings, defaultModel.ModelId))
-            .AddSingleton<Ag>(sp =>
-            {
-                var provider = sp.GetRequiredService<IModelProvider>();
-                var conversation = sp.GetRequiredService<Conversation>();
-                var config = sp.GetRequiredService<ModelConfig>();
-                var tools = sp.GetRequiredService<IToolRegistry>();
-                return new Ag(provider, conversation, config, tools,
-                    sp.GetRequiredService<ISystemPromptProvider>());
-            })
-            .AddSingleton(sp => new SendMessageCommandHandler(
-                sp.GetRequiredService<Ag>(),
-                sp.GetRequiredService<Conversation>(),
-                sp.GetRequiredService<INudgePolicy>(),
-                () => sp.GetRequiredService<SessionMemoryWriteCounter>().Count,
-                sp.GetRequiredService<IAgentInbox>()))
-            .AddSingleton<RootSessionLifecycle>()
-            ;
-    }
+        ]))
+        .AddSingleton(subAgents(settings, defaultModel.ModelId))
+        .AddSingleton(sp =>
+        {
+          IModelProvider provider = sp.GetRequiredService<IModelProvider>();
+          Conversation conversation = sp.GetRequiredService<Conversation>();
+          ModelConfig config = sp.GetRequiredService<ModelConfig>();
+          IToolRegistry tools = sp.GetRequiredService<IToolRegistry>();
+          return new Ag(provider, conversation, config, tools,
+                  sp.GetRequiredService<ISystemPromptProvider>());
+        })
+        .AddSingleton(sp => new SendMessageCommandHandler(
+            sp.GetRequiredService<Ag>(),
+            sp.GetRequiredService<Conversation>(),
+            sp.GetRequiredService<INudgePolicy>(),
+            () => sp.GetRequiredService<SessionMemoryWriteCounter>().Count,
+            sp.GetRequiredService<IAgentInbox>()))
+        .AddSingleton<RootSessionLifecycle>()
+        ;
+  }
 
-    /// <summary>Actions only a root agent may invoke: they present UI to the human,
-    ///     and a machine-owned child must never block on (or interrupt) the user.</summary>
-    private static readonly string[] HumanFacingActions = ["clarify"];
+  /// <summary>Actions only a root agent may invoke: they present UI to the human,
+  ///     and a machine-owned child must never block on (or interrupt) the user.</summary>
+  private static readonly string[] HumanFacingActions = ["clarify"];
 
-    /// <summary>The capability providers every agent surface shares, parameterized by the
-    ///     agent-tools provider so root and child surfaces differ only in human actions.</summary>
-    private static IReadOnlyList<ICapabilityProvider> AgentSurface(
-        IServiceProvider sp, AgentToolsProvider tools) =>
-    [
-        new MergedCapabilityProvider("agent",
+  /// <summary>The capability providers every agent surface shares, parameterized by the
+  ///     agent-tools provider so root and child surfaces differ only in human actions.</summary>
+  private static IReadOnlyList<ICapabilityProvider> AgentSurface(
+      IServiceProvider sp, AgentToolsProvider tools) =>
+  [
+      new MergedCapabilityProvider("agent",
         [
             tools,
             sp.GetRequiredService<AgentCapabilityProvider>(),
@@ -241,15 +243,15 @@ public static class AgentComposition
             () => SubAgentSpawner.RunningChild?.Id.ToString(),
             sp.GetRequiredService<SessionMemoryWriteCounter>().Increment,
             () => DateTimeOffset.UtcNow),
-    ];
+  ];
 
-    /// <summary>Child-agent options with the default-model fallback applied: when
-    ///     configuration omits the SubAgent DefaultModel key, children inherit the host's
-    ///     root model rather than failing every spawn with MissingModel. A configured
-    ///     value always wins; empty config values are still rejected upstream at bind time.</summary>
-    private static SubAgentOptions subAgents(AgentSettings settings, string rootModelId)
-        => string.IsNullOrWhiteSpace(settings.SubAgents.DefaultModel)
-            ? new SubAgentOptions(rootModelId, settings.SubAgents.ChildTimeout,
-                settings.SubAgents.MaxConcurrentAgents, settings.SubAgents.MaxDepth)
-            : settings.SubAgents;
+  /// <summary>Child-agent options with the default-model fallback applied: when
+  ///     configuration omits the SubAgent DefaultModel key, children inherit the host's
+  ///     root model rather than failing every spawn with MissingModel. A configured
+  ///     value always wins; empty config values are still rejected upstream at bind time.</summary>
+  private static SubAgentOptions subAgents(AgentSettings settings, string rootModelId)
+      => string.IsNullOrWhiteSpace(settings.SubAgents.DefaultModel)
+          ? new SubAgentOptions(rootModelId, settings.SubAgents.ChildTimeout,
+              settings.SubAgents.MaxConcurrentAgents, settings.SubAgents.MaxDepth)
+          : settings.SubAgents;
 }

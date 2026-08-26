@@ -2,7 +2,6 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
-using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -26,5 +25,5 @@ public sealed record AgentSession(
     IAgentInbox Inbox,
     IAgentRuntime ChildRuntime)
 {
-    public string ModelId => Model.ModelId;
+  public string ModelId => Model.ModelId;
 }

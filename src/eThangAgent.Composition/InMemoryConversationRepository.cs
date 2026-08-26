@@ -4,8 +4,8 @@ namespace eThangAgent.Composition;
 
 public class InMemoryConversationRepository : IConversationRepository
 {
-    private Conversation _current = new();
+  private Conversation _current = new();
 
-    public Conversation GetCurrent() => _current;
-    public void Save(Conversation conversation) => _current = conversation;
+  public Conversation GetCurrent() => _current;
+  public void Save(Conversation conversation) => _current = conversation;
 }

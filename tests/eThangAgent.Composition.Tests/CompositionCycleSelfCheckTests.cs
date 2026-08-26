@@ -11,13 +11,13 @@ namespace eThangAgent.Composition.Tests;
 ///     test fails before the hang can ship.</summary>
 public class CompositionCycleSelfCheckTests
 {
-    [Fact]
-    public void OwnComposition_HasNoAllEagerCycles()
-    {
-        // Units mirror AgentComposition registrations and their construction edges.
-        DependencyEdge E(string from, string to, bool deferred = false) => new(from, to, deferred);
-        var edges = new List<DependencyEdge>
-        {
+  [Fact]
+  public void OwnComposition_HasNoAllEagerCycles()
+  {
+    // Units mirror AgentComposition registrations and their construction edges.
+    static DependencyEdge E(string from, string to, bool deferred = false) => new(from, to, deferred);
+    List<DependencyEdge> edges =
+        [
             E("FuncRegistry", "CapabilityRegistry", deferred: true),      // closure constructs on invoke
             E("CapabilityRegistry", "AgentCapabilityProvider"),
             E("AgentCapabilityProvider", "StartSpawnHandler"),
@@ -29,11 +29,11 @@ public class CompositionCycleSelfCheckTests
             E("ToolRegistry", "ClarifyTool"),
             E("AgentSurface", "CapabilityRegistry"),
             E("Session", "ModelProviderFactory"),
-        };
+        ];
 
-        var report = CycleDetector.Detect(["Session"], edges).Value!;
+    CycleReport report = CycleDetector.Detect(["Session"], edges).Value!;
 
-        Assert.All(report.ReachableCycles,
-            c => Assert.NotEqual(CycleVerdict.DeadlockRisk, c.Verdict));
-    }
+    Assert.All(report.ReachableCycles,
+        c => Assert.NotEqual(CycleVerdict.DeadlockRisk, c.Verdict));
+  }
 }

@@ -10,8 +10,8 @@ namespace eThangAgent.Composition;
 /// </summary>
 public sealed class CuratedMemoryGuidePromptProvider : ISystemPromptProvider
 {
-    public string Build() =>
-        """
+  public string Build() =>
+      """
         Persistent curated memories: you maintain a searchable knowledge base of durable facts —
         conventions, preferences, insights, failures, references — via the memories actions
         (memories.search / memories.add / memories.update / memories.remove through exec).

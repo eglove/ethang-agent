@@ -4,12 +4,9 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Composition;
 
-public sealed class ExecGuidePromptProvider : ISystemPromptProvider
+public sealed class ExecGuidePromptProvider(Lazy<ICapabilityRegistry> registry) : ISystemPromptProvider
 {
-    private readonly Lazy<ICapabilityRegistry> _registry;
+  private readonly Lazy<ICapabilityRegistry> _registry = registry ?? throw new ArgumentNullException(nameof(registry));
 
-    public ExecGuidePromptProvider(Lazy<ICapabilityRegistry> registry)
-        => _registry = registry ?? throw new ArgumentNullException(nameof(registry));
-
-    public string Build() => $"{ExecGuide.Text}\n\n{CapabilityReferenceRenderer.Render(_registry.Value)}";
+  public string Build() => $"{ExecGuide.Text}\n\n{CapabilityReferenceRenderer.Render(_registry.Value)}";
 }

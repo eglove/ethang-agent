@@ -14,38 +14,31 @@ namespace eThangAgent.Composition;
 ///     silently coerced or clamped.</summary>
 public static class SubAgentConfiguration
 {
-    public static SubAgentOptions Bind(string? defaultModel, string? childTimeoutSeconds,
-        string? maxConcurrentAgents)
-    {
-        if (defaultModel is not null && string.IsNullOrWhiteSpace(defaultModel))
-            throw new InvalidOperationException(
-                "SubAgent:DefaultModel is present but empty. Remove the key or supply a model reference.");
-
-        if (maxConcurrentAgents is null)
-            throw new InvalidOperationException(
-                "SubAgent:MaxConcurrentAgents is required. Set it to a positive integer.");
-
-        if (!int.TryParse(maxConcurrentAgents, NumberStyles.Integer,
-                CultureInfo.InvariantCulture, out var maxConcurrent))
-            throw new InvalidOperationException(
-                $"SubAgent:MaxConcurrentAgents must be a positive integer, got '{maxConcurrentAgents}'.");
-
-        if (maxConcurrent < 1)
-            throw new InvalidOperationException(
-                $"SubAgent:MaxConcurrentAgents must be at least 1, got '{maxConcurrentAgents}'.");
-
-        if (childTimeoutSeconds is null)
-            return new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent);
-
-        if (!int.TryParse(childTimeoutSeconds, NumberStyles.Integer,
-                CultureInfo.InvariantCulture, out var seconds))
-            throw new InvalidOperationException(
-                $"SubAgent:ChildTimeoutSeconds must be an integer number of seconds, got '{childTimeoutSeconds}'.");
-
-        if (seconds <= 0)
-            throw new InvalidOperationException(
-                $"SubAgent:ChildTimeoutSeconds must be positive, got {seconds}.");
-
-        return new SubAgentOptions(defaultModel, TimeSpan.FromSeconds(seconds), maxConcurrent);
-    }
+  public static SubAgentOptions Bind(string? defaultModel, string? childTimeoutSeconds,
+      string? maxConcurrentAgents)
+  {
+    return defaultModel is not null && string.IsNullOrWhiteSpace(defaultModel)
+      ? throw new InvalidOperationException(
+          "SubAgent:DefaultModel is present but empty. Remove the key or supply a model reference.")
+      : maxConcurrentAgents is null
+      ? throw new InvalidOperationException(
+          "SubAgent:MaxConcurrentAgents is required. Set it to a positive integer.")
+      : !int.TryParse(maxConcurrentAgents, NumberStyles.Integer,
+            CultureInfo.InvariantCulture, out int maxConcurrent)
+      ? throw new InvalidOperationException(
+          $"SubAgent:MaxConcurrentAgents must be a positive integer, got '{maxConcurrentAgents}'.")
+      : maxConcurrent < 1
+      ? throw new InvalidOperationException(
+          $"SubAgent:MaxConcurrentAgents must be at least 1, got '{maxConcurrentAgents}'.")
+      : childTimeoutSeconds is null
+      ? new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent)
+      : !int.TryParse(childTimeoutSeconds, NumberStyles.Integer,
+            CultureInfo.InvariantCulture, out int seconds)
+      ? throw new InvalidOperationException(
+          $"SubAgent:ChildTimeoutSeconds must be an integer number of seconds, got '{childTimeoutSeconds}'.")
+      : seconds <= 0
+      ? throw new InvalidOperationException(
+          $"SubAgent:ChildTimeoutSeconds must be positive, got {seconds}.")
+      : new SubAgentOptions(defaultModel, TimeSpan.FromSeconds(seconds), maxConcurrent);
+  }
 }

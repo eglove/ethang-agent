@@ -7,24 +7,29 @@ namespace eThangAgent.Composition;
 /// startup with the user-chosen root; an absent AGENTS.md contributes nothing.</summary>
 public sealed class WorkspaceInstructionsPromptProvider : ISystemPromptProvider
 {
-    private readonly string _root;
+  private readonly string _root;
 
-    public WorkspaceInstructionsPromptProvider(string root)
+  public WorkspaceInstructionsPromptProvider(string root)
+  {
+    if (string.IsNullOrWhiteSpace(root))
     {
-        if (string.IsNullOrWhiteSpace(root))
-            throw new ArgumentException("Workspace root must be a non-empty path.", nameof(root));
-        _root = Path.GetFullPath(root);
+      throw new ArgumentException("Workspace root must be a non-empty path.", nameof(root));
     }
 
-    public string Build()
-    {
-        var agentsFile = Path.Combine(_root, "AGENTS.md");
-        if (!File.Exists(agentsFile))
-            return string.Empty;
+    _root = Path.GetFullPath(root);
+  }
 
-        var contents = File.ReadAllText(agentsFile);
-        return
-            $"""
+  public string Build()
+  {
+    string agentsFile = Path.Combine(_root, "AGENTS.md");
+    if (!File.Exists(agentsFile))
+    {
+      return string.Empty;
+    }
+
+    string contents = File.ReadAllText(agentsFile);
+    return
+        $"""
              Working directory: {_root}
              Its AGENTS.md has been read; verbatim contents follow.
 
@@ -32,5 +37,5 @@ public sealed class WorkspaceInstructionsPromptProvider : ISystemPromptProvider
              {contents.TrimEnd()}
              </agents-file>
              """;
-    }
+  }
 }

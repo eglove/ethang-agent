@@ -1,13 +1,9 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
-using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
-using eThangAgent.FileSystem.ACL;
 using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
-using eThangAgent.OpenRouter.ACL;
-using eThangAgent.Roslyn.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
@@ -20,25 +16,25 @@ namespace eThangAgent.Composition.Tests;
 
 public class CompositionGuardTests
 {
-    [Fact]
-    public void SubAgentDefaultModel_FallsBackToRootModel_WhenConfigOmitsIt()
-    {
-        var settings = new AgentSettings("sk-or-test", new Uri("https://openrouter.test"),
-            new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
-        using var services = new ServiceCollection()
-            .AddEThangAgentCore(settings, settings.ApiKey!,
-                ModelConfig.Create("root/model", 512, 0.5f).Value!,
-                new AgentHostOptions(new StubClarifyChannel(),
-                    new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
-            .BuildServiceProvider();
+  [Fact]
+  public void SubAgentDefaultModel_FallsBackToRootModel_WhenConfigOmitsIt()
+  {
+    AgentSettings settings = new("sk-or-test", new Uri("https://openrouter.test"),
+        new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
+    using ServiceProvider services = new ServiceCollection()
+        .AddEThangAgentCore(settings, settings.ApiKey!,
+            ModelConfig.Create("root/model", 512, 0.5f).Value!,
+            new AgentHostOptions(new StubClarifyChannel(),
+                new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
+        .BuildServiceProvider();
 
-        var options = services.GetRequiredService<SubAgentOptions>();
-        Assert.Equal("root/model", options.DefaultModel);
-        Assert.Equal(TimeSpan.FromSeconds(300), options.ChildTimeout); // preserved
-        Assert.Equal(2, options.MaxConcurrentAgents);                  // preserved
-    }
+    SubAgentOptions options = services.GetRequiredService<SubAgentOptions>();
+    Assert.Equal("root/model", options.DefaultModel);
+    Assert.Equal(TimeSpan.FromSeconds(300), options.ChildTimeout); // preserved
+    Assert.Equal(2, options.MaxConcurrentAgents);                  // preserved
+  }
 
-    public static TheoryData<string, AgentHostOptions> BothHostShapes => new()
+  public static TheoryData<string, AgentHostOptions> BothHostShapes => new()
     {
         { "terminal-shaped", new AgentHostOptions(
             new StubClarifyChannel(),
@@ -50,21 +46,21 @@ public class CompositionGuardTests
             new UnrootedPathResolver()) },
     };
 
-    [Theory]
-    [MemberData(nameof(BothHostShapes))]
-    public void Core_Graph_Resolves_Every_Service_For_Every_Host(string label, AgentHostOptions host)
-    {
-        Assert.False(string.IsNullOrWhiteSpace(label));
-        var settings = new AgentSettings("sk-or-test", new Uri("https://openrouter.test"),
-            new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
-        using var services = new ServiceCollection()
-            .AddEThangAgentCore(settings, settings.ApiKey!,
-                ModelConfig.Create("test/model", 512, 0.5f).Value!, host)
-            .BuildServiceProvider();
+  [Theory]
+  [MemberData(nameof(BothHostShapes), DisableDiscoveryEnumeration = true)]
+  public void Core_Graph_Resolves_Every_Service_For_Every_Host(string label, AgentHostOptions host)
+  {
+    Assert.False(string.IsNullOrWhiteSpace(label));
+    AgentSettings settings = new("sk-or-test", new Uri("https://openrouter.test"),
+        new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
+    using ServiceProvider services = new ServiceCollection()
+        .AddEThangAgentCore(settings, settings.ApiKey!,
+            ModelConfig.Create("test/model", 512, 0.5f).Value!, host)
+        .BuildServiceProvider();
 
-        object?[] resolutions =
-        [
-            services.GetRequiredService<Ag>(),
+    object?[] resolutions =
+    [
+        services.GetRequiredService<Ag>(),
             services.GetRequiredService<SendMessageCommandHandler>(),
             services.GetRequiredService<Conversation>(),
             services.GetRequiredService<IConversationRepository>(),
@@ -98,12 +94,12 @@ public class CompositionGuardTests
             services.GetRequiredService<RootSessionLifecycle>(),
             services.GetRequiredService<ModelConfig>(),
         ];
-        Assert.All(resolutions, r => Assert.NotNull(r));
-    }
+    Assert.All(resolutions, Assert.NotNull);
+  }
 
-    sealed class StubClarifyChannel : IClarifyChannel
-    {
-        public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-            => Task.FromResult(Result<string>.Success("1"));
-    }
+  private sealed class StubClarifyChannel : IClarifyChannel
+  {
+    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<string>("1"));
+  }
 }
