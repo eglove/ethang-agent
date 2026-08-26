@@ -1,13 +1,10 @@
 namespace eThangAgent.OpenRouter.ACL.Tests;
 
-public sealed class FakeHttpMessageHandler : HttpMessageHandler
+internal sealed class FakeHttpMessageHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler
 {
-    private readonly Func<HttpRequestMessage, Task<HttpResponseMessage>> _respond;
+  private readonly Func<HttpRequestMessage, Task<HttpResponseMessage>> _respond = respond;
 
-    public FakeHttpMessageHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond)
-        => _respond = respond;
-
-    protected override Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request, CancellationToken ct)
-        => _respond(request);
+  protected override Task<HttpResponseMessage> SendAsync(
+      HttpRequestMessage request, CancellationToken cancellationToken)
+      => _respond(request);
 }
