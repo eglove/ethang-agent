@@ -7,7 +7,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 /// <summary>ListAllAsync over the real SQLite store: every row returned in
 ///     CreatedAt order regardless of insertion sequence — the corpus source the
 ///     memory recall and session queries read.</summary>
-public class ListAllRoundTripTests : IDisposable
+public sealed class ListAllRoundTripTests : IDisposable
 {
   private readonly string _dbPath = Path.Combine(
       Path.GetTempPath(), $"ethang-agents-{Guid.NewGuid():N}.db");
@@ -18,11 +18,15 @@ public class ListAllRoundTripTests : IDisposable
 
   public void Dispose()
   {
+    GC.SuppressFinalize(this);
+    // Named decision (CA1031): temp-db cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
+#pragma warning restore CA1031
   }
 
   [Fact]
@@ -44,9 +48,9 @@ public class ListAllRoundTripTests : IDisposable
 
     Assert.True(listed.IsSuccess);
     Assert.Equal([early.Id, late.Id], listed.Value!.Select(r => r.Id).ToList());
-    Assert.Equal("early child", listed.Value[0].Label);
-    Assert.Equal("root", listed.Value[1].Label);
-    Assert.Equal(2, listed.Value.Count);
+    Assert.Equal("early child", listed.Value![0].Label);
+    Assert.Equal("root", listed.Value![1].Label);
+    Assert.Equal(2, listed.Value!.Count);
   }
 
   [Fact]

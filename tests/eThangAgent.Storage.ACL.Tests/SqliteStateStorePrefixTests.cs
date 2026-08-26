@@ -5,7 +5,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 
 /// <summary>Bulk namespace-prefix delete over the real store: exact namespace and
 /// dotted-boundary sub-namespaces are removed; siblings survive. FTS stays in sync.</summary>
-public class SqliteStateStorePrefixTests : IDisposable
+public sealed class SqliteStateStorePrefixTests : IDisposable
 {
   private readonly string _dbPath = Path.Combine(
       Path.GetTempPath(), $"ethang-prefix-{Guid.NewGuid():N}.db");
@@ -20,11 +20,15 @@ public class SqliteStateStorePrefixTests : IDisposable
 
   public void Dispose()
   {
+    GC.SuppressFinalize(this);
+    // Named decision (CA1031): temp-db cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
+#pragma warning restore CA1031
   }
 
   [Fact]

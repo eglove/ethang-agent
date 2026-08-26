@@ -4,7 +4,7 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
-public class SqliteAgentStoreTests : IDisposable
+public sealed class SqliteAgentStoreTests : IDisposable
 {
   private readonly string _dbPath = Path.Combine(
       Path.GetTempPath(), $"ethang-agents-{Guid.NewGuid():N}.db");
@@ -15,11 +15,15 @@ public class SqliteAgentStoreTests : IDisposable
 
   public void Dispose()
   {
+    GC.SuppressFinalize(this);
+    // Named decision (CA1031): temp-db cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
+#pragma warning restore CA1031
   }
 
   private static AgentRecord FullyPopulatedRecord(AgentId? id = null, AgentId? parentId = null) => new(

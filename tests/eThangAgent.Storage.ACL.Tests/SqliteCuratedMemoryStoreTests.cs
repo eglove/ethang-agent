@@ -1,10 +1,11 @@
+using System.Globalization;
 using eThangAgent.MemoryDomain;
 using eThangAgent.SharedKernel;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
-public class SqliteCuratedMemoryStoreTests : IDisposable
+public sealed class SqliteCuratedMemoryStoreTests : IDisposable
 {
   private static readonly DateTimeOffset Timestamp
       = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
@@ -22,11 +23,15 @@ public class SqliteCuratedMemoryStoreTests : IDisposable
 
   public void Dispose()
   {
+    GC.SuppressFinalize(this);
+    // Named decision (CA1031): temp-db cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
+#pragma warning restore CA1031
   }
 
   private static CuratedMemory MakeMemory(
@@ -81,8 +86,11 @@ public class SqliteCuratedMemoryStoreTests : IDisposable
   {
     using SqliteConnection connection = _database.Open();
     using SqliteCommand command = connection.CreateCommand();
+    // Named decision (CA2100): test helper runs test-authored constant SQL only.
+#pragma warning disable CA2100 // Review SQL queries for security vulnerabilities
     command.CommandText = sql;
-    return Convert.ToInt64(command.ExecuteScalar());
+#pragma warning restore CA2100
+    return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
   }
 
   [Fact]
@@ -367,7 +375,7 @@ public class SqliteCuratedMemoryStoreTests : IDisposable
 
     Assert.False(result.IsSuccess);
     Assert.Equal(CuratedMemoryErrors.VersionConflict, result.Error!.Code);
-    Assert.Contains("2", result.Error.Message);
+    Assert.Contains("2", result.Error.Message, StringComparison.Ordinal);
 
     // The conflicting write changed nothing.
     Result<CuratedMemory?> fetched = await _store.GetAsync(original.Id);

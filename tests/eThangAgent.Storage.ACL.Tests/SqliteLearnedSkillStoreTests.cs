@@ -1,10 +1,11 @@
+using System.Globalization;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
-public class SqliteLearnedSkillStoreTests : IDisposable
+public sealed class SqliteLearnedSkillStoreTests : IDisposable
 {
   private static readonly DateTimeOffset Timestamp
       = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
@@ -22,11 +23,15 @@ public class SqliteLearnedSkillStoreTests : IDisposable
 
   public void Dispose()
   {
+    GC.SuppressFinalize(this);
+    // Named decision (CA1031): temp-db cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
+#pragma warning restore CA1031
   }
 
   private static SkillDefinition MakeSkill(string name)
@@ -37,8 +42,11 @@ public class SqliteLearnedSkillStoreTests : IDisposable
   {
     using SqliteConnection connection = _database.Open();
     using SqliteCommand command = connection.CreateCommand();
+    // Named decision (CA2100): test helper runs test-authored constant SQL only.
+#pragma warning disable CA2100 // Review SQL queries for security vulnerabilities
     command.CommandText = sql;
-    return Convert.ToInt64(command.ExecuteScalar());
+#pragma warning restore CA2100
+    return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
   }
 
   [Fact]
@@ -116,17 +124,18 @@ public class SqliteLearnedSkillStoreTests : IDisposable
     await using SqliteConnection connection = _database.Open();
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "SELECT version, body, created_at FROM skill_versions WHERE name='x' ORDER BY version;";
-    using SqliteDataReader reader = command.ExecuteReader();
-
-    Assert.True(reader.Read());
+#pragma warning disable CA2007 // await using cannot carry ConfigureAwait (disposition type)
+    await using SqliteDataReader reader = await command.ExecuteReaderAsync();
+#pragma warning restore CA2007
+    Assert.True(await reader.ReadAsync().ConfigureAwait(true));
     Assert.Equal(1, reader.GetInt64(0));
     Assert.Equal(v1.Body, reader.GetString(1));
-    Assert.Equal(Timestamp, DateTimeOffset.Parse(reader.GetString(2)));
-    Assert.True(reader.Read());
+    Assert.Equal(Timestamp, DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture));
+    Assert.True(await reader.ReadAsync().ConfigureAwait(true));
     Assert.Equal(2, reader.GetInt64(0));
     Assert.Equal(v2.Body, reader.GetString(1));
-    Assert.Equal(Timestamp.AddHours(1), DateTimeOffset.Parse(reader.GetString(2)));
-    Assert.False(reader.Read());
+    Assert.Equal(Timestamp.AddHours(1), DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture));
+    Assert.False(await reader.ReadAsync().ConfigureAwait(true));
 
     Assert.Equal(2L, Scalar("SELECT COUNT(*) FROM skill_versions WHERE name='x';"));
   }
@@ -179,7 +188,7 @@ public class SqliteLearnedSkillStoreTests : IDisposable
     Result<IReadOnlyList<SkillDefinition>> listed = await _store.ListAsync();
 
     Assert.True(listed.IsSuccess);
-    Assert.Equal(new[] { "alpha", "mid", "zeta" }, listed.Value!.Select(s => s.Name).ToArray());
+    Assert.Equal(["alpha", "mid", "zeta"], listed.Value!.Select(s => s.Name).ToList());
     Assert.All(listed.Value!, s => Assert.Equal(SkillSource.Learned, s.Source));
   }
 
@@ -199,12 +208,14 @@ public class SqliteLearnedSkillStoreTests : IDisposable
     await using SqliteConnection connection = _database.Open();
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "SELECT viewed_at FROM skill_usage WHERE skill_name='tdd' ORDER BY id;";
-    using SqliteDataReader reader = command.ExecuteReader();
-    Assert.True(reader.Read());
-    Assert.Equal(Timestamp, DateTimeOffset.Parse(reader.GetString(0)));
-    Assert.True(reader.Read());
-    Assert.Equal(Timestamp.AddMinutes(5), DateTimeOffset.Parse(reader.GetString(0)));
-    Assert.False(reader.Read());
+#pragma warning disable CA2007 // await using cannot carry ConfigureAwait (disposition type)
+    await using SqliteDataReader reader = await command.ExecuteReaderAsync();
+#pragma warning restore CA2007
+    Assert.True(await reader.ReadAsync().ConfigureAwait(true));
+    Assert.Equal(Timestamp, DateTimeOffset.Parse(reader.GetString(0), CultureInfo.InvariantCulture));
+    Assert.True(await reader.ReadAsync().ConfigureAwait(true));
+    Assert.Equal(Timestamp.AddMinutes(5), DateTimeOffset.Parse(reader.GetString(0), CultureInfo.InvariantCulture));
+    Assert.False(await reader.ReadAsync().ConfigureAwait(true));
 
     Result<bool> deleted = await _store.DeleteAsync("tdd");
     Assert.True(deleted.IsSuccess);

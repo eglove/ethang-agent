@@ -1,10 +1,11 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
 /// <summary>Migration V5: an FTS5 index over state_keys (value, ns, name) kept in
 /// sync by triggers, with existing rows backfilled at migration time.</summary>
-public class AppDatabaseFtsTests : IDisposable
+public sealed class AppDatabaseFtsTests : IDisposable
 {
   private readonly string _dbPath = Path.Combine(
       Path.GetTempPath(), $"ethang-fts-{Guid.NewGuid():N}.db");
@@ -14,11 +15,15 @@ public class AppDatabaseFtsTests : IDisposable
 
   public void Dispose()
   {
+    GC.SuppressFinalize(this);
+    // Named decision (CA1031): temp-db cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
+#pragma warning restore CA1031
   }
 
   [Fact]
@@ -27,7 +32,7 @@ public class AppDatabaseFtsTests : IDisposable
     using SqliteConnection connection = _database.Open();
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "PRAGMA user_version;";
-    Assert.Equal(5, Convert.ToInt32(command.ExecuteScalar()));
+    Assert.Equal(5, Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture));
   }
 
   [Fact]
@@ -87,8 +92,11 @@ public class AppDatabaseFtsTests : IDisposable
   {
     using SqliteConnection connection = _database.Open();
     using SqliteCommand command = connection.CreateCommand();
+    // Named decision (CA2100): test helper runs test-authored constant SQL only.
+#pragma warning disable CA2100 // Review SQL queries for security vulnerabilities
     command.CommandText = sql;
-    return Convert.ToInt64(command.ExecuteScalar());
+#pragma warning restore CA2100
+    return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
   }
 
   private static long CountMatches(SqliteConnection connection, string workspaceId, string query)
@@ -101,7 +109,7 @@ public class AppDatabaseFtsTests : IDisposable
             """;
     _ = command.Parameters.AddWithValue("@w", workspaceId);
     _ = command.Parameters.AddWithValue("@q", query);
-    return Convert.ToInt64(command.ExecuteScalar());
+    return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
   }
 
   private void InsertKey(string workspaceId, string ns, string name, string value)
@@ -148,7 +156,10 @@ public class AppDatabaseFtsTests : IDisposable
     foreach (string? trigger in new[] { "state_ai", "state_ad", "state_au" })
     {
       using SqliteCommand command = connection.CreateCommand();
+      // Named decision (CA2100): trigger names come from a fixed test list.
+#pragma warning disable CA2100 // Review SQL queries for security vulnerabilities
       command.CommandText = $"DROP TRIGGER IF EXISTS {trigger};";
+#pragma warning restore CA2100
       _ = command.ExecuteNonQuery();
     }
   }

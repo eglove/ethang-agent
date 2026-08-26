@@ -1,9 +1,10 @@
+using System.Globalization;
 using eThangAgent.StateDomain;
 using Microsoft.Data.Sqlite;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
-public class SqliteStateStoreTests : IDisposable
+public sealed class SqliteStateStoreTests : IDisposable
 {
   private readonly string _dbPath = Path.Combine(
       Path.GetTempPath(), $"ethang-state-{Guid.NewGuid():N}.db");
@@ -14,11 +15,15 @@ public class SqliteStateStoreTests : IDisposable
 
   public void Dispose()
   {
+    GC.SuppressFinalize(this);
+    // Named decision (CA1031): temp-db cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
+#pragma warning restore CA1031
   }
 
   [Fact]
@@ -129,6 +134,6 @@ public class SqliteStateStoreTests : IDisposable
 
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('state_keys','transitions','state_events');";
-    Assert.Equal(3L, Convert.ToInt64(command.ExecuteScalar()));
+    Assert.Equal(3L, Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture));
   }
 }

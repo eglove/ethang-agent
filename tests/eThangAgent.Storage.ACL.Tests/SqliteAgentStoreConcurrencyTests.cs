@@ -4,7 +4,7 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Storage.ACL.Tests;
 
-public class SqliteAgentStoreConcurrencyTests : IDisposable
+public sealed class SqliteAgentStoreConcurrencyTests : IDisposable
 {
   private readonly string _dbPath = Path.Combine(
       Path.GetTempPath(), $"ethang-agents-{Guid.NewGuid():N}.db");
@@ -15,11 +15,15 @@ public class SqliteAgentStoreConcurrencyTests : IDisposable
 
   public void Dispose()
   {
+    GC.SuppressFinalize(this);
+    // Named decision (CA1031): temp-db cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
+#pragma warning restore CA1031
   }
 
   /// <summary>Each call runs on its own thread-pool thread via Task.Run because

@@ -5,7 +5,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 
 /// <summary>Integration: FTS search over state_keys through the real store,
 /// workspace-scoped, with malformed queries surfaced as InvalidQuery failures.</summary>
-public class SqliteStateStoreSearchTests : IDisposable
+public sealed class SqliteStateStoreSearchTests : IDisposable
 {
   private readonly string _dbPath = Path.Combine(
       Path.GetTempPath(), $"ethang-search-{Guid.NewGuid():N}.db");
@@ -20,11 +20,15 @@ public class SqliteStateStoreSearchTests : IDisposable
 
   public void Dispose()
   {
+    GC.SuppressFinalize(this);
+    // Named decision (CA1031): temp-db cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
+#pragma warning restore CA1031
   }
 
   [Fact]
@@ -36,7 +40,7 @@ public class SqliteStateStoreSearchTests : IDisposable
     StateSearchHit hit = Assert.Single(r.Value!);
     Assert.Equal("plans", hit.Ns);
     Assert.Equal("alpha", hit.Name);
-    Assert.Contains("ledger", hit.Snippet);
+    Assert.Contains("ledger", hit.Snippet, StringComparison.Ordinal);
   }
 
   [Fact]

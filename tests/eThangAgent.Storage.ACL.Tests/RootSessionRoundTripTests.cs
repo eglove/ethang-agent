@@ -7,7 +7,7 @@ namespace eThangAgent.Storage.ACL.Tests;
 /// <summary>Round-trip of the persisted root session against the real SQLite store: the
 ///     Root factory's depth-0 sentinels, transcript appends in order, and the Completed
 ///     transition — the exact lifecycle the CLI REPL drives.</summary>
-public class RootSessionRoundTripTests : IDisposable
+public sealed class RootSessionRoundTripTests : IDisposable
 {
   private readonly string _dbPath = Path.Combine(
       Path.GetTempPath(), $"ethang-agents-{Guid.NewGuid():N}.db");
@@ -18,11 +18,15 @@ public class RootSessionRoundTripTests : IDisposable
 
   public void Dispose()
   {
+    GC.SuppressFinalize(this);
+    // Named decision (CA1031): temp-db cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
+#pragma warning restore CA1031
   }
 
   [Fact]
