@@ -45,8 +45,8 @@ public class AgentQueriesTests
   {
     Guid id = Guid.NewGuid();
 
-    Assert.StartsWith("Error [NotFound]: ", RuntimeErrors.NotFound(id));
-    Assert.Contains(id.ToString(), RuntimeErrors.NotFound(id));
+    Assert.StartsWith("Error [NotFound]: ", RuntimeErrors.NotFound(id), StringComparison.Ordinal);
+    Assert.Contains(id.ToString(), RuntimeErrors.NotFound(id), StringComparison.Ordinal);
   }
 
   [Fact]

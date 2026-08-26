@@ -78,7 +78,7 @@ public class CuratedMemoryNudgeIntegrationTests
       harness.Model.Queue(Result.Success<ModelResponse>(new ModelResponse(null, calls)));
       harness.Model.Queue(Result.Success<ModelResponse>(new ModelResponse($"turn {turn} done", [])));
 
-      Result<string> result = await harness.Handler.Handle(new SendMessageCommand($"message {turn}"));
+      Result<string> result = await harness.Handler.Handle(new SendMessageCommand($"message {turn}")).ConfigureAwait(false);
       Assert.True(result.IsSuccess, result.Error?.Message ?? "expected success");
     }
 
@@ -144,7 +144,7 @@ public class CuratedMemoryNudgeIntegrationTests
         }
       }
 
-      CapabilityInvocationResult result = await provider.InvokeAsync(action, JsonSerializer.Serialize(payload), ct);
+      CapabilityInvocationResult result = await provider.InvokeAsync(action, JsonSerializer.Serialize(payload), ct).ConfigureAwait(false);
       return new ToolResult(result.Content, result.IsError);
     }
   }

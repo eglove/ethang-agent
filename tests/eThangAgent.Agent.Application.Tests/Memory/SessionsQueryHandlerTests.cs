@@ -29,22 +29,22 @@ public class SessionsQueryHandlerTests
     AgentId orphanId = AgentId.NewId();
 
     AgentRecord root = AgentRecord.Root(rootId, At(0));
-    _ = await _store.SaveAsync(root);
-    _ = await _store.UpdateAsync(root with { Status = AgentStatus.Completed });
+    _ = await _store.SaveAsync(root).ConfigureAwait(false);
+    _ = await _store.UpdateAsync(root with { Status = AgentStatus.Completed }).ConfigureAwait(false);
 
     _ = await _store.SaveAsync(AgentRecord.Spawned(childId, rootId, depth: 1,
-        modelUsed: "mock/model", label: "worker", taskPrompt: "do work", createdAt: At(1)));
+        modelUsed: "mock/model", label: "worker", taskPrompt: "do work", createdAt: At(1))).ConfigureAwait(false);
 
     _ = await _store.SaveAsync(new AgentRecord(orphanId, AgentId.NewId(), 1,
         AgentStatus.Failed, AgentFailureReason.Timeout, "mock/model", "orphan",
-        "lost lineage", At(2), At(3), null));
+        "lost lineage", At(2), At(3), null)).ConfigureAwait(false);
 
     _ = await _store.AppendMessageAsync(rootId,
-        new Message(Role.User, "root turn one", At(4)));
+        new Message(Role.User, "root turn one", At(4))).ConfigureAwait(false);
     _ = await _store.AppendMessageAsync(rootId,
-        new Message(Role.Assistant, "root turn two", At(5)));
+        new Message(Role.Assistant, "root turn two", At(5))).ConfigureAwait(false);
     _ = await _store.AppendMessageAsync(childId,
-        new Message(Role.User, "child turn", At(6)));
+        new Message(Role.User, "child turn", At(6))).ConfigureAwait(false);
 
     return (rootId, childId, orphanId);
   }
@@ -97,7 +97,7 @@ public class SessionsQueryHandlerTests
     Assert.Equal("Error [InvalidArgument]: limit must be between 1 and 500.", Rendered(limitFirst));
 
     Result<IReadOnlyList<SessionSummary>> scopeSecond = await _handler.Execute("bogus", "everywhere", 50);
-    Assert.StartsWith("Error [InvalidScope]:", Rendered(scopeSecond));
+    Assert.StartsWith("Error [InvalidScope]:", Rendered(scopeSecond), StringComparison.Ordinal);
 
     Result<IReadOnlyList<SessionSummary>> branchesThird = await _handler.Execute(null, "everywhere", 50);
     Assert.Equal("Error [InvalidArgument]: branches must be 'active' or 'all'.", Rendered(branchesThird));

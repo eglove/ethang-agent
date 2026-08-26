@@ -19,6 +19,8 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
   public async Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request,
       CancellationToken ct = default)
   {
+    ArgumentNullException.ThrowIfNull(parent);
+    ArgumentNullException.ThrowIfNull(request);
     Violation? violation = _promptSpec.ViolationFor(request) ?? _modelSpec.ViolationFor(request);
     if (violation is not null)
     {
@@ -41,13 +43,13 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     AgentRecord record = AgentRecord.Spawned(AgentId.NewId(), parent.Id, parent.Depth + 1, model,
         request.Label, request.TaskPrompt, DateTimeOffset.UtcNow);
 
-    Result<string> saved = await _store.SaveAsync(record, ct);
+    Result<string> saved = await _store.SaveAsync(record, ct).ConfigureAwait(false);
     if (!saved.IsSuccess)
     {
       return Result.Failure<AgentId>(saved.Error!);
     }
 
-    Result<AgentId> started = await _runtime.Start(record, ct);
+    Result<AgentId> started = await _runtime.Start(record, ct).ConfigureAwait(false);
     return started.IsSuccess
         ? Result.Success<AgentId>(record.Id)
         : Result.Failure<AgentId>(started.Error!);

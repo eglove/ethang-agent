@@ -38,8 +38,8 @@ public class StartSpawnHandlerTests
     AgentRecord started = Assert.Single(runtime.Started);
     Assert.Same(saved, started);
 
-    int saveIndex = callLog.IndexIf(c => c.StartsWith("save:"));
-    int startIndex = callLog.IndexIf(c => c.StartsWith("start:"));
+    int saveIndex = callLog.IndexIf(c => c.StartsWith("save:", StringComparison.Ordinal));
+    int startIndex = callLog.IndexIf(c => c.StartsWith("start:", StringComparison.Ordinal));
     Assert.True(saveIndex < startIndex, $"expected save before start, got [{string.Join(", ", callLog)}]");
   }
 

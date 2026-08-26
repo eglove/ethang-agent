@@ -20,6 +20,7 @@ public sealed class SessionsQueryHandler(IAgentStore store) : IMemorySessionsQue
   ///     the listing always spans all persisted rows per the approved task contract.</param>
   /// <param name="branches">Exactly "active" or "all".</param>
   /// <param name="limit">1..500.</param>
+  /// <param name="ct">Cancellation token.</param>
   public async Task<Result<IReadOnlyList<SessionSummary>>> Execute(
       string? scope, string branches, int limit, CancellationToken ct = default)
   {
@@ -35,13 +36,13 @@ public sealed class SessionsQueryHandler(IAgentStore store) : IMemorySessionsQue
     }
 
     bool branchKnown = string.Equals(branches, "active", StringComparison.Ordinal) ||
-                      string.Equals(branches, "all", StringComparison.Ordinal);
+        string.Equals(branches, "all", StringComparison.Ordinal);
     if (!branchKnown)
     {
       return InvalidArgument("branches must be 'active' or 'all'.");
     }
 
-    Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync(ct);
+    Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync(ct).ConfigureAwait(false);
     if (!listed.IsSuccess)
     {
       return Result.Failure<IReadOnlyList<SessionSummary>>(listed.Error!);
@@ -50,7 +51,7 @@ public sealed class SessionsQueryHandler(IAgentStore store) : IMemorySessionsQue
     List<SessionSummary> summaries = [];
     foreach (AgentRecord? record in listed.Value!.OrderByDescending(r => r.CreatedAt).Take(limit))
     {
-      Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(record.Id, ct);
+      Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(record.Id, ct).ConfigureAwait(false);
       if (!transcript.IsSuccess)
       {
         return Result.Failure<IReadOnlyList<SessionSummary>>(transcript.Error!);

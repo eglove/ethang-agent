@@ -9,6 +9,9 @@ namespace eThangAgent.Agent.Application.Nudges;
 /// </summary>
 public sealed class DefaultNudgePolicy(Func<DateTimeOffset> clock) : INudgePolicy
 {
+#pragma warning disable IDE0051 // Remove unread private member
+  private Func<DateTimeOffset> ClockUnused => clock; // retained for API compatibility
+#pragma warning restore IDE0051
   /// <summary>The exact line appended to the conversation when the policy fires.</summary>
   public const string ReminderLine =
       "[nudge] This turn involved several tools and nothing has been saved to curated memories yet. " +
@@ -17,6 +20,7 @@ public sealed class DefaultNudgePolicy(Func<DateTimeOffset> clock) : INudgePolic
 
   public string? Evaluate(NudgeContext context)
   {
+    ArgumentNullException.ThrowIfNull(context);
     return context.TurnNumber % 5 != 0
       ? null
       : context.LastToolCalls < 3 ? null : context.MemoriesWrittenTotal != 0 ? null : ReminderLine;

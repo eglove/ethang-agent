@@ -19,6 +19,9 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
   /// <param name="scope">Null/"global" or "session:&lt;agentId&gt;" (exact 'D' guid format).</param>
   /// <param name="branches">Exactly "active" or "all".</param>
   /// <param name="role">Null, or one of user/assistant/tool in any casing.</param>
+  /// <param name="page">1-based page number, at least 1.</param>
+  /// <param name="pageSize">Page size between 1 and 200.</param>
+  /// <param name="ct">Cancellation token.</param>
   public async Task<Result<RecallPage>> Execute(
       string? query, string queryMode, string? scope, string branches, string? role,
       int page, int pageSize, CancellationToken ct = default)
@@ -64,20 +67,20 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
       return InvalidArgument("branches must be 'active' or 'all'.");
     }
 
-    Result<List<SessionCorpus>> corpora = await BuildCorporaAsync(parsedScope.Value!, ct);
+    Result<List<SessionCorpus>> corpora = await BuildCorporaAsync(parsedScope.Value!, ct).ConfigureAwait(false);
     if (!corpora.IsSuccess)
     {
       return Result.Failure<RecallPage>(corpora.Error!);
     }
 
     MemoryQueryPlan plan = MemoryQueryPlan.Plan(query, queryMode);
-    SearchOutcome outcome = new SearchService().Search(
+    SearchOutcome outcome = SearchService.Search(
         corpora.Value!, plan, parsedScope.Value!, mode, role, page, pageSize);
 
     return outcome switch
     {
-      SearchOutcome.Ok ok => Result.Success<RecallPage>(Project(ok.Result)),
-      SearchOutcome.Fail fail => Result.Failure<RecallPage>(FromRenderedLine(fail.Error)),
+      SearchOk ok => Result.Success<RecallPage>(Project(ok.Result)),
+      SearchFail fail => Result.Failure<RecallPage>(FromRenderedLine(fail.DomainError)),
       _ => throw new NotSupportedException($"Unhandled search outcome {outcome.GetType().Name}."),
     };
   }
@@ -101,12 +104,12 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
   {
     Result<IReadOnlyList<AgentRecord>> records = scope switch
     {
-      AllSessionsScope => await _store.ListAllAsync(ct),
-      SessionScope.Session session => (await _store.GetAsync(session.Id, ct))
+      AllSessionsScope => await _store.ListAllAsync(ct).ConfigureAwait(false),
+      SingleSessionScope session => (await _store.GetAsync(session.Id, ct).ConfigureAwait(false))
           .Map(single => (IReadOnlyList<AgentRecord>)[single]),
       _ => throw new NotSupportedException($"Unhandled scope type {scope.GetType().Name}."),
     };
-    return await FromRecordsAsync(records, ct);
+    return await FromRecordsAsync(records, ct).ConfigureAwait(false);
   }
 
   /// <summary>Turns store rows into corpora; every store failure surfaces untouched.</summary>
@@ -121,7 +124,7 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
     List<SessionCorpus> corpora = [];
     foreach (AgentRecord record in records.Value!)
     {
-      Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(record.Id, ct);
+      Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(record.Id, ct).ConfigureAwait(false);
       if (!transcript.IsSuccess)
       {
         return Result.Failure<List<SessionCorpus>>(transcript.Error!);
@@ -138,9 +141,9 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
     return Result.Success<List<SessionCorpus>>(corpora);
   }
 
-  /// <summary>Unwraps <see cref="SearchOutcome.Fail"/>: it carries the already-rendered typed
+  /// <summary>Unwraps <see cref="SearchFail"/>: it carries the already-rendered typed
   ///     error line ("Error [code]: message"), while this handler's failures are structured
-  ///     <see cref="Error"/> pairs rendered to the same shape at the capability edge — so the
+  ///     <see cref="DomainError"/> pairs rendered to the same shape at the capability edge — so the
   ///     line is split back into its pair, preserving it verbatim through one more hop.</summary>
   private static DomainError FromRenderedLine(string renderedLine)
   {

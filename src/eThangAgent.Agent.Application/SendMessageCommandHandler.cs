@@ -23,17 +23,19 @@ public class SendMessageCommandHandler(Ag agent, Conversation? conversation = nu
   private readonly IAgentInbox? _inbox = inbox;
   private int _turnCount;
 
-  public async Task<Result<string>> Handle(SendMessageCommand command, CancellationToken ct = default,
+  public async Task<Result<string>> Handle(SendMessageCommand command,
       Action<string>? onContentDelta = null,
       Action<string>? onReasoningDelta = null,
       Action? onIterationEnd = null,
       Action<string, string>? onToolCall = null,
-      Action<string, string>? onToolResult = null)
+      Action<string, string>? onToolResult = null,
+      CancellationToken ct = default)
   {
+    ArgumentNullException.ThrowIfNull(command);
     int turnNumber = Interlocked.Increment(ref _turnCount);
 
-    Result<string> result = await _agent.SendMessage(command.Text, ct,
-        onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult, _inbox);
+    Result<string> result = await _agent.SendMessage(command.Text,
+        onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult, _inbox, ct).ConfigureAwait(false);
     if (!result.IsSuccess)
     {
       return result;

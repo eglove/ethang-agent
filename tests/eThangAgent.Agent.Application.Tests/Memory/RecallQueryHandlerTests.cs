@@ -30,17 +30,17 @@ public class RecallQueryHandlerTests
     AgentId orphanId = AgentId.NewId();
     AgentId missingAncestor = AgentId.NewId();
 
-    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0)));
+    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0))).ConfigureAwait(false);
     // Orphan child: references an absent parent row.
     _ = await _store.SaveAsync(AgentRecord.Spawned(orphanId, missingAncestor, depth: 1,
-        modelUsed: "mock/model", label: "orphan", taskPrompt: "lost lineage", createdAt: At(1)));
+        modelUsed: "mock/model", label: "orphan", taskPrompt: "lost lineage", createdAt: At(1))).ConfigureAwait(false);
 
     _ = await _store.AppendMessageAsync(rootId,
-        new Message(Role.User, "alpha kickoff note", At(2)));
+        new Message(Role.User, "alpha kickoff note", At(2))).ConfigureAwait(false);
     _ = await _store.AppendMessageAsync(rootId,
-        new Message(Role.Assistant, "beta follow-up with alpha context", At(3)));
+        new Message(Role.Assistant, "beta follow-up with alpha context", At(3))).ConfigureAwait(false);
     _ = await _store.AppendMessageAsync(orphanId,
-        new Message(Role.User, "orphan alpha line", At(4)));
+        new Message(Role.User, "orphan alpha line", At(4))).ConfigureAwait(false);
 
     return (rootId, orphanId);
   }
@@ -158,7 +158,7 @@ public class RecallQueryHandlerTests
     Assert.Equal("Error [InvalidArgument]: pageSize must be between 1 and 200.", Rendered(pageSizeSecond));
 
     Result<RecallPage> scopeThird = await _handler.Execute("q", "fuzzy", "bogus", "active", "system", 1, 25);
-    Assert.StartsWith("Error [InvalidScope]:", Rendered(scopeThird));
+    Assert.StartsWith("Error [InvalidScope]:", Rendered(scopeThird), StringComparison.Ordinal);
 
     Result<RecallPage> modeFourth = await _handler.Execute("q", "fuzzy", null, "active", "system", 1, 25);
     Assert.Equal("Error [InvalidArgument]: queryMode must be 'literal' or 'regex'.", Rendered(modeFourth));
@@ -213,7 +213,7 @@ public class RecallQueryHandlerTests
   public async Task Execute_LiteralRegexMetacharacters_TreatedAsTerms_NeverCompiled()
   {
     AgentId rootId = AgentId.NewId();
-    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0)));
+    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0))).ConfigureAwait(true);
     _ = await _store.AppendMessageAsync(rootId,
         new Message(Role.User, "the price is a.c literally", At(1)));
     _ = await _store.AppendMessageAsync(rootId,
@@ -249,7 +249,7 @@ public class RecallQueryHandlerTests
   public async Task Execute_RegexMode_TimeoutSurfacesAsTypedFailResult()
   {
     AgentId rootId = AgentId.NewId();
-    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0)));
+    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0))).ConfigureAwait(true);
     _ = await _store.AppendMessageAsync(rootId,
         new Message(Role.User, $"{new string('a', 5000)}b", At(1)));
 
@@ -317,7 +317,7 @@ public class RecallQueryHandlerTests
 
     Assert.False(result.IsSuccess);
     Assert.Equal("NotFound", result.Error!.Code);
-    Assert.Contains(unknown.ToString(), result.Error.Message);
+    Assert.Contains(unknown.ToString(), result.Error.Message, StringComparison.Ordinal);
   }
 
   // ---- Paging passthrough ----
@@ -326,7 +326,7 @@ public class RecallQueryHandlerTests
   public async Task Execute_Paging_PreservesTotalPageAndPages()
   {
     AgentId rootId = AgentId.NewId();
-    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0)));
+    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0))).ConfigureAwait(true);
     for (int n = 1; n <= 5; n++)
     {
       _ = await _store.AppendMessageAsync(rootId,

@@ -5,7 +5,7 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.Agent.Application.Tests;
 
 /// <summary>In-memory IAgentStore recording every write so tests can assert side effects and call order.</summary>
-public sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
+internal sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
 {
   private readonly Dictionary<Guid, AgentRecord> _records = [];
   private readonly Dictionary<Guid, List<Message>> _messages = [];
@@ -71,7 +71,7 @@ public sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
 }
 
 /// <summary>Fake IAgentRuntime capturing started records; returns a scripted outcome when set.</summary>
-public sealed class FakeAgentRuntime(List<string>? callLog = null) : IAgentRuntime
+internal sealed class FakeAgentRuntime(List<string>? callLog = null) : IAgentRuntime
 {
   public List<AgentRecord> Started { get; } = [];
 

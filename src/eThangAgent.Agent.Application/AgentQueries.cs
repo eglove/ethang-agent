@@ -18,7 +18,7 @@ public sealed class AgentQueries(IAgentStore store) : IAgentQueries
   ///     their partial report or a reason-specific annotation line.</summary>
   public async Task<Result<string>> GetResult(AgentId id, CancellationToken ct = default)
   {
-    Result<AgentRecord> record = await _store.GetAsync(id, ct);
+    Result<AgentRecord> record = await _store.GetAsync(id, ct).ConfigureAwait(false);
     if (!record.IsSuccess)
     {
       return Result.Failure<string>(record.Error!);
