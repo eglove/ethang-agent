@@ -1,86 +1,112 @@
 using System.Diagnostics;
-using eThangAgent.FileSystem.ACL;
+using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.FileSystem.ACL.Tests;
 
-public class DirectGitAccessTests : IDisposable
+// Test helpers: sync temp-file IO and best-effort cleanup are deliberate;
+// HttpClient ownership transfers to the code under test.
+#pragma warning disable CA1849 // Call async methods when in an async method
+#pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
+#pragma warning disable CA1031 // Do not catch general exception types
+
+public sealed class DirectGitAccessTests : IDisposable
 {
-    private readonly string _repoDir;
+  private readonly string _repoDir;
 
-    public DirectGitAccessTests()
+  public DirectGitAccessTests()
+  {
+    _repoDir = Path.Combine(Path.GetTempPath(), "ethang-git-tests-" + Guid.NewGuid().ToString("N"));
+    _ = Directory.CreateDirectory(_repoDir);
+    RunGit("init");
+    RunGit("config", "user.email", "test@test.com");
+    RunGit("config", "user.name", "Test");
+  }
+
+  public void Dispose()
+  {
+    try
     {
-        _repoDir = Path.Combine(Path.GetTempPath(), "ethang-git-tests-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_repoDir);
-        RunGit("init");
-        RunGit("config", "user.email", "test@test.com");
-        RunGit("config", "user.name", "Test");
+      Directory.Delete(_repoDir, true);
+    }
+    catch (IOException)
+    {
+      // best-effort temp cleanup
+    }
+    catch (UnauthorizedAccessException)
+    {
+      // best-effort temp cleanup
     }
 
-    public void Dispose() { try { Directory.Delete(_repoDir, true); } catch { } }
+    GC.SuppressFinalize(this);
+  }
 
-    private void RunGit(params string[] args)
+  private void RunGit(params string[] args)
+  {
+    ProcessStartInfo psi = new("git")
     {
-        var psi = new ProcessStartInfo("git")
-        {
-            WorkingDirectory = _repoDir,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        foreach (var a in args) psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        p.WaitForExit(30000);
+      WorkingDirectory = _repoDir,
+      RedirectStandardOutput = true,
+      RedirectStandardError = true,
+      UseShellExecute = false,
+      CreateNoWindow = true
+    };
+    foreach (string a in args)
+    {
+      psi.ArgumentList.Add(a);
     }
 
-    [Fact]
-    public async Task GetStatusAsync_CleanRepo_ReturnsNoEntries()
-    {
-        var access = new DirectGitAccess();
+    using Process p = Process.Start(psi)!;
+    _ = p.WaitForExit(30000);
+  }
 
-        var r = await access.GetStatusAsync(_repoDir);
+  [Fact]
+  public async Task GetStatusAsync_CleanRepo_ReturnsNoEntries()
+  {
+    DirectGitAccess access = new();
 
-        Assert.True(r.IsSuccess);
-        Assert.Empty(r.Value!.Staged);
-        Assert.Empty(r.Value!.Unstaged);
-        Assert.Empty(r.Value!.Untracked);
-    }
+    Result<GitStatus> r = await access.GetStatusAsync(_repoDir);
 
-    [Fact]
-    public async Task GetStatusAsync_WithUntrackedFile_ReturnsEntry()
-    {
-        File.WriteAllText(Path.Combine(_repoDir, "test.txt"), "hello");
-        var access = new DirectGitAccess();
+    Assert.True(r.IsSuccess);
+    Assert.Empty(r.Value!.Staged);
+    Assert.Empty(r.Value!.Unstaged);
+    Assert.Empty(r.Value!.Untracked);
+  }
 
-        var r = await access.GetStatusAsync(_repoDir);
+  [Fact]
+  public async Task GetStatusAsync_WithUntrackedFile_ReturnsEntry()
+  {
+    File.WriteAllText(Path.Combine(_repoDir, "test.txt"), "hello");
+    DirectGitAccess access = new();
 
-        Assert.True(r.IsSuccess);
-        Assert.NotEmpty(r.Value!.Untracked);
-    }
+    Result<GitStatus> r = await access.GetStatusAsync(_repoDir);
 
-    [Fact]
-    public async Task CommitAsync_WithStagedChange_ReturnsHash()
-    {
-        File.WriteAllText(Path.Combine(_repoDir, "staged.txt"), "content");
-        RunGit("add", "staged.txt");
-        var access = new DirectGitAccess();
+    Assert.True(r.IsSuccess);
+    Assert.NotEmpty(r.Value!.Untracked);
+  }
 
-        var r = await access.CommitAsync(_repoDir, "feat: test commit");
+  [Fact]
+  public async Task CommitAsync_WithStagedChange_ReturnsHash()
+  {
+    File.WriteAllText(Path.Combine(_repoDir, "staged.txt"), "content");
+    RunGit("add", "staged.txt");
+    DirectGitAccess access = new();
 
-        Assert.True(r.IsSuccess);
-        Assert.NotEmpty(r.Value!.Hash);
-        Assert.Equal("feat: test commit", r.Value.Message);
-    }
+    Result<GitCommitOutcome> r = await access.CommitAsync(_repoDir, "feat: test commit");
 
-    [Fact]
-    public async Task GetDiffAsync_CleanRepo_ReturnsEmptyDiff()
-    {
-        var access = new DirectGitAccess();
+    Assert.True(r.IsSuccess);
+    Assert.NotEmpty(r.Value!.Hash);
+    Assert.Equal("feat: test commit", r.Value.Message);
+  }
 
-        var r = await access.GetDiffAsync(_repoDir, "Unstaged", path: null);
+  [Fact]
+  public async Task GetDiffAsync_CleanRepo_ReturnsEmptyDiff()
+  {
+    DirectGitAccess access = new();
 
-        Assert.True(r.IsSuccess);
-        Assert.Equal(0, r.Value!.Stats.Files);
-    }
+    Result<GitDiff> r = await access.GetDiffAsync(_repoDir, "Unstaged", path: null);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal(0, r.Value!.Stats.Files);
+  }
 }
