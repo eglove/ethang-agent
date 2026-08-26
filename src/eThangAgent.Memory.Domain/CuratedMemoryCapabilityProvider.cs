@@ -53,7 +53,7 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
             "Ranked hits: full-text match on query when given, otherwise newest-updated first. "
             + "All parameters are optional. Output format:\n"
             + "[memories] N hit(s)\n"
-            + "[mem] id=<first8> v<n> cat=<category> scope=<scope> tags=t1,t2 :: <content <=120 chars>\n"
+            + "[mem] id=<guid> v<n> cat=<category> scope=<scope> tags=t1,t2 :: <content <=120 chars>\n"
             + "     hint: <usage_hint <=80 chars>          (only when present)",
             [new ActionParameter("query", "String", "Optional full-text query."),
              new ActionParameter("category", "String", "Optional exact-lowercase filter: convention | preference | insight | failure | reference."),
@@ -65,7 +65,7 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
             + "and scope (workspace | global). Optional tags (at most 12, each matching "
             + "^[a-z0-9][a-z0-9-_]{0,31}$, deduplicated) and usage_hint (at most 200 chars). The "
             + "session of record is captured automatically; a 'session' parameter is rejected. Output: "
-            + "'[memories] added <first8> v1 (cat=<c> scope=<s>)'.",
+            + "'[memories] added <guid> v1 (cat=<c> scope=<s>)'.",
             [new ActionParameter("content", "String", "The memory itself; trimmed non-empty, max 4000 chars."),
              new ActionParameter("category", "String", "Exactly one of: convention | preference | insight | failure | reference."),
              new ActionParameter("tags", "String[]", "Optional; max 12 tags, lowercase ^[a-z0-9][a-z0-9-_]{0,31}$ each."),
@@ -74,7 +74,7 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
         new("update", "Edit a curated memory under compare-and-swap.",
             "Requires id (GUID) and expected_version (integer >= 1), plus at least one delta among "
             + "content / category / tags / usage_hint. A stale expected_version fails with VersionConflict "
-            + "naming the current version. Output: '[memories] updated <first8> v<n>'.",
+            + "naming the current version. Output: '[memories] updated <guid> v<n>'.",
             [new ActionParameter("id", "String", "GUID of the memory to edit."),
              new ActionParameter("expected_version", "Integer", "The version the caller believes is stored; integer >= 1."),
              new ActionParameter("content", "String", "Replacement content; trimmed non-empty, max 4000 chars."),
@@ -83,7 +83,7 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
              new ActionParameter("usage_hint", "String", "Replacement hint; max 200 chars.")]),
         new("remove", "Delete a curated memory.",
             "Requires id (GUID) and confirm exactly boolean true. Unknown ids fail with MemoryNotFound. "
-            + "Output: '[memories] removed <first8>'.",
+            + "Output: '[memories] removed <guid>'.",
             [new ActionParameter("id", "String", "GUID of the memory to delete."),
              new ActionParameter("confirm", "Boolean", "Must be exactly true; anything else fails RemoveNotConfirmed.")]),
     ];
@@ -159,7 +159,7 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
         var lines = new List<string> { $"[memories] {rows.Count} hit(s)" };
         foreach (var memory in rows)
         {
-            lines.Add($"[mem] id={First8(memory.Id)} v{memory.Version} cat={Wire(memory.Category)}"
+            lines.Add($"[mem] id={memory.Id.ToString()} v{memory.Version} cat={Wire(memory.Category)}"
                       + $" scope={Wire(memory.Scope)} tags={string.Join(",", memory.Tags)}"
                       + $" :: {Truncate(memory.Content, ContentPreviewChars)}");
             if (!string.IsNullOrEmpty(memory.UsageHint))
@@ -228,7 +228,7 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
         if (!added.IsSuccess) return Fail(added.Error!);
         _bumpWrites();
         return CapabilityInvocationResult.Ok(
-            $"[memories] added {First8(added.Value!.Id)} v1"
+            $"[memories] added {added.Value!.Id.ToString()} v1"
             + $" (cat={Wire(added.Value.Category)} scope={Wire(added.Value.Scope)})");
     }
 
@@ -301,7 +301,7 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
         var saved = await _store.UpdateAsync(updated);
         if (!saved.IsSuccess) return Fail(saved.Error!);
         return CapabilityInvocationResult.Ok(
-            $"[memories] updated {First8(saved.Value!.Id)} v{saved.Value.Version}");
+            $"[memories] updated {saved.Value!.Id.ToString()} v{saved.Value.Version}");
     }
 
     private async Task<CapabilityInvocationResult> RemoveAsync(string json)
@@ -320,7 +320,7 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
         if (!deleted.Value)
             return Fail(new Error(CuratedMemoryErrors.MemoryNotFound,
                 $"No curated memory with id '{id}'."));
-        return CapabilityInvocationResult.Ok($"[memories] removed {First8(id)}");
+        return CapabilityInvocationResult.Ok($"[memories] removed {id.ToString()}");
     }
 
     // ---- shared validation ----
@@ -395,7 +395,6 @@ public sealed class CuratedMemoryCapabilityProvider : ICapabilityProvider
     private string WorkspaceKey(MemoryScope scope)
         => scope == MemoryScope.Workspace ? _workspaceId() : "";
 
-    private static string First8(Guid id) => id.ToString("N")[..8];
 
     private static string Truncate(string text, int max) => text.Length <= max ? text : text[..max];
 

@@ -8,7 +8,7 @@ public class CuratedMemoryCapabilityProviderTests
     private const string Workspace = "ws-abc-123";
     private const string AmbientSession = "session-xyz";
     private static readonly Guid KnownId = Guid.Parse("3f2a9f0e-1111-2222-3333-444455556666");
-    private const string KnownFirst8 = "3f2a9f0e";
+    private static readonly string KnownFullId = KnownId.ToString();
 
     private sealed class Harness
     {
@@ -88,7 +88,7 @@ public class CuratedMemoryCapabilityProviderTests
         Assert.False(result.IsError);
         Assert.Equal(
             "[memories] 1 hit(s)\n" +
-            "[mem] id=3f2a9f0e v1 cat=preference scope=global tags=api,sql :: Prefer explicit over implicit.\n" +
+            $"[mem] id={KnownFullId} v1 cat=preference scope=global tags=api,sql :: Prefer explicit over implicit.\n" +
             "     hint: Cite in reviews.",
             result.Content);
     }
@@ -152,7 +152,7 @@ public class CuratedMemoryCapabilityProviderTests
         Assert.Equal(3, lines.Length);
         Assert.Equal("[memories] 1 hit(s)", lines[0]);
         Assert.Equal(
-            $"[mem] id={KnownFirst8} v1 cat=insight scope=workspace tags= :: {new string('x', 120)}",
+            $"[mem] id={KnownFullId} v1 cat=insight scope=workspace tags= :: {new string('x', 120)}",
             lines[1]);
         Assert.Equal($"     hint: {new string('y', 80)}", lines[2]);
     }
@@ -239,7 +239,7 @@ public class CuratedMemoryCapabilityProviderTests
         Assert.Equal(1, h.Store.AddCallCount);
         var stored = h.Store.Rows.Values.Single();
         Assert.Equal(
-            $"[memories] added {stored.Id.ToString("N")[..8]} v1 (cat=convention scope=workspace)",
+            $"[memories] added {stored.Id} v1 (cat=convention scope=workspace)",
             result.Content);
 
         Assert.Equal("Deploy via winget.", stored.Content); // trimmed
@@ -435,7 +435,7 @@ public class CuratedMemoryCapabilityProviderTests
             $$"""{"id":"{{KnownId}}","expected_version":2,"content":"new body","tags":["fresh"]}""");
 
         Assert.False(result.IsError);
-        Assert.Equal($"[memories] updated {KnownFirst8} v3", result.Content);
+        Assert.Equal($"[memories] updated {KnownFullId} v3", result.Content);
         var stored = h.Store.Rows[KnownId];
         Assert.Equal(3, stored.Version);
         Assert.Equal("new body", stored.Content);
@@ -518,7 +518,7 @@ public class CuratedMemoryCapabilityProviderTests
             $$"""{"id":"{{KnownId}}","confirm":true}""");
 
         Assert.False(result.IsError);
-        Assert.Equal($"[memories] removed {KnownFirst8}", result.Content);
+        Assert.Equal($"[memories] removed {KnownFullId}", result.Content);
         Assert.Equal([KnownId], h.Store.Deletes);
         Assert.Equal(0, h.BumpCount);
     }
