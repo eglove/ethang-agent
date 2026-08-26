@@ -86,8 +86,11 @@ public class CSharpScriptExecEngineTests
     }
 
 
+    /// <summary>Hang primitive for the kill-tree regressions: waitfor blocks for its whole
+    ///     duration and resolves directly from System32, so it hangs on every Windows machine
+    ///     regardless of PATH.</summary>
     private const string HungCommand =
-        "var r = Shell(\"cmd\", \"/c\", \"ping -n 60 127.0.0.1 > nul\"); return r.ExitCode;";
+        "var r = Shell(\"waitfor\", \"/t\", \"60\", \"never\"); return r.ExitCode;";
 
     /// <summary>Stop-button regression: cancelling the caller's token must kill the hung
     ///     child process tree so the turn actually ends, not just the token firing.</summary>

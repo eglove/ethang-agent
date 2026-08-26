@@ -25,8 +25,10 @@ public class AgentConfigurationTests
     [Fact]
     public void Base_Url_Override_Is_Honored()
     {
-        var s = Load(env: [("OPENROUTER_BASE_URL", "http://localhost:5599")]);
-        Assert.Equal(new Uri("http://localhost:5599"), s.BaseUrl);
+        // devskim: ignore DS162092 - overriding to a loopback URL is exactly what this test exercises
+        const string loopback = "http://localhost:5599";
+        var s = Load(env: [("OPENROUTER_BASE_URL", loopback)]);
+        Assert.Equal(new Uri(loopback), s.BaseUrl);
     }
 
     [Fact]

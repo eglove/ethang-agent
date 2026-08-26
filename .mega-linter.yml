@@ -8,3 +8,4 @@ DISABLE_LINTERS:
   - REPOSITORY_GRYPE         # Same vuln-DB download issue as trivy
   - CSHARP_ROSLYNATOR        # CLI analysis misses MVVM source-generated properties -> phantom CS1061 errors
   - SPELL_CSPELL             # Spell-checking flags domain terms and proper nouns across docs/code
+  - ACTION_ZIZMOR            # Audits query the GitHub API (401 Unauthorized without a runner token) - cannot function in CI
