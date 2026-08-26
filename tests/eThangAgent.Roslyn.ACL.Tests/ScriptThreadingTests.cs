@@ -22,7 +22,7 @@ public class ScriptThreadingTests
 
     Assert.False(Leaked, "execution posted back onto the caller's context");
     Assert.Equal(ExecRunStatus.Completed, Value.Status);
-    Assert.Contains("ok", Value.Output);
+    Assert.Contains("ok", Value.Output, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -70,7 +70,7 @@ public class ScriptThreadingTests
     finally { }
 
     Task completed = await Task.WhenAny(task, leaked.Task,
-        Task.Delay(TimeSpan.FromSeconds(30)));
+        Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
 
     if (completed == leaked.Task)
     {
@@ -78,7 +78,7 @@ public class ScriptThreadingTests
     }
 
     Assert.True(completed == task, "work neither completed nor leaked within 30s");
-    return (await task, false);
+    return (await task.ConfigureAwait(false), false);
   }
 
   private sealed class NonPumpingContext(Action onLeak) : SynchronizationContext

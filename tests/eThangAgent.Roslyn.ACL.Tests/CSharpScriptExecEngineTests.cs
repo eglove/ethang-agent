@@ -50,8 +50,8 @@ public class CSharpScriptExecEngineTests
     CSharpScriptExecEngine engine = CreateEngine();
     ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("Output(\"line1\"); Output(\"line2\"); 0"));
 
-    Assert.Contains("line1", run.Output);
-    Assert.Contains("line2", run.Output);
+    Assert.Contains("line1", run.Output, StringComparison.Ordinal);
+    Assert.Contains("line2", run.Output, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -72,7 +72,7 @@ public class CSharpScriptExecEngineTests
 
     Assert.Equal(ExecRunStatus.Completed, run.Status); // completed with error lines
     Assert.NotEmpty(run.ErrorLines);
-    Assert.Contains("boom", run.ErrorLines[0]);
+    Assert.Contains("boom", run.ErrorLines[0], StringComparison.Ordinal);
   }
 
   [Fact]
@@ -82,7 +82,7 @@ public class CSharpScriptExecEngineTests
     ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("var r = Shell(\"cmd\", \"/c\", \"echo hello\"); return r.Stdout;"));
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
-    Assert.Contains("hello", run.Output);
+    Assert.Contains("hello", run.Output, StringComparison.Ordinal);
   }
 
 
@@ -128,7 +128,7 @@ public class CSharpScriptExecEngineTests
     ExecRunResult run = await engine.ExecuteAsync(new ExecProgram(program));
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
-    Assert.True(int.Parse(run.Output) > 4096, $"stderr drained: {run.Output}");
+    Assert.True(int.Parse(run.Output, System.Globalization.CultureInfo.InvariantCulture) > 4096, $"stderr drained: {run.Output}");
   }
   [Fact]
   public async Task Workspace_Global_Reflects_Injected_Resolver_PerExecution()
@@ -176,7 +176,7 @@ public class CSharpEvidenceRunnerTests
     EvidenceResult r = await runner.RunAsync("throw new System.Exception(\"fail\")");
 
     Assert.False(r.Confirmed);
-    Assert.Contains("fail", r.Detail);
+    Assert.Contains("fail", r.Detail, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -186,7 +186,7 @@ public class CSharpEvidenceRunnerTests
     try
     {
       CSharpEvidenceRunner runner = new(EvidenceOptions.Default);
-      EvidenceResult r = await runner.RunAsync($"System.IO.File.Exists(@\"{tmp.Replace("\\", "\\\\")}\")");
+      EvidenceResult r = await runner.RunAsync($"System.IO.File.Exists(@\"{tmp.Replace("\\", "\\\\", StringComparison.Ordinal)}\")");
       Assert.True(r.Confirmed);
     }
     finally

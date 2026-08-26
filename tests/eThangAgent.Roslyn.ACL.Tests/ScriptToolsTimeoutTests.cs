@@ -39,8 +39,8 @@ public class ScriptToolsTimeoutTests
   {
     (ScriptTools? tools, CapturingProvider _) = Make();
     string result = tools.Invoke("do", new { x = "y" });
-    Assert.Contains("Error [MissingParameter]:", result);
-    Assert.Contains("timeoutSeconds", result);
+    Assert.Contains("Error [MissingParameter]:", result, StringComparison.Ordinal);
+    Assert.Contains("timeoutSeconds", result, StringComparison.Ordinal);
   }
 
   [Theory]
@@ -51,7 +51,7 @@ public class ScriptToolsTimeoutTests
   {
     (ScriptTools? tools, CapturingProvider _) = Make();
     string result = tools.Invoke("do", new { x = "y", timeoutSeconds = seconds });
-    Assert.Contains("Error [InvalidParameterValue]:", result);
+    Assert.Contains("Error [InvalidParameterValue]:", result, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -61,8 +61,8 @@ public class ScriptToolsTimeoutTests
     string result = tools.Invoke("do", new { x = "y", timeoutSeconds = 30 });
     Assert.Equal("done", result);
     Assert.NotNull(provider.LastJson);
-    Assert.DoesNotContain("timeoutSeconds", provider.LastJson);
-    Assert.Contains("\"x\"", provider.LastJson);
+    Assert.DoesNotContain("timeoutSeconds", provider.LastJson, StringComparison.Ordinal);
+    Assert.Contains("\"x\"", provider.LastJson, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -72,9 +72,9 @@ public class ScriptToolsTimeoutTests
     CapabilityRegistry registry = CapabilityRegistry.Create([slow]);
     ScriptGlobals globals = new(registry, ".", Path.GetTempPath());
 
-    string result = await Task.Run(() => globals.Tools.Invoke("slow", new { timeoutSeconds = 1 }));
+    string result = await Task.Run(() => globals.Tools.Invoke("slow", new { timeoutSeconds = 1 })).ConfigureAwait(true);
 
-    Assert.Contains("Error [ToolTimeout]:", result);
+    Assert.Contains("Error [ToolTimeout]:", result, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -82,7 +82,7 @@ public class ScriptToolsTimeoutTests
   {
     (ScriptTools? tools, CapturingProvider _) = Make();
     string result = tools.Invoke("do", /*lang=json,strict*/ """{"x":"y"}""");
-    Assert.Contains("Error [MissingParameter]:", result);
+    Assert.Contains("Error [MissingParameter]:", result, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -94,7 +94,7 @@ public class ScriptToolsTimeoutTests
 
     // Budget elapses while the action runs — a HarnessEnforced action dies here;
     // a SelfManaged action (clarify waiting on the human) completes regardless.
-    string result = await Task.Run(() => globals.Tools.Invoke("waiter", new { timeoutSeconds = 1 }));
+    string result = await Task.Run(() => globals.Tools.Invoke("waiter", new { timeoutSeconds = 1 })).ConfigureAwait(true);
 
     Assert.Equal("late-but-done", result);
   }
@@ -107,7 +107,7 @@ public class ScriptToolsTimeoutTests
         CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
 
     string missing = globals.Tools.Invoke("waiter", new { });
-    Assert.Contains("Error [MissingParameter]:", missing);
+    Assert.Contains("Error [MissingParameter]:", missing, StringComparison.Ordinal);
   }
 
   /// <summary>Completes after 1.2s — beyond any 1-second budget.</summary>
@@ -122,7 +122,7 @@ public class ScriptToolsTimeoutTests
     public async Task<CapabilityInvocationResult> InvokeAsync(string actionName,
         string jsonArguments, CancellationToken ct = default)
     {
-      await Task.Delay(1_200, CancellationToken.None);
+      await Task.Delay(1_200, CancellationToken.None).ConfigureAwait(false);
       return CapabilityInvocationResult.Ok("late-but-done");
     }
   }
@@ -137,7 +137,7 @@ public class ScriptToolsTimeoutTests
     public async Task<CapabilityInvocationResult> InvokeAsync(string actionName,
         string jsonArguments, CancellationToken ct = default)
     {
-      await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+      await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
       return CapabilityInvocationResult.Ok("never");
     }
   }

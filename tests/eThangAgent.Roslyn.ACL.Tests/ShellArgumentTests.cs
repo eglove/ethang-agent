@@ -20,7 +20,7 @@ public class ShellArgumentTests
     ExecRunResult run = await _engine.ExecuteAsync(new ExecProgram(
         "var r = Shell(\"cmd\", \"/c\", \"echo\", \"hello world\"); return r.Stdout;"));
     Assert.Equal(ExecRunStatus.Completed, run.Status);
-    Assert.Contains("hello world", run.Output);
+    Assert.Contains("hello world", run.Output, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -40,7 +40,7 @@ public class ShellArgumentTests
     DirectoryInfo tmp = Directory.CreateTempSubdirectory("shellarg-repro");
     try
     {
-      string dir = tmp.FullName.Replace("\\", "/");
+      string dir = tmp.FullName.Replace("\\", "/", StringComparison.Ordinal);
 
       string initScript =
           $"var r = Shell(\"git\", \"init \\\"{dir}\\\"\"); return r.ExitCode.ToString();";
@@ -68,7 +68,10 @@ public class ShellArgumentTests
 
         tmp.Delete(recursive: true);
       }
+      // Named decision (CA1031): temp-dir cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
       catch { /* best effort */ }
+#pragma warning restore CA1031
     }
   }
 }
