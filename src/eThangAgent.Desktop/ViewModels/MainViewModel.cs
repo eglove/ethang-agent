@@ -90,7 +90,7 @@ internal sealed partial class MainViewModel : ObservableObject
     if (existing is not null)
     {
       SelectedTab = existing;
-      return Result.Success<AgentTabViewModel>(existing);
+      return Result.Success(existing);
     }
 
     IsOpeningAgent = true;
@@ -142,7 +142,7 @@ internal sealed partial class MainViewModel : ObservableObject
       sessionVm.CloseRequested += (_, _) => CloseTab(tab);
       Tabs.Add(tab);
       SelectedTab = tab;
-      return Result.Success<AgentTabViewModel>(tab);
+      return Result.Success(tab);
     }
     finally
     {
@@ -220,7 +220,7 @@ internal sealed partial class MainViewModel : ObservableObject
   {
     ArgumentNullException.ThrowIfNull(session);
     MainViewModel vm = new(
-        _ => Task.FromResult(Result.Success<AgentSession>(session)), uiStreamSink);
+        _ => Task.FromResult(Result.Success(session)), uiStreamSink);
     Result<AgentTabViewModel> opened = await vm.OpenAgentAsync(session.WorkspaceRoot);
     return !opened.IsSuccess
       ? throw new InvalidOperationException($"prebuilt session failed to open: [{opened.Error!.Code}] {opened.Error.Message}")

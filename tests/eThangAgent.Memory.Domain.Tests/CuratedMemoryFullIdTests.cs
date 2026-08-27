@@ -85,11 +85,11 @@ public class CuratedMemoryFullIdTests
     public Task<Result<CuratedMemory>> AddAsync(CuratedMemory memory, CancellationToken ct = default)
     {
       _rows[memory.Id] = memory;
-      return Task.FromResult(Result.Success<CuratedMemory>(memory));
+      return Task.FromResult(Result.Success(memory));
     }
 
     public Task<Result<CuratedMemory?>> GetAsync(Guid id, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<CuratedMemory?>(_rows.GetValueOrDefault(id)));
+        => Task.FromResult(Result.Success(_rows.GetValueOrDefault(id)));
 
     public Task<Result<IReadOnlyList<CuratedMemory>>> SearchAsync(
         string? workspaceId, string? query, MemoryCategory? category,
@@ -109,10 +109,10 @@ public class CuratedMemoryFullIdTests
     public Task<Result<CuratedMemory>> UpdateAsync(CuratedMemory updated, CancellationToken ct = default)
     {
       _rows[updated.Id] = updated;
-      return Task.FromResult(Result.Success<CuratedMemory>(updated));
+      return Task.FromResult(Result.Success(updated));
     }
 
     public Task<Result<bool>> DeleteAsync(Guid id, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<bool>(_rows.Remove(id)));
+        => Task.FromResult(Result.Success(_rows.Remove(id)));
   }
 }

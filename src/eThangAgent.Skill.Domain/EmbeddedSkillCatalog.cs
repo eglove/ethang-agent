@@ -21,7 +21,7 @@ public sealed class EmbeddedSkillCatalog : ISkillCatalog
   {
     IReadOnlyDictionary<string, SkillDefinition> all = await LoadAllAsync(ct).ConfigureAwait(false);
     return all.TryGetValue(name, out SkillDefinition? skill)
-        ? Result.Success<SkillDefinition>(skill)
+        ? Result.Success(skill)
         : Result.Failure<SkillDefinition>(new DomainError("SkillNotFound",
             $"No built-in skill named '{name}'. Use skill_list to see available skills."));
   }

@@ -33,7 +33,7 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     int start = Math.Max(1, startLine) - 1;
     int end = Math.Min(endLine, allLines.Count);
     List<string> slice = [.. allLines.Skip(start).Take(end - start)];
-    return Task.FromResult(Result.Success<FileRead>(new FileRead(slice, end, allLines.Count)));
+    return Task.FromResult(Result.Success(new FileRead(slice, end, allLines.Count)));
   }
 
   public Task<Result<FileWriteOutcome>> WriteFileAsync(
@@ -54,7 +54,7 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
 
     bool created = !File.Exists(path);
     File.WriteAllText(path, content, new UTF8Encoding(false));
-    return Task.FromResult(Result.Success<FileWriteOutcome>(
+    return Task.FromResult(Result.Success(
         new FileWriteOutcome(created, new FileInfo(path).Length)));
   }
 
@@ -112,7 +112,7 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     string result = sb.ToString();
     File.WriteAllText(path, result, new UTF8Encoding(false));
     int lineCount = result.Length == 0 ? 0 : 1 + result.Count(c => c == '\n');
-    return Task.FromResult(Result.Success<ReplaceOutcome>(new ReplaceOutcome(done, lineCount)));
+    return Task.FromResult(Result.Success(new ReplaceOutcome(done, lineCount)));
   }
 
   public Task<Result<FileSearch>> SearchFilesAsync(
@@ -190,7 +190,7 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
       }
     }
 
-    return Task.FromResult(Result.Success<FileSearch>(
+    return Task.FromResult(Result.Success(
         new FileSearch(matches, truncated, scanned)));
   }
 

@@ -46,7 +46,7 @@ public static class CycleDetector
     ArgumentNullException.ThrowIfNull(edges);
     if (edges.Count == 0)
     {
-      return Result.Success<CycleReport>(new CycleReport([], 0));
+      return Result.Success(new CycleReport([], 0));
     }
 
     // Adjacency + full node set.
@@ -171,7 +171,7 @@ public static class CycleDetector
     }
 
     cycles.Sort((a, b) => string.CompareOrdinal(a.Members[0], b.Members[0]));
-    return Result.Success<CycleReport>(new CycleReport(cycles, unreachable));
+    return Result.Success(new CycleReport(cycles, unreachable));
   }
 
   /// <summary>Nodes lying on a cycle (SCC of size &gt;1 or self-edge) within the given

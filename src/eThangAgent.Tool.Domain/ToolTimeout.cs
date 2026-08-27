@@ -42,7 +42,7 @@ public static class ToolTimeout
       ? Result.Failure<TimeSpan>(new DomainError("InvalidParameterValue",
           "'" + ParameterName + "' must be ≤ " + MaxSeconds +
           " seconds (got " + seconds + ")."))
-      : Result.Success<TimeSpan>(TimeSpan.FromSeconds(seconds));
+      : Result.Success(TimeSpan.FromSeconds(seconds));
   }
 
   /// <summary>Formats the standard error result for an exceeded budget. The message

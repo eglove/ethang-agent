@@ -12,16 +12,16 @@ namespace eThangAgent.Desktop.Tests;
 internal sealed class StubStore : IAgentStore
 {
   public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
-      => Task.FromResult(Result.Success<string>("saved"));
+      => Task.FromResult(Result.Success("saved"));
 
   public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
       => Task.FromResult(Result.Failure<AgentRecord>(new DomainError("NotFound", "stub")));
 
   public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
-      => Task.FromResult(Result.Success<string>("updated"));
+      => Task.FromResult(Result.Success("updated"));
 
   public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
-      => Task.FromResult(Result.Success<string>("appended"));
+      => Task.FromResult(Result.Success("appended"));
 
   public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
       => throw new NotSupportedException();

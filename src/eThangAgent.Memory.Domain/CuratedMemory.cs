@@ -93,11 +93,11 @@ public static partial class CuratedMemorySpecifications
   /// <summary>Parses the exact-lowercase wire form of <see cref="MemoryCategory"/>.</summary>
   public static Result<MemoryCategory> ParseCategory(string? raw) => raw switch
   {
-    "convention" => Result.Success<MemoryCategory>(MemoryCategory.Convention),
-    "preference" => Result.Success<MemoryCategory>(MemoryCategory.Preference),
-    "insight" => Result.Success<MemoryCategory>(MemoryCategory.Insight),
-    "failure" => Result.Success<MemoryCategory>(MemoryCategory.Failure),
-    "reference" => Result.Success<MemoryCategory>(MemoryCategory.Reference),
+    "convention" => Result.Success(MemoryCategory.Convention),
+    "preference" => Result.Success(MemoryCategory.Preference),
+    "insight" => Result.Success(MemoryCategory.Insight),
+    "failure" => Result.Success(MemoryCategory.Failure),
+    "reference" => Result.Success(MemoryCategory.Reference),
     _ => Result.Failure<MemoryCategory>(new DomainError(
         "InvalidCategory",
         $"Unknown category '{raw}'. Valid categories: convention | preference | insight | failure | reference.")),
@@ -106,8 +106,8 @@ public static partial class CuratedMemorySpecifications
   /// <summary>Parses the exact-lowercase wire form of <see cref="MemoryScope"/>.</summary>
   public static Result<MemoryScope> ParseScope(string? raw) => raw switch
   {
-    "workspace" => Result.Success<MemoryScope>(MemoryScope.Workspace),
-    "global" => Result.Success<MemoryScope>(MemoryScope.Global),
+    "workspace" => Result.Success(MemoryScope.Workspace),
+    "global" => Result.Success(MemoryScope.Global),
     _ => Result.Failure<MemoryScope>(new DomainError(
         "InvalidScope",
         $"Unknown scope '{raw}'. Valid scopes: workspace | global.")),

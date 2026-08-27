@@ -40,7 +40,7 @@ public sealed class WriteMarkdownTool(IPathResolver resolver, IFileWriteAccess f
     }
 
     Result<string> resolvedPath = parsed.Value!.Path is null
-        ? Result.Success<string>("")
+        ? Result.Success("")
         : _resolver.Resolve(parsed.Value.Path);
     if (!resolvedPath.IsSuccess)
     {

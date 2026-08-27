@@ -128,7 +128,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
           }
 
           Conversation.AddAssistantMessage(content);
-          return Result.Success<string>(content);
+          return Result.Success(content);
         }
 
         Conversation.AddAssistantMessage(response.Content ?? "",

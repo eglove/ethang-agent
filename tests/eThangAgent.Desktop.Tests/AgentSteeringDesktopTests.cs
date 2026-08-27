@@ -33,7 +33,7 @@ public class AgentSteeringDesktopTests
       Task finished = await Task.WhenAny(_release.Task, Task.Delay(Timeout.InfiniteTimeSpan, ct)).ConfigureAwait(true);
       if (finished == _release.Task)
       {
-        return Result.Success<string>("done");
+        return Result.Success("done");
       }
 
       try
@@ -103,7 +103,7 @@ public class AgentSteeringDesktopTests
   public async Task StopWhenIdle_ShowsNotice_AndDoesNotInterruptChildren()
   {
     TestFixtures.StubAgentRuntime runtime = new();
-    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build((_, ct, a, b, c, d, e) => Task.FromResult(Result.Success<string>("ok")),
+    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build((_, ct, a, b, c, d, e) => Task.FromResult(Result.Success("ok")),
         new AgentInbox(), runtime);
 
     await vm.SubmitAsync("quick turn");

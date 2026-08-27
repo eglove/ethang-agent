@@ -18,7 +18,7 @@ public class MemoryCapabilityProviderTests
     public (string? Query, string QueryMode, string? Scope, string Branches, string? Role, int Page, int PageSize)? _lastArgs;
     public CancellationToken _lastCt;
     private readonly Result<RecallPage> _reply =
-        reply ?? Result.Success<RecallPage>(new RecallPage([], 0, 1, 1));
+        reply ?? Result.Success(new RecallPage([], 0, 1, 1));
 
     public Task<Result<RecallPage>> Execute(string? query, string queryMode, string? scope,
         string branches, string? role, int page, int pageSize, CancellationToken ct = default)
@@ -65,7 +65,7 @@ public class MemoryCapabilityProviderTests
   {
     AgentId first = new(Guid.Parse("11111111-1111-1111-1111-111111111111"));
     AgentId second = new(Guid.Parse("22222222-2222-2222-2222-222222222222"));
-    (MemoryCapabilityProvider? provider, FakeRecallQuery? recall, FakeSessionsQuery _) = MakeProvider(Result.Success<RecallPage>(PageOf(
+    (MemoryCapabilityProvider? provider, FakeRecallQuery? recall, FakeSessionsQuery _) = MakeProvider(Result.Success(PageOf(
         new RecallHit(first, 2, "user", "hello world", DateTimeOffset.UtcNow),
         new RecallHit(second, 7, "assistant", "second line", DateTimeOffset.UtcNow))));
 
@@ -100,7 +100,7 @@ public class MemoryCapabilityProviderTests
     // must carry exactly the first 120 chars of it.
     AgentId session = new(Guid.Parse("33333333-3333-3333-3333-333333333333"));
     string content = "alpha\rbravo\ncharlie " + new string('z', 118);
-    (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider(Result.Success<RecallPage>(PageOf(new RecallHit(session, 4, "tool", content, DateTimeOffset.UtcNow))));
+    (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider(Result.Success(PageOf(new RecallHit(session, 4, "tool", content, DateTimeOffset.UtcNow))));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("recall", "{}");
 

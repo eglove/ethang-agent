@@ -12,6 +12,6 @@ public sealed record ModelConfig(string ModelId, int MaxTokens, float Temperatur
       ? Result.Failure<ModelConfig>(new DomainError("InvalidModel", "MaxTokens must be positive."))
       : temperature is < 0f or > 2f
       ? Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Temperature must be between 0 and 2."))
-      : Result.Success<ModelConfig>(new ModelConfig(modelId, maxTokens, temperature));
+      : Result.Success(new ModelConfig(modelId, maxTokens, temperature));
   }
 }

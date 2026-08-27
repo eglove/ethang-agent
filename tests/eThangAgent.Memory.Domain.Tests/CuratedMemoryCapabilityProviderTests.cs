@@ -632,13 +632,13 @@ public class CuratedMemoryCapabilityProviderTests
       }
 
       _rows[memory.Id] = memory;
-      return Task.FromResult(Result.Success<CuratedMemory>(memory));
+      return Task.FromResult(Result.Success(memory));
     }
 
     public Task<Result<CuratedMemory?>> GetAsync(Guid id, CancellationToken ct = default)
     {
       _getCallCount++;
-      return Task.FromResult(Result.Success<CuratedMemory?>(_rows.GetValueOrDefault(id)));
+      return Task.FromResult(Result.Success(_rows.GetValueOrDefault(id)));
     }
 
     public Task<Result<IReadOnlyList<CuratedMemory>>> SearchAsync(
@@ -689,13 +689,13 @@ public class CuratedMemoryCapabilityProviderTests
       }
 
       _rows[updated.Id] = updated;
-      return Task.FromResult(Result.Success<CuratedMemory>(updated));
+      return Task.FromResult(Result.Success(updated));
     }
 
     public Task<Result<bool>> DeleteAsync(Guid id, CancellationToken ct = default)
     {
       _deletes.Add(id);
-      return Task.FromResult(Result.Success<bool>(_rows.Remove(id)));
+      return Task.FromResult(Result.Success(_rows.Remove(id)));
     }
   }
 }

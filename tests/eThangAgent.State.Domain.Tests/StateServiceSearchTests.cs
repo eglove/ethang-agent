@@ -85,7 +85,7 @@ public class StateServiceSearchTests
 
       LastQuery = query;
       LastLimit = limit;
-      return Task.FromResult(Result.Success<IReadOnlyList<StateSearchHit>>(Hits));
+      return Task.FromResult(Result.Success(Hits));
     }
 
     public Task<TransitionRecord> InsertTransitionAsync(string workspaceId, TransitionRecord transition, CancellationToken ct = default)

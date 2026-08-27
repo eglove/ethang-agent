@@ -29,11 +29,11 @@ public sealed class AgentQueries(IAgentStore store) : IAgentQueries
     {
       AgentStatus.Running => Result.Failure<string>(new DomainError("NotComplete",
           $"Agent '{id}' has not finished running. Check agent.status later.")),
-      AgentStatus.Completed when agent.FinalReport is { } report => Result.Success<string>(report),
+      AgentStatus.Completed when agent.FinalReport is { } report => Result.Success(report),
       AgentStatus.Completed => Result.Failure<string>(new DomainError("NotFound",
           $"No agent exists with id '{id}'.")),
-      AgentStatus.Failed when agent.FinalReport is { } partial => Result.Success<string>(partial),
-      AgentStatus.Failed => Result.Success<string>(NoReportLine(agent.FailureReason)),
+      AgentStatus.Failed when agent.FinalReport is { } partial => Result.Success(partial),
+      AgentStatus.Failed => Result.Success(NoReportLine(agent.FailureReason)),
       _ => throw new InvalidOperationException($"Unknown agent status '{agent.Status}' for agent '{id}'."),
     };
   }

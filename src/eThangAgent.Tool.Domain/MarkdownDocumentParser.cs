@@ -101,7 +101,7 @@ public static class MarkdownDocumentParser
       frontMatter = fm;
     }
 
-    return Result.Success<MarkdownDocument>(new MarkdownDocument(blocks, frontMatter));
+    return Result.Success(new MarkdownDocument(blocks, frontMatter));
   }
 
   private static Result<MarkdownBlock?> ParseBlock(JsonElement b)
@@ -449,7 +449,7 @@ public static class MarkdownDocumentParser
       ? Result.Failure<string>(new DomainError("MissingParameter", $"'{field}' is required."))
       : el.ValueKind != JsonValueKind.String
       ? Result.Failure<string>(new DomainError("InvalidParameterType", $"'{field}' must be a string, but got {el.ValueKind}."))
-      : Result.Success<string>(el.GetString()!);
+      : Result.Success(el.GetString()!);
   }
 
   private static HashSet<string>? TypeFields(string type) => type switch

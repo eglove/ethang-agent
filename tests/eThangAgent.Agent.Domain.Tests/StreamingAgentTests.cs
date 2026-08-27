@@ -31,7 +31,7 @@ public class StreamingAgentTests
         onContentDelta?.Invoke(delta);
       }
 
-      return Task.FromResult(Result.Success<ModelResponse>(response));
+      return Task.FromResult(Result.Success(response));
     }
   }
 
@@ -64,9 +64,9 @@ public class StreamingAgentTests
   public async Task NonStreamingProvider_ViaDefaultMethod_StillSucceedsWithoutCallbacks()
   {
     Agent agent = new(new FakeProvider(
-            Result.Success<ModelResponse>(new ModelResponse(null,
+            Result.Success(new ModelResponse(null,
                 [new ToolCallRequest("c1", "read", "{}")])),
-            Result.Success<ModelResponse>(new ModelResponse("done", []))),
+            Result.Success(new ModelResponse("done", []))),
         new Conversation(), DefaultConfig, new ToolRegistry([new FakeTool("read", "ok")]));
     List<string> deltas = [];
     int iterations = 0;

@@ -215,7 +215,7 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
     using (doc)
     {
       return doc.RootElement.ValueKind is JsonValueKind.Object
-          ? Result.Success<JsonElement>(doc.RootElement.Clone())
+          ? Result.Success(doc.RootElement.Clone())
           : Result.Failure<JsonElement>(new DomainError("InvalidArgument",
               "arguments must be a JSON object."));
     }
@@ -241,7 +241,7 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
     return !args.TryGetProperty(key, out JsonElement element)
       ? Result.Success<string?>(null)
       : element.ValueKind is JsonValueKind.String
-        ? Result.Success<string?>(element.GetString())
+        ? Result.Success(element.GetString())
         : Result.Failure<string?>(new DomainError("InvalidArgument",
             $"argument '{key}' must be a string."));
   }
@@ -249,9 +249,9 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
   private static Result<int> OptionalNumber(JsonElement args, string key, int fallback)
   {
     return !args.TryGetProperty(key, out JsonElement element)
-      ? Result.Success<int>(fallback)
+      ? Result.Success(fallback)
       : element.ValueKind is JsonValueKind.Number && element.TryGetInt32(out int value)
-        ? Result.Success<int>(value)
+        ? Result.Success(value)
         : Result.Failure<int>(new DomainError("InvalidArgument",
             $"argument '{key}' must be a number."));
   }

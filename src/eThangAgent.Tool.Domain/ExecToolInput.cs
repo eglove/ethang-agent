@@ -41,7 +41,7 @@ public sealed record ExecToolInput(string Program)
     return program.Length == 0
       ? Failure(new DomainError("InvalidParameterValue",
           "'program' must be a non-empty string."))
-      : Result.Success<ExecToolInput>(new ExecToolInput(program));
+      : Result.Success(new ExecToolInput(program));
   }
 
   private static Result<ExecToolInput> Failure(DomainError error)

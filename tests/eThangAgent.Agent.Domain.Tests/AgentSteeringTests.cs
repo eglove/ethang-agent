@@ -25,7 +25,7 @@ public class AgentSteeringTests
     {
       // No defensive copy needed: the loop snapshots messages per request.
       RequestsSeen.Add(request);
-      return Task.FromResult(Result.Success<ModelResponse>(
+      return Task.FromResult(Result.Success(
           _responses.Count > 0 ? _responses.Dequeue() : new ModelResponse("done", [])));
     }
   }

@@ -25,7 +25,7 @@ public static class RootSessionBootstrapper
   {
     Result<string> saved = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
     return saved.IsSuccess
-        ? Result.Success<AgentId>(rootId)
+        ? Result.Success(rootId)
         : Result.Failure<AgentId>(new DomainError("PersistFailed",
             $"failed to persist root session: [{saved.Error!.Code}] {saved.Error.Message}"));
   }

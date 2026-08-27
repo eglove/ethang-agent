@@ -26,7 +26,7 @@ public class TurnRunnerThreadingTests
       Task<Result<string>> task = DesktopHost.OffUiThread((_, _, _, _, _, _, _) =>
       {
         observed = SynchronizationContext.Current;
-        return Task.FromResult(Result.Success<string>("done"));
+        return Task.FromResult(Result.Success("done"));
       })(new SendMessageCommand("hi"), CancellationToken.None,
          null, null, null, null, null);
 

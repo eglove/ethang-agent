@@ -161,7 +161,7 @@ public static class TodoDocument
       ? ItemFail(index, "is missing 'description'.")
       : description.Length == 0
       ? ItemFail(index, "'description' must be a non-empty string.")
-      : Result.Success<TodoItem>(new TodoItem(id, description, status));
+      : Result.Success(new TodoItem(id, description, status));
   }
 
   private static Result<TodoItem> ItemFail(int index, string detail) =>

@@ -107,7 +107,7 @@ public sealed class GitStatusTool(IPathResolver resolver, IGitQueryAccess git) :
       ? Result.Failure<bool>(new DomainError("UnknownParameter",
           $"Unknown parameter(s): {string.Join(", ", unknown)}. " +
           $"This tool takes no arguments besides {ToolTimeout.ParameterName}."))
-      : Result.Success<bool>(true);
+      : Result.Success(true);
   }
 
   private static ToolResult Err(DomainError error) => new($"Error [{error.Code}]: {error.Message}", true);

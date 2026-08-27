@@ -167,7 +167,7 @@ public sealed class AgentCapabilityProvider(
           || !Guid.TryParseExact(raw, "D", out Guid guid)
         ? Result.Failure<AgentId>(new DomainError("InvalidArgument",
             "'id' must be a GUID string."))
-        : Result.Success<AgentId>(new AgentId(guid));
+        : Result.Success(new AgentId(guid));
     }
   }
 

@@ -15,7 +15,7 @@ namespace eThangAgent.Desktop.Streaming;
 /// <see cref="DrainUntilIdleAsync"/> awaiter via <c>TrySetException</c> — the task never
 /// hangs. Remaining buffered events are abandoned on the first sink fault. The pump task
 /// itself stores its <see cref="Task"/> and adds a no-op continuation so the fault is
-/// always observed and never raises <see cref="System.Threading.Tasks.TaskScheduler.UnobservedTaskException"/>.</para>
+/// always observed and never raises <see cref="TaskScheduler.UnobservedTaskException"/>.</para>
 /// </summary>
 internal sealed class StreamBridge(Func<UiStreamEvent, Task> sink)
 {

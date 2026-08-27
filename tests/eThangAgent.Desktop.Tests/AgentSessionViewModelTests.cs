@@ -70,7 +70,7 @@ public class AgentSessionViewModelTests
     (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
     {
       sent++;
-      return Task.FromResult(Result.Success<string>(""));
+      return Task.FromResult(Result.Success(""));
     });
 
     await vm.SubmitAsync("/help");
@@ -97,7 +97,7 @@ public class AgentSessionViewModelTests
         (_, _, _, _, _, _, _) =>
         {
           sent++;
-          return Task.FromResult(Result.Success<string>(""));
+          return Task.FromResult(Result.Success(""));
         },
         new RecordingLifecycle(store), AgentId.NewId(), new Conversation(), "m",
         workspaceRoot: @"C:\work\demo");
@@ -119,7 +119,7 @@ public class AgentSessionViewModelTests
       onContent!("hel");
       onContent!("lo");
       await Task.Yield();
-      return Result.Success<string>("hello");
+      return Result.Success("hello");
     });
 
     Task turnTask = vm.SubmitAsync("hi");
@@ -155,7 +155,7 @@ public class AgentSessionViewModelTests
   public async Task Success_Without_Streamed_Deltas_Falls_Back_To_Final_Text_Notice()
   {
     (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
-        Task.FromResult(Result.Success<string>("plain answer")));
+        Task.FromResult(Result.Success("plain answer")));
 
     await vm.SubmitAsync("q");
     await vm.WaitForTurnAsync();
@@ -171,7 +171,7 @@ public class AgentSessionViewModelTests
   {
     TaskCompletionSource release = new();
     (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
-        release.Task.ContinueWith(_ => Result.Success<string>("done"),
+        release.Task.ContinueWith(_ => Result.Success("done"),
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
 
     Task first = vm.SubmitAsync("one");
@@ -194,7 +194,7 @@ public class AgentSessionViewModelTests
     PersistenceErroringLifecycle lifecycle = new(new StubStore());
     AgentSessionViewModel vm = new(
         (_, _, _, _, _, _, _) =>
-            Task.FromResult(Result.Success<string>("answer")),
+            Task.FromResult(Result.Success("answer")),
         lifecycle, AgentId.NewId(), new Conversation(), "test/model",
         workspaceRoot: @"C:\work\demo");
 
@@ -212,7 +212,7 @@ public class AgentSessionViewModelTests
   public async Task Blank_Input_Is_Ignored()
   {
     (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
-        Task.FromResult(Result.Success<string>("x")));
+        Task.FromResult(Result.Success("x")));
 
     await vm.SubmitAsync("   ");
 

@@ -32,7 +32,7 @@ public class SubAgentSpawnerTests
   {
     FakeAgentStore store = new();
     FakeProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse("deep report", [])));
+        Result.Success(new ModelResponse("deep report", [])));
     SubAgentSpawner spawner = MakeRunner(provider, store,
         options: new SubAgentOptions(DefaultModel: "m/sub", MaxDepth: 3));
 
@@ -65,7 +65,7 @@ public class SubAgentSpawnerTests
   {
     FakeAgentStore store = new();
     FakeProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse("child report", [])));
+        Result.Success(new ModelResponse("child report", [])));
     SubAgentSpawner spawner = MakeRunner(provider, store);
 
     AgentRecord child = Child(depth: 2, taskPrompt: "summarize the file", label: "child-a");
@@ -94,7 +94,7 @@ public class SubAgentSpawnerTests
   {
     FakeAgentStore store = new();
     FakeProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse("child report", [])));
+        Result.Success(new ModelResponse("child report", [])));
     SubAgentSpawner spawner = MakeRunner(provider, store);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "do things"), CancellationToken.None);
@@ -115,9 +115,9 @@ public class SubAgentSpawnerTests
     FakeTool fakeTool = new("read_file", "file content");
     FakeAgentStore store = new();
     FakeProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse(null,
+        Result.Success(new ModelResponse(null,
             [new ToolCallRequest("call_1", "read_file", "{}")])),
-        Result.Success<ModelResponse>(new ModelResponse("finished", [])));
+        Result.Success(new ModelResponse("finished", [])));
     SubAgentSpawner spawner = MakeRunner(provider, store,
         tools: new ToolRegistry([fakeTool]));
 
@@ -220,7 +220,7 @@ public class SubAgentSpawnerTests
   {
     FakeAgentStore store = new() { UpdateFailure = Result.Failure<string>(new DomainError("StorageDown", "agent store unavailable.")) };
     FakeProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse("report", [])));
+        Result.Success(new ModelResponse("report", [])));
     SubAgentSpawner spawner = MakeRunner(provider, store);
 
     _ = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -235,7 +235,7 @@ public class SubAgentSpawnerTests
     string bigReport = new('x', 52_000);
     FakeAgentStore store = new();
     FakeProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse(bigReport, [])));
+        Result.Success(new ModelResponse(bigReport, [])));
     SubAgentSpawner spawner = MakeRunner(provider, store);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "big task"), CancellationToken.None);
@@ -254,7 +254,7 @@ public class SubAgentSpawnerTests
   {
     FakeAgentStore store = new();
     FakeProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse("compact report", [])));
+        Result.Success(new ModelResponse("compact report", [])));
     SubAgentSpawner spawner = MakeRunner(provider, store);
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(), CancellationToken.None);

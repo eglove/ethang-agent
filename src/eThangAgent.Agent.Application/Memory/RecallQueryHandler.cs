@@ -79,7 +79,7 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
 
     return outcome switch
     {
-      SearchOk ok => Result.Success<RecallPage>(Project(ok.Result)),
+      SearchOk ok => Result.Success(Project(ok.Result)),
       SearchFail fail => Result.Failure<RecallPage>(FromRenderedLine(fail.DomainError)),
       _ => throw new NotSupportedException($"Unhandled search outcome {outcome.GetType().Name}."),
     };
@@ -138,7 +138,7 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
                     record.Id, index, message.Role.ToString(), message.Content, message.Timestamp))]));
     }
 
-    return Result.Success<List<SessionCorpus>>(corpora);
+    return Result.Success(corpora);
   }
 
   /// <summary>Unwraps <see cref="SearchFail"/>: it carries the already-rendered typed

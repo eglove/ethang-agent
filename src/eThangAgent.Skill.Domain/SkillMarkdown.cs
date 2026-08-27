@@ -73,7 +73,7 @@ public static class SkillMarkdown
       bodyLines = bodyLines[1..];
     }
 
-    return Result.Success<ParsedSkill>(new ParsedSkill(name, description, string.Join('\n', bodyLines)));
+    return Result.Success(new ParsedSkill(name, description, string.Join('\n', bodyLines)));
   }
 
   private static Result<ParsedSkill> Fail(DomainError error) => Result.Failure<ParsedSkill>(error);

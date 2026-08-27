@@ -21,7 +21,7 @@ internal static class TestFixtures
     public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
     {
       ArgumentNullException.ThrowIfNull(record);
-      return Task.FromResult(Result.Success<AgentId>(record.Id));
+      return Task.FromResult(Result.Success(record.Id));
     }
 
     public void Interrupt(AgentId? childId = null)
@@ -36,13 +36,13 @@ internal static class TestFixtures
   internal sealed class StubStore : IAgentStore
   {
     public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<string>("saved"));
+        => Task.FromResult(Result.Success("saved"));
     public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<string>("updated"));
+        => Task.FromResult(Result.Success("updated"));
     public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<AgentRecord>(new DomainError("NotFound", "not found")));
     public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<string>("appended"));
+        => Task.FromResult(Result.Success("appended"));
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
     public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
@@ -60,7 +60,7 @@ internal static class TestFixtures
     static Task<Result<string>> runner(SendMessageCommand command, CancellationToken ct, Action<string>? onContentDelta, Action<string>? onReasoningDelta, Action? onIterationEnd, Action<string, string>? onToolCall, Action<string, string>? onToolResult)
     {
       onContentDelta?.Invoke("ack");
-      return Task.FromResult(Result.Success<string>("ack"));
+      return Task.FromResult(Result.Success("ack"));
     }
 
     AgentSessionViewModel? vmRef = null;

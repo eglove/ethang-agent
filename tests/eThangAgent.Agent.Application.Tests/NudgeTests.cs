@@ -60,7 +60,7 @@ public class NudgeTests
   [Fact]
   public async Task Handle_PolicyReturnsLine_AppendsSystemMessageAfterSuccessfulTurn()
   {
-    ScriptedProvider provider = new(Result.Success<ModelResponse>(new ModelResponse("ok", [])));
+    ScriptedProvider provider = new(Result.Success(new ModelResponse("ok", [])));
     (Ag? agent, Conversation? conversation) = BuildAgent(provider);
     CountingPolicy policy = new("[nudge] remember to curate");
     SendMessageCommandHandler handler = new(agent, conversation, policy, () => 0);
@@ -77,7 +77,7 @@ public class NudgeTests
   [Fact]
   public async Task Handle_PolicySilent_NothingAppended()
   {
-    ScriptedProvider provider = new(Result.Success<ModelResponse>(new ModelResponse("ok", [])));
+    ScriptedProvider provider = new(Result.Success(new ModelResponse("ok", [])));
     (Ag? agent, Conversation? conversation) = BuildAgent(provider);
     CountingPolicy policy = new(null);
     SendMessageCommandHandler handler = new(agent, conversation, policy, () => 0);
@@ -110,9 +110,9 @@ public class NudgeTests
   public async Task Handle_TurnCounterIncrementsAcrossInvocations()
   {
     ScriptedProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse("one", [])),
-        Result.Success<ModelResponse>(new ModelResponse("two", [])),
-        Result.Success<ModelResponse>(new ModelResponse("three", [])));
+        Result.Success(new ModelResponse("one", [])),
+        Result.Success(new ModelResponse("two", [])),
+        Result.Success(new ModelResponse("three", [])));
     (Ag? agent, Conversation? conversation) = BuildAgent(provider);
     CountingPolicy policy = new(null);
     SendMessageCommandHandler handler = new(agent, conversation, policy, () => 0);
@@ -128,13 +128,13 @@ public class NudgeTests
   public async Task Handle_PassesToolCallCountAndTrackerTotalToPolicy()
   {
     ScriptedProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse(null,
+        Result.Success(new ModelResponse(null,
         [
             new ToolCallRequest("c1", "t", "{}"),
                 new ToolCallRequest("c2", "t", "{}"),
                 new ToolCallRequest("c3", "t", "{}"),
         ])),
-        Result.Success<ModelResponse>(new ModelResponse("done", [])));
+        Result.Success(new ModelResponse("done", [])));
     Conversation conversation = new();
     Ag agent = new(provider, conversation,
         ModelConfig.Create("m", 100, 0.5f).Value!,
@@ -153,7 +153,7 @@ public class NudgeTests
   [Fact]
   public async Task Handle_PolicySuppliedWithoutCounter_NudgingStaysOff()
   {
-    ScriptedProvider provider = new(Result.Success<ModelResponse>(new ModelResponse("ok", [])));
+    ScriptedProvider provider = new(Result.Success(new ModelResponse("ok", [])));
     (Ag? agent, Conversation? conversation) = BuildAgent(provider);
     CountingPolicy policy = new("[nudge] incomplete wiring");
     SendMessageCommandHandler handler = new(agent, conversation, policy);
@@ -167,7 +167,7 @@ public class NudgeTests
   [Fact]
   public async Task Handle_LegacySingleArgConstruction_WorksAndNeverNudges()
   {
-    ScriptedProvider provider = new(Result.Success<ModelResponse>(new ModelResponse("ok", [])));
+    ScriptedProvider provider = new(Result.Success(new ModelResponse("ok", [])));
     Ag agent = new(provider, new Conversation(),
         ModelConfig.Create("m", 100, 0.5f).Value!, new ToolRegistry([]));
     SendMessageCommandHandler handler = new(agent);
@@ -195,7 +195,7 @@ public class NudgeTests
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
         CancellationToken ct = default)
         => Task.FromResult(_queue.Count > 0 ? _queue.Dequeue()
-            : Result.Success<ModelResponse>(new ModelResponse("fin", [])));
+            : Result.Success(new ModelResponse("fin", [])));
   }
 
   /// <summary>Records every evaluated context; returns its fixed line (null = silent).</summary>

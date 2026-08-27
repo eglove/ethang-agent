@@ -77,7 +77,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, string apiKey, M
         return Result.Failure<AgentSession>(bootstrapped.Error!);
       }
 
-      return Result.Success<AgentSession>(new AgentSession(
+      return Result.Success(new AgentSession(
           services,
           bootstrapped.Value!,
           services.GetRequiredService<Conversation>(),

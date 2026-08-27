@@ -39,7 +39,7 @@ public class AgentTests
   public async Task SendMessage_OnSuccess_AddsBothMessages()
   {
     ScriptedModelProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse("Hello back", [])));
+        Result.Success(new ModelResponse("Hello back", [])));
     Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
 
     Result<string> result = await agent.SendMessage("Hi");
@@ -68,9 +68,9 @@ public class AgentTests
   {
     FakeTool fakeTool = new("read", "file content");
     ScriptedModelProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse(null,
+        Result.Success(new ModelResponse(null,
             [new ToolCallRequest("call_1", "read", /*lang=json,strict*/ "{\"p\":\"f\"}")])),
-        Result.Success<ModelResponse>(new ModelResponse("done", [])));
+        Result.Success(new ModelResponse("done", [])));
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([fakeTool]));
 
@@ -91,9 +91,9 @@ public class AgentTests
   public async Task SendMessage_UnknownTool_ReturnsErrorToolResult()
   {
     ScriptedModelProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse(null,
+        Result.Success(new ModelResponse(null,
             [new ToolCallRequest("call_1", "nope", "{}")])),
-        Result.Success<ModelResponse>(new ModelResponse("final", [])));
+        Result.Success(new ModelResponse("final", [])));
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([]));
 
@@ -114,10 +114,10 @@ public class AgentTests
     Result<ModelResponse>[] responses =
     [
       .. Enumerable.Range(0, rounds)
-              .Select(_ => Result.Success<ModelResponse>(new ModelResponse(null,
+              .Select(_ => Result.Success(new ModelResponse(null,
                   [new ToolCallRequest("c1", "loopy", "{}")])))
 ,
-      Result.Success<ModelResponse>(new ModelResponse("finally done", [])),
+      Result.Success(new ModelResponse("finally done", [])),
     ];
     ScriptedModelProvider provider = new(responses);
     Agent agent = new(provider, new Conversation(), DefaultConfig,
@@ -133,7 +133,7 @@ public class AgentTests
   public async Task SendMessage_ZeroToolCallTurn_LastTurnToolCallsIsZero()
   {
     FakeProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse("done", [])));
+        Result.Success(new ModelResponse("done", [])));
     Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
 
     _ = await agent.SendMessage("hi");
@@ -145,13 +145,13 @@ public class AgentTests
   public async Task SendMessage_TurnWithThreeToolCalls_CounterReflectsThem()
   {
     FakeProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse(null,
+        Result.Success(new ModelResponse(null,
         [
             new ToolCallRequest("c1", "t", "{}"),
                 new ToolCallRequest("c2", "t", "{}"),
                 new ToolCallRequest("c3", "t", "{}"),
         ])),
-        Result.Success<ModelResponse>(new ModelResponse("done", [])));
+        Result.Success(new ModelResponse("done", [])));
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([new FakeTool("t", "ok")]));
 
@@ -164,9 +164,9 @@ public class AgentTests
   public async Task SendMessage_FailedTurnWithoutToolCalls_CounterResetsToZero()
   {
     FakeProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse(null,
+        Result.Success(new ModelResponse(null,
             [new ToolCallRequest("c1", "t", "{}")])),
-        Result.Success<ModelResponse>(new ModelResponse("mid", [])),
+        Result.Success(new ModelResponse("mid", [])),
         Result.Failure<ModelResponse>(new DomainError("Boom", "provider down")));
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([new FakeTool("t", "ok")]));
@@ -202,7 +202,7 @@ public class AgentTests
         CancellationToken ct)
     {
       LastRequest = request;
-      return Task.FromResult(Result.Success<ModelResponse>(new ModelResponse("ok", [])));
+      return Task.FromResult(Result.Success(new ModelResponse("ok", [])));
     }
   }
 
@@ -212,7 +212,7 @@ public class AgentTests
 
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct)
         => Task.FromResult(_responses.Count > 0 ? _responses.Dequeue()
-            : Result.Success<ModelResponse>(new ModelResponse("fin", [])));
+            : Result.Success(new ModelResponse("fin", [])));
   }
 
   private sealed class FakeTool(string name, string resultContent) : ITool

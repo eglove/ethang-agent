@@ -47,17 +47,17 @@ public class RootSessionBootstrapperTests
       }
 
       Saved.Add(record);
-      return Task.FromResult(Result.Success<string>(record.Id.ToString()));
+      return Task.FromResult(Result.Success(record.Id.ToString()));
     }
 
     public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success<string>(record.Id.ToString()));
+        Task.FromResult(Result.Success(record.Id.ToString()));
 
     public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default) =>
         Task.FromResult(Result.Failure<AgentRecord>(new DomainError("NotFound", "no")));
 
     public Task<Result<string>> AppendMessageAsync(AgentId id, ConversationDomain.Message message, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success<string>("ok"));
+        Task.FromResult(Result.Success("ok"));
 
     public Task<Result<IReadOnlyList<ConversationDomain.Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default) =>
         Task.FromResult(Result.Success<IReadOnlyList<ConversationDomain.Message>>([]));

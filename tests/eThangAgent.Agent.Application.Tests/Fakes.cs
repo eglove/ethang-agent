@@ -27,7 +27,7 @@ internal sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
     Saved.Add(record);
     _records[record.Id.Value] = record;
     callLog?.Add($"save:{record.Id}");
-    return Task.FromResult(Result.Success<string>(record.Id.ToString()));
+    return Task.FromResult(Result.Success(record.Id.ToString()));
   }
 
   public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
@@ -35,12 +35,12 @@ internal sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
     Updated.Add(record);
     _records[record.Id.Value] = record;
     callLog?.Add($"update:{record.Id}");
-    return Task.FromResult(Result.Success<string>(record.Id.ToString()));
+    return Task.FromResult(Result.Success(record.Id.ToString()));
   }
 
   public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
       => Task.FromResult(_records.TryGetValue(id.Value, out AgentRecord? record)
-          ? Result.Success<AgentRecord>(record)
+          ? Result.Success(record)
           : Result.Failure<AgentRecord>(new DomainError("NotFound", $"Agent {id} was not found.")));
 
   public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
@@ -52,7 +52,7 @@ internal sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
     }
 
     transcript.Add(message);
-    return Task.FromResult(Result.Success<string>(id.ToString()));
+    return Task.FromResult(Result.Success(id.ToString()));
   }
 
   public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
@@ -82,7 +82,7 @@ internal sealed class FakeAgentRuntime(List<string>? callLog = null) : IAgentRun
   {
     Started.Add(record);
     callLog?.Add($"start:{record.Id}");
-    return Task.FromResult(StartOutcome ?? Result.Success<AgentId>(record.Id));
+    return Task.FromResult(StartOutcome ?? Result.Success(record.Id));
   }
 
   /// <summary>Interrupts observed by tests; never throws.</summary>

@@ -46,7 +46,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
                 """;
       BindRecord(command, record);
       _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-      return Result.Success<string>(record.Id.ToString());
+      return Result.Success(record.Id.ToString());
     }
     finally
     {
@@ -74,7 +74,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
       BindRecord(command, record);
       return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 0
           ? Result.Failure<string>(NotFound(record.Id))
-          : Result.Success<string>(record.Id.ToString());
+          : Result.Success(record.Id.ToString());
     }
     finally
     {
@@ -97,7 +97,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     Add(command, "@id", id.ToString());
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
     return await reader.ReadAsync(ct).ConfigureAwait(false)
-        ? Result.Success<AgentRecord>(ReadRecord(reader))
+        ? Result.Success(ReadRecord(reader))
         : Result.Failure<AgentRecord>(NotFound(id));
   }
 
@@ -135,7 +135,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
           new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId)));
       _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
       await transaction.CommitAsync(ct).ConfigureAwait(false);
-      return Result.Success<string>(id.ToString());
+      return Result.Success(id.ToString());
     }
     finally
     {
@@ -232,7 +232,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     Add(command, "@type", EventTypeOf(domainEvent));
     Add(command, "@payload", JsonSerializer.Serialize(domainEvent, domainEvent.GetType()));
     _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-    return Result.Success<string>(domainEvent.AgentId.ToString());
+    return Result.Success(domainEvent.AgentId.ToString());
   }
 
   /// <summary>Reloads an agent's persisted events in insertion order.</summary>

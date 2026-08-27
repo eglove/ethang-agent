@@ -64,7 +64,7 @@ public class AgentCapabilityProviderTests
           Action<FakeQueries>? seed = null)
   {
     List<(AgentRecord, SpawnRequest)> calls = [];
-    FakeSpawnCommand command = new(spawnReply ?? Result.Success<AgentId>(AgentId.NewId()), calls);
+    FakeSpawnCommand command = new(spawnReply ?? Result.Success(AgentId.NewId()), calls);
     FakeQueries queries = new();
     seed?.Invoke(queries);
     return (new AgentCapabilityProvider(command, queries, () => parent), command, queries, calls);
@@ -77,7 +77,7 @@ public class AgentCapabilityProviderTests
   {
     AgentId id = AgentId.NewId();
     AgentRecord parent = ParentAtDepth(0);
-    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)>? calls) = MakeProvider(parent, Result.Success<AgentId>(id));
+    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)>? calls) = MakeProvider(parent, Result.Success(id));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("spawn",
                              /*lang=json,strict*/
@@ -149,7 +149,7 @@ public class AgentCapabilityProviderTests
   {
     AgentRecord child = ChildIn(AgentStatus.Running);
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries? queries, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._statuses[child.Id] =
-        Result.Success<AgentRecord>(child));
+        Result.Success(child));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""");
 
@@ -163,7 +163,7 @@ public class AgentCapabilityProviderTests
   {
     AgentRecord child = ChildIn(AgentStatus.Completed, report: "the final report");
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._statuses[child.Id] =
-        Result.Success<AgentRecord>(child));
+        Result.Success(child));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""");
 
@@ -179,7 +179,7 @@ public class AgentCapabilityProviderTests
   {
     AgentRecord child = ChildIn(AgentStatus.Failed, reason);
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._statuses[child.Id] =
-        Result.Success<AgentRecord>(child));
+        Result.Success(child));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""");
 
@@ -220,7 +220,7 @@ public class AgentCapabilityProviderTests
     const string report = "line one\n--- not a gutter ---\nline three";
     AgentRecord child = ChildIn(AgentStatus.Completed, report: report);
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries? queries, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._results[child.Id] =
-        Result.Success<string>(report));
+        Result.Success(report));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("result", $$"""{"id":"{{child.Id}}"}""");
 

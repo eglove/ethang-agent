@@ -22,7 +22,7 @@ public static class ToolCallEnvelopeParser
     Result<TimeSpan> budget = ToolTimeout.Parse(parsed.Value);
     return !budget.IsSuccess
       ? Result.Failure<ToolCallEnvelope>(budget.Error!)
-      : Result.Success<ToolCallEnvelope>(
+      : Result.Success(
         new ToolCallEnvelope(toolName, budget.Value, parsed.Value));
   }
 }

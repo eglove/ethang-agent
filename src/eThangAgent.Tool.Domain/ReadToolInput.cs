@@ -88,7 +88,7 @@ public sealed record ReadToolInput(string Path, int StartLine, int EndLine)
           $"Range spans {span} lines; maximum is {MaxRangeLines}. " +
           $"Read in chunks (e.g. {startLine}-{startLine + MaxRangeLines - 1}, " +
           $"{startLine + MaxRangeLines}-{Math.Min(startLine + (2 * MaxRangeLines) - 1, endLine)})."))
-      : Result.Success<ReadToolInput>(new ReadToolInput(path, startLine, endLine));
+      : Result.Success(new ReadToolInput(path, startLine, endLine));
   }
 
   private static Result<ReadToolInput> Missing(string name) =>

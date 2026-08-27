@@ -57,7 +57,7 @@ public class InProcessAgentRuntimeTests
         Updates.Add(record);
       }
       _ = _firstUpdate.TrySetResult(record);
-      return Task.FromResult(Result.Success<string>("updated"));
+      return Task.FromResult(Result.Success("updated"));
     }
 
     public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)

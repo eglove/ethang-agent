@@ -75,8 +75,8 @@ public class CuratedMemoryNudgeIntegrationTests
                                  """{"action":"add","content":"durable lesson","category":"insight","scope":"workspace"}""");
       }
 
-      harness.Model.Queue(Result.Success<ModelResponse>(new ModelResponse(null, calls)));
-      harness.Model.Queue(Result.Success<ModelResponse>(new ModelResponse($"turn {turn} done", [])));
+      harness.Model.Queue(Result.Success(new ModelResponse(null, calls)));
+      harness.Model.Queue(Result.Success(new ModelResponse($"turn {turn} done", [])));
 
       Result<string> result = await harness.Handler.Handle(new SendMessageCommand($"message {turn}")).ConfigureAwait(false);
       Assert.True(result.IsSuccess, result.Error?.Message ?? "expected success");
@@ -165,11 +165,11 @@ public class CuratedMemoryNudgeIntegrationTests
     public Task<Result<CuratedMemory>> AddAsync(CuratedMemory memory, CancellationToken ct = default)
     {
       Rows[memory.Id] = memory;
-      return Task.FromResult(Result.Success<CuratedMemory>(memory));
+      return Task.FromResult(Result.Success(memory));
     }
 
     public Task<Result<CuratedMemory?>> GetAsync(Guid id, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<CuratedMemory?>(Rows.GetValueOrDefault(id)));
+        => Task.FromResult(Result.Success(Rows.GetValueOrDefault(id)));
 
     public Task<Result<IReadOnlyList<CuratedMemory>>> SearchAsync(
         string? workspaceId, string? query, MemoryCategory? category,

@@ -184,7 +184,7 @@ public sealed record CommitMessage(string Rendered, string Subject)
         ? $"{subject}\n"
         : $"{subject}\n\n{renderedBody}\n";
 
-    return Result.Success<CommitMessage>(new CommitMessage(rendered, subject));
+    return Result.Success(new CommitMessage(rendered, subject));
   }
 
   /// <summary>Returns the names of whichever parameters carry a value.</summary>

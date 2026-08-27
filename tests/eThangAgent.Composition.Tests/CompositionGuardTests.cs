@@ -100,6 +100,6 @@ public class CompositionGuardTests
   private sealed class StubClarifyChannel : IClarifyChannel
   {
     public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<string>("1"));
+        => Task.FromResult(Result.Success("1"));
   }
 }

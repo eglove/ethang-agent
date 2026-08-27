@@ -28,7 +28,7 @@ public sealed class UnrootedPathResolver : IPathResolver
 
     try
     {
-      return Result.Success<string>(Path.GetFullPath(path));
+      return Result.Success(Path.GetFullPath(path));
     }
     catch (Exception ex) when (
         ex is ArgumentException or NotSupportedException or PathTooLongException)

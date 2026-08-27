@@ -20,7 +20,7 @@ public class ShellViewModelTests
       }
 
       AgentSession session = factory(root);
-      return Task.FromResult(Result.Success<AgentSession>(session));
+      return Task.FromResult(Result.Success(session));
     }
     return new MainViewModel(create);
   }

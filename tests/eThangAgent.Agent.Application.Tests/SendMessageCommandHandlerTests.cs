@@ -12,7 +12,7 @@ public class SendMessageCommandHandlerTests
   public async Task Handle_DelegatesToAgentAndReturnsResult()
   {
     StubModelProvider provider = new(
-        Result.Success<ModelResponse>(new ModelResponse("response", [])));
+        Result.Success(new ModelResponse("response", [])));
     Ag agent = new(provider, new Conversation(),
         ModelConfig.Create("m", 100, 0.5f).Value!, new ToolRegistry([]));
     SendMessageCommandHandler handler = new(agent);

@@ -246,7 +246,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       }
     }
 
-    return Result.Success<ModelResponse>(
+    return Result.Success(
         new ModelResponse(content, toolCalls, ParseFinishReason(choices[0])));
   }
 
@@ -321,7 +321,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
 
       // Assembled inside the guard: strict fragment validation (missing id/name) is a
       // provider-stream failure delivered as a Result, never an escaped exception.
-      return Result.Success<ModelResponse>(new ModelResponse(
+      return Result.Success(new ModelResponse(
           content.Length > 0 ? content.ToString() : null,
           [.. toolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value.ToRequest())],
           finishReason));

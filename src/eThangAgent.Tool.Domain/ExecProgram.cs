@@ -13,6 +13,6 @@ public sealed record ExecProgram(string Text)
       : program.Length > options.MaxProgramChars
       ? Result.Failure<ExecProgram>(new DomainError("ExecProgramTooLarge",
           $"'program' is {program.Length} characters; maximum is {options.MaxProgramChars}."))
-      : Result.Success<ExecProgram>(new ExecProgram(program));
+      : Result.Success(new ExecProgram(program));
   }
 }

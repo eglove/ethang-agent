@@ -31,7 +31,7 @@ public sealed class SqliteCuratedMemoryStore(AppDatabase database) : ICuratedMem
                 """;
       Fill(command, memory);
       _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-      return Result.Success<CuratedMemory>(memory);
+      return Result.Success(memory);
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
@@ -51,7 +51,7 @@ public sealed class SqliteCuratedMemoryStore(AppDatabase database) : ICuratedMem
       command.CommandText = $"""{SelectColumns} FROM curated_memories AS m WHERE m.id=@id;""";
       Add(command, "@id", id.ToString());
       using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-      return Result.Success<CuratedMemory?>(
+      return Result.Success(
           await reader.ReadAsync(ct).ConfigureAwait(false) ? MapRow(reader) : null);
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -178,7 +178,7 @@ public sealed class SqliteCuratedMemoryStore(AppDatabase database) : ICuratedMem
       if (changed > 0)
       {
         await transaction.CommitAsync(ct).ConfigureAwait(false);
-        return Result.Success<CuratedMemory>(updated);
+        return Result.Success(updated);
       }
 
       // Disambiguate: a stale version conflicts with the stored row; an unknown id is absence.
@@ -221,7 +221,7 @@ public sealed class SqliteCuratedMemoryStore(AppDatabase database) : ICuratedMem
       command.CommandText = "DELETE FROM curated_memories WHERE id=@id;";
       Add(command, "@id", id.ToString());
       int deleted = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-      return Result.Success<bool>(deleted > 0);
+      return Result.Success(deleted > 0);
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {

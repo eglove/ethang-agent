@@ -34,7 +34,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     StateKeyValue? kv = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct).ConfigureAwait(false);
     return kv is null
         ? Result.Failure<string>(new DomainError("KeyNotFound", $"'{key}' does not exist."))
-        : Result.Success<string>(kv.Value);
+        : Result.Success(kv.Value);
   }
 
   public async Task<Result<StateKeyValue>> SetAsync(string key, string value,
@@ -50,7 +50,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     StateKeyValue? saved = await _store.SetKeyCasAsync(_workspace.WorkspaceId, ns, name, value, expectedVersion, ct).ConfigureAwait(false);
     if (saved is not null)
     {
-      return Result.Success<StateKeyValue>(saved);
+      return Result.Success(saved);
     }
 
     StateKeyValue? current = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct).ConfigureAwait(false);
@@ -75,7 +75,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
 
     bool deleted = await _store.DeleteKeyCasAsync(_workspace.WorkspaceId, ns, name, expectedVersion, ct).ConfigureAwait(false);
     return deleted
-        ? Result.Success<string>($"deleted {key}")
+        ? Result.Success($"deleted {key}")
         : Result.Failure<string>(new DomainError("VersionConflict",
             $"Version conflict for '{key}': current version is {existing.Version}."));
   }
@@ -134,7 +134,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
       : nsPrefix == CurrentPrefix
           ? Result.Failure<int>(new DomainError("ReservedNamespace",
                 $"'{CurrentPrefix}' namespaces carry head/certificate state and cannot be bulk-deleted."))
-          : Result.Success<int>(await _store.DeleteNamespacePrefixAsync(_workspace.WorkspaceId, nsPrefix, ct).ConfigureAwait(false));
+          : Result.Success(await _store.DeleteNamespacePrefixAsync(_workspace.WorkspaceId, nsPrefix, ct).ConfigureAwait(false));
   }
   public async Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(
         string query, int limit, CancellationToken ct = default)
@@ -162,7 +162,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     TransitionRecord stored = await _store.InsertTransitionAsync(_workspace.WorkspaceId, record, ct).ConfigureAwait(false);
     await _store.AppendEventAsync(_workspace.WorkspaceId, "transition.attached",
         JsonSerializer.Serialize(new { id = stored.Id, from, toState, summary }), ct).ConfigureAwait(false);
-    return Result.Success<string>(stored.Id);
+    return Result.Success(stored.Id);
   }
 
   public async Task<CertificationReport> VerifyAsync(IReadOnlyList<string>? ids, CancellationToken ct = default)

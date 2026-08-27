@@ -37,7 +37,7 @@ internal sealed class FakeProvider : IModelProvider
     RequestsSeen.Add(request);
     return Task.FromResult(_responses.Count > 0
         ? _responses.Dequeue()
-        : Result.Success<ModelResponse>(new ModelResponse("done", [])));
+        : Result.Success(new ModelResponse("done", [])));
   }
 }
 
@@ -72,7 +72,7 @@ internal sealed class LoopingProvider : IModelProvider
 {
   public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
       CancellationToken ct = default)
-      => Task.FromResult(Result.Success<ModelResponse>(new ModelResponse(null,
+      => Task.FromResult(Result.Success(new ModelResponse(null,
           [new ToolCallRequest("call_1", "loop", "{}")])));
 }
 
@@ -108,7 +108,7 @@ internal sealed class FakeAgentStore : IAgentStore
   {
     Saved.Add(record);
     _records[record.Id.Value] = record;
-    return Task.FromResult(Result.Success<string>(record.Id.ToString()));
+    return Task.FromResult(Result.Success(record.Id.ToString()));
   }
 
   public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
@@ -120,18 +120,18 @@ internal sealed class FakeAgentStore : IAgentStore
     }
 
     _records[record.Id.Value] = record;
-    return Task.FromResult(Result.Success<string>(record.Id.ToString()));
+    return Task.FromResult(Result.Success(record.Id.ToString()));
   }
 
   public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
       => Task.FromResult(_records.TryGetValue(id.Value, out AgentRecord? record)
-          ? Result.Success<AgentRecord>(record)
+          ? Result.Success(record)
           : Result.Failure<AgentRecord>(new DomainError("NotFound", $"Agent {id} was not found.")));
 
   public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
   {
     AppendedMessages.Add((id, message));
-    return Task.FromResult(Result.Success<string>(id.ToString()));
+    return Task.FromResult(Result.Success(id.ToString()));
   }
 
   public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)

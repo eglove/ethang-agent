@@ -63,7 +63,7 @@ public class AgentToolsProviderTests
   {
     public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
         CancellationToken ct = default)
-        => Task.FromResult(Result.Success<FileRead>(new FileRead(["alpha", "beta"], 2, 2)));
+        => Task.FromResult(Result.Success(new FileRead(["alpha", "beta"], 2, 2)));
   }
 
   private sealed class FailingFileSystemAccess : IFileSystemAccess

@@ -50,7 +50,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 #pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
     _active[record.Id] = cts;
     _ = Task.Run(() => RunToCompletionAsync(record, cts), CancellationToken.None);
-    return Task.FromResult(Result.Success<AgentId>(record.Id));
+    return Task.FromResult(Result.Success(record.Id));
   }
 
   public void Interrupt(AgentId? childId = null)

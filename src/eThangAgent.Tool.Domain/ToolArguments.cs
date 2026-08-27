@@ -29,7 +29,7 @@ public static class ToolArguments
     return json.ValueKind != JsonValueKind.Object
       ? Result.Failure<JsonElement>(new DomainError("InvalidJsonArguments",
           "Arguments must be a JSON object."))
-      : Result.Success<JsonElement>(json);
+      : Result.Success(json);
   }
 
   /// <summary>Strict object check plus the mandatory <c>timeoutSeconds</c> budget.
@@ -46,7 +46,7 @@ public static class ToolArguments
     Result<TimeSpan> timeout = ToolTimeout.Parse(baseParse.Value);
     return !timeout.IsSuccess
       ? (Result<(JsonElement Json, TimeSpan Timeout)>)Result.Failure<(JsonElement, TimeSpan)>(timeout.Error!)
-      : (Result<(JsonElement Json, TimeSpan Timeout)>)Result.Success<(JsonElement, TimeSpan)>((baseParse.Value, timeout.Value));
+      : (Result<(JsonElement Json, TimeSpan Timeout)>)Result.Success((baseParse.Value, timeout.Value));
   }
 
   /// <summary>The validated execution budget for arguments that passed <see cref="Parse"/>.</summary>

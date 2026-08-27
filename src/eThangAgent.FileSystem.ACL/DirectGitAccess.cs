@@ -1,9 +1,8 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
-
-using System.Globalization;
 
 namespace eThangAgent.FileSystem.ACL;
 
@@ -90,7 +89,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       }
     }
 
-    return Result.Success<GitStatus>(new GitStatus(branch, staged, unstaged, untracked));
+    return Result.Success(new GitStatus(branch, staged, unstaged, untracked));
   }
 
   public async Task<Result<GitDiff>> GetDiffAsync(string repoPath, string scope, string? path, CancellationToken ct = default)
@@ -243,7 +242,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       truncated = true;
     }
 
-    return Result.Success<GitDiff>(new GitDiff(
+    return Result.Success(new GitDiff(
         new GitDiffStats(files, additions, deletions), patch, truncated, totalChars));
   }
 
@@ -328,7 +327,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       ? Result.Failure<GitCommitOutcome>(branchRes.Err)
       : branchRes.ExitCode != 0
       ? Result.Failure<GitCommitOutcome>(ToGitFailure(repoPath, branchRes.ExitCode, branchRes.StdErr))
-      : Result.Success<GitCommitOutcome>(new GitCommitOutcome(
+      : Result.Success(new GitCommitOutcome(
         hashRes.StdOut.Trim(), branchRes.StdOut.Trim(), message));
   }
 

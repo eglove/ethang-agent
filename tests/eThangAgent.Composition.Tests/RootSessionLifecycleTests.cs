@@ -10,11 +10,11 @@ internal sealed class FakeAgentStore : IAgentStore
   public List<AgentRecord> _updated = [];
   public List<(AgentId Id, Message Message)> _appended = [];
   public AgentRecord? _current;
-  public Result<string> _saveOutcome = Result.Success<string>("saved");
+  public Result<string> _saveOutcome = Result.Success("saved");
   public Result<AgentRecord> _getOutcome =
       Result.Failure<AgentRecord>(new DomainError("NotConfigured", "Get not configured"));
-  public Result<string> _updateOutcome = Result.Success<string>("updated");
-  public Result<string> _appendOutcome = Result.Success<string>("appended");
+  public Result<string> _updateOutcome = Result.Success("updated");
+  public Result<string> _appendOutcome = Result.Success("appended");
 
   public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
   {
@@ -24,7 +24,7 @@ internal sealed class FakeAgentStore : IAgentStore
 
   public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
       => Task.FromResult(_getOutcome.IsSuccess
-          ? Result.Success<AgentRecord>(_current!)
+          ? Result.Success(_current!)
           : Result.Failure<AgentRecord>(_getOutcome.Error!));
 
   public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
@@ -75,7 +75,7 @@ public class RootSessionLifecycleTests
     conversation.AddUserMessage("hi");
     conversation.AddAssistantMessage("hello");
     await lifecycle.AppendExchangeAsync(RootId, conversation, 0,
-        Result.Success<string>("hello"), _ => Assert.Fail("no errors expected"));
+        Result.Success("hello"), _ => Assert.Fail("no errors expected"));
     Assert.Equal(2, store._appended.Count);
     Assert.Equal(Role.User, store._appended[0].Message.Role);
     Assert.Equal(Role.Assistant, store._appended[^1].Message.Role);
@@ -96,7 +96,7 @@ public class RootSessionLifecycleTests
     conversation.AddUserMessage(user);
     conversation.AddAssistantMessage("second answer");
     await lifecycle.AppendExchangeAsync(RootId, conversation, 2,
-        Result.Success<string>("second answer"), _ => Assert.Fail("no errors expected"));
+        Result.Success("second answer"), _ => Assert.Fail("no errors expected"));
     Assert.Equal(2, store._appended.Count);
     Assert.Same(conversation.Messages[2], store._appended[0].Message);
     Assert.Same(conversation.Messages[^1], store._appended[1].Message);
@@ -115,7 +115,7 @@ public class RootSessionLifecycleTests
     conversation.AddUserMessage("hi");
     conversation.AddAssistantMessage("hello");
     await lifecycle.AppendExchangeAsync(RootId, conversation, 0,
-        Result.Success<string>("hello"), errors.Add);
+        Result.Success("hello"), errors.Add);
     Assert.Equal(2, store._appended.Count);      // second attempt still made
     Assert.Equal(2, errors.Count);              // both failures reported
     Assert.Contains("DbDown", errors[0], StringComparison.Ordinal);
@@ -127,7 +127,7 @@ public class RootSessionLifecycleTests
   {
     DateTimeOffset createdAt = DateTimeOffset.UtcNow;
     AgentRecord root = AgentRecord.Root(RootId, createdAt);
-    FakeAgentStore store = new() { _current = root, _getOutcome = Result.Success<AgentRecord>(root) };
+    FakeAgentStore store = new() { _current = root, _getOutcome = Result.Success(root) };
     RootSessionLifecycle lifecycle = new(store);
     List<string> errors = [];
     await lifecycle.CompleteAsync(RootId, errors.Add);
@@ -167,7 +167,7 @@ public class RootSessionLifecycleTests
     FakeAgentStore store = new()
     {
       _current = root,
-      _getOutcome = Result.Success<AgentRecord>(root),
+      _getOutcome = Result.Success(root),
       _updateOutcome = Result.Failure<string>(new DomainError("DbDown", "write failed")),
     };
     RootSessionLifecycle lifecycle = new(store);

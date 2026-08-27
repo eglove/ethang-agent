@@ -61,7 +61,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
       }
 
       await transaction.CommitAsync(ct).ConfigureAwait(false);
-      return Result.Success<SkillDefinition>(skill);
+      return Result.Success(skill);
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
@@ -81,7 +81,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
       command.CommandText = $"""{SelectColumns} WHERE name=@n;""";
       Add(command, "@n", name);
       using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-      return Result.Success<SkillDefinition?>(
+      return Result.Success(
           await reader.ReadAsync(ct).ConfigureAwait(false) ? MapRow(reader) : null);
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -161,7 +161,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
       }
 
       await transaction.CommitAsync(ct).ConfigureAwait(false);
-      return Result.Success<SkillDefinition>(updated);
+      return Result.Success(updated);
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
@@ -206,7 +206,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
       }
 
       await transaction.CommitAsync(ct).ConfigureAwait(false);
-      return Result.Success<bool>(true);
+      return Result.Success(true);
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
@@ -234,7 +234,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
       count.CommandText = "SELECT COUNT(*) FROM skill_usage WHERE skill_name=@n;";
       Add(count, "@n", name);
       int total = Convert.ToInt32(await count.ExecuteScalarAsync(ct).ConfigureAwait(false), CultureInfo.InvariantCulture);
-      return Result.Success<int>(total);
+      return Result.Success(total);
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {

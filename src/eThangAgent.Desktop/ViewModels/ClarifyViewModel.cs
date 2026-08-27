@@ -50,7 +50,7 @@ internal sealed partial class ClarifyViewModel(ClarifyQuestion question) : Obser
       return;
     }
 
-    Settle(Result.Success<string>(index.ToString(CultureInfo.InvariantCulture)));
+    Settle(Result.Success(index.ToString(CultureInfo.InvariantCulture)));
   }
 
   /// <summary>Submits the trimmed free-text answer; empty input stays pending.</summary>
@@ -63,7 +63,7 @@ internal sealed partial class ClarifyViewModel(ClarifyQuestion question) : Obser
       return;
     }
 
-    Settle(Result.Success<string>(text));
+    Settle(Result.Success(text));
   }
 
   /// <summary>Cancels with the same contract as a terminal Ctrl+C.</summary>

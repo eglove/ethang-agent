@@ -87,7 +87,7 @@ public class AgentContinuationTests
         onContentDelta?.Invoke(delta);
       }
 
-      return Task.FromResult(Result.Success<ModelResponse>(response));
+      return Task.FromResult(Result.Success(response));
     }
   }
 
@@ -105,7 +105,7 @@ public class AgentContinuationTests
         CancellationToken ct = default)
     {
       Calls++;
-      return Task.FromResult(Result.Success<ModelResponse>(
+      return Task.FromResult(Result.Success(
           new ModelResponse($"fragment {Calls}", [], FinishReason.Length)));
     }
   }

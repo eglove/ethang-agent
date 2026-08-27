@@ -31,7 +31,7 @@ public static class GitmojiCatalog
     ArgumentNullException.ThrowIfNull(key);
     IReadOnlyList<Gitmoji> entries = Entries.Value;
     return ByKey.Value.TryGetValue(key, out Gitmoji? gitmoji)
-        ? Result.Success<Gitmoji>(gitmoji)
+        ? Result.Success(gitmoji)
         : Result.Failure<Gitmoji>(new DomainError("UnknownEmojiKey",
             $"'{key}' is not a known gitmoji key. Keys use the ':name:' format " +
             $"(colon-wrapped, exact ordinal match) — for example: " +

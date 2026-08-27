@@ -114,7 +114,7 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
       ? Fail(new DomainError("UnknownParameter",
           $"Unknown parameter(s): {string.Join(", ", unknown)}. " +
           $"This tool takes no parameters besides {ToolTimeout.ParameterName}."))
-      : Result.Success<bool>(true);
+      : Result.Success(true);
   }
 
   private static Result<bool> Fail(DomainError err) => Result.Failure<bool>(err);

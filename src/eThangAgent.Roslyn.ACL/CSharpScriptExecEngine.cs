@@ -1,12 +1,11 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
-
-using System.Globalization;
 
 namespace eThangAgent.Roslyn.ACL;
 

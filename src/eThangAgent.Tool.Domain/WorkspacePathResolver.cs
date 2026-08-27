@@ -50,7 +50,7 @@ public sealed class WorkspacePathResolver : IPathResolver
       ? Result.Failure<string>(new DomainError("PathOutsideWorkspace",
           $"'{path}' resolves to '{full}', which is outside the workspace '{_root}'. " +
           "Use a path inside the workspace."))
-      : Result.Success<string>(full);
+      : Result.Success(full);
   }
 
   /// <summary>Canonical form of the workspace root: fully qualified with any trailing

@@ -65,7 +65,7 @@ public sealed class CapabilityRegistry : ICapabilityRegistry
     ArgumentNullException.ThrowIfNull(nameOrRef);
     if (_byName.TryGetValue(nameOrRef, out (ICapabilityProvider Provider, ActionDescriptor Action) direct))
     {
-      return Result.Success<ResolvedCapability>(
+      return Result.Success(
           new ResolvedCapability(direct.Provider.Id, direct.Action));
     }
 
@@ -79,7 +79,7 @@ public sealed class CapabilityRegistry : ICapabilityRegistry
         ActionDescriptor? action = provider.Actions.FirstOrDefault(a => a.Name == actionName);
         if (action is not null)
         {
-          return Result.Success<ResolvedCapability>(new ResolvedCapability(providerId, action));
+          return Result.Success(new ResolvedCapability(providerId, action));
         }
       }
     }
