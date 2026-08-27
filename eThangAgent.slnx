@@ -15,6 +15,7 @@
   </Folder>
   <Project Path="src/eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
   <Project Path="src/eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />
+  <Project Path="src/eThangAgent.Zai.ACL/eThangAgent.Zai.ACL.csproj" />
   <Project Path="src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
   <Project Path="src/eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
   <Project Path="src/eThangAgent.FileSystem.ACL/eThangAgent.FileSystem.ACL.csproj" />
@@ -28,6 +29,7 @@
   <Project Path="tests/eThangAgent.Agent.Domain.Tests/eThangAgent.Agent.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.Agent.Application.Tests/eThangAgent.Agent.Application.Tests.csproj" />
   <Project Path="tests/eThangAgent.OpenRouter.ACL.Tests/eThangAgent.OpenRouter.ACL.Tests.csproj" />
+  <Project Path="tests/eThangAgent.Zai.ACL.Tests/eThangAgent.Zai.ACL.Tests.csproj" />
   <Project Path="tests/eThangAgent.Composition.Tests/eThangAgent.Composition.Tests.csproj" />
   <Project Path="tests/eThangAgent.Tool.Domain.Tests/eThangAgent.Tool.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.FileSystem.ACL.Tests/eThangAgent.FileSystem.ACL.Tests.csproj" />

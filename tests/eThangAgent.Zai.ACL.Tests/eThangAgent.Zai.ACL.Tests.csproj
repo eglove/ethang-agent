@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Zai.ACL/eThangAgent.Zai.ACL.csproj" />
+  </ItemGroup>
+</Project>
