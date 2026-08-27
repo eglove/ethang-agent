@@ -133,12 +133,22 @@ public static class AgentComposition
         .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
             sp.GetRequiredService<OpenRouterConfiguration>(),
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
+        .AddSingleton<IModelCatalog>(sp => new OpenRouterCatalogClient(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
+            sp.GetRequiredService<OpenRouterConfiguration>()))
+        .AddSingleton<IModelSelector>(sp => new IntelligentModelSelector(
+            sp.GetRequiredService<IModelProvider>(),
+            sp.GetRequiredService<IModelCatalog>()))
         .AddSingleton<SubAgentSpawner>()
         .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
             sp.GetRequiredService<SubAgentSpawner>(),
             sp.GetRequiredService<IAgentStore>(),
             settings.SubAgents.MaxConcurrentAgents))
-        .AddSingleton<IAgentSpawnCommand, StartSpawnHandler>()
+        .AddSingleton<IAgentSpawnCommand>(sp => new StartSpawnHandler(
+            sp.GetRequiredService<IAgentStore>(),
+            sp.GetRequiredService<IAgentRuntime>(),
+            sp.GetRequiredService<SubAgentOptions>(),
+            sp.GetRequiredService<IModelSelector>()))
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
