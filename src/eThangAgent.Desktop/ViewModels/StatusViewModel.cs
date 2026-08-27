@@ -28,7 +28,20 @@ internal sealed class StatusViewModel(string modelId) : INotifyPropertyChanged
 
   private int _frame;
 
-  public string ModelId { get; } = modelId;
+  public string ModelId
+  {
+    get;
+    set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(ModelId));
+    }
+  } = modelId;
 
   public TurnPhase Phase
   {

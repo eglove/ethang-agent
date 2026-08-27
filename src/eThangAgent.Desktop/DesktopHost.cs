@@ -8,6 +8,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.OpenRouter.ACL;
 using eThangAgent.Storage.ACL;
 
 namespace eThangAgent.Desktop;
@@ -44,12 +45,32 @@ internal static class DesktopHost
       throw new UnreachableException("unreachable after error dialog shutdown");
     }
 
-    ModelConfig defaultModel = ModelConfig.Create("openrouter/auto", 32 * 1024, 0.7f).Value!;
+    // Explicit model config wins; otherwise run intelligent selection.
+    string modelId = settings.ModelId ?? await SelectRootModelAsync(settings).ConfigureAwait(false);
+    ModelConfig defaultModel = ModelConfig.Create(modelId, 32 * 1024, 0.7f).Value!;
     // ONE app-owned database for every opened session (rows are keyed by workspace id).
     AppDatabase database = new();
     return new DesktopBootstrap(
         new AgentSessionFactory(settings, settings.ApiKey, defaultModel, database),
         defaultModel.ModelId);
+  }
+
+  /// <summary>Runs the two-stage intelligent selection pipeline for the root agent with a
+  ///     generic 'software development' prompt. Falls back to openrouter/auto on any
+  ///     failure (catalog unavailable, parse error, no matching models).</summary>
+  private static async Task<string> SelectRootModelAsync(AgentSettings settings)
+  {
+    const string fallback = "openrouter/auto";
+    const string rootTaskPrompt = "AI coding agent for software development tasks";
+
+    OpenRouterConfiguration config = new(settings.ApiKey!, settings.BaseUrl);
+    using HttpClient http = new() { Timeout = TimeSpan.FromSeconds(120) };
+    using OpenRouterCatalogClient catalog = new(http, config);
+    OpenRouterModelProvider provider = new(http, config);
+    IntelligentModelSelector selector = new(provider, catalog);
+
+    Result<ModelSelectionResult> result = await selector.SelectAsync(rootTaskPrompt).ConfigureAwait(false);
+    return result.IsSuccess ? result.Value!.ModelId : fallback;
   }
 
   /// <summary>Defers shutdown while startup runs. Between framework initialization and

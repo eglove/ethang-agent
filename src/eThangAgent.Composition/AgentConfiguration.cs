@@ -25,7 +25,10 @@ public static class AgentConfiguration
         configuration["SubAgent:ChildTimeoutSeconds"],
         configuration["SubAgent:MaxConcurrentAgents"]);
 
-    return new AgentSettings(apiKey, baseUrl, subAgents);
+    string? modelId = configuration["Model:Id"];
+    return modelId is not null && string.IsNullOrWhiteSpace(modelId)
+      ? throw new InvalidOperationException("Model:Id is present but empty. Remove the key or supply a model reference.")
+      : new AgentSettings(apiKey, baseUrl, subAgents, modelId);
   }
 
   private static Uri BindBaseUrl(string? baseUrlEnv)
