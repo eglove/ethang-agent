@@ -28,7 +28,7 @@ public class AgentSessionFactoryTests
     AgentSettings settings = new("sk-or-test", new Uri("https://openrouter.test"),
         new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
     return (new AgentSessionFactory(settings, settings.ApiKey!,
-        ModelConfig.Create("test/model", 512, 0.5f).Value!), dbPath);
+        ModelConfig.Create("test/model", null, 512, 0.5f).Value!), dbPath);
   }
 
   [Fact]

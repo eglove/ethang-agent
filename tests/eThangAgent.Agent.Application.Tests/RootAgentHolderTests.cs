@@ -25,7 +25,7 @@ public class RootAgentHolderTests
     StubModelProvider provider = new();
     Conversation conversation = new();
     RootAgentHolder holder = new(provider, conversation, Tools);
-    ModelConfig config = ModelConfig.Create("first/model", 512, 0.5f).Value!;
+    ModelConfig config = ModelConfig.Create("first/model", null, 512, 0.5f).Value!;
 
     Ag agent = holder.Build(existing: null, config);
 
@@ -41,8 +41,8 @@ public class RootAgentHolderTests
     StubModelProvider provider = new();
     Conversation conversation = new();
     RootAgentHolder holder = new(provider, conversation, Tools);
-    ModelConfig first = ModelConfig.Create("first/model", 512, 0.5f).Value!;
-    ModelConfig second = ModelConfig.Create("second/model", 512, 0.5f).Value!;
+    ModelConfig first = ModelConfig.Create("first/model", null, 512, 0.5f).Value!;
+    ModelConfig second = ModelConfig.Create("second/model", null, 512, 0.5f).Value!;
 
     Ag firstAgent = holder.Build(null, first);
     Ag secondAgent = holder.Build(firstAgent, second);
@@ -60,7 +60,7 @@ public class RootAgentHolderTests
     StubModelProvider provider = new();
     Conversation conversation = new();
     RootAgentHolder holder = new(provider, conversation, Tools);
-    ModelConfig config = ModelConfig.Create("same/model", 512, 0.5f).Value!;
+    ModelConfig config = ModelConfig.Create("same/model", null, 512, 0.5f).Value!;
 
     Ag first = holder.Build(null, config);
     Ag second = holder.Build(first, config);

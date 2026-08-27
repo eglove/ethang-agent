@@ -104,7 +104,7 @@ public class CuratedMemoryNudgeIntegrationTests
           Counter.Increment,
           () => FixedNow);
       Ag agent = new(Model, Conversation,
-          ModelConfig.Create("m", 100, 0.5f).Value!,
+          ModelConfig.Create("m", null, 100, 0.5f).Value!,
           new ToolRegistry([new FillerTool(), new MemoriesTool(capabilities)]));
       Handler = new SendMessageCommandHandler(
           agent,

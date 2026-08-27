@@ -55,7 +55,7 @@ internal static class E2E
 
       _services = new ServiceCollection()
           .AddEThangAgentCore(settings, settings.ApiKey!,
-              ModelConfig.Create(SessionModel, 32 * 1024, 0.7f).Value!,
+              ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f).Value!,
               new AgentHostOptions(
                   new NeverClarifyChannel(),
                   new FixedWorkspaceContext("app"),
@@ -75,7 +75,7 @@ internal static class E2E
       // uses: a MainViewModel whose single tab wraps the composed session.
       AgentSession session = new(
           _services!, RootId, conversation, handler, lifecycle,
-          ModelConfig.Create(SessionModel, 32 * 1024, 0.7f).Value!,
+          ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f).Value!,
           WorkspaceRoot: Directory.GetCurrentDirectory(),
           ClarifyChannel: new NeverClarifyChannel(),
           Inbox: _services!.GetRequiredService<IAgentInbox>(),

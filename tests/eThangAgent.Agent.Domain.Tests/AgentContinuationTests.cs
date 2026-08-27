@@ -11,7 +11,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentContinuationTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", 100, 0.5f).Value!;
+      ModelConfig.Create("test-model", null, 100, 0.5f).Value!;
 
   [Fact]
   public async Task LengthTruncatedAnswer_AutoContinues_ToCompletion()

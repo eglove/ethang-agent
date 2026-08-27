@@ -8,7 +8,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class StreamingAgentTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", 100, 0.5f).Value!;
+      ModelConfig.Create("test-model", null, 100, 0.5f).Value!;
 
   /// <summary>Streams scripted delta batches per provider call, then yields the assembled
   ///     response. SendAsync throws: the agent loop must use the streaming path.</summary>

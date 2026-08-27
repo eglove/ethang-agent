@@ -13,7 +13,7 @@ namespace eThangAgent.OpenRouter.ACL.Tests;
 public class StreamingFragmentTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");
-  private static ModelConfig Model => ModelConfig.Create("m", 256, 0.7f).Value!;
+  private static ModelConfig Model => ModelConfig.Create("m", null, 256, 0.7f).Value!;
 
   private static HttpResponseMessage Sse(string raw) =>
       new(HttpStatusCode.OK)

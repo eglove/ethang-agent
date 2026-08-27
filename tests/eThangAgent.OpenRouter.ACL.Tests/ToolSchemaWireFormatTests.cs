@@ -29,7 +29,7 @@ public class ToolSchemaWireFormatTests
     OpenRouterModelProvider provider = new(http,
         new OpenRouterConfiguration("test-key", new Uri("https://openrouter.test")));
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", 100, 0.5f).Value!,
+        ModelConfig.Create("m", null, 100, 0.5f).Value!,
         new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)], tools)).ConfigureAwait(true);
     return (body!, result);
   }

@@ -22,7 +22,7 @@ public class CompositionGuardTests
         new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, settings.ApiKey!,
-            ModelConfig.Create("root/model", 512, 0.5f).Value!,
+            ModelConfig.Create("root/model", null, 512, 0.5f).Value!,
             new AgentHostOptions(new StubClarifyChannel(),
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
         .BuildServiceProvider();
@@ -54,7 +54,7 @@ public class CompositionGuardTests
         new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, settings.ApiKey!,
-            ModelConfig.Create("test/model", 512, 0.5f).Value!, host)
+            ModelConfig.Create("test/model", null, 512, 0.5f).Value!, host)
         .BuildServiceProvider();
 
     object?[] resolutions =

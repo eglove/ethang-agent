@@ -32,10 +32,10 @@ public class OpenRouterModelProviderFactoryTests
     using HttpClient http = new(handler);
     OpenRouterModelProviderFactory factory = new(
         new OpenRouterConfiguration("test-key", BaseUrl), http);
-    IModelProvider provider = factory.Create(ModelConfig.Create("mock/sub-model", 128, 0.7f).Value!);
+    IModelProvider provider = factory.Create(ModelConfig.Create("mock/sub-model", null, 128, 0.7f).Value!);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("mock/sub-model", 128, 0.7f).Value!,
+        ModelConfig.Create("mock/sub-model", null, 128, 0.7f).Value!,
         new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]));
 
     Assert.True(result.IsSuccess);
