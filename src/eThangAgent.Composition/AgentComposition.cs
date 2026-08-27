@@ -164,6 +164,9 @@ public static class AgentComposition
         .AddSingleton(_ => EvidenceOptions.Default)
         .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()
         .AddSingleton<IStateService, StateService>()
+        .AddSingleton<IProviderExclusionStore>(sp => new SqliteProviderExclusionStore(
+            sp.GetRequiredService<AppDatabase>(),
+            sp.GetRequiredService<IWorkspaceContext>()))
         .AddSingleton<StateCapabilityProvider>()
         .AddSingleton<MemoryCapabilityProvider>()
         .AddSingleton<ICapabilityRegistry>(sp =>
@@ -225,6 +228,14 @@ public static class AgentComposition
             sp.GetRequiredService<IModelSelector>(),
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<RootSessionIdentity>(),
+            settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
+            defaultModel.MaxTokens,
+            defaultModel.Temperature))
+        .AddSingleton(sp => new ProviderFailoverResolver(
+            sp.GetRequiredService<IModelSelector>(),
+            sp.GetRequiredService<IProviderExclusionStore>(),
+            sp.GetRequiredService<RootSessionIdentity>(),
+            sp.GetRequiredService<IAgentStore>(),
             settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
             defaultModel.MaxTokens,
             defaultModel.Temperature))
