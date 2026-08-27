@@ -57,6 +57,11 @@ public sealed class AppDatabase
       ApplyV5(connection);
       SetVersion(connection, 5);
     }
+    if (GetVersion(connection) < 6)
+    {
+      ApplyV6(connection);
+      SetVersion(connection, 6);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -264,5 +269,22 @@ public sealed class AppDatabase
     command.CommandText = sql;
     _ = command.ExecuteNonQuery();
     transaction.Commit();
+  }
+  private static void ApplyV6(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS provider_exclusions (
+            model_provider_key TEXT NOT NULL,
+            workspace_id       TEXT NOT NULL,
+            expires_at         TEXT NOT NULL,
+            created_at         TEXT NOT NULL,
+            PRIMARY KEY (model_provider_key, workspace_id)
+        );
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
   }
 }
