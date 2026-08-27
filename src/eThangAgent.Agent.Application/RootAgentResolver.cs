@@ -56,7 +56,7 @@ public sealed class RootAgentResolver(
     // 2. No selector wired: use the fallback for every turn.
     if (_selector is null)
     {
-      return (Make(FallbackModel), null);
+      return (Make(FallbackModel, null), null);
     }
 
     // 3. Decide whether this turn is on the reclassification cadence.
@@ -65,18 +65,19 @@ public sealed class RootAgentResolver(
     {
       // Off-cadence turns keep whatever the last selection produced. Before the first
       // selection has run (no prior config), fall back rather than serve nothing.
-      return (Make(FallbackModel), null);
+      return (Make(FallbackModel, null), null);
     }
 
     // 4. Run selection on the actual prompt.
     Result<ModelSelectionResult> selection = await _selector.SelectAsync(prompt, excludedKeys: null, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)
     {
-      return (Make(FallbackModel),
+      return (Make(FallbackModel, null),
           $"Model selection failed: {selection.Error!.Message}; using {FallbackModel}.");
     }
 
     string modelId = selection.Value!.ModelId;
+    string? providerName = selection.Value!.ProviderName;
 
     // 5. Persist the resolved model onto the root record (best effort — a store failure
     //    must not stop the turn; it surfaces as a notice instead).
@@ -88,7 +89,7 @@ public sealed class RootAgentResolver(
     string? notice = persistNotice is null
         ? null
         : $"Model selected: {persistNotice}";
-    return (Make(modelId), notice);
+    return (Make(modelId, providerName), notice);
   }
 
   private static int CountUserMessages(Conversation conversation)
@@ -112,10 +113,10 @@ public sealed class RootAgentResolver(
   private static bool IsCadenceBoundary(int priorUserMessages)
       => priorUserMessages % Recadence == 0;
 
-  private ModelConfig Make(string modelId)
+  private ModelConfig Make(string modelId, string? providerName = null)
   {
-    Result<ModelConfig> created = ModelConfig.Create(modelId, null, _maxTokens, _temperature);
-    return created.IsSuccess ? created.Value! : Make(FallbackModel);
+    Result<ModelConfig> created = ModelConfig.Create(modelId, providerName, _maxTokens, _temperature);
+    return created.IsSuccess ? created.Value! : Make(FallbackModel, null);
   }
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)

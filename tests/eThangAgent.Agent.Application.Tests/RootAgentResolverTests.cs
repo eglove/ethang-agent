@@ -164,4 +164,16 @@ public class RootAgentResolverTests
     RootAgentResolver resolver = new(selector: null, store: null, identity: null, explicitModel: null, 2048, 0.7f);
     _ = await Assert.ThrowsAsync<ArgumentNullException>(() => resolver.ResolveAsync(null!, "task"));
   }
+  [Fact]
+  public async Task FirstTurn_SelectionCarriesProviderIntoConfig()
+  {
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet", "Anthropic"));
+    RootAgentResolver resolver = new(selector, store, Identity(rootId), explicitModel: null, 2048, 0.7f);
+    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "write a C# function");
+
+    Assert.Equal("anthropic/claude-3.5-sonnet", config.ModelId);
+    Assert.Equal("Anthropic", config.Provider);
+  }
 }
