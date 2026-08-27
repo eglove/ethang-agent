@@ -1,4 +1,5 @@
 using System.Globalization;
+using eThangAgent.AgentDomain;
 using eThangAgent.StateDomain;
 using Microsoft.Data.Sqlite;
 
@@ -24,7 +25,7 @@ public sealed class SqliteProviderExclusionStore(AppDatabase database, IWorkspac
     {
       purge.CommandText = "DELETE FROM provider_exclusions WHERE workspace_id = $ws AND expires_at < $now;";
       _ = purge.Parameters.AddWithValue("$ws", _workspace.WorkspaceId);
-      _ = purge.Parameters.AddWithValue("$now", now);
+      _ = _ = purge.Parameters.AddWithValue("$now", now);
       _ = await purge.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
@@ -60,10 +61,10 @@ public sealed class SqliteProviderExclusionStore(AppDatabase database, IWorkspac
       VALUES ($key, $ws, $expires, $created)
       ON CONFLICT(model_provider_key, workspace_id) DO UPDATE SET expires_at = $expires, created_at = $created;
       """;
-    _ = command.Parameters.AddWithValue("$key", modelProviderKey);
+    _ = _ = command.Parameters.AddWithValue("$key", modelProviderKey);
     _ = command.Parameters.AddWithValue("$ws", _workspace.WorkspaceId);
-    _ = command.Parameters.AddWithValue("$expires", expiresAt.ToString("o", CultureInfo.InvariantCulture));
-    _ = command.Parameters.AddWithValue("$created", now);
+    _ = _ = command.Parameters.AddWithValue("$expires", expiresAt.ToString("o", CultureInfo.InvariantCulture));
+    _ = _ = command.Parameters.AddWithValue("$created", now);
     return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
   }
 
@@ -79,7 +80,7 @@ public sealed class SqliteProviderExclusionStore(AppDatabase database, IWorkspac
 #pragma warning restore CA2007
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "DELETE FROM provider_exclusions WHERE model_provider_key = $key AND workspace_id = $ws;";
-    _ = command.Parameters.AddWithValue("$key", modelProviderKey);
+    _ = _ = command.Parameters.AddWithValue("$key", modelProviderKey);
     _ = command.Parameters.AddWithValue("$ws", _workspace.WorkspaceId);
     return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
   }

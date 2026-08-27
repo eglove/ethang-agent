@@ -1,4 +1,7 @@
+#pragma warning disable IDE0005
+using eThangAgent.AgentDomain;
 using eThangAgent.StateDomain;
+#pragma warning restore IDE0005
 
 #pragma warning disable CA2007
 namespace eThangAgent.Storage.ACL.Tests;
