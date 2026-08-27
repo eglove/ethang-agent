@@ -1,0 +1,105 @@
+using System.Globalization;
+using System.Text.Json;
+using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
+
+namespace eThangAgent.Zai.ACL;
+
+/// <summary>Generates an image with GLM-Image and saves it into the workspace as a PNG.
+///     The z.ai-hosted source URL is temporary (30-day expiry) — the file is the durable
+///     artifact, which is why the tool downloads and writes it instead of returning the
+///     link alone.</summary>
+public sealed class ZaiImageTool(
+    HttpClient http, ZaiConfiguration config, IPathResolver resolver, IFileWriteAccess files) : ITool
+{
+  private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
+  private readonly ZaiConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
+  private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+  private readonly IFileWriteAccess _files = files ?? throw new ArgumentNullException(nameof(files));
+
+  public ToolDefinition Definition { get; } = new(
+      "generate_image",
+      "Generate an image with z.ai GLM-Image and save it as a PNG in the workspace. timeoutSeconds, " +
+      "prompt, and filename are mandatory; filename is a workspace-relative .png path under an EXISTING " +
+      "directory (the tool never creates directories and never overwrites); size optionally selects " +
+      "'<width>x<height>' with both dimensions 1024..2048 divisible by 32 (default 1280x1280). Output " +
+      "is a single annotation line `[image written: <filename> (<size>, <bytes> bytes)]` followed by a " +
+      "note that the temporary z.ai source URL (valid 30 days) was also fetched. Generation takes " +
+      "roughly 20s at hd quality — budget timeoutSeconds accordingly. Errors begin with `Error [Code]:`.",
+      [
+          new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
+            new ToolParameter("prompt", ToolParameterType.Text, "Image description."),
+            new ToolParameter("filename", ToolParameterType.Text,
+                "Workspace-relative output path ending in .png; parent directory must exist; never overwritten."),
+            new ToolParameter("size", ToolParameterType.Text,
+                "'<width>x<height>', each 1024..2048 and divisible by 32. Default: 1280x1280."),
+      ],
+      ["timeoutSeconds", "prompt", "filename"]);
+
+  public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(input);
+    Result<ToolCallEnvelope> envelope = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
+    if (!envelope.IsSuccess)
+    {
+      return Task.FromResult(ZaiToolHttp.Err(envelope.Error!));
+    }
+
+    Result<ZaiImageInput> parsed = ZaiImageInput.Create(envelope.Value!.Arguments);
+    if (!parsed.IsSuccess)
+    {
+      return Task.FromResult(ZaiToolHttp.Err(parsed.Error!));
+    }
+
+    Result<string> target = _resolver.Resolve(parsed.Value!.Filename);
+    return !target.IsSuccess
+      ? Task.FromResult(ZaiToolHttp.Err(target.Error!))
+      : ToolExecution.RunAsync(input.Name, envelope.Value.Timeout, token =>
+        GenerateAsync(parsed.Value, target.Value!, token), ct);
+  }
+
+  private async Task<ToolResult> GenerateAsync(ZaiImageInput v, string targetPath, CancellationToken ct)
+  {
+    Result<JsonElement> response = await ZaiToolHttp.PostJsonAsync(
+        _http, _config, ZaiToolHttp.ImagePath, new
+        {
+          model = "glm-image",
+          prompt = v.Prompt,
+          size = v.Size,
+        }, ct).ConfigureAwait(false);
+    if (!response.IsSuccess)
+    {
+      return ZaiToolHttp.Err(response.Error!);
+    }
+
+    if (!response.Value!.TryGetProperty("data", out JsonElement data)
+        || data.ValueKind != JsonValueKind.Array
+        || data.GetArrayLength() == 0
+        || !data[0].TryGetProperty("url", out JsonElement urlEl)
+        || urlEl.ValueKind != JsonValueKind.String
+        || !Uri.TryCreate(urlEl.GetString(), UriKind.Absolute, out Uri? imageUrl))
+    {
+      return ZaiToolHttp.Err(new DomainError("ProviderError",
+          "z.ai image response carried no hosted image URL."));
+    }
+
+    byte[] bytes;
+    try
+    {
+      bytes = await _http.GetByteArrayAsync(imageUrl, ct).ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+    {
+      return ZaiToolHttp.Err(new DomainError("ProviderError",
+          $"downloading the generated image failed: {ex.Message}"));
+    }
+
+    Result<FileWriteOutcome> written = await _files.WriteFileBytesAsync(
+        targetPath, bytes, overwrite: false, ct).ConfigureAwait(false);
+    return !written.IsSuccess
+      ? ZaiToolHttp.Err(written.Error!)
+      : new ToolResult(string.Create(CultureInfo.InvariantCulture,
+        $"[image written: {v.Filename} ({v.Size}, {written.Value!.BytesWritten} bytes)]\n" +
+        $"generated by glm-image; the z.ai source URL was temporary (30-day expiry) and is already stored as the file above"), false);
+  }
+}

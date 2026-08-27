@@ -115,6 +115,9 @@ public static class AgentComposition
                 new AgentToolBinding(
                     new CycleCheckTool(),
                     "Detect dependency cycles in a supplied construction graph and classify deadlock risk."),
+                // z.ai capability APIs surface only on z.ai-wired sessions — switching
+                // providers is a different experience by design.
+                .. ZaiToolBindings(sp, providerName),
         ]))
         .AddSingleton(host.WorkspaceContext)
         .AddSingleton(host.PathResolver)
@@ -315,6 +318,41 @@ public static class AgentComposition
   /// <summary>Actions only a root agent may invoke: they present UI to the human,
   ///     and a machine-owned child must never block on (or interrupt) the user.</summary>
   private static readonly string[] HumanFacingActions = ["clarify"];
+
+  /// <summary>The z.ai capability-API tools, bound only when the session is wired for
+  ///     z.ai — web search, page reading, token counting, image generation, document
+  ///     OCR, and audio transcription all reach the platform through one shared client.</summary>
+  private static IEnumerable<AgentToolBinding> ZaiToolBindings(IServiceProvider sp, string providerName)
+  {
+    if (providerName != Providers.Zai)
+    {
+      yield break;
+    }
+
+    ZaiConfiguration config = sp.GetRequiredService<ZaiConfiguration>();
+    HttpClient http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("Zai");
+    yield return new AgentToolBinding(
+        new ZaiWebSearchTool(http, config),
+        "Search the live web (z.ai).");
+    yield return new AgentToolBinding(
+        new ZaiWebReaderTool(http, config),
+        "Fetch one web page as markdown (z.ai reader).");
+    yield return new AgentToolBinding(
+        new ZaiTokenizerTool(http, config),
+        "Count GLM tokens for a piece of text.");
+    yield return new AgentToolBinding(
+        new ZaiImageTool(http, config,
+            sp.GetRequiredService<IPathResolver>(), sp.GetRequiredService<IFileWriteAccess>()),
+        "Generate an image and save it as a workspace PNG.");
+    yield return new AgentToolBinding(
+        new ZaiOcrTool(http, config,
+            sp.GetRequiredService<IPathResolver>(), sp.GetRequiredService<IFileSystemAccess>()),
+        "Transcribe a workspace PDF or image to markdown.");
+    yield return new AgentToolBinding(
+        new ZaiTranscriptionTool(http, config,
+            sp.GetRequiredService<IPathResolver>(), sp.GetRequiredService<IFileSystemAccess>()),
+        "Transcribe a short workspace audio clip.");
+  }
 
   /// <summary>The capability providers every agent surface shares, parameterized by the
   ///     agent-tools provider so root and child surfaces differ only in human actions.</summary>

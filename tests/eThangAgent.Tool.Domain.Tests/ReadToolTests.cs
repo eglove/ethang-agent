@@ -280,6 +280,7 @@ public class ReadToolTests
   {
     private readonly Result<FileRead> _result = result;
 
+    public Task<Result<byte[]>> ReadBytesAsync(string path, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine, CancellationToken ct = default)
         => Task.FromResult(_result);
   }

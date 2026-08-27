@@ -145,6 +145,33 @@ public class CompositionGuardTests
     Assert.Contains("anthropic", argument.Message, StringComparison.Ordinal);
   }
 
+  [Fact]
+  public void ZaiSession_ExposesTheZaiCapabilityTools_OpenRouterSessionDoesNot()
+  {
+    // Switching providers is a different experience by design: the z.ai capability
+    // APIs surface only on z.ai-wired sessions.
+    static ServiceProvider BuildFor(string provider) =>
+        new ServiceCollection()
+            .AddEThangAgentCore(Settings(zaiKey: "zai-test-key"), provider,
+                ModelConfig.Create("m", null, 512, 0.5f).Value!,
+                new AgentHostOptions(new StubClarifyChannel(),
+                    new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
+            .BuildServiceProvider();
+
+    string[] zaiToolNames = ["web_search", "web_read", "count_tokens", "generate_image", "ocr_document", "transcribe_audio"];
+    using (ServiceProvider zaiServices = BuildFor(Providers.Zai))
+    {
+      AgentToolsProvider tools = zaiServices.GetRequiredService<AgentToolsProvider>();
+      Assert.All(zaiToolNames, name => Assert.Contains(tools.Actions, a => a.Name == name));
+    }
+
+    using (ServiceProvider openRouterServices = BuildFor(Providers.OpenRouter))
+    {
+      AgentToolsProvider tools = openRouterServices.GetRequiredService<AgentToolsProvider>();
+      Assert.All(zaiToolNames, name => Assert.DoesNotContain(tools.Actions, a => a.Name == name));
+    }
+  }
+
   private sealed class StubClarifyChannel : IClarifyChannel
   {
     public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)

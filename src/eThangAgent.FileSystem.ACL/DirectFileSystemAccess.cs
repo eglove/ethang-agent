@@ -36,6 +36,23 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     return Task.FromResult(Result.Success(new FileRead(slice, end, allLines.Count)));
   }
 
+  public Task<Result<byte[]>> ReadBytesAsync(string path, CancellationToken ct = default)
+  {
+    if (!File.Exists(path))
+    {
+      return Task.FromResult(Result.Failure<byte[]>(new DomainError("FileNotFound", $"File not found: {path}")));
+    }
+
+    try
+    {
+      return Task.FromResult(Result.Success(File.ReadAllBytes(path)));
+    }
+    catch (IOException ex)
+    {
+      return Task.FromResult(Result.Failure<byte[]>(new DomainError("ReadFailed", ex.Message)));
+    }
+  }
+
   public Task<Result<FileWriteOutcome>> WriteFileAsync(
       string path, string content, bool overwrite, CancellationToken ct = default)
   {
@@ -54,6 +71,30 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
 
     bool created = !File.Exists(path);
     File.WriteAllText(path, content, new UTF8Encoding(false));
+    return Task.FromResult(Result.Success(
+        new FileWriteOutcome(created, new FileInfo(path).Length)));
+  }
+
+  public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(
+      string path, byte[] bytes, bool overwrite, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(bytes);
+
+    if (File.Exists(path) && !overwrite)
+    {
+      return Task.FromResult(Result.Failure<FileWriteOutcome>(
+          new DomainError("FileExists", $"File already exists: {path} (overwrite not requested).")));
+    }
+
+    string? dir = Path.GetDirectoryName(path);
+    if (!Directory.Exists(dir))
+    {
+      return Task.FromResult(Result.Failure<FileWriteOutcome>(
+          new DomainError("DirectoryNotFound", $"Parent directory does not exist: {dir}.")));
+    }
+
+    bool created = !File.Exists(path);
+    File.WriteAllBytes(path, bytes);
     return Task.FromResult(Result.Success(
         new FileWriteOutcome(created, new FileInfo(path).Length)));
   }

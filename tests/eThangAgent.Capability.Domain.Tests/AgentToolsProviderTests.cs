@@ -61,6 +61,7 @@ public class AgentToolsProviderTests
 
   private sealed class FakeFileSystemAccess : IFileSystemAccess
   {
+    public Task<Result<byte[]>> ReadBytesAsync(string path, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
         CancellationToken ct = default)
         => Task.FromResult(Result.Success(new FileRead(["alpha", "beta"], 2, 2)));
@@ -68,6 +69,7 @@ public class AgentToolsProviderTests
 
   private sealed class FailingFileSystemAccess : IFileSystemAccess
   {
+    public Task<Result<byte[]>> ReadBytesAsync(string path, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine,
         CancellationToken ct = default)
         => Task.FromResult(Result.Failure<FileRead>(

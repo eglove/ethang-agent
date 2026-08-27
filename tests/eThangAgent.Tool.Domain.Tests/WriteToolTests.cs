@@ -140,6 +140,10 @@ public class WriteToolTests
 
   private sealed class FakeFileWriteAccess(Result<FileWriteOutcome> outcome) : IFileWriteAccess
   {
+    public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(
+        string path, byte[] bytes, bool overwrite, CancellationToken ct = default)
+        => throw new NotImplementedException();
+
     public Task<Result<FileWriteOutcome>> WriteFileAsync(
         string path, string content, bool overwrite, CancellationToken ct = default)
         => Task.FromResult(outcome);
