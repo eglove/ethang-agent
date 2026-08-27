@@ -27,13 +27,13 @@ public class DesktopPipelineSmokeTests
     _ = server.Returns(/*lang=json,strict*/ """{"choices":[{"message":{"content":"hello from the mock"}}]}""");
 
     AgentSettings settings = new(
-        "sk-or-test",
-        server.BaseUrl,
+        new OpenRouterSettings("sk-or-test", server.BaseUrl),
+        new ZaiSettings(null, new Uri("https://zai.test")),
         new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1),
         ModelId: "mock/model");
 
     using ServiceProvider services = new ServiceCollection()
-        .AddEThangAgentCore(settings, settings.ApiKey!,
+        .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("mock/model", null, 256, 0.2f).Value!,
             new AgentHostOptions(
                 new StubClarifyChannel(),
@@ -51,6 +51,7 @@ public class DesktopPipelineSmokeTests
         services, AgentId.NewId(), conversation, handler, lifecycle,
         ModelConfig.Create("mock/model", null, 256, 0.2f).Value!,
         WorkspaceRoot: Directory.GetCurrentDirectory(),
+        ProviderName: Providers.OpenRouter,
         ClarifyChannel: new StubClarifyChannel(),
         Inbox: services.GetRequiredService<IAgentInbox>(),
         ChildRuntime: services.GetRequiredService<IAgentRuntime>());

@@ -14,34 +14,37 @@ using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition;
 
 public static class AgentComposition
 {
-  /// <summary>Registers every host-agnostic piece of the agent: OpenRouter and platform
-  ///     ACLs, the agent loop, capability registry, stores, nudge policy, system prompts,
-  ///     and session lifecycle. Frontends supply exactly three decisions via AgentHostOptions.
-  ///     Registration order and lifetimes mirror the CLI composition root this replaces.
+  /// <summary>Registers every host-agnostic piece of the agent: the selected AI
+  ///     provider's ACL, the platform ACLs, the agent loop, capability registry,
+  ///     stores, nudge policy, system prompts, and session lifecycle. Frontends supply
+  ///     exactly three decisions via AgentHostOptions. Registration order and lifetimes
+  ///     mirror the CLI composition root this replaces.
   ///     <paramref name="database"/> lets multi-session hosts share ONE app database;
   ///     when omitted each container constructs its own (single-session hosts).</summary>
+  /// <exception cref="ArgumentException">providerName is not a known provider id.</exception>
+  /// <exception cref="InvalidOperationException">the selected provider has no configured API key.</exception>
   public static IServiceCollection AddEThangAgentCore(this IServiceCollection services,
-      AgentSettings settings, string apiKey, ModelConfig defaultModel, AgentHostOptions host,
+      AgentSettings settings, string providerName, ModelConfig defaultModel, AgentHostOptions host,
       AppDatabase? database = null)
   {
     ArgumentNullException.ThrowIfNull(settings);
     ArgumentNullException.ThrowIfNull(defaultModel);
     ArgumentNullException.ThrowIfNull(host);
-    return services
-        .AddSingleton(new OpenRouterConfiguration(apiKey, settings.BaseUrl))
-        .AddHttpClient("OpenRouter", client => { client.Timeout = TimeSpan.FromSeconds(120); })
-        .Services
-        .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
-        {
-          client.Timeout = TimeSpan.FromSeconds(120);
-        })
-        .Services
+    if (!Providers.IsKnown(providerName))
+    {
+      throw new ArgumentException(
+          $"Unknown provider '{providerName}'. Known providers: {Providers.OpenRouter}, {Providers.Zai}.",
+          nameof(providerName));
+    }
+
+    IServiceCollection wired = AddProviderServices(services, settings, providerName)
         .AddSingleton(defaultModel)
         .AddSingleton<Conversation>()
         .AddSingleton<IConversationRepository, InMemoryConversationRepository>()
@@ -129,16 +132,13 @@ public static class AgentComposition
         .AddSingleton<IAgentInbox, AgentInbox>()
         .AddSingleton<SessionMemoryWriteCounter>()
         .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy(() => DateTimeOffset.UtcNow))
-        .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
-            sp.GetRequiredService<OpenRouterConfiguration>(),
-            sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
-        .AddSingleton<IModelCatalog>(sp => new OpenRouterCatalogClient(
-            sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
-            sp.GetRequiredService<OpenRouterConfiguration>()))
+        ;
+
+    wired = AddModelServices(wired, providerName)
         .AddSingleton<IModelSelector>(sp => new IntelligentModelSelector(
             sp.GetRequiredService<IModelProvider>(),
             sp.GetRequiredService<IModelCatalog>(),
-            ModelConfig.Create(ActiveProviderDefaults.SelectorModelId, null, 2048, 0f).Value!))
+            ModelConfig.Create(Providers.SelectorModelId(providerName), null, 2048, 0f).Value!))
         .AddSingleton<SubAgentSpawner>()
         .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
             sp.GetRequiredService<SubAgentSpawner>(),
@@ -148,7 +148,7 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<IAgentRuntime>(),
             sp.GetRequiredService<SubAgentOptions>(),
-            ActiveProviderDefaults.FallbackModelId,
+            Providers.FallbackModelId(providerName),
             sp.GetRequiredService<IModelSelector>()))
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
@@ -231,7 +231,7 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<RootSessionIdentity>(),
             settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
-            ActiveProviderDefaults.FallbackModelId,
+            Providers.FallbackModelId(providerName),
             defaultModel.MaxTokens,
             defaultModel.Temperature))
         .AddSingleton(sp => new ProviderFailoverResolver(
@@ -240,7 +240,7 @@ public static class AgentComposition
             sp.GetRequiredService<RootSessionIdentity>(),
             sp.GetRequiredService<IAgentStore>(),
             settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
-            ActiveProviderDefaults.FallbackModelId,
+            Providers.FallbackModelId(providerName),
             defaultModel.MaxTokens,
             defaultModel.Temperature))
         .AddSingleton(sp => new SendMessageCommandHandler(
@@ -253,6 +253,63 @@ public static class AgentComposition
             sp.GetRequiredService<RootAgentResolver>()))
         .AddSingleton<RootSessionLifecycle>()
         ;
+    return wired;
+  }
+
+  /// <summary>Wires the EXCLUSIVELY selected provider's chat transport: configuration,
+  ///     a named HttpClient, and the session's single IModelProvider typed client. Only
+  ///     one provider is ever registered per container — switching providers means
+  ///     opening a session wired for the other one.</summary>
+  private static IServiceCollection AddProviderServices(
+      IServiceCollection services, AgentSettings settings, string providerName)
+  {
+    string apiKey = providerName switch
+    {
+      Providers.OpenRouter => settings.OpenRouter.ApiKey,
+      Providers.Zai => settings.Zai.ApiKey,
+      _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id.")
+    } ?? throw new InvalidOperationException(
+        $"Provider '{providerName}' is selected but its API key is not configured. " +
+        "Set the provider's key environment variable before opening a session with it.");
+
+    return providerName == Providers.OpenRouter
+        ? services
+            .AddSingleton(new OpenRouterConfiguration(apiKey, settings.OpenRouter.BaseUrl))
+            .AddHttpClient("OpenRouter", client => { client.Timeout = TimeSpan.FromSeconds(120); })
+            .Services
+            .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
+            {
+              client.Timeout = TimeSpan.FromSeconds(120);
+            })
+            .Services
+        : services
+            .AddSingleton(new ZaiConfiguration(apiKey, settings.Zai.BaseUrl))
+            .AddHttpClient("Zai", client => { client.Timeout = TimeSpan.FromSeconds(120); })
+            .Services
+            .AddHttpClient<IModelProvider, ZaiModelProvider>(client =>
+            {
+              client.Timeout = TimeSpan.FromSeconds(120);
+            })
+            .Services;
+  }
+
+  /// <summary>Wires the selected provider's model factory and catalog. z.ai has no
+  ///     models-listing endpoint, so its catalog is the static curated one.</summary>
+  private static IServiceCollection AddModelServices(IServiceCollection services, string providerName)
+  {
+    return providerName == Providers.OpenRouter
+        ? services
+            .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
+                sp.GetRequiredService<OpenRouterConfiguration>(),
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
+            .AddSingleton<IModelCatalog>(sp => new OpenRouterCatalogClient(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
+                sp.GetRequiredService<OpenRouterConfiguration>()))
+        : services
+            .AddSingleton<IModelProviderFactory>(sp => new ZaiModelProviderFactory(
+                sp.GetRequiredService<ZaiConfiguration>(),
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("Zai")))
+            .AddSingleton<IModelCatalog>(_ => new ZaiModelCatalog());
   }
 
   /// <summary>Actions only a root agent may invoke: they present UI to the human,

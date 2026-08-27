@@ -57,7 +57,7 @@ public class AgentSessionViewModelTests
     List<string> errors = [];
     AgentSessionViewModel vm = new(
         runner, lifecycle, AgentId.NewId(), new Conversation(),
-        "test/model", workspaceRoot: @"C:\work\demo");
+        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo");
     return (vm, errors, lifecycle);
   }
 
@@ -99,7 +99,7 @@ public class AgentSessionViewModelTests
           sent++;
           return Task.FromResult(Result.Success(""));
         },
-        new RecordingLifecycle(store), AgentId.NewId(), new Conversation(), "m",
+        new RecordingLifecycle(store), AgentId.NewId(), new Conversation(), "OpenRouter", "m",
         workspaceRoot: @"C:\work\demo");
     vm.CloseRequested += (_, _) => closed = true;
 
@@ -195,7 +195,7 @@ public class AgentSessionViewModelTests
     AgentSessionViewModel vm = new(
         (_, _, _, _, _, _, _, _) =>
             Task.FromResult(Result.Success("answer")),
-        lifecycle, AgentId.NewId(), new Conversation(), "test/model",
+        lifecycle, AgentId.NewId(), new Conversation(), "OpenRouter", "test/model",
         workspaceRoot: @"C:\work\demo");
 
     await vm.SubmitAsync("hi");

@@ -3,11 +3,12 @@
              xmlns:vm="using:eThangAgent.Desktop.ViewModels"
              x:Class="eThangAgent.Desktop.Views.AgentView">
   <DockPanel>
-    <!-- Status bar: phase, model id, message count (parity with the terminal StatusLine). -->
+    <!-- Status bar: phase, provider, model id, message count (parity with the terminal StatusLine). -->
     <Border DockPanel.Dock="Bottom" Background="#22000000">
       <StackPanel Orientation="Horizontal" Spacing="12" Margin="8,4">
         <TextBlock x:Name="SpinnerText" Text="{Binding Status.Spinner}"/>
         <TextBlock Text="{Binding Status.PhaseLabel}"/>
+        <TextBlock Text="{Binding Status.Provider}"/>
         <TextBlock Text="{Binding Status.ModelId}"/>
         <TextBlock Text="{Binding MessageCount, StringFormat='messages: {0}'}"/>
       </StackPanel>

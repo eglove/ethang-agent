@@ -1,4 +1,5 @@
 using eThangAgent.AgentDomain;
+using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.Configuration;
 
 namespace eThangAgent.Composition;
@@ -16,10 +17,6 @@ public static class AgentConfiguration
         .AddEnvironmentVariables()
         .Build();
 
-    string? apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
-    string? baseUrlEnv = Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL");
-    Uri baseUrl = BindBaseUrl(baseUrlEnv);
-
     SubAgentOptions subAgents = SubAgentConfiguration.Bind(
         configuration["SubAgent:DefaultModel"],
         configuration["SubAgent:ChildTimeoutSeconds"],
@@ -28,14 +25,24 @@ public static class AgentConfiguration
     string? modelId = configuration["Model:Id"];
     return modelId is not null && string.IsNullOrWhiteSpace(modelId)
       ? throw new InvalidOperationException("Model:Id is present but empty. Remove the key or supply a model reference.")
-      : new AgentSettings(apiKey, baseUrl, subAgents, modelId);
+      : new AgentSettings(
+        new OpenRouterSettings(
+            Environment.GetEnvironmentVariable("OPENROUTER_API_KEY"),
+            BindBaseUrl("OPENROUTER_BASE_URL",
+                Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL"), "https://openrouter.ai")),
+        new ZaiSettings(
+            Environment.GetEnvironmentVariable("ZAI_API_KEY"),
+            BindBaseUrl("ZAI_BASE_URL",
+                Environment.GetEnvironmentVariable("ZAI_BASE_URL"), ZaiConfiguration.DefaultBaseUrl)),
+        subAgents,
+        modelId);
   }
 
-  private static Uri BindBaseUrl(string? baseUrlEnv)
+  private static Uri BindBaseUrl(string variableName, string? baseUrlEnv, string defaultUrl)
   {
     if (string.IsNullOrWhiteSpace(baseUrlEnv))
     {
-      return new Uri("https://openrouter.ai");
+      return new Uri(defaultUrl);
     }
 
     try
@@ -45,7 +52,7 @@ public static class AgentConfiguration
     catch (UriFormatException)
     {
       throw new InvalidOperationException(
-          $"OPENROUTER_BASE_URL must be a valid absolute URI, got '{baseUrlEnv}'.");
+          $"{variableName} must be a valid absolute URI, got '{baseUrlEnv}'.");
     }
   }
 }

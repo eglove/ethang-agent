@@ -3,6 +3,7 @@ using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
 using eThangAgent.ToolDomain;
+using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 // Best-effort temp-file cleanup in finally blocks is deliberate (CA1031).
@@ -12,7 +13,8 @@ namespace eThangAgent.Composition.Tests;
 
 /// <summary>The session factory is the multi-workspace seam: each created session
 ///     must carry its own workspace identity and path resolver rooted at the chosen
-///     directory while sharing the one app database.</summary>
+///     directory while sharing the one app database. Sessions are also the provider
+///     seam: each is wired exclusively for the provider it was opened with.</summary>
 public class AgentSessionFactoryTests
 {
   private sealed class StubChannel : IClarifyChannel
@@ -21,14 +23,18 @@ public class AgentSessionFactoryTests
         => Task.FromResult(Result.Success("1"));
   }
 
-  private static (AgentSessionFactory Factory, string DbPath) CreateFactory()
+  private static readonly Uri BaseUrl = new("https://openrouter.test");
+
+  private static AgentSettings Settings(string? openRouterKey = "sk-or-test", string? zaiKey = null) => new(
+      new OpenRouterSettings(openRouterKey, BaseUrl),
+      new ZaiSettings(zaiKey, new Uri("https://zai.test")),
+      new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
+
+  private static (AgentSessionFactory Factory, string DbPath) CreateFactory(AgentSettings? settings = null)
   {
     string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-factory-{Guid.NewGuid():N}.db");
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
-    AgentSettings settings = new("sk-or-test", new Uri("https://openrouter.test"),
-        new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
-    return (new AgentSessionFactory(settings, settings.ApiKey!,
-        ModelConfig.Create("test/model", null, 512, 0.5f).Value!), dbPath);
+    return (new AgentSessionFactory(settings ?? Settings()), dbPath);
   }
 
   [Fact]
@@ -41,8 +47,8 @@ public class AgentSessionFactoryTests
       DirectoryInfo dirB = Directory.CreateTempSubdirectory("ethang-ws-b");
       try
       {
-        Result<AgentSession> a = await factory.CreateAsync(dirA.FullName, new StubChannel());
-        Result<AgentSession> b = await factory.CreateAsync(dirB.FullName, new StubChannel());
+        Result<AgentSession> a = await factory.CreateAsync(dirA.FullName, Providers.OpenRouter, new StubChannel());
+        Result<AgentSession> b = await factory.CreateAsync(dirB.FullName, Providers.OpenRouter, new StubChannel());
 
         Assert.True(a.IsSuccess);
         Assert.True(b.IsSuccess);
@@ -95,10 +101,106 @@ public class AgentSessionFactoryTests
     try
     {
       string missing = Path.Combine(Path.GetTempPath(), $"ethang-missing-{Guid.NewGuid():N}");
-      Result<AgentSession> result = await factory.CreateAsync(missing, new StubChannel());
+      Result<AgentSession> result = await factory.CreateAsync(missing, Providers.OpenRouter, new StubChannel());
 
       Assert.False(result.IsSuccess);
       Assert.Equal("WorkspaceNotFound", result.Error!.Code);
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      try
+      {
+        File.Delete(db);
+      }
+      catch { }
+    }
+  }
+
+  [Fact]
+  public async Task CreateAsync_Rejects_Unknown_Provider_With_Structured_Error()
+  {
+    (AgentSessionFactory? factory, string? db) = CreateFactory();
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-u");
+      try
+      {
+        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, "anthropic", new StubChannel());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("UnknownProvider", result.Error!.Code);
+        Assert.Contains("anthropic", result.Error.Message, StringComparison.Ordinal);
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      try
+      {
+        File.Delete(db);
+      }
+      catch { }
+    }
+  }
+
+  [Fact]
+  public async Task CreateAsync_Rejects_Unconfigured_Provider_With_Structured_Error()
+  {
+    // OpenRouter key present, z.ai key absent: opening a z.ai session must fail
+    // with a structured error naming the provider.
+    (AgentSessionFactory? factory, string? db) = CreateFactory();
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-z");
+      try
+      {
+        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ProviderNotConfigured", result.Error!.Code);
+        Assert.Contains("z.ai", result.Error.Message, StringComparison.Ordinal);
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      try
+      {
+        File.Delete(db);
+      }
+      catch { }
+    }
+  }
+
+  [Fact]
+  public async Task CreateAsync_ZaiConfigured_WiresZaiProviderAndCarriesProviderName()
+  {
+    (AgentSessionFactory? factory, string? db) = CreateFactory(Settings(zaiKey: "zai-test-key"));
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-zc");
+      try
+      {
+        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel());
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(Providers.Zai, result.Value!.ProviderName);
+        _ = Assert.IsType<ZaiModelCatalog>(result.Value.Services.GetRequiredService<IModelCatalog>());
+        _ = Assert.IsType<ZaiModelProvider>(result.Value.Services.GetRequiredService<IModelProvider>());
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
     }
     finally
     {

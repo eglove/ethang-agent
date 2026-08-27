@@ -62,6 +62,11 @@ public sealed class AppDatabase
       ApplyV6(connection);
       SetVersion(connection, 6);
     }
+    if (GetVersion(connection) < 7)
+    {
+      ApplyV7(connection);
+      SetVersion(connection, 7);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -279,6 +284,22 @@ public sealed class AppDatabase
             expires_at         TEXT NOT NULL,
             created_at         TEXT NOT NULL,
             PRIMARY KEY (model_provider_key, workspace_id)
+        );
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  private static void ApplyV7(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS app_preferences (
+            key        TEXT PRIMARY KEY,
+            value      TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );
         """;
     using SqliteCommand command = connection.CreateCommand();

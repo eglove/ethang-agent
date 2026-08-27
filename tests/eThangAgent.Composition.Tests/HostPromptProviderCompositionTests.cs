@@ -12,10 +12,12 @@ public class HostPromptProviderCompositionTests
 {
   private static ServiceProvider BuildCore(AgentHostOptions host)
   {
-    AgentSettings settings = new("sk-or-test", new Uri("https://openrouter.test"),
+    AgentSettings settings = new(
+        new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
+        new ZaiSettings(null, new Uri("https://zai.test")),
         new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
     return new ServiceCollection()
-        .AddEThangAgentCore(settings, settings.ApiKey!,
+        .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", null, 512, 0.5f).Value!, host)
         .BuildServiceProvider();
   }

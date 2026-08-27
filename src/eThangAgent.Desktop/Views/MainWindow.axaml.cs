@@ -1,16 +1,17 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using Avalonia.Platform.Storage;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.Views;
 
 /// <summary>The main window shell: left menu bar plus a tab host with one tab per
-///     open agent. 'Open Agent' shows the folder picker; the chosen directory becomes
-///     the agent's workspace and opens as a new tab. Opening another directory opens
-///     another tab — each backed by its own isolated session container.</summary>
+///     open agent. 'Open Agent' shows the new-agent dialog (provider dropdown plus
+///     workspace picker); the chosen pair opens as a new tab wired exclusively for
+///     that provider. Opening another directory (or the same directory under the
+///     other provider) opens another tab — each backed by its own isolated session
+///     container.</summary>
 internal partial class MainWindow : Window
 {
   private readonly MainViewModel? _vm;
@@ -23,28 +24,24 @@ internal partial class MainWindow : Window
     _vm = vm;
     DataContext = vm;
 
-    // The menu button asks the view to show the picker (UI-affine); the result
-    // comes back through CompleteOpenAgentAsync on the view-model.
-    vm.OpenAgentRequested += async (_, _) => await OpenAgentPickerAsync();
+    // The menu button asks the view to show the new-agent modal (UI-affine); the
+    // chosen provider/workspace pair comes back through OpenAgentAsync.
+    vm.OpenAgentRequested += async (_, _) => await ShowNewAgentDialogAsync();
   }
 
-  /// <summary>Shows the native folder picker and opens (or selects) the agent tab.
-  ///     A cancelled pick is a no-op. Failures surface as a transcript notice in the
-  ///     selected tab, or a dialog when no tab exists yet.</summary>
-  private async Task OpenAgentPickerAsync()
+  /// <summary>Shows the new-agent dialog (provider dropdown + workspace picker) and
+  ///     opens (or selects) the agent tab. A cancelled dialog is a no-op. Failures
+  ///     surface as a dialog.</summary>
+  private async Task ShowNewAgentDialogAsync()
   {
-    IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-    {
-      Title = "Choose the directory this agent will work from",
-      AllowMultiple = false,
-    });
-    if (folders.Count == 0)
+    NewAgentWindow dialog = new(_vm!.AvailableProviders, _vm.PreferredProviderId);
+    NewAgentChoice? choice = await dialog.ShowDialog<NewAgentChoice?>(this);
+    if (choice is null)
     {
       return; // user cancelled — no-op
     }
 
-    string root = folders[0].Path.LocalPath;
-    Result<AgentTabViewModel> result = await _vm!.OpenAgentAsync(root);
+    Result<AgentTabViewModel> result = await _vm.OpenAgentAsync(choice.WorkspaceRoot, choice.ProviderId);
     if (!result.IsSuccess)
     {
       await ShowOpenFailedAsync(result.Error!.Message);

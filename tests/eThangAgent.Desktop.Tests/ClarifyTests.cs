@@ -154,6 +154,7 @@ public class ClarifyTests
     AgentSessionViewModel vm = new(
         (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("unused")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter",
         "m", workspaceRoot: @"C:\work\demo");
     _ = await vm.PresentClarifyAsync(
         new ClarifyQuestion("Which approach?", ["first", "second"], AllowFreeText: false));
@@ -200,6 +201,7 @@ public class ClarifyTests
                   : Result.Failure<string>(answer.Error!);
         },
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter",
         "m", workspaceRoot: @"C:\work\demo");
     Task turn = vm.SubmitAsync("ask me"); // model asks a clarify question mid-turn
     ClarifyViewModel clarify = await questionGate.Task.ConfigureAwait(true);
@@ -239,6 +241,7 @@ public class ClarifyTests
     AgentSessionViewModel vm = new(
         (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("unused")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter",
         "m", workspaceRoot: @"C:\work\demo");
     _ = await vm.PresentClarifyAsync(Sample()).ConfigureAwait(false);
     return vm;

@@ -6,13 +6,15 @@ using System.Text.RegularExpressions;
 
 namespace eThangAgent.Desktop.Tests;
 
-internal sealed partial class MockOpenRouterServer : IDisposable
+internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/chat/completions") : IDisposable
 {
   private readonly HttpListener _listener = new();
   private readonly CancellationTokenSource _cts = new();
   private readonly Queue<string> _scriptedResponses = new();
   private readonly Dictionary<string, Queue<string>> _modelScripts = [];
   private readonly List<string> _requestBodies = [];
+  private readonly string _chatPath = chatPath;
+  private readonly List<string> _chatRequestPaths = [];
   private string? _catalogResponse;
 
   public IReadOnlyList<string> RequestBodies => _requestBodies;
@@ -21,6 +23,9 @@ internal sealed partial class MockOpenRouterServer : IDisposable
 
   /// <summary>Body of the most recent chat/completions request, for asserting what the CLI sent.</summary>
   public string? LastChatRequestBody { get; private set; }
+
+  /// <summary>Absolute path of every chat request the server served.</summary>
+  public IReadOnlyList<string> ChatRequestPaths => _chatRequestPaths;
 
   public void Start()
   {
@@ -197,12 +202,13 @@ internal sealed partial class MockOpenRouterServer : IDisposable
         ctx.Response.ContentLength64 = bytes.Length;
         await ctx.Response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
       }
-      else if (ctx.Request.Url!.AbsolutePath == "/api/v1/chat/completions")
+      else if (ctx.Request.Url!.AbsolutePath == _chatPath)
       {
         using StreamReader reader = new(ctx.Request.InputStream);
         string requestBody = await reader.ReadToEndAsync().ConfigureAwait(false);
         LastChatRequestBody = requestBody;
         _requestBodies.Add(requestBody);
+        _chatRequestPaths.Add(ctx.Request.Url.AbsolutePath);
 
         try
         {

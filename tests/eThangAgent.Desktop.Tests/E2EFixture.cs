@@ -48,13 +48,13 @@ internal static class E2E
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", DatabasePath);
 
       AgentSettings settings = new(
-          "sk-or-test",
-          Mock.BaseUrl,
+          new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
+          new ZaiSettings(null, new Uri("https://zai.test")),
           new SubAgentOptions(null, TimeSpan.FromSeconds(30), 2),
           ModelId: SessionModel);
 
       _services = new ServiceCollection()
-          .AddEThangAgentCore(settings, settings.ApiKey!,
+          .AddEThangAgentCore(settings, Providers.OpenRouter,
               ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f).Value!,
               new AgentHostOptions(
                   new NeverClarifyChannel(),
@@ -77,6 +77,7 @@ internal static class E2E
           _services!, RootId, conversation, handler, lifecycle,
           ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f).Value!,
           WorkspaceRoot: Directory.GetCurrentDirectory(),
+          ProviderName: Providers.OpenRouter,
           ClarifyChannel: new NeverClarifyChannel(),
           Inbox: _services!.GetRequiredService<IAgentInbox>(),
           ChildRuntime: _services!.GetRequiredService<IAgentRuntime>());

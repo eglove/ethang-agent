@@ -72,7 +72,8 @@ runner,
         new RootSessionLifecycle(new StubStore()),
         AgentId.NewId(),
         new Conversation(),
-        "test/model",
+        provider: "OpenRouter",
+        modelId: "test/model",
         workspaceRoot: @"C:\work\demo",
         uiStreamSink: sink);
     vmRef = vm;

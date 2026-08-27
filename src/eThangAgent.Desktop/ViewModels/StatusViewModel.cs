@@ -12,12 +12,12 @@ internal enum TurnPhase
 }
 
 /// <summary>
-///     Status bar state: model id and an animated spinner whose frame advances via
-///     <see cref="Tick"/> while a turn is in flight. Phase may be set from any thread
-///     (agent callbacks run off-UI); property-changed notifications marshal onto the UI
-///     thread so bindings stay safe.
+///     Status bar state: the session's provider, the model id, and an animated spinner
+///     whose frame advances via <see cref="Tick"/> while a turn is in flight. Phase may
+///     be set from any thread (agent callbacks run off-UI); property-changed
+///     notifications marshal onto the UI thread so bindings stay safe.
 /// </summary>
-internal sealed class StatusViewModel(string modelId) : INotifyPropertyChanged
+internal sealed class StatusViewModel(string provider, string modelId) : INotifyPropertyChanged
 {
   // Identical glyph set to the terminal spinner (Program.SpinnerFrames).
   private static readonly string[] Frames =
@@ -27,6 +27,9 @@ internal sealed class StatusViewModel(string modelId) : INotifyPropertyChanged
     ];
 
   private int _frame;
+
+  /// <summary>The AI provider this session is wired for; fixed for the session's lifetime.</summary>
+  public string Provider { get; } = provider;
 
   public string ModelId
   {

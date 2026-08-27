@@ -52,7 +52,7 @@ public class AgentSteeringDesktopTests
     RecordingLifecycle lifecycle = new(new StubStore());
     AgentSessionViewModel vm = new(
         runner, lifecycle, AgentId.NewId(), new Conversation(),
-        "test/model", workspaceRoot: @"C:\work\demo",
+        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo",
         inbox: inbox, childRuntime: runtime);
     return (vm, lifecycle);
   }
@@ -125,7 +125,7 @@ public class AgentSteeringDesktopTests
     RecordingLifecycle lifecycle = new(new StubStore());
     AgentSessionViewModel vm = new(
         park.RunAsync, lifecycle, AgentId.NewId(), new Conversation(),
-        "test/model", workspaceRoot: @"C:\work\demo");
+        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo");
 
     Task turnTask = vm.SubmitAsync("work");
     await park.Started.ConfigureAwait(true);

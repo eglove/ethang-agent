@@ -6,20 +6,21 @@ using Avalonia.Threading;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
-using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 
 namespace eThangAgent.Desktop;
 
 /// <summary>Everything <see cref="DesktopHost.CreateMainWindow"/> needs, prepared OFF the UI thread:
-///     validated configuration plus the session factory the shell uses to open one
-///     isolated agent container per chosen directory. No agent exists until the user
-///     opens one.</summary>
+///     validated configuration, the provider-aware session factory the shell uses to open
+///     one isolated agent container per chosen directory, the choosable providers, the
+///     preferred one, and the preference store that persists the choice. No agent exists
+///     until the user opens one.</summary>
 internal sealed record DesktopBootstrap(
     AgentSessionFactory Sessions,
-    string ModelId,
-    bool ModelExplicitlyConfigured);
+    IReadOnlyList<ProviderOption> Providers,
+    string PreferredProviderId,
+    IAppPreferenceStore Preferences);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup validates configuration and shows the shell immediately; each 'Open Agent'
@@ -29,36 +30,53 @@ internal sealed record DesktopBootstrap(
 ///     as an error dialog followed by exit code 1.</summary>
 internal static class DesktopHost
 {
-  /// <summary>Background-thread-safe preparation: strict config load and the session
-  ///     factory. Constructs NO Avalonia controls (they are thread-affine and must be
-  ///     built on the UI thread via <see cref="CreateMainWindow"/>). The API key is
+  /// <summary>Background-thread-safe preparation: strict config load and the provider-aware
+  ///     session factory. Constructs NO Avalonia controls (they are thread-affine and must be
+  ///     built on the UI thread via <see cref="CreateMainWindow"/>). Provider keys are
   ///     validated here so a misconfigured install fails at startup, not on first open.
   ///     No workspace is required up front: agents are opened per tab from the shell.</summary>
   public static async Task<DesktopBootstrap> PrepareAsync(
       IClassicDesktopStyleApplicationLifetime desktop)
   {
     AgentSettings settings = AgentConfiguration.Load();
-    if (settings.ApiKey is null)
+    if (!settings.HasOpenRouter && !settings.HasZai)
     {
       await ShowErrorAndExitAsync(desktop,
-          "OPENROUTER_API_KEY environment variable not set. Get a key at https://openrouter.ai/keys");
+          "No AI provider configured. Set the OPENROUTER_API_KEY or ZAI_API_KEY environment variable.");
       throw new UnreachableException("unreachable after error dialog shutdown");
     }
 
-    // Root model selection is deferred to the first user prompt (see RootAgentResolver):
-    //     classifying a canned 'software development' prompt at startup selected a model
-    //     before the user's actual task was known. When an explicit ModelId is configured it
-    //     pins the root for the whole session; otherwise the bootstrap model is a placeholder
-    //     (openrouter/auto) replaced on the first turn by intelligent selection.
-    bool modelExplicit = settings.ModelId is not null;
-    string modelId = settings.ModelId ?? "openrouter/auto";
-    ModelConfig defaultModel = ModelConfig.Create(modelId, null, 32 * 1024, 0.7f).Value!;
     // ONE app-owned database for every opened session (rows are keyed by workspace id).
     AppDatabase database = new();
+    IAppPreferenceStore preferences = new SqliteAppPreferenceStore(database);
+
+    List<ProviderOption> providers = [];
+    if (settings.HasOpenRouter)
+    {
+      providers.Add(new ProviderOption(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter)));
+    }
+    if (settings.HasZai)
+    {
+      providers.Add(new ProviderOption(Providers.Zai, Providers.DisplayName(Providers.Zai)));
+    }
+
     return new DesktopBootstrap(
-        new AgentSessionFactory(settings, settings.ApiKey, defaultModel, database),
-        defaultModel.ModelId,
-        modelExplicit);
+        new AgentSessionFactory(settings, database),
+        providers,
+        await ResolvePreferredProviderAsync(settings, preferences).ConfigureAwait(false),
+        preferences);
+  }
+
+  /// <summary>The provider the new-agent dialog pre-selects: the persisted choice when it
+  ///     is still configured, else the only configured provider, else OpenRouter (the
+  ///     both-keys back-compat default).</summary>
+  private static async Task<string> ResolvePreferredProviderAsync(
+      AgentSettings settings, IAppPreferenceStore preferences)
+  {
+    string? persisted = await preferences.GetAsync(Providers.PreferenceKey).ConfigureAwait(false);
+    return persisted == Providers.OpenRouter && settings.HasOpenRouter
+      ? Providers.OpenRouter
+      : persisted == Providers.Zai && settings.HasZai ? Providers.Zai : settings.HasOpenRouter ? Providers.OpenRouter : Providers.Zai;
   }
 
   /// <summary>Defers shutdown while startup runs. Between framework initialization and
@@ -94,7 +112,11 @@ internal static class DesktopHost
     // pending questions through its own view-model (wired in MainViewModel when the
     // session VM is created). The presenter starts unavailable — a structured,
     // model-actionable failure — until that tab's VM installs it.
-    MainViewModel vm = new(root => boot.Sessions.CreateAsync(root, new AvaloniaClarifyChannel(null)));
+    MainViewModel vm = new(
+        (root, provider) => boot.Sessions.CreateAsync(root, provider, new AvaloniaClarifyChannel(null)),
+        boot.Providers,
+        boot.PreferredProviderId,
+        boot.Preferences);
     return new MainWindow(vm);
   }
 

@@ -60,6 +60,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       RootSessionLifecycle lifecycle,
       AgentId rootId,
       Conversation conversation,
+      string provider,
       string modelId,
       string workspaceRoot,
       Func<ClarifyQuestion, Task<ClarifyViewModel>>? presentClarify = null,
@@ -90,7 +91,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       ApplyStreamEvent(evt);
       return Task.CompletedTask;
     });
-    Status = new StatusViewModel(modelId);
+    Status = new StatusViewModel(provider, modelId);
     _inbox = inbox;
     _childRuntime = childRuntime;
   }
