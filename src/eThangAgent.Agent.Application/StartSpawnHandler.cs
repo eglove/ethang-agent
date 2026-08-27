@@ -11,8 +11,10 @@ namespace eThangAgent.Agent.Application;
 ///     provided and an IModelSelector is available, runs intelligent model selection; falls back
 ///     to openrouter/auto on any selection failure.</summary>
 public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, SubAgentOptions options,
-    IModelSelector? modelSelector = null) : IAgentSpawnCommand
+    IModelSelector? modelSelector = null, int maxTokens = 4096, float temperature = 0.7f) : IAgentSpawnCommand
 {
+  private readonly int _maxTokens = maxTokens;
+  private readonly float _temperature = temperature;
   private readonly IAgentStore _store = store ?? throw new ArgumentNullException(nameof(store));
   private readonly IAgentRuntime _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
   private readonly SubAgentOptions _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -40,9 +42,9 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
           $"agent depth {parent.Depth} is at the limit ({_options.MaxDepth}); children cannot spawn further"));
     }
 
-    string model = await ResolveModelAsync(request, ct).ConfigureAwait(false);
+    ModelConfig modelConfig = await ResolveModelAsync(request, ct).ConfigureAwait(false);
 
-    AgentRecord record = AgentRecord.Spawned(AgentId.NewId(), parent.Id, parent.Depth + 1, model,
+    AgentRecord record = AgentRecord.Spawned(AgentId.NewId(), parent.Id, parent.Depth + 1, modelConfig.ModelId,
         request.Label, request.TaskPrompt, DateTimeOffset.UtcNow);
 
     Result<string> saved = await _store.SaveAsync(record, ct).ConfigureAwait(false);
@@ -57,18 +59,18 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
         : Result.Failure<AgentId>(started.Error!);
   }
 
-  private async Task<string> ResolveModelAsync(SpawnRequest request, CancellationToken ct)
+  private async Task<ModelConfig> ResolveModelAsync(SpawnRequest request, CancellationToken ct)
   {
     // 1. Explicit per-spawn model always wins.
     if (!string.IsNullOrWhiteSpace(request.Model))
     {
-      return request.Model!;
+      return ModelConfig.Create(request.Model!, null, _maxTokens, _temperature).Value!;
     }
 
     // 2. Configured default model wins.
     if (!string.IsNullOrWhiteSpace(_options.DefaultModel))
     {
-      return _options.DefaultModel!;
+      return ModelConfig.Create(_options.DefaultModel!, null, _maxTokens, _temperature).Value!;
     }
 
     // 3. Intelligent selection when a selector is available.
@@ -77,11 +79,12 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       Result<ModelSelectionResult> selection = await _modelSelector.SelectAsync(request.TaskPrompt, excludedKeys: null, ct).ConfigureAwait(false);
       if (selection.IsSuccess)
       {
-        return selection.Value!.ModelId;
+        return ModelConfig.Create(selection.Value!.ModelId, selection.Value!.ProviderName,
+            _maxTokens, _temperature).Value!;
       }
     }
 
     // 4. Fallback to openrouter/auto.
-    return FallbackModel;
+    return ModelConfig.Create(FallbackModel, null, _maxTokens, _temperature).Value!;
   }
 }
