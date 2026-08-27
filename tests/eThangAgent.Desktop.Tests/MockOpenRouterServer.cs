@@ -13,6 +13,7 @@ internal sealed partial class MockOpenRouterServer : IDisposable
   private readonly Queue<string> _scriptedResponses = new();
   private readonly Dictionary<string, Queue<string>> _modelScripts = [];
   private readonly List<string> _requestBodies = [];
+  private string? _catalogResponse;
 
   public IReadOnlyList<string> RequestBodies => _requestBodies;
 
@@ -41,6 +42,15 @@ internal sealed partial class MockOpenRouterServer : IDisposable
   ///     top-level "model" field matches, turns are served from that model's queue
   ///     (first call => first response) instead of the default script. Lets one mock
   ///     server play both parent and child in a nested-spawn session.</summary>
+  /// <summary>Scripts the /api/v1/models catalog response. When unset, the endpoint
+  ///     serves an empty data array.</summary>
+  public MockOpenRouterServer ReturnsCatalog(string catalogJson)
+  {
+    ArgumentNullException.ThrowIfNull(catalogJson);
+    _catalogResponse = catalogJson;
+    return this;
+  }
+
   public MockOpenRouterServer ReturnsForModel(string model, params string[] responseJsons)
   {
     ArgumentNullException.ThrowIfNull(responseJsons);
@@ -178,7 +188,16 @@ internal sealed partial class MockOpenRouterServer : IDisposable
         break;
       }
 
-      if (ctx.Request.Url!.AbsolutePath == "/api/v1/chat/completions")
+      if (ctx.Request.Url!.AbsolutePath == "/api/v1/models")
+      {
+        string body = _catalogResponse ?? /*lang=json,strict*/ """{"data":[]}""";
+        byte[] bytes = Encoding.UTF8.GetBytes(body);
+        ctx.Response.StatusCode = 200;
+        ctx.Response.ContentType = "application/json";
+        ctx.Response.ContentLength64 = bytes.Length;
+        await ctx.Response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
+      }
+      else if (ctx.Request.Url!.AbsolutePath == "/api/v1/chat/completions")
       {
         using StreamReader reader = new(ctx.Request.InputStream);
         string requestBody = await reader.ReadToEndAsync().ConfigureAwait(false);
