@@ -7,4 +7,6 @@ public sealed record OpenRouterConfiguration(string ApiKey, Uri BaseUrl)
 
   /// <summary>How long the model catalog cache is valid before a re-fetch is triggered. Default: 24 hours.</summary>
   public TimeSpan CatalogCacheTtl { get; init; } = TimeSpan.FromHours(24);
+  /// <summary>Max parallel requests when fetching per-model endpoints. Default: 8.</summary>
+  public int EndpointFetchConcurrency { get; init; } = 8;
 }

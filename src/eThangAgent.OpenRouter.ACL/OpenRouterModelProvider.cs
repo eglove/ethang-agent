@@ -165,6 +165,11 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       bodyDict["stream"] = true;
     }
 
+    if (!string.IsNullOrWhiteSpace(config.Provider))
+    {
+      bodyDict["provider"] = new { only = new[] { config.Provider } };
+    }
+
     if (request.Tools is { Count: > 0 })
     {
       bodyDict["tools"] = request.Tools.Select(TranslateTool).ToArray();

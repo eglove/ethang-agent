@@ -54,7 +54,7 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
   public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(child);
-    ModelConfig config = ModelConfig.Create(child.ModelUsed, ChildMaxTokens, ChildTemperature).Value!;
+    ModelConfig config = ModelConfig.Create(child.ModelUsed, null, ChildMaxTokens, ChildTemperature).Value!;
 
     Agent agent = new(_factory.Create(config), new Conversation(), config, _tools,
         _systemPrompt, id: child.Id, depth: child.Depth);

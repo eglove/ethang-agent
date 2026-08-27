@@ -13,13 +13,13 @@ public class StartSpawnHandlerTests
   private sealed class FakeModelSelector(ModelSelectionResult result) : IModelSelector
   {
     private readonly ModelSelectionResult _result = result;
-    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, CancellationToken ct = default)
+    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, IReadOnlySet<string>? excludedKeys = null, CancellationToken ct = default)
         => Task.FromResult(Result.Success(_result));
   }
 
   private sealed class FailingModelSelector : IModelSelector
   {
-    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, CancellationToken ct = default)
+    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, IReadOnlySet<string>? excludedKeys = null, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed", "boom")));
   }
 
@@ -172,9 +172,9 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    ModelSelectionResult selection = new("anthropic/claude-3.5-sonnet",
+    ModelSelectionResult selection = new("anthropic/claude-3.5-sonnet", "Anthropic",
         new TaskCategory(["coding"], 4, false, true, null, null),
-        new ModelFilter(null, null, null, true, null, null), "best");
+        new ModelFilter(null, null, null, null, true, null, null, null, null, null, null), "best");
     FakeModelSelector selector = new(selection);
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), selector);
 

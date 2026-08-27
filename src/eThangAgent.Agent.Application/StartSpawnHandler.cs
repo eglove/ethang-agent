@@ -74,7 +74,7 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     // 3. Intelligent selection when a selector is available.
     if (_modelSelector is not null)
     {
-      Result<ModelSelectionResult> selection = await _modelSelector.SelectAsync(request.TaskPrompt, ct).ConfigureAwait(false);
+      Result<ModelSelectionResult> selection = await _modelSelector.SelectAsync(request.TaskPrompt, excludedKeys: null, ct).ConfigureAwait(false);
       if (selection.IsSuccess)
       {
         return selection.Value!.ModelId;

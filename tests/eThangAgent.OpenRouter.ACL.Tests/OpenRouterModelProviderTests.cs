@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Net;
 using System.Text;
 using eThangAgent.ConversationDomain;
@@ -24,7 +25,7 @@ public class OpenRouterModelProviderTests
                                  """{"choices":[{"message":{"content":"Hello back"}}]}""")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
-    ModelConfig config = ModelConfig.Create("openai/gpt-4o-mini", 256, 0.7f).Value!;
+    ModelConfig config = ModelConfig.Create("openai/gpt-4o-mini", null, 256, 0.7f).Value!;
 
     Result<ModelResponse> result = await provider.SendAsync(config, new ModelRequest([UserMsg("hi")]));
 
@@ -50,7 +51,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("openai/gpt-4o-mini", 128, 0.7f).Value!,
+        ModelConfig.Create("openai/gpt-4o-mini", null, 128, 0.7f).Value!,
         new ModelRequest([UserMsg("hi")]));
 
     Assert.True(result.IsSuccess);
@@ -83,7 +84,7 @@ public class OpenRouterModelProviderTests
         ];
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("m", 100, 0.5f).Value!,
+        ModelConfig.Create("m", null, 100, 0.5f).Value!,
         new ModelRequest([UserMsg("hi")], tools));
 
     Assert.Contains("\"required\":[\"path\",\"startLine\",\"endLine\"]", capturedBody, StringComparison.Ordinal);
@@ -102,7 +103,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", 100, 0.5f).Value!,
+        ModelConfig.Create("m", null, 100, 0.5f).Value!,
         new ModelRequest([UserMsg("hi")]));
 
     Assert.True(result.IsSuccess);
@@ -135,7 +136,7 @@ public class OpenRouterModelProviderTests
         ];
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("m", 100, 0.5f).Value!,
+        ModelConfig.Create("m", null, 100, 0.5f).Value!,
         new ModelRequest(messages));
 
     Assert.Contains("\"role\":\"tool\"", capturedBody, StringComparison.Ordinal);
@@ -157,7 +158,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", 100, 0.5f).Value!,
+        ModelConfig.Create("m", null, 100, 0.5f).Value!,
         new ModelRequest([UserMsg("hi")]));
 
     Assert.False(result.IsSuccess);
@@ -173,7 +174,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", 100, 0.5f).Value!,
+        ModelConfig.Create("m", null, 100, 0.5f).Value!,
         new ModelRequest([UserMsg("hi")]));
 
     Assert.False(result.IsSuccess);
@@ -189,7 +190,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", 100, 0.5f).Value!,
+        ModelConfig.Create("m", null, 100, 0.5f).Value!,
         new ModelRequest([UserMsg("hi")]));
 
     Assert.False(result.IsSuccess);
@@ -198,4 +199,48 @@ public class OpenRouterModelProviderTests
 
   private static HttpResponseMessage JsonResponse(HttpStatusCode code, string json) =>
       new(code) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+  [Fact]
+  public async Task SendAsync_WithProvider_SendsProviderOnlyInBody()
+  {
+    string? capturedBody = null;
+    FakeHttpMessageHandler handler = new(async req =>
+    {
+      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      return JsonResponse(HttpStatusCode.OK,
+                           /*lang=json,strict*/
+                           """{"choices":[{"message":{"content":"ok"}}]}""");
+    });
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    _ = await provider.SendAsync(
+        ModelConfig.Create("openai/gpt-4o", "OpenAI", 128, 0.7f).Value!,
+        new ModelRequest([UserMsg("hi")]));
+
+    Assert.Contains("provider", capturedBody!, StringComparison.Ordinal);
+    Assert.Contains("only", capturedBody!, StringComparison.Ordinal);
+    Assert.Contains("OpenAI", capturedBody!, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task SendAsync_WithoutProvider_DoesNotSendProviderField()
+  {
+    string? capturedBody = null;
+    FakeHttpMessageHandler handler = new(async req =>
+    {
+      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      return JsonResponse(HttpStatusCode.OK,
+                           /*lang=json,strict*/
+                           """{"choices":[{"message":{"content":"ok"}}]}""");
+    });
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    _ = await provider.SendAsync(
+        ModelConfig.Create("openai/gpt-4o", null, 128, 0.7f).Value!,
+        new ModelRequest([UserMsg("hi")]));
+
+    using JsonDocument doc = JsonDocument.Parse(capturedBody!);
+    Assert.False(doc.RootElement.TryGetProperty("provider", out _));
+  }
 }

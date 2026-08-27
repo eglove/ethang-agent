@@ -69,7 +69,7 @@ public sealed class RootAgentResolver(
     }
 
     // 4. Run selection on the actual prompt.
-    Result<ModelSelectionResult> selection = await _selector.SelectAsync(prompt, ct).ConfigureAwait(false);
+    Result<ModelSelectionResult> selection = await _selector.SelectAsync(prompt, excludedKeys: null, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)
     {
       return (Make(FallbackModel),
@@ -114,7 +114,7 @@ public sealed class RootAgentResolver(
 
   private ModelConfig Make(string modelId)
   {
-    Result<ModelConfig> created = ModelConfig.Create(modelId, _maxTokens, _temperature);
+    Result<ModelConfig> created = ModelConfig.Create(modelId, null, _maxTokens, _temperature);
     return created.IsSuccess ? created.Value! : Make(FallbackModel);
   }
 

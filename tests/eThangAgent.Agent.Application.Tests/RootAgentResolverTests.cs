@@ -11,7 +11,7 @@ public class RootAgentResolverTests
   {
     private readonly ModelSelectionResult _result = result;
     public int Calls { get; private set; }
-    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, CancellationToken ct = default)
+    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, IReadOnlySet<string>? excludedKeys = null, CancellationToken ct = default)
     {
       Calls++;
       return Task.FromResult(Result.Success(_result));
@@ -20,13 +20,13 @@ public class RootAgentResolverTests
 
   private sealed class FailingModelSelector : IModelSelector
   {
-    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, CancellationToken ct = default)
+    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, IReadOnlySet<string>? excludedKeys = null, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed", "boom")));
   }
 
-  private static ModelSelectionResult Selection(string modelId) => new(modelId,
+  private static ModelSelectionResult Selection(string modelId, string providerName = "TestProvider") => new(modelId, providerName,
       new TaskCategory(["coding"], 3, false, false, null, null),
-      new ModelFilter(null, null, null, null, null, null), "reason");
+      new ModelFilter(null, null, null, null, null, null, null, null, null, null, null), "reason");
 
   private static async Task<AgentId> SeedRootAsync(FakeAgentStore store)
   {
@@ -43,7 +43,7 @@ public class RootAgentResolverTests
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
-    ModelConfig explicitModel = ModelConfig.Create("pinned/model", 1024, 0.5f).Value!;
+    ModelConfig explicitModel = ModelConfig.Create("pinned/model", null, 1024, 0.5f).Value!;
     RootAgentResolver resolver = new(selector, store, Identity(rootId), explicitModel, 2048, 0.7f);
 
     (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "any task");

@@ -52,7 +52,7 @@ internal static class DesktopHost
     //     (openrouter/auto) replaced on the first turn by intelligent selection.
     bool modelExplicit = settings.ModelId is not null;
     string modelId = settings.ModelId ?? "openrouter/auto";
-    ModelConfig defaultModel = ModelConfig.Create(modelId, 32 * 1024, 0.7f).Value!;
+    ModelConfig defaultModel = ModelConfig.Create(modelId, null, 32 * 1024, 0.7f).Value!;
     // ONE app-owned database for every opened session (rows are keyed by workspace id).
     AppDatabase database = new();
     return new DesktopBootstrap(
