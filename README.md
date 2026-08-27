@@ -1,18 +1,18 @@
 # eThang Agent
 
-eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered through an Avalonia desktop application. It pairs a strict Domain-Driven Design core (layered bounded contexts, CQRS, Specifications, Anti-Corruption Layers) with a pragmatic tool surface: it talks to OpenRouter models, executes model-written C# scripts in-process through a dedicated ACL, and persists every session to an app-owned SQLite database so past work can be recalled.
+eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered through an Avalonia desktop application. It pairs a strict Domain-Driven Design core (layered bounded contexts, CQRS, Specifications, Anti-Corruption Layers) with a pragmatic tool surface: it talks to [OpenRouter](https://openrouter.ai/) and [z.ai](https://z.ai/) models behind provider-neutral contracts, executes model-written C# scripts in-process through a dedicated ACL, and persists every session to an app-owned SQLite database so past work can be recalled.
 
 > `AGENTS.md` is the engineering handbook — architecture rules and conventions for working *on* this codebase. This README covers what the agent *is* and how to *use* it.
 
 ## What it can do today
 
 - One Avalonia desktop frontend over a shared host-agnostic core (`eThangAgent.Composition`) — streamed responses with reasoning/tool activity, clarify prompts answered in-place, sub-agent spawning, durable session persistence
-- Conversational coding loop against [OpenRouter](https://openrouter.ai/) models
-- Desktop shell opens on a main window with a left-hand menu bar; **Open Agent** shows a folder picker for the directory the agent works from (its workspace) and opens it as a tab inside the main window — opening another directory adds another agent tab. Each workspace roots path resolution, `exec` scripts' `Workspace`, and curated-memory scoping, and an `AGENTS.md` found at that root is injected verbatim into the system prompt as read
+- Conversational coding loop against [OpenRouter](https://openrouter.ai/) or [z.ai](https://z.ai/) GLM models — each agent tab is wired for exactly one provider for its lifetime
+- Desktop shell opens on a main window with a left-hand menu bar; **Open Agent** opens a dialog with an AI-provider dropdown (the providers whose API keys are configured) and a **Choose Workspace** folder picker. The opened tab is bound to that provider until closed (the status bar shows it), the same directory may be open under both providers, and the choice is remembered in the app database so the dialog pre-selects it next time. Each workspace roots path resolution, `exec` scripts' `Workspace`, and curated-memory scoping, and an `AGENTS.md` found at that root is injected verbatim into the system prompt as read
 - Live response streaming — assistant text renders as it arrives,
   including interstitial reasoning between tool calls (SSE; falls back transparently when a
   provider endpoint does not stream)
-- Transient-failure retries with exponential backoff against OpenRouter (429/408/5xx,
+- Transient-failure retries with exponential backoff against both providers (429/408/5xx,
   transport errors, timeouts — four attempts by default; a server `Retry-After` hint is
   honored). A streaming request is retried only while nothing has been emitted to the UI;
   mid-stream failures surface as errors so output is never duplicated
@@ -48,6 +48,14 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
   versioned knowledge base, with turn-boundary nudges prompting curation
 - Skill subsystem: 15 embedded development-methodology skills, session-start bootstrap injection, and `skill_list` / `skill_view` / `skill_manage` tools
 - `clarify` tool — structured clarifying questions with numbered options
+- z.ai capability tools (available only on z.ai tabs): `web_search` — live web search with
+  bounded snippets; `web_read` — fetch one page as markdown; `count_tokens` — GLM tokenizer;
+  `generate_image` — GLM-Image saved into the workspace as a PNG; `ocr_document` — GLM-OCR
+  transcription of workspace PDFs/images; `transcribe_audio` — GLM-ASR transcription of
+  short audio clips
+- `/effort <level>` — set the session's reasoning effort for z.ai (max, xhigh, high, medium,
+  low, minimal, none); bare `/effort` shows the current level. Applies from the next turn to
+  the root agent and children alike; on OpenRouter tabs the choice is remembered but inert
 - `todo` tool — durable workspace task list with compare-and-swap writes
 - Capability registry exposing agent tools plus spawnable sub-agents, durable workspace state, and memory recall
 - Nested sub-agents with depth limits and concurrency caps
@@ -57,15 +65,16 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 
 - Windows (path handling and process execution assume Windows)
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- An [OpenRouter API key](https://openrouter.ai/keys)
+- At least one provider API key: [OpenRouter](https://openrouter.ai/keys) and/or [z.ai](https://docs.z.ai)
 
 ## Getting started
 
 1. Clone the repository.
-2. Set your API key:
+2. Set an API key for each provider you want available (at least one):
 
    ```powershell
    $env:OPENROUTER_API_KEY = "sk-or-..."
+   $env:ZAI_API_KEY = "..."
    ```
 
 3. Build and run:
@@ -83,12 +92,14 @@ The window opens directly on the shell: no workspace is required up front. Click
 
 | Setting | Where | Notes |
 | ------- | ----- | ----- |
-| `OPENROUTER_API_KEY` | environment variable | Required. Get a key at [openrouter.ai/keys](https://openrouter.ai/keys). |
+| `OPENROUTER_API_KEY` | environment variable | OpenRouter credential. At least one provider key must be set. |
+| `ZAI_API_KEY` | environment variable | z.ai credential. At least one provider key must be set. |
 | `OPENROUTER_BASE_URL` | environment variable | Optional; defaults to `https://openrouter.ai`. Useful for pointing tests at a mock server. |
+| `ZAI_BASE_URL` | environment variable | Optional; defaults to `https://api.z.ai/api`. Also for tests. |
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. |
 | Sub-agent settings (`DefaultModel`, `ChildTimeoutSeconds`, `MaxConcurrentAgents`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. |
 
-When no model is explicitly configured via `Model:Id` (env var `MODEL__ID`), the agent defers model selection to the first user prompt: a two-stage LLM pipeline categorizes that prompt and selects the best model from the OpenRouter catalog based on the task category, price, and quality scores. The pipeline re-runs on every 10th user message thereafter so the model tracks the conversation's evolving task. Subagent spawns similarly select models based on their task prompts. Selection failures fall back to `openrouter/auto` and surface as a transcript notice. Explicit configuration always takes precedence and skips selection entirely.
+The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. When no model is explicitly configured via `Model:Id` (env var `MODEL__ID`), the agent defers model selection to the first user prompt: a two-stage LLM pipeline categorizes that prompt and selects the best model from the active provider's catalog (OpenRouter's fetched catalog, or z.ai's curated static catalog — z.ai exposes no models-listing endpoint) based on the task category and price. The pipeline re-runs on every 10th user message thereafter so the model tracks the conversation's evolving task. Sub-agent spawns similarly select models based on their task prompts. Selection failures fall back to the provider's default model (`openrouter/auto`, `glm-5.3-flash`) and surface as a transcript notice. Explicit configuration always takes precedence and skips selection entirely.
 
 ### Where your data lives
 
@@ -110,7 +121,7 @@ dotnet publish src/eThangAgent.Desktop -c Release -r win-x64 --self-contained fa
 
 - Every change leaves the build green.
 - Unit tests use fakes only — a domain test never knows Roslyn, HTTP, or OpenRouter exist.
-- Integration tests exercise real ACL implementations; E2E tests drive the desktop app headless against a local mock OpenRouter server.
+- Integration tests exercise real ACL implementations; E2E tests drive the desktop app headless against a local mock provider server (OpenRouter- and z.ai-shaped).
 - Read `AGENTS.md` for architecture rules and conventions before writing code.
 
 ## Repository layout
