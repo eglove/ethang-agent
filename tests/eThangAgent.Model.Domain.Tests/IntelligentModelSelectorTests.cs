@@ -33,25 +33,25 @@ public class IntelligentModelSelectorTests
         => SendAsync(config, request, ct);
   }
 
-  private sealed class FakeModelCatalog(IReadOnlyList<ModelCatalogEntry> entries) : IModelCatalog
+  private sealed class FakeModelCatalog(IReadOnlyList<ModelProviderEntry> entries) : IModelCatalog
   {
-    private readonly IReadOnlyList<ModelCatalogEntry> _entries = entries;
-    public Task<Result<IReadOnlyList<ModelCatalogEntry>>> GetAsync(CancellationToken ct = default)
+    private readonly IReadOnlyList<ModelProviderEntry> _entries = entries;
+    public Task<Result<IReadOnlyList<ModelProviderEntry>>> GetAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success(_entries));
   }
 
   private sealed class FailingCatalog : IModelCatalog
   {
-    public Task<Result<IReadOnlyList<ModelCatalogEntry>>> GetAsync(CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<IReadOnlyList<ModelCatalogEntry>>(
+    public Task<Result<IReadOnlyList<ModelProviderEntry>>> GetAsync(CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
             new DomainError("CatalogUnavailable", "down")));
   }
 
-  private static readonly IReadOnlyList<ModelCatalogEntry> SampleCatalog =
+  private static readonly IReadOnlyList<ModelProviderEntry> SampleCatalog =
   [
-    new("google/gemini-2.0-flash-001", 0.000001m, 0.000002m, 1_048_576, true, true, 85.0, "fast"),
-    new("anthropic/claude-3.5-sonnet", 0.000003m, 0.000005m, 200_000, true, false, 90.0, "smart"),
-    new("meta-llama/llama-3.3-70b", 0.0000005m, 0.0000008m, 131_072, false, false, 75.0, null),
+    new("google/gemini-2.0-flash-001", "Google", 0.000001m, 0.000002m, 1_048_576, 8192, true, true, 85.0, 80.0, 70.0, null, null, "fast"),
+    new("anthropic/claude-3.5-sonnet", "Anthropic", 0.000003m, 0.000005m, 200_000, 8192, true, false, 90.0, 95.0, 88.0, null, null, "smart"),
+    new("meta-llama/llama-3.3-70b", "Meta", 0.0000005m, 0.0000008m, 131_072, 4096, false, false, 75.0, 70.0, 60.0, null, null, null),
   ];
 
   private const string Stage1Json =
@@ -60,10 +60,10 @@ public class IntelligentModelSelectorTests
 
   private const string Stage2Json =
                            /*lang=json,strict*/
-                           """{"filter":{"maxPromptPricePerToken":0.000005,"requireToolUse":true,"minQualityScore":80.0},"selectedModelId":"anthropic/claude-3.5-sonnet","reasoning":"best for coding"}""";
+                           """{"filter":{"maxPromptPricePerToken":0.000005,"requireToolUse":true,"minIntelligenceScore":80.0},"selectedModelId":"anthropic/claude-3.5-sonnet","selectedProviderName":"Anthropic","reasoning":"best for coding"}""";
 
   [Fact]
-  public async Task SelectAsync_HappyPath_ReturnsSelectedModel()
+  public async Task SelectAsync_HappyPath_ReturnsSelectedModelAndProvider()
   {
     FakeModelProvider provider = new(Stage1Json, Stage2Json);
     FakeModelCatalog catalog = new(SampleCatalog);
@@ -73,6 +73,7 @@ public class IntelligentModelSelectorTests
 
     Assert.True(result.IsSuccess);
     Assert.Equal("anthropic/claude-3.5-sonnet", result.Value!.ModelId);
+    Assert.Equal("Anthropic", result.Value.ProviderName);
     Assert.True(result.Value.Category.RequiresToolUse);
     Assert.Equal(4, result.Value.Category.Complexity);
     Assert.True(result.Value.AppliedFilter.RequireToolUse);
@@ -108,7 +109,7 @@ public class IntelligentModelSelectorTests
   [Fact]
   public async Task SelectAsync_Stage2HallucinatedModelId_ReturnsFailure()
   {
-    string hallucinatedJson = /*lang=json,strict*/ """{"filter":{},"selectedModelId":"nonexistent/model","reasoning":"oops"}""";
+    string hallucinatedJson = /*lang=json,strict*/ """{"filter":{},"selectedModelId":"nonexistent/model","selectedProviderName":"Fake","reasoning":"oops"}""";
     FakeModelProvider provider = new(Stage1Json, hallucinatedJson);
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog);
@@ -165,7 +166,7 @@ public class IntelligentModelSelectorTests
   public async Task SelectAsync_PreFilter_DropsBelowMinContextWindow()
   {
     string stage1Json = /*lang=json,strict*/ """{"tags":["coding"],"complexity":3,"requiresVision":false,"requiresToolUse":false,"minContextWindow":200000,"reasoning":"needs long context"}""";
-    string stage2Json = /*lang=json,strict*/ """{"filter":{},"selectedModelId":"google/gemini-2.0-flash-001","reasoning":"ok"}""";
+    string stage2Json = /*lang=json,strict*/ """{"filter":{},"selectedModelId":"google/gemini-2.0-flash-001","selectedProviderName":"Google","reasoning":"ok"}""";
     FakeModelProvider provider = new(stage1Json, stage2Json);
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog);
@@ -176,5 +177,39 @@ public class IntelligentModelSelectorTests
     Assert.Contains("google/gemini-2.0-flash-001", stage2Message, StringComparison.Ordinal);
     Assert.Contains("anthropic/claude-3.5-sonnet", stage2Message, StringComparison.Ordinal);
     Assert.DoesNotContain("meta-llama/llama-3.3-70b", stage2Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task SelectAsync_WithExclusion_DropsExcludedProviderKeepsSameModelViaOtherProvider()
+  {
+    List<ModelProviderEntry> catalogWithSecondProvider = [
+      ..SampleCatalog,
+      new("anthropic/claude-3.5-sonnet", "OpenRouter", 0.000004m, 0.000006m, 200_000, 8192, true, false, 90.0, 95.0, 88.0, null, null, "smart"),
+    ];
+    string stage2Json = /*lang=json,strict*/ """{"filter":{},"selectedModelId":"anthropic/claude-3.5-sonnet","selectedProviderName":"OpenRouter","reasoning":"fallback provider"}""";
+    FakeModelProvider provider = new(Stage1Json, stage2Json);
+    FakeModelCatalog catalog = new(catalogWithSecondProvider);
+    IntelligentModelSelector selector = new(provider, catalog);
+
+    HashSet<string> excluded = ["anthropic/claude-3.5-sonnet:Anthropic"];
+    Result<ModelSelectionResult> result = await selector.SelectAsync("task", excluded);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("anthropic/claude-3.5-sonnet", result.Value!.ModelId);
+    Assert.Equal("OpenRouter", result.Value.ProviderName);
+  }
+
+  [Fact]
+  public async Task SelectAsync_AllCandidatesExcluded_ReturnsNoMatchingModels()
+  {
+    FakeModelProvider provider = new(Stage1Json, Stage2Json);
+    FakeModelCatalog catalog = new(SampleCatalog);
+    IntelligentModelSelector selector = new(provider, catalog);
+
+    HashSet<string> excluded = [.. SampleCatalog.Select(c => c.Key)];
+    Result<ModelSelectionResult> result = await selector.SelectAsync("task", excluded);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("NoMatchingModels", result.Error!.Code);
   }
 }

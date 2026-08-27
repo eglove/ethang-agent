@@ -19,6 +19,6 @@ public sealed record ModelProviderEntry(
     double? ThroughputTokensPerSec,
     string? Description)
 {
-    /// <summary>Composite key for exclusion: "ModelId:ProviderName".</summary>
-    public string Key => $"{ModelId}:{ProviderName}";
+  /// <summary>Composite key for exclusion: "ModelId:ProviderName".</summary>
+  public string Key => $"{ModelId}:{ProviderName}";
 }

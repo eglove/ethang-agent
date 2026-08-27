@@ -4,8 +4,8 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ModelDomain;
 
-/// <summary>Two-stage LLM pipeline that categorizes a task and selects the best model
-/// from the OpenRouter catalog. Stage 1 categorizes; Stage 2 decides filters and picks.</summary>
+/// <summary>Two-stage LLM pipeline that categorizes a task and selects the best model+provider
+/// pair from the OpenRouter catalog. Stage 1 categorizes; Stage 2 decides filters and picks.</summary>
 public sealed class IntelligentModelSelector(IModelProvider provider, IModelCatalog catalog) : IModelSelector
 {
   private const string CategorizerModel = "openrouter/auto";
@@ -13,8 +13,8 @@ public sealed class IntelligentModelSelector(IModelProvider provider, IModelCata
   private readonly IModelProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
   private readonly IModelCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
 
-  private static readonly ModelConfig Stage1Config = ModelConfig.Create(CategorizerModel, 1024, 0f).Value!;
-  private static readonly ModelConfig Stage2Config = ModelConfig.Create(CategorizerModel, 2048, 0f).Value!;
+  private static readonly ModelConfig Stage1Config = ModelConfig.Create(CategorizerModel, null, 1024, 0f).Value!;
+  private static readonly ModelConfig Stage2Config = ModelConfig.Create(CategorizerModel, null, 2048, 0f).Value!;
 
   private const string Stage1SystemPrompt =
       """
@@ -25,15 +25,20 @@ public sealed class IntelligentModelSelector(IModelProvider provider, IModelCata
 
   private const string Stage2SystemPrompt =
       """
-    You are a model selector. Given a task category and a list of candidate models with their prices, scores, and capabilities,
+    You are a model+provider selector. Given a task category and a list of candidate model+provider pairs
+    with their effective prices (after discount), latency, throughput, capability scores, and features,
     output ONLY valid JSON (no markdown fences) with this schema:
-    {"filter": {"maxPromptPricePerToken": number|null, "maxCompletionPricePerToken": number|null, "minContextLength": number|null,
-    "requireToolUse": boolean|null, "requireVision": boolean|null, "minQualityScore": number|null},
-    "selectedModelId": string, "reasoning": string|null}
-    The selectedModelId MUST be one of the candidate model ids provided.
+    {"filter": {"maxPromptPricePerToken": number|null, "maxCompletionPricePerToken": number|null,
+    "minContextLength": number|null, "maxCompletionTokens": number|null,
+    "requireToolUse": boolean|null, "requireVision": boolean|null,
+    "minIntelligenceScore": number|null, "minCodingScore": number|null, "minAgenticScore": number|null,
+    "maxLatencyMs": number|null, "minThroughputTokensPerSec": number|null},
+    "selectedModelId": string, "selectedProviderName": string, "reasoning": string|null}
+    The selectedModelId and selectedProviderName MUST be one of the candidate pairs provided.
     """;
 
-  public async Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, CancellationToken ct = default)
+  public async Task<Result<ModelSelectionResult>> SelectAsync(
+      string taskPrompt, IReadOnlySet<string>? excludedKeys = null, CancellationToken ct = default)
   {
     if (string.IsNullOrWhiteSpace(taskPrompt))
     {
@@ -46,19 +51,19 @@ public sealed class IntelligentModelSelector(IModelProvider provider, IModelCata
       return Result.Failure<ModelSelectionResult>(categoryResult.Error!);
     }
 
-    Result<IReadOnlyList<ModelCatalogEntry>> catalogResult = await _catalog.GetAsync(ct).ConfigureAwait(false);
+    Result<IReadOnlyList<ModelProviderEntry>> catalogResult = await _catalog.GetAsync(ct).ConfigureAwait(false);
     if (!catalogResult.IsSuccess)
     {
       return Result.Failure<ModelSelectionResult>(catalogResult.Error!);
     }
 
-    IReadOnlyList<ModelCatalogEntry> allModels = catalogResult.Value!;
+    IReadOnlyList<ModelProviderEntry> allModels = catalogResult.Value!;
     if (allModels.Count == 0)
     {
       return Result.Failure<ModelSelectionResult>(new DomainError("CatalogEmpty", "Model catalog is empty."));
     }
 
-    IReadOnlyList<ModelCatalogEntry> candidates = PreFilter(allModels, categoryResult.Value!);
+    IReadOnlyList<ModelProviderEntry> candidates = PreFilter(allModels, categoryResult.Value!, excludedKeys);
     return candidates.Count == 0
       ? Result.Failure<ModelSelectionResult>(new DomainError("NoMatchingModels",
           "No models match the task's capability requirements."))
@@ -113,9 +118,15 @@ public sealed class IntelligentModelSelector(IModelProvider provider, IModelCata
     }
   }
 
-  private static IReadOnlyList<ModelCatalogEntry> PreFilter(IReadOnlyList<ModelCatalogEntry> models, TaskCategory category)
+  private static IReadOnlyList<ModelProviderEntry> PreFilter(
+      IReadOnlyList<ModelProviderEntry> models, TaskCategory category, IReadOnlySet<string>? excludedKeys)
   {
-    IEnumerable<ModelCatalogEntry> filtered = models;
+    IEnumerable<ModelProviderEntry> filtered = models;
+
+    if (excludedKeys is { Count: > 0 })
+    {
+      filtered = filtered.Where(m => !excludedKeys.Contains(m.Key));
+    }
 
     if (category.RequiresToolUse)
     {
@@ -136,7 +147,7 @@ public sealed class IntelligentModelSelector(IModelProvider provider, IModelCata
   }
 
   private async Task<Result<ModelSelectionResult>> SelectFromCandidatesAsync(
-      TaskCategory category, IReadOnlyList<ModelCatalogEntry> candidates, CancellationToken ct)
+      TaskCategory category, IReadOnlyList<ModelProviderEntry> candidates, CancellationToken ct)
   {
     string candidatesJson = SerializeCandidates(candidates);
     string userMessage = $"Task category: {JsonSerializer.Serialize(category)}\n\nCandidate models:\n{candidatesJson}";
@@ -150,24 +161,30 @@ public sealed class IntelligentModelSelector(IModelProvider provider, IModelCata
       : ParseSelection(response.Value!.Content, category, candidates);
   }
 
-  private static string SerializeCandidates(IReadOnlyList<ModelCatalogEntry> candidates)
+  private static string SerializeCandidates(IReadOnlyList<ModelProviderEntry> candidates)
   {
     var slim = candidates.Select(c => new
     {
-      id = c.Id,
+      id = c.ModelId,
+      provider = c.ProviderName,
       promptPrice = c.PromptPricePerToken,
       completionPrice = c.CompletionPricePerToken,
       contextLength = c.ContextLength,
+      maxCompletionTokens = c.MaxCompletionTokens,
       supportsToolUse = c.SupportsToolUse,
       supportsVision = c.SupportsVision,
-      qualityScore = c.QualityScore,
+      intelligenceScore = c.IntelligenceScore,
+      codingScore = c.CodingScore,
+      agenticScore = c.AgenticScore,
+      latencyMs = c.LatencyMs,
+      throughputTokensPerSec = c.ThroughputTokensPerSec,
       description = c.Description
     });
     return JsonSerializer.Serialize(slim);
   }
 
   private static Result<ModelSelectionResult> ParseSelection(
-      string? json, TaskCategory category, IReadOnlyList<ModelCatalogEntry> candidates)
+      string? json, TaskCategory category, IReadOnlyList<ModelProviderEntry> candidates)
   {
     if (string.IsNullOrWhiteSpace(json))
     {
@@ -183,9 +200,14 @@ public sealed class IntelligentModelSelector(IModelProvider provider, IModelCata
           GetNullableDecimal(root, "filter", "maxPromptPricePerToken"),
           GetNullableDecimal(root, "filter", "maxCompletionPricePerToken"),
           GetNullableInt(root, "filter", "minContextLength"),
+          GetNullableInt(root, "filter", "maxCompletionTokens"),
           GetNullableBool(root, "filter", "requireToolUse"),
           GetNullableBool(root, "filter", "requireVision"),
-          GetNullableDouble(root, "filter", "minQualityScore"));
+          GetNullableDouble(root, "filter", "minIntelligenceScore"),
+          GetNullableDouble(root, "filter", "minCodingScore"),
+          GetNullableDouble(root, "filter", "minAgenticScore"),
+          GetNullableDouble(root, "filter", "maxLatencyMs"),
+          GetNullableDouble(root, "filter", "minThroughputTokensPerSec"));
 
       if (!root.TryGetProperty("selectedModelId", out JsonElement modelEl) || modelEl.ValueKind != JsonValueKind.String)
       {
@@ -193,16 +215,24 @@ public sealed class IntelligentModelSelector(IModelProvider provider, IModelCata
       }
 
       string modelId = modelEl.GetString()!;
-      if (!candidates.Any(c => c.Id == modelId))
+
+      if (!root.TryGetProperty("selectedProviderName", out JsonElement providerEl) || providerEl.ValueKind != JsonValueKind.String)
+      {
+        return Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed", "Stage 2 missing selectedProviderName."));
+      }
+
+      string providerName = providerEl.GetString()!;
+
+      if (!candidates.Any(c => c.ModelId == modelId && c.ProviderName == providerName))
       {
         return Result.Failure<ModelSelectionResult>(new DomainError("ModelNotFound",
-            $"Selected model '{modelId}' not in candidate list."));
+            $"Selected pair '{modelId}:{providerName}' not in candidate list."));
       }
 
       string? reasoning = root.TryGetProperty("reasoning", out JsonElement r) && r.ValueKind == JsonValueKind.String
           ? r.GetString() : null;
 
-      return Result.Success(new ModelSelectionResult(modelId, category, filter, reasoning));
+      return Result.Success(new ModelSelectionResult(modelId, providerName, category, filter, reasoning));
     }
     catch (JsonException ex)
     {

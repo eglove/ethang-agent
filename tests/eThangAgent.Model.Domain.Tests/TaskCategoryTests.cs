@@ -25,37 +25,37 @@ public class TaskCategoryTests
   }
 
   [Fact]
-  public void ModelCatalogEntry_RoundTripsAllFields()
+  public void ModelProviderEntry_RoundTripsAllFields()
   {
-    ModelCatalogEntry entry = new("google/gemini-2.0-flash-001", 0.000001m, 0.000002m, 1_048_576, true, false, 85.5, "Fast multimodal");
-    Assert.Equal("google/gemini-2.0-flash-001", entry.Id);
+    ModelProviderEntry entry = new("google/gemini-2.0-flash-001", "Google", 0.000001m, 0.000002m, 1_048_576, 8192, true, false, 85.5, 80.0, 70.0, null, null, "Fast multimodal");
+    Assert.Equal("google/gemini-2.0-flash-001", entry.ModelId);
     Assert.Equal(0.000001m, entry.PromptPricePerToken);
     Assert.Equal(0.000002m, entry.CompletionPricePerToken);
     Assert.Equal(1_048_576, entry.ContextLength);
     Assert.True(entry.SupportsToolUse);
     Assert.False(entry.SupportsVision);
-    Assert.Equal(85.5, entry.QualityScore);
+    Assert.Equal(85.5, entry.IntelligenceScore);
     Assert.Equal("Fast multimodal", entry.Description);
   }
 
   [Fact]
   public void ModelFilter_AllNullable_DefaultToNull()
   {
-    ModelFilter filter = new(null, null, null, null, null, null);
+    ModelFilter filter = new(null, null, null, null, null, null, null, null, null, null, null);
     Assert.Null(filter.MaxPromptPricePerToken);
     Assert.Null(filter.MaxCompletionPricePerToken);
     Assert.Null(filter.MinContextLength);
     Assert.Null(filter.RequireToolUse);
     Assert.Null(filter.RequireVision);
-    Assert.Null(filter.MinQualityScore);
+    Assert.Null(filter.MinIntelligenceScore);
   }
 
   [Fact]
   public void ModelSelectionResult_RoundTripsAllFields()
   {
     TaskCategory category = new(["coding"], 4, false, true, null, null);
-    ModelFilter filter = new(null, null, null, true, null, 80.0);
-    ModelSelectionResult result = new("anthropic/claude-3.5-sonnet", category, filter, "best for coding");
+    ModelFilter filter = new(null, null, null, null, true, null, 80.0, null, null, null, null);
+    ModelSelectionResult result = new("anthropic/claude-3.5-sonnet", "Anthropic", category, filter, "best for coding");
     Assert.Equal("anthropic/claude-3.5-sonnet", result.ModelId);
     Assert.Same(category, result.Category);
     Assert.Same(filter, result.AppliedFilter);
