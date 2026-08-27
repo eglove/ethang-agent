@@ -26,7 +26,8 @@ public class AgentSteeringDesktopTests
 #pragma warning disable IDE0060 // Remove unused parameter
     public async Task<Result<string>> RunAsync(SendMessageCommand _command, CancellationToken ct,
         Action<string>? __ = null, Action<string>? ___ = null, Action? ____ = null,
-        Action<string, string>? _____ = null, Action<string, string>? ______ = null)
+        Action<string, string>? _____ = null, Action<string, string>? ______ = null,
+        Action<string>? _______ = null)
     {
       ObservedToken = ct;
       _ = _started.TrySetResult();
@@ -103,7 +104,7 @@ public class AgentSteeringDesktopTests
   public async Task StopWhenIdle_ShowsNotice_AndDoesNotInterruptChildren()
   {
     TestFixtures.StubAgentRuntime runtime = new();
-    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build((_, ct, a, b, c, d, e) => Task.FromResult(Result.Success("ok")),
+    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build((_, ct, a, b, c, d, e, f) => Task.FromResult(Result.Success("ok")),
         new AgentInbox(), runtime);
 
     await vm.SubmitAsync("quick turn");

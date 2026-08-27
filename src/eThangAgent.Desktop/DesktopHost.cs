@@ -7,7 +7,6 @@ using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.ModelDomain;
-using eThangAgent.OpenRouter.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 
@@ -19,7 +18,8 @@ namespace eThangAgent.Desktop;
 ///     opens one.</summary>
 internal sealed record DesktopBootstrap(
     AgentSessionFactory Sessions,
-    string ModelId);
+    string ModelId,
+    bool ModelExplicitlyConfigured);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup validates configuration and shows the shell immediately; each 'Open Agent'
@@ -45,32 +45,20 @@ internal static class DesktopHost
       throw new UnreachableException("unreachable after error dialog shutdown");
     }
 
-    // Explicit model config wins; otherwise run intelligent selection.
-    string modelId = settings.ModelId ?? await SelectRootModelAsync(settings).ConfigureAwait(false);
+    // Root model selection is deferred to the first user prompt (see RootAgentResolver):
+    //     classifying a canned 'software development' prompt at startup selected a model
+    //     before the user's actual task was known. When an explicit ModelId is configured it
+    //     pins the root for the whole session; otherwise the bootstrap model is a placeholder
+    //     (openrouter/auto) replaced on the first turn by intelligent selection.
+    bool modelExplicit = settings.ModelId is not null;
+    string modelId = settings.ModelId ?? "openrouter/auto";
     ModelConfig defaultModel = ModelConfig.Create(modelId, 32 * 1024, 0.7f).Value!;
     // ONE app-owned database for every opened session (rows are keyed by workspace id).
     AppDatabase database = new();
     return new DesktopBootstrap(
         new AgentSessionFactory(settings, settings.ApiKey, defaultModel, database),
-        defaultModel.ModelId);
-  }
-
-  /// <summary>Runs the two-stage intelligent selection pipeline for the root agent with a
-  ///     generic 'software development' prompt. Falls back to openrouter/auto on any
-  ///     failure (catalog unavailable, parse error, no matching models).</summary>
-  private static async Task<string> SelectRootModelAsync(AgentSettings settings)
-  {
-    const string fallback = "openrouter/auto";
-    const string rootTaskPrompt = "AI coding agent for software development tasks";
-
-    OpenRouterConfiguration config = new(settings.ApiKey!, settings.BaseUrl);
-    using HttpClient http = new() { Timeout = TimeSpan.FromSeconds(120) };
-    using OpenRouterCatalogClient catalog = new(http, config);
-    OpenRouterModelProvider provider = new(http, config);
-    IntelligentModelSelector selector = new(provider, catalog);
-
-    Result<ModelSelectionResult> result = await selector.SelectAsync(rootTaskPrompt).ConfigureAwait(false);
-    return result.IsSuccess ? result.Value!.ModelId : fallback;
+        defaultModel.ModelId,
+        modelExplicit);
   }
 
   /// <summary>Defers shutdown while startup runs. Between framework initialization and
@@ -153,7 +141,7 @@ internal static class DesktopHost
   /// explicitly onto the dispatcher.</summary>
   public static TurnRunner OffUiThread(TurnRunner inner)
   {
-    return (command, ct, contentDelta, reasoningDelta, iterationEnd, toolCall, toolResult) =>
+    return (command, ct, contentDelta, reasoningDelta, iterationEnd, toolCall, toolResult, notice) =>
     {
       // Suppress the execution context along with the thread switch: Task.Run alone
       // still flows the caller's SynchronizationContext (.NET 6+), which would pin
@@ -162,7 +150,7 @@ internal static class DesktopHost
       using (ExecutionContext.SuppressFlow())
       {
         scheduled = Task.Run(() => inner(command, ct, contentDelta,
-                reasoningDelta, iterationEnd, toolCall, toolResult));
+                reasoningDelta, iterationEnd, toolCall, toolResult, notice));
       }
 
       return scheduled;

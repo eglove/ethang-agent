@@ -10,7 +10,6 @@ using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
-using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -60,7 +59,8 @@ public class CompositionGuardTests
 
     object?[] resolutions =
     [
-        services.GetRequiredService<Ag>(),
+        services.GetRequiredService<RootAgentHolder>(),
+            services.GetRequiredService<RootAgentResolver>(),
             services.GetRequiredService<SendMessageCommandHandler>(),
             services.GetRequiredService<Conversation>(),
             services.GetRequiredService<IConversationRepository>(),

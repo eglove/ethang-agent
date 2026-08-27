@@ -15,7 +15,6 @@ using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
-using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Composition;
 
@@ -212,21 +211,31 @@ public static class AgentComposition
                 ..host.ExtraPromptProviders,
         ]))
         .AddSingleton(subAgents(settings, defaultModel.ModelId))
-        .AddSingleton(sp =>
-        {
-          IModelProvider provider = sp.GetRequiredService<IModelProvider>();
-          Conversation conversation = sp.GetRequiredService<Conversation>();
-          ModelConfig config = sp.GetRequiredService<ModelConfig>();
-          IToolRegistry tools = sp.GetRequiredService<IToolRegistry>();
-          return new Ag(provider, conversation, config, tools,
-                  sp.GetRequiredService<ISystemPromptProvider>());
-        })
+        // Root agent is built lazily on the first turn (and rebuilt on every model
+        // reselection) by RootAgentHolder; the root is NOT known at container build time when
+        // intelligent selection is active (no explicit ModelId). The holder reuses the shared
+        // Conversation/provider/tools/system-prompt so a rebuild preserves all message history.
+        .AddSingleton<RootSessionIdentity>()
+        .AddSingleton(sp => new RootAgentHolder(
+            sp.GetRequiredService<IModelProvider>(),
+            sp.GetRequiredService<Conversation>(),
+            sp.GetRequiredService<IToolRegistry>(),
+            sp.GetRequiredService<ISystemPromptProvider>()))
+        .AddSingleton(sp => new RootAgentResolver(
+            sp.GetRequiredService<IModelSelector>(),
+            sp.GetRequiredService<IAgentStore>(),
+            sp.GetRequiredService<RootSessionIdentity>(),
+            settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
+            defaultModel.MaxTokens,
+            defaultModel.Temperature))
         .AddSingleton(sp => new SendMessageCommandHandler(
-            sp.GetRequiredService<Ag>(),
+            agent: null,
             sp.GetRequiredService<Conversation>(),
             sp.GetRequiredService<INudgePolicy>(),
             () => sp.GetRequiredService<SessionMemoryWriteCounter>().Count,
-            sp.GetRequiredService<IAgentInbox>()))
+            sp.GetRequiredService<IAgentInbox>(),
+            sp.GetRequiredService<RootAgentHolder>(),
+            sp.GetRequiredService<RootAgentResolver>()))
         .AddSingleton<RootSessionLifecycle>()
         ;
   }

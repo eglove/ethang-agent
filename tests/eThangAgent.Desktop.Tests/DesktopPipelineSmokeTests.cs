@@ -29,7 +29,8 @@ public class DesktopPipelineSmokeTests
     AgentSettings settings = new(
         "sk-or-test",
         server.BaseUrl,
-        new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1));
+        new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1),
+        ModelId: "mock/model");
 
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, settings.ApiKey!,

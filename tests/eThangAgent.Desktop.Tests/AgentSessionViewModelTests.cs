@@ -67,7 +67,7 @@ public class AgentSessionViewModelTests
   public async Task Help_Prints_Command_List_Not_Sent_To_Model()
   {
     int sent = 0;
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _, _) =>
     {
       sent++;
       return Task.FromResult(Result.Success(""));
@@ -94,7 +94,7 @@ public class AgentSessionViewModelTests
     bool closed = false;
     StubStore store = new();
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _) =>
+        (_, _, _, _, _, _, _, _) =>
         {
           sent++;
           return Task.FromResult(Result.Success(""));
@@ -114,7 +114,7 @@ public class AgentSessionViewModelTests
   [Fact]
   public async Task Normal_Turn_Appends_User_Entry_Disables_Input_And_Books_Exchange()
   {
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle? lifecycle) = Build(async (_, _, onContent, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle? lifecycle) = Build(async (_, _, onContent, _, _, _, _, _) =>
     {
       onContent!("hel");
       onContent!("lo");
@@ -139,7 +139,7 @@ public class AgentSessionViewModelTests
   [Fact]
   public async Task Failure_Produces_Error_Notice_With_Code()
   {
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _, _) =>
         Task.FromResult(Result.Failure<string>(new DomainError("RateLimited", "slow down"))));
 
     await vm.SubmitAsync("go");
@@ -154,7 +154,7 @@ public class AgentSessionViewModelTests
   [Fact]
   public async Task Success_Without_Streamed_Deltas_Falls_Back_To_Final_Text_Notice()
   {
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _, _) =>
         Task.FromResult(Result.Success("plain answer")));
 
     await vm.SubmitAsync("q");
@@ -170,7 +170,7 @@ public class AgentSessionViewModelTests
   public async Task Submission_While_Busy_Is_Ignored()
   {
     TaskCompletionSource release = new();
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _, _) =>
         release.Task.ContinueWith(_ => Result.Success("done"),
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
 
@@ -193,7 +193,7 @@ public class AgentSessionViewModelTests
   {
     PersistenceErroringLifecycle lifecycle = new(new StubStore());
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _) =>
+        (_, _, _, _, _, _, _, _) =>
             Task.FromResult(Result.Success("answer")),
         lifecycle, AgentId.NewId(), new Conversation(), "test/model",
         workspaceRoot: @"C:\work\demo");
@@ -211,7 +211,7 @@ public class AgentSessionViewModelTests
   [Fact]
   public async Task Blank_Input_Is_Ignored()
   {
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _, _) =>
         Task.FromResult(Result.Success("x")));
 
     await vm.SubmitAsync("   ");

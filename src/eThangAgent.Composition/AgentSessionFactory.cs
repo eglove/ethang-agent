@@ -77,6 +77,11 @@ public sealed class AgentSessionFactory(AgentSettings settings, string apiKey, M
         return Result.Failure<AgentSession>(bootstrapped.Error!);
       }
 
+      // Publish the root id to the container BEFORE the session is handed out: the
+      // RootAgentResolver reads it lazily to persist ModelUsed on each selection, so it
+      // must be set before the first turn can fire.
+      services.GetRequiredService<RootSessionIdentity>().Id = bootstrapped.Value!;
+
       return Result.Success(new AgentSession(
           services,
           bootstrapped.Value!,

@@ -50,7 +50,8 @@ internal static class E2E
       AgentSettings settings = new(
           "sk-or-test",
           Mock.BaseUrl,
-          new SubAgentOptions(null, TimeSpan.FromSeconds(30), 2));
+          new SubAgentOptions(null, TimeSpan.FromSeconds(30), 2),
+          ModelId: SessionModel);
 
       _services = new ServiceCollection()
           .AddEThangAgentCore(settings, settings.ApiKey!,

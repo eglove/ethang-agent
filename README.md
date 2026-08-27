@@ -88,7 +88,7 @@ The window opens directly on the shell: no workspace is required up front. Click
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. |
 | Sub-agent settings (`DefaultModel`, `ChildTimeoutSeconds`, `MaxConcurrentAgents`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. |
 
-When no model is explicitly configured via `Model:Id` (env var `MODEL__ID`), the agent runs a two-stage LLM pipeline at startup to intelligently select the best model from the OpenRouter catalog based on the task category, price, and quality scores. Subagent spawns similarly select models based on their task prompts. Failures fall back to `openrouter/auto`. Explicit configuration always takes precedence.
+When no model is explicitly configured via `Model:Id` (env var `MODEL__ID`), the agent defers model selection to the first user prompt: a two-stage LLM pipeline categorizes that prompt and selects the best model from the OpenRouter catalog based on the task category, price, and quality scores. The pipeline re-runs on every 10th user message thereafter so the model tracks the conversation's evolving task. Subagent spawns similarly select models based on their task prompts. Selection failures fall back to `openrouter/auto` and surface as a transcript notice. Explicit configuration always takes precedence and skips selection entirely.
 
 ### Where your data lives
 

@@ -57,7 +57,7 @@ internal static class TestFixtures
   ///     apply on the pump thread (deterministic for plain unit tests).</summary>
   internal static AgentSessionViewModel CreateViewModel(bool marshalToUIThread = false)
   {
-    static Task<Result<string>> runner(SendMessageCommand command, CancellationToken ct, Action<string>? onContentDelta, Action<string>? onReasoningDelta, Action? onIterationEnd, Action<string, string>? onToolCall, Action<string, string>? onToolResult)
+    static Task<Result<string>> runner(SendMessageCommand command, CancellationToken ct, Action<string>? onContentDelta, Action<string>? onReasoningDelta, Action? onIterationEnd, Action<string, string>? onToolCall, Action<string, string>? onToolResult, Action<string>? onNotice = null)
     {
       onContentDelta?.Invoke("ack");
       return Task.FromResult(Result.Success("ack"));

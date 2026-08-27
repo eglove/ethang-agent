@@ -22,6 +22,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly Conversation _conversation;
   private readonly Func<ClarifyQuestion, Task<ClarifyViewModel>> _presentClarify;
   private readonly Func<UiStreamEvent, Task> _streamSink;
+  private readonly Action<string>? _statusModelUpdater;
 
   private Task? _runningTurn;
 
@@ -64,9 +65,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       Func<ClarifyQuestion, Task<ClarifyViewModel>>? presentClarify = null,
       Func<UiStreamEvent, Task>? uiStreamSink = null,
       IAgentInbox? inbox = null,
-      IAgentRuntime? childRuntime = null)
+      IAgentRuntime? childRuntime = null,
+      Action<string>? statusModelUpdater = null)
   {
     WorkspaceRoot = workspaceRoot;
+    _statusModelUpdater = statusModelUpdater;
     // Turns must never run on the UI thread: their awaits would post back to
     // Avalonia's SynchronizationContext and one blocking tool call would freeze
     // the whole shell (see DesktopHost.OffUiThread). The schedule wraps EVERY
@@ -224,7 +227,22 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
           onReasoningDelta: bridge.OnReasoningDelta,
           onIterationEnd: bridge.OnIterationEnd,
           onToolCall: bridge.OnToolCall,
-          onToolResult: bridge.OnToolResult);
+          onToolResult: bridge.OnToolResult,
+          onNotice: notice =>
+          {
+            // Selection (and reselection) notices surface in the transcript so the user
+            // sees which model was chosen and when selection fell back. The notice text
+            // carries the resolved model id; refresh the status bar to match.
+            Transcript.AddNotice(notice);
+            if (_statusModelUpdater is not null)
+            {
+              string? resolved = TryExtractModelId(notice);
+              if (resolved is not null)
+              {
+                _statusModelUpdater(resolved);
+              }
+            }
+          });
 
       // Close the channel so the pump can drain all buffered events.
       bridge.MarkTurnComplete();
@@ -363,6 +381,36 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
 
     return int.TryParse(input.AsSpan(0, end), out value);
+  }
+
+  /// <summary>Parses the resolved model id from a RootAgentResolver notice so the status
+  ///     bar can track mid-session reselection. Recognizes both verbatim notice contracts:
+  ///     "Model selected: &lt;id&gt;" (success) and "... using &lt;id&gt;." (fallback).
+  ///     Returns null when the notice carries no recognizable model id.</summary>
+  private static string? TryExtractModelId(string notice)
+  {
+    const string selectedPrefix = "Model selected: ";
+    int sel = notice.IndexOf(selectedPrefix, StringComparison.Ordinal);
+    if (sel >= 0)
+    {
+      return notice[(sel + selectedPrefix.Length)..].Trim();
+    }
+
+    const string usingPrefix = "using ";
+    int use = notice.IndexOf(usingPrefix, StringComparison.Ordinal);
+    if (use >= 0)
+    {
+      string rest = notice[(use + usingPrefix.Length)..];
+      int dot = rest.IndexOf('.', StringComparison.Ordinal);
+      if (dot >= 0)
+      {
+        rest = rest[..dot];
+      }
+
+      return rest.Trim();
+    }
+
+    return null;
   }
 
   /// <summary>Applies a stream event on the calling thread. Test seam; also usable when

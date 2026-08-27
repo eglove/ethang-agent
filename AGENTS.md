@@ -75,7 +75,7 @@ Each concern is owned by exactly one bounded context. When adding code, first as
 - **Agent Domain**: the core agent loop, conversation orchestration, tool dispatch, execution flow, and sub-agent spawning/runtime.
 - **Conversation Domain**: message history, message shapes (including tool calls and tool results), and conversation state.
 - **Tool Domain**: tool contracts, input validation, tool execution, tool result processing, and built-in tools.
-- **Model Domain**: model capabilities, provider contracts, model configuration, and intelligent model selection (`IModelSelector`, `IModelCatalog`, `IntelligentModelSelector`).
+- **Model Domain**: model capabilities, provider contracts, model configuration, and intelligent model selection (`IModelSelector`, `IModelCatalog`, `IntelligentModelSelector`, `RootAgentResolver`). Root model selection is deferred to the first user prompt (not startup) and re-runs every 10 user messages; explicit `Model:Id` config pins the model and skips selection.
 - **Capability Domain**: the registry that merges providers and exposes tools and capabilities to the model.
 - **Memory Domain**: recall and search over persisted sessions (lexical and bounded-regex query planning), plus the curated-memory learning loop (categorized, tagged, full-text searchable, versioned).
 - **Skill Domain**: the methodology-skill subsystem — embedded built-in skills (shipped verbatim) and agent-created learned skills, with version history and usage tracking.

@@ -23,12 +23,12 @@ public class TurnRunnerThreadingTests
     {
       // Start under the hostile context; do NOT await here — the test's own
       // resumption must not be subject to the context under test.
-      Task<Result<string>> task = DesktopHost.OffUiThread((_, _, _, _, _, _, _) =>
+      Task<Result<string>> task = DesktopHost.OffUiThread((_, _, _, _, _, _, _, _) =>
       {
         observed = SynchronizationContext.Current;
         return Task.FromResult(Result.Success("done"));
       })(new SendMessageCommand("hi"), CancellationToken.None,
-         null, null, null, null, null);
+         null, null, null, null, null, null);
 
       SynchronizationContext.SetSynchronizationContext(previous);
       result = await task.WaitAsync(TimeSpan.FromSeconds(10));

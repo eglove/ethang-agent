@@ -18,7 +18,8 @@ internal delegate Task<Result<string>> TurnRunner(
     Action<string>? onReasoningDelta,
     Action? onIterationEnd,
     Action<string, string>? onToolCall,
-    Action<string, string>? onToolResult);
+    Action<string, string>? onToolResult,
+    Action<string>? onNotice = null);
 
 /// <summary>Shell-level state for the main window: the left menu bar and the open
 ///     agent tabs. Each tab owns an <see cref="AgentSessionViewModel"/> bound to its
@@ -121,9 +122,9 @@ internal sealed partial class MainViewModel : ObservableObject
       AgentSessionViewModel sessionVm = new(
           // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
           // (CA1068) — adapt the parameter order at the call site.
-          (command, ct, onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult)
+          (command, ct, onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult, onNotice)
               => session.Handler.Handle(command, onContentDelta, onReasoningDelta,
-                  onIterationEnd, onToolCall, onToolResult, ct),
+                  onIterationEnd, onToolCall, onToolResult, onNotice, ct),
           session.Lifecycle,
           session.RootId,
           session.Conversation,
@@ -133,7 +134,8 @@ internal sealed partial class MainViewModel : ObservableObject
               throw new InvalidOperationException("session view-model not initialized"))
               .ApplyUiStreamEventOnUIThreadAsync(evt)),
           inbox: session.Inbox,
-          childRuntime: session.ChildRuntime);
+          childRuntime: session.ChildRuntime,
+          statusModelUpdater: id => sessionVmRef!.Status.ModelId = id);
       sessionVmRef = sessionVm;
       AttachClarifyChannel(sessionVm, session.ClarifyChannel);
 

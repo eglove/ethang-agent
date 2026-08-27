@@ -152,7 +152,7 @@ public class ClarifyTests
   public async Task SessionViewModel_Routes_Unroutable_Input_Through_RejectInput()
   {
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _) => Task.FromResult(Result.Success("unused")),
+        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("unused")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "m", workspaceRoot: @"C:\work\demo");
     _ = await vm.PresentClarifyAsync(
@@ -191,7 +191,7 @@ public class ClarifyTests
 
     // Runner awaits the clarify channel mid-turn so IsBusy is true when input routes.
     vm = new AgentSessionViewModel(
-        async (_, _, _, _, _, _, _) =>
+        async (_, _, _, _, _, _, _, _) =>
         {
           Result<string> answer = await channel.AskAsync(
                   new ClarifyQuestion("Which approach?", ["first", "second"], true)).ConfigureAwait(true);
@@ -237,7 +237,7 @@ public class ClarifyTests
   private static async Task<AgentSessionViewModel> PresentedSessionAsync()
   {
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _) => Task.FromResult(Result.Success("unused")),
+        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("unused")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "m", workspaceRoot: @"C:\work\demo");
     _ = await vm.PresentClarifyAsync(Sample()).ConfigureAwait(false);
