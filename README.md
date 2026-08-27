@@ -88,7 +88,7 @@ The window opens directly on the shell: no workspace is required up front. Click
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. |
 | Sub-agent settings (`DefaultModel`, `ChildTimeoutSeconds`, `MaxConcurrentAgents`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. |
 
-The default model is declared at the composition root (`src/eThangAgent.Desktop/DesktopHost.cs`, currently `openrouter/auto`).
+When no model is explicitly configured via `Model:Id` (env var `MODEL__ID`), the agent runs a two-stage LLM pipeline at startup to intelligently select the best model from the OpenRouter catalog based on the task category, price, and quality scores. Subagent spawns similarly select models based on their task prompts. Failures fall back to `openrouter/auto`. Explicit configuration always takes precedence.
 
 ### Where your data lives
 
