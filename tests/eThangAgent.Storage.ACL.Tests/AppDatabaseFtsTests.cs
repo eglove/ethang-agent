@@ -27,12 +27,12 @@ public sealed class AppDatabaseFtsTests : IDisposable
   }
 
   [Fact]
-  public void FreshDatabase_MigratesToVersion5()
+  public void FreshDatabase_MigratesToVersion6()
   {
     using SqliteConnection connection = _database.Open();
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "PRAGMA user_version;";
-    Assert.Equal(5, Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture));
+    Assert.Equal(6, Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture));
   }
 
   [Fact]
