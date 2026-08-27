@@ -55,10 +55,12 @@ public class IntelligentModelSelectorTests
   ];
 
   private const string Stage1Json =
-      """{"tags":["coding","tool-use"],"complexity":4,"requiresVision":false,"requiresToolUse":true,"minContextWindow":null,"reasoning":"coding task"}""";
+                           /*lang=json,strict*/
+                           """{"tags":["coding","tool-use"],"complexity":4,"requiresVision":false,"requiresToolUse":true,"minContextWindow":null,"reasoning":"coding task"}""";
 
   private const string Stage2Json =
-      """{"filter":{"maxPromptPricePerToken":0.000005,"requireToolUse":true,"minQualityScore":80.0},"selectedModelId":"anthropic/claude-3.5-sonnet","reasoning":"best for coding"}""";
+                           /*lang=json,strict*/
+                           """{"filter":{"maxPromptPricePerToken":0.000005,"requireToolUse":true,"minQualityScore":80.0},"selectedModelId":"anthropic/claude-3.5-sonnet","reasoning":"best for coding"}""";
 
   [Fact]
   public async Task SelectAsync_HappyPath_ReturnsSelectedModel()
@@ -106,7 +108,7 @@ public class IntelligentModelSelectorTests
   [Fact]
   public async Task SelectAsync_Stage2HallucinatedModelId_ReturnsFailure()
   {
-    string hallucinatedJson = """{"filter":{},"selectedModelId":"nonexistent/model","reasoning":"oops"}""";
+    string hallucinatedJson = /*lang=json,strict*/ """{"filter":{},"selectedModelId":"nonexistent/model","reasoning":"oops"}""";
     FakeModelProvider provider = new(Stage1Json, hallucinatedJson);
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog);
@@ -162,8 +164,8 @@ public class IntelligentModelSelectorTests
   [Fact]
   public async Task SelectAsync_PreFilter_DropsBelowMinContextWindow()
   {
-    string stage1Json = """{"tags":["coding"],"complexity":3,"requiresVision":false,"requiresToolUse":false,"minContextWindow":200000,"reasoning":"needs long context"}""";
-    string stage2Json = """{"filter":{},"selectedModelId":"google/gemini-2.0-flash-001","reasoning":"ok"}""";
+    string stage1Json = /*lang=json,strict*/ """{"tags":["coding"],"complexity":3,"requiresVision":false,"requiresToolUse":false,"minContextWindow":200000,"reasoning":"needs long context"}""";
+    string stage2Json = /*lang=json,strict*/ """{"filter":{},"selectedModelId":"google/gemini-2.0-flash-001","reasoning":"ok"}""";
     FakeModelProvider provider = new(stage1Json, stage2Json);
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog);
