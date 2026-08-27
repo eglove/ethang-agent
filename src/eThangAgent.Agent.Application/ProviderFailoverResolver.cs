@@ -15,10 +15,10 @@ public sealed class ProviderFailoverResolver(
     RootSessionIdentity? identity,
     IAgentStore? store,
     ModelConfig? explicitModel,
+    string fallbackModelId,
     int maxTokens,
     float temperature)
 {
-  public const string FallbackModel = "openrouter/auto";
   public static readonly TimeSpan DefaultExclusionTtl = TimeSpan.FromMinutes(10);
 
   private readonly IModelSelector _selector = selector ?? throw new ArgumentNullException(nameof(selector));
@@ -26,6 +26,7 @@ public sealed class ProviderFailoverResolver(
   private readonly RootSessionIdentity? _identity = identity;
   private readonly IAgentStore? _store = store;
   private readonly ModelConfig? _explicitModel = explicitModel;
+  private readonly string _fallbackModelId = fallbackModelId ?? throw new ArgumentNullException(nameof(fallbackModelId));
   private readonly int _maxTokens = maxTokens;
   private readonly float _temperature = temperature;
 
@@ -43,8 +44,8 @@ public sealed class ProviderFailoverResolver(
     Result<ModelSelectionResult> selection = await _selector.SelectAsync(prompt, excluded, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)
     {
-      return (Make(FallbackModel, null),
-          $"Model selection failed: {selection.Error!.Message}; using {FallbackModel}.");
+      return (Make(_fallbackModelId, null),
+          $"Model selection failed: {selection.Error!.Message}; using {_fallbackModelId}.");
     }
 
     string modelId = selection.Value!.ModelId;
@@ -67,8 +68,8 @@ public sealed class ProviderFailoverResolver(
     Result<ModelSelectionResult> selection = await _selector.SelectAsync(taskPrompt, excluded, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)
     {
-      return (Make(FallbackModel, null),
-          $"Model {failedModelId} via {failedProviderName} failed; all alternatives exhausted, using {FallbackModel}.");
+      return (Make(_fallbackModelId, null),
+          $"Model {failedModelId} via {failedProviderName} failed; all alternatives exhausted, using {_fallbackModelId}.");
     }
 
     string modelId = selection.Value!.ModelId;
@@ -82,7 +83,7 @@ public sealed class ProviderFailoverResolver(
   private ModelConfig Make(string modelId, string? providerName)
   {
     Result<ModelConfig> created = ModelConfig.Create(modelId, providerName, _maxTokens, _temperature);
-    return created.IsSuccess ? created.Value! : Make(FallbackModel, null);
+    return created.IsSuccess ? created.Value! : Make(_fallbackModelId, null);
   }
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)

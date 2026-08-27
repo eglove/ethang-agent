@@ -137,7 +137,8 @@ public static class AgentComposition
             sp.GetRequiredService<OpenRouterConfiguration>()))
         .AddSingleton<IModelSelector>(sp => new IntelligentModelSelector(
             sp.GetRequiredService<IModelProvider>(),
-            sp.GetRequiredService<IModelCatalog>()))
+            sp.GetRequiredService<IModelCatalog>(),
+            ModelConfig.Create(ActiveProviderDefaults.SelectorModelId, null, 2048, 0f).Value!))
         .AddSingleton<SubAgentSpawner>()
         .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
             sp.GetRequiredService<SubAgentSpawner>(),
@@ -147,6 +148,7 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<IAgentRuntime>(),
             sp.GetRequiredService<SubAgentOptions>(),
+            ActiveProviderDefaults.FallbackModelId,
             sp.GetRequiredService<IModelSelector>()))
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
@@ -229,6 +231,7 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<RootSessionIdentity>(),
             settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
+            ActiveProviderDefaults.FallbackModelId,
             defaultModel.MaxTokens,
             defaultModel.Temperature))
         .AddSingleton(sp => new ProviderFailoverResolver(
@@ -237,6 +240,7 @@ public static class AgentComposition
             sp.GetRequiredService<RootSessionIdentity>(),
             sp.GetRequiredService<IAgentStore>(),
             settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
+            ActiveProviderDefaults.FallbackModelId,
             defaultModel.MaxTokens,
             defaultModel.Temperature))
         .AddSingleton(sp => new SendMessageCommandHandler(

@@ -10,20 +10,19 @@ namespace eThangAgent.Agent.Application;
 ///     Otherwise, the two-stage <see cref="IModelSelector"/> pipeline runs on the turn's prompt
 ///     at the first turn and every <see cref="Recadence"/> user messages thereafter; on success
 ///     the root <see cref="AgentRecord.ModelUsed"/> is updated. Selection failures fall back to
-///     <see cref="FallbackModel"/> and are surfaced via the notice string so the user sees that
-///     selection failed. Mirrors <c>StartSpawnHandler.ResolveModelAsync</c> for the root path,
-///     which previously ran once at startup with a canned prompt.</summary>
+///     the host-injected <paramref name="fallbackModelId"/> and are surfaced via the notice
+///     string so the user sees that selection failed. Mirrors
+///     <c>StartSpawnHandler.ResolveModelAsync</c> for the root path, which previously ran once
+///     at startup with a canned prompt.</summary>
 public sealed class RootAgentResolver(
     IModelSelector? selector,
     IAgentStore? store,
     RootSessionIdentity? identity,
     ModelConfig? explicitModel,
+    string fallbackModelId,
     int maxTokens,
     float temperature)
 {
-  /// <summary>Fallback when selection is unavailable or fails. Same value the spawn path uses.</summary>
-  public const string FallbackModel = "openrouter/auto";
-
   /// <summary>Reclassify every this many user messages. Turn 1 is the first classification;
   ///     turn <c>Recadence + 1</c> the second, and so on.</summary>
   public const int Recadence = 10;
@@ -32,6 +31,7 @@ public sealed class RootAgentResolver(
   private readonly IAgentStore? _store = store;
   private readonly RootSessionIdentity? _identity = identity;
   private readonly ModelConfig? _explicitModel = explicitModel;
+  private readonly string _fallbackModelId = fallbackModelId ?? throw new ArgumentNullException(nameof(fallbackModelId));
   private readonly int _maxTokens = maxTokens;
   private readonly float _temperature = temperature;
 
@@ -56,7 +56,7 @@ public sealed class RootAgentResolver(
     // 2. No selector wired: use the fallback for every turn.
     if (_selector is null)
     {
-      return (Make(FallbackModel, null), null);
+      return (Make(_fallbackModelId, null), null);
     }
 
     // 3. Decide whether this turn is on the reclassification cadence.
@@ -65,15 +65,15 @@ public sealed class RootAgentResolver(
     {
       // Off-cadence turns keep whatever the last selection produced. Before the first
       // selection has run (no prior config), fall back rather than serve nothing.
-      return (Make(FallbackModel, null), null);
+      return (Make(_fallbackModelId, null), null);
     }
 
     // 4. Run selection on the actual prompt.
     Result<ModelSelectionResult> selection = await _selector.SelectAsync(prompt, excludedKeys: null, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)
     {
-      return (Make(FallbackModel, null),
-          $"Model selection failed: {selection.Error!.Message}; using {FallbackModel}.");
+      return (Make(_fallbackModelId, null),
+          $"Model selection failed: {selection.Error!.Message}; using {_fallbackModelId}.");
     }
 
     string modelId = selection.Value!.ModelId;
@@ -116,7 +116,7 @@ public sealed class RootAgentResolver(
   private ModelConfig Make(string modelId, string? providerName = null)
   {
     Result<ModelConfig> created = ModelConfig.Create(modelId, providerName, _maxTokens, _temperature);
-    return created.IsSuccess ? created.Value! : Make(FallbackModel, null);
+    return created.IsSuccess ? created.Value! : Make(_fallbackModelId, null);
   }
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)

@@ -6,6 +6,7 @@ namespace eThangAgent.Agent.Application.Tests;
 
 public class StartSpawnHandlerTests
 {
+  private const string FallbackModel = "openrouter/auto";
   private static AgentRecord Parent(int depth = 0) => new(
       new AgentId(Guid.NewGuid()), null, depth, AgentStatus.Completed, null,
       "root-model", "root", "root task", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "root report");
@@ -30,7 +31,7 @@ public class StartSpawnHandlerTests
     FakeAgentStore store = new(callLog);
     FakeAgentRuntime runtime = new(callLog);
     SubAgentOptions options = new(DefaultModel: "fallback-model");
-    StartSpawnHandler handler = new(store, runtime, options);
+    StartSpawnHandler handler = new(store, runtime, options, FallbackModel);
     AgentRecord parent = Parent(depth: 1);
 
     Result<AgentId> result = await handler.Execute(parent, new SpawnRequest("do the thing", Model: "explicit-model", Label: "lbl"));
@@ -62,7 +63,7 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), FallbackModel);
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest(""));
 
@@ -78,7 +79,7 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), FallbackModel);
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task", Model: "   "));
 
@@ -94,7 +95,7 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m", MaxDepth: 3));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m", MaxDepth: 3), FallbackModel);
 
     Result<AgentId> result = await handler.Execute(Parent(depth: 3), new SpawnRequest("task"));
 
@@ -110,7 +111,7 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), FallbackModel);
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
 
@@ -125,7 +126,7 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "fallback-model"));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "fallback-model"), FallbackModel);
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
 
@@ -141,7 +142,7 @@ public class StartSpawnHandlerTests
     DomainError capError = new("ConcurrencyCapReached", "runtime at capacity");
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new() { StartOutcome = Result.Failure<AgentId>(capError) };
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), FallbackModel);
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
 
@@ -158,7 +159,7 @@ public class StartSpawnHandlerTests
     DomainError saveError = new("StorageDown", "agent store unavailable.");
     FakeAgentStore store = new() { SaveFailure = saveError };
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), FallbackModel);
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
 
@@ -176,7 +177,7 @@ public class StartSpawnHandlerTests
         new TaskCategory(["coding"], 4, false, true, null, null),
         new ModelFilter(null, null, null, null, true, null, null, null, null, null, null), "best");
     FakeModelSelector selector = new(selection);
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), selector);
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), FallbackModel, selector);
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"));
 
@@ -191,7 +192,7 @@ public class StartSpawnHandlerTests
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
     FailingModelSelector selector = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), selector);
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), FallbackModel, selector);
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"));
 

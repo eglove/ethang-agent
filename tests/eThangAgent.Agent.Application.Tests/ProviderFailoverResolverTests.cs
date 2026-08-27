@@ -6,6 +6,7 @@ namespace eThangAgent.Agent.Application.Tests;
 
 public class ProviderFailoverResolverTests
 {
+  private const string FallbackModel = "openrouter/auto";
   private sealed class FakeModelSelector : IModelSelector
   {
     private readonly Queue<ModelSelectionResult> _results = new();
@@ -62,7 +63,7 @@ public class ProviderFailoverResolverTests
     FakeModelSelector selector = new(Selection("new-model", "NewProvider"));
     FakeExclusionStore exclusions = new();
     ProviderFailoverResolver resolver = new(selector, exclusions,
-        identity: null, store: null, explicitModel: null, maxTokens: 2048, temperature: 0.7f);
+        identity: null, store: null, explicitModel: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f);
 
     (ModelConfig? config, string? notice) = await resolver.ReSelectExcludingAsync(
         "failed-model", "FailedProvider", "task prompt");
@@ -81,12 +82,12 @@ public class ProviderFailoverResolverTests
     FakeModelSelector selector = new(); // returns failure (empty queue)
     FakeExclusionStore exclusions = new();
     ProviderFailoverResolver resolver = new(selector, exclusions,
-        identity: null, store: null, explicitModel: null, maxTokens: 2048, temperature: 0.7f);
+        identity: null, store: null, explicitModel: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f);
 
     (ModelConfig? config, string? notice) = await resolver.ReSelectExcludingAsync(
         "failed-model", "FailedProvider", "task prompt");
 
-    Assert.Equal(ProviderFailoverResolver.FallbackModel, config.ModelId);
+    Assert.Equal(FallbackModel, config.ModelId);
     Assert.Null(config.Provider);
     Assert.NotNull(notice);
   }
@@ -98,7 +99,7 @@ public class ProviderFailoverResolverTests
     FakeExclusionStore exclusions = new();
     _ = exclusions.Exclusions.Add("prior:model");
     ProviderFailoverResolver resolver = new(selector, exclusions,
-        identity: null, store: null, explicitModel: null, maxTokens: 2048, temperature: 0.7f);
+        identity: null, store: null, explicitModel: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f);
 
     _ = await resolver.ReSelectExcludingAsync("failed", "Failed", "task");
 

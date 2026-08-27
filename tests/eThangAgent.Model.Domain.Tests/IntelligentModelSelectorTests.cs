@@ -10,6 +10,7 @@ public class IntelligentModelSelectorTests
     private readonly Queue<string> _responses = new();
     public List<string> ReceivedUserMessages { get; } = [];
     public List<string> ReceivedSystemPrompts { get; } = [];
+    public List<ModelConfig> ReceivedConfigs { get; } = [];
 
     public FakeModelProvider(params string[] responses)
     {
@@ -21,6 +22,7 @@ public class IntelligentModelSelectorTests
 
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)
     {
+      ReceivedConfigs.Add(config);
       ReceivedUserMessages.Add(request.Messages.Count > 0 ? request.Messages[0].Content : "");
       ReceivedSystemPrompts.Add(request.SystemPrompt ?? "");
       string content = _responses.Count > 0 ? _responses.Dequeue() : "{}";
@@ -54,6 +56,10 @@ public class IntelligentModelSelectorTests
     new("meta-llama/llama-3.3-70b", "Meta", 0.0000005m, 0.0000008m, 131_072, 4096, false, false, 75.0, 70.0, 60.0, null, null, null),
   ];
 
+  private const string SelectorModelId = "test/selector-model";
+
+  private static readonly ModelConfig SelectorModel = ModelConfig.Create(SelectorModelId, null, 2048, 0f).Value!;
+
   private const string Stage1Json =
                            /*lang=json,strict*/
                            """{"tags":["coding","tool-use"],"complexity":4,"requiresVision":false,"requiresToolUse":true,"minContextWindow":null,"reasoning":"coding task"}""";
@@ -67,7 +73,7 @@ public class IntelligentModelSelectorTests
   {
     FakeModelProvider provider = new(Stage1Json, Stage2Json);
     FakeModelCatalog catalog = new(SampleCatalog);
-    IntelligentModelSelector selector = new(provider, catalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     Result<ModelSelectionResult> result = await selector.SelectAsync("write a C# function");
 
@@ -81,11 +87,26 @@ public class IntelligentModelSelectorTests
   }
 
   [Fact]
+  public async Task SelectAsync_UsesInjectedSelectorModel_ForBothStages()
+  {
+    FakeModelProvider provider = new(Stage1Json, Stage2Json);
+    FakeModelCatalog catalog = new(SampleCatalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
+
+    _ = await selector.SelectAsync("task");
+
+    Assert.Equal(2, provider.ReceivedConfigs.Count);
+    Assert.All(provider.ReceivedConfigs, c => Assert.Equal(SelectorModelId, c.ModelId));
+    Assert.Equal(1024, provider.ReceivedConfigs[0].MaxTokens);
+    Assert.Equal(2048, provider.ReceivedConfigs[1].MaxTokens);
+  }
+
+  [Fact]
   public async Task SelectAsync_Stage1ParseFailure_ReturnsFailure()
   {
     FakeModelProvider provider = new("not json at all", "{}");
     FakeModelCatalog catalog = new(SampleCatalog);
-    IntelligentModelSelector selector = new(provider, catalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     Result<ModelSelectionResult> result = await selector.SelectAsync("task");
 
@@ -98,7 +119,7 @@ public class IntelligentModelSelectorTests
   {
     FakeModelProvider provider = new(Stage1Json, "not json");
     FakeModelCatalog catalog = new(SampleCatalog);
-    IntelligentModelSelector selector = new(provider, catalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     Result<ModelSelectionResult> result = await selector.SelectAsync("task");
 
@@ -112,7 +133,7 @@ public class IntelligentModelSelectorTests
     string hallucinatedJson = /*lang=json,strict*/ """{"filter":{},"selectedModelId":"nonexistent/model","selectedProviderName":"Fake","reasoning":"oops"}""";
     FakeModelProvider provider = new(Stage1Json, hallucinatedJson);
     FakeModelCatalog catalog = new(SampleCatalog);
-    IntelligentModelSelector selector = new(provider, catalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     Result<ModelSelectionResult> result = await selector.SelectAsync("task");
 
@@ -125,7 +146,7 @@ public class IntelligentModelSelectorTests
   {
     FakeModelProvider provider = new(Stage1Json, Stage2Json);
     FakeModelCatalog catalog = new([]);
-    IntelligentModelSelector selector = new(provider, catalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     Result<ModelSelectionResult> result = await selector.SelectAsync("task");
 
@@ -138,7 +159,7 @@ public class IntelligentModelSelectorTests
   {
     FakeModelProvider provider = new(Stage1Json, Stage2Json);
     FailingCatalog catalog = new();
-    IntelligentModelSelector selector = new(provider, catalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     Result<ModelSelectionResult> result = await selector.SelectAsync("task");
 
@@ -151,7 +172,7 @@ public class IntelligentModelSelectorTests
   {
     FakeModelProvider provider = new(Stage1Json, Stage2Json);
     FakeModelCatalog catalog = new(SampleCatalog);
-    IntelligentModelSelector selector = new(provider, catalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     _ = await selector.SelectAsync("task");
 
@@ -169,7 +190,7 @@ public class IntelligentModelSelectorTests
     string stage2Json = /*lang=json,strict*/ """{"filter":{},"selectedModelId":"google/gemini-2.0-flash-001","selectedProviderName":"Google","reasoning":"ok"}""";
     FakeModelProvider provider = new(stage1Json, stage2Json);
     FakeModelCatalog catalog = new(SampleCatalog);
-    IntelligentModelSelector selector = new(provider, catalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     _ = await selector.SelectAsync("task");
 
@@ -189,7 +210,7 @@ public class IntelligentModelSelectorTests
     string stage2Json = /*lang=json,strict*/ """{"filter":{},"selectedModelId":"anthropic/claude-3.5-sonnet","selectedProviderName":"OpenRouter","reasoning":"fallback provider"}""";
     FakeModelProvider provider = new(Stage1Json, stage2Json);
     FakeModelCatalog catalog = new(catalogWithSecondProvider);
-    IntelligentModelSelector selector = new(provider, catalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     HashSet<string> excluded = ["anthropic/claude-3.5-sonnet:Anthropic"];
     Result<ModelSelectionResult> result = await selector.SelectAsync("task", excluded);
@@ -204,7 +225,7 @@ public class IntelligentModelSelectorTests
   {
     FakeModelProvider provider = new(Stage1Json, Stage2Json);
     FakeModelCatalog catalog = new(SampleCatalog);
-    IntelligentModelSelector selector = new(provider, catalog);
+    IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     HashSet<string> excluded = [.. SampleCatalog.Select(c => c.Key)];
     Result<ModelSelectionResult> result = await selector.SelectAsync("task", excluded);

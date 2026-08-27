@@ -9,9 +9,10 @@ namespace eThangAgent.Agent.Application;
 ///     and hands it to the runtime as an independent actor. Owns the validation/depth/model rules
 ///     that previously lived in SubAgentSpawner's synchronous path. When no explicit model is
 ///     provided and an IModelSelector is available, runs intelligent model selection; falls back
-///     to openrouter/auto on any selection failure.</summary>
+///     to the host-injected <paramref name="fallbackModelId"/> on any selection failure.</summary>
 public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, SubAgentOptions options,
-    IModelSelector? modelSelector = null, int maxTokens = 4096, float temperature = 0.7f) : IAgentSpawnCommand
+    string fallbackModelId, IModelSelector? modelSelector = null, int maxTokens = 4096, float temperature = 0.7f)
+    : IAgentSpawnCommand
 {
   private readonly int _maxTokens = maxTokens;
   private readonly float _temperature = temperature;
@@ -19,11 +20,10 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
   private readonly IAgentRuntime _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
   private readonly SubAgentOptions _options = options ?? throw new ArgumentNullException(nameof(options));
   private readonly IModelSelector? _modelSelector = modelSelector;
+  private readonly string _fallbackModelId = fallbackModelId ?? throw new ArgumentNullException(nameof(fallbackModelId));
 
   private readonly NonEmptyTaskPromptSpecification _promptSpec = new();
   private readonly ValidModelReferenceSpecification _modelSpec = new();
-
-  private const string FallbackModel = "openrouter/auto";
 
   public async Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request,
       CancellationToken ct = default)
@@ -84,7 +84,7 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       }
     }
 
-    // 4. Fallback to openrouter/auto.
-    return ModelConfig.Create(FallbackModel, null, _maxTokens, _temperature).Value!;
+    // 4. Fallback to the host-injected fallback model.
+    return ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature).Value!;
   }
 }

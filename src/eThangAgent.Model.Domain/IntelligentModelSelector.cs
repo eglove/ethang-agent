@@ -5,16 +5,26 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.ModelDomain;
 
 /// <summary>Two-stage LLM pipeline that categorizes a task and selects the best model+provider
-/// pair from the OpenRouter catalog. Stage 1 categorizes; Stage 2 decides filters and picks.</summary>
-public sealed class IntelligentModelSelector(IModelProvider provider, IModelCatalog catalog) : IModelSelector
+/// pair from the model catalog. Stage 1 categorizes; Stage 2 decides filters and picks. The
+/// model that powers both stages is injected via the constructor so the pipeline runs on
+/// whichever provider the host wired — the selector itself is provider-agnostic.</summary>
+public sealed class IntelligentModelSelector : IModelSelector
 {
-  private const string CategorizerModel = "openrouter/auto";
+  private readonly IModelProvider _provider;
+  private readonly IModelCatalog _catalog;
 
-  private readonly IModelProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
-  private readonly IModelCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+  // Stage budgets differ (categorize short, decide longer); the model identity comes from the host.
+  private readonly ModelConfig _stage1Config;
+  private readonly ModelConfig _stage2Config;
 
-  private static readonly ModelConfig Stage1Config = ModelConfig.Create(CategorizerModel, null, 1024, 0f).Value!;
-  private static readonly ModelConfig Stage2Config = ModelConfig.Create(CategorizerModel, null, 2048, 0f).Value!;
+  public IntelligentModelSelector(IModelProvider provider, IModelCatalog catalog, ModelConfig selectorModel)
+  {
+    _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+    _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+    ArgumentNullException.ThrowIfNull(selectorModel);
+    _stage1Config = selectorModel with { MaxTokens = 1024 };
+    _stage2Config = selectorModel with { MaxTokens = 2048 };
+  }
 
   private const string Stage1SystemPrompt =
       """
@@ -75,7 +85,7 @@ public sealed class IntelligentModelSelector(IModelProvider provider, IModelCata
   {
     Message userMsg = new(Role.User, taskPrompt, DateTimeOffset.UtcNow);
     ModelRequest request = new([userMsg], SystemPrompt: Stage1SystemPrompt);
-    Result<ModelResponse> response = await _provider.SendAsync(Stage1Config, request, ct).ConfigureAwait(false);
+    Result<ModelResponse> response = await _provider.SendAsync(_stage1Config, request, ct).ConfigureAwait(false);
     return !response.IsSuccess
       ? Result.Failure<TaskCategory>(new DomainError("CategorizationFailed",
           $"Stage 1 LLM call failed: {response.Error!.Message}"))
@@ -154,7 +164,7 @@ public sealed class IntelligentModelSelector(IModelProvider provider, IModelCata
 
     Message msg = new(Role.User, userMessage, DateTimeOffset.UtcNow);
     ModelRequest request = new([msg], SystemPrompt: Stage2SystemPrompt);
-    Result<ModelResponse> response = await _provider.SendAsync(Stage2Config, request, ct).ConfigureAwait(false);
+    Result<ModelResponse> response = await _provider.SendAsync(_stage2Config, request, ct).ConfigureAwait(false);
     return !response.IsSuccess
       ? Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed",
           $"Stage 2 LLM call failed: {response.Error!.Message}"))
