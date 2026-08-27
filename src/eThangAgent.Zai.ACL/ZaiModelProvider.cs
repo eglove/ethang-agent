@@ -10,10 +10,11 @@ namespace eThangAgent.Zai.ACL;
 
 /// <summary>Sends domain chat requests to z.ai's OpenAI-compatible chat completions endpoint.
 ///     z.ai is a single provider, so <see cref="ModelConfig.Provider"/> (an OpenRouter upstream
-///     routing pin) has no meaning here and is never serialized. The thinking/reasoning knobs
-///     (<c>thinking</c>, <c>reasoning_effort</c>) are deliberately not sent: GLM defaults apply
-///     (flagship models force thinking on), and reasoning surfaces through the standard
-///     <c>reasoning_content</c> stream field. Temperature passes through unvalidated — z.ai
+///     routing pin) has no meaning here and is never serialized. The <c>thinking</c> knob is
+///     deliberately never sent: GLM defaults apply (flagship models force thinking on) and
+///     reasoning surfaces through the standard <c>reasoning_content</c> stream field.
+///     <see cref="ModelConfig.Effort"/> — set by the user via /effort — maps to
+///     <c>reasoning_effort</c> when present. Temperature passes through unvalidated — z.ai
 ///     rejects out-of-range values server-side (HTTP 400 → ProviderError) rather than this ACL
 ///     clamping silently.</summary>
 public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
@@ -172,6 +173,12 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
     if (stream)
     {
       bodyDict["stream"] = true;
+    }
+
+    // Only sent when the user picked a level (/effort); GLM defaults apply otherwise.
+    if (config.Effort is { } effort)
+    {
+      bodyDict["reasoning_effort"] = ZaiReasoningEffort.ToWire(effort);
     }
 
     if (request.Tools is { Count: > 0 })

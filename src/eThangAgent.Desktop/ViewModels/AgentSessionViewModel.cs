@@ -4,6 +4,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
@@ -23,6 +24,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly Func<ClarifyQuestion, Task<ClarifyViewModel>> _presentClarify;
   private readonly Func<UiStreamEvent, Task> _streamSink;
   private readonly Action<string>? _statusModelUpdater;
+  private readonly SessionModelPreferences? _modelPreferences;
 
   private Task? _runningTurn;
 
@@ -67,7 +69,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       Func<UiStreamEvent, Task>? uiStreamSink = null,
       IAgentInbox? inbox = null,
       IAgentRuntime? childRuntime = null,
-      Action<string>? statusModelUpdater = null)
+      Action<string>? statusModelUpdater = null,
+      SessionModelPreferences? modelPreferences = null)
   {
     WorkspaceRoot = workspaceRoot;
     _statusModelUpdater = statusModelUpdater;
@@ -92,6 +95,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return Task.CompletedTask;
     });
     Status = new StatusViewModel(provider, modelId);
+    _modelPreferences = modelPreferences;
     _inbox = inbox;
     _childRuntime = childRuntime;
   }
@@ -181,9 +185,49 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return Task.CompletedTask;
     }
 
+    if (DesktopCommands.IsEffort(input))
+    {
+      HandleEffortCommand(input);
+      return Task.CompletedTask;
+    }
+
     // Real turn — start and track it.
     _runningTurn = ExecuteTurnAsync(input);
     return _runningTurn;
+  }
+
+  /// <summary>
+  /// /effort: shows the current reasoning effort with no argument, sets it with a valid
+  /// level (applies from the next turn, root and children alike), and errors on anything
+  /// else. z.ai is the only provider that consumes the setting today — on OpenRouter
+  /// sessions the choice is remembered but inert.
+  /// </summary>
+  private void HandleEffortCommand(string input)
+  {
+    if (_modelPreferences is null)
+    {
+      Transcript.AddNotice("/effort is unavailable in this session (no model preferences wired).");
+      return;
+    }
+
+    string argument = DesktopCommands.EffortArgument(input);
+    if (argument.Length == 0)
+    {
+      string current = _modelPreferences.ReasoningEffort?.ToString() ?? "model default";
+      Transcript.AddNotice(
+          $"Reasoning effort: {current}. Usage: /effort <max|xhigh|high|medium|low|minimal|none>.");
+      return;
+    }
+
+    if (!DesktopCommands.TryParseEffortLevel(argument, out ReasoningEffort level))
+    {
+      Transcript.AddNotice(
+          $"Unknown effort '{argument}'. Valid levels: max, xhigh, high, medium, low, minimal, none.");
+      return;
+    }
+
+    _modelPreferences.ReasoningEffort = level;
+    Transcript.AddNotice($"Reasoning effort set to {level}; applies from the next turn.");
   }
 
   /// <summary>Raised when the agent asks to close (e.g. /exit). The view closes the tab.</summary>

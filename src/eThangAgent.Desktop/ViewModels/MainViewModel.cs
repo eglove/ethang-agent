@@ -158,7 +158,8 @@ internal sealed partial class MainViewModel : ObservableObject
               .ApplyUiStreamEventOnUIThreadAsync(evt)),
           inbox: session.Inbox,
           childRuntime: session.ChildRuntime,
-          statusModelUpdater: id => sessionVmRef!.Status.ModelId = id);
+          statusModelUpdater: id => sessionVmRef!.Status.ModelId = id,
+          modelPreferences: session.Preferences);
       sessionVmRef = sessionVm;
       AttachClarifyChannel(sessionVm, session.ClarifyChannel);
 

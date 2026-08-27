@@ -61,6 +61,7 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
 
   private async Task<ModelConfig> ResolveModelAsync(SpawnRequest request, CancellationToken ct)
   {
+
     // 1. Explicit per-spawn model always wins.
     if (!string.IsNullOrWhiteSpace(request.Model))
     {

@@ -21,7 +21,8 @@ public sealed class RootAgentResolver(
     ModelConfig? explicitModel,
     string fallbackModelId,
     int maxTokens,
-    float temperature)
+    float temperature,
+    SessionModelPreferences? preferences = null)
 {
   /// <summary>Reclassify every this many user messages. Turn 1 is the first classification;
   ///     turn <c>Recadence + 1</c> the second, and so on.</summary>
@@ -34,6 +35,7 @@ public sealed class RootAgentResolver(
   private readonly string _fallbackModelId = fallbackModelId ?? throw new ArgumentNullException(nameof(fallbackModelId));
   private readonly int _maxTokens = maxTokens;
   private readonly float _temperature = temperature;
+  private readonly SessionModelPreferences? _preferences = preferences;
 
   /// <summary>True when the caller may skip selection entirely — an explicit model is pinned
   ///     or no selector is wired. Exposed for diagnostics and tests.</summary>
@@ -47,10 +49,11 @@ public sealed class RootAgentResolver(
   {
     ArgumentNullException.ThrowIfNull(conversation);
 
-    // 1. Explicit pinned model always wins and never reclassifies.
+    // 1. Explicit pinned model always wins and never reclassifies. Runtime
+    //    preferences (/effort) still apply — the pin fixes the model, not the knobs.
     if (_explicitModel is not null)
     {
-      return (_explicitModel, null);
+      return (ApplyPreferences(_explicitModel), null);
     }
 
     // 2. No selector wired: use the fallback for every turn.
@@ -115,9 +118,15 @@ public sealed class RootAgentResolver(
 
   private ModelConfig Make(string modelId, string? providerName = null)
   {
-    Result<ModelConfig> created = ModelConfig.Create(modelId, providerName, _maxTokens, _temperature);
+    Result<ModelConfig> created = ModelConfig.Create(
+        modelId, providerName, _maxTokens, _temperature, _preferences?.ReasoningEffort);
     return created.IsSuccess ? created.Value! : Make(_fallbackModelId, null);
   }
+
+  /// <summary>Overlays the session's runtime preferences (reasoning effort) onto a
+  ///     resolved config without touching its model identity.</summary>
+  private ModelConfig ApplyPreferences(ModelConfig config)
+      => _preferences?.ReasoningEffort is { } effort ? config with { Effort = effort } : config;
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)
   {

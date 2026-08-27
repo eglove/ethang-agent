@@ -20,7 +20,8 @@ public sealed record AgentRunOutcome(
 ///     Validation, depth enforcement, model resolution, and the initial Running save belong to the
 ///     spawn command (<c>StartSpawnHandler</c>), which hands the persisted record here.</summary>
 public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore store, IToolRegistry tools,
-    ISystemPromptProvider systemPrompt, SubAgentOptions options) : IAgentRunner
+    ISystemPromptProvider systemPrompt, SubAgentOptions options, SessionModelPreferences? preferences = null)
+    : IAgentRunner
 {
   /// <summary>Model-facing annotation appended when a child report exceeds the 50 KB storage guideline.</summary>
   public const string ReportOverflowAnnotation =
@@ -38,6 +39,7 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
   private readonly ISystemPromptProvider _systemPrompt = systemPrompt ?? throw new ArgumentNullException(nameof(systemPrompt));
   private readonly SubAgentOptions _options = options ?? throw new ArgumentNullException(nameof(options));
+  private readonly SessionModelPreferences? _preferences = preferences;
 
   private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
 
@@ -54,7 +56,10 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
   public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(child);
-    ModelConfig config = ModelConfig.Create(child.ModelUsed, null, ChildMaxTokens, ChildTemperature).Value!;
+    // Children inherit the session's runtime preferences (/effort): the effort choice
+    // is a property of the conversation, not of the root agent.
+    ModelConfig config = ModelConfig.Create(
+        child.ModelUsed, null, ChildMaxTokens, ChildTemperature, _preferences?.ReasoningEffort).Value!;
 
     Agent agent = new(_factory.Create(config), new Conversation(), config, _tools,
         _systemPrompt, id: child.Id, depth: child.Depth);

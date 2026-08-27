@@ -115,7 +115,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
           providerName,
           clarifyChannel,
           services.GetRequiredService<IAgentInbox>(),
-          services.GetRequiredService<IAgentRuntime>()));
+          services.GetRequiredService<IAgentRuntime>(),
+          services.GetRequiredService<SessionModelPreferences>()));
     }
     catch
     {

@@ -142,7 +142,13 @@ public static class AgentComposition
             sp.GetRequiredService<IModelProvider>(),
             sp.GetRequiredService<IModelCatalog>(),
             ModelConfig.Create(Providers.SelectorModelId(providerName), null, 2048, 0f).Value!))
-        .AddSingleton<SubAgentSpawner>()
+        .AddSingleton(sp => new SubAgentSpawner(
+            sp.GetRequiredService<IModelProviderFactory>(),
+            sp.GetRequiredService<IAgentStore>(),
+            sp.GetRequiredService<IToolRegistry>(),
+            sp.GetRequiredService<ISystemPromptProvider>(),
+            sp.GetRequiredService<SubAgentOptions>(),
+            sp.GetRequiredService<SessionModelPreferences>()))
         .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
             sp.GetRequiredService<SubAgentSpawner>(),
             sp.GetRequiredService<IAgentStore>(),
@@ -223,6 +229,7 @@ public static class AgentComposition
         // reselection) by RootAgentHolder; the root is NOT known at container build time when
         // intelligent selection is active (no explicit ModelId). The holder reuses the shared
         // Conversation/provider/tools/system-prompt so a rebuild preserves all message history.
+        .AddSingleton<SessionModelPreferences>()
         .AddSingleton<RootSessionIdentity>()
         .AddSingleton(sp => new RootAgentHolder(
             sp.GetRequiredService<IModelProvider>(),
@@ -236,7 +243,8 @@ public static class AgentComposition
             settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
             Providers.FallbackModelId(providerName),
             defaultModel.MaxTokens,
-            defaultModel.Temperature))
+            defaultModel.Temperature,
+            sp.GetRequiredService<SessionModelPreferences>()))
         .AddSingleton(sp => new ProviderFailoverResolver(
             sp.GetRequiredService<IModelSelector>(),
             sp.GetRequiredService<IProviderExclusionStore>(),
