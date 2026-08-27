@@ -296,3 +296,6 @@ dist/
 
 # Agent scratch space
 .work/
+
+# Agent session state (ZCode harness)
+.zcode/
