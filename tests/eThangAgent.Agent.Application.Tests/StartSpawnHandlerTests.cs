@@ -1,4 +1,5 @@
 using eThangAgent.AgentDomain;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application.Tests;
@@ -8,6 +9,19 @@ public class StartSpawnHandlerTests
   private static AgentRecord Parent(int depth = 0) => new(
       new AgentId(Guid.NewGuid()), null, depth, AgentStatus.Completed, null,
       "root-model", "root", "root task", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "root report");
+
+  private sealed class FakeModelSelector(ModelSelectionResult result) : IModelSelector
+  {
+    private readonly ModelSelectionResult _result = result;
+    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(_result));
+  }
+
+  private sealed class FailingModelSelector : IModelSelector
+  {
+    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed", "boom")));
+  }
 
   [Fact]
   public async Task Execute_HappyPath_PersistsRunningRecord_StartsRuntime_ReturnsId()
@@ -92,7 +106,7 @@ public class StartSpawnHandlerTests
   }
 
   [Fact]
-  public async Task Execute_NoModelAnywhere_MissingModelError_NoSideEffects()
+  public async Task Execute_NoModelAnywhere_NoSelector_FallsBackToAutoRouter()
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
@@ -100,11 +114,10 @@ public class StartSpawnHandlerTests
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
 
-    Assert.False(result.IsSuccess);
-    Assert.Equal("MissingModel", result.Error!.Code);
-    Assert.Equal("Provide a model reference or configure SubAgent:DefaultModel.", result.Error.Message);
-    Assert.Equal(0, store.TotalWrites);
-    Assert.Empty(runtime.Started);
+    Assert.True(result.IsSuccess);
+    AgentRecord saved = Assert.Single(store.Saved);
+    Assert.Equal("openrouter/auto", saved.ModelUsed);
+    Assert.Same(saved, Assert.Single(runtime.Started));
   }
 
   [Fact]
@@ -152,6 +165,39 @@ public class StartSpawnHandlerTests
     Assert.False(result.IsSuccess);
     Assert.Same(saveError, result.Error);
     Assert.Empty(runtime.Started);
+  }
+
+  [Fact]
+  public async Task Execute_NoExplicitModel_NoDefault_SelectorSucceeds_UsesSelectedModel()
+  {
+    FakeAgentStore store = new();
+    FakeAgentRuntime runtime = new();
+    ModelSelectionResult selection = new("anthropic/claude-3.5-sonnet",
+        new TaskCategory(["coding"], 4, false, true, null, null),
+        new ModelFilter(null, null, null, true, null, null), "best");
+    FakeModelSelector selector = new(selection);
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), selector);
+
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"));
+
+    Assert.True(result.IsSuccess);
+    AgentRecord saved = Assert.Single(store.Saved);
+    Assert.Equal("anthropic/claude-3.5-sonnet", saved.ModelUsed);
+  }
+
+  [Fact]
+  public async Task Execute_NoExplicitModel_NoDefault_SelectorFails_FallsBackToAutoRouter()
+  {
+    FakeAgentStore store = new();
+    FakeAgentRuntime runtime = new();
+    FailingModelSelector selector = new();
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), selector);
+
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"));
+
+    Assert.True(result.IsSuccess);
+    AgentRecord saved = Assert.Single(store.Saved);
+    Assert.Equal("openrouter/auto", saved.ModelUsed);
   }
 }
 
