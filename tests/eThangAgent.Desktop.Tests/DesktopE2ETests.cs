@@ -87,6 +87,12 @@ public class DesktopE2ETests
     Assert.Contains(
         "read(timeoutSeconds: WholeNumber, path: Text, startLine: WholeNumber, endLine: WholeNumber): Read lines from a text file.",
         host.Mock.LastChatRequestBody, StringComparison.Ordinal);
+    Assert.Contains(
+        "db_query(timeoutSeconds: WholeNumber, sql: Text, maxRows: WholeNumber): Run one read-only SQL query",
+        host.Mock.LastChatRequestBody, StringComparison.Ordinal);
+    Assert.Contains(
+        "db_schema(timeoutSeconds: WholeNumber, includeCounts: Flag): List the tables, columns, and indexes",
+        host.Mock.LastChatRequestBody, StringComparison.Ordinal);
   }
 
   [Fact]

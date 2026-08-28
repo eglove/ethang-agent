@@ -19,6 +19,7 @@ Skills name actions; this harness binds them to real tools:
 | List available skills | `skill_list` tool |
 | Ask the human partner a clarifying question | `clarify` tool (MANDATORY during brainstorming) |
 | Store or read specs, plans, ledgers, briefs, reports | `state` tools — `state.get` / `state.set` / `state.append` (CAS ledger lines) / `state.list` / `state.find` (full-text search) / `state.prune` (SDD cleanup) |
+| Inspect the agent's own database (sessions, transcripts, state, memories, skills, preferences) | `db_schema` / `db_query` (read-only SQL; run `db_schema` first) |
 | Commit work | `git_commit` tool (never raw shell commits) |
 
 Windows-native throughout. Tests run via the dotnet CLI with xUnit (`dotnet test`);

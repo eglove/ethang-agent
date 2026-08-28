@@ -9,6 +9,7 @@ namespace eThangAgent.Storage.ACL;
 public sealed class AppDatabase
 {
   private readonly string _connectionString;
+  private readonly string _readOnlyConnectionString;
 
   /// <summary>Process-wide migration gate. Containers may be constructed concurrently
   ///     (one per session), and two Migrate() passes over the same file must not
@@ -25,7 +26,10 @@ public sealed class AppDatabase
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "eThangAgent", "eThangAgent.db");
     _ = Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-    _connectionString = new SqliteConnectionStringBuilder { DataSource = path }.ToString();
+    SqliteConnectionStringBuilder builder = new() { DataSource = path };
+    _connectionString = builder.ToString();
+    builder.Mode = SqliteOpenMode.ReadOnly;
+    _readOnlyConnectionString = builder.ToString();
     MigrationGate.Wait();
     try
     {
@@ -40,6 +44,17 @@ public sealed class AppDatabase
   public SqliteConnection Open()
   {
     SqliteConnection connection = new(_connectionString);
+    connection.Open();
+    return connection;
+  }
+
+  /// <summary>Read-only connection for self-inspection (the db_schema / db_query
+  ///     tools). SQLite rejects every write at the engine level, so even a statement
+  ///     that slips past the domain's lexical gate cannot mutate the database. The
+  ///     file always exists: the constructor migrates before any caller runs.</summary>
+  public SqliteConnection OpenReadOnly()
+  {
+    SqliteConnection connection = new(_readOnlyConnectionString);
     connection.Open();
     return connection;
   }

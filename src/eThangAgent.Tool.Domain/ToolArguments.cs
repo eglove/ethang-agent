@@ -139,6 +139,24 @@ public static class ToolArguments
     return value;
   }
 
+  /// <summary>Reads an optional JSON boolean parameter: null when absent, a typed
+  ///     error when present but not exactly true or false.</summary>
+  public static Result<bool?> OptionalBool(JsonElement json, string name)
+  {
+    if (!json.TryGetProperty(name, out JsonElement el))
+    {
+      return Result.Success<bool?>(null);
+    }
+
+    Result<bool> value = el.ValueKind is JsonValueKind.True or JsonValueKind.False
+      ? Result.Success(el.GetBoolean())
+      : Result.Failure<bool>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{name}' must be a boolean, but got {el.ValueKind}."));
+    return !value.IsSuccess
+      ? Result.Failure<bool?>(value.Error)
+      : Result.Success<bool?>(value.Value);
+  }
+
   /// <summary>Parses an enum-typed string by exact ordinal match against
   ///     <paramref name="allowedNames"/> — no case folding, no numeric fallback.</summary>
   public static Result<T> ParseEnum<T>(string name, string text, IReadOnlyList<string> allowedNames)

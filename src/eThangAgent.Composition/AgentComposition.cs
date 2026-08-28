@@ -83,6 +83,12 @@ public static class AgentComposition
                         sp.GetRequiredService<ISearchAccess>()),
                     "Search workspace text files with literal or regex patterns."),
                 new AgentToolBinding(
+                    new DbSchemaTool(sp.GetRequiredService<ISelfDatabaseAccess>()),
+                    "List the tables, columns, and indexes of the agent's own app database."),
+                new AgentToolBinding(
+                    new DbQueryTool(sp.GetRequiredService<ISelfDatabaseAccess>()),
+                    "Run one read-only SQL query against the agent's own app database."),
+                new AgentToolBinding(
                     new SkillListTool(sp.GetRequiredService<ISkillCatalog>(),
                         sp.GetRequiredService<ILearnedSkillStore>()),
                     "List available skills."),
@@ -127,6 +133,7 @@ public static class AgentComposition
         // One app-owned database: hosts opening several sessions pass a shared
         // instance here so every session's stores hit the same SQLite file.
         .AddSingleton(_ => database ?? new AppDatabase())
+        .AddSingleton<ISelfDatabaseAccess, SqliteSelfDatabaseAccess>()
         .AddSingleton<IStateStore, SqliteStateStore>()
         .AddSingleton<IAgentStore, SqliteAgentStore>()
         .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()

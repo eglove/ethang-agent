@@ -125,6 +125,55 @@ public class ToolContractAdvertisementTests
     Assert.Contains("Add", Param(tool, "action").Description, StringComparison.Ordinal);
     Assert.Contains("InProgress", Param(tool, "status").Description, StringComparison.Ordinal);
   }
+
+  // ── db_query ─────────────────────────────────────────────────────────────
+
+  [Fact]
+  public void DbQuery_OnlySql_IsRequired()
+  {
+    DbQueryTool tool = new(new FakeSelfDatabaseAccess());
+    Assert.Equal(["timeoutSeconds", "sql"], tool.Definition.RequiredParameters);
+  }
+
+  [Fact]
+  public void DbQuery_MaxRows_IsAdvertisedAsOptionalBoundedWholeNumber()
+  {
+    ToolParameter p = Param(new DbQueryTool(new FakeSelfDatabaseAccess()), "maxRows");
+    Assert.Equal(ToolParameterType.WholeNumber, p.Type);
+    Assert.Contains("default 100", p.Description, StringComparison.Ordinal);
+    Assert.Contains("1000", p.Description, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void DbQuery_Description_DocumentsTheOutputContract()
+  {
+    string description = new DbQueryTool(new FakeSelfDatabaseAccess()).Definition.Description;
+    Assert.Contains("[db_query]", description, StringComparison.Ordinal);
+    Assert.Contains("Error [InvalidSql]", description, StringComparison.Ordinal);
+    Assert.Contains("Error [QueryFailed]", description, StringComparison.Ordinal);
+    Assert.Contains("<null>", description, StringComparison.Ordinal);
+    Assert.Contains("<blob N bytes>", description, StringComparison.Ordinal);
+    Assert.Contains("\\|", description, StringComparison.Ordinal);
+  }
+
+  // ── db_schema ────────────────────────────────────────────────────────────
+
+  [Fact]
+  public void DbSchema_IncludeCounts_IsOptional()
+  {
+    DbSchemaTool tool = new(new FakeSelfDatabaseAccess());
+    Assert.Equal(["timeoutSeconds"], tool.Definition.RequiredParameters);
+    Assert.DoesNotContain("includeCounts", tool.Definition.RequiredParameters);
+  }
+
+  [Fact]
+  public void DbSchema_Description_DocumentsAnnotationAndHiddenTables()
+  {
+    string description = new DbSchemaTool(new FakeSelfDatabaseAccess()).Definition.Description;
+    Assert.Contains("[db_schema]", description, StringComparison.Ordinal);
+    Assert.Contains("sqlite_*", description, StringComparison.Ordinal);
+    Assert.Contains("db_query", description, StringComparison.Ordinal);
+  }
 }
 
 // ── stubs (fakes only — a Tool.Domain test never knows HTTP or OpenRouter exist) ──

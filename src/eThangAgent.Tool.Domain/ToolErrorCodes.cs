@@ -14,4 +14,8 @@ public static class ToolErrorCodes
 
   /// <summary>An argument object carried a key the tool does not declare.</summary>
   public const string UnknownParameter = "UnknownParameter";
+
+  /// <summary>A db_query statement is not a single read-only SELECT/WITH query
+  ///     (see <see cref="ReadOnlySqlValidator"/>).</summary>
+  public const string InvalidSql = "InvalidSql";
 }
