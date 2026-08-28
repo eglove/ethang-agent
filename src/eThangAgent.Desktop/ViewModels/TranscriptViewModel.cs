@@ -70,28 +70,10 @@ internal sealed class TranscriptViewModel
           AddUser(message.Content);
           break;
         case Role.Assistant:
-          CloseOpen();
-          if (message.Content.Length > 0)
-          {
-            Entries.Add(new AssistantTextEntry(message.Content));
-          }
-
-          if (message.ToolCalls is { Count: > 0 } calls)
-          {
-            foreach (ToolCall call in calls)
-            {
-              callNames[call.Id] = call.Name;
-              Entries.Add(new ToolCallEntry(call.Name, call.Arguments));
-            }
-          }
-
+          RestoreAssistant(callNames, message);
           break;
         case Role.Tool:
-          AddToolResult(
-              message.ToolCallId is not null && callNames.TryGetValue(message.ToolCallId, out string? name)
-                  ? name
-                  : "tool",
-              message.Content);
+          RestoreToolResult(callNames, message);
           break;
         case Role.System:
           AddNotice(message.Content);
@@ -102,6 +84,38 @@ internal sealed class TranscriptViewModel
     }
 
     CloseOpen();
+  }
+
+  /// <summary>Restores one assistant message: its text (when non-empty) followed by one
+  ///     call entry per requested tool call, recording names so the following results
+  ///     can resolve theirs.</summary>
+  private void RestoreAssistant(Dictionary<string, string> callNames, Message message)
+  {
+    CloseOpen();
+    if (message.Content.Length > 0)
+    {
+      Entries.Add(new AssistantTextEntry(message.Content));
+    }
+
+    if (message.ToolCalls is { Count: > 0 } calls)
+    {
+      foreach (ToolCall call in calls)
+      {
+        callNames[call.Id] = call.Name;
+        Entries.Add(new ToolCallEntry(call.Name, call.Arguments));
+      }
+    }
+  }
+
+  /// <summary>Restores one tool result, naming it from the preceding assistant batch by
+  ///     tool-call id ("tool" when unresolvable).</summary>
+  private void RestoreToolResult(Dictionary<string, string> callNames, Message message)
+  {
+    AddToolResult(
+        message.ToolCallId is not null && callNames.TryGetValue(message.ToolCallId, out string? name)
+            ? name
+            : "tool",
+        message.Content);
   }
 
   public void AppendAssistantDelta(string text)

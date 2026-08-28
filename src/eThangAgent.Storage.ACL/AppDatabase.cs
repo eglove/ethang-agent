@@ -335,8 +335,12 @@ public sealed class AppDatabase
   // spawned children (they inherit their root's workspace).
   private static void ApplyV8(SqliteConnection connection)
   {
-    AddColumnIfMissing(connection, "agents", "workspace_id");
-    AddColumnIfMissing(connection, "agents", "provider");
+    AddColumnIfMissing(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name = 'workspace_id';",
+        "ALTER TABLE agents ADD COLUMN workspace_id TEXT NULL;");
+    AddColumnIfMissing(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name = 'provider';",
+        "ALTER TABLE agents ADD COLUMN provider TEXT NULL;");
     string sql = """
         CREATE INDEX IF NOT EXISTS ix_agents_ws_created ON agents (workspace_id, created_at);
         """;
@@ -350,18 +354,19 @@ public sealed class AppDatabase
   /// <summary>SQLite has no ADD COLUMN IF NOT EXISTS; the catalog check makes the one
   ///     non-idempotent migration step safe to re-run — a pass that read a stale
   ///     user_version must not fail on a column a concurrent pass already added.
-  ///     Table and column names are call-site constants, never input.</summary>
-  private static void AddColumnIfMissing(SqliteConnection connection, string table, string column)
+  ///     DDL identifiers cannot be bound parameters, so both statements arrive as
+  ///     whole, call-site-constant command texts — never composed from input.</summary>
+  private static void AddColumnIfMissing(SqliteConnection connection, string checkSql, string alterSql)
   {
     using SqliteCommand check = connection.CreateCommand();
 #pragma warning disable CA2100 // Review SQL query for security vulnerabilities
-    check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}';";
+    check.CommandText = checkSql;
 #pragma warning restore CA2100
     if (Convert.ToInt64(check.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
     {
       using SqliteCommand alter = connection.CreateCommand();
 #pragma warning disable CA2100 // Review SQL query for security vulnerabilities
-      alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} TEXT NULL;";
+      alter.CommandText = alterSql;
 #pragma warning restore CA2100
       _ = alter.ExecuteNonQuery();
     }
