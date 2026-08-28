@@ -62,7 +62,12 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
         child.ModelUsed, null, ChildMaxTokens, ChildTemperature, _preferences?.ReasoningEffort).Value!;
 
     Agent agent = new(_factory.Create(config), new Conversation(), config, _tools,
-        _systemPrompt, id: child.Id, depth: child.Depth);
+        new AgentOptions
+        {
+          SystemPrompt = _systemPrompt,
+          Id = child.Id,
+          Depth = child.Depth,
+        });
 
     using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
     timeoutCts.CancelAfter(_options.ChildTimeout);

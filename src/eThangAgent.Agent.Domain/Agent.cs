@@ -6,8 +6,7 @@ using eThangAgent.ToolDomain;
 namespace eThangAgent.AgentDomain;
 
 public class Agent(IModelProvider provider, Conversation conversation, ModelConfig config,
-    IToolRegistry tools, ISystemPromptProvider? systemPrompt = null,
-    AgentId? id = null, int depth = 0, int maxAutoContinuations = Agent.DefaultMaxAutoContinuations)
+    IToolRegistry tools, AgentOptions? options = null)
 {
   /// <summary>Bounded auto-continuations per turn when a response ends with
   ///     <see cref="FinishReason.Length"/>.</summary>
@@ -28,17 +27,17 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
   private readonly IModelProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
-  private readonly ISystemPromptProvider? _systemPrompt = systemPrompt;
-  private readonly int _maxAutoContinuations = maxAutoContinuations;
+  private readonly ISystemPromptProvider? _systemPrompt = options?.SystemPrompt;
+  private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
 
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
   public ModelConfig Config { get; } = config ?? throw new ArgumentNullException(nameof(config));
 
   /// <summary>Identity of this agent. Roots generate one on construction; spawned children carry their persisted id.</summary>
-  public AgentId Id { get; } = id ?? AgentId.NewId();
+  public AgentId Id { get; } = options?.Id ?? AgentId.NewId();
 
   /// <summary>Depth in the spawn tree. Root agents are depth 0; children run at parent depth + 1.</summary>
-  public int Depth { get; } = depth;
+  public int Depth { get; } = options?.Depth ?? 0;
 
   /// <summary>Tool calls executed during the most recent SendMessage; 0 when the turn ended without any.</summary>
   public int LastTurnToolCalls { get; private set; }

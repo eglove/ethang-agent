@@ -41,7 +41,7 @@ public class AgentContinuationTests
   {
     AlwaysTruncatedProvider alwaysTruncated = new();
     Agent agent = new(alwaysTruncated, new Conversation(), DefaultConfig,
-        new ToolRegistry([]), maxAutoContinuations: 2);
+        new ToolRegistry([]), new AgentOptions { MaxAutoContinuations = 2 });
 
     Result<string> result = await agent.SendMessage("hi", default);
 

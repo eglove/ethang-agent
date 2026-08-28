@@ -454,7 +454,7 @@ public static class MarkdownDocumentParser
 
     Result<List<IReadOnlyList<string>>> rows = ParseTableRows(rowsEl, headers.Value!.Count);
     Result<(List<TableHeader> Headers, List<IReadOnlyList<string>> Rows)> table = rows.IsSuccess
-      ? Result.Success((headers.Value!, rows.Value!))
+      ? Result.Success((headers.Value, rows.Value!))
       : Result.Failure<(List<TableHeader>, List<IReadOnlyList<string>>)>(rows.Error!);
     return table;
   }

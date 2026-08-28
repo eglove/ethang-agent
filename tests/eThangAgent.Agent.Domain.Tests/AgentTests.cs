@@ -29,7 +29,7 @@ public class AgentTests
   {
     AgentId id = AgentId.NewId();
     Agent agent = new(new ScriptedModelProvider(), new Conversation(), DefaultConfig,
-        new ToolRegistry([]), id: id, depth: 2);
+        new ToolRegistry([]), new AgentOptions { Id = id, Depth = 2 });
 
     Assert.Equal(id, agent.Id);
     Assert.Equal(2, agent.Depth);
@@ -187,7 +187,7 @@ public class AgentTests
   {
     CapturingProvider provider = new();
     Agent agent = new(provider, new Conversation(), DefaultConfig,
-        new ToolRegistry([]), new StaticPromptProvider("guide text"));
+        new ToolRegistry([]), new AgentOptions { SystemPrompt = new StaticPromptProvider("guide text") });
 
     _ = await agent.SendMessage("hi");
 

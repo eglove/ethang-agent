@@ -125,7 +125,7 @@ public sealed class CycleCheckTool : ITool
 
     Result<TimeSpan> budget = ToolTimeout.Parse(json);
     Result<ParsedArgs> parsed = budget.IsSuccess
-      ? Result.Success(new ParsedArgs(json, entries.Value!, edges.Value!))
+      ? Result.Success(new ParsedArgs(json, entries.Value!, edges.Value))
       : Result.Failure<ParsedArgs>(budget.Error!);
     return parsed;
   }

@@ -1,3 +1,4 @@
+using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.ToolDomain;
@@ -43,8 +44,12 @@ public sealed class RootAgentHolder(
     }
 
     CurrentConfig = config;
-    Current = new Ag(_provider, _conversation, config, _tools, systemPrompt,
-        maxAutoContinuations: maxAutoContinuations ?? Ag.DefaultMaxAutoContinuations);
+    Current = new Ag(_provider, _conversation, config, _tools,
+        new AgentOptions
+        {
+          SystemPrompt = systemPrompt,
+          MaxAutoContinuations = maxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,
+        });
     return Current;
   }
 }

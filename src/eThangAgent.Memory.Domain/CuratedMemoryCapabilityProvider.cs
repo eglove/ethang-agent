@@ -268,7 +268,7 @@ public sealed class CuratedMemoryCapabilityProvider(
       return Fail(scope.Error!);
     }
 
-    CuratedMemory memory = BuildMemory(category.Value!, scope.Value!, tags, content, usageHint.Value);
+    CuratedMemory memory = BuildMemory(category.Value, scope.Value, tags, content, usageHint.Value);
     Result<CuratedMemory> added = await _store.AddAsync(memory).ConfigureAwait(false);
     if (!added.IsSuccess)
     {
@@ -482,15 +482,16 @@ public sealed class CuratedMemoryCapabilityProvider(
       Version = stored.Version + 1,
       UpdatedAt = _clock(),
       Content = args.ContainsKey(Content) ? OptString(args, Content)!.Trim() : stored.Content,
-      Category = delta.Category ?? stored.Category,
+      Category = delta.NewCategory ?? stored.Category,
       Tags = delta.Tags ?? stored.Tags,
-      UsageHint = args.ContainsKey(UsageHint) ? delta.UsageHint : stored.UsageHint,
+      UsageHint = args.ContainsKey(UsageHint) ? delta.NewUsageHint : stored.UsageHint,
     };
     return updated;
   }
 
-  /// <summary>The validated update payload: null fields mean "not touched".</summary>
-  private sealed record MemoryDelta(MemoryCategory? Category, IReadOnlyList<string>? Tags, string? UsageHint);
+  /// <summary>The validated update payload: null fields mean "not touched". Property
+  /// names carry the New prefix so they cannot shadow the JSON-key consts above.</summary>
+  private sealed record MemoryDelta(MemoryCategory? NewCategory, IReadOnlyList<string>? Tags, string? NewUsageHint);
 
   private async Task<CapabilityInvocationResult> RemoveAsync(string json)
   {

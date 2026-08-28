@@ -103,12 +103,10 @@ public static class CycleDetector
     {
       if (graph.TryGetValue(queue.Dequeue(), out List<string>? succ))
       {
-        foreach (string w in succ)
+        // HashSet.Add returns true exactly for the newly-reachable nodes.
+        foreach (string w in succ.Where(reachable.Add))
         {
-          if (reachable.Add(w))
-          {
-            queue.Enqueue(w);
-          }
+          queue.Enqueue(w);
         }
       }
     }
@@ -197,12 +195,9 @@ public static class CycleDetector
 
     internal List<List<string>> Run(IReadOnlyList<string> nodes)
     {
-      foreach (string n in nodes)
+      foreach (string n in nodes.Where(n => !_index.ContainsKey(n)))
       {
-        if (!_index.ContainsKey(n))
-        {
-          StrongConnect(n);
-        }
+        StrongConnect(n);
       }
 
       return _components;

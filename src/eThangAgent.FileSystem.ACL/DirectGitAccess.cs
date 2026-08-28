@@ -48,13 +48,13 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     string branch = branchRes.ExitCode == 0 ? branchRes.StdOut.Trim() : "(detached)";
 
     Result<GitRun> statusRes = await RunGitVerifiedAsync(repoPath, ["status", "--porcelain"], ct).ConfigureAwait(false);
-    if (!statusRes.IsSuccess)
+    if (statusRes.Value is not { } statusRun)
     {
       return Result.Failure<GitStatus>(statusRes.Error!);
     }
 
     (List<GitStatusEntry> staged, List<GitStatusEntry> unstaged, List<string> untracked) =
-        ParsePorcelain(statusRes.Value!.StdOut);
+        ParsePorcelain(statusRun.StdOut);
     GitStatus status = new(branch, staged, unstaged, untracked);
     return Result.Success(status);
   }
@@ -171,12 +171,12 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       string[] pathArgs, CancellationToken ct)
   {
     Result<GitRun> run = await RunGitVerifiedAsync(repoPath, WithPath(baseArgs, pathArgs), ct).ConfigureAwait(false);
-    if (!run.IsSuccess)
+    if (run.Value is not { } numstatRun)
     {
       return Result.Failure<List<string>>(run.Error!);
     }
 
-    List<string> lines = [.. run.Value!.StdOut.Split(NewLines, StringSplitOptions.RemoveEmptyEntries)];
+    List<string> lines = [.. numstatRun.StdOut.Split(NewLines, StringSplitOptions.RemoveEmptyEntries)];
     return Result.Success(lines);
   }
 

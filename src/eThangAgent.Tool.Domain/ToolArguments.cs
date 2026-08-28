@@ -145,17 +145,13 @@ public static class ToolArguments
       where T : struct, Enum
   {
     ArgumentNullException.ThrowIfNull(allowedNames);
-    foreach (string allowed in allowedNames)
-    {
-      if (string.Equals(text, allowed, StringComparison.Ordinal))
-      {
-        return Result.Success(Enum.Parse<T>(allowed));
-      }
-    }
-
-    Result<T> failure = Result.Failure<T>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-        $"'{name}' must be exactly one of {string.Join(", ", allowedNames)} (case-sensitive), but got '{text}'."));
-    return failure;
+    string? match = allowedNames.FirstOrDefault(allowed =>
+        string.Equals(text, allowed, StringComparison.Ordinal));
+    Result<T> result = match is null
+      ? Result.Failure<T>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{name}' must be exactly one of {string.Join(", ", allowedNames)} (case-sensitive), but got '{text}'."))
+      : Result.Success(Enum.Parse<T>(match));
+    return result;
   }
 
   /// <summary>Validates one element as a JSON string. The type-mismatch wording is the

@@ -61,7 +61,7 @@ public sealed record ClarifyInput(string Question, IReadOnlyList<string>? Option
           "'allowFreeText' is false but 'options' was not provided: without options " +
           "every answer would be rejected as free text. Provide at least 2 options " +
           "or set 'allowFreeText' to true."))
-      : Result.Success<ClarifyInput>(new(question.Value!, options.Value, allowFreeText.Value));
+      : Result.Success<ClarifyInput>(new(question.Value, options.Value, allowFreeText.Value));
     return result;
   }
 
