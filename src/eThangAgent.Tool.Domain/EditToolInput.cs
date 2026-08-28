@@ -38,7 +38,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
     string path = pathEl.GetString()!;
     if (path.Length == 0)
     {
-      return Fail(new DomainError("InvalidParameterValue", "'path' must be a non-empty string."));
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'path' must be a non-empty string."));
     }
 
     if (!json.TryGetProperty("old", out JsonElement oldEl))
@@ -54,7 +54,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
     string old = oldEl.GetString()!;
     if (old.Length == 0)
     {
-      return Fail(new DomainError("InvalidParameterValue",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "'old' must be a non-empty string — an empty anchor would match everywhere."));
     }
 
@@ -74,7 +74,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
     bool hasOcc = json.TryGetProperty("occurrences", out JsonElement occEl);
     if (hasAll == hasOcc)
     {
-      return Fail(new DomainError("InvalidParameterValue",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "Provide exactly one of 'all' (boolean true) or 'occurrences' (integer ≥ 1)."));
     }
 
@@ -84,7 +84,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
     {
       if (allEl.ValueKind is not JsonValueKind.True)
       {
-        return Fail(new DomainError("InvalidParameterValue",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
             "'all' must be exactly true. Provide exactly one of " +
             "'all' (boolean true) or 'occurrences' (integer ≥ 1)."));
       }
@@ -101,7 +101,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
 
       if (occurrences < 1)
       {
-        return Fail(new DomainError("InvalidParameterValue",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
             $"'occurrences' must be ≥ 1 (got {occurrences})."));
       }
 

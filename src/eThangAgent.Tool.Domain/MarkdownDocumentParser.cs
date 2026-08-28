@@ -11,6 +11,8 @@ namespace eThangAgent.ToolDomain;
 /// rendering is therefore total.</summary>
 public static class MarkdownDocumentParser
 {
+  private const string Items = "items";
+
   private static readonly HashSet<string> AlertWords = new(StringComparer.Ordinal)
     { "CAUTION", "IMPORTANT", "NOTE", "TIP", "WARNING" };
 
@@ -33,17 +35,17 @@ public static class MarkdownDocumentParser
   {
     if (root.ValueKind != JsonValueKind.Object)
     {
-      return Fail(new DomainError("InvalidParameterType", $"'{source}' must be a JSON object, but got {root.ValueKind}."));
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterType, $"'{source}' must be a JSON object, but got {root.ValueKind}."));
     }
 
     if (!root.TryGetProperty("blocks", out JsonElement blocksEl))
     {
-      return Fail(new DomainError("MissingParameter", $"'{source}.blocks' is required."));
+      return Fail(new DomainError(ToolErrorCodes.MissingParameter, $"'{source}.blocks' is required."));
     }
 
     if (blocksEl.ValueKind != JsonValueKind.Array)
     {
-      return Fail(new DomainError("InvalidParameterType", $"'{source}.blocks' must be an array, but got {blocksEl.ValueKind}."));
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterType, $"'{source}.blocks' must be an array, but got {blocksEl.ValueKind}."));
     }
 
     List<MarkdownBlock?> blocks = [];
@@ -65,7 +67,7 @@ public static class MarkdownDocumentParser
     {
       if (fmEl.ValueKind != JsonValueKind.Object)
       {
-        return Fail(new DomainError("InvalidParameterType", $"'{source}.frontmatter' must be an object, but got {fmEl.ValueKind}."));
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterType, $"'{source}.frontmatter' must be an object, but got {fmEl.ValueKind}."));
       }
 
       Dictionary<string, object> fm = [];
@@ -83,18 +85,18 @@ public static class MarkdownDocumentParser
             fm.Add(p.Name, p.Value.GetBoolean());
             break;
           case JsonValueKind.Null:
-            return Fail(new DomainError("InvalidParameterValue",
+            return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                 $"'{source}.frontmatter.{p.Name}' must not be null; omit it instead."));
           case JsonValueKind.Object:
           case JsonValueKind.Array:
           case JsonValueKind.Undefined:
           default:
-            return Fail(new DomainError("InvalidParameterType",
+            return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
                 $"'{source}.frontmatter.{p.Name}' must be a string, number, or boolean, but got {p.Value.ValueKind}."));
         }
         if (fm[p.Name] is string s && s.Contains('\n', StringComparison.Ordinal))
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
               $"Frontmatter value for '{p.Name}' contains a newline; multi-line values are not allowed."));
         }
       }
@@ -113,17 +115,17 @@ public static class MarkdownDocumentParser
 
     if (b.ValueKind != JsonValueKind.Object)
     {
-      return FailMarkdownBlock(new DomainError("InvalidParameterType", $"each block must be an object or null, but got {b.ValueKind}."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, $"each block must be an object or null, but got {b.ValueKind}."));
     }
 
     if (!b.TryGetProperty("type", out JsonElement typeEl))
     {
-      return FailMarkdownBlock(new DomainError("MissingParameter", "each block requires a 'type'."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, "each block requires a 'type'."));
     }
 
     if (typeEl.ValueKind != JsonValueKind.String)
     {
-      return FailMarkdownBlock(new DomainError("InvalidParameterType", $"'type' must be a string, but got {typeEl.ValueKind}."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, $"'type' must be a string, but got {typeEl.ValueKind}."));
     }
 
     string type = typeEl.GetString()!;
@@ -159,17 +161,17 @@ public static class MarkdownDocumentParser
   {
     if (!b.TryGetProperty("level", out JsonElement levelEl))
     {
-      return FailMarkdownBlock(new DomainError("MissingParameter", "'header' blocks require 'level'."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, "'header' blocks require 'level'."));
     }
 
     if (levelEl.ValueKind != JsonValueKind.Number || !levelEl.TryGetInt32(out int level))
     {
-      return FailMarkdownBlock(new DomainError("InvalidParameterType", "'header.level' must be an integer."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "'header.level' must be an integer."));
     }
 
     if (level is < 1 or > 3)
     {
-      return FailMarkdownBlock(new DomainError("InvalidParameterValue", $"'header.level' must be 1-3, but got {level}."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterValue, $"'header.level' must be 1-3, but got {level}."));
     }
 
     Result<string> text = RequireText(b, "text");
@@ -182,18 +184,18 @@ public static class MarkdownDocumentParser
   {
     if (!b.TryGetProperty("alertType", out JsonElement alertEl))
     {
-      return FailMarkdownBlock(new DomainError("MissingParameter", "'alert' blocks require 'alertType'."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, "'alert' blocks require 'alertType'."));
     }
 
     if (alertEl.ValueKind != JsonValueKind.String)
     {
-      return FailMarkdownBlock(new DomainError("InvalidParameterType", "'alert.alertType' must be a string."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "'alert.alertType' must be a string."));
     }
 
     string word = alertEl.GetString()!;
     if (!AlertWords.Contains(word))
     {
-      return FailMarkdownBlock(new DomainError("InvalidParameterValue",
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'alert.alertType' must be one of CAUTION, IMPORTANT, NOTE, TIP, WARNING, but got '{word}'."));
     }
 
@@ -216,7 +218,7 @@ public static class MarkdownDocumentParser
     {
       if (langEl.ValueKind != JsonValueKind.String)
       {
-        return FailMarkdownBlock(new DomainError("InvalidParameterType", "'codeBlock.language' must be a string."));
+        return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "'codeBlock.language' must be a string."));
       }
 
       language = langEl.GetString();
@@ -231,12 +233,12 @@ public static class MarkdownDocumentParser
     {
       if (countEl.ValueKind != JsonValueKind.Number || !countEl.TryGetInt32(out count))
       {
-        return FailMarkdownBlock(new DomainError("InvalidParameterType", "'space.count' must be an integer."));
+        return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "'space.count' must be an integer."));
       }
 
       if (count < 1)
       {
-        return FailMarkdownBlock(new DomainError("InvalidParameterValue", "'space.count' must be >= 1."));
+        return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterValue, "'space.count' must be >= 1."));
       }
     }
     return Result.Success<MarkdownBlock?>(new SpaceBlock(count));
@@ -244,14 +246,14 @@ public static class MarkdownDocumentParser
 
   private static Result<MarkdownBlock?> ParseList(JsonElement b, string type)
   {
-    if (!b.TryGetProperty("items", out JsonElement itemsEl))
+    if (!b.TryGetProperty(Items, out JsonElement itemsEl))
     {
-      return FailMarkdownBlock(new DomainError("MissingParameter", $"'{type}' blocks require 'items'."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, $"'{type}' blocks require 'items'."));
     }
 
     if (itemsEl.ValueKind != JsonValueKind.Array)
     {
-      return FailMarkdownBlock(new DomainError("InvalidParameterType", $"'{type}.items' must be an array."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, $"'{type}.items' must be an array."));
     }
 
     Result<IReadOnlyList<ListItem>> items = ParseListItems(itemsEl);
@@ -268,7 +270,7 @@ public static class MarkdownDocumentParser
   {
     if (depth > 16)
     {
-      return FailList(new DomainError("InvalidParameterValue", "list nesting exceeds the maximum depth of 16."));
+      return FailList(new DomainError(ToolErrorCodes.InvalidParameterValue, "list nesting exceeds the maximum depth of 16."));
     }
 
     List<ListItem> items = [];
@@ -276,23 +278,23 @@ public static class MarkdownDocumentParser
     {
       if (el.ValueKind != JsonValueKind.Object)
       {
-        return FailList(new DomainError("InvalidParameterType", $"each list item must be an object, but got {el.ValueKind}."));
+        return FailList(new DomainError(ToolErrorCodes.InvalidParameterType, $"each list item must be an object, but got {el.ValueKind}."));
       }
 
       if (!el.TryGetProperty("text", out JsonElement textEl))
       {
-        return FailList(new DomainError("MissingParameter", "each list item requires 'text'."));
+        return FailList(new DomainError(ToolErrorCodes.MissingParameter, "each list item requires 'text'."));
       }
 
       if (textEl.ValueKind != JsonValueKind.String)
       {
-        return FailList(new DomainError("InvalidParameterType", $"list item 'text' must be a string, but got {textEl.ValueKind}."));
+        return FailList(new DomainError(ToolErrorCodes.InvalidParameterType, $"list item 'text' must be a string, but got {textEl.ValueKind}."));
       }
 
       string text = textEl.GetString()!;
       if (text.Length == 0)
       {
-        return FailList(new DomainError("InvalidParameterValue", "list item 'text' must not be empty."));
+        return FailList(new DomainError(ToolErrorCodes.InvalidParameterValue, "list item 'text' must not be empty."));
       }
 
       IReadOnlyList<ListItem>? children = null;
@@ -300,7 +302,7 @@ public static class MarkdownDocumentParser
       {
         if (childrenEl.ValueKind != JsonValueKind.Array)
         {
-          return FailList(new DomainError("InvalidParameterType", "list item 'children' must be an array."));
+          return FailList(new DomainError(ToolErrorCodes.InvalidParameterType, "list item 'children' must be an array."));
         }
 
         Result<IReadOnlyList<ListItem>> kids = ParseListItems(childrenEl, depth + 1);
@@ -318,14 +320,14 @@ public static class MarkdownDocumentParser
 
   private static Result<MarkdownBlock?> ParseTaskList(JsonElement b)
   {
-    if (!b.TryGetProperty("items", out JsonElement itemsEl))
+    if (!b.TryGetProperty(Items, out JsonElement itemsEl))
     {
-      return FailMarkdownBlock(new DomainError("MissingParameter", "'taskList' blocks require 'items'."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, "'taskList' blocks require 'items'."));
     }
 
     if (itemsEl.ValueKind != JsonValueKind.Array)
     {
-      return FailMarkdownBlock(new DomainError("InvalidParameterType", "'taskList.items' must be an array."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "'taskList.items' must be an array."));
     }
 
     List<TaskListItem> items = [];
@@ -333,17 +335,17 @@ public static class MarkdownDocumentParser
     {
       if (el.ValueKind != JsonValueKind.Object)
       {
-        return FailMarkdownBlock(new DomainError("InvalidParameterType", $"each taskList item must be an object, but got {el.ValueKind}."));
+        return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, $"each taskList item must be an object, but got {el.ValueKind}."));
       }
 
       if (!el.TryGetProperty("label", out JsonElement labelEl) || labelEl.ValueKind != JsonValueKind.String)
       {
-        return FailMarkdownBlock(new DomainError("MissingParameter", "each taskList item requires a string 'label'."));
+        return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, "each taskList item requires a string 'label'."));
       }
 
       if (!el.TryGetProperty("isComplete", out JsonElement doneEl) || doneEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
       {
-        return FailMarkdownBlock(new DomainError("MissingParameter", "each taskList item requires boolean 'isComplete'."));
+        return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, "each taskList item requires boolean 'isComplete'."));
       }
 
       items.Add(new TaskListItem(doneEl.GetBoolean(), labelEl.GetString()!));
@@ -355,17 +357,17 @@ public static class MarkdownDocumentParser
   {
     if (!b.TryGetProperty("headers", out JsonElement headersEl) || headersEl.ValueKind != JsonValueKind.Array)
     {
-      return FailMarkdownBlock(new DomainError("MissingParameter", "'table' blocks require a non-empty 'headers' array."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, "'table' blocks require a non-empty 'headers' array."));
     }
 
     if (!headersEl.EnumerateArray().Any())
     {
-      return FailMarkdownBlock(new DomainError("InvalidParameterValue", "'table.headers' must have at least one column."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterValue, "'table.headers' must have at least one column."));
     }
 
     if (!b.TryGetProperty("rows", out JsonElement rowsEl) || rowsEl.ValueKind != JsonValueKind.Array)
     {
-      return FailMarkdownBlock(new DomainError("InvalidParameterType", "'table.rows' must be an array of arrays."));
+      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "'table.rows' must be an array of arrays."));
     }
 
     List<TableHeader> headers = [];
@@ -378,13 +380,13 @@ public static class MarkdownDocumentParser
       }
       if (h.ValueKind != JsonValueKind.Object)
       {
-        return FailMarkdownBlock(new DomainError("InvalidParameterType",
+        return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType,
             "each table header must be a string or an object with 'text' (+optional 'align')."));
       }
 
       if (!h.TryGetProperty("text", out JsonElement ht) || ht.ValueKind != JsonValueKind.String)
       {
-        return FailMarkdownBlock(new DomainError("MissingParameter", "object table headers require a string 'text'."));
+        return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, "object table headers require a string 'text'."));
       }
 
       TableAlign? align = null;
@@ -392,7 +394,7 @@ public static class MarkdownDocumentParser
       {
         if (alignEl.ValueKind != JsonValueKind.String)
         {
-          return FailMarkdownBlock(new DomainError("InvalidParameterType", "'align' must be \"left\", \"center\", or \"right\"."));
+          return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "'align' must be \"left\", \"center\", or \"right\"."));
         }
 
         align = alignEl.GetString() switch
@@ -404,7 +406,7 @@ public static class MarkdownDocumentParser
         };
         if (align is null)
         {
-          return FailMarkdownBlock(new DomainError("InvalidParameterValue", "'align' must be \"left\", \"center\", or \"right\"."));
+          return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterValue, "'align' must be \"left\", \"center\", or \"right\"."));
         }
       }
       headers.Add(new TableHeader(ht.GetString()!, align));
@@ -416,7 +418,7 @@ public static class MarkdownDocumentParser
     {
       if (rowEl.ValueKind != JsonValueKind.Array)
       {
-        return FailMarkdownBlock(new DomainError("InvalidParameterType", "each table row must be an array of strings."));
+        return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "each table row must be an array of strings."));
       }
 
       List<string> cells = [];
@@ -424,14 +426,14 @@ public static class MarkdownDocumentParser
       {
         if (c.ValueKind != JsonValueKind.String)
         {
-          return FailMarkdownBlock(new DomainError("InvalidParameterType", "each table cell must be a string."));
+          return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "each table cell must be a string."));
         }
 
         cells.Add(c.GetString()!);
       }
       if (cells.Count != headerCount)
       {
-        return FailMarkdownBlock(new DomainError("InvalidParameterValue",
+        return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterValue,
             $"Table row cell count ({cells.Count}) does not match header count ({headerCount})."));
       }
 
@@ -443,9 +445,9 @@ public static class MarkdownDocumentParser
   private static Result<string> RequireText(JsonElement b, string field)
   {
     return !b.TryGetProperty(field, out JsonElement el)
-      ? Result.Failure<string>(new DomainError("MissingParameter", $"'{field}' is required."))
+      ? Result.Failure<string>(new DomainError(ToolErrorCodes.MissingParameter, $"'{field}' is required."))
       : el.ValueKind != JsonValueKind.String
-      ? Result.Failure<string>(new DomainError("InvalidParameterType", $"'{field}' must be a string, but got {el.ValueKind}."))
+      ? Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType, $"'{field}' must be a string, but got {el.ValueKind}."))
       : Result.Success(el.GetString()!);
   }
 
@@ -457,8 +459,8 @@ public static class MarkdownDocumentParser
     "alert" => new HashSet<string>(StringComparer.Ordinal) { "alertType", "text" },
     "codeBlock" => new HashSet<string>(StringComparer.Ordinal) { "language", "code" },
     "space" => new HashSet<string>(StringComparer.Ordinal) { "count" },
-    "unorderedList" or "numberedList" => new HashSet<string>(StringComparer.Ordinal) { "items" },
-    "taskList" => new HashSet<string>(StringComparer.Ordinal) { "items" },
+    "unorderedList" or "numberedList" => new HashSet<string>(StringComparer.Ordinal) { Items },
+    "taskList" => new HashSet<string>(StringComparer.Ordinal) { Items },
     "table" => new HashSet<string>(StringComparer.Ordinal) { "headers", "rows" },
     _ => null,
   };

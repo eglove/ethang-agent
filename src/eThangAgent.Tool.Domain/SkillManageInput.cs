@@ -43,7 +43,7 @@ public sealed record SkillManageInput(
 
     if (actionEl.ValueKind != JsonValueKind.String)
     {
-      return Fail(new DomainError("InvalidParameterType",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
           $"'action' must be a string, but got {actionEl.ValueKind}."));
     }
 
@@ -57,7 +57,7 @@ public sealed record SkillManageInput(
     };
     if (action is null)
     {
-      return Fail(new DomainError("InvalidParameterValue",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'action' must be exactly one of Create, Update, Delete (case-sensitive), but got '{actionText}'."));
     }
 
@@ -68,19 +68,19 @@ public sealed record SkillManageInput(
 
     if (nameEl.ValueKind != JsonValueKind.String)
     {
-      return Fail(new DomainError("InvalidParameterType",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
           $"'name' must be a string, but got {nameEl.ValueKind}."));
     }
 
     string name = nameEl.GetString()!;
     if (name.Length == 0)
     {
-      return Fail(new DomainError("InvalidParameterValue", "'name' must be a non-empty string."));
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'name' must be a non-empty string."));
     }
 
     if (!SkillSpecifications.ValidName.IsMatch(name))
     {
-      return Fail(new DomainError("InvalidParameterValue",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "'name' must be a valid skill name: lowercase letters, digits, and hyphens only; " +
           "it must start with a letter or digit and be at most 64 characters long."));
     }
@@ -92,7 +92,7 @@ public sealed record SkillManageInput(
     {
       if (descEl.ValueKind != JsonValueKind.String)
       {
-        return Fail(new DomainError("InvalidParameterType",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
             $"'description' must be a string, but got {descEl.ValueKind}."));
       }
 
@@ -102,7 +102,7 @@ public sealed record SkillManageInput(
     {
       if (bodyEl.ValueKind != JsonValueKind.String)
       {
-        return Fail(new DomainError("InvalidParameterType",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
             $"'body' must be a string, but got {bodyEl.ValueKind}."));
       }
 
@@ -114,7 +114,7 @@ public sealed record SkillManageInput(
     {
       if (provEl.ValueKind != JsonValueKind.String)
       {
-        return Fail(new DomainError("InvalidParameterType",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
             $"'provenanceSession' must be a string, but got {provEl.ValueKind}."));
       }
 
@@ -126,25 +126,25 @@ public sealed record SkillManageInput(
       case SkillManageAction.Create:
         if (description is null)
         {
-          return Fail(new DomainError("MissingParameter",
+          return Fail(new DomainError(ToolErrorCodes.MissingParameter,
                       "Missing required parameter 'description'. Create requires description and body."));
         }
 
         if (description.Length == 0)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "'description' must be a non-empty string."));
         }
 
         if (body is null)
         {
-          return Fail(new DomainError("MissingParameter",
+          return Fail(new DomainError(ToolErrorCodes.MissingParameter,
                       "Missing required parameter 'body'. Create requires description and body."));
         }
 
         if (body.Length == 0)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "'body' must be a non-empty string."));
         }
 
@@ -153,19 +153,19 @@ public sealed record SkillManageInput(
       case SkillManageAction.Update:
         if (description is not null && description.Length == 0)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "'description' must be a non-empty string."));
         }
 
         if (body is not null && body.Length == 0)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "'body' must be a non-empty string."));
         }
 
         if (description is null && body is null)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "Update changes nothing: provide at least one of 'description' or 'body'."));
         }
 
@@ -177,7 +177,7 @@ public sealed record SkillManageInput(
         if (!json.TryGetProperty("confirm", out JsonElement confirmEl) ||
             confirmEl.ValueKind != JsonValueKind.True)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "'confirm' is required to delete a skill and must be exactly the boolean " +
                       "true. Deletion permanently removes current and history rows; re-issue " +
                       "with \"confirm\": true to proceed."));
@@ -193,12 +193,12 @@ public sealed record SkillManageInput(
   }
 
   private static Result<SkillManageInput> MissingAction() =>
-      Result.Failure<SkillManageInput>(new DomainError("MissingParameter",
+      Result.Failure<SkillManageInput>(new DomainError(ToolErrorCodes.MissingParameter,
           "Missing required parameter 'action'. This tool requires action " +
           "(Create, Update, or Delete) and name."));
 
   private static Result<SkillManageInput> MissingName() =>
-      Result.Failure<SkillManageInput>(new DomainError("MissingParameter",
+      Result.Failure<SkillManageInput>(new DomainError(ToolErrorCodes.MissingParameter,
           "Missing required parameter 'name'. This tool requires action " +
           "(Create, Update, or Delete) and name."));
 

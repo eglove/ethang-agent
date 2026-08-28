@@ -1,5 +1,6 @@
 using System.Text.Json;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Zai.ACL;
 
@@ -23,7 +24,7 @@ public sealed record ZaiOcrInput(string Path, int? StartPage, int? EndPage)
     }
     if (pathEl.ValueKind != JsonValueKind.String || pathEl.GetString()!.Length == 0)
     {
-      return Fail(new DomainError("InvalidParameterValue", "'path' must be a non-empty string."));
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'path' must be a non-empty string."));
     }
     string path = pathEl.GetString()!;
     bool isPdf = path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
@@ -32,17 +33,17 @@ public sealed record ZaiOcrInput(string Path, int? StartPage, int? EndPage)
         || path.EndsWith(".png", StringComparison.OrdinalIgnoreCase);
     if (!isPdf && !isImage)
     {
-      return Fail(new DomainError("InvalidParameterValue",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'path' must reference a .pdf, .jpg, or .png document (got \"{path}\")."));
     }
 
     int? startPage = ParsePage(json, "startPage");
     int? endPage = ParsePage(json, "endPage");
     return startPage is 0 || endPage is 0
-      ? Fail(new DomainError("InvalidParameterValue",
+      ? Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "'startPage' and 'endPage' must be integers ≥ 1 when present."))
       : startPage is { } start && endPage is { } end && end < start
-      ? Fail(new DomainError("InvalidParameterValue",
+      ? Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'endPage' ({end}) must not be below 'startPage' ({start})."))
       : Result.Success(new ZaiOcrInput(path, startPage, endPage));
   }

@@ -9,6 +9,10 @@ public sealed record SearchToolInput(
 {
   public const int MaxResultsCap = 200;
 
+  private const string PatternName = "pattern";
+  private const string MaxResultsName = "maxResults";
+  private const string StringType = "string";
+
   public static Result<SearchToolInput> Create(string jsonArguments)
   {
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
@@ -20,7 +24,7 @@ public sealed record SearchToolInput(
     JsonElement json = baseParse.Value;
 
     HashSet<string> known = new(
-        ["pattern", "mode", "path", "glob", "maxResults", "contextLines", ToolTimeout.ParameterName],
+        [PatternName, "mode", "path", "glob", MaxResultsName, "contextLines", ToolTimeout.ParameterName],
         StringComparer.Ordinal);
     List<string> unknown = [.. json.EnumerateObject()
         .Where(p => !known.Contains(p.Name))
@@ -32,20 +36,20 @@ public sealed record SearchToolInput(
           $"Allowed: pattern, mode, path, glob, maxResults, contextLines, {ToolTimeout.ParameterName}."));
     }
 
-    if (!json.TryGetProperty("pattern", out JsonElement patternEl))
+    if (!json.TryGetProperty(PatternName, out JsonElement patternEl))
     {
-      return Missing("pattern");
+      return Missing(PatternName);
     }
 
     if (patternEl.ValueKind != JsonValueKind.String)
     {
-      return WrongType("pattern", "string", patternEl.ValueKind);
+      return WrongType(PatternName, StringType, patternEl.ValueKind);
     }
 
     string pattern = patternEl.GetString()!;
     if (pattern.Length == 0)
     {
-      return Fail(new DomainError("InvalidParameterValue", "'pattern' must be a non-empty string."));
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'pattern' must be a non-empty string."));
     }
 
     if (!json.TryGetProperty("mode", out JsonElement modeEl))
@@ -55,7 +59,7 @@ public sealed record SearchToolInput(
 
     if (modeEl.ValueKind != JsonValueKind.String)
     {
-      return WrongType("mode", "string", modeEl.ValueKind);
+      return WrongType("mode", StringType, modeEl.ValueKind);
     }
 
     string modeRaw = modeEl.GetString()!;
@@ -67,7 +71,7 @@ public sealed record SearchToolInput(
     };
     if (regex is null)
     {
-      return Fail(new DomainError("InvalidParameterValue",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'mode' must be exactly \"Literal\" or \"Regex\" (got \"{modeRaw}\")."));
     }
 
@@ -76,13 +80,13 @@ public sealed record SearchToolInput(
     {
       if (pathEl.ValueKind != JsonValueKind.String)
       {
-        return WrongType("path", "string", pathEl.ValueKind);
+        return WrongType("path", StringType, pathEl.ValueKind);
       }
 
       path = pathEl.GetString()!;
       if (path.Length == 0)
       {
-        return Fail(new DomainError("InvalidParameterValue", "'path' must be a non-empty string when present."));
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'path' must be a non-empty string when present."));
       }
     }
 
@@ -91,29 +95,29 @@ public sealed record SearchToolInput(
     {
       if (globEl.ValueKind != JsonValueKind.String)
       {
-        return WrongType("glob", "string", globEl.ValueKind);
+        return WrongType("glob", StringType, globEl.ValueKind);
       }
 
       glob = globEl.GetString()!;
       if (glob.Length == 0)
       {
-        return Fail(new DomainError("InvalidParameterValue", "'glob' must be a non-empty string when present."));
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'glob' must be a non-empty string when present."));
       }
     }
 
-    if (!json.TryGetProperty("maxResults", out JsonElement maxEl))
+    if (!json.TryGetProperty(MaxResultsName, out JsonElement maxEl))
     {
-      return Missing("maxResults");
+      return Missing(MaxResultsName);
     }
 
     if (maxEl.ValueKind != JsonValueKind.Number || !maxEl.TryGetInt32(out int max))
     {
-      return WrongType("maxResults", "integer", maxEl.ValueKind);
+      return WrongType(MaxResultsName, "integer", maxEl.ValueKind);
     }
 
     if (max < 1)
     {
-      return Fail(new DomainError("InvalidParameterValue",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'maxResults' must be ≥ 1 (got {max})."));
     }
 
@@ -129,7 +133,7 @@ public sealed record SearchToolInput(
 
       if (contextLines < 0)
       {
-        return Fail(new DomainError("InvalidParameterValue",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
             $"'contextLines' must be ≥ 0 (got {contextLines})."));
       }
     }

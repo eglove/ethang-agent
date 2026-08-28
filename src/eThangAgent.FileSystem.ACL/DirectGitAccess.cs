@@ -17,6 +17,8 @@ namespace eThangAgent.FileSystem.ACL;
 /// </summary>
 public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDisposable
 {
+  private const string RevParse = "rev-parse";
+
   private static readonly string[] NewLines = ["\r\n", "\n"];
 
   // Resolved once: spawning git through an absolute path keeps the executable
@@ -27,7 +29,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
   {
     // Probe repo-ness explicitly so a plain directory reports NotAGitRepository
     // rather than being misread as a detached HEAD by the branch step below.
-    GitRun probe = await RunGitAsync(repoPath, ["rev-parse", "--is-inside-work-tree"], ct).ConfigureAwait(false);
+    GitRun probe = await RunGitAsync(repoPath, [RevParse, "--is-inside-work-tree"], ct).ConfigureAwait(false);
     if (!probe.Ok)
     {
       return Result.Failure<GitStatus>(probe.Err);
@@ -104,7 +106,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
           $"Unknown diff scope '{scope}'. Expected 'Staged', 'Unstaged', or 'All'."));
     }
 
-    GitRun probe = await RunGitAsync(repoPath, ["rev-parse", "--git-dir"], ct).ConfigureAwait(false);
+    GitRun probe = await RunGitAsync(repoPath, [RevParse, "--git-dir"], ct).ConfigureAwait(false);
     if (!probe.Ok)
     {
       return Result.Failure<GitDiff>(probe.Err);
@@ -254,7 +256,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
   {
     // Outside a repository 'git diff --cached' exits 129 with usage text, so
     // probe repo-ness explicitly first.
-    GitRun probe = await RunGitAsync(repoPath, ["rev-parse", "--git-dir"], ct).ConfigureAwait(false);
+    GitRun probe = await RunGitAsync(repoPath, [RevParse, "--git-dir"], ct).ConfigureAwait(false);
     if (!probe.Ok)
     {
       return Result.Failure<GitCommitOutcome>(probe.Err);
@@ -326,7 +328,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
 #pragma warning restore CA1031 // Do not catch general exception types
     }
 
-    GitRun hashRes = await RunGitAsync(repoPath, ["rev-parse", "--short", "HEAD"], ct).ConfigureAwait(false);
+    GitRun hashRes = await RunGitAsync(repoPath, [RevParse, "--short", "HEAD"], ct).ConfigureAwait(false);
     if (!hashRes.Ok)
     {
       return Result.Failure<GitCommitOutcome>(hashRes.Err);
@@ -337,7 +339,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       return Result.Failure<GitCommitOutcome>(ToGitFailure(repoPath, hashRes.ExitCode, hashRes.StdErr));
     }
 
-    GitRun branchRes = await RunGitAsync(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"], ct).ConfigureAwait(false);
+    GitRun branchRes = await RunGitAsync(repoPath, [RevParse, "--abbrev-ref", "HEAD"], ct).ConfigureAwait(false);
     return !branchRes.Ok
       ? Result.Failure<GitCommitOutcome>(branchRes.Err)
       : branchRes.ExitCode != 0

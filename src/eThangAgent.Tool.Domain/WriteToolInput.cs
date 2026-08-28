@@ -5,6 +5,8 @@ namespace eThangAgent.ToolDomain;
 
 public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
 {
+  private const string ContentName = "content";
+  private const string OverwriteName = "overwrite";
   public static Result<WriteToolInput> Create(string jsonArguments)
   {
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
@@ -15,7 +17,7 @@ public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
 
     JsonElement json = baseParse.Value;
 
-    HashSet<string> known = new(["path", "content", "overwrite", ToolTimeout.ParameterName], StringComparer.Ordinal);
+    HashSet<string> known = new(["path", ContentName, OverwriteName, ToolTimeout.ParameterName], StringComparer.Ordinal);
     List<string> unknown = [.. json.EnumerateObject()
         .Where(p => !known.Contains(p.Name))
         .Select(p => p.Name)];
@@ -42,26 +44,26 @@ public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
           "'path' must be a non-empty string."));
     }
 
-    if (!json.TryGetProperty("content", out JsonElement contentEl))
+    if (!json.TryGetProperty(ContentName, out JsonElement contentEl))
     {
-      return Missing("content");
+      return Missing(ContentName);
     }
 
     if (contentEl.ValueKind != JsonValueKind.String)
     {
-      return WrongType("content", "string", contentEl.ValueKind);
+      return WrongType(ContentName, "string", contentEl.ValueKind);
     }
     // Content may be empty — an explicitly empty file is a legitimate write.
     string content = contentEl.GetString()!;
 
-    if (!json.TryGetProperty("overwrite", out JsonElement owEl))
+    if (!json.TryGetProperty(OverwriteName, out JsonElement owEl))
     {
-      return Missing("overwrite");
+      return Missing(OverwriteName);
     }
 
     if (owEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
     {
-      return WrongType("overwrite", "boolean", owEl.ValueKind);
+      return WrongType(OverwriteName, "boolean", owEl.ValueKind);
     }
 
     bool overwrite = owEl.GetBoolean();

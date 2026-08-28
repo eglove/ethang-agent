@@ -9,6 +9,8 @@ namespace eThangAgent.Storage.ACL;
 /// and usage analytics. Global scope — rows are not keyed by workspace.</summary>
 public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkillStore
 {
+  private const string StorageError = "StorageError";
+
   private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
 
   public async Task<Result<SkillDefinition>> CreateAsync(SkillDefinition skill, CancellationToken ct = default)
@@ -65,7 +67,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
-      return Result.Failure<SkillDefinition>(new DomainError("StorageError", ex.Message));
+      return Result.Failure<SkillDefinition>(new DomainError(StorageError, ex.Message));
     }
   }
 
@@ -86,7 +88,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
-      return Result.Failure<SkillDefinition?>(new DomainError("StorageError", ex.Message));
+      return Result.Failure<SkillDefinition?>(new DomainError(StorageError, ex.Message));
     }
   }
 
@@ -111,7 +113,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
-      return Result.Failure<IReadOnlyList<SkillDefinition>>(new DomainError("StorageError", ex.Message));
+      return Result.Failure<IReadOnlyList<SkillDefinition>>(new DomainError(StorageError, ex.Message));
     }
   }
 
@@ -165,7 +167,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
-      return Result.Failure<SkillDefinition>(new DomainError("StorageError", ex.Message));
+      return Result.Failure<SkillDefinition>(new DomainError(StorageError, ex.Message));
     }
   }
 
@@ -210,7 +212,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
-      return Result.Failure<bool>(new DomainError("StorageError", ex.Message));
+      return Result.Failure<bool>(new DomainError(StorageError, ex.Message));
     }
   }
 
@@ -238,7 +240,7 @@ public sealed class SqliteLearnedSkillStore(AppDatabase database) : ILearnedSkil
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
-      return Result.Failure<int>(new DomainError("StorageError", ex.Message));
+      return Result.Failure<int>(new DomainError(StorageError, ex.Message));
     }
   }
 

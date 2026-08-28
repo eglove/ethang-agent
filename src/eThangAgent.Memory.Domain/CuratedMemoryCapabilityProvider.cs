@@ -26,6 +26,10 @@ public sealed class CuratedMemoryCapabilityProvider(
   private const int DefaultLimit = 20;
   private const int MaxLimit = 100;
   private const int MaxTags = 12;
+  private const string Category = "category";
+  private const string Scope = "scope";
+  private const string Content = "content";
+  private const string UsageHint = "usage_hint";
   private const int MaxHintChars = 200;
   private const int ContentPreviewChars = 120;
   private const int HintPreviewChars = 80;
@@ -46,10 +50,10 @@ public sealed class CuratedMemoryCapabilityProvider(
             + "[memories] N hit(s)\n"
             + "[mem] id=<guid> v<n> cat=<category> scope=<scope> tags=t1,t2 :: <content <=120 chars>\n"
             + "     hint: <usage_hint <=80 chars>          (only when present)",
-            [new ActionParameter("query", "String", "Optional full-text query."),
-             new ActionParameter("category", "String", "Optional exact-lowercase filter: convention | preference | insight | failure | reference."),
+            [new ActionParameter("query", ActionParameterTypes.StringType, "Optional full-text query."),
+             new ActionParameter(Category, ActionParameterTypes.StringType, "Optional exact-lowercase filter: convention | preference | insight | failure | reference."),
              new ActionParameter("tags", "String[]", "Optional tag filters; rows must carry all of them."),
-             new ActionParameter("scope", "String", "Optional exact filter: workspace | global."),
+             new ActionParameter(Scope, ActionParameterTypes.StringType, "Optional exact filter: workspace | global."),
              new ActionParameter("limit", "Integer", "Optional. Default 20; minimum 1; values above 100 clamp to 100 with a visible [warning] line.")]),
         new("add", "Store a durable curated memory.",
             "Requires content (trimmed non-empty, at most 4000 chars), category (exact-lowercase), "
@@ -57,25 +61,25 @@ public sealed class CuratedMemoryCapabilityProvider(
             + "^[a-z0-9][a-z0-9-_]{0,31}$, deduplicated) and usage_hint (at most 200 chars). The "
             + "session of record is captured automatically; a 'session' parameter is rejected. Output: "
             + "'[memories] added <guid> v1 (cat=<c> scope=<s>)'.",
-            [new ActionParameter("content", "String", "The memory itself; trimmed non-empty, max 4000 chars."),
-             new ActionParameter("category", "String", "Exactly one of: convention | preference | insight | failure | reference."),
+            [new ActionParameter(Content, ActionParameterTypes.StringType, "The memory itself; trimmed non-empty, max 4000 chars."),
+             new ActionParameter(Category, ActionParameterTypes.StringType, "Exactly one of: convention | preference | insight | failure | reference."),
              new ActionParameter("tags", "String[]", "Optional; max 12 tags, lowercase ^[a-z0-9][a-z0-9-_]{0,31}$ each."),
-             new ActionParameter("usage_hint", "String", "Optional guidance for future use; max 200 chars."),
-             new ActionParameter("scope", "String", "Exactly workspace or global.")]),
+             new ActionParameter(UsageHint, ActionParameterTypes.StringType, "Optional guidance for future use; max 200 chars."),
+             new ActionParameter(Scope, ActionParameterTypes.StringType, "Exactly workspace or global.")]),
         new("update", "Edit a curated memory under compare-and-swap.",
             "Requires id (GUID) and expected_version (integer >= 1), plus at least one delta among "
             + "content / category / tags / usage_hint. A stale expected_version fails with VersionConflict "
             + "naming the current version. Output: '[memories] updated <guid> v<n>'.",
-            [new ActionParameter("id", "String", "GUID of the memory to edit."),
+            [new ActionParameter("id", ActionParameterTypes.StringType, "GUID of the memory to edit."),
              new ActionParameter("expected_version", "Integer", "The version the caller believes is stored; integer >= 1."),
-             new ActionParameter("content", "String", "Replacement content; trimmed non-empty, max 4000 chars."),
-             new ActionParameter("category", "String", "Exact-lowercase replacement category."),
+             new ActionParameter(Content, ActionParameterTypes.StringType, "Replacement content; trimmed non-empty, max 4000 chars."),
+             new ActionParameter(Category, ActionParameterTypes.StringType, "Exact-lowercase replacement category."),
              new ActionParameter("tags", "String[]", "Replacement tag set; same rules as add."),
-             new ActionParameter("usage_hint", "String", "Replacement hint; max 200 chars.")]),
+             new ActionParameter(UsageHint, ActionParameterTypes.StringType, "Replacement hint; max 200 chars.")]),
         new("remove", "Delete a curated memory.",
             "Requires id (GUID) and confirm exactly boolean true. Unknown ids fail with MemoryNotFound. "
             + "Output: '[memories] removed <guid>'.",
-            [new ActionParameter("id", "String", "GUID of the memory to delete."),
+            [new ActionParameter("id", ActionParameterTypes.StringType, "GUID of the memory to delete."),
              new ActionParameter("confirm", "Boolean", "Must be exactly true; anything else fails RemoveNotConfirmed.")]),
     ];
 
@@ -101,7 +105,7 @@ public sealed class CuratedMemoryCapabilityProvider(
 
   private async Task<CapabilityInvocationResult> SearchAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("query", "category", "tags", "scope", "limit"));
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("query", Category, "tags", Scope, "limit"));
 
     // Same strict tag boundary as add/update: an invalid element is rejected
     // outright instead of being forwarded to become a silently-wrong filter.
@@ -128,9 +132,9 @@ public sealed class CuratedMemoryCapabilityProvider(
     }
 
     MemoryCategory? category = null;
-    if (args.ContainsKey("category"))
+    if (args.ContainsKey(Category))
     {
-      Result<MemoryCategory> parsed = CuratedMemorySpecifications.ParseCategory(OptString(args, "category"));
+      Result<MemoryCategory> parsed = CuratedMemorySpecifications.ParseCategory(OptString(args, Category));
       if (!parsed.IsSuccess)
       {
         return Fail(parsed.Error!);
@@ -140,9 +144,9 @@ public sealed class CuratedMemoryCapabilityProvider(
     }
 
     MemoryScope? scope = null;
-    if (args.ContainsKey("scope"))
+    if (args.ContainsKey(Scope))
     {
-      Result<MemoryScope> parsed = CuratedMemorySpecifications.ParseScope(OptString(args, "scope"));
+      Result<MemoryScope> parsed = CuratedMemorySpecifications.ParseScope(OptString(args, Scope));
       if (!parsed.IsSuccess)
       {
         return Fail(parsed.Error!);
@@ -184,16 +188,16 @@ public sealed class CuratedMemoryCapabilityProvider(
 
   private async Task<CapabilityInvocationResult> AddAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("content", "category", "tags", "usage_hint", "scope"));
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(Content, Category, "tags", UsageHint, Scope));
 
     if (ValidateContent(args) is { } contentError)
     {
       return Fail(contentError);
     }
 
-    string content = OptString(args, "content")!.Trim();
+    string content = OptString(args, Content)!.Trim();
 
-    if (!args.TryGetValue("category", out JsonElement categoryElement)
+    if (!args.TryGetValue(Category, out JsonElement categoryElement)
         || categoryElement.ValueKind != JsonValueKind.String
         || string.IsNullOrEmpty(categoryElement.GetString()))
     {
@@ -217,7 +221,7 @@ public sealed class CuratedMemoryCapabilityProvider(
         : [];
 
     string? usageHint = null;
-    if (args.TryGetValue("usage_hint", out JsonElement hintElement))
+    if (args.TryGetValue(UsageHint, out JsonElement hintElement))
     {
       if (hintElement.ValueKind != JsonValueKind.String || hintElement.GetString() is not { } hint)
       {
@@ -233,7 +237,7 @@ public sealed class CuratedMemoryCapabilityProvider(
       usageHint = hint;
     }
 
-    if (!args.TryGetValue("scope", out JsonElement scopeElement)
+    if (!args.TryGetValue(Scope, out JsonElement scopeElement)
         || scopeElement.ValueKind != JsonValueKind.String
         || string.IsNullOrEmpty(scopeElement.GetString()))
     {
@@ -276,7 +280,7 @@ public sealed class CuratedMemoryCapabilityProvider(
   private async Task<CapabilityInvocationResult> UpdateAsync(string json)
   {
     Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(
-        "id", "expected_version", "content", "category", "tags", "usage_hint"));
+        "id", "expected_version", Content, Category, "tags", UsageHint));
 
     (Guid id, DomainError? idError) = ParseId(args);
     if (idError is not null)
@@ -291,8 +295,8 @@ public sealed class CuratedMemoryCapabilityProvider(
           "'expected_version' is required and must be an integer >= 1."));
     }
 
-    bool touchesContent = args.ContainsKey("content"), touchesCategory = args.ContainsKey("category"),
-         touchesTags = args.ContainsKey("tags"), touchesHint = args.ContainsKey("usage_hint");
+    bool touchesContent = args.ContainsKey(Content), touchesCategory = args.ContainsKey(Category),
+         touchesTags = args.ContainsKey("tags"), touchesHint = args.ContainsKey(UsageHint);
     if (!touchesContent && !touchesCategory && !touchesTags && !touchesHint)
     {
       return Fail(new DomainError("NothingToUpdate",
@@ -307,7 +311,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     MemoryCategory? category = null;
     if (touchesCategory)
     {
-      Result<MemoryCategory> parsed = CuratedMemorySpecifications.ParseCategory(OptString(args, "category"));
+      Result<MemoryCategory> parsed = CuratedMemorySpecifications.ParseCategory(OptString(args, Category));
       if (!parsed.IsSuccess)
       {
         return Fail(parsed.Error!);
@@ -326,8 +330,8 @@ public sealed class CuratedMemoryCapabilityProvider(
     string? usageHint = null;
     if (touchesHint)
     {
-      if (args["usage_hint"].ValueKind != JsonValueKind.String
-          || args["usage_hint"].GetString() is not { } hint)
+      if (args[UsageHint].ValueKind != JsonValueKind.String
+          || args[UsageHint].GetString() is not { } hint)
       {
         throw new MemoryInputException("'usage_hint' must be a string.");
       }
@@ -366,7 +370,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     {
       Version = stored.Version + 1,
       UpdatedAt = _clock(),
-      Content = touchesContent ? OptString(args, "content")!.Trim() : stored.Content,
+      Content = touchesContent ? OptString(args, Content)!.Trim() : stored.Content,
       Category = category ?? stored.Category,
       Tags = tags ?? stored.Tags,
       UsageHint = touchesHint ? usageHint : stored.UsageHint,
@@ -410,7 +414,7 @@ public sealed class CuratedMemoryCapabilityProvider(
   /// within the specification's character budget. Returns the violation, or null.</summary>
   private static DomainError? ValidateContent(Dictionary<string, JsonElement> args)
   {
-    string? content = OptString(args, "content");
+    string? content = OptString(args, Content);
     return content is null || content.Trim().Length == 0
       ? new DomainError("MissingContent",
           "'content' is required and must be non-empty after trimming.")

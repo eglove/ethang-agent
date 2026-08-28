@@ -17,6 +17,12 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
   ///     flows unrestricted.</summary>
   private const string ReservedTodoNamespace = "todo";
 
+  private const string StartLine = "startLine";
+  private const string EndLine = "endLine";
+  private const string ExpectedVersion = "expectedVersion";
+  private const string Limit = "limit";
+  private const string Prefix = "prefix";
+
   private readonly IStateService _service = service ?? throw new ArgumentNullException(nameof(service));
 
   public string Id => ProviderId;
@@ -25,38 +31,38 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
   [
       new("get", "Read a durable state value, or a line range of it.",
             "Reads one namespaced key. Fails with KeyNotFound when absent. Optional startLine/endLine return only that range under an envelope '[<key> v<version> | lines <S>-<E> of <T>]'; an endLine past the last line is clamped with a visible '[note] ... clamped.' warning. Range errors: both-or-neither, startLine >= 1, endLine >= startLine — violations are InvalidActionInput.",
-            [new ActionParameter("key", "String", "Namespaced key, e.g. current/head."),
-             new ActionParameter("startLine", "Integer", "Optional, only together with endLine. First line to read, >= 1."),
-             new ActionParameter("endLine", "Integer", "Optional, only together with startLine. Last line to read.")]),
+            [new ActionParameter("key", ActionParameterTypes.StringType, "Namespaced key, e.g. current/head."),
+             new ActionParameter(StartLine, ActionParameterTypes.IntegerType, "Optional, only together with endLine. First line to read, >= 1."),
+             new ActionParameter(EndLine, ActionParameterTypes.IntegerType, "Optional, only together with startLine. Last line to read.")]),
         new("set", "Write a durable state value with optional compare-and-swap.",
             "Creates or updates a key. Supply expectedVersion to require the current version; a mismatch fails closed with VersionConflict naming the current version. Returns the new version. Namespace 'todo' is reserved and fails with ReservedNamespace.",
-            [new ActionParameter("key", "String", "Namespaced key."),
-             new ActionParameter("value", "String", "Value to store."),
-             new ActionParameter("expectedVersion", "Integer", "Optional. Fail unless the stored version matches.")]),
+            [new ActionParameter("key", ActionParameterTypes.StringType, "Namespaced key."),
+             new ActionParameter("value", ActionParameterTypes.StringType, "Value to store."),
+             new ActionParameter(ExpectedVersion, ActionParameterTypes.IntegerType, "Optional. Fail unless the stored version matches.")]),
         new("delete", "Delete a durable state key.",
             "Removes a key. Supply expectedVersion for a compare-and-swap delete. Namespace 'todo' is reserved and fails with ReservedNamespace.",
-            [new ActionParameter("key", "String", "Namespaced key."),
-             new ActionParameter("expectedVersion", "Integer", "Optional. Fail unless the stored version matches.")]),
+            [new ActionParameter("key", ActionParameterTypes.StringType, "Namespaced key."),
+             new ActionParameter(ExpectedVersion, ActionParameterTypes.IntegerType, "Optional. Fail unless the stored version matches.")]),
         new("list", "List state keys.",
             "Lists keys as 'ns/name v<version>' lines, optionally filtered by namespace.",
-            [new ActionParameter("ns", "String", "Optional namespace filter.")]),
+            [new ActionParameter("ns", ActionParameterTypes.StringType, "Optional namespace filter.")]),
         new("find", "Full-text search over workspace state values and key names.",
             "Searches all state in this workspace with SQLite FTS5 over values, namespaces, and key names. Output contract: header line '[state.find '<query>'] <N> hit(s)', then per hit the key as ns/name and an indented snippet line. Zero hits prints only the header. Malformed queries fail with InvalidQuery rather than returning empty. Errors: InvalidActionInput (bad params), InvalidLimit, InvalidQuery.",
-            [new ActionParameter("query", "String", "Required. FTS5 query text (supports prefix*, AND/OR/NOT)."),
-             new ActionParameter("limit", "Integer", "Optional. Max hits, 1..100, default 20.")]),
+            [new ActionParameter("query", ActionParameterTypes.StringType, "Required. FTS5 query text (supports prefix*, AND/OR/NOT)."),
+             new ActionParameter(Limit, ActionParameterTypes.IntegerType, "Optional. Max hits, 1..100, default 20.")]),
         new("append", "Append one line to a state value atomically.",
             "CAS append: the line is added to the key's stored value with a newline separator. A missing key is created holding just the line. Text must be a single line without leading or trailing whitespace (InvalidText otherwise). Fails closed with VersionConflict when expectedVersion does not match — re-get, reconcile, retry; never blind-overwrite. This is how SDD ledgers are maintained. Errors: InvalidText (multi-line or padded text), VersionConflict (re-get, reconcile, retry), InvalidActionInput.",
-            [new ActionParameter("key", "String", "Namespaced key, e.g. sdd.my-plan/ledger."),
-             new ActionParameter("text", "String", "The single line to append."),
-             new ActionParameter("expectedVersion", "Integer", "Optional. Fail unless the stored version matches.")]),
+            [new ActionParameter("key", ActionParameterTypes.StringType, "Namespaced key, e.g. sdd.my-plan/ledger."),
+             new ActionParameter("text", ActionParameterTypes.StringType, "The single line to append."),
+             new ActionParameter(ExpectedVersion, ActionParameterTypes.IntegerType, "Optional. Fail unless the stored version matches.")]),
         new("prune", "Bulk-delete every state key under a namespace prefix.",
             "Deletes all keys whose namespace equals the prefix or starts with '<prefix>.'. The dotted boundary is respected: prefix 'sdd.alpha' does not touch 'sdd.alphabeta'. Reserved namespaces ('todo', 'current') are rejected. Returns '[prune <prefix>] <N> key(s) removed'. Errors: ReservedNamespace ('todo', 'current'), InvalidKey (malformed prefix), InvalidActionInput. Intended for cleaning up SDD task briefs and reports after a plan finishes.",
-            [new ActionParameter("prefix", "String", "Namespace prefix, e.g. sdd.my-plan.")]),
+            [new ActionParameter(Prefix, ActionParameterTypes.StringType, "Namespace prefix, e.g. sdd.my-plan.")]),
         new("transition", "Attach a claim with evidence (stored, never run on attach).",
             "Records a labeled move from one world-state to another with summary and evidence commands. Evidence is replayable but has NOT run. Returns the transition id; status starts pending.",
-            [new ActionParameter("from", "String", "Prior state label."),
-             new ActionParameter("to", "String", "New state label."),
-             new ActionParameter("summary", "String", "What this claim asserts."),
+            [new ActionParameter("from", ActionParameterTypes.StringType, "Prior state label."),
+             new ActionParameter("to", ActionParameterTypes.StringType, "New state label."),
+             new ActionParameter("summary", ActionParameterTypes.StringType, "What this claim asserts."),
              new ActionParameter("evidence", "String[]", "C# boolean expressions that, when evaluated, should confirm the claim.")]),
         new("verify", "Run attached evidence fail-closed and certify.",
             "Runs the evidence for the selected transitions (default: all pending) fail-closed. Certifies only when every command confirms; otherwise reports violated with blocking reasons and revokes any head certificate first.",
@@ -66,7 +72,7 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
             []),
         new("history", "Replay the state timeline.",
             "Returns the most recent timeline events (transitions, certified, violated).",
-            [new ActionParameter("limit", "Integer", "Optional. Default 20.")]),
+            [new ActionParameter(Limit, ActionParameterTypes.IntegerType, "Optional. Default 20.")]),
     ];
 
   public async Task<CapabilityInvocationResult> InvokeAsync(
@@ -98,20 +104,20 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
 
   private async Task<CapabilityInvocationResult> GetAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "startLine", "endLine"));
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", StartLine, EndLine));
     string key = ReqString(args, "key");
-    if (!args.ContainsKey("startLine") && !args.ContainsKey("endLine"))
+    if (!args.ContainsKey(StartLine) && !args.ContainsKey(EndLine))
     {
       return ToResult(await _service.GetAsync(key).ConfigureAwait(false));
     }
 
     // Strict range validation: both-or-neither, start >= 1, end >= start.
-    if (!args.TryGetValue("startLine", out JsonElement sEl) || sEl.ValueKind != JsonValueKind.Number || !sEl.TryGetInt32(out int start))
+    if (!args.TryGetValue(StartLine, out JsonElement sEl) || sEl.ValueKind != JsonValueKind.Number || !sEl.TryGetInt32(out int start))
     {
       throw new StateInputException("'startLine' is required together with 'endLine' and must be an integer.");
     }
 
-    if (!args.TryGetValue("endLine", out JsonElement eEl) || eEl.ValueKind != JsonValueKind.Number || !eEl.TryGetInt32(out int end))
+    if (!args.TryGetValue(EndLine, out JsonElement eEl) || eEl.ValueKind != JsonValueKind.Number || !eEl.TryGetInt32(out int end))
     {
       throw new StateInputException("'endLine' is required together with 'startLine' and must be an integer.");
     }
@@ -165,9 +171,9 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
 
   private async Task<CapabilityInvocationResult> SearchAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("query", "limit"));
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("query", Limit));
     string query = ReqString(args, "query");
-    int limit = OptInt(args, "limit") ?? 20;
+    int limit = OptInt(args, Limit) ?? 20;
     Result<IReadOnlyList<StateSearchHit>> result = await _service.SearchAsync(query, limit).ConfigureAwait(false);
     if (!result.IsSuccess)
     {
@@ -186,13 +192,13 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
 
   private async Task<CapabilityInvocationResult> SetAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "value", "expectedVersion"));
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "value", ExpectedVersion));
     if (ReservedNamespaceError(ReqString(args, "key")) is { } setError)
     {
       return Gutter(setError);
     }
 
-    Result<StateKeyValue> saved = await _service.SetAsync(ReqString(args, "key"), ReqString(args, "value"), OptInt(args, "expectedVersion")).ConfigureAwait(false);
+    Result<StateKeyValue> saved = await _service.SetAsync(ReqString(args, "key"), ReqString(args, "value"), OptInt(args, ExpectedVersion)).ConfigureAwait(false);
     return saved.IsSuccess
         ? CapabilityInvocationResult.Ok($"saved {saved.Value!.Ns}/{saved.Value.Name} v{saved.Value.Version}")
         : Gutter(saved.Error!);
@@ -200,11 +206,11 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
 
   private async Task<CapabilityInvocationResult> DeleteAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "expectedVersion"));
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", ExpectedVersion));
     string key = ReqString(args, "key");
     return ReservedNamespaceError(key) is { } deleteError
           ? Gutter(deleteError)
-          : ToResult(await _service.DeleteAsync(key, OptInt(args, "expectedVersion")).ConfigureAwait(false));
+          : ToResult(await _service.DeleteAsync(key, OptInt(args, ExpectedVersion)).ConfigureAwait(false));
   }
 
   /// <summary>Parses the key's namespace exactly as the service will (StateKey.Parse)
@@ -241,12 +247,12 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
       => Report(await _service.CheckGoalAsync().ConfigureAwait(false));
 
   private async Task<CapabilityInvocationResult> HistoryAsync(string json)
-      => ToResult(await _service.HistoryAsync(OptInt(ParseArgs(json, Allowed("limit")), "limit") ?? 20).ConfigureAwait(false));
+      => ToResult(await _service.HistoryAsync(OptInt(ParseArgs(json, Allowed(Limit)), Limit) ?? 20).ConfigureAwait(false));
 
   private async Task<CapabilityInvocationResult> AppendAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "text", "expectedVersion"));
-    Result<StateKeyValue> saved = await _service.AppendAsync(ReqString(args, "key"), ReqString(args, "text"), OptInt(args, "expectedVersion")).ConfigureAwait(false);
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "text", ExpectedVersion));
+    Result<StateKeyValue> saved = await _service.AppendAsync(ReqString(args, "key"), ReqString(args, "text"), OptInt(args, ExpectedVersion)).ConfigureAwait(false);
     return saved.IsSuccess
         ? CapabilityInvocationResult.Ok($"appended to {saved.Value!.Ns}/{saved.Value.Name} v{saved.Value.Version}")
         : Gutter(saved.Error!);
@@ -254,11 +260,11 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
 
   private async Task<CapabilityInvocationResult> PruneAsync(string json)
   {
-    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("prefix"));
-    Result<int> result = await _service.DeletePrefixAsync(ReqString(args, "prefix")).ConfigureAwait(false);
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(Prefix));
+    Result<int> result = await _service.DeletePrefixAsync(ReqString(args, Prefix)).ConfigureAwait(false);
     return !result.IsSuccess
           ? Gutter(result.Error!)
-          : CapabilityInvocationResult.Ok($"[prune {ReqString(args, "prefix")}] {result.Value} key(s) removed");
+          : CapabilityInvocationResult.Ok($"[prune {ReqString(args, Prefix)}] {result.Value} key(s) removed");
   }
 
   private static CapabilityInvocationResult ToResult<T>(Result<T> result)

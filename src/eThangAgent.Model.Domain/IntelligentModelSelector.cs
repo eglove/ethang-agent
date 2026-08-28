@@ -10,6 +10,9 @@ namespace eThangAgent.ModelDomain;
 /// whichever provider the host wired — the selector itself is provider-agnostic.</summary>
 public sealed class IntelligentModelSelector : IModelSelector
 {
+  private const string SelectionFailed = "SelectionFailed";
+  private const string Filter = "filter";
+
   private readonly IModelProvider _provider;
   private readonly IModelCatalog _catalog;
 
@@ -166,7 +169,7 @@ public sealed class IntelligentModelSelector : IModelSelector
     ModelRequest request = new([msg], SystemPrompt: Stage2SystemPrompt);
     Result<ModelResponse> response = await _provider.SendAsync(_stage2Config, request, ct).ConfigureAwait(false);
     return !response.IsSuccess
-      ? Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed",
+      ? Result.Failure<ModelSelectionResult>(new DomainError(SelectionFailed,
           $"Stage 2 LLM call failed: {response.Error!.Message}"))
       : ParseSelection(response.Value!.Content, category, candidates);
   }
@@ -198,7 +201,7 @@ public sealed class IntelligentModelSelector : IModelSelector
   {
     if (string.IsNullOrWhiteSpace(json))
     {
-      return Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed", "Stage 2 returned empty content."));
+      return Result.Failure<ModelSelectionResult>(new DomainError(SelectionFailed, "Stage 2 returned empty content."));
     }
 
     try
@@ -207,28 +210,28 @@ public sealed class IntelligentModelSelector : IModelSelector
       JsonElement root = doc.RootElement;
 
       ModelFilter filter = new(
-          GetNullableDecimal(root, "filter", "maxPromptPricePerToken"),
-          GetNullableDecimal(root, "filter", "maxCompletionPricePerToken"),
-          GetNullableInt(root, "filter", "minContextLength"),
-          GetNullableInt(root, "filter", "maxCompletionTokens"),
-          GetNullableBool(root, "filter", "requireToolUse"),
-          GetNullableBool(root, "filter", "requireVision"),
-          GetNullableDouble(root, "filter", "minIntelligenceScore"),
-          GetNullableDouble(root, "filter", "minCodingScore"),
-          GetNullableDouble(root, "filter", "minAgenticScore"),
-          GetNullableDouble(root, "filter", "maxLatencyMs"),
-          GetNullableDouble(root, "filter", "minThroughputTokensPerSec"));
+          GetNullableDecimal(root, Filter, "maxPromptPricePerToken"),
+          GetNullableDecimal(root, Filter, "maxCompletionPricePerToken"),
+          GetNullableInt(root, Filter, "minContextLength"),
+          GetNullableInt(root, Filter, "maxCompletionTokens"),
+          GetNullableBool(root, Filter, "requireToolUse"),
+          GetNullableBool(root, Filter, "requireVision"),
+          GetNullableDouble(root, Filter, "minIntelligenceScore"),
+          GetNullableDouble(root, Filter, "minCodingScore"),
+          GetNullableDouble(root, Filter, "minAgenticScore"),
+          GetNullableDouble(root, Filter, "maxLatencyMs"),
+          GetNullableDouble(root, Filter, "minThroughputTokensPerSec"));
 
       if (!root.TryGetProperty("selectedModelId", out JsonElement modelEl) || modelEl.ValueKind != JsonValueKind.String)
       {
-        return Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed", "Stage 2 missing selectedModelId."));
+        return Result.Failure<ModelSelectionResult>(new DomainError(SelectionFailed, "Stage 2 missing selectedModelId."));
       }
 
       string modelId = modelEl.GetString()!;
 
       if (!root.TryGetProperty("selectedProviderName", out JsonElement providerEl) || providerEl.ValueKind != JsonValueKind.String)
       {
-        return Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed", "Stage 2 missing selectedProviderName."));
+        return Result.Failure<ModelSelectionResult>(new DomainError(SelectionFailed, "Stage 2 missing selectedProviderName."));
       }
 
       string providerName = providerEl.GetString()!;
@@ -246,7 +249,7 @@ public sealed class IntelligentModelSelector : IModelSelector
     }
     catch (JsonException ex)
     {
-      return Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed",
+      return Result.Failure<ModelSelectionResult>(new DomainError(SelectionFailed,
           $"Failed to parse Stage 2 JSON: {ex.Message}"));
     }
   }

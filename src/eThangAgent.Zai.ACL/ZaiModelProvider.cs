@@ -22,6 +22,10 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
     Func<TimeSpan, CancellationToken, Task>? delay = null,
     Func<double>? jitter = null) : IModelProvider
 {
+  private const string ProviderError = "ProviderError";
+  private const string ToolCalls = "tool_calls";
+  private const string Function = "function";
+
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly ZaiConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
   private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? ((span, token) => Task.Delay(span, token));
@@ -80,7 +84,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
     }
     catch (HttpRequestException ex)
     {
-      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError("ProviderError", ex.Message)),
+      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError(ProviderError, ex.Message)),
           Retryable: true, RetryAfter: null);
     }
   }
@@ -157,12 +161,12 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
     }
     catch (HttpRequestException ex)
     {
-      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError("ProviderError", ex.Message)),
+      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError(ProviderError, ex.Message)),
           Retryable: true, RetryAfter: null);
     }
     catch (IOException ex)
     {
-      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Connection lost while reading the provider stream: {ex.Message}")),
           Retryable: true, RetryAfter: null);
     }
@@ -211,7 +215,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
           "z.ai rate limit exceeded.")),
       408 => Result.Failure<ModelResponse>(new DomainError("ProviderTimeout",
           "Request timed out.")),
-      _ => Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      _ => Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"z.ai returned HTTP {statusCode}."))
     };
     return new AttemptOutcome(failure,
@@ -228,17 +232,17 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
     }
     catch (JsonException ex)
     {
-      return Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Invalid provider response: {ex.Message}"));
     }
     catch (KeyNotFoundException ex)
     {
-      return Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Malformed provider response: {ex.Message}"));
     }
     catch (InvalidOperationException ex)
     {
-      return Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Malformed provider response: {ex.Message}"));
     }
   }
@@ -257,11 +261,11 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
         : null;
 
     List<ToolCallRequest> toolCalls = [];
-    if (message.TryGetProperty("tool_calls", out JsonElement tc) && tc.ValueKind == JsonValueKind.Array)
+    if (message.TryGetProperty(ToolCalls, out JsonElement tc) && tc.ValueKind == JsonValueKind.Array)
     {
       foreach (JsonElement call in tc.EnumerateArray())
       {
-        JsonElement fn = call.GetProperty("function");
+        JsonElement fn = call.GetProperty(Function);
         toolCalls.Add(new ToolCallRequest(
             call.GetProperty("id").GetString()!,
             fn.GetProperty("name").GetString()!,
@@ -284,7 +288,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       {
         "stop" => FinishReason.Stop,
         "length" => FinishReason.Length,
-        "tool_calls" => FinishReason.ToolCalls,
+        ToolCalls => FinishReason.ToolCalls,
         "sensitive" => FinishReason.ContentFilter,
         // Input exceeded the model's context window — closest actionable meaning is Length.
         "model_context_window_exceeded" => FinishReason.Length,
@@ -354,12 +358,12 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
     }
     catch (JsonException ex)
     {
-      return Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Invalid provider stream: {ex.Message}"));
     }
     catch (InvalidOperationException ex)
     {
-      return Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Malformed provider stream: {ex.Message}"));
     }
   }
@@ -407,7 +411,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       }
     }
 
-    if (delta.TryGetProperty("tool_calls", out JsonElement calls)
+    if (delta.TryGetProperty(ToolCalls, out JsonElement calls)
         && calls.ValueKind == JsonValueKind.Array)
     {
       foreach (JsonElement call in calls.EnumerateArray())
@@ -426,7 +430,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
           fragment.Id = id.GetString();
         }
 
-        if (call.TryGetProperty("function", out JsonElement function))
+        if (call.TryGetProperty(Function, out JsonElement function))
         {
           if (function.TryGetProperty("name", out JsonElement name) && name.ValueKind == JsonValueKind.String)
           {
@@ -456,7 +460,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       {
         "stop" => FinishReason.Stop,
         "length" => FinishReason.Length,
-        "tool_calls" => FinishReason.ToolCalls,
+        ToolCalls => FinishReason.ToolCalls,
         "sensitive" => FinishReason.ContentFilter,
         "model_context_window_exceeded" => FinishReason.Length,
         _ => FinishReason.Unknown,
@@ -515,7 +519,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       tool_calls = m.ToolCalls.Select(t => new
       {
         id = t.Id,
-        type = "function",
+        type = Function,
         function = new { name = t.Name, arguments = t.Arguments }
       }).ToArray()
     },
@@ -526,8 +530,8 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
 
   private static object TranslateTool(ToolDefinition t) => new Dictionary<string, object?>
   {
-    ["type"] = "function",
-    ["function"] = new Dictionary<string, object?>
+    ["type"] = Function,
+    [Function] = new Dictionary<string, object?>
     {
       ["name"] = t.Name,
       ["description"] = t.Description,

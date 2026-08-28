@@ -9,9 +9,11 @@ public sealed record ZaiImageInput(string Prompt, string Filename, string Size)
   internal const int DimensionMin = 1024;
   internal const int DimensionMax = 2048;
 
+  private const string FilenameName = "filename";
+
   public static Result<ZaiImageInput> Create(JsonElement json)
   {
-    DomainError? unknown = ZaiToolInput.RejectUnknown(json, AllowedList, "prompt", "filename", "size");
+    DomainError? unknown = ZaiToolInput.RejectUnknown(json, AllowedList, "prompt", FilenameName, "size");
     if (unknown is not null)
     {
       return Fail(unknown);
@@ -27,13 +29,13 @@ public sealed record ZaiImageInput(string Prompt, string Filename, string Size)
     }
     string prompt = promptEl.GetString()!;
 
-    if (!json.TryGetProperty("filename", out JsonElement fileEl))
+    if (!json.TryGetProperty(FilenameName, out JsonElement fileEl))
     {
-      return Missing("filename");
+      return Missing(FilenameName);
     }
     if (fileEl.ValueKind != JsonValueKind.String)
     {
-      return WrongType("filename", "string", fileEl.ValueKind);
+      return WrongType(FilenameName, "string", fileEl.ValueKind);
     }
     string filename = fileEl.GetString()!;
     if (!filename.EndsWith(".png", StringComparison.OrdinalIgnoreCase))

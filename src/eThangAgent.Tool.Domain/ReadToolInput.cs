@@ -7,6 +7,9 @@ public sealed record ReadToolInput(string Path, int StartLine, int EndLine)
 {
   public const int MaxRangeLines = 1000;
 
+  private const string StartLineName = "startLine";
+  private const string EndLineName = "endLine";
+
   public static Result<ReadToolInput> Create(string jsonArguments)
   {
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
@@ -17,7 +20,7 @@ public sealed record ReadToolInput(string Path, int StartLine, int EndLine)
 
     JsonElement json = baseParse.Value;
 
-    HashSet<string> known = new(["path", "startLine", "endLine", ToolTimeout.ParameterName], StringComparer.Ordinal);
+    HashSet<string> known = new(["path", StartLineName, EndLineName, ToolTimeout.ParameterName], StringComparer.Ordinal);
     List<string> unknown = [.. json.EnumerateObject()
         .Where(p => !known.Contains(p.Name))
         .Select(p => p.Name)];
@@ -40,45 +43,45 @@ public sealed record ReadToolInput(string Path, int StartLine, int EndLine)
     string path = pathEl.GetString()!;
     if (path.Length == 0)
     {
-      return Failure(new DomainError("InvalidParameterValue",
+      return Failure(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "'path' must be a non-empty string."));
     }
 
-    if (!json.TryGetProperty("startLine", out JsonElement startEl))
+    if (!json.TryGetProperty(StartLineName, out JsonElement startEl))
     {
-      return Missing("startLine");
+      return Missing(StartLineName);
     }
 
     if (startEl.ValueKind != JsonValueKind.Number || !startEl.TryGetInt32(out int startLine))
     {
-      return WrongType("startLine", "integer", startEl.ValueKind);
+      return WrongType(StartLineName, "integer", startEl.ValueKind);
     }
 
-    if (!json.TryGetProperty("endLine", out JsonElement endEl))
+    if (!json.TryGetProperty(EndLineName, out JsonElement endEl))
     {
-      return Missing("endLine");
+      return Missing(EndLineName);
     }
 
     if (endEl.ValueKind != JsonValueKind.Number || !endEl.TryGetInt32(out int endLine))
     {
-      return WrongType("endLine", "integer", endEl.ValueKind);
+      return WrongType(EndLineName, "integer", endEl.ValueKind);
     }
 
     if (startLine < 1)
     {
-      return Failure(new DomainError("InvalidParameterValue",
+      return Failure(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'startLine' must be ≥ 1 (got {startLine})."));
     }
 
     if (endLine < 1)
     {
-      return Failure(new DomainError("InvalidParameterValue",
+      return Failure(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'endLine' must be ≥ 1 (got {endLine})."));
     }
 
     if (startLine > endLine)
     {
-      return Failure(new DomainError("InvalidParameterValue",
+      return Failure(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'startLine' ({startLine}) must not exceed 'endLine' ({endLine})."));
     }
 

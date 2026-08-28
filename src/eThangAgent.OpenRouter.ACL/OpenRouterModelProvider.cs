@@ -13,6 +13,10 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     Func<TimeSpan, CancellationToken, Task>? delay = null,
     Func<double>? jitter = null) : IModelProvider
 {
+  private const string ProviderError = "ProviderError";
+  private const string ToolCalls = "tool_calls";
+  private const string Function = "function";
+
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly OpenRouterConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
   private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? ((span, token) => Task.Delay(span, token));
@@ -71,7 +75,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
     catch (HttpRequestException ex)
     {
-      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError("ProviderError", ex.Message)),
+      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError(ProviderError, ex.Message)),
           Retryable: true, RetryAfter: null);
     }
   }
@@ -147,12 +151,12 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
     catch (HttpRequestException ex)
     {
-      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError("ProviderError", ex.Message)),
+      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError(ProviderError, ex.Message)),
           Retryable: true, RetryAfter: null);
     }
     catch (IOException ex)
     {
-      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return new AttemptOutcome(Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Connection lost while reading the provider stream: {ex.Message}")),
           Retryable: true, RetryAfter: null);
     }
@@ -207,7 +211,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
           "OpenRouter rate limit exceeded.")),
       408 => Result.Failure<ModelResponse>(new DomainError("ProviderTimeout",
           "Request timed out.")),
-      _ => Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      _ => Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"OpenRouter returned HTTP {statusCode}."))
     };
     return new AttemptOutcome(failure,
@@ -224,17 +228,17 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
     catch (JsonException ex)
     {
-      return Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Invalid provider response: {ex.Message}"));
     }
     catch (KeyNotFoundException ex)
     {
-      return Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Malformed provider response: {ex.Message}"));
     }
     catch (InvalidOperationException ex)
     {
-      return Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Malformed provider response: {ex.Message}"));
     }
   }
@@ -253,11 +257,11 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
         : null;
 
     List<ToolCallRequest> toolCalls = [];
-    if (message.TryGetProperty("tool_calls", out JsonElement tc) && tc.ValueKind == JsonValueKind.Array)
+    if (message.TryGetProperty(ToolCalls, out JsonElement tc) && tc.ValueKind == JsonValueKind.Array)
     {
       foreach (JsonElement call in tc.EnumerateArray())
       {
-        JsonElement fn = call.GetProperty("function");
+        JsonElement fn = call.GetProperty(Function);
         toolCalls.Add(new ToolCallRequest(
             call.GetProperty("id").GetString()!,
             fn.GetProperty("name").GetString()!,
@@ -280,7 +284,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       {
         "stop" => FinishReason.Stop,
         "length" => FinishReason.Length,
-        "tool_calls" => FinishReason.ToolCalls,
+        ToolCalls => FinishReason.ToolCalls,
         "content_filter" => FinishReason.ContentFilter,
         _ => FinishReason.Unknown,
       };
@@ -347,12 +351,12 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
     catch (JsonException ex)
     {
-      return Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Invalid provider stream: {ex.Message}"));
     }
     catch (InvalidOperationException ex)
     {
-      return Result.Failure<ModelResponse>(new DomainError("ProviderError",
+      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
           $"Malformed provider stream: {ex.Message}"));
     }
   }
@@ -408,7 +412,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       }
     }
 
-    if (delta.TryGetProperty("tool_calls", out JsonElement calls)
+    if (delta.TryGetProperty(ToolCalls, out JsonElement calls)
         && calls.ValueKind == JsonValueKind.Array)
     {
       foreach (JsonElement call in calls.EnumerateArray())
@@ -427,7 +431,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
           fragment.Id = id.GetString();
         }
 
-        if (call.TryGetProperty("function", out JsonElement function))
+        if (call.TryGetProperty(Function, out JsonElement function))
         {
           if (function.TryGetProperty("name", out JsonElement name) && name.ValueKind == JsonValueKind.String)
           {
@@ -457,7 +461,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       {
         "stop" => FinishReason.Stop,
         "length" => FinishReason.Length,
-        "tool_calls" => FinishReason.ToolCalls,
+        ToolCalls => FinishReason.ToolCalls,
         "content_filter" => FinishReason.ContentFilter,
         _ => FinishReason.Unknown,
       };
@@ -515,7 +519,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       tool_calls = m.ToolCalls.Select(t => new
       {
         id = t.Id,
-        type = "function",
+        type = Function,
         function = new { name = t.Name, arguments = t.Arguments }
       }).ToArray()
     },
@@ -526,8 +530,8 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
 
   private static object TranslateTool(ToolDefinition t) => new Dictionary<string, object?>
   {
-    ["type"] = "function",
-    ["function"] = new Dictionary<string, object?>
+    ["type"] = Function,
+    [Function] = new Dictionary<string, object?>
     {
       ["name"] = t.Name,
       ["description"] = t.Description,

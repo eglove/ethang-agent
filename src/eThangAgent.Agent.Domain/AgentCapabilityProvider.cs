@@ -28,9 +28,9 @@ public sealed class AgentCapabilityProvider(
             id=<id> status=running
             """,
             [
-                new ActionParameter("taskPrompt", "String", "Self-contained task for the child. State exactly what the report must contain."),
-                new ActionParameter("model", "String", "Optional provider model reference; omit to use the configured default."),
-                new ActionParameter("label", "String", "Optional free-text label for humans and logs."),
+                new ActionParameter("taskPrompt", ActionParameterTypes.StringType, "Self-contained task for the child. State exactly what the report must contain."),
+                new ActionParameter("model", ActionParameterTypes.StringType, "Optional provider model reference; omit to use the configured default."),
+                new ActionParameter("label", ActionParameterTypes.StringType, "Optional free-text label for humans and logs."),
             ]),
         new("status", "Check whether a spawned child agent is still running, completed, or failed.",
             """
@@ -42,14 +42,14 @@ public sealed class AgentCapabilityProvider(
             The reason suffix appears only when status=failed.
             """,
             [
-                new ActionParameter("id", "String", "GUID string of the child agent, exactly as returned by spawn."),
+                new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
             ]),
         new("result", "Fetch the final report of a spawned child agent.",
             """
             Returns the child's final report verbatim once it has finished. While it is still running you receive 'Error [NotComplete]' — check status again later. Unknown ids yield 'Error [NotFound]'. A failed child yields its partial report, or an Error [MaxIterations|Timeout|ProviderError] annotation when no report landed.
             """,
             [
-                new ActionParameter("id", "String", "GUID string of the child agent, exactly as returned by spawn."),
+                new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
             ]),
     ];
 

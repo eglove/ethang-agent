@@ -13,6 +13,8 @@ public sealed record GitCommitInput(
     string Style, string? Type, string? Scope, string? EmojiKey,
     string Description, string? Body)
 {
+  private const string StyleName = "style";
+  private const string DescriptionName = "description";
   public static Result<GitCommitInput> Create(string jsonArguments)
   {
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
@@ -24,7 +26,7 @@ public sealed record GitCommitInput(
     JsonElement json = baseParse.Value;
 
     HashSet<string> known = new(
-        ["style", "type", "scope", "emoji_key", "description", "body", ToolTimeout.ParameterName],
+        [StyleName, "type", "scope", "emoji_key", DescriptionName, "body", ToolTimeout.ParameterName],
         StringComparer.Ordinal);
     List<string> unknown = [.. json.EnumerateObject()
         .Where(p => !known.Contains(p.Name))
@@ -36,14 +38,14 @@ public sealed record GitCommitInput(
           $"Allowed: style, type, scope, emoji_key, description, body, {ToolTimeout.ParameterName}."));
     }
 
-    if (!json.TryGetProperty("style", out JsonElement styleEl))
+    if (!json.TryGetProperty(StyleName, out JsonElement styleEl))
     {
-      return Missing("style");
+      return Missing(StyleName);
     }
 
     if (styleEl.ValueKind != JsonValueKind.String)
     {
-      return WrongType("style", styleEl.ValueKind);
+      return WrongType(StyleName, styleEl.ValueKind);
     }
 
     string style = styleEl.GetString()!;
@@ -81,14 +83,14 @@ public sealed record GitCommitInput(
       emojiKey = emojiEl.GetString()!;
     }
 
-    if (!json.TryGetProperty("description", out JsonElement descEl))
+    if (!json.TryGetProperty(DescriptionName, out JsonElement descEl))
     {
-      return Missing("description");
+      return Missing(DescriptionName);
     }
 
     if (descEl.ValueKind != JsonValueKind.String)
     {
-      return WrongType("description", descEl.ValueKind);
+      return WrongType(DescriptionName, descEl.ValueKind);
     }
 
     string description = descEl.GetString()!;

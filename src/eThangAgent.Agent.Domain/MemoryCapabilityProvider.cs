@@ -14,6 +14,9 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
   public const string ProviderId = "memory";
 
   private const int MaxSnippetLength = 120;
+  private const string Scope = "scope";
+  private const string Branches = "branches";
+  private const string InvalidArgument = "InvalidArgument";
 
   private readonly IMemoryRecallQuery _recallQuery =
       recallQuery ?? throw new ArgumentNullException(nameof(recallQuery));
@@ -33,11 +36,11 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
             Unknown arguments, wrong-typed arguments, and invalid scope/queryMode/branches/role/page/pageSize values return typed 'Error [Code]: message' lines naming the valid spellings.
             """,
             [
-                new ActionParameter("query", "String", "Optional. Literal search text (whitespace-split tokens ANDed) or regex source when queryMode='regex'; omit or leave empty to browse newest-first."),
-                new ActionParameter("queryMode", "String", "Optional. 'literal' (default) or 'regex'. Literal input is never compiled as regex."),
-                new ActionParameter("scope", "String", "Optional. 'global' (default) or 'session:<agentId>'."),
-                new ActionParameter("branches", "String", "Optional. 'active' (default) keeps sessions whose lineage reaches a root; 'all' spans every persisted session."),
-                new ActionParameter("role", "String", "Optional. Filter hits to 'user', 'assistant', or 'tool'."),
+                new ActionParameter("query", ActionParameterTypes.StringType, "Optional. Literal search text (whitespace-split tokens ANDed) or regex source when queryMode='regex'; omit or leave empty to browse newest-first."),
+                new ActionParameter("queryMode", ActionParameterTypes.StringType, "Optional. 'literal' (default) or 'regex'. Literal input is never compiled as regex."),
+                new ActionParameter(Scope, ActionParameterTypes.StringType, "Optional. 'global' (default) or 'session:<agentId>'."),
+                new ActionParameter(Branches, ActionParameterTypes.StringType, "Optional. 'active' (default) keeps sessions whose lineage reaches a root; 'all' spans every persisted session."),
+                new ActionParameter("role", ActionParameterTypes.StringType, "Optional. Filter hits to 'user', 'assistant', or 'tool'."),
                 new ActionParameter("page", "Number", "Optional. 1-based page number (default 1)."),
                 new ActionParameter("pageSize", "Number", "Optional. Hits per page, 1..200 (default 25)."),
             ]),
@@ -49,8 +52,8 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
             Unknown arguments, wrong-typed arguments, and invalid scope/branches/limit values return typed 'Error [Code]: message' lines naming the valid spellings.
             """,
             [
-                new ActionParameter("scope", "String", "Optional. 'global' (default) or 'session:<agentId>'."),
-                new ActionParameter("branches", "String", "Optional. 'active' (default) or 'all'."),
+                new ActionParameter(Scope, ActionParameterTypes.StringType, "Optional. 'global' (default) or 'session:<agentId>'."),
+                new ActionParameter(Branches, ActionParameterTypes.StringType, "Optional. 'active' (default) or 'all'."),
                 new ActionParameter("limit", "Number", "Optional. Maximum sessions listed, 1..500 (default 50)."),
             ]),
     ];
@@ -75,10 +78,10 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
     }
 
     HashSet<string> allowed = new(StringComparer.Ordinal)
-            { "query", "queryMode", "scope", "branches", "role", "page", "pageSize" };
+            { "query", "queryMode", Scope, Branches, "role", "page", "pageSize" };
     if (UnknownArgument(root.Value, allowed) is { } unknown)
     {
-      return Fail(new DomainError("InvalidArgument", $"unknown argument '{unknown}'."));
+      return Fail(new DomainError(InvalidArgument, $"unknown argument '{unknown}'."));
     }
 
     Result<string?> query = OptionalString(root.Value, "query");
@@ -93,13 +96,13 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
       return Fail(queryMode.Error!);
     }
 
-    Result<string?> scope = OptionalString(root.Value, "scope");
+    Result<string?> scope = OptionalString(root.Value, Scope);
     if (!scope.IsSuccess)
     {
       return Fail(scope.Error!);
     }
 
-    Result<string?> branches = OptionalString(root.Value, "branches");
+    Result<string?> branches = OptionalString(root.Value, Branches);
     if (!branches.IsSuccess)
     {
       return Fail(branches.Error!);
@@ -139,19 +142,19 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
       return Fail(root.Error!);
     }
 
-    HashSet<string> allowed = new(StringComparer.Ordinal) { "scope", "branches", "limit" };
+    HashSet<string> allowed = new(StringComparer.Ordinal) { Scope, Branches, "limit" };
     if (UnknownArgument(root.Value, allowed) is { } unknown)
     {
-      return Fail(new DomainError("InvalidArgument", $"unknown argument '{unknown}'."));
+      return Fail(new DomainError(InvalidArgument, $"unknown argument '{unknown}'."));
     }
 
-    Result<string?> scope = OptionalString(root.Value, "scope");
+    Result<string?> scope = OptionalString(root.Value, Scope);
     if (!scope.IsSuccess)
     {
       return Fail(scope.Error!);
     }
 
-    Result<string?> branches = OptionalString(root.Value, "branches");
+    Result<string?> branches = OptionalString(root.Value, Branches);
     if (!branches.IsSuccess)
     {
       return Fail(branches.Error!);
@@ -216,7 +219,7 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
     {
       return doc.RootElement.ValueKind is JsonValueKind.Object
           ? Result.Success(doc.RootElement.Clone())
-          : Result.Failure<JsonElement>(new DomainError("InvalidArgument",
+          : Result.Failure<JsonElement>(new DomainError(InvalidArgument,
               "arguments must be a JSON object."));
     }
   }
@@ -236,7 +239,7 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
       ? Result.Success<string?>(null)
       : element.ValueKind is JsonValueKind.String
         ? Result.Success(element.GetString())
-        : Result.Failure<string?>(new DomainError("InvalidArgument",
+        : Result.Failure<string?>(new DomainError(InvalidArgument,
             $"argument '{key}' must be a string."));
   }
 
@@ -246,7 +249,7 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
       ? Result.Success(fallback)
       : element.ValueKind is JsonValueKind.Number && element.TryGetInt32(out int value)
         ? Result.Success(value)
-        : Result.Failure<int>(new DomainError("InvalidArgument",
+        : Result.Failure<int>(new DomainError(InvalidArgument,
             $"argument '{key}' must be a number."));
   }
 }

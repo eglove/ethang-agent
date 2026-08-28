@@ -17,6 +17,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
   public const string GoalNs = "goal";
   public const string GoalName = "check";
   private const string CurrentPrefix = "current";
+  private const string VersionConflict = "VersionConflict";
 
   private readonly IStateStore _store = store ?? throw new ArgumentNullException(nameof(store));
   private readonly IEvidenceRunner _evidence = evidence ?? throw new ArgumentNullException(nameof(evidence));
@@ -54,7 +55,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     }
 
     StateKeyValue? current = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct).ConfigureAwait(false);
-    return Result.Failure<StateKeyValue>(new DomainError("VersionConflict",
+    return Result.Failure<StateKeyValue>(new DomainError(VersionConflict,
         $"Version conflict for '{key}': current version is {current?.Version ?? 0}."));
   }
 
@@ -76,7 +77,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     bool deleted = await _store.DeleteKeyCasAsync(_workspace.WorkspaceId, ns, name, expectedVersion, ct).ConfigureAwait(false);
     return deleted
         ? Result.Success($"deleted {key}")
-        : Result.Failure<string>(new DomainError("VersionConflict",
+        : Result.Failure<string>(new DomainError(VersionConflict,
             $"Version conflict for '{key}': current version is {existing.Version}."));
   }
 
@@ -108,11 +109,11 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
 
     return row is null
       ? expectedVersion.HasValue
-        ? Result.Failure<StateKeyValue>(new DomainError("VersionConflict",
+        ? Result.Failure<StateKeyValue>(new DomainError(VersionConflict,
                     $"Version conflict for '{key}': it does not exist (expected version {expectedVersion.Value})."))
               : await SetAsync(key, text, null, ct).ConfigureAwait(false)
       : expectedVersion.HasValue && expectedVersion.Value != row.Version
-          ? Result.Failure<StateKeyValue>(new DomainError("VersionConflict",
+          ? Result.Failure<StateKeyValue>(new DomainError(VersionConflict,
                 $"Version conflict for '{key}': current version is {row.Version}."))
           : await SetAsync(key, row.Value + "\n" + text, row.Version, ct).ConfigureAwait(false);
   }

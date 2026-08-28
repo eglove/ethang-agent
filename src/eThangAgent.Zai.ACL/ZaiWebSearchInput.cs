@@ -7,21 +7,23 @@ public sealed record ZaiWebSearchInput(string Query, int Count, string? Recency)
 {
   internal const string AllowedList = "query, count, recency, timeoutSeconds";
 
+  private const string QueryName = "query";
+
   public static Result<ZaiWebSearchInput> Create(JsonElement json)
   {
-    DomainError? unknown = ZaiToolInput.RejectUnknown(json, AllowedList, "query", "count", "recency");
+    DomainError? unknown = ZaiToolInput.RejectUnknown(json, AllowedList, QueryName, "count", "recency");
     if (unknown is not null)
     {
       return Fail(unknown);
     }
 
-    if (!json.TryGetProperty("query", out JsonElement queryEl))
+    if (!json.TryGetProperty(QueryName, out JsonElement queryEl))
     {
-      return Missing("query");
+      return Missing(QueryName);
     }
     if (queryEl.ValueKind != JsonValueKind.String)
     {
-      return WrongType("query", "string", queryEl.ValueKind);
+      return WrongType(QueryName, "string", queryEl.ValueKind);
     }
     string query = queryEl.GetString()!;
     if (query.Length == 0)

@@ -37,7 +37,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
 
     if (actionEl.ValueKind != JsonValueKind.String)
     {
-      return Fail(new DomainError("InvalidParameterType",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
           $"'action' must be a string, but got {actionEl.ValueKind}."));
     }
 
@@ -54,7 +54,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
     };
     if (action is null)
     {
-      return Fail(new DomainError("InvalidParameterValue",
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'action' must be exactly one of Add, Update, Complete, Remove, List, Clear " +
           $"(case-sensitive), but got '{actionText}'."));
     }
@@ -68,13 +68,13 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
     {
       if (idEl.ValueKind != JsonValueKind.Number || !idEl.TryGetInt32(out int parsedId))
       {
-        return Fail(new DomainError("InvalidParameterType",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
             $"'id' must be an integer, but got {idEl.ValueKind}."));
       }
 
       if (parsedId <= 0)
       {
-        return Fail(new DomainError("InvalidParameterValue",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
             $"'id' must be a positive integer, but got {parsedId}."));
       }
 
@@ -86,7 +86,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
     {
       if (descEl.ValueKind != JsonValueKind.String)
       {
-        return Fail(new DomainError("InvalidParameterType",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
             $"'description' must be a string, but got {descEl.ValueKind}."));
       }
 
@@ -98,7 +98,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
     {
       if (statusEl.ValueKind != JsonValueKind.String)
       {
-        return Fail(new DomainError("InvalidParameterType",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
             $"'status' must be a string, but got {statusEl.ValueKind}."));
       }
 
@@ -112,7 +112,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
       };
       if (status is null)
       {
-        return Fail(new DomainError("InvalidParameterValue",
+        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
             $"'status' must be exactly one of Pending, InProgress, Completed " +
             $"(case-sensitive), but got '{statusText}'."));
       }
@@ -125,7 +125,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
         // Add is rejected, not silently dropped: items always start Pending.
         if (status is not null)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "'status' is not accepted for Add: items always start Pending. " +
                       "Use Update to change an item's status."));
         }
@@ -138,7 +138,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
 
         if (description.Length == 0)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "'description' must be a non-empty string."));
         }
 
@@ -152,13 +152,13 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
 
         if (description is not null && description.Length == 0)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "'description' must be a non-empty string."));
         }
 
         if (description is null && status is null)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "Update changes nothing: provide at least one of 'description' or 'status'."));
         }
 
@@ -179,7 +179,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
         if (!json.TryGetProperty("confirm", out JsonElement confirmEl) ||
             confirmEl.ValueKind != JsonValueKind.True)
         {
-          return Fail(new DomainError("InvalidParameterValue",
+          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
                       "'confirm' is required to clear the todo list and must be exactly the " +
                       "boolean true. Re-issue with \"confirm\": true to proceed."));
         }
