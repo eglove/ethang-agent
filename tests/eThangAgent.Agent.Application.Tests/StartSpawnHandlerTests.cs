@@ -177,7 +177,7 @@ public class StartSpawnHandlerTests
         new TaskCategory(["coding"], 4, false, true, null, null),
         new ModelFilter(null, null, null, null, true, null, null, null, null, null, null), "best");
     FakeModelSelector selector = new(selection);
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), FallbackModel, selector);
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), FallbackModel, modelSelector: selector);
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"));
 
@@ -192,13 +192,60 @@ public class StartSpawnHandlerTests
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
     FailingModelSelector selector = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), FallbackModel, selector);
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), FallbackModel, modelSelector: selector);
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"));
 
     Assert.True(result.IsSuccess);
     AgentRecord saved = Assert.Single(store.Saved);
     Assert.Equal("openrouter/auto", saved.ModelUsed);
+  }
+
+  [Fact]
+  public async Task Execute_SessionModelPreferenceSet_ChildrenFollowIt_AheadOfConfiguredDefault()
+  {
+    FakeAgentStore store = new();
+    FakeAgentRuntime runtime = new();
+    SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "glm-5.3-flash"), FallbackModel, preferences);
+
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
+
+    Assert.True(result.IsSuccess);
+    AgentRecord saved = Assert.Single(store.Saved);
+    Assert.Equal("glm-5.3", saved.ModelUsed);
+  }
+
+  [Fact]
+  public async Task Execute_ExplicitSpawnModel_StillBeatsSessionModelPreference()
+  {
+    FakeAgentStore store = new();
+    FakeAgentRuntime runtime = new();
+    SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "glm-5.3-flash"), FallbackModel, preferences);
+
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task", Model: "spawn-specific"));
+
+    Assert.True(result.IsSuccess);
+    AgentRecord saved = Assert.Single(store.Saved);
+    Assert.Equal("spawn-specific", saved.ModelUsed);
+  }
+
+  [Fact]
+  public async Task Execute_PreferenceMutatedBetweenExecutions_NextChildSeesNewChoice()
+  {
+    FakeAgentStore store = new();
+    FakeAgentRuntime runtime = new();
+    SessionModelPreferences preferences = new() { ModelId = "glm-5.3-flash" };
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), FallbackModel, preferences);
+
+    _ = await handler.Execute(Parent(), new SpawnRequest("first"));
+    preferences.ModelId = "glm-5.3";
+    _ = await handler.Execute(Parent(), new SpawnRequest("second"));
+
+    Assert.Equal(2, store.Saved.Count);
+    Assert.Equal("glm-5.3-flash", store.Saved[0].ModelUsed);
+    Assert.Equal("glm-5.3", store.Saved[1].ModelUsed);
   }
 }
 

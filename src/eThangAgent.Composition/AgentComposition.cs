@@ -137,11 +137,20 @@ public static class AgentComposition
         .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy(() => DateTimeOffset.UtcNow))
         ;
 
-    wired = AddModelServices(wired, providerName)
-        .AddSingleton<IModelSelector>(sp => new IntelligentModelSelector(
-            sp.GetRequiredService<IModelProvider>(),
-            sp.GetRequiredService<IModelCatalog>(),
-            ModelConfig.Create(Providers.SelectorModelId(providerName), null, 2048, 0f).Value!))
+    // Only OpenRouter wires the two-stage intelligent selector: z.ai sessions run no
+    // automatic selection — the user picks glm-5.3 or glm-5.3-flash via /model, so a
+    // selector there would only burn tokens. Consumers treat a missing selector as
+    // "serve the fallback / preference" (RootAgentResolver, StartSpawnHandler).
+    wired = AddModelServices(wired, providerName);
+    if (providerName == Providers.OpenRouter)
+    {
+      wired = wired.AddSingleton<IModelSelector>(sp => new IntelligentModelSelector(
+          sp.GetRequiredService<IModelProvider>(),
+          sp.GetRequiredService<IModelCatalog>(),
+          ModelConfig.Create(Providers.SelectorModelId(providerName), null, 2048, 0f).Value!));
+    }
+
+    wired = wired
         .AddSingleton(sp => new SubAgentSpawner(
             sp.GetRequiredService<IModelProviderFactory>(),
             sp.GetRequiredService<IAgentStore>(),
@@ -158,7 +167,8 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentRuntime>(),
             sp.GetRequiredService<SubAgentOptions>(),
             Providers.FallbackModelId(providerName),
-            sp.GetRequiredService<IModelSelector>()))
+            sp.GetRequiredService<SessionModelPreferences>(),
+            sp.GetService<IModelSelector>()))
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
@@ -237,7 +247,7 @@ public static class AgentComposition
             sp.GetRequiredService<IToolRegistry>(),
             sp.GetRequiredService<ISystemPromptProvider>()))
         .AddSingleton(sp => new RootAgentResolver(
-            sp.GetRequiredService<IModelSelector>(),
+            sp.GetService<IModelSelector>(),
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<RootSessionIdentity>(),
             settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
@@ -246,7 +256,7 @@ public static class AgentComposition
             defaultModel.Temperature,
             sp.GetRequiredService<SessionModelPreferences>()))
         .AddSingleton(sp => new ProviderFailoverResolver(
-            sp.GetRequiredService<IModelSelector>(),
+            sp.GetService<IModelSelector>(),
             sp.GetRequiredService<IProviderExclusionStore>(),
             sp.GetRequiredService<RootSessionIdentity>(),
             sp.GetRequiredService<IAgentStore>(),

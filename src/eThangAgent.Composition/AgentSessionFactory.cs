@@ -72,8 +72,9 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     workspaceRoot = Path.GetFullPath(workspaceRoot);
 
-    // Bootstrap model: an explicit pin serves every turn; otherwise a provider-derived
-    // placeholder replaced on the first turn by intelligent selection.
+    // Bootstrap model: an explicit pin serves every turn; otherwise the provider's
+    // default — z.ai's glm-5.3-flash (user-changeable via /model) or OpenRouter's
+    // placeholder, replaced on the first turn by intelligent selection.
     string modelId = _settings.ModelId ?? Providers.FallbackModelId(providerName);
     ModelConfig defaultModel = ModelConfig.Create(modelId, null, 32 * 1024, 0.7f).Value!;
 
@@ -104,6 +105,18 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // must be set before the first turn can fire.
       services.GetRequiredService<RootSessionIdentity>().Id = bootstrapped.Value!;
 
+      // z.ai exposes its static curated lineup to the /model command; OpenRouter keeps
+      // automatic selection, so there is nothing for the user to pick from.
+      IReadOnlyList<string>? selectableModels = null;
+      if (providerName == Providers.Zai)
+      {
+        Result<IReadOnlyList<ModelProviderEntry>> catalog = await services
+            .GetRequiredService<IModelCatalog>()
+            .GetAsync(ct)
+            .ConfigureAwait(false);
+        selectableModels = catalog.IsSuccess ? [.. catalog.Value!.Select(entry => entry.ModelId)] : null;
+      }
+
       return Result.Success(new AgentSession(
           services,
           bootstrapped.Value!,
@@ -116,7 +129,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
           clarifyChannel,
           services.GetRequiredService<IAgentInbox>(),
           services.GetRequiredService<IAgentRuntime>(),
-          services.GetRequiredService<SessionModelPreferences>()));
+          services.GetRequiredService<SessionModelPreferences>(),
+          selectableModels));
     }
     catch
     {

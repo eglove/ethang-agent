@@ -56,6 +56,10 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 - `/effort <level>` — set the session's reasoning effort for z.ai (max, xhigh, high, medium,
   low, minimal, none); bare `/effort` shows the current level. Applies from the next turn to
   the root agent and children alike; on OpenRouter tabs the choice is remembered but inert
+- `/model <glm-5.3|glm-5.3-flash>` — pick the session's z.ai model yourself; bare `/model`
+  shows the current model. Applies from the next turn to the root agent and children alike.
+  z.ai tabs run no automatic model selection — you choose (default `glm-5.3-flash`); on
+  OpenRouter tabs the command is unavailable because the model is selected automatically
 - `todo` tool — durable workspace task list with compare-and-swap writes
 - Capability registry exposing agent tools plus spawnable sub-agents, durable workspace state, and memory recall
 - Nested sub-agents with depth limits and concurrency caps
@@ -99,7 +103,10 @@ The window opens directly on the shell: no workspace is required up front. Click
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. |
 | Sub-agent settings (`DefaultModel`, `ChildTimeoutSeconds`, `MaxConcurrentAgents`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. |
 
-The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. When no model is explicitly configured via `Model:Id` (env var `MODEL__ID`), the agent defers model selection to the first user prompt: a two-stage LLM pipeline categorizes that prompt and selects the best model from the active provider's catalog (OpenRouter's fetched catalog, or z.ai's curated static catalog — z.ai exposes no models-listing endpoint) based on the task category and price. The pipeline re-runs on every 10th user message thereafter so the model tracks the conversation's evolving task. Sub-agent spawns similarly select models based on their task prompts. Selection failures fall back to the provider's default model (`openrouter/auto`, `glm-5.3-flash`) and surface as a transcript notice. Explicit configuration always takes precedence and skips selection entirely.
+The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. Model choice works differently per provider:
+
+- **z.ai** — no automatic selection. The session runs `glm-5.3-flash` (the catalog's fast default) and you switch with `/model <glm-5.3|glm-5.3-flash>`; the choice applies from the next turn to the root agent and children alike. The static catalog (z.ai exposes no models-listing endpoint) is the selectable lineup, and a typed `/model` outranks an explicit `Model:Id` pin.
+- **OpenRouter** — automatic. When no model is explicitly configured via `Model:Id` (env var `MODEL__ID`), the agent defers model selection to the first user prompt: a two-stage LLM pipeline categorizes that prompt and selects the best model from OpenRouter's fetched catalog based on the task category and price. The pipeline re-runs on every 10th user message thereafter so the model tracks the conversation's evolving task. Sub-agent spawns similarly select models based on their task prompts. Selection failures fall back to the default model (`openrouter/auto`) and surface as a transcript notice. Explicit configuration always takes precedence and skips selection entirely.
 
 ### Where your data lives
 

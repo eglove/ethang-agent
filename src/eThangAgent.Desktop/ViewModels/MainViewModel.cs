@@ -159,7 +159,8 @@ internal sealed partial class MainViewModel : ObservableObject
           inbox: session.Inbox,
           childRuntime: session.ChildRuntime,
           statusModelUpdater: id => sessionVmRef!.Status.ModelId = id,
-          modelPreferences: session.Preferences);
+          modelPreferences: session.Preferences,
+          selectableModels: session.SelectableModels);
       sessionVmRef = sessionVm;
       AttachClarifyChannel(sessionVm, session.ClarifyChannel);
 

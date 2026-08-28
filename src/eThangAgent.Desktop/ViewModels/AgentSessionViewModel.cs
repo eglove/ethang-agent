@@ -25,6 +25,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly Func<UiStreamEvent, Task> _streamSink;
   private readonly Action<string>? _statusModelUpdater;
   private readonly SessionModelPreferences? _modelPreferences;
+  private readonly IReadOnlyList<string>? _selectableModels;
 
   private Task? _runningTurn;
 
@@ -70,7 +71,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       IAgentInbox? inbox = null,
       IAgentRuntime? childRuntime = null,
       Action<string>? statusModelUpdater = null,
-      SessionModelPreferences? modelPreferences = null)
+      SessionModelPreferences? modelPreferences = null,
+      IReadOnlyList<string>? selectableModels = null)
   {
     WorkspaceRoot = workspaceRoot;
     _statusModelUpdater = statusModelUpdater;
@@ -96,6 +98,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     });
     Status = new StatusViewModel(provider, modelId);
     _modelPreferences = modelPreferences;
+    _selectableModels = selectableModels;
     _inbox = inbox;
     _childRuntime = childRuntime;
   }
@@ -191,6 +194,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return Task.CompletedTask;
     }
 
+    if (DesktopCommands.IsModel(input))
+    {
+      HandleModelCommand(input);
+      return Task.CompletedTask;
+    }
+
     // Real turn — start and track it.
     _runningTurn = ExecuteTurnAsync(input);
     return _runningTurn;
@@ -228,6 +237,41 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     _modelPreferences.ReasoningEffort = level;
     Transcript.AddNotice($"Reasoning effort set to {level}; applies from the next turn.");
+  }
+
+  /// <summary>
+  /// /model: shows the current session model with no argument, switches the session's
+  /// model with a valid choice (applies from the next turn, root and children alike),
+  /// and errors on anything else. Only z.ai sessions expose a selectable lineup — on
+  /// OpenRouter the model is chosen automatically, so the command is unavailable there.
+  /// </summary>
+  private void HandleModelCommand(string input)
+  {
+    if (_modelPreferences is null || _selectableModels is null || _selectableModels.Count == 0)
+    {
+      Transcript.AddNotice("/model is unavailable in this session (this provider selects models automatically).");
+      return;
+    }
+
+    string argument = DesktopCommands.ModelArgument(input);
+    if (argument.Length == 0)
+    {
+      string current = _modelPreferences.ModelId ?? Status.ModelId;
+      Transcript.AddNotice(
+          $"Session model: {current}. Usage: /model <{string.Join("|", _selectableModels)}>.");
+      return;
+    }
+
+    if (!_selectableModels.Contains(argument, StringComparer.Ordinal))
+    {
+      Transcript.AddNotice(
+          $"Unknown model '{argument}'. Valid choices: {string.Join(", ", _selectableModels)}.");
+      return;
+    }
+
+    _modelPreferences.ModelId = argument;
+    Status.ModelId = argument;
+    Transcript.AddNotice($"Model set to {argument}; applies from the next turn.");
   }
 
   /// <summary>Raised when the agent asks to close (e.g. /exit). The view closes the tab.</summary>

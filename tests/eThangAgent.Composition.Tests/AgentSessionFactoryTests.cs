@@ -212,4 +212,40 @@ public class AgentSessionFactoryTests
       catch { }
     }
   }
+
+  [Fact]
+  public async Task CreateAsync_SurfaceSelectableModels_ZaiListsCatalog_OpenRouterListsNothing()
+  {
+    // The /model surface is fed by the session: z.ai's static catalog IS the
+    // choice set; OpenRouter selects automatically, so there is nothing to pick.
+    (AgentSessionFactory factory, string db) = CreateFactory(Settings(zaiKey: "zai-test-key"));
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-sel");
+      try
+      {
+        Result<AgentSession> zai = await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel());
+        Result<AgentSession> openRouter = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, new StubChannel());
+
+        Assert.True(zai.IsSuccess);
+        Assert.Equal(["glm-5.3", "glm-5.3-flash"], zai.Value!.SelectableModels);
+
+        Assert.True(openRouter.IsSuccess);
+        Assert.Null(openRouter.Value!.SelectableModels);
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      try
+      {
+        File.Delete(db);
+      }
+      catch { }
+    }
+  }
 }

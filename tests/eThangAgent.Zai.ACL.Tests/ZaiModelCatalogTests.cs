@@ -18,6 +18,18 @@ public class ZaiModelCatalogTests
   }
 
   [Fact]
+  public async Task Catalog_IsTheSelectableLineup_ForTheModelCommand()
+  {
+    // z.ai sessions run no automatic selection: the user picks one of these via
+    // /model, and glm-5.3-flash is the session default.
+    ZaiModelCatalog catalog = new();
+
+    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync();
+
+    Assert.Equal(["glm-5.3", "glm-5.3-flash"], result.Value!.Select(e => e.ModelId).ToList());
+  }
+
+  [Fact]
   public async Task Entries_HaveUniqueModelIds_AndUniqueExclusionKeys()
   {
     ZaiModelCatalog catalog = new();

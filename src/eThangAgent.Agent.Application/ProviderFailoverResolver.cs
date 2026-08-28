@@ -8,9 +8,11 @@ namespace eThangAgent.Agent.Application;
 /// <summary>Resolves the root agent's model with failover. When a model+provider fails
 /// mid-turn, <see cref="ReSelectExcludingAsync"/> records the exclusion and re-runs
 /// selection with the failed pair filtered out. Mirrors <see cref="RootAgentResolver"/>
-/// for the normal path but adds exclusion-aware re-selection.</summary>
+/// for the normal path but adds exclusion-aware re-selection. Sessions wired without a
+/// selector (z.ai picks its model through the /model command instead) resolve the
+/// fallback on every path — there is nothing to re-select from.</summary>
 public sealed class ProviderFailoverResolver(
-    IModelSelector selector,
+    IModelSelector? selector,
     IProviderExclusionStore exclusions,
     RootSessionIdentity? identity,
     IAgentStore? store,
@@ -21,7 +23,7 @@ public sealed class ProviderFailoverResolver(
 {
   public static readonly TimeSpan DefaultExclusionTtl = TimeSpan.FromMinutes(10);
 
-  private readonly IModelSelector _selector = selector ?? throw new ArgumentNullException(nameof(selector));
+  private readonly IModelSelector? _selector = selector;
   private readonly IProviderExclusionStore _exclusions = exclusions ?? throw new ArgumentNullException(nameof(exclusions));
   private readonly RootSessionIdentity? _identity = identity;
   private readonly IAgentStore? _store = store;
@@ -38,6 +40,11 @@ public sealed class ProviderFailoverResolver(
     if (_explicitModel is not null)
     {
       return (_explicitModel, null);
+    }
+
+    if (_selector is null)
+    {
+      return (Make(_fallbackModelId, null), null);
     }
 
     IReadOnlySet<string> excluded = await _exclusions.GetActiveExclusionsAsync(ct).ConfigureAwait(false);
@@ -64,6 +71,14 @@ public sealed class ProviderFailoverResolver(
 
     IReadOnlySet<string> existing = await _exclusions.GetActiveExclusionsAsync(ct).ConfigureAwait(false);
     HashSet<string> excluded = [.. existing, failedKey];
+
+    // No selector (z.ai picks its model via /model): the exclusion is still recorded,
+    // but there is nothing to re-select from — the fallback serves the retry turn.
+    if (_selector is null)
+    {
+      return (Make(_fallbackModelId, null),
+          $"Model {failedModelId} via {failedProviderName} failed; using {_fallbackModelId}.");
+    }
 
     Result<ModelSelectionResult> selection = await _selector.SelectAsync(taskPrompt, excluded, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)

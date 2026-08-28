@@ -5,15 +5,17 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application;
 
-/// <summary>Resolves the root agent's model for an upcoming turn. When an explicit model is
-///     configured (the user pinned it), that model serves every turn and no selection runs.
-///     Otherwise, the two-stage <see cref="IModelSelector"/> pipeline runs on the turn's prompt
-///     at the first turn and every <see cref="Recadence"/> user messages thereafter; on success
-///     the root <see cref="AgentRecord.ModelUsed"/> is updated. Selection failures fall back to
-///     the host-injected <paramref name="fallbackModelId"/> and are surfaced via the notice
-///     string so the user sees that selection failed. Mirrors
-///     <c>StartSpawnHandler.ResolveModelAsync</c> for the root path, which previously ran once
-///     at startup with a canned prompt.</summary>
+/// <summary>Resolves the root agent's model for an upcoming turn. The session's live
+///     /model choice (when set) serves every turn — a typed command is more recent user
+///     intent than any static wiring, so it outranks the configured pin. Next, an explicit
+///     configured model (the pin) serves every turn and no selection runs. Otherwise, the
+///     two-stage <see cref="IModelSelector"/> pipeline runs on the turn's prompt at the
+///     first turn and every <see cref="Recadence"/> user messages thereafter; on success
+///     the root <see cref="AgentRecord.ModelUsed"/> is updated. Selection failures fall
+///     back to the host-injected <paramref name="fallbackModelId"/> and are surfaced via
+///     the notice string so the user sees that selection failed. Mirrors
+///     <c>StartSpawnHandler.ResolveModelAsync</c> for the root path, which previously ran
+///     once at startup with a canned prompt.</summary>
 public sealed class RootAgentResolver(
     IModelSelector? selector,
     IAgentStore? store,
@@ -48,6 +50,16 @@ public sealed class RootAgentResolver(
       Conversation conversation, string prompt, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(conversation);
+
+    // 0. The user's live /model choice wins over everything static — pin, selection,
+    //    cadence, and fallback. Runtime preferences (/effort) still apply: the choice
+    //    fixes the model identity, not the knobs.
+    if (_preferences?.ModelId is { } preferred)
+    {
+      string? preferredNotice = await TryPersistModelAsync(preferred, ct).ConfigureAwait(false);
+      return (Make(preferred),
+          preferredNotice is null ? null : $"Model selected: {preferredNotice}");
+    }
 
     // 1. Explicit pinned model always wins and never reclassifies. Runtime
     //    preferences (/effort) still apply — the pin fixes the model, not the knobs.

@@ -118,6 +118,29 @@ public class CompositionGuardTests
   }
 
   [Fact]
+  public void ZaiSession_WiresNoModelSelector_OpenRouterSessionDoes()
+  {
+    // z.ai's model is the user's choice (/model over its static catalog); only
+    // OpenRouter wires the two-stage automatic selector. Consumers taking an
+    // optional selector must still resolve on a selector-less container.
+    static ServiceProvider BuildFor(string provider) =>
+        new ServiceCollection()
+            .AddEThangAgentCore(Settings(zaiKey: "zai-test-key"), provider,
+                ModelConfig.Create("m", null, 512, 0.5f).Value!,
+                new AgentHostOptions(new StubClarifyChannel(),
+                    new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
+            .BuildServiceProvider();
+
+    using ServiceProvider zaiServices = BuildFor(Providers.Zai);
+    Assert.Null(zaiServices.GetService<IModelSelector>());
+    _ = zaiServices.GetRequiredService<RootAgentResolver>();
+    _ = zaiServices.GetRequiredService<IAgentSpawnCommand>();
+
+    using ServiceProvider openRouterServices = BuildFor(Providers.OpenRouter);
+    _ = openRouterServices.GetRequiredService<IModelSelector>();
+  }
+
+  [Fact]
   public void SelectedProvider_WithoutApiKey_Throws()
   {
     AgentSettings settings = Settings(openRouterKey: null);
