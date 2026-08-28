@@ -49,8 +49,8 @@ public sealed class RootAgentResolver(
     ArgumentNullException.ThrowIfNull(conversation);
 
     // 0. The user's live model choice wins over everything static — selection,
-    //    cadence, and fallback. Runtime preferences (/effort) still apply: the choice
-    //    fixes the model identity, not the knobs.
+    //    cadence, and fallback. Runtime preferences (reasoning effort) still apply:
+    //    the choice fixes the model identity, not the knobs.
     if (_preferences?.ModelId is { } preferred)
     {
       string? preferredNotice = await TryPersistModelAsync(preferred, ct).ConfigureAwait(false);

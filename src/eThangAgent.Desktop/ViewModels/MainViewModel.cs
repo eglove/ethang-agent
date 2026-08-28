@@ -24,17 +24,18 @@ internal delegate Task<Result<string>> TurnRunner(
     Action<string>? onNotice = null);
 
 /// <summary>Shell-level state for the main window: the left menu bar (Open Agent, the
-///     per-tab Model entry, and the bottom-anchored Settings entry) and the open agent
-///     tabs. 'Open Agent' shows the new-agent dialog (provider dropdown plus workspace
-///     picker); each tab owns an <see cref="AgentSessionViewModel"/> bound to its own
-///     isolated <see cref="AgentSession"/> created through the injected provider-aware
-///     session-factory hook. The Model entry shows the selected tab's model picker:
-///     confirming applies the choice to the session (from the next turn, root and
-///     children alike) and persists it per workspace + provider, so reopening the same
-///     directory restores it. The settings modal edits the provider API keys: saving
-///     persists them (protected) and rebuilds the factory so future opens use the new
-///     keys — already-open tabs keep the credentials they were created with. The shell
-///     itself holds no agent state. A static <see cref="ForPrebuiltSessionAsync"/> keeps
+///     per-tab Model and Effort entries, and the bottom-anchored Settings entry) and
+///     the open agent tabs. 'Open Agent' shows the new-agent dialog (provider dropdown
+///     plus workspace picker); each tab owns an <see cref="AgentSessionViewModel"/>
+///     bound to its own isolated <see cref="AgentSession"/> created through the
+///     injected provider-aware session-factory hook. The Model entry shows the selected
+///     tab's model picker and the Effort entry its effort picker: confirming applies
+///     the choice to the session (from the next turn, root and children alike) and
+///     persists it per workspace + provider, so reopening the same directory restores
+///     it. The settings modal edits the provider API keys: saving persists them
+///     (protected) and rebuilds the factory so future opens use the new keys —
+///     already-open tabs keep the credentials they were created with. The shell itself
+///     holds no agent state. A static <see cref="ForPrebuiltSessionAsync"/> keeps
 ///     single-session hosts and tests simple while tabs remain the primary surface.</summary>
 internal sealed partial class MainViewModel : ObservableObject
 {
@@ -84,8 +85,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public bool HasTabs => Tabs.Count > 0;
 
-  /// <summary>True when a tab is selected — drives the Model menu entry's visibility
-  ///     (every provider has a model picker).</summary>
+  /// <summary>True when a tab is selected — drives the Model and Effort menu entries'
+  ///     visibility (every provider has both pickers).</summary>
   public bool HasSelectedTab => SelectedTab is not null;
 
   /// <summary>True when at least one provider has a configured API key; gates Open Agent.</summary>
@@ -103,6 +104,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public IRelayCommand ChooseModelCommand { get; }
 
+  public IRelayCommand ChooseEffortCommand { get; }
+
   /// <summary>Raised when the shell wants the new-agent dialog shown.</summary>
   public event EventHandler? OpenAgentRequested;
 
@@ -111,6 +114,9 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Raised when the shell wants the selected tab's model picker shown.</summary>
   public event EventHandler? ModelPickerRequested;
+
+  /// <summary>Raised when the shell wants the selected tab's effort picker shown.</summary>
+  public event EventHandler? EffortPickerRequested;
 
   /// <param name="createSession">Session-creation hook. Null in production — the shell
   ///     derives it from <paramref name="settings"/> + <paramref name="sessionFactory"/>
@@ -161,6 +167,9 @@ internal sealed partial class MainViewModel : ObservableObject
     ChooseModelCommand = new RelayCommand(
         () => ModelPickerRequested?.Invoke(this, EventArgs.Empty),
         () => HasSelectedTab);
+    ChooseEffortCommand = new RelayCommand(
+        () => EffortPickerRequested?.Invoke(this, EventArgs.Empty),
+        () => HasSelectedTab);
 
     AvailableProviders = settings is not null
         ? ProvidersFrom(settings)
@@ -178,8 +187,11 @@ internal sealed partial class MainViewModel : ObservableObject
   partial void OnAvailableProvidersChanged(IReadOnlyList<ProviderOption> value) =>
       OpenAgentCommand.NotifyCanExecuteChanged();
 
-  partial void OnSelectedTabChanged(AgentTabViewModel? value) =>
-      ChooseModelCommand.NotifyCanExecuteChanged();
+  partial void OnSelectedTabChanged(AgentTabViewModel? value)
+  {
+    ChooseModelCommand.NotifyCanExecuteChanged();
+    ChooseEffortCommand.NotifyCanExecuteChanged();
+  }
 
   private void OnTabsChanged(object? sender, NotifyCollectionChangedEventArgs e)
   {
@@ -201,6 +213,10 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Menu-bar entry point: raises the model-picker request. The view shows the
   ///     picker modal and calls <see cref="ApplyModelChoiceAsync"/> with the choice.</summary>
   public void RequestChooseModel() => ModelPickerRequested?.Invoke(this, EventArgs.Empty);
+
+  /// <summary>Menu-bar entry point: raises the effort-picker request. The view shows the
+  ///     picker modal and calls <see cref="ApplyEffortChoiceAsync"/> with the choice.</summary>
+  public void RequestChooseEffort() => EffortPickerRequested?.Invoke(this, EventArgs.Empty);
 
   /// <summary>Loads the selected tab's provider catalog for the model picker, or null
   ///     when no tab is selected. The loader escapes collection evaluation in the
@@ -230,6 +246,23 @@ internal sealed partial class MainViewModel : ObservableObject
 
     tab.ViewModel.ApplyModelChoice(modelId);
     await PersistModelChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot, modelId);
+  }
+
+  /// <summary>Applies an effort-picker choice to the selected tab and persists it per
+  ///     workspace + provider (best effort — the same named decision as the other
+  ///     preferences). Null means the model default and clears the persisted
+  ///     preference, so future opens of the same directory start on the provider's
+  ///     own reasoning behavior.</summary>
+  public async Task ApplyEffortChoiceAsync(ReasoningEffort? effort)
+  {
+    AgentTabViewModel? tab = SelectedTab;
+    if (tab is null)
+    {
+      return;
+    }
+
+    tab.ViewModel.ApplyEffortChoice(effort);
+    await PersistEffortChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot, effort);
   }
 
   /// <summary>Applies a settings-modal result: persists the keys (protected) or deletes
@@ -389,23 +422,26 @@ internal sealed partial class MainViewModel : ObservableObject
           modelPreferences: session.Preferences);
       sessionVmRef = sessionVm;
 
-      // Restore the per-workspace model choice (if any) BEFORE the tab can take a
-      // turn: the choice rides the session preferences, so the first turn resolves
-      // straight to it — no selection runs. A stale persisted id is not re-validated
-      // (that would crawl the whole OpenRouter catalog on every open); it surfaces as
-      // a provider error on the next turn and the user re-picks.
-      string? restoredChoice = await ReadModelChoiceAsync(providerName, full);
-      if (restoredChoice is not null && session.Preferences is { } preferences)
+      // Restore the per-workspace model and effort choices (if any) BEFORE the tab can
+      // take a turn: both ride the session preferences, so the first turn resolves
+      // straight to them — no selection runs. A stale persisted model id is not
+      // re-validated (that would crawl the whole OpenRouter catalog on every open);
+      // it surfaces as a provider error on the next turn and the user re-picks.
+      if (session.Preferences is { } preferences)
       {
-        preferences.ModelId = restoredChoice;
-        sessionVm.Status.ModelId = restoredChoice;
+        string? restoredChoice = await ReadModelChoiceAsync(providerName, full);
+        if (restoredChoice is not null)
+        {
+          preferences.ModelId = restoredChoice;
+          sessionVm.Status.ModelId = restoredChoice;
+        }
+
+        preferences.ReasoningEffort = await ReadEffortChoiceAsync(providerName, full);
       }
 
       AttachClarifyChannel(sessionVm, session.ClarifyChannel);
 
       AgentTabViewModel tab = new(session, sessionVm);
-      // /exit inside the agent closes its own tab.
-      sessionVm.CloseRequested += (_, _) => CloseTab(tab);
       Tabs.Add(tab);
       SelectedTab = tab;
 
@@ -506,6 +542,72 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore CA1031
   }
 
+  /// <summary>Composite preference key of the per-workspace effort choice: the same
+  ///     directory may be open under both providers, so the key is scoped to the
+  ///     (provider, workspace) pair. The key itself is only ever read verbatim — never
+  ///     parsed — so path colons need no escaping; the stored value (an enum name) is
+  ///     what the read path parses.</summary>
+  private static string EffortChoiceKey(string providerName, string workspaceRoot)
+      => $"effort_choice:{providerName}:{workspaceRoot}";
+
+  /// <summary>Reads the per-workspace effort choice, or null when unset. A stale or
+  ///     corrupt stored value degrades to null (the provider default) — it is never
+  ///     coerced to a level. Also null when the store is unavailable — a failed read
+  ///     never fails the open (named decision, CA1031).</summary>
+  private async Task<ReasoningEffort?> ReadEffortChoiceAsync(string providerName, string workspaceRoot)
+  {
+    if (_preferences is null)
+    {
+      return null;
+    }
+
+    // Named decision (CA1031): preference reads must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      string? stored = await _preferences.GetAsync(EffortChoiceKey(providerName, workspaceRoot));
+      return Enum.TryParse(stored, ignoreCase: true, out ReasoningEffort effort)
+          ? effort
+          : null;
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"effort choice preference read failed: {ex.Message}");
+      return null;
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Persists (or, for the model default, clears) the per-workspace effort
+  ///     choice. Best effort — a failed write logs to stderr and never fails the pick
+  ///     (named decision, CA1031; same reasoning as the provider preference).</summary>
+  private async Task PersistEffortChoiceAsync(string providerName, string workspaceRoot, ReasoningEffort? effort)
+  {
+    if (_preferences is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): preference persistence must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      string key = EffortChoiceKey(providerName, workspaceRoot);
+      bool landed = effort is null
+          ? await _preferences.DeleteAsync(key)
+          : await _preferences.SetAsync(key, effort.Value.ToString());
+      if (!landed)
+      {
+        await Console.Error.WriteLineAsync($"effort choice preference write failed for '{key}'");
+      }
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"effort choice preference write failed: {ex.Message}");
+    }
+#pragma warning restore CA1031
+  }
+
   /// <summary>Closes a tab: completes its root session gracefully (best effort), then
   ///     removes it and disposes its container. Selection falls to the last remaining
   ///     tab; closing the final tab leaves the empty shell with the menu bar.</summary>
@@ -531,8 +633,8 @@ internal sealed partial class MainViewModel : ObservableObject
     await tab.Container.Services.DisposeAsync();
   }
 
-  /// <summary>Synchronous fire-and-forget close used by view-model internals (e.g.
-  ///     /exit). Teardown errors are swallowed inside <see cref="CloseTabAsync"/>.</summary>
+  /// <summary>Synchronous fire-and-forget close used by the tab header's close button.
+  ///     Teardown errors are swallowed inside <see cref="CloseTabAsync"/>.</summary>
   public void CloseTab(AgentTabViewModel tab) => _ = CloseTabAsync(tab);
 
   private static void AttachClarifyChannel(AgentSessionViewModel vm, IClarifyChannel channel)

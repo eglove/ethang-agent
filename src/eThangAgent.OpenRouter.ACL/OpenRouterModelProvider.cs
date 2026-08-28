@@ -170,6 +170,13 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       bodyDict["provider"] = new { only = new[] { config.Provider } };
     }
 
+    // Only sent when the user picked a level (the effort picker); OpenRouter's own
+    // default applies otherwise, and it normalizes the level to what the model supports.
+    if (config.Effort is { } effort)
+    {
+      bodyDict["reasoning"] = new { effort = OpenRouterReasoningEffort.ToWire(effort) };
+    }
+
     if (request.Tools is { Count: > 0 })
     {
       bodyDict["tools"] = request.Tools.Select(TranslateTool).ToArray();

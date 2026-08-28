@@ -137,23 +137,15 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>
-  /// Processes one submission. Returns immediately for blank/command/busy inputs.
-  /// For normal turns, sets the in-flight task and returns that same task so callers
-  /// can await it directly.
+  /// Processes one submission. Blank input is ignored. While a turn runs, input
+  /// steers it. For normal turns, sets the in-flight task and returns that same
+  /// task so callers can await it directly.
   /// </summary>
   public Task SubmitAsync(string rawInput)
   {
     string input = rawInput?.Trim() ?? "";
     if (string.IsNullOrWhiteSpace(input))
     {
-      return Task.CompletedTask;
-    }
-
-    // Stop outranks everything: it must reach a busy turn even while a clarify question
-    // from that same turn is pending.
-    if (DesktopCommands.IsStop(input))
-    {
-      RequestStop();
       return Task.CompletedTask;
     }
 
@@ -173,66 +165,28 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return Task.CompletedTask;
     }
 
-    if (DesktopCommands.IsQuit(input))
-    {
-      // In the shell world there is no single window to close: quitting an agent
-      // surfaces as closing its tab, which the view wires to CloseRequested.
-      CloseRequested?.Invoke(this, EventArgs.Empty);
-      return Task.CompletedTask;
-    }
-
-    if (DesktopCommands.IsHelp(input))
-    {
-      Transcript.AddNotice("Commands:" + string.Join("",
-          DesktopCommands.All
-              .OrderBy(c => c.Name, StringComparer.Ordinal)
-              .Select(c => $"\n  {c.Name}  —  {c.Description}")));
-      return Task.CompletedTask;
-    }
-
-    if (DesktopCommands.IsEffort(input))
-    {
-      HandleEffortCommand(input);
-      return Task.CompletedTask;
-    }
-
     // Real turn — start and track it.
     _runningTurn = ExecuteTurnAsync(input);
     return _runningTurn;
   }
 
   /// <summary>
-  /// /effort: shows the current reasoning effort with no argument, sets it with a valid
-  /// level (applies from the next turn, root and children alike), and errors on anything
-  /// else. z.ai is the only provider that consumes the setting today — on OpenRouter
-  /// sessions the choice is remembered but inert.
+  /// Applies the user's effort-picker choice: sets the session's reasoning effort
+  /// (null returns it to the provider default). Applies from the next turn, root and
+  /// children alike; persisted per workspace by the shell.
   /// </summary>
-  private void HandleEffortCommand(string input)
+  public void ApplyEffortChoice(ReasoningEffort? effort)
   {
     if (_modelPreferences is null)
     {
-      Transcript.AddNotice("/effort is unavailable in this session (no model preferences wired).");
+      Transcript.AddNotice("Effort choice is unavailable in this session (no model preferences wired).");
       return;
     }
 
-    string argument = DesktopCommands.EffortArgument(input);
-    if (argument.Length == 0)
-    {
-      string current = _modelPreferences.ReasoningEffort?.ToString() ?? "model default";
-      Transcript.AddNotice(
-          $"Reasoning effort: {current}. Usage: /effort <max|xhigh|high|medium|low|minimal|none>.");
-      return;
-    }
-
-    if (!DesktopCommands.TryParseEffortLevel(argument, out ReasoningEffort level))
-    {
-      Transcript.AddNotice(
-          $"Unknown effort '{argument}'. Valid levels: max, xhigh, high, medium, low, minimal, none.");
-      return;
-    }
-
-    _modelPreferences.ReasoningEffort = level;
-    Transcript.AddNotice($"Reasoning effort set to {level}; applies from the next turn.");
+    _modelPreferences.ReasoningEffort = effort;
+    Transcript.AddNotice(effort is null
+        ? "Reasoning effort set to the model default; applies from the next turn."
+        : $"Reasoning effort set to {EffortLevels.DisplayName(effort.Value)}; applies from the next turn.");
   }
 
   /// <summary>
@@ -256,14 +210,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         : $"Model set to {modelId}; applies from the next turn.");
   }
 
-  /// <summary>Raised when the agent asks to close (e.g. /exit). The view closes the tab.</summary>
-  public event EventHandler? CloseRequested;
-
   /// <summary>Awaits the in-flight turn task. Returns a completed task if no turn is running.</summary>
   public Task WaitForTurnAsync() => _runningTurn ?? Task.CompletedTask;
 
   /// <summary>
-  /// Completes the root session on graceful exit (/exit, /quit, or tab close).
+  /// Completes the root session on graceful exit (tab close or window close).
   /// Persistence failures surface as transcript notices — teardown itself never throws.
   /// </summary>
   public Task ShutdownAsync() => _lifecycle.CompleteAsync(_rootId, ReportPersistenceError);

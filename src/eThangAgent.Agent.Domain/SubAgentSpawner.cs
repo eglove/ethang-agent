@@ -56,8 +56,8 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
   public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(child);
-    // Children inherit the session's runtime preferences (/effort): the effort choice
-    // is a property of the conversation, not of the root agent.
+    // Children inherit the session's runtime preferences (the effort picker): the
+    // effort choice is a property of the conversation, not of the root agent.
     ModelConfig config = ModelConfig.Create(
         child.ModelUsed, null, ChildMaxTokens, ChildTemperature, _preferences?.ReasoningEffort).Value!;
 

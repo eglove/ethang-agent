@@ -62,55 +62,7 @@ public class AgentSessionViewModelTests
     return (vm, errors, lifecycle);
   }
 
-  // ── 1. /help ──────────────────────────────────────────────────────────────
-
-  [Fact]
-  public async Task Help_Prints_Command_List_Not_Sent_To_Model()
-  {
-    int sent = 0;
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _, _) =>
-    {
-      sent++;
-      return Task.FromResult(Result.Success(""));
-    });
-
-    await vm.SubmitAsync("/help");
-
-    Assert.Equal(0, sent);
-    Assert.False(vm.IsBusy);
-    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
-    Assert.Contains("/help", notice.Text, StringComparison.Ordinal);
-    Assert.Contains("/exit", notice.Text, StringComparison.Ordinal);
-    Assert.Contains("/quit", notice.Text, StringComparison.Ordinal);
-  }
-
-  // ── 2. /exit, /quit ───────────────────────────────────────────────────────
-
-  [Theory]
-  [InlineData("/exit")]
-  [InlineData("/quit")]
-  public async Task Quit_Commands_Request_Close_Without_Model_Call(string cmd)
-  {
-    int sent = 0;
-    bool closed = false;
-    StubStore store = new();
-    AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _, _) =>
-        {
-          sent++;
-          return Task.FromResult(Result.Success(""));
-        },
-        new RecordingLifecycle(store), AgentId.NewId(), new Conversation(), "OpenRouter", "m",
-        workspaceRoot: @"C:\work\demo");
-    vm.CloseRequested += (_, _) => closed = true;
-
-    await vm.SubmitAsync(cmd);
-
-    Assert.True(closed);
-    Assert.Equal(0, sent);
-  }
-
-  // ── 3. Normal turn ────────────────────────────────────────────────────────
+  // ── 1. Normal turn ────────────────────────────────────────────────────────
 
   [Fact]
   public async Task Normal_Turn_Appends_User_Entry_Disables_Input_And_Books_Exchange()
@@ -135,7 +87,7 @@ public class AgentSessionViewModelTests
     Assert.Equal(1, vm.MessageCount);
   }
 
-  // ── 3a. Failure produces error notice ─────────────────────────────────────
+  // ── 1a. Failure produces error notice ─────────────────────────────────────
 
   [Fact]
   public async Task Failure_Produces_Error_Notice_With_Code()
@@ -150,7 +102,7 @@ public class AgentSessionViewModelTests
     Assert.Contains("Error [RateLimited]: slow down", notice.Text, StringComparison.Ordinal);
   }
 
-  // ── 3b. Success with no deltas falls back to notice ───────────────────────
+  // ── 1b. Success with no deltas falls back to notice ───────────────────────
 
   [Fact]
   public async Task Success_Without_Streamed_Deltas_Falls_Back_To_Final_Text_Notice()
@@ -165,7 +117,7 @@ public class AgentSessionViewModelTests
     Assert.Contains("plain answer", notice.Text, StringComparison.Ordinal);
   }
 
-  // ── 4. Busy submissions ignored ───────────────────────────────────────────
+  // ── 2. Busy submissions ignored ───────────────────────────────────────────
 
   [Fact]
   public async Task Submission_While_Busy_Is_Ignored()
@@ -187,7 +139,7 @@ public class AgentSessionViewModelTests
     _ = Assert.Single(vm.Transcript.Entries.OfType<UserMessageEntry>());
   }
 
-  // ── 5. Persistence errors route through reportError → notice entries ─────
+  // ── 3. Persistence errors route through reportError → notice entries ─────
 
   [Fact]
   public async Task Persistence_Error_Routes_Through_ReportError_To_Notice_Entry()
@@ -207,7 +159,7 @@ public class AgentSessionViewModelTests
     Assert.Equal(1, lifecycle._exchanges);
   }
 
-  // ── 6. Blank input ignored ────────────────────────────────────────────────
+  // ── 4. Blank input ignored ────────────────────────────────────────────────
 
   [Fact]
   public async Task Blank_Input_Is_Ignored()
@@ -220,7 +172,7 @@ public class AgentSessionViewModelTests
     Assert.Empty(vm.Transcript.Entries);
   }
 
-  // ── 7. Model picker choice ────────────────────────────────────────────────
+  // ── 5. Model picker choice ────────────────────────────────────────────────
 
   [Fact]
   public void ApplyModelChoice_Pins_Session_Model_Updates_Status_And_Announces()
@@ -270,6 +222,57 @@ public class AgentSessionViewModelTests
     vm.ApplyModelChoice("anthropic/claude");
 
     Assert.Equal("test/model", vm.Status.ModelId); // untouched
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("unavailable", notice.Text, StringComparison.Ordinal);
+  }
+
+  // ── 6. Effort picker choice ───────────────────────────────────────────────
+
+  [Fact]
+  public void ApplyEffortChoice_Sets_Preference_And_Announces()
+  {
+    SessionModelPreferences preferences = new();
+    AgentSessionViewModel vm = new(
+        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo",
+        modelPreferences: preferences);
+
+    vm.ApplyEffortChoice(ReasoningEffort.ExtraHigh);
+
+    Assert.Equal(ReasoningEffort.ExtraHigh, preferences.ReasoningEffort);
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("Extra High", notice.Text, StringComparison.Ordinal);
+    Assert.Contains("next turn", notice.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void ApplyEffortChoice_Default_Clears_Preference_And_Announces()
+  {
+    SessionModelPreferences preferences = new() { ReasoningEffort = ReasoningEffort.High };
+    AgentSessionViewModel vm = new(
+        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo",
+        modelPreferences: preferences);
+
+    vm.ApplyEffortChoice(null);
+
+    Assert.Null(preferences.ReasoningEffort);
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("model default", notice.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void ApplyEffortChoice_Without_Preferences_Notices_Unavailable()
+  {
+    AgentSessionViewModel vm = new(
+        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo");
+
+    vm.ApplyEffortChoice(ReasoningEffort.High);
+
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
     Assert.Contains("unavailable", notice.Text, StringComparison.Ordinal);
   }

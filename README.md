@@ -26,7 +26,7 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
   `StreamInterrupted` error, never a silently truncated "answer"
 - Turn steering and interruption — input typed while a turn runs is never dropped: it is
   posted to a session inbox and delivered to the model as a user message at the next safe
-  point (never splitting a tool call from its results). `/stop` (or the Stop button) hard-cancels
+  point (never splitting a tool call from its results). The Stop button hard-cancels
   the active turn and all of this session's sub-agents; half-finished tool batches are repaired
   in place so conversation history stays valid, and the interruption surfaces as
   `Error [TurnCancelled]` / child `interrupted` outcomes rather than crashes or lost state
@@ -53,9 +53,11 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
   `generate_image` — GLM-Image saved into the workspace as a PNG; `ocr_document` — GLM-OCR
   transcription of workspace PDFs/images; `transcribe_audio` — GLM-ASR transcription of
   short audio clips
-- `/effort <level>` — set the session's reasoning effort for z.ai (max, xhigh, high, medium,
-  low, minimal, none); bare `/effort` shows the current level. Applies from the next turn to
-  the root agent and children alike; on OpenRouter tabs the choice is remembered but inert
+- **Effort** entry (left menu, visible whenever a tab is open) — pick the session's
+  reasoning effort: model default, or max, extra high, high, medium, low, minimal, none.
+  Applies from the next turn to the root agent and children alike, on both OpenRouter and
+  z.ai tabs (OpenRouter maps the level to what the chosen model supports). The choice is
+  remembered per workspace + provider and restored when the same directory reopens
 - `todo` tool — durable workspace task list with compare-and-swap writes
 - Capability registry exposing agent tools plus spawnable sub-agents, durable workspace state, and memory recall
 - Nested sub-agents with depth limits and concurrency caps
@@ -96,7 +98,7 @@ The window opens directly on the shell: no workspace and no pre-configured key a
 
 Saved keys apply to newly opened agents; already-open tabs keep the credentials they were created with.
 
-The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. The model is chosen per tab through the **Model** entry in the left menu (visible whenever a tab is open), and the choice applies from the next turn to the root agent and children alike. It is remembered per workspace + provider and restored when the same directory reopens; picking **Auto** again returns the session to automatic resolution.
+The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. The model is chosen per tab through the **Model** entry in the left menu (visible whenever a tab is open), and the choice applies from the next turn to the root agent and children alike. It is remembered per workspace + provider and restored when the same directory reopens; picking **Auto** again returns the session to automatic resolution. Reasoning effort works the same way through the **Effort** entry, with **Model default** returning the session to the provider's own behavior.
 
 - **OpenRouter** — the picker offers **Auto (smart selection)** plus a searchable list of every OpenRouter model (deduped across provider endpoints, shown with effective pricing and context size). Auto is the default: the agent defers model selection to the first user prompt, where a two-stage LLM pipeline categorizes that prompt and selects the best model from OpenRouter's fetched catalog based on the task category and price. The pipeline re-runs on every 10th user message thereafter so the model tracks the conversation's evolving task. Sub-agent spawns similarly select models based on their task prompts. Selection failures fall back to the default model (`openrouter/auto`) and surface as a transcript notice.
 - **z.ai** — no automatic selection. The picker lists z.ai's static lineup (`glm-5.3`, `glm-5.3-flash` — z.ai exposes no models-listing endpoint); the session runs `glm-5.3-flash` until you pick one.

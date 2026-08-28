@@ -21,6 +21,11 @@
                 Command="{Binding ChooseModelCommand}"
                 IsVisible="{Binding HasSelectedTab}"
                 ToolTip.Tip="Choose the model for the selected agent"/>
+        <Button x:Name="EffortButton" DockPanel.Dock="Top" Content="Effort"
+                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
+                Command="{Binding ChooseEffortCommand}"
+                IsVisible="{Binding HasSelectedTab}"
+                ToolTip.Tip="Choose the reasoning effort for the selected agent"/>
         <Button x:Name="SettingsButton" DockPanel.Dock="Bottom" Content="⚙ Settings"
                 HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
                 Command="{Binding OpenSettingsCommand}"/>

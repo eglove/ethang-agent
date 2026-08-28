@@ -39,22 +39,15 @@
         </StackPanel>
       </StackPanel>
 
-      <!-- Normal input row with command autocomplete. The input stays enabled while a
-           turn runs: text submitted then steers the active turn, and /stop interrupts it. -->
+      <!-- Normal input row. The input stays enabled while a turn runs: text submitted
+           then steers the active turn; the Stop button interrupts it. -->
       <StackPanel x:Name="InputArea" DockPanel.Dock="Bottom">
         <StackPanel Orientation="Horizontal" Spacing="8">
-          <TextBox x:Name="InputBox" Width="480" Watermark="Type a message. /help for commands"
+          <TextBox x:Name="InputBox" Width="480" Watermark="Type a message"
                    AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/>
           <Button x:Name="StopButton" Content="Stop"
                   IsVisible="{Binding IsBusy}" Click="OnStopClick" VerticalAlignment="Top"/>
         </StackPanel>
-        <Popup x:Name="CommandPopup" PlacementTarget="{Binding #InputBox}" Placement="Top"
-               IsLightDismissEnabled="False">
-          <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Background="#FF1E1E1E">
-            <ListBox x:Name="CommandList" MaxHeight="120" MinWidth="320"
-                     DoubleTapped="OnCommandChosen" KeyDown="OnCommandListKeyDown"/>
-          </Border>
-        </Popup>
       </StackPanel>
     </DockPanel>
 

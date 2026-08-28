@@ -30,10 +30,12 @@ internal partial class MainWindow : Window
     // chosen provider/workspace pair comes back through OpenAgentAsync. The gear
     // button shows the settings modal the same way; its result flows through
     // ApplySettingsAsync. The Model button shows the selected tab's model picker;
-    // its result flows through ApplyModelChoiceAsync.
+    // its result flows through ApplyModelChoiceAsync. The Effort button shows the
+    // selected tab's effort picker; its result flows through ApplyEffortChoiceAsync.
     vm.OpenAgentRequested += async (_, _) => await ShowNewAgentDialogAsync();
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
     vm.ModelPickerRequested += async (_, _) => await ShowModelPickerDialogAsync();
+    vm.EffortPickerRequested += async (_, _) => await ShowEffortPickerDialogAsync();
   }
 
   /// <summary>Shows the new-agent dialog (provider dropdown + workspace picker) and
@@ -93,6 +95,27 @@ internal partial class MainWindow : Window
     }
 
     await _vm.ApplyModelChoiceAsync(choice.ModelId);
+  }
+
+  /// <summary>Shows the effort picker for the selected tab. A cancelled dialog is a
+  ///     no-op; a confirmed one applies the choice on the shell (session + per-workspace
+  ///     preference). The level list is identical on both providers — both consume the
+  ///     domain's reasoning-effort vocabulary.</summary>
+  private async Task ShowEffortPickerDialogAsync()
+  {
+    if (_vm!.SelectedTab is not { } tab)
+    {
+      return; // no selected tab — the menu entry is hidden anyway
+    }
+
+    EffortPickerWindow dialog = new(tab.Container.Preferences?.ReasoningEffort);
+    EffortChoice? choice = await dialog.ShowDialog<EffortChoice?>(this);
+    if (choice is null)
+    {
+      return; // user cancelled — no-op
+    }
+
+    await _vm.ApplyEffortChoiceAsync(choice.Level);
   }
 
   private async Task ShowOpenFailedAsync(string message)

@@ -13,8 +13,8 @@ namespace eThangAgent.Zai.ACL;
 ///     routing pin) has no meaning here and is never serialized. The <c>thinking</c> knob is
 ///     deliberately never sent: GLM defaults apply (flagship models force thinking on) and
 ///     reasoning surfaces through the standard <c>reasoning_content</c> stream field.
-///     <see cref="ModelConfig.Effort"/> — set by the user via /effort — maps to
-///     <c>reasoning_effort</c> when present. Temperature passes through unvalidated — z.ai
+///     <see cref="ModelConfig.Effort"/> — set by the user via the host's effort picker —
+///     maps to <c>reasoning_effort</c> when present. Temperature passes through unvalidated — z.ai
 ///     rejects out-of-range values server-side (HTTP 400 → ProviderError) rather than this ACL
 ///     clamping silently.</summary>
 public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
@@ -175,7 +175,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       bodyDict["stream"] = true;
     }
 
-    // Only sent when the user picked a level (/effort); GLM defaults apply otherwise.
+    // Only sent when the user picked a level (the effort picker); GLM defaults apply otherwise.
     if (config.Effort is { } effort)
     {
       bodyDict["reasoning_effort"] = ZaiReasoningEffort.ToWire(effort);

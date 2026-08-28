@@ -7,7 +7,8 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>While a turn runs, input steers instead of being dropped: it posts to the
-/// session inbox and echoes in the transcript; /stop hard-cancels the turn and interrupts
+/// session inbox and echoes in the transcript; stopping (the Stop button —
+/// <see cref="AgentSessionViewModel.RequestStop"/>) hard-cancels the turn and interrupts
 /// the session's sub-agents. All awaits are bounded — every gate has a reachable settle path.</summary>
 public class AgentSteeringDesktopTests
 {
@@ -89,7 +90,7 @@ public class AgentSteeringDesktopTests
     Task turnTask = vm.SubmitAsync("long running work");
     await park.Started.ConfigureAwait(true);
 
-    _ = vm.SubmitAsync("/stop");
+    vm.RequestStop(); // the Stop button's entry point
     await turnTask.ConfigureAwait(true);
     await vm.WaitForTurnAsync();
 
@@ -110,7 +111,7 @@ public class AgentSteeringDesktopTests
     await vm.SubmitAsync("quick turn");
     await vm.WaitForTurnAsync();
 
-    _ = vm.SubmitAsync("/stop");
+    vm.RequestStop();
     await vm.WaitForTurnAsync();
 
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);

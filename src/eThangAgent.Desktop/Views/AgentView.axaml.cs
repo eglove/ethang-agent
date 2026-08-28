@@ -7,7 +7,7 @@ using eThangAgent.Desktop.ViewModels;
 namespace eThangAgent.Desktop.Views;
 
 /// <summary>The per-agent chat surface hosted inside one shell tab: transcript,
-///     input row with command autocomplete, clarify mode, and status bar. Binds an
+///     input row, clarify mode, and status bar. Binds an
 ///     <see cref="AgentSessionViewModel"/>; every open tab owns one instance, so no
 ///     state here may be shared or static.</summary>
 internal partial class AgentView : UserControl
@@ -62,19 +62,8 @@ internal partial class AgentView : UserControl
       }
     };
 
-    // Tunnel so Enter/Esc are seen before TextBox class handling consumes them.
+    // Tunnel so Enter is seen before TextBox class handling consumes it.
     InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);
-
-    // Drive the command autocomplete from the Text PROPERTY rather than the
-    // TextChanged event: property-changed notifications fire for every change
-    // source, which TextChanged proved not to do reliably under headless testing.
-    InputBox.PropertyChanged += (_, e) =>
-    {
-      if (e.Property == TextBox.TextProperty)
-      {
-        UpdateCommandPopup();
-      }
-    };
   }
 
   private void OnInputKeyDownTunnel(object? sender, KeyEventArgs e)
@@ -82,31 +71,6 @@ internal partial class AgentView : UserControl
     AgentSessionViewModel? vm = Vm;
     if (vm is null)
     {
-      return;
-    }
-
-    if (e.Key == Key.Escape && CommandPopup.IsOpen)
-    {
-      CommandPopup.IsOpen = false;
-      e.Handled = true;
-      return;
-    }
-
-    // Accept the highlighted (or first) autocomplete suggestion without submitting.
-    if (CommandPopup.IsOpen && (e.Key == Key.Tab || e.Key == Key.Enter))
-    {
-      DesktopCommand? chosen = CommandList.SelectedItem as DesktopCommand;
-      if (chosen is null && CommandList.ItemsSource is IEnumerable<DesktopCommand> items)
-      {
-        chosen = items.FirstOrDefault();
-      }
-      if (chosen is not null)
-      {
-        InputBox.Text = chosen.Name;
-        InputBox.CaretIndex = InputBox.Text?.Length ?? 0;
-      }
-      CommandPopup.IsOpen = false;
-      e.Handled = true;
       return;
     }
 
@@ -118,43 +82,6 @@ internal partial class AgentView : UserControl
       _ = vm.SubmitAsync(text);
     }
     // Shift+Enter falls through: TextBox inserts the newline.
-  }
-
-  private void UpdateCommandPopup()
-  {
-    string text = InputBox.Text ?? "";
-    if (!text.StartsWith('/'))
-    {
-      CommandPopup.IsOpen = false;
-      return;
-    }
-
-    string query = text[1..];
-    List<DesktopCommand> matches = [.. DesktopCommands.All.Where(c => c.Name.Contains(query, StringComparison.OrdinalIgnoreCase))];
-    CommandList.ItemsSource = matches;
-    CommandPopup.IsOpen = matches.Count > 0;
-  }
-
-  private void OnCommandChosen(object? sender, RoutedEventArgs e) => CompleteFromSelection();
-
-  private void OnCommandListKeyDown(object? sender, KeyEventArgs e)
-  {
-    if (e.Key is Key.Enter or Key.Tab)
-    {
-      CompleteFromSelection();
-      e.Handled = true;
-    }
-  }
-
-  private void CompleteFromSelection()
-  {
-    if (CommandList.SelectedItem is DesktopCommand chosen)
-    {
-      InputBox.Text = chosen.Name;
-      InputBox.CaretIndex = InputBox.Text?.Length ?? 0;
-    }
-    CommandPopup.IsOpen = false;
-    _ = InputBox.Focus();
   }
 
   private void OnStopClick(object? sender, RoutedEventArgs e) => Vm?.RequestStop();

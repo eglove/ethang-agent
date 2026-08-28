@@ -59,7 +59,7 @@ public class TranscriptViewModelTests
   {
     TranscriptViewModel vm = new();
     vm.AddUser("hi");
-    vm.AddNotice("Commands:/help");
+    vm.AddNotice("Model set to test/model; applies from the next turn.");
     _ = Assert.IsType<UserMessageEntry>(vm.Entries[0]);
     _ = Assert.IsType<NoticeEntry>(vm.Entries[1]);
   }

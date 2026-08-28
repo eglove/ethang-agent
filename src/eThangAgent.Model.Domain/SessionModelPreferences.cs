@@ -1,10 +1,10 @@
 namespace eThangAgent.ModelDomain;
 
 /// <summary>Session-scoped model preferences the user can change at runtime through the
-///     host's model picker (model) — and, where exposed, commands (reasoning effort via
-///     /effort). The root resolver and the child spawner read the current values when
-///     building each turn's <see cref="ModelConfig"/>, so changes take effect from the
-///     next turn without rebuilding the session.</summary>
+///     host's left-menu pickers (model, reasoning effort). The root resolver and the
+///     child spawner read the current values when building each turn's
+///     <see cref="ModelConfig"/>, so changes take effect from the next turn without
+///     rebuilding the session.</summary>
 public sealed class SessionModelPreferences
 {
   /// <summary>Current reasoning effort, or null for the provider's own default.</summary>

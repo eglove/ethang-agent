@@ -439,4 +439,105 @@ public class ShellViewModelTests
     Assert.Null(tab.Container.Preferences!.ModelId);
     Assert.Equal("test/model", tab.ViewModel.Status.ModelId);
   }
+
+  // ── Effort picker ─────────────────────────────────────────────────────────
+
+  [Fact]
+  public async Task ChooseEffortCommand_Gated_On_Selected_Tab_And_Raises_Request()
+  {
+    MainViewModel vm = CreateShell((root, provider) => FakeSession(
+        root, provider, new SessionModelPreferences()));
+    bool raised = false;
+    vm.EffortPickerRequested += (_, _) => raised = true;
+
+    Assert.False(vm.HasSelectedTab);
+    Assert.False(vm.ChooseEffortCommand.CanExecute(null));
+
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    Assert.True(vm.HasSelectedTab);
+    Assert.True(vm.ChooseEffortCommand.CanExecute(null));
+    vm.ChooseEffortCommand.Execute(null);
+    Assert.True(raised);
+  }
+
+  [Fact]
+  public async Task ApplyEffortChoice_Updates_Session_And_Persists_Per_Workspace()
+  {
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateShell((root, provider) => FakeSession(
+        root, provider, new SessionModelPreferences()), preferences);
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    await vm.ApplyEffortChoiceAsync(ReasoningEffort.ExtraHigh);
+
+    AgentTabViewModel tab = vm.SelectedTab!;
+    Assert.Equal(ReasoningEffort.ExtraHigh, tab.Container.Preferences!.ReasoningEffort);
+    Assert.Contains(tab.ViewModel.Transcript.Entries.OfType<NoticeEntry>(),
+        n => n.Text.Contains("Extra High", StringComparison.Ordinal));
+    (string key, string value) = Assert.Single(preferences.Writes,
+        w => w.Key.StartsWith("effort_choice:", StringComparison.Ordinal));
+    Assert.Equal($"effort_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}", key);
+    Assert.Equal(nameof(ReasoningEffort.ExtraHigh), value);
+  }
+
+  [Fact]
+  public async Task ApplyEffortChoice_Default_Clears_Session_And_Deletes_Persisted_Choice()
+  {
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateShell((root, provider) => FakeSession(
+        root, provider, new SessionModelPreferences { ReasoningEffort = ReasoningEffort.High }), preferences);
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    await vm.ApplyEffortChoiceAsync(null);
+
+    AgentTabViewModel tab = vm.SelectedTab!;
+    Assert.Null(tab.Container.Preferences!.ReasoningEffort);
+    string expectedKey = $"effort_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}";
+    Assert.Equal([expectedKey], preferences.Deletions);
+    // The open persisted the provider preference; the default choice added NO effort write.
+    Assert.DoesNotContain(preferences.Writes,
+        w => w.Key.StartsWith("effort_choice:", StringComparison.Ordinal));
+  }
+
+  [Fact]
+  public async Task ApplyEffortChoice_Without_Tab_Is_A_NoOp()
+  {
+    MainViewModel vm = CreateShell();
+
+    await vm.ApplyEffortChoiceAsync(ReasoningEffort.High);
+
+    Assert.Null(vm.SelectedTab); // nothing to reach — must not throw
+  }
+
+  [Fact]
+  public async Task OpenAgent_Restores_Persisted_Effort_Choice_Into_The_Session()
+  {
+    FakePreferenceStore preferences = new();
+    string root = Path.GetFullPath(@"C:\work\alpha");
+    preferences.Stored[$"effort_choice:openrouter:{root}"] = "ExtraHigh";
+    MainViewModel vm = CreateShell((r, provider) => FakeSession(
+        r, provider, new SessionModelPreferences()), preferences);
+
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    AgentTabViewModel tab = vm.SelectedTab!;
+    Assert.Equal(ReasoningEffort.ExtraHigh, tab.Container.Preferences!.ReasoningEffort);
+    // The restore is silent — no notice before any turn has run.
+    Assert.DoesNotContain(tab.ViewModel.Transcript.Entries, e => e is NoticeEntry);
+  }
+
+  [Fact]
+  public async Task OpenAgent_Ignores_A_Corrupt_Persisted_Effort_Value()
+  {
+    FakePreferenceStore preferences = new();
+    string root = Path.GetFullPath(@"C:\work\alpha");
+    preferences.Stored[$"effort_choice:openrouter:{root}"] = "ultra";
+    MainViewModel vm = CreateShell((r, provider) => FakeSession(
+        r, provider, new SessionModelPreferences()), preferences);
+
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    Assert.Null(vm.SelectedTab!.Container.Preferences!.ReasoningEffort);
+  }
 }
