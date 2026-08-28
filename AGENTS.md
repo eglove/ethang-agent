@@ -4,7 +4,7 @@
 
 ## What This Project Is
 
-eThang Agent is an AI agent built with .NET, delivered through an Avalonia desktop application. The project follows strict Domain-Driven Design: layered bounded contexts, Specification patterns, and CQRS.
+eThang Agent is an AI agent harness built with .NET, delivered through an Avalonia desktop application. The project follows strict Domain-Driven Design: layered bounded contexts, Specification patterns, and CQRS.
 
 > **Read [`README.md`](README.md) first** — it carries the high-level overview and usage instructions. Whenever a change makes either stale, update the README in the same change.
 
