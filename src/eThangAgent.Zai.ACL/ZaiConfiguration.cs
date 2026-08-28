@@ -10,4 +10,16 @@ public sealed record ZaiConfiguration(string ApiKey, Uri BaseUrl)
 
   /// <summary>Transient-failure retry policy. Defaults to four attempts with exponential backoff.</summary>
   public RetryPolicy Retry { get; init; } = RetryPolicy.Default;
+
+  /// <summary>Builds a platform endpoint by appending <paramref name="path"/> to the base
+  ///     URL's path. The two-argument <see cref="Uri"/> constructor cannot express this: a
+  ///     leading-slash reference is host-root-absolute, so combining the default base with
+  ///     <c>/paas/v4/…</c> would silently drop the <c>/api</c> segment and 404 every call.
+  ///     All z.ai endpoints MUST be built through this method.</summary>
+  public Uri Endpoint(string path)
+  {
+    UriBuilder builder = new(BaseUrl);
+    builder.Path = $"{builder.Path.TrimEnd('/')}{path}";
+    return builder.Uri;
+  }
 }

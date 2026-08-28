@@ -175,7 +175,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       bodyDict["tools"] = request.Tools.Select(TranslateTool).ToArray();
     }
 
-    HttpRequestMessage httpRequest = new(HttpMethod.Post, new Uri(_config.BaseUrl, "/api/v1/chat/completions"))
+    HttpRequestMessage httpRequest = new(HttpMethod.Post, _config.Endpoint("/api/v1/chat/completions"))
     {
       Content = JsonContent.Create(bodyDict)
     };

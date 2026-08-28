@@ -47,6 +47,29 @@ public class ZaiWebToolsTests
   }
 
   [Fact]
+  public async Task WebSearch_WithApiRootBase_KeepsTheBasePathSegment()
+  {
+    // Regression (real-API HTTP 404): the default base carries the /api segment; a
+    // leading-slash Uri merge would replace the base path and 404 against the real
+    // endpoint. Tool endpoints must append to the base path.
+    ZaiConfiguration config = new("test-key", new Uri(ZaiConfiguration.DefaultBaseUrl));
+    Uri? capturedUrl = null;
+    FakeHttpMessageHandler handler = new(req =>
+    {
+      capturedUrl = req.RequestUri;
+      return Task.FromResult(Json(/*lang=json,strict*/ """{"search_result":[]}"""));
+    });
+    ZaiWebSearchTool tool = new(new HttpClient(handler), config);
+
+    ToolResult result = await tool.ExecuteAsync(Args(
+                             /*lang=json,strict*/
+                             """{"timeoutSeconds":5,"query":"dotnet"}"""));
+
+    Assert.False(result.IsError);
+    Assert.Equal("https://api.z.ai/api/paas/v4/web_search", capturedUrl!.ToString());
+  }
+
+  [Fact]
   public async Task WebSearch_SendsRecencyAndCount_WhenProvided()
   {
     string? capturedBody = null;

@@ -86,7 +86,7 @@ public sealed class ZaiTranscriptionTool(
     try
     {
       using HttpRequestMessage request = new(HttpMethod.Post,
-          new Uri(_config.BaseUrl, ZaiToolHttp.TranscriptionsPath))
+          _config.Endpoint(ZaiToolHttp.TranscriptionsPath))
       { Content = form };
       request.Headers.Add("Authorization", $"Bearer {_config.ApiKey}");
       using HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false);

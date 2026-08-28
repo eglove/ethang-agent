@@ -57,8 +57,7 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
 
   private async Task<Result<List<IntermediateModel>>> FetchModelsAsync(CancellationToken ct)
   {
-    Uri uri = new(_config.BaseUrl, "/api/v1/models");
-    using HttpRequestMessage request = new(HttpMethod.Get, uri);
+    using HttpRequestMessage request = new(HttpMethod.Get, _config.Endpoint("/api/v1/models"));
     request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.ApiKey);
     using HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false);
 
@@ -121,8 +120,8 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
 
   private async Task<List<ModelProviderEntry>> FetchEndpointsForModelAsync(IntermediateModel model, CancellationToken ct)
   {
-    Uri uri = new(_config.BaseUrl, $"/api/v1/models/{model.Id}/endpoints");
-    using HttpRequestMessage request = new(HttpMethod.Get, uri);
+    using HttpRequestMessage request = new(HttpMethod.Get,
+        _config.Endpoint($"/api/v1/models/{model.Id}/endpoints"));
     request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.ApiKey);
 
     try

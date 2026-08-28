@@ -61,6 +61,32 @@ public class ZaiModelProviderTests
   }
 
   [Fact]
+  public async Task SendAsync_WithApiRootBase_KeepsTheBasePathSegment()
+  {
+    // Regression (real-API HTTP 404): the default base https://api.z.ai/api carries a
+    // path segment. new Uri(base, "/paas/v4/…") treats a leading slash as host-root-
+    // absolute and REPLACES the base path, posting to https://api.z.ai/paas/… — which
+    // 404s. Endpoints must append to the base path instead.
+    ZaiConfiguration config = new("test-key", new Uri(ZaiConfiguration.DefaultBaseUrl));
+    HttpRequestMessage? captured = null;
+    FakeHttpMessageHandler handler = new(req =>
+    {
+      captured = req;
+      return Task.FromResult(JsonResponse(HttpStatusCode.OK,
+                                       /*lang=json,strict*/
+                                       """{"choices":[{"message":{"content":"ok"}}]}"""));
+    });
+    using HttpClient http = new(handler);
+    ZaiModelProvider provider = new(http, config);
+
+    _ = await provider.SendAsync(
+        ModelConfig.Create("glm-5.3-flash", null, 128, 0.7f).Value!,
+        new ModelRequest([UserMsg("hi")]));
+
+    Assert.Equal("https://api.z.ai/api/paas/v4/chat/completions", captured!.RequestUri!.ToString());
+  }
+
+  [Fact]
   public async Task SendAsync_NeverSendsThinkingOrReasoningControls()
   {
     // Deliberate decision: GLM defaults apply (flagships force thinking on); the ACL

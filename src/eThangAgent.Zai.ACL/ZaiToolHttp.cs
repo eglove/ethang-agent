@@ -24,7 +24,7 @@ internal static class ZaiToolHttp
   {
     try
     {
-      using HttpRequestMessage request = new(HttpMethod.Post, new Uri(config.BaseUrl, path))
+      using HttpRequestMessage request = new(HttpMethod.Post, config.Endpoint(path))
       {
         Content = JsonContent.Create(body)
       };

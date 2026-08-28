@@ -61,6 +61,30 @@ public class OpenRouterModelProviderTests
   }
 
   [Fact]
+  public async Task SendAsync_WithPathBearingBase_AppendsInsteadOfReplacing()
+  {
+    // Regression: new Uri(base, "/api/v1/…") treats the leading slash as host-root-
+    // absolute and would replace any base path segment. The endpoint must append.
+    OpenRouterConfiguration config = new("test-key", new Uri("https://proxy.test/openrouter"));
+    HttpRequestMessage? captured = null;
+    FakeHttpMessageHandler handler = new(req =>
+    {
+      captured = req;
+      return Task.FromResult(JsonResponse(HttpStatusCode.OK,
+                                       /*lang=json,strict*/
+                                       """{"choices":[{"message":{"content":"ok"}}]}"""));
+    });
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, config);
+
+    _ = await provider.SendAsync(
+        ModelConfig.Create("openai/gpt-4o-mini", null, 128, 0.7f).Value!,
+        new ModelRequest([UserMsg("hi")]));
+
+    Assert.Equal("https://proxy.test/openrouter/api/v1/chat/completions", captured!.RequestUri!.ToString());
+  }
+
+  [Fact]
   public async Task SendAsync_WhenToolsPresent_SerializesRequiredAndAdditionalProperties()
   {
     string? capturedBody = null;

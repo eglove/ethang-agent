@@ -186,7 +186,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       bodyDict["tools"] = request.Tools.Select(TranslateTool).ToArray();
     }
 
-    HttpRequestMessage httpRequest = new(HttpMethod.Post, new Uri(_config.BaseUrl, "/paas/v4/chat/completions"))
+    HttpRequestMessage httpRequest = new(HttpMethod.Post, _config.Endpoint("/paas/v4/chat/completions"))
     {
       Content = JsonContent.Create(bodyDict)
     };
