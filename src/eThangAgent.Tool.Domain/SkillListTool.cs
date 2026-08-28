@@ -57,14 +57,14 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
       warnings.Add($"[warning] built-in skills unavailable: {builtIn.Error!.Message}");
     }
 
-    Result<IReadOnlyList<SkillDefinition>> learned = await _learned.ListAsync(ct).ConfigureAwait(false);
-    if (learned.IsSuccess)
+    Result<IReadOnlyList<SkillDefinition>> learnedResult = await _learned.ListAsync(ct).ConfigureAwait(false);
+    if (learnedResult.IsSuccess)
     {
-      skills.AddRange(learned.Value!);
+      skills.AddRange(learnedResult.Value!);
     }
     else
     {
-      warnings.Add($"[warning] learned skills unavailable: {learned.Error!.Message}");
+      warnings.Add($"[warning] learned skills unavailable: {learnedResult.Error!.Message}");
     }
 
     List<string> lines =

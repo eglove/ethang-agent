@@ -228,7 +228,7 @@ public sealed class SqliteStateStore(AppDatabase database) : IStateStore
     await using SqliteConnection connection = _database.Open();
 #pragma warning restore CA2007
     using SqliteCommand command = connection.CreateCommand();
-    // Named decision (CA2100): the branch selects between two constant SQL strings;
+    // Named decision (CA2100): the branch selects between two constant SQL strings —
 #pragma warning disable CA2100 // Review SQL query for security vulnerabilities
     ArgumentNullException.ThrowIfNull(transitionIds);
     command.CommandText = transitionIds.Count == 0

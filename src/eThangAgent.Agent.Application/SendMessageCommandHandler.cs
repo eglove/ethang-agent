@@ -80,11 +80,11 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
           "SendMessageCommandHandler has no agent and no root holder; one must be supplied.");
     }
 
-    Conversation conversation = _conversation
+    Conversation rootConversation = _conversation
         ?? throw new InvalidOperationException(
             "Root model resolution requires a conversation to count user messages.");
 
-    (ModelConfig config, string? notice) = await _rootResolver.ResolveAsync(conversation, prompt, ct)
+    (ModelConfig config, string? notice) = await _rootResolver.ResolveAsync(rootConversation, prompt, ct)
         .ConfigureAwait(false);
     if (notice is not null)
     {

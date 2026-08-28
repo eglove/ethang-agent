@@ -68,20 +68,20 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     // 1. Explicit per-spawn model always wins.
     if (!string.IsNullOrWhiteSpace(request.Model))
     {
-      return ModelConfig.Create(request.Model!, null, _maxTokens, _temperature).Value!;
+      return ModelConfig.Create(request.Model, null, _maxTokens, _temperature).Value!;
     }
 
     // 2. The session's live model choice (the host's model picker) is session-wide:
     //    children follow it too, ahead of the static configured default.
     if (!string.IsNullOrWhiteSpace(_preferences?.ModelId))
     {
-      return ModelConfig.Create(_preferences.ModelId!, null, _maxTokens, _temperature).Value!;
+      return ModelConfig.Create(_preferences.ModelId, null, _maxTokens, _temperature).Value!;
     }
 
     // 3. Configured default model wins.
     if (!string.IsNullOrWhiteSpace(_options.DefaultModel))
     {
-      return ModelConfig.Create(_options.DefaultModel!, null, _maxTokens, _temperature).Value!;
+      return ModelConfig.Create(_options.DefaultModel, null, _maxTokens, _temperature).Value!;
     }
 
     // 4. Intelligent selection when a selector is available.
@@ -90,7 +90,7 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       Result<ModelSelectionResult> selection = await _modelSelector.SelectAsync(request.TaskPrompt, excludedKeys: null, ct).ConfigureAwait(false);
       if (selection.IsSuccess)
       {
-        return ModelConfig.Create(selection.Value!.ModelId, selection.Value!.ProviderName,
+        return ModelConfig.Create(selection.Value!.ModelId, selection.Value.ProviderName,
             _maxTokens, _temperature).Value!;
       }
     }

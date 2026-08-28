@@ -176,7 +176,7 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
 
     StringBuilder sb = new();
     _ = sb.Append(CultureInfo.InvariantCulture, $"[state.find '{query}'] {result.Value!.Count} hit(s)");
-    foreach (StateSearchHit hit in result.Value!)
+    foreach (StateSearchHit hit in result.Value)
     {
       _ = sb.Append(CultureInfo.InvariantCulture, $"\n{hit.Ns}/{hit.Name}");
       _ = sb.Append(CultureInfo.InvariantCulture, $"\n  {hit.Snippet}");

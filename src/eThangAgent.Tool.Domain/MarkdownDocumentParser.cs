@@ -134,28 +134,25 @@ public static class MarkdownDocumentParser
     }
 
     // Unknown-field rejection: every property must be declared for this block type.
-    foreach (JsonProperty p in b.EnumerateObject())
-    {
-      if (p.Name != "type" && !known.Contains(p.Name))
+    string? unknown = b.EnumerateObject()
+        .Select(p => p.Name)
+        .FirstOrDefault(name => name != "type" && !known.Contains(name));
+    return unknown is not null
+      ? FailMarkdownBlock(new DomainError("UnknownParameter",
+          $"Unknown parameter(s): {unknown}. Allowed for '{type}': {string.Join(", ", known.OrderBy(k => k))}."))
+      : type switch
       {
-        return FailMarkdownBlock(new DomainError("UnknownParameter",
-            $"Unknown parameter(s): {p.Name}. Allowed for '{type}': {string.Join(", ", known.OrderBy(k => k))}."));
-      }
-    }
-
-    return type switch
-    {
-      "text" => RequireText(b, "text").Map(text => (MarkdownBlock?)new TextBlock(text)),
-      "header" => ParseHeader(b),
-      "quote" => RequireText(b, "text").Map(text => (MarkdownBlock?)new QuoteBlock(text)),
-      "alert" => ParseAlert(b),
-      "codeBlock" => ParseCodeBlock(b),
-      "space" => ParseSpace(b),
-      "unorderedList" or "numberedList" => ParseList(b, type),
-      "taskList" => ParseTaskList(b),
-      "table" => ParseTable(b),
-      _ => FailMarkdownBlock(new DomainError("UnknownParameter", $"unknown block type '{type}'.")),
-    };
+        "text" => RequireText(b, "text").Map(text => (MarkdownBlock?)new TextBlock(text)),
+        "header" => ParseHeader(b),
+        "quote" => RequireText(b, "text").Map(text => (MarkdownBlock?)new QuoteBlock(text)),
+        "alert" => ParseAlert(b),
+        "codeBlock" => ParseCodeBlock(b),
+        "space" => ParseSpace(b),
+        "unorderedList" or "numberedList" => ParseList(b, type),
+        "taskList" => ParseTaskList(b),
+        "table" => ParseTable(b),
+        _ => FailMarkdownBlock(new DomainError("UnknownParameter", $"unknown block type '{type}'.")),
+      };
   }
 
   private static Result<MarkdownBlock?> ParseHeader(JsonElement b)
@@ -403,7 +400,7 @@ public static class MarkdownDocumentParser
           "left" => TableAlign.Left,
           "center" => TableAlign.Center,
           "right" => TableAlign.Right,
-          var other => null,
+          _ => null,
         };
         if (align is null)
         {

@@ -381,7 +381,7 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       // Session construction builds a DI container and persists the root row —
       // core work that never belongs on the UI thread. Context flow is suppressed
-      // alongside the thread switch (same reasoning as DesktopHost.OffUiThread):
+      // alongside the thread switch, same reasoning as for OffUiThread in DesktopHost:
       // Task.Run alone still flows the caller's SynchronizationContext.
       Task<Result<AgentSession>> scheduled;
       using (ExecutionContext.SuppressFlow())
@@ -425,7 +425,7 @@ internal sealed partial class MainViewModel : ObservableObject
       // Restore the per-workspace model and effort choices (if any) BEFORE the tab can
       // take a turn: both ride the session preferences, so the first turn resolves
       // straight to them — no selection runs. A stale persisted model id is not
-      // re-validated (that would crawl the whole OpenRouter catalog on every open);
+      // re-validated — that would crawl the whole OpenRouter catalog on every open —
       // it surfaces as a provider error on the next turn and the user re-picks.
       if (session.Preferences is { } preferences)
       {

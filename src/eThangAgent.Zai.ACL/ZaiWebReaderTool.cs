@@ -59,7 +59,7 @@ public sealed class ZaiWebReaderTool(HttpClient http, ZaiConfiguration config) :
       return ZaiToolHttp.Err(response.Error!);
     }
 
-    if (!response.Value!.TryGetProperty("reader_result", out JsonElement result)
+    if (!response.Value.TryGetProperty("reader_result", out JsonElement result)
         || !result.TryGetProperty("content", out JsonElement contentEl)
         || contentEl.ValueKind != JsonValueKind.String
         || string.IsNullOrEmpty(contentEl.GetString()))

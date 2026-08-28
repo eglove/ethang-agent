@@ -28,16 +28,8 @@ public abstract record MemoryQueryPlan
         return new RegexPatternPlan(query);
       case "literal":
         IReadOnlyList<string> tokens = LexicalTokenizer.Tokenize(query);
-        List<string> distinct = new(tokens.Count);
-        HashSet<string> seen = new(StringComparer.Ordinal);
-        foreach (string token in tokens)
-        {
-          if (seen.Add(token))
-          {
-            distinct.Add(token);
-          }
-        }
-
+        // Distinct preserves first-occurrence order, matching the original seen-set walk.
+        List<string> distinct = [.. tokens.Distinct(StringComparer.Ordinal)];
         return new TermsPlan(distinct);
       default:
         // Programmer error: the capability layer validates the mode string before calling.

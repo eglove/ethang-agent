@@ -51,13 +51,13 @@ public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore lear
       return await RenderAsync(builtIn.Value!, ct).ConfigureAwait(false);
     }
 
-    Result<SkillDefinition?> learned = await _learned.GetAsync(name, ct).ConfigureAwait(false);
-    return !learned.IsSuccess
-      ? Err(learned.Error!)
-      : learned.Value is null
+    Result<SkillDefinition?> learnedResult = await _learned.GetAsync(name, ct).ConfigureAwait(false);
+    return !learnedResult.IsSuccess
+      ? Err(learnedResult.Error!)
+      : learnedResult.Value is null
       ? Err(new DomainError("SkillNotFound",
           $"No skill named '{name}'. Use skill_list to see available skills."))
-      : await RenderAsync(learned.Value!, ct).ConfigureAwait(false);
+      : await RenderAsync(learnedResult.Value, ct).ConfigureAwait(false);
   }
 
   private async Task<ToolResult> RenderAsync(SkillDefinition skill, CancellationToken ct)

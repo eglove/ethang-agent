@@ -61,7 +61,7 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutpu
 
     if (parse.Value!.Count > 0)
     {
-      return ExecResultFormatter.ParseErrors(parse.Value!, _options.MaxParseErrors);
+      return ExecResultFormatter.ParseErrors(parse.Value, _options.MaxParseErrors);
     }
 
     long started = Stopwatch.GetTimestamp();

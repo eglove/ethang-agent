@@ -32,7 +32,7 @@ public sealed class EmbeddedSkillCatalog : ISkillCatalog
     {
       if (_cache is not null)
       {
-        return Task.FromResult(_cache)!;
+        return Task.FromResult(_cache);
       }
     }
 
@@ -64,6 +64,6 @@ public sealed class EmbeddedSkillCatalog : ISkillCatalog
     {
       _cache = byName;
     }
-    return Task.FromResult(_cache)!;
+    return Task.FromResult(_cache);
   }
 }

@@ -175,13 +175,8 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     if (ids is { Count: > 0 })
     {
       HashSet<string> found = selected.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
-      foreach (string id in ids)
-      {
-        if (!found.Contains(id))
-        {
-          blocking.Add($"Missing transition: {id}.");
-        }
-      }
+      List<string> missing = [.. ids.Where(id => !found.Contains(id))];
+      blocking.AddRange(missing.Select(id => $"Missing transition: {id}."));
     }
     else if (selected.Count == 0)
     {

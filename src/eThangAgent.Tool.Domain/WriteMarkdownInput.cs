@@ -73,7 +73,7 @@ public sealed record WriteMarkdownInput(
 
       overwrite = owEl.GetBoolean();
     }
-    else if (json.TryGetProperty("overwrite", out JsonElement orphanEl))
+    else if (json.TryGetProperty("overwrite", out _))
     {
       return Fail(new DomainError("UnknownParameter",
           "'overwrite' is only valid together with 'path'; without a file target the rendered markdown is returned instead."));

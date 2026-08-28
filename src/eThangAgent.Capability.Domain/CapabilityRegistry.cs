@@ -38,14 +38,13 @@ public sealed class CapabilityRegistry : ICapabilityRegistry
         throw new InvalidOperationException($"Capability provider '{provider.Id}' exposes no actions.");
       }
 
-      foreach (ActionDescriptor action in provider.Actions)
+      ActionDescriptor? invalidAction = provider.Actions
+          .FirstOrDefault(a => !CapabilityNameRules.IsValidActionName(a.Name));
+      if (invalidAction is not null)
       {
-        if (!CapabilityNameRules.IsValidActionName(action.Name))
-        {
-          throw new InvalidOperationException(
-              $"Action name '{action.Name}' in provider '{provider.Id}' is invalid; " +
-              "use [A-Za-z0-9_] only.");
-        }
+        throw new InvalidOperationException(
+            $"Action name '{invalidAction.Name}' in provider '{provider.Id}' is invalid; " +
+            "use [A-Za-z0-9_] only.");
       }
     }
 

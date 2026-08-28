@@ -106,13 +106,11 @@ public sealed class CuratedMemoryCapabilityProvider(
     // Same strict tag boundary as add/update: an invalid element is rejected
     // outright instead of being forwarded to become a silently-wrong filter.
     IReadOnlyList<string> tagFilters = OptStringArray(args, "tags");
-    foreach (string tag in tagFilters)
+    string? invalidTag = tagFilters.FirstOrDefault(tag => !CuratedMemorySpecifications.ValidTag(tag));
+    if (invalidTag is not null)
     {
-      if (!CuratedMemorySpecifications.ValidTag(tag))
-      {
-        return Fail(new DomainError("InvalidTag",
-            $"Invalid tag '{tag}': tags must match ^[a-z0-9][a-z0-9-_]{{0,31}}$."));
-      }
+      return Fail(new DomainError("InvalidTag",
+          $"Invalid tag '{invalidTag}': tags must match ^[a-z0-9][a-z0-9-_]{{0,31}}$."));
     }
 
     int limit = OptInt(args, "limit") ?? DefaultLimit;
@@ -160,7 +158,7 @@ public sealed class CuratedMemoryCapabilityProvider(
       return Fail(search.Error!);
     }
 
-    // The store ranks by visibility (global always; workspace only when it matches);
+    // The store ranks by visibility: global always, workspace only when it matches —
     // narrowing to a requested scope is a read-model concern on top of that ranking.
     IReadOnlyList<CuratedMemory> rows = scope is { } wanted
         ? [.. search.Value!.Where(m => m.Scope == wanted)]
@@ -439,15 +437,11 @@ public sealed class CuratedMemoryCapabilityProvider(
           $"At most {MaxTags} tags are allowed (actual: {tags.Count}).");
     }
 
-    foreach (string tag in tags)
-    {
-      if (!CuratedMemorySpecifications.ValidTag(tag))
-      {
-        return new DomainError("InvalidTag",
-            $"Invalid tag '{tag}': tags must match ^[a-z0-9][a-z0-9-_]{{0,31}}$.");
-      }
-    }
-    return null;
+    string? invalidTag = tags.FirstOrDefault(tag => !CuratedMemorySpecifications.ValidTag(tag));
+    return invalidTag is null
+      ? null
+      : new DomainError("InvalidTag",
+          $"Invalid tag '{invalidTag}': tags must match ^[a-z0-9][a-z0-9-_]{{0,31}}$.");
   }
 
   /// <summary>Parses the 'id' argument as a GUID, quoting the rejected input verbatim

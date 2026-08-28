@@ -82,7 +82,7 @@ public sealed class RootAgentResolver(
     }
 
     string modelId = selection.Value!.ModelId;
-    string? providerName = selection.Value!.ProviderName;
+    string? providerName = selection.Value.ProviderName;
 
     // 4. Persist the resolved model onto the root record (best effort — a store failure
     //    must not stop the turn; it surfaces as a notice instead).
@@ -97,19 +97,8 @@ public sealed class RootAgentResolver(
     return (Make(modelId, providerName), notice);
   }
 
-  private static int CountUserMessages(Conversation conversation)
-  {
-    int count = 0;
-    foreach (Message m in conversation.Messages)
-    {
-      if (m.Role is Role.User)
-      {
-        count++;
-      }
-    }
-
-    return count;
-  }
+  private static int CountUserMessages(Conversation conversation) =>
+      conversation.Messages.Count(m => m.Role is Role.User);
 
   /// <summary>Turn 1 (the first user message) and every <see cref="Recadence"/> user messages
   ///     thereafter: 1, 11, 21, … The user-message count is taken BEFORE the upcoming prompt is

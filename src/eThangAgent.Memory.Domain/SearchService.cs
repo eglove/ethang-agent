@@ -23,7 +23,7 @@ public sealed record Hit(MemoryEntry Entry);
 /// newest-first (Timestamp desc, Seq desc, session id ordinal ascending), applies the
 /// query plan, and pages the flat hit list. Ordering is identical across all plan modes.
 /// </summary>
-public sealed class SearchService
+public static class SearchService
 {
   /// <summary>
   /// <paramref name="page"/> and <paramref name="pageSize"/> must already be valid —

@@ -31,9 +31,6 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly ISystemPromptProvider? _systemPrompt = systemPrompt;
   private readonly int _maxAutoContinuations = maxAutoContinuations;
 
-  // Auto-continuations used by the current turn; reset at SendMessage entry.
-  private int _autoContinuations;
-
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
   public ModelConfig Config { get; } = config ?? throw new ArgumentNullException(nameof(config));
 
@@ -77,7 +74,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     try
     {
       LastTurnToolCalls = 0;
-      _autoContinuations = 0;
+      // Auto-continuations used by this turn only: reset here, never carried between turns.
+      int autoContinuations = 0;
       DrainInbox(inbox);
       Conversation.AddUserMessage(text);
       // No iteration cap by design: the loop runs until the model answers without
@@ -115,13 +113,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
           // never a silent retry.)
           if (response.FinishReason is FinishReason.Length)
           {
-            if (_autoContinuations >= _maxAutoContinuations)
+            if (autoContinuations >= _maxAutoContinuations)
             {
               return Result.Failure<string>(new DomainError("MaxOutputContinuations",
                   $"Output limit reached {_maxAutoContinuations + 1} times without a complete answer."));
             }
 
-            _autoContinuations++;
+            autoContinuations++;
             Conversation.AddAssistantMessage(content);
             Conversation.AddSystemMessage(ContinuationPrompt);
             continue;

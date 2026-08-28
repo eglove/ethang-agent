@@ -56,7 +56,7 @@ public sealed class ZaiTokenizerTool(HttpClient http, ZaiConfiguration config) :
       return ZaiToolHttp.Err(response.Error!);
     }
 
-    if (!response.Value!.TryGetProperty("usage", out JsonElement usage)
+    if (!response.Value.TryGetProperty("usage", out JsonElement usage)
         || !usage.TryGetProperty("total_tokens", out JsonElement total)
         || total.ValueKind != JsonValueKind.Number)
     {

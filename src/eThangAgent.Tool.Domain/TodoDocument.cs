@@ -54,7 +54,7 @@ public static class TodoDocument
           return Fail($"item {index} repeats id {item.Value.Id}; ids must be unique.");
         }
 
-        items.Add(item.Value!);
+        items.Add(item.Value);
       }
 
       return Result.Success<IReadOnlyList<TodoItem>>(items);

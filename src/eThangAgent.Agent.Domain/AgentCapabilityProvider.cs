@@ -240,13 +240,10 @@ public sealed class AgentCapabilityProvider(
     }
 
     string? s = el.GetString();
-    if (string.IsNullOrWhiteSpace(s))
+    if (string.IsNullOrWhiteSpace(s) && (required || s is not null))
     {
-      if (required || s is not null)
-      {
-        error = $"{name} must be a non-empty string.";
-        return false;
-      }
+      error = $"{name} must be a non-empty string.";
+      return false;
     }
 
     value = s;

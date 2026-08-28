@@ -52,7 +52,7 @@ public sealed class CycleCheckTool : ITool
     }
 
     (JsonElement _, IReadOnlyList<string>? entries, IReadOnlyList<DependencyEdge>? edges) = parsed.Value!;
-    return ToolExecution.RunAsync(input.Name, ToolTimeout.Parse(parsed.Value!.Json).Value, _ =>
+    return ToolExecution.RunAsync(input.Name, ToolTimeout.Parse(parsed.Value.Json).Value, _ =>
         Task.FromResult(Analyze(entries, edges)), ct);
   }
 

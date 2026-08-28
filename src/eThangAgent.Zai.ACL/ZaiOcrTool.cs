@@ -80,7 +80,7 @@ public sealed class ZaiOcrTool(
     Dictionary<string, object?> body = new()
     {
       ["model"] = "glm-ocr",
-      ["file"] = Convert.ToBase64String(bytes.Value!),
+      ["file"] = Convert.ToBase64String(bytes.Value),
     };
     if (v.StartPage is { } start)
     {
@@ -98,7 +98,7 @@ public sealed class ZaiOcrTool(
       return ZaiToolHttp.Err(response.Error!);
     }
 
-    if (!response.Value!.TryGetProperty("md_results", out JsonElement md)
+    if (!response.Value.TryGetProperty("md_results", out JsonElement md)
         || md.ValueKind != JsonValueKind.String
         || md.GetString()!.Length == 0)
     {

@@ -28,10 +28,10 @@ internal partial class MainWindow : Window
 
     // The menu button asks the view to show the new-agent modal (UI-affine); the
     // chosen provider/workspace pair comes back through OpenAgentAsync. The gear
-    // button shows the settings modal the same way; its result flows through
-    // ApplySettingsAsync. The Model button shows the selected tab's model picker;
-    // its result flows through ApplyModelChoiceAsync. The Effort button shows the
-    // selected tab's effort picker; its result flows through ApplyEffortChoiceAsync.
+    // button shows the settings modal the same way, and its result flows through
+    // ApplySettingsAsync. The Model button shows the selected tab's model picker
+    // with its result flowing through ApplyModelChoiceAsync, and the Effort button
+    // shows the selected tab's effort picker through ApplyEffortChoiceAsync.
     vm.OpenAgentRequested += async (_, _) => await ShowNewAgentDialogAsync();
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
     vm.ModelPickerRequested += async (_, _) => await ShowModelPickerDialogAsync();

@@ -76,48 +76,48 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
 
     HashSet<string> allowed = new(StringComparer.Ordinal)
             { "query", "queryMode", "scope", "branches", "role", "page", "pageSize" };
-    if (UnknownArgument(root.Value!, allowed) is { } unknown)
+    if (UnknownArgument(root.Value, allowed) is { } unknown)
     {
       return Fail(new DomainError("InvalidArgument", $"unknown argument '{unknown}'."));
     }
 
-    Result<string?> query = OptionalString(root.Value!, "query");
+    Result<string?> query = OptionalString(root.Value, "query");
     if (!query.IsSuccess)
     {
       return Fail(query.Error!);
     }
 
-    Result<string?> queryMode = OptionalString(root.Value!, "queryMode");
+    Result<string?> queryMode = OptionalString(root.Value, "queryMode");
     if (!queryMode.IsSuccess)
     {
       return Fail(queryMode.Error!);
     }
 
-    Result<string?> scope = OptionalString(root.Value!, "scope");
+    Result<string?> scope = OptionalString(root.Value, "scope");
     if (!scope.IsSuccess)
     {
       return Fail(scope.Error!);
     }
 
-    Result<string?> branches = OptionalString(root.Value!, "branches");
+    Result<string?> branches = OptionalString(root.Value, "branches");
     if (!branches.IsSuccess)
     {
       return Fail(branches.Error!);
     }
 
-    Result<string?> role = OptionalString(root.Value!, "role");
+    Result<string?> role = OptionalString(root.Value, "role");
     if (!role.IsSuccess)
     {
       return Fail(role.Error!);
     }
 
-    Result<int> page = OptionalNumber(root.Value!, "page", fallback: 1);
+    Result<int> page = OptionalNumber(root.Value, "page", fallback: 1);
     if (!page.IsSuccess)
     {
       return Fail(page.Error!);
     }
 
-    Result<int> pageSize = OptionalNumber(root.Value!, "pageSize", fallback: 25);
+    Result<int> pageSize = OptionalNumber(root.Value, "pageSize", fallback: 25);
     if (!pageSize.IsSuccess)
     {
       return Fail(pageSize.Error!);
@@ -140,24 +140,24 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
     }
 
     HashSet<string> allowed = new(StringComparer.Ordinal) { "scope", "branches", "limit" };
-    if (UnknownArgument(root.Value!, allowed) is { } unknown)
+    if (UnknownArgument(root.Value, allowed) is { } unknown)
     {
       return Fail(new DomainError("InvalidArgument", $"unknown argument '{unknown}'."));
     }
 
-    Result<string?> scope = OptionalString(root.Value!, "scope");
+    Result<string?> scope = OptionalString(root.Value, "scope");
     if (!scope.IsSuccess)
     {
       return Fail(scope.Error!);
     }
 
-    Result<string?> branches = OptionalString(root.Value!, "branches");
+    Result<string?> branches = OptionalString(root.Value, "branches");
     if (!branches.IsSuccess)
     {
       return Fail(branches.Error!);
     }
 
-    Result<int> limit = OptionalNumber(root.Value!, "limit", fallback: 50);
+    Result<int> limit = OptionalNumber(root.Value, "limit", fallback: 50);
     if (!limit.IsSuccess)
     {
       return Fail(limit.Error!);
@@ -223,17 +223,11 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
 
   private static string? UnknownArgument(JsonElement args, HashSet<string> allowed)
   {
-    // JsonProperty is a struct: FirstOrDefault on an exhausted sequence yields
-    // default(JsonProperty), and reading .Name off it throws — so enumerate manually.
-    foreach (JsonProperty property in args.EnumerateObject())
-    {
-      if (!allowed.Contains(property.Name))
-      {
-        return property.Name;
-      }
-    }
-
-    return null;
+    // Project to .Name (a reference type) before FirstOrDefault: JsonProperty itself is
+    // a struct, and reading .Name off default(JsonProperty) on an exhausted sequence throws.
+    return args.EnumerateObject()
+        .Select(p => p.Name)
+        .FirstOrDefault(name => !allowed.Contains(name));
   }
 
   private static Result<string?> OptionalString(JsonElement args, string key)

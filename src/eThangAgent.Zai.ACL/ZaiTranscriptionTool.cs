@@ -72,7 +72,7 @@ public sealed class ZaiTranscriptionTool(
     // before the request is sent (observed as a disposed StringContent mid-send).
 #pragma warning disable CA2000 // Dispose objects before losing scope — form owns its parts
     MultipartFormDataContent form = [];
-    ByteArrayContent fileContent = new(bytes.Value!);
+    ByteArrayContent fileContent = new(bytes.Value);
     fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
     form.Add(fileContent, "file", Path.GetFileName(resolvedPath));
     form.Add(new StringContent("glm-asr-2512"), "model");

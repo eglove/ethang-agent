@@ -49,7 +49,7 @@ public sealed class ProviderFailoverResolver(
     }
 
     string modelId = selection.Value!.ModelId;
-    string? providerName = selection.Value!.ProviderName;
+    string? providerName = selection.Value.ProviderName;
 
     string? persistNotice = await TryPersistModelAsync(modelId, ct).ConfigureAwait(false);
     string? notice = persistNotice is null ? null : $"Model selected: {persistNotice}";
@@ -82,7 +82,7 @@ public sealed class ProviderFailoverResolver(
     }
 
     string modelId = selection.Value!.ModelId;
-    string? providerName = selection.Value!.ProviderName;
+    string? providerName = selection.Value.ProviderName;
     _ = await TryPersistModelAsync(modelId, ct).ConfigureAwait(false);
 
     string notice = $"Model {failedModelId} via {failedProviderName} failed; falling back to {modelId} via {providerName}.";

@@ -133,7 +133,7 @@ public sealed class ScriptGlobals
     {
       throw; // never swallowed by the generic handler below
     }
-    // Named decision (CA1031): script-invoked commands must never crash the agent turn;
+    // Named decision (CA1031): script-invoked commands must never crash the agent turn —
     // any spawn/drain fault surfaces as a failed ShellResult the model can read.
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)
@@ -231,17 +231,12 @@ public sealed class ScriptTools
     ArgumentNullException.ThrowIfNull(globals);
     _registry = registry;
 
-    foreach (ProviderCapabilities provider in registry.Providers)
+    foreach (string name in registry.Providers
+        .SelectMany(p => p.Actions)
+        .Select(a => a.Name)
+        .Where(IsValidIdentifier))
     {
-      foreach (ActionDescriptor action in provider.Actions)
-      {
-        string name = action.Name;
-        // Only register as convenience method if the name is a valid C# identifier
-        if (IsValidIdentifier(name))
-        {
-          _methods[name] = args => InvokeCore(name, args);
-        }
-      }
+      _methods[name] = args => InvokeCore(name, args);
     }
   }
 
@@ -285,7 +280,7 @@ public sealed class ScriptTools
     Result<TimeSpan> budget = ToolTimeout.Parse(document);
     if (!budget.IsSuccess)
     {
-      return $"Error [{budget.Error!.Code}]: {budget.Error!.Message}";
+      return $"Error [{budget.Error!.Code}]: {budget.Error.Message}";
     }
 
     // Tools whose contract declares timeoutSeconds (ITool-backed actions) re-validate
@@ -308,12 +303,12 @@ public sealed class ScriptTools
         using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
         // SelfManaged actions own their budget; an infinite CancelAfter never fires,
         // and caller cancellation is not threaded here by design (see Invoke docs).
-        cts.CancelAfter(resolved.Value!.Action.Timeout == TimeoutPolicy.SelfManaged
+        cts.CancelAfter(resolved.Value.Action.Timeout == TimeoutPolicy.SelfManaged
                   ? Timeout.InfiniteTimeSpan
                   : budget.Value);
         try
         {
-          return await _registry.InvokeAsync(resolved.Value!, stripped, cts.Token).ConfigureAwait(false);
+          return await _registry.InvokeAsync(resolved.Value, stripped, cts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {

@@ -322,7 +322,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       }
       // Named decision (CA1031): temp-file cleanup is best effort.
 #pragma warning disable CA1031 // Do not catch general exception types
-      catch (Exception) { }
+      catch (Exception) { /* best effort: the commit itself already succeeded */ }
 #pragma warning restore CA1031 // Do not catch general exception types
     }
 

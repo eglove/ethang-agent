@@ -23,8 +23,6 @@ internal sealed class StreamBridge(Func<UiStreamEvent, Task> sink)
       Channel.CreateUnbounded<UiStreamEvent>(new UnboundedChannelOptions { SingleReader = true });
   private readonly TaskCompletionSource _drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-  private StreamBridgePump? _pump;
-
   public Action<string> OnContentDelta => text => _channel.Writer.TryWrite(new UiStreamEvent.Delta(text));
   public Action<string> OnReasoningDelta => text => _channel.Writer.TryWrite(new UiStreamEvent.Reasoning(text));
   public Action OnIterationEnd => () => _channel.Writer.TryWrite(new UiStreamEvent.IterationEnd());
@@ -33,10 +31,10 @@ internal sealed class StreamBridge(Func<UiStreamEvent, Task> sink)
 
   public void Start()
   {
-    _pump = new StreamBridgePump(_channel.Reader, sink, _drained);
+    StreamBridgePump pump = new(_channel.Reader, sink, _drained);
     // Store the task and attach a no-op continuation so any unhandled fault
     // is observed; the real fault path goes through _drained.TrySetException.
-    _ = Task.Run(_pump.RunAsync).ContinueWith(
+    _ = Task.Run(pump.RunAsync).ContinueWith(
         static t => _ = t.Exception, // observe fault
         CancellationToken.None,
         TaskContinuationOptions.OnlyOnFaulted,
@@ -66,7 +64,6 @@ internal sealed class StreamBridgePump(
     catch (Exception ex)
     {
       _ = drained.TrySetException(ex);
-      return;
     }
 #pragma warning restore CA1031
     finally

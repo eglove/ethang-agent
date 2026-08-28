@@ -69,7 +69,7 @@ public sealed class ZaiWebSearchTool(HttpClient http, ZaiConfiguration config) :
     }
 
     List<(string Title, string Link, string Content, string? Media, string? Published)> results = [];
-    if (response.Value!.TryGetProperty("search_result", out JsonElement items)
+    if (response.Value.TryGetProperty("search_result", out JsonElement items)
         && items.ValueKind == JsonValueKind.Array)
     {
       foreach (JsonElement item in items.EnumerateArray())

@@ -11,7 +11,7 @@ namespace eThangAgent.Storage.ACL;
 /// <summary>SQLite-backed persistence for spawned agents, their transcripts, and domain events.
 ///     Lives in the same app database as SqliteStateStore and follows its connection and
 ///     serialization discipline (System.Text.Json defaults, "o"-format timestamps).</summary>
-// Named decision (CA1001): process-lifetime singleton owned by the composition root;
+// Named decision (CA1001): process-lifetime singleton owned by the composition root —
 // disposing the write gate on teardown adds no value.
 #pragma warning disable CA1001 // Types that own disposable fields should be disposable
 public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore

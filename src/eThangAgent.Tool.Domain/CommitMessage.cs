@@ -128,7 +128,7 @@ public sealed record CommitMessage(string Rendered, string Subject)
         break;
     }
 
-    // Rule 5 — description: required, single-line, at most 72 chars trimmed;
+    // Rule 5 — description: required, single-line, at most 72 chars trimmed,
     // stored trimmed.
     if (string.IsNullOrWhiteSpace(description))
     {
@@ -167,7 +167,7 @@ public sealed record CommitMessage(string Rendered, string Subject)
     string subject = RenderSubject(parsedStyle.Value, type, scope, gitmoji, trimmedDescription);
 
     // Trailing newline(s) on the body are trimmed at render time so the message
-    // ends with exactly one \n regardless of how the caller formatted the body;
+    // ends with exactly one newline regardless of how the caller formatted the body —
     // a body reduced to nothing by that trim renders as absent. (Named leniency:
     // apart from this trim, bodies are kept verbatim.) Validation rules are
     // unchanged — body never fails validation.

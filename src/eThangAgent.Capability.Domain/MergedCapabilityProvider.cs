@@ -13,14 +13,11 @@ public sealed class MergedCapabilityProvider(string id, IReadOnlyList<ICapabilit
   public async Task<CapabilityInvocationResult> InvokeAsync(
       string actionName, string jsonArguments, CancellationToken ct = default)
   {
-    foreach (ICapabilityProvider source in _sources)
-    {
-      if (source.Actions.Any(a => a.Name == actionName))
-      {
-        return await source.InvokeAsync(actionName, jsonArguments, ct).ConfigureAwait(false);
-      }
-    }
-
-    return CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}.");
+    // FirstOrDefault short-circuits exactly like the original loop: the first
+    // source exposing the action wins.
+    ICapabilityProvider? source = _sources.FirstOrDefault(s => s.Actions.Any(a => a.Name == actionName));
+    return source is not null
+      ? await source.InvokeAsync(actionName, jsonArguments, ct).ConfigureAwait(false)
+      : CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}.");
   }
 }

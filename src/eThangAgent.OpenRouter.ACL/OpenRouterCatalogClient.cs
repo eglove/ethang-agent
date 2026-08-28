@@ -159,10 +159,8 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
     {
       return [CreateFallbackEntry(model)];
     }
-    catch (OperationCanceledException)
-    {
-      throw;
-    }
+    // OperationCanceledException propagates: a cancelled caller must never be
+    // answered with a fallback entry.
   }
 
   private static IntermediateModel? ParseModel(JsonElement item)

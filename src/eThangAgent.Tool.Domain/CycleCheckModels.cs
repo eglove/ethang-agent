@@ -106,12 +106,9 @@ public static class CycleDetector
       components.Add(comp);
     }
 
-    foreach (string? n in nodes)
+    foreach (string? n in nodes.Where(n => !index.ContainsKey(n)))
     {
-      if (!index.ContainsKey(n))
-      {
-        StrongConnect(n);
-      }
+      StrongConnect(n);
     }
 
     // Reachability from entry points decides which cycles can actually fire.

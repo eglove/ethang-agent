@@ -110,13 +110,13 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // Publish the root id to the container BEFORE the session is handed out: the
       // RootAgentResolver reads it lazily to persist ModelUsed on each selection, so it
       // must be set before the first turn can fire.
-      services.GetRequiredService<RootSessionIdentity>().Id = bootstrapped.Value!;
+      services.GetRequiredService<RootSessionIdentity>().Id = bootstrapped.Value;
 
       // Provider lineups are no longer published at session open: the model picker
       // (host UI) fetches the catalog lazily when shown, for either provider.
       return Result.Success(new AgentSession(
           services,
-          bootstrapped.Value!,
+          bootstrapped.Value,
           services.GetRequiredService<Conversation>(),
           services.GetRequiredService<SendMessageCommandHandler>(),
           services.GetRequiredService<RootSessionLifecycle>(),

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 namespace eThangAgent.ToolDomain;
 
@@ -13,11 +14,11 @@ public static class MarkdownRenderer
   public static string Render(MarkdownDocument document)
   {
     ArgumentNullException.ThrowIfNull(document);
-    string result = "";
+    StringBuilder result = new();
 
     if (document.FrontMatter is { Count: > 0 } fm)
     {
-      result += RenderFrontMatter(fm);
+      _ = result.Append(RenderFrontMatter(fm));
     }
 
     bool hasWrittenBlock = false;
@@ -32,27 +33,27 @@ public static class MarkdownRenderer
 
       if (block is SpaceBlock space)
       {
-        result += new string('\n', space.Count + 1);
+        _ = result.Append('\n', space.Count + 1);
         lastWasSpace = true;
         continue;
       }
 
       if (hasWrittenBlock && !lastWasSpace)
       {
-        result += "\n\n";
+        _ = result.Append("\n\n");
       }
 
-      result += RenderBlock(block);
+      _ = result.Append(RenderBlock(block));
       hasWrittenBlock = true;
       lastWasSpace = false;
     }
 
-    if (result.Length > 0 && !result.EndsWith('\n'))
+    if (result.Length > 0 && result[^1] != '\n')
     {
-      result += "\n";
+      _ = result.Append('\n');
     }
 
-    return result;
+    return result.ToString();
   }
 
   private static string RenderBlock(MarkdownBlock block) => block switch

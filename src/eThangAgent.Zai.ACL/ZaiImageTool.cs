@@ -72,7 +72,7 @@ public sealed class ZaiImageTool(
       return ZaiToolHttp.Err(response.Error!);
     }
 
-    if (!response.Value!.TryGetProperty("data", out JsonElement data)
+    if (!response.Value.TryGetProperty("data", out JsonElement data)
         || data.ValueKind != JsonValueKind.Array
         || data.GetArrayLength() == 0
         || !data[0].TryGetProperty("url", out JsonElement urlEl)
