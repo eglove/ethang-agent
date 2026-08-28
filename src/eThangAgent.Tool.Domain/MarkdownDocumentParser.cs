@@ -48,6 +48,20 @@ public static class MarkdownDocumentParser
       return Fail(new DomainError(ToolErrorCodes.InvalidParameterType, $"'{source}.blocks' must be an array, but got {blocksEl.ValueKind}."));
     }
 
+    Result<(List<MarkdownBlock?> Blocks, IReadOnlyDictionary<string, object>? FrontMatter)> parsed =
+        ParseBlocksAndFrontMatter(root, blocksEl, source);
+    if (!parsed.IsSuccess)
+    {
+      return Fail(parsed.Error!);
+    }
+
+    MarkdownDocument document = new(parsed.Value.Blocks, parsed.Value.FrontMatter);
+    return Result.Success(document);
+  }
+
+  private static Result<(List<MarkdownBlock?> Blocks, IReadOnlyDictionary<string, object>? FrontMatter)>
+      ParseBlocksAndFrontMatter(JsonElement root, JsonElement blocksEl, string source)
+  {
     List<MarkdownBlock?> blocks = [];
     int index = 0;
     foreach (JsonElement b in blocksEl.EnumerateArray())
@@ -55,55 +69,77 @@ public static class MarkdownDocumentParser
       Result<MarkdownBlock?> parsed = ParseBlock(b);
       if (!parsed.IsSuccess)
       {
-        return Fail(new DomainError(parsed.Error!.Code, $"block[{index}]: {parsed.Error.Message}"));
+        DomainError wrapped = new(parsed.Error!.Code, $"block[{index}]: {parsed.Error.Message}");
+        return FailBlocksAndFrontMatter(wrapped);
       }
 
       blocks.Add(parsed.Value!);
       index++;
     }
 
-    IReadOnlyDictionary<string, object>? frontMatter = null;
-    if (root.TryGetProperty("frontmatter", out JsonElement fmEl))
-    {
-      if (fmEl.ValueKind != JsonValueKind.Object)
-      {
-        return Fail(new DomainError(ToolErrorCodes.InvalidParameterType, $"'{source}.frontmatter' must be an object, but got {fmEl.ValueKind}."));
-      }
+    Result<IReadOnlyDictionary<string, object>?> frontMatter = ParseFrontMatter(root, source);
+    Result<(List<MarkdownBlock?> Blocks, IReadOnlyDictionary<string, object>? FrontMatter)> result = frontMatter.IsSuccess
+      ? Result.Success((blocks, frontMatter.Value))
+      : FailBlocksAndFrontMatter(frontMatter.Error!);
+    return result;
+  }
 
-      Dictionary<string, object> fm = [];
-      foreach (JsonProperty p in fmEl.EnumerateObject())
-      {
-        switch (p.Value.ValueKind)
-        {
-          case JsonValueKind.String:
-            fm.Add(p.Name, p.Value.GetString()!);
-            break;
-          case JsonValueKind.Number:
-            fm.Add(p.Name, p.Value.GetDouble());
-            break;
-          case JsonValueKind.True or JsonValueKind.False:
-            fm.Add(p.Name, p.Value.GetBoolean());
-            break;
-          case JsonValueKind.Null:
-            return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-                $"'{source}.frontmatter.{p.Name}' must not be null; omit it instead."));
-          case JsonValueKind.Object:
-          case JsonValueKind.Array:
-          case JsonValueKind.Undefined:
-          default:
-            return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
-                $"'{source}.frontmatter.{p.Name}' must be a string, number, or boolean, but got {p.Value.ValueKind}."));
-        }
-        if (fm[p.Name] is string s && s.Contains('\n', StringComparison.Ordinal))
-        {
-          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-              $"Frontmatter value for '{p.Name}' contains a newline; multi-line values are not allowed."));
-        }
-      }
-      frontMatter = fm;
+  private static Result<IReadOnlyDictionary<string, object>?> ParseFrontMatter(JsonElement root, string source)
+  {
+    if (!root.TryGetProperty("frontmatter", out JsonElement fmEl))
+    {
+      return Result.Success<IReadOnlyDictionary<string, object>?>(null);
     }
 
-    return Result.Success(new MarkdownDocument(blocks, frontMatter));
+    if (fmEl.ValueKind != JsonValueKind.Object)
+    {
+      return Result.Failure<IReadOnlyDictionary<string, object>?>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{source}.frontmatter' must be an object, but got {fmEl.ValueKind}."));
+    }
+
+    Dictionary<string, object> fm = [];
+    foreach (JsonProperty p in fmEl.EnumerateObject())
+    {
+      DomainError? invalid = AddFrontMatterValue(fm, p, source);
+      if (invalid is not null)
+      {
+        return Result.Failure<IReadOnlyDictionary<string, object>?>(invalid);
+      }
+    }
+
+    return Result.Success<IReadOnlyDictionary<string, object>?>(fm);
+  }
+
+  /// <summary>Adds one frontmatter entry: string / number / boolean only, no newlines.</summary>
+  private static DomainError? AddFrontMatterValue(Dictionary<string, object> fm, JsonProperty p, string source)
+  {
+    switch (p.Value.ValueKind)
+    {
+      case JsonValueKind.String:
+        fm.Add(p.Name, p.Value.GetString()!);
+        break;
+      case JsonValueKind.Number:
+        fm.Add(p.Name, p.Value.GetDouble());
+        break;
+      case JsonValueKind.True or JsonValueKind.False:
+        fm.Add(p.Name, p.Value.GetBoolean());
+        break;
+      case JsonValueKind.Null:
+        return new DomainError(ToolErrorCodes.InvalidParameterValue,
+            $"'{source}.frontmatter.{p.Name}' must not be null; omit it instead.");
+      case JsonValueKind.Object:
+      case JsonValueKind.Array:
+      case JsonValueKind.Undefined:
+      default:
+        return new DomainError(ToolErrorCodes.InvalidParameterType,
+            $"'{source}.frontmatter.{p.Name}' must be a string, number, or boolean, but got {p.Value.ValueKind}.");
+    }
+
+    DomainError? newline = fm[p.Name] is string s && s.Contains('\n', StringComparison.Ordinal)
+      ? new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"Frontmatter value for '{p.Name}' contains a newline; multi-line values are not allowed.")
+      : null;
+    return newline;
   }
 
   private static Result<MarkdownBlock?> ParseBlock(JsonElement b)
@@ -279,46 +315,70 @@ public static class MarkdownDocumentParser
     List<ListItem> items = [];
     foreach (JsonElement el in arr.EnumerateArray())
     {
-      if (el.ValueKind != JsonValueKind.Object)
+      Result<ListItem> item = ParseListItem(el, depth);
+      if (!item.IsSuccess)
       {
-        return FailList(new DomainError(ToolErrorCodes.InvalidParameterType, $"each list item must be an object, but got {el.ValueKind}."));
+        return FailList(item.Error!);
       }
 
-      if (!el.TryGetProperty("text", out JsonElement textEl))
-      {
-        return FailList(new DomainError(ToolErrorCodes.MissingParameter, "each list item requires 'text'."));
-      }
-
-      if (textEl.ValueKind != JsonValueKind.String)
-      {
-        return FailList(new DomainError(ToolErrorCodes.InvalidParameterType, $"list item 'text' must be a string, but got {textEl.ValueKind}."));
-      }
-
-      string text = textEl.GetString()!;
-      if (text.Length == 0)
-      {
-        return FailList(new DomainError(ToolErrorCodes.InvalidParameterValue, "list item 'text' must not be empty."));
-      }
-
-      IReadOnlyList<ListItem>? children = null;
-      if (el.TryGetProperty("children", out JsonElement childrenEl))
-      {
-        if (childrenEl.ValueKind != JsonValueKind.Array)
-        {
-          return FailList(new DomainError(ToolErrorCodes.InvalidParameterType, "list item 'children' must be an array."));
-        }
-
-        Result<IReadOnlyList<ListItem>> kids = ParseListItems(childrenEl, depth + 1);
-        if (!kids.IsSuccess)
-        {
-          return FailList(kids.Error!);
-        }
-
-        children = kids.Value;
-      }
-      items.Add(new ListItem(text, children));
+      items.Add(item.Value!);
     }
+
     return Result.Success<IReadOnlyList<ListItem>>(items);
+  }
+
+  /// <summary>One list entry: object with non-empty string 'text' and optional
+  ///     'children' (recursing one level deeper).</summary>
+  private static Result<ListItem> ParseListItem(JsonElement el, int depth)
+  {
+    if (el.ValueKind != JsonValueKind.Object)
+    {
+      return Result.Failure<ListItem>(new DomainError(ToolErrorCodes.InvalidParameterType, $"each list item must be an object, but got {el.ValueKind}."));
+    }
+
+    if (!el.TryGetProperty("text", out JsonElement textEl))
+    {
+      return Result.Failure<ListItem>(new DomainError(ToolErrorCodes.MissingParameter, "each list item requires 'text'."));
+    }
+
+    if (textEl.ValueKind != JsonValueKind.String)
+    {
+      return Result.Failure<ListItem>(new DomainError(ToolErrorCodes.InvalidParameterType, $"list item 'text' must be a string, but got {textEl.ValueKind}."));
+    }
+
+    string text = textEl.GetString()!;
+    if (text.Length == 0)
+    {
+      return Result.Failure<ListItem>(new DomainError(ToolErrorCodes.InvalidParameterValue, "list item 'text' must not be empty."));
+    }
+
+    Result<IReadOnlyList<ListItem>?> children = ParseItemChildren(el, depth);
+    if (!children.IsSuccess)
+    {
+      return Result.Failure<ListItem>(children.Error!);
+    }
+
+    ListItem item = new(text, children.Value);
+    return Result.Success(item);
+  }
+
+  private static Result<IReadOnlyList<ListItem>?> ParseItemChildren(JsonElement el, int depth)
+  {
+    if (!el.TryGetProperty("children", out JsonElement childrenEl))
+    {
+      return Result.Success<IReadOnlyList<ListItem>?>(null);
+    }
+
+    if (childrenEl.ValueKind != JsonValueKind.Array)
+    {
+      return Result.Failure<IReadOnlyList<ListItem>?>(new DomainError(ToolErrorCodes.InvalidParameterType, "list item 'children' must be an array."));
+    }
+
+    Result<IReadOnlyList<ListItem>> kids = ParseListItems(childrenEl, depth + 1);
+    Result<IReadOnlyList<ListItem>?> result = kids.IsSuccess
+      ? Result.Success(kids.Value)
+      : Result.Failure<IReadOnlyList<ListItem>?>(kids.Error!);
+    return result;
   }
 
   private static Result<MarkdownBlock?> ParseTaskList(JsonElement b)
@@ -373,6 +433,34 @@ public static class MarkdownDocumentParser
       return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "'table.rows' must be an array of arrays."));
     }
 
+    Result<(List<TableHeader> Headers, List<IReadOnlyList<string>> Rows)> table = ParseTableBody(headersEl, rowsEl);
+    if (!table.IsSuccess)
+    {
+      return FailMarkdownBlock(table.Error!);
+    }
+
+    MarkdownBlock block = new TableBlock(table.Value.Headers, table.Value.Rows);
+    return Result.Success<MarkdownBlock?>(block);
+  }
+
+  private static Result<(List<TableHeader> Headers, List<IReadOnlyList<string>> Rows)> ParseTableBody(
+      JsonElement headersEl, JsonElement rowsEl)
+  {
+    Result<List<TableHeader>> headers = ParseTableHeaders(headersEl);
+    if (!headers.IsSuccess)
+    {
+      return Result.Failure<(List<TableHeader>, List<IReadOnlyList<string>>)>(headers.Error!);
+    }
+
+    Result<List<IReadOnlyList<string>>> rows = ParseTableRows(rowsEl, headers.Value!.Count);
+    Result<(List<TableHeader> Headers, List<IReadOnlyList<string>> Rows)> table = rows.IsSuccess
+      ? Result.Success((headers.Value!, rows.Value!))
+      : Result.Failure<(List<TableHeader>, List<IReadOnlyList<string>>)>(rows.Error!);
+    return table;
+  }
+
+  private static Result<List<TableHeader>> ParseTableHeaders(JsonElement headersEl)
+  {
     List<TableHeader> headers = [];
     foreach (JsonElement h in headersEl.EnumerateArray())
     {
@@ -381,68 +469,111 @@ public static class MarkdownDocumentParser
         headers.Add(new TableHeader(h.GetString()!));
         continue;
       }
-      if (h.ValueKind != JsonValueKind.Object)
-      {
-        return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType,
-            "each table header must be a string or an object with 'text' (+optional 'align')."));
-      }
 
-      if (!h.TryGetProperty("text", out JsonElement ht) || ht.ValueKind != JsonValueKind.String)
+      DomainError? invalid = ParseObjectHeader(h, headers);
+      if (invalid is not null)
       {
-        return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, "object table headers require a string 'text'."));
+        return Result.Failure<List<TableHeader>>(invalid);
       }
-
-      TableAlign? align = null;
-      if (h.TryGetProperty("align", out JsonElement alignEl))
-      {
-        if (alignEl.ValueKind != JsonValueKind.String)
-        {
-          return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "'align' must be \"left\", \"center\", or \"right\"."));
-        }
-
-        align = alignEl.GetString() switch
-        {
-          "left" => TableAlign.Left,
-          "center" => TableAlign.Center,
-          "right" => TableAlign.Right,
-          _ => null,
-        };
-        if (align is null)
-        {
-          return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterValue, "'align' must be \"left\", \"center\", or \"right\"."));
-        }
-      }
-      headers.Add(new TableHeader(ht.GetString()!, align));
     }
 
-    int headerCount = headers.Count;
+    return Result.Success(headers);
+  }
+
+  /// <summary>Parses one object-form table header ('text' plus optional 'align'),
+  ///     appending it to <paramref name="headers"/> when valid.</summary>
+  private static DomainError? ParseObjectHeader(JsonElement h, List<TableHeader> headers)
+  {
+    if (h.ValueKind != JsonValueKind.Object)
+    {
+      return new DomainError(ToolErrorCodes.InvalidParameterType,
+          "each table header must be a string or an object with 'text' (+optional 'align').");
+    }
+
+    if (!h.TryGetProperty("text", out JsonElement ht) || ht.ValueKind != JsonValueKind.String)
+    {
+      return new DomainError(ToolErrorCodes.MissingParameter, "object table headers require a string 'text'.");
+    }
+
+    Result<TableAlign?> align = ParseHeaderAlign(h);
+    if (!align.IsSuccess)
+    {
+      return align.Error!;
+    }
+
+    headers.Add(new TableHeader(ht.GetString()!, align.Value));
+    return null;
+  }
+
+  private const string AlignRequirement = "'align' must be \"left\", \"center\", or \"right\".";
+
+  private static Result<TableAlign?> ParseHeaderAlign(JsonElement h)
+  {
+    if (!h.TryGetProperty("align", out JsonElement alignEl))
+    {
+      return Result.Success<TableAlign?>(null);
+    }
+
+    if (alignEl.ValueKind != JsonValueKind.String)
+    {
+      return Result.Failure<TableAlign?>(new DomainError(ToolErrorCodes.InvalidParameterType, AlignRequirement));
+    }
+
+    TableAlign? align = alignEl.GetString() switch
+    {
+      "left" => TableAlign.Left,
+      "center" => TableAlign.Center,
+      "right" => TableAlign.Right,
+      _ => null,
+    };
+    Result<TableAlign?> result = align is not null
+      ? Result.Success(align)
+      : Result.Failure<TableAlign?>(new DomainError(ToolErrorCodes.InvalidParameterValue, AlignRequirement));
+    return result;
+  }
+
+  private static Result<List<IReadOnlyList<string>>> ParseTableRows(JsonElement rowsEl, int headerCount)
+  {
     List<IReadOnlyList<string>> rows = [];
     foreach (JsonElement rowEl in rowsEl.EnumerateArray())
     {
       if (rowEl.ValueKind != JsonValueKind.Array)
       {
-        return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "each table row must be an array of strings."));
+        return Result.Failure<List<IReadOnlyList<string>>>(new DomainError(ToolErrorCodes.InvalidParameterType, "each table row must be an array of strings."));
       }
 
-      List<string> cells = [];
-      foreach (JsonElement c in rowEl.EnumerateArray())
+      DomainError? invalid = ParseTableRow(rowEl, headerCount, rows);
+      if (invalid is not null)
       {
-        if (c.ValueKind != JsonValueKind.String)
-        {
-          return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, "each table cell must be a string."));
-        }
-
-        cells.Add(c.GetString()!);
+        return Result.Failure<List<IReadOnlyList<string>>>(invalid);
       }
-      if (cells.Count != headerCount)
-      {
-        return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            $"Table row cell count ({cells.Count}) does not match header count ({headerCount})."));
-      }
-
-      rows.Add(cells);
     }
-    return Result.Success<MarkdownBlock?>(new TableBlock(headers, rows));
+
+    return Result.Success(rows);
+  }
+
+  /// <summary>One table row: array of string cells, exactly one per header.</summary>
+  private static DomainError? ParseTableRow(JsonElement rowEl, int headerCount, List<IReadOnlyList<string>> rows)
+  {
+    List<string> cells = [];
+    foreach (JsonElement c in rowEl.EnumerateArray())
+    {
+      if (c.ValueKind != JsonValueKind.String)
+      {
+        return new DomainError(ToolErrorCodes.InvalidParameterType, "each table cell must be a string.");
+      }
+
+      cells.Add(c.GetString()!);
+    }
+
+    if (cells.Count != headerCount)
+    {
+      return new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"Table row cell count ({cells.Count}) does not match header count ({headerCount}).");
+    }
+
+    rows.Add(cells);
+    return null;
   }
 
   private static Result<string> RequireText(JsonElement b, string field)
@@ -477,4 +608,7 @@ public static class MarkdownDocumentParser
 
   private static Result<MarkdownBlock?> FailMarkdownBlock(DomainError e) => Result.Failure<MarkdownBlock?>(e);
   private static Result<IReadOnlyList<ListItem>> FailList(DomainError e) => Result.Failure<IReadOnlyList<ListItem>>(e);
+  private static Result<(List<MarkdownBlock?> Blocks, IReadOnlyDictionary<string, object>? FrontMatter)>
+      FailBlocksAndFrontMatter(DomainError e)
+      => Result.Failure<(List<MarkdownBlock?>, IReadOnlyDictionary<string, object>?)>(e);
 }

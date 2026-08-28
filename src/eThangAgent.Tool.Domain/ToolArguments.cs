@@ -52,4 +52,132 @@ public static class ToolArguments
   /// <summary>The validated execution budget for arguments that passed <see cref="Parse"/>.</summary>
   public static TimeSpan TimeoutOf(JsonElement json) =>
       ToolTimeout.Parse(json).Value;
+
+  /// <summary>Rejects argument objects carrying keys outside <paramref name="allowed"/>
+  ///     (the mandatory <c>timeoutSeconds</c> budget key belongs to every allowed set).
+  ///     Returns the typed error, or null when every supplied key is known. The allowed
+  ///     list is echoed verbatim, in the given order, so the model can self-correct.</summary>
+  public static DomainError? RejectUnknownParameters(JsonElement json, params string[] allowed)
+  {
+    HashSet<string> known = new(allowed, StringComparer.Ordinal);
+    List<string> unknown = [.. json.EnumerateObject()
+        .Where(p => !known.Contains(p.Name))
+        .Select(p => p.Name)];
+    return unknown.Count == 0
+      ? null
+      : new DomainError(ToolErrorCodes.UnknownParameter,
+          $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: {string.Join(", ", allowed)}.");
+  }
+
+  /// <summary>Typed failure for an absent required parameter. The requirement tail is
+  ///     tool-specific and must end the message exactly as the tool advertises it.</summary>
+  public static Result<T> Missing<T>(string name, string requirement) =>
+      Result.Failure<T>(new DomainError(ToolErrorCodes.MissingParameter,
+          $"Missing required parameter '{name}'. {requirement}"));
+
+  /// <summary>Reads a required JSON string parameter: present and of string kind.
+  ///     Emptiness is a value rule left to the caller.</summary>
+  public static Result<string> RequireString(JsonElement json, string name, string requirement)
+  {
+    return json.TryGetProperty(name, out JsonElement el)
+      ? StringOf(el, name)
+      : Missing<string>(name, requirement);
+  }
+
+  /// <summary>Reads an optional JSON string parameter: null when absent, a typed error
+  ///     when present but not a string.</summary>
+  public static Result<string?> OptionalString(JsonElement json, string name)
+  {
+    if (!json.TryGetProperty(name, out JsonElement el))
+    {
+      return Result.Success<string?>(null);
+    }
+
+    Result<string> text = StringOf(el, name);
+    return !text.IsSuccess
+      ? Result.Failure<string?>(text.Error!)
+      : Result.Success(text.Value);
+  }
+
+  /// <summary>Reads a required JSON integer parameter. Range checks are value rules
+  ///     left to the caller — nothing is coerced or clamped here.</summary>
+  public static Result<int> RequireInt(JsonElement json, string name, string requirement)
+  {
+    return json.TryGetProperty(name, out JsonElement el)
+      ? IntOf(el, name)
+      : Missing<int>(name, requirement);
+  }
+
+  /// <summary>Reads an optional JSON integer parameter: null when absent, a typed
+  ///     error when present but not an integer.</summary>
+  public static Result<int?> OptionalInt(JsonElement json, string name)
+  {
+    if (!json.TryGetProperty(name, out JsonElement el))
+    {
+      return Result.Success<int?>(null);
+    }
+
+    Result<int> value = IntOf(el, name);
+    return !value.IsSuccess
+      ? Result.Failure<int?>(value.Error!)
+      : Result.Success<int?>(value.Value);
+  }
+
+  /// <summary>Reads a required JSON boolean parameter: exactly <c>true</c> or
+  ///     <c>false</c>, never a truthy stand-in.</summary>
+  public static Result<bool> RequireBool(JsonElement json, string name, string requirement)
+  {
+    if (!json.TryGetProperty(name, out JsonElement el))
+    {
+      return Missing<bool>(name, requirement);
+    }
+
+    Result<bool> value = el.ValueKind is JsonValueKind.True or JsonValueKind.False
+      ? Result.Success(el.GetBoolean())
+      : Result.Failure<bool>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{name}' must be a boolean, but got {el.ValueKind}."));
+    return value;
+  }
+
+  /// <summary>Parses an enum-typed string by exact ordinal match against
+  ///     <paramref name="allowedNames"/> — no case folding, no numeric fallback.</summary>
+  public static Result<T> ParseEnum<T>(string name, string text, IReadOnlyList<string> allowedNames)
+      where T : struct, Enum
+  {
+    ArgumentNullException.ThrowIfNull(allowedNames);
+    foreach (string allowed in allowedNames)
+    {
+      if (string.Equals(text, allowed, StringComparison.Ordinal))
+      {
+        return Result.Success(Enum.Parse<T>(allowed));
+      }
+    }
+
+    Result<T> failure = Result.Failure<T>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+        $"'{name}' must be exactly one of {string.Join(", ", allowedNames)} (case-sensitive), but got '{text}'."));
+    return failure;
+  }
+
+  /// <summary>Validates one element as a JSON string. The type-mismatch wording is the
+  ///     shared tool contract: <c>'{name}' must be a string, but got {kind}.</c></summary>
+  private static Result<string> StringOf(JsonElement el, string name)
+  {
+    Result<string> text = el.ValueKind == JsonValueKind.String
+      ? Result.Success(el.GetString()!)
+      : Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{name}' must be a string, but got {el.ValueKind}."));
+    return text;
+  }
+
+  /// <summary>Validates one element as a JSON integer. The type-mismatch wording is the
+  ///     shared tool contract: <c>'{name}' must be a integer, but got {kind}.</c>
+  ///     (The article reproduces the message verbatim as every tool advertises it.)</summary>
+  private static Result<int> IntOf(JsonElement el, string name)
+  {
+    Result<int> value = el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int parsed)
+      ? Result.Success(parsed)
+      : Result.Failure<int>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{name}' must be a integer, but got {el.ValueKind}."));
+    return value;
+  }
 }

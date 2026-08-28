@@ -110,17 +110,63 @@ public sealed class CuratedMemoryCapabilityProvider(
     // Same strict tag boundary as add/update: an invalid element is rejected
     // outright instead of being forwarded to become a silently-wrong filter.
     IReadOnlyList<string> tagFilters = OptStringArray(args, "tags");
-    string? invalidTag = tagFilters.FirstOrDefault(tag => !CuratedMemorySpecifications.ValidTag(tag));
+    DomainError? invalidTag = FirstInvalidTag(tagFilters);
     if (invalidTag is not null)
     {
-      return Fail(new DomainError("InvalidTag",
-          $"Invalid tag '{invalidTag}': tags must match ^[a-z0-9][a-z0-9-_]{{0,31}}$."));
+      return Fail(invalidTag);
     }
 
+    Result<(int Limit, string? Warning)> limit = ParseLimit(args);
+    if (!limit.IsSuccess)
+    {
+      return Fail(limit.Error!);
+    }
+
+    Result<MemoryCategory?> category = ParseCategoryFilter(args);
+    if (!category.IsSuccess)
+    {
+      return Fail(category.Error!);
+    }
+
+    Result<MemoryScope?> scope = ParseScopeFilter(args);
+    if (!scope.IsSuccess)
+    {
+      return Fail(scope.Error!);
+    }
+
+    Result<IReadOnlyList<CuratedMemory>> search = await _store.SearchAsync(
+        _workspaceId(), OptString(args, "query"), category.Value, tagFilters, limit.Value.Limit).ConfigureAwait(false);
+    if (!search.IsSuccess)
+    {
+      return Fail(search.Error!);
+    }
+
+    // The store ranks by visibility: global always, workspace only when it matches —
+    // narrowing to a requested scope is a read-model concern on top of that ranking.
+    IReadOnlyList<CuratedMemory> rows = scope.Value is { } wanted
+        ? [.. search.Value!.Where(m => m.Scope == wanted)]
+        : search.Value!;
+    return RenderHits(rows, limit.Value.Warning);
+  }
+
+  private static DomainError? FirstInvalidTag(IReadOnlyList<string> tags)
+  {
+    string? invalidTag = tags.FirstOrDefault(tag => !CuratedMemorySpecifications.ValidTag(tag));
+    return invalidTag is null ? null : InvalidTagError(invalidTag);
+  }
+
+  private static DomainError InvalidTagError(string invalidTag) =>
+      new("InvalidTag",
+          $"Invalid tag '{invalidTag}': tags must match ^[a-z0-9][a-z0-9-_]{{0,31}}$.");
+
+  /// <summary>Search limit: minimum 1; above the cap is the one sanctioned leniency —
+  ///     clamped with a visible warning line.</summary>
+  private static Result<(int Limit, string? Warning)> ParseLimit(Dictionary<string, JsonElement> args)
+  {
     int limit = OptInt(args, "limit") ?? DefaultLimit;
     if (limit < 1)
     {
-      return Fail(new DomainError("InvalidLimit", "'limit' must be an integer >= 1."));
+      return Result.Failure<(int, string?)>(new DomainError("InvalidLimit", "'limit' must be an integer >= 1."));
     }
 
     string? warning = null;
@@ -131,42 +177,40 @@ public sealed class CuratedMemoryCapabilityProvider(
       warning = $"[warning] limit clamped to {MaxLimit}";
     }
 
-    MemoryCategory? category = null;
-    if (args.ContainsKey(Category))
-    {
-      Result<MemoryCategory> parsed = CuratedMemorySpecifications.ParseCategory(OptString(args, Category));
-      if (!parsed.IsSuccess)
-      {
-        return Fail(parsed.Error!);
-      }
+    Result<(int Limit, string? Warning)> parsed = Result.Success((limit, warning));
+    return parsed;
+  }
 
-      category = parsed.Value;
+  private static Result<MemoryCategory?> ParseCategoryFilter(Dictionary<string, JsonElement> args)
+  {
+    if (!args.ContainsKey(Category))
+    {
+      return Result.Success<MemoryCategory?>(null);
     }
 
-    MemoryScope? scope = null;
-    if (args.ContainsKey(Scope))
-    {
-      Result<MemoryScope> parsed = CuratedMemorySpecifications.ParseScope(OptString(args, Scope));
-      if (!parsed.IsSuccess)
-      {
-        return Fail(parsed.Error!);
-      }
+    Result<MemoryCategory> parsed = CuratedMemorySpecifications.ParseCategory(OptString(args, Category));
+    Result<MemoryCategory?> result = parsed.IsSuccess
+      ? Result.Success<MemoryCategory?>(parsed.Value)
+      : Result.Failure<MemoryCategory?>(parsed.Error!);
+    return result;
+  }
 
-      scope = parsed.Value;
+  private static Result<MemoryScope?> ParseScopeFilter(Dictionary<string, JsonElement> args)
+  {
+    if (!args.ContainsKey(Scope))
+    {
+      return Result.Success<MemoryScope?>(null);
     }
 
-    Result<IReadOnlyList<CuratedMemory>> search = await _store.SearchAsync(
-        _workspaceId(), OptString(args, "query"), category, tagFilters, limit).ConfigureAwait(false);
-    if (!search.IsSuccess)
-    {
-      return Fail(search.Error!);
-    }
+    Result<MemoryScope> parsed = CuratedMemorySpecifications.ParseScope(OptString(args, Scope));
+    Result<MemoryScope?> result = parsed.IsSuccess
+      ? Result.Success<MemoryScope?>(parsed.Value)
+      : Result.Failure<MemoryScope?>(parsed.Error!);
+    return result;
+  }
 
-    // The store ranks by visibility: global always, workspace only when it matches —
-    // narrowing to a requested scope is a read-model concern on top of that ranking.
-    IReadOnlyList<CuratedMemory> rows = scope is { } wanted
-        ? [.. search.Value!.Where(m => m.Scope == wanted)]
-        : search.Value!;
+  private static CapabilityInvocationResult RenderHits(IReadOnlyList<CuratedMemory> rows, string? warning)
+  {
     List<string> lines = [$"[memories] {rows.Count} hit(s)"];
     foreach (CuratedMemory memory in rows)
     {
@@ -197,15 +241,7 @@ public sealed class CuratedMemoryCapabilityProvider(
 
     string content = OptString(args, Content)!.Trim();
 
-    if (!args.TryGetValue(Category, out JsonElement categoryElement)
-        || categoryElement.ValueKind != JsonValueKind.String
-        || string.IsNullOrEmpty(categoryElement.GetString()))
-    {
-      return Fail(new DomainError("MissingCategory",
-          "'category' is required and must be exactly one of the five valid categories."));
-    }
-
-    Result<MemoryCategory> category = CuratedMemorySpecifications.ParseCategory(categoryElement.GetString());
+    Result<MemoryCategory> category = ParseRequiredCategory(args);
     if (!category.IsSuccess)
     {
       return Fail(category.Error!);
@@ -220,51 +256,19 @@ public sealed class CuratedMemoryCapabilityProvider(
         ? CuratedMemorySpecifications.NormalizeTags(OptStringArray(args, "tags"))
         : [];
 
-    string? usageHint = null;
-    if (args.TryGetValue(UsageHint, out JsonElement hintElement))
+    Result<string?> usageHint = ParseOptionalHint(args);
+    if (!usageHint.IsSuccess)
     {
-      if (hintElement.ValueKind != JsonValueKind.String || hintElement.GetString() is not { } hint)
-      {
-        throw new MemoryInputException("'usage_hint' must be a string.");
-      }
-
-      if (hint.Length > MaxHintChars)
-      {
-        return Fail(new DomainError("HintTooLong",
-            $"Usage hint exceeds the {MaxHintChars}-character limit (actual: {hint.Length})."));
-      }
-
-      usageHint = hint;
+      return Fail(usageHint.Error!);
     }
 
-    if (!args.TryGetValue(Scope, out JsonElement scopeElement)
-        || scopeElement.ValueKind != JsonValueKind.String
-        || string.IsNullOrEmpty(scopeElement.GetString()))
-    {
-      return Fail(new DomainError("MissingScope",
-          "'scope' is required and must be 'workspace' or 'global'."));
-    }
-
-    Result<MemoryScope> scope = CuratedMemorySpecifications.ParseScope(scopeElement.GetString());
+    Result<MemoryScope> scope = ParseRequiredScope(args);
     if (!scope.IsSuccess)
     {
       return Fail(scope.Error!);
     }
 
-    DateTimeOffset now = _clock();
-    CuratedMemory memory = new(
-        Guid.NewGuid(),
-        WorkspaceKey(scope.Value),
-        category.Value,
-        tags,
-        content,
-        usageHint,
-        scope.Value,
-        _provenance(),
-        Version: 1,
-        now,
-        now);
-
+    CuratedMemory memory = BuildMemory(category.Value!, scope.Value!, tags, content, usageHint.Value);
     Result<CuratedMemory> added = await _store.AddAsync(memory).ConfigureAwait(false);
     if (!added.IsSuccess)
     {
@@ -272,9 +276,72 @@ public sealed class CuratedMemoryCapabilityProvider(
     }
 
     _ = _bumpWrites();
-    return CapabilityInvocationResult.Ok(
+    CapabilityInvocationResult ok = CapabilityInvocationResult.Ok(
         $"[memories] added {added.Value!.Id} v1"
         + $" (cat={Wire(added.Value.Category)} scope={Wire(added.Value.Scope)})");
+    return ok;
+  }
+
+  private static Result<MemoryCategory> ParseRequiredCategory(Dictionary<string, JsonElement> args)
+  {
+    Result<MemoryCategory> category = args.TryGetValue(Category, out JsonElement categoryElement)
+        && categoryElement.ValueKind == JsonValueKind.String
+        && !string.IsNullOrEmpty(categoryElement.GetString())
+      ? CuratedMemorySpecifications.ParseCategory(categoryElement.GetString())
+      : Result.Failure<MemoryCategory>(new DomainError("MissingCategory",
+          "'category' is required and must be exactly one of the five valid categories."));
+    return category;
+  }
+
+  private static Result<MemoryScope> ParseRequiredScope(Dictionary<string, JsonElement> args)
+  {
+    Result<MemoryScope> scope = args.TryGetValue(Scope, out JsonElement scopeElement)
+        && scopeElement.ValueKind == JsonValueKind.String
+        && !string.IsNullOrEmpty(scopeElement.GetString())
+      ? CuratedMemorySpecifications.ParseScope(scopeElement.GetString())
+      : Result.Failure<MemoryScope>(new DomainError("MissingScope",
+          "'scope' is required and must be 'workspace' or 'global'."));
+    return scope;
+  }
+
+  /// <summary>Optional usage_hint: wrong type is malformed input (thrown), over-budget
+  ///     is a typed failure; null when absent.</summary>
+  private static Result<string?> ParseOptionalHint(Dictionary<string, JsonElement> args)
+  {
+    if (!args.TryGetValue(UsageHint, out JsonElement hintElement))
+    {
+      return Result.Success<string?>(null);
+    }
+
+    if (hintElement.ValueKind != JsonValueKind.String || hintElement.GetString() is not { } hint)
+    {
+      throw new MemoryInputException("'usage_hint' must be a string.");
+    }
+
+    Result<string?> usageHint = hint.Length > MaxHintChars
+      ? Result.Failure<string?>(new DomainError("HintTooLong",
+          $"Usage hint exceeds the {MaxHintChars}-character limit (actual: {hint.Length})."))
+      : Result.Success<string?>(hint);
+    return usageHint;
+  }
+
+  private CuratedMemory BuildMemory(MemoryCategory category, MemoryScope scope,
+      IReadOnlyList<string> tags, string content, string? usageHint)
+  {
+    DateTimeOffset now = _clock();
+    CuratedMemory memory = new(
+        Guid.NewGuid(),
+        WorkspaceKey(scope),
+        category,
+        tags,
+        content,
+        usageHint,
+        scope,
+        _provenance(),
+        Version: 1,
+        now,
+        now);
+    return memory;
   }
 
   private async Task<CapabilityInvocationResult> UpdateAsync(string json)
@@ -288,100 +355,142 @@ public sealed class CuratedMemoryCapabilityProvider(
       return Fail(idError);
     }
 
-    int? expectedVersion = OptInt(args, "expected_version");
-    if (expectedVersion is null or < 1)
+    Result<int> expectedVersion = ParseExpectedVersion(args);
+    if (!expectedVersion.IsSuccess)
     {
-      return Fail(new DomainError("MissingVersion",
-          "'expected_version' is required and must be an integer >= 1."));
+      return Fail(expectedVersion.Error!);
     }
 
+    Result<MemoryDelta> delta = ParseDelta(args);
+    if (!delta.IsSuccess)
+    {
+      return Fail(delta.Error!);
+    }
+
+    Result<CuratedMemory> stored = await FetchForUpdateAsync(id, expectedVersion.Value).ConfigureAwait(false);
+    if (!stored.IsSuccess)
+    {
+      return Fail(stored.Error!);
+    }
+
+    CuratedMemory updated = BuildUpdate(stored.Value!, args, delta.Value!);
+    Result<CuratedMemory> saved = await _store.UpdateAsync(updated).ConfigureAwait(false);
+    CapabilityInvocationResult result = saved.IsSuccess
+      ? CapabilityInvocationResult.Ok(
+        $"[memories] updated {saved.Value!.Id} v{saved.Value.Version}")
+      : Fail(saved.Error!);
+    return result;
+  }
+
+  /// <summary>The compare-and-swap belief: required, integer >= 1.</summary>
+  private static Result<int> ParseExpectedVersion(Dictionary<string, JsonElement> args)
+  {
+    int? expectedVersion = OptInt(args, "expected_version");
+    Result<int> version = expectedVersion is >= 1
+      ? Result.Success(expectedVersion.Value)
+      : Result.Failure<int>(new DomainError("MissingVersion",
+          "'expected_version' is required and must be an integer >= 1."));
+    return version;
+  }
+
+  /// <summary>Validates the present delta fields (at least one required), in the
+  ///     documented order: content, category, tags, usage_hint. Absent fields stay null.</summary>
+  private static Result<MemoryDelta> ParseDelta(Dictionary<string, JsonElement> args)
+  {
     bool touchesContent = args.ContainsKey(Content), touchesCategory = args.ContainsKey(Category),
          touchesTags = args.ContainsKey("tags"), touchesHint = args.ContainsKey(UsageHint);
     if (!touchesContent && !touchesCategory && !touchesTags && !touchesHint)
     {
-      return Fail(new DomainError("NothingToUpdate",
+      return Result.Failure<MemoryDelta>(new DomainError("NothingToUpdate",
           "Provide at least one of: content, category, tags, usage_hint."));
     }
 
     if (touchesContent && ValidateContent(args) is { } contentError)
     {
-      return Fail(contentError);
+      return Result.Failure<MemoryDelta>(contentError);
     }
 
-    MemoryCategory? category = null;
-    if (touchesCategory)
+    Result<MemoryCategory?> category = ParseCategoryUpdate(args, touchesCategory);
+    if (!category.IsSuccess)
     {
-      Result<MemoryCategory> parsed = CuratedMemorySpecifications.ParseCategory(OptString(args, Category));
-      if (!parsed.IsSuccess)
-      {
-        return Fail(parsed.Error!);
-      }
-
-      category = parsed.Value;
+      return Result.Failure<MemoryDelta>(category.Error!);
     }
+
     if (touchesTags && ValidateTags(args) is { } tagsError)
     {
-      return Fail(tagsError);
+      return Result.Failure<MemoryDelta>(tagsError);
+    }
+
+    Result<string?> usageHint = ParseOptionalHint(args);
+    if (!usageHint.IsSuccess)
+    {
+      return Result.Failure<MemoryDelta>(usageHint.Error!);
     }
 
     IReadOnlyList<string>? tags = touchesTags
         ? CuratedMemorySpecifications.NormalizeTags(OptStringArray(args, "tags"))
         : null;
-    string? usageHint = null;
-    if (touchesHint)
+    MemoryDelta delta = new(category.Value, tags, usageHint.Value);
+    return Result.Success(delta);
+  }
+
+  private static Result<MemoryCategory?> ParseCategoryUpdate(Dictionary<string, JsonElement> args, bool touchesCategory)
+  {
+    if (!touchesCategory)
     {
-      if (args[UsageHint].ValueKind != JsonValueKind.String
-          || args[UsageHint].GetString() is not { } hint)
-      {
-        throw new MemoryInputException("'usage_hint' must be a string.");
-      }
-
-      if (hint.Length > MaxHintChars)
-      {
-        return Fail(new DomainError("HintTooLong",
-            $"Usage hint exceeds the {MaxHintChars}-character limit (actual: {hint.Length})."));
-      }
-
-      usageHint = hint;
+      return Result.Success<MemoryCategory?>(null);
     }
 
+    Result<MemoryCategory> parsed = CuratedMemorySpecifications.ParseCategory(OptString(args, Category));
+    Result<MemoryCategory?> result = parsed.IsSuccess
+      ? Result.Success<MemoryCategory?>(parsed.Value)
+      : Result.Failure<MemoryCategory?>(parsed.Error!);
+    return result;
+  }
+
+  /// <summary>Loads the stored row and applies the version-belief check here: this
+  ///     surface always proposes stored.Version + 1, so the store's CAS can only
+  ///     catch interleaved writers, never a stale expected_version.</summary>
+  private async Task<Result<CuratedMemory>> FetchForUpdateAsync(Guid id, int expectedVersion)
+  {
     Result<CuratedMemory?> fetched = await _store.GetAsync(id).ConfigureAwait(false);
     if (!fetched.IsSuccess)
     {
-      return Fail(fetched.Error!);
+      return Result.Failure<CuratedMemory>(fetched.Error!);
     }
 
     if (fetched.Value is not { } stored)
     {
-      return Fail(new DomainError(CuratedMemoryErrors.MemoryNotFound,
+      return Result.Failure<CuratedMemory>(new DomainError(CuratedMemoryErrors.MemoryNotFound,
           $"No curated memory with id '{id}'."));
     }
 
-    // The caller's version belief is checked HERE: this surface always proposes
-    // stored.Version + 1, so the store's CAS can only catch interleaved writers,
-    // never a stale expected_version.
-    if (expectedVersion.Value != stored.Version)
-    {
-      return Fail(new DomainError(CuratedMemoryErrors.VersionConflict,
+    Result<CuratedMemory> versionOk = expectedVersion == stored.Version
+      ? Result.Success(stored)
+      : Result.Failure<CuratedMemory>(new DomainError(CuratedMemoryErrors.VersionConflict,
           $"current stored version is {stored.Version}."));
-    }
+    return versionOk;
+  }
 
+  /// <summary>The proposed row: untouched fields carry over, touched ones overlay.
+  ///     Category/tags overlay through null-coalescing; content and hint re-check
+  ///     presence so an explicit empty delta keeps its own value.</summary>
+  private CuratedMemory BuildUpdate(CuratedMemory stored, Dictionary<string, JsonElement> args, MemoryDelta delta)
+  {
     CuratedMemory updated = stored with
     {
       Version = stored.Version + 1,
       UpdatedAt = _clock(),
-      Content = touchesContent ? OptString(args, Content)!.Trim() : stored.Content,
-      Category = category ?? stored.Category,
-      Tags = tags ?? stored.Tags,
-      UsageHint = touchesHint ? usageHint : stored.UsageHint,
+      Content = args.ContainsKey(Content) ? OptString(args, Content)!.Trim() : stored.Content,
+      Category = delta.Category ?? stored.Category,
+      Tags = delta.Tags ?? stored.Tags,
+      UsageHint = args.ContainsKey(UsageHint) ? delta.UsageHint : stored.UsageHint,
     };
-
-    Result<CuratedMemory> saved = await _store.UpdateAsync(updated).ConfigureAwait(false);
-    return !saved.IsSuccess
-      ? Fail(saved.Error!)
-      : CapabilityInvocationResult.Ok(
-        $"[memories] updated {saved.Value!.Id} v{saved.Value.Version}");
+    return updated;
   }
+
+  /// <summary>The validated update payload: null fields mean "not touched".</summary>
+  private sealed record MemoryDelta(MemoryCategory? Category, IReadOnlyList<string>? Tags, string? UsageHint);
 
   private async Task<CapabilityInvocationResult> RemoveAsync(string json)
   {
@@ -453,10 +562,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     }
 
     string? invalidTag = tags.FirstOrDefault(tag => !CuratedMemorySpecifications.ValidTag(tag));
-    return invalidTag is null
-      ? null
-      : new DomainError("InvalidTag",
-          $"Invalid tag '{invalidTag}': tags must match ^[a-z0-9][a-z0-9-_]{{0,31}}$.");
+    return invalidTag is null ? null : InvalidTagError(invalidTag);
   }
 
   /// <summary>Parses the 'id' argument as a GUID, quoting the rejected input verbatim

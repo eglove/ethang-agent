@@ -166,27 +166,57 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
           new DomainError("RootNotFound", $"Search root not found: {rootPath}")));
     }
 
-    Regex? rx = null;
-    if (regex)
+    Result<Regex?> compiled = CompilePattern(pattern, regex);
+    if (!compiled.IsSuccess)
     {
-      try
-      {
-        rx = new Regex(pattern, RegexOptions.None, TimeSpan.FromSeconds(2));
-      }
-      catch (ArgumentException ex)
-      {
-        return Task.FromResult(Result.Failure<FileSearch>(
-            new DomainError("InvalidPattern", $"Invalid regular expression '{pattern}': {ex.Message}")));
-      }
+      return Task.FromResult(Result.Failure<FileSearch>(compiled.Error!));
     }
 
+    SearchPlan plan = new(compiled.Value!, pattern, glob, maxResults, contextLines);
     List<SearchMatch> matches = [];
     int scanned = 0;
-    bool truncated = false;
+    bool truncated = CollectMatches(rootPath, plan, matches, ref scanned);
+    FileSearch result = new(matches, truncated, scanned);
+    return Task.FromResult(Result.Success(result));
+  }
 
+  /// <summary>Compiles the regular-expression pattern when <paramref name="regex"/>;
+  ///     a plain pattern matches literally.</summary>
+  private static Result<Regex?> CompilePattern(string pattern, bool regex)
+  {
+    if (!regex)
+    {
+      return Result.Success<Regex?>(null);
+    }
+
+    try
+    {
+      Result<Regex?> compiled = Result.Success<Regex?>(new Regex(pattern, RegexOptions.None, TimeSpan.FromSeconds(2)));
+      return compiled;
+    }
+    catch (ArgumentException ex)
+    {
+      return Result.Failure<Regex?>(new DomainError("InvalidPattern",
+          $"Invalid regular expression '{pattern}': {ex.Message}"));
+    }
+  }
+
+  /// <summary>Everything one search pass needs: the matcher plus its windowing limits.</summary>
+  private sealed record SearchPlan(Regex? Regex, string Pattern, string? Glob, int MaxResults, int ContextLines)
+  {
+    internal bool IsMatch(string line) => Regex is not null
+        ? Regex.IsMatch(line)
+        : line.Contains(Pattern, StringComparison.Ordinal);
+  }
+
+  /// <summary>Walks the tree once, collecting matches until the result cap. Sets
+  ///     <paramref name="scanned"/> to the number of readable text files examined.</summary>
+  private static bool CollectMatches(string rootPath, SearchPlan plan, List<SearchMatch> matches, ref int scanned)
+  {
+    bool truncated = false;
     foreach (string file in Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories))
     {
-      if (matches.Count >= maxResults)
+      if (matches.Count >= plan.MaxResults)
       {
         truncated = true;
         break;
@@ -196,7 +226,7 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
         continue;
       }
 
-      if (glob is not null && !MatchesGlob(Path.GetFileName(file), glob))
+      if (plan.Glob is not null && !MatchesGlob(Path.GetFileName(file), plan.Glob))
       {
         continue;
       }
@@ -214,25 +244,26 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
       }
 
       scanned++;
-
-      for (int i = 0; i < lines.Length; i++)
-      {
-        bool isMatch = rx is not null
-            ? rx.IsMatch(lines[i])
-            : lines[i].Contains(pattern, StringComparison.Ordinal);
-
-        if (isMatch)
-        {
-          int from = Math.Max(0, i - contextLines);
-          int to = Math.Min(lines.Length - 1, i + contextLines);
-          string[] window = lines[from..(to + 1)];
-          matches.Add(new SearchMatch(file, i + 1, window));
-        }
-      }
+      CollectLineMatches(file, lines, plan, matches);
     }
 
-    return Task.FromResult(Result.Success(
-        new FileSearch(matches, truncated, scanned)));
+    return truncated;
+  }
+
+  private static void CollectLineMatches(string file, string[] lines, SearchPlan plan, List<SearchMatch> matches)
+  {
+    for (int i = 0; i < lines.Length; i++)
+    {
+      if (!plan.IsMatch(lines[i]))
+      {
+        continue;
+      }
+
+      int from = Math.Max(0, i - plan.ContextLines);
+      int to = Math.Min(lines.Length - 1, i + plan.ContextLines);
+      string[] window = lines[from..(to + 1)];
+      matches.Add(new SearchMatch(file, i + 1, window));
+    }
   }
 
   private static string? ReadAllTextRejectBinary(string path)

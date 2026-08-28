@@ -388,6 +388,18 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       return null;
     }
 
+    ApplyContentDelta(delta, content, onContentDelta);
+    ApplyReasoningContent(delta, onReasoningDelta);
+    ApplyToolCallFragments(delta, toolCalls);
+    FinishReason? reason = ParseChunkFinishReason(choice);
+    return reason;
+  }
+
+  /// <summary>Streams one content fragment: appended to the assembled response and
+  ///     forwarded to the observer. Structural no-op frames carry no information and
+  ///     emit nothing.</summary>
+  private static void ApplyContentDelta(JsonElement delta, StringBuilder content, Action<string>? onContentDelta)
+  {
     if (delta.TryGetProperty("content", out JsonElement contentDelta)
         && contentDelta.ValueKind == JsonValueKind.String)
     {
@@ -397,10 +409,13 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
         _ = content.Append(text);
         onContentDelta?.Invoke(text);
       }
-      // else: structural no-op frame — carries no information, emits nothing.
     }
+  }
 
-    // GLM reasoning streams through reasoning_content (z.ai's documented field).
+  /// <summary>Streams one reasoning fragment. GLM reasoning flows through
+  ///     <c>reasoning_content</c> (z.ai's documented field).</summary>
+  private static void ApplyReasoningContent(JsonElement delta, Action<string>? onReasoningDelta)
+  {
     if (delta.TryGetProperty("reasoning_content", out JsonElement reasoning)
         && reasoning.ValueKind == JsonValueKind.String)
     {
@@ -410,43 +425,58 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
         onReasoningDelta?.Invoke(text);
       }
     }
+  }
 
+  private static void ApplyToolCallFragments(JsonElement delta, Dictionary<int, StreamedToolCall> toolCalls)
+  {
     if (delta.TryGetProperty(ToolCalls, out JsonElement calls)
         && calls.ValueKind == JsonValueKind.Array)
     {
       foreach (JsonElement call in calls.EnumerateArray())
       {
-        int index = call.TryGetProperty("index", out JsonElement idx)
-            && idx.ValueKind == JsonValueKind.Number
-                ? idx.GetInt32()
-                : toolCalls.Count;
-        if (!toolCalls.TryGetValue(index, out StreamedToolCall? fragment))
-        {
-          toolCalls[index] = fragment = new StreamedToolCall();
-        }
-
-        if (call.TryGetProperty("id", out JsonElement id) && id.ValueKind == JsonValueKind.String)
-        {
-          fragment.Id = id.GetString();
-        }
-
-        if (call.TryGetProperty(Function, out JsonElement function))
-        {
-          if (function.TryGetProperty("name", out JsonElement name) && name.ValueKind == JsonValueKind.String)
-          {
-            fragment.Name = name.GetString();
-          }
-
-          if (function.TryGetProperty("arguments", out JsonElement arguments)
-              && arguments.ValueKind == JsonValueKind.String)
-          {
-            fragment.AppendArguments(arguments.GetString()!);
-          }
-        }
+        ApplyToolCallFragment(call, toolCalls);
       }
     }
+  }
 
-    return ParseChunkFinishReason(choice);
+  /// <summary>Assembles one tool-call fragment: addressed by index, created on first
+  ///     sight, with id/name/argument text merged into it.</summary>
+  private static void ApplyToolCallFragment(JsonElement call, Dictionary<int, StreamedToolCall> toolCalls)
+  {
+    int index = call.TryGetProperty("index", out JsonElement idx)
+        && idx.ValueKind == JsonValueKind.Number
+            ? idx.GetInt32()
+            : toolCalls.Count;
+    if (!toolCalls.TryGetValue(index, out StreamedToolCall? fragment))
+    {
+      toolCalls[index] = fragment = new StreamedToolCall();
+    }
+
+    if (call.TryGetProperty("id", out JsonElement id) && id.ValueKind == JsonValueKind.String)
+    {
+      fragment.Id = id.GetString();
+    }
+
+    ApplyFunctionFragment(call, fragment);
+  }
+
+  private static void ApplyFunctionFragment(JsonElement call, StreamedToolCall fragment)
+  {
+    if (!call.TryGetProperty(Function, out JsonElement function))
+    {
+      return;
+    }
+
+    if (function.TryGetProperty("name", out JsonElement name) && name.ValueKind == JsonValueKind.String)
+    {
+      fragment.Name = name.GetString();
+    }
+
+    if (function.TryGetProperty("arguments", out JsonElement arguments)
+        && arguments.ValueKind == JsonValueKind.String)
+    {
+      fragment.AppendArguments(arguments.GetString()!);
+    }
   }
 
   /// <summary>Per-chunk translation of z.ai's finish_reason vocabulary. Missing on a

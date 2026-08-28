@@ -381,6 +381,18 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       return null;
     }
 
+    ApplyContentDelta(delta, content, onContentDelta);
+    ApplyReasoningDeltas(delta, onReasoningDelta);
+    ApplyToolCallFragments(delta, toolCalls);
+    FinishReason? reason = ParseChunkFinishReason(choice);
+    return reason;
+  }
+
+  /// <summary>Streams one content fragment: appended to the assembled response and
+  ///     forwarded to the observer. Structural no-op frames carry no information and
+  ///     emit nothing.</summary>
+  private static void ApplyContentDelta(JsonElement delta, StringBuilder content, Action<string>? onContentDelta)
+  {
     if (delta.TryGetProperty("content", out JsonElement contentDelta)
         && contentDelta.ValueKind == JsonValueKind.String)
     {
@@ -390,64 +402,85 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
         _ = content.Append(text);
         onContentDelta?.Invoke(text);
       }
-      // else: structural no-op frame — carries no information, emits nothing.
     }
+  }
 
+  /// <summary>Streams one reasoning fragment: OpenRouter exposes it as
+  ///     <c>reasoning_content</c>, with plain <c>reasoning</c> as the fallback field.</summary>
+  private static void ApplyReasoningDeltas(JsonElement delta, Action<string>? onReasoningDelta)
+  {
     if (delta.TryGetProperty("reasoning_content", out JsonElement reasoningContent)
         && reasoningContent.ValueKind == JsonValueKind.String)
     {
-      string text = reasoningContent.GetString()!;
-      if (text.Length > 0)
-      {
-        onReasoningDelta?.Invoke(text);
-      }
-    }
-    else if (delta.TryGetProperty("reasoning", out JsonElement reasoning)
-        && reasoning.ValueKind == JsonValueKind.String)
-    {
-      string text = reasoning.GetString()!;
-      if (text.Length > 0)
-      {
-        onReasoningDelta?.Invoke(text);
-      }
+      EmitReasoning(reasoningContent.GetString()!, onReasoningDelta);
+      return;
     }
 
+    if (delta.TryGetProperty("reasoning", out JsonElement reasoning)
+        && reasoning.ValueKind == JsonValueKind.String)
+    {
+      EmitReasoning(reasoning.GetString()!, onReasoningDelta);
+    }
+  }
+
+  private static void EmitReasoning(string text, Action<string>? onReasoningDelta)
+  {
+    if (text.Length > 0)
+    {
+      onReasoningDelta?.Invoke(text);
+    }
+  }
+
+  private static void ApplyToolCallFragments(JsonElement delta, Dictionary<int, StreamedToolCall> toolCalls)
+  {
     if (delta.TryGetProperty(ToolCalls, out JsonElement calls)
         && calls.ValueKind == JsonValueKind.Array)
     {
       foreach (JsonElement call in calls.EnumerateArray())
       {
-        int index = call.TryGetProperty("index", out JsonElement idx)
-            && idx.ValueKind == JsonValueKind.Number
-                ? idx.GetInt32()
-                : toolCalls.Count;
-        if (!toolCalls.TryGetValue(index, out StreamedToolCall? fragment))
-        {
-          toolCalls[index] = fragment = new StreamedToolCall();
-        }
-
-        if (call.TryGetProperty("id", out JsonElement id) && id.ValueKind == JsonValueKind.String)
-        {
-          fragment.Id = id.GetString();
-        }
-
-        if (call.TryGetProperty(Function, out JsonElement function))
-        {
-          if (function.TryGetProperty("name", out JsonElement name) && name.ValueKind == JsonValueKind.String)
-          {
-            fragment.Name = name.GetString();
-          }
-
-          if (function.TryGetProperty("arguments", out JsonElement arguments)
-              && arguments.ValueKind == JsonValueKind.String)
-          {
-            fragment.AppendArguments(arguments.GetString()!);
-          }
-        }
+        ApplyToolCallFragment(call, toolCalls);
       }
     }
+  }
 
-    return ParseChunkFinishReason(choice);
+  /// <summary>Assembles one tool-call fragment: addressed by index, created on first
+  ///     sight, with id/name/argument text merged into it.</summary>
+  private static void ApplyToolCallFragment(JsonElement call, Dictionary<int, StreamedToolCall> toolCalls)
+  {
+    int index = call.TryGetProperty("index", out JsonElement idx)
+        && idx.ValueKind == JsonValueKind.Number
+            ? idx.GetInt32()
+            : toolCalls.Count;
+    if (!toolCalls.TryGetValue(index, out StreamedToolCall? fragment))
+    {
+      toolCalls[index] = fragment = new StreamedToolCall();
+    }
+
+    if (call.TryGetProperty("id", out JsonElement id) && id.ValueKind == JsonValueKind.String)
+    {
+      fragment.Id = id.GetString();
+    }
+
+    ApplyFunctionFragment(call, fragment);
+  }
+
+  private static void ApplyFunctionFragment(JsonElement call, StreamedToolCall fragment)
+  {
+    if (!call.TryGetProperty(Function, out JsonElement function))
+    {
+      return;
+    }
+
+    if (function.TryGetProperty("name", out JsonElement name) && name.ValueKind == JsonValueKind.String)
+    {
+      fragment.Name = name.GetString();
+    }
+
+    if (function.TryGetProperty("arguments", out JsonElement arguments)
+        && arguments.ValueKind == JsonValueKind.String)
+    {
+      fragment.AppendArguments(arguments.GetString()!);
+    }
   }
 
   /// <summary>Per-chunk translation of OpenRouter's finish_reason vocabulary. Missing on a

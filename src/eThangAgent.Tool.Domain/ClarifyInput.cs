@@ -6,7 +6,12 @@ namespace eThangAgent.ToolDomain;
 public sealed record ClarifyInput(string Question, IReadOnlyList<string>? Options, bool AllowFreeText)
 {
   private const string QuestionName = "question";
+  private const string OptionsName = "options";
   private const string AllowFreeTextName = "allowFreeText";
+  private const string RequirementText = "This tool requires question and allowFreeText; options is optional.";
+
+  private static readonly string[] AllowedNames =
+      [QuestionName, OptionsName, AllowFreeTextName, ToolTimeout.ParameterName];
 
   public static Result<ClarifyInput> Create(string jsonArguments)
   {
@@ -17,98 +22,96 @@ public sealed record ClarifyInput(string Question, IReadOnlyList<string>? Option
     }
 
     JsonElement json = baseParse.Value;
-
-    HashSet<string> known = new([QuestionName, "options", AllowFreeTextName, ToolTimeout.ParameterName], StringComparer.Ordinal);
-    List<string> unknown = [.. json.EnumerateObject()
-        .Where(p => !known.Contains(p.Name))
-        .Select(p => p.Name)];
-    if (unknown.Count > 0)
+    DomainError? unknown = ToolArguments.RejectUnknownParameters(json, AllowedNames);
+    if (unknown is not null)
     {
-      return Fail(new DomainError("UnknownParameter",
-          $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: question, options, allowFreeText, {ToolTimeout.ParameterName}."));
+      return Fail(unknown);
     }
 
-    if (!json.TryGetProperty(QuestionName, out JsonElement questionEl))
+    Result<string> question = ToolArguments.RequireString(json, QuestionName, RequirementText);
+    if (!question.IsSuccess)
     {
-      return Missing(QuestionName);
+      return Fail(question.Error!);
     }
 
-    if (questionEl.ValueKind != JsonValueKind.String)
+    DomainError? emptyQuestion = question.Value!.Length == 0
+      ? new DomainError(ToolErrorCodes.InvalidParameterValue, "'question' must be a non-empty string.")
+      : null;
+    if (emptyQuestion is not null)
     {
-      return WrongType(QuestionName, "string", questionEl.ValueKind);
+      return Fail(emptyQuestion);
     }
 
-    string question = questionEl.GetString()!;
-    if (question.Length == 0)
+    Result<IReadOnlyList<string>?> options = ParseOptions(json);
+    if (!options.IsSuccess)
     {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'question' must be a non-empty string."));
+      return Fail(options.Error!);
     }
 
-    IReadOnlyList<string>? options = null;
-    if (json.TryGetProperty("options", out JsonElement optionsEl))
+    Result<bool> allowFreeText = ToolArguments.RequireBool(json, AllowFreeTextName, RequirementText);
+    if (!allowFreeText.IsSuccess)
     {
-      if (optionsEl.ValueKind != JsonValueKind.Array)
-      {
-        return Fail(new DomainError("InvalidParameterType",
-            $"'options' must be an array of strings, but got {optionsEl.ValueKind}."));
-      }
-
-      List<string> items = [];
-      foreach (JsonElement item in optionsEl.EnumerateArray())
-      {
-        if (item.ValueKind != JsonValueKind.String)
-        {
-          return Fail(new DomainError("InvalidParameterType",
-              $"'options' must contain only strings, but got {item.ValueKind}."));
-        }
-
-        string option = item.GetString()!;
-        if (option.Length == 0)
-        {
-          return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-              "'options' entries must be non-empty strings."));
-        }
-
-        items.Add(option);
-      }
-      if (items.Count < 2)
-      {
-        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            $"'options' must contain at least 2 entries when provided, but got {items.Count}."));
-      }
-
-      options = items;
+      return Fail(allowFreeText.Error!);
     }
-
-    if (!json.TryGetProperty(AllowFreeTextName, out JsonElement freeEl))
-    {
-      return Missing(AllowFreeTextName);
-    }
-
-    if (freeEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-    {
-      return WrongType(AllowFreeTextName, "boolean", freeEl.ValueKind);
-    }
-
-    bool allowFreeText = freeEl.GetBoolean();
 
     // An options-free, free-text-blocked question can never succeed: every
     // answer would be rejected as FreeTextNotAllowed. Reject it at the boundary.
-    return !allowFreeText && options is null
+    Result<ClarifyInput> result = !allowFreeText.Value && options.Value is null
       ? Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "'allowFreeText' is false but 'options' was not provided: without options " +
           "every answer would be rejected as free text. Provide at least 2 options " +
           "or set 'allowFreeText' to true."))
-      : Result.Success<ClarifyInput>(new(question, options, allowFreeText));
+      : Result.Success<ClarifyInput>(new(question.Value!, options.Value, allowFreeText.Value));
+    return result;
   }
 
-  private static Result<ClarifyInput> Missing(string n) =>
-      Result.Failure<ClarifyInput>(new DomainError("MissingParameter",
-          $"Missing required parameter '{n}'. This tool requires question and allowFreeText; options is optional."));
+  private static Result<IReadOnlyList<string>?> ParseOptions(JsonElement json)
+  {
+    if (!json.TryGetProperty(OptionsName, out JsonElement optionsEl))
+    {
+      return Result.Success<IReadOnlyList<string>?>(null);
+    }
 
-  private static Result<ClarifyInput> WrongType(string n, string e, JsonValueKind a) =>
-      Result.Failure<ClarifyInput>(new DomainError("InvalidParameterType",
-          $"'{n}' must be a {e}, but got {a}."));
+    if (optionsEl.ValueKind != JsonValueKind.Array)
+    {
+      return Result.Failure<IReadOnlyList<string>?>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{OptionsName}' must be an array of strings, but got {optionsEl.ValueKind}."));
+    }
+
+    List<string> items = [];
+    foreach (JsonElement item in optionsEl.EnumerateArray())
+    {
+      DomainError? itemError = ValidateOption(item);
+      if (itemError is not null)
+      {
+        return Result.Failure<IReadOnlyList<string>?>(itemError);
+      }
+
+      items.Add(item.GetString()!);
+    }
+
+    Result<IReadOnlyList<string>?> enough = items.Count >= 2
+      ? Result.Success<IReadOnlyList<string>?>(items)
+      : Result.Failure<IReadOnlyList<string>?>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{OptionsName}' must contain at least 2 entries when provided, but got {items.Count}."));
+    return enough;
+  }
+
+  /// <summary>Per-entry rules: string kind, then non-empty.</summary>
+  private static DomainError? ValidateOption(JsonElement item)
+  {
+    if (item.ValueKind != JsonValueKind.String)
+    {
+      return new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{OptionsName}' must contain only strings, but got {item.ValueKind}.");
+    }
+
+    DomainError? empty = item.GetString()!.Length == 0
+      ? new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "'options' entries must be non-empty strings.")
+      : null;
+    return empty;
+  }
 
   private static Result<ClarifyInput> Fail(DomainError err) =>
       Result.Failure<ClarifyInput>(err);

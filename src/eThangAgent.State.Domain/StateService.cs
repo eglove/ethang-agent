@@ -198,7 +198,35 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     IReadOnlyList<TransitionRecord> selected = await _store.GetTransitionsAsync(workspaceId, ids ?? [], ct).ConfigureAwait(false);
     List<string> blocking = [];
     List<EvidenceResult> results = [];
+    CollectBlockingSelections(ids, selected, blocking);
 
+    StateKeyValue? head = await _store.GetKeyAsync(workspaceId, HeadNs, HeadName, ct).ConfigureAwait(false);
+    string? headValue = head?.Value;
+    bool targetsHead = headValue is not null && selected.Any(t => t.To == headValue);
+
+    await RunEvidenceAsync(selected, blocking, results, ct).ConfigureAwait(false);
+    bool certified = blocking.Count == 0;
+
+    CertificationReport report;
+    if (certified)
+    {
+      await CertifyAllAsync(workspaceId, selected, targetsHead, ct).ConfigureAwait(false);
+      report = new CertificationReport(certified, !certified, results, blocking);
+    }
+    else
+    {
+      await ViolateAllAsync(workspaceId, selected, blocking, targetsHead, ct).ConfigureAwait(false);
+      report = new CertificationReport(certified, !certified, results, blocking);
+    }
+
+    return report;
+  }
+
+  /// <summary>Selection-level blockers: explicitly requested ids that came back
+  ///     missing, or an empty store when everything was requested implicitly.</summary>
+  private static void CollectBlockingSelections(IReadOnlyList<string>? ids,
+      IReadOnlyList<TransitionRecord> selected, List<string> blocking)
+  {
     if (ids is { Count: > 0 })
     {
       HashSet<string> found = selected.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
@@ -209,11 +237,13 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     {
       blocking.Add("No transitions selected (none pending).");
     }
+  }
 
-    StateKeyValue? head = await _store.GetKeyAsync(workspaceId, HeadNs, HeadName, ct).ConfigureAwait(false);
-    string? headValue = head?.Value;
-    bool targetsHead = headValue is not null && selected.Any(t => t.To == headValue);
-
+  /// <summary>Runs every attached evidence command per transition, collecting results
+  ///     and a blocker for each unconfirmed one.</summary>
+  private async Task RunEvidenceAsync(IReadOnlyList<TransitionRecord> selected,
+      List<string> blocking, List<EvidenceResult> results, CancellationToken ct)
+  {
     foreach (TransitionRecord transition in selected)
     {
       if (transition.Evidence.Count == 0)
@@ -222,6 +252,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
         results.Add(new EvidenceResult("(none)", false, "no evidence attached"));
         continue;
       }
+
       foreach (string command in transition.Evidence)
       {
         EvidenceResult result = await _evidence.RunAsync(command, ct).ConfigureAwait(false);
@@ -232,45 +263,44 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
         }
       }
     }
+  }
 
-    bool certified = blocking.Count == 0;
-
-    if (certified)
+  private async Task CertifyAllAsync(string workspaceId, IReadOnlyList<TransitionRecord> selected,
+      bool targetsHead, CancellationToken ct)
+  {
+    foreach (TransitionRecord transition in selected)
     {
-      foreach (TransitionRecord transition in selected)
-      {
-        await _store.SetTransitionStatusAsync(workspaceId, transition.Id, "certified", ct).ConfigureAwait(false);
-      }
-
-      await _store.AppendEventAsync(workspaceId, "state.certified",
-                JsonSerializer.Serialize(new { transitions = selected.Select(t => t.Id).ToArray() }), ct).ConfigureAwait(false);
-      if (targetsHead)
-      {
-        _ = await _store.SetKeyCasAsync(workspaceId, CertificateNs, CertificateName,
-            JsonSerializer.Serialize(new
-            {
-              transitions = selected.Select(t => t.Id).ToArray(),
-              certifiedAt = DateTimeOffset.UtcNow,
-            }), null, ct).ConfigureAwait(false);
-      }
-    }
-    else
-    {
-      if (targetsHead)
-      {
-        _ = await _store.DeleteKeyCasAsync(workspaceId, CertificateNs, CertificateName, null, ct).ConfigureAwait(false);
-      }
-
-      foreach (TransitionRecord transition in selected)
-      {
-        await _store.SetTransitionStatusAsync(workspaceId, transition.Id, "violated", ct).ConfigureAwait(false);
-      }
-
-      await _store.AppendEventAsync(workspaceId, "state.violated",
-                JsonSerializer.Serialize(new { reasons = blocking }), ct).ConfigureAwait(false);
+      await _store.SetTransitionStatusAsync(workspaceId, transition.Id, "certified", ct).ConfigureAwait(false);
     }
 
-    return new CertificationReport(certified, !certified, results, blocking);
+    await _store.AppendEventAsync(workspaceId, "state.certified",
+              JsonSerializer.Serialize(new { transitions = selected.Select(t => t.Id).ToArray() }), ct).ConfigureAwait(false);
+    if (targetsHead)
+    {
+      _ = await _store.SetKeyCasAsync(workspaceId, CertificateNs, CertificateName,
+          JsonSerializer.Serialize(new
+          {
+            transitions = selected.Select(t => t.Id).ToArray(),
+            certifiedAt = DateTimeOffset.UtcNow,
+          }), null, ct).ConfigureAwait(false);
+    }
+  }
+
+  private async Task ViolateAllAsync(string workspaceId, IReadOnlyList<TransitionRecord> selected,
+      List<string> blocking, bool targetsHead, CancellationToken ct)
+  {
+    if (targetsHead)
+    {
+      _ = await _store.DeleteKeyCasAsync(workspaceId, CertificateNs, CertificateName, null, ct).ConfigureAwait(false);
+    }
+
+    foreach (TransitionRecord transition in selected)
+    {
+      await _store.SetTransitionStatusAsync(workspaceId, transition.Id, "violated", ct).ConfigureAwait(false);
+    }
+
+    await _store.AppendEventAsync(workspaceId, "state.violated",
+              JsonSerializer.Serialize(new { reasons = blocking }), ct).ConfigureAwait(false);
   }
 
   public async Task<CertificationReport> CheckGoalAsync(CancellationToken ct = default)

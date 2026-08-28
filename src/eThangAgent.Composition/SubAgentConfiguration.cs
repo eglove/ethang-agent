@@ -17,12 +17,31 @@ public static class SubAgentConfiguration
   public static SubAgentOptions Bind(string? defaultModel, string? childTimeoutSeconds,
       string? maxConcurrentAgents)
   {
+    ValidateDefaultModel(defaultModel);
+    int maxConcurrent = ParseMaxConcurrentAgents(maxConcurrentAgents);
+    int? childTimeout = ParseChildTimeout(childTimeoutSeconds);
+
+    SubAgentOptions bound = childTimeout is { } seconds
+        ? new SubAgentOptions(defaultModel, TimeSpan.FromSeconds(seconds), maxConcurrent)
+        : new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent);
+    return bound;
+  }
+
+  /// <summary>"SubAgent:DefaultModel" — optional; absent is legal (spawns must then
+  ///     pass a model explicitly); present-but-empty is a startup validation error.</summary>
+  private static void ValidateDefaultModel(string? defaultModel)
+  {
     if (defaultModel is not null && string.IsNullOrWhiteSpace(defaultModel))
     {
       throw new InvalidOperationException(
           "SubAgent:DefaultModel is present but empty. Remove the key or supply a model reference.");
     }
+  }
 
+  /// <summary>"SubAgent:MaxConcurrentAgents" — required positive integer; absent,
+  ///     non-integer, or below-1 values are startup validation errors.</summary>
+  private static int ParseMaxConcurrentAgents(string? maxConcurrentAgents)
+  {
     if (maxConcurrentAgents is null)
     {
       throw new InvalidOperationException(
@@ -42,9 +61,17 @@ public static class SubAgentConfiguration
           $"SubAgent:MaxConcurrentAgents must be at least 1, got '{maxConcurrentAgents}'.");
     }
 
+    int bound = maxConcurrent;
+    return bound;
+  }
+
+  /// <summary>"SubAgent:ChildTimeoutSeconds" — defaults to absent (null) when the key
+  ///     is missing; zero, negative, or non-integer values are startup validation errors.</summary>
+  private static int? ParseChildTimeout(string? childTimeoutSeconds)
+  {
     if (childTimeoutSeconds is null)
     {
-      return new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent);
+      return null;
     }
 
     if (!int.TryParse(childTimeoutSeconds, NumberStyles.Integer,
@@ -57,10 +84,10 @@ public static class SubAgentConfiguration
     if (seconds <= 0)
     {
       throw new InvalidOperationException(
-          $"SubAgent:ChildTimeoutSeconds must be positive, got {seconds}.");
+          $"SubAgent:ChildTimeoutSeconds must be positive, got '{seconds}'.");
     }
 
-    SubAgentOptions bound = new(defaultModel, TimeSpan.FromSeconds(seconds), maxConcurrent);
-    return bound;
+    int timeoutSeconds = seconds;
+    return timeoutSeconds;
   }
 }

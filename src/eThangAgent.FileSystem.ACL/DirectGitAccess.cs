@@ -29,20 +29,16 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
   {
     // Probe repo-ness explicitly so a plain directory reports NotAGitRepository
     // rather than being misread as a detached HEAD by the branch step below.
-    GitRun probe = await RunGitAsync(repoPath, [RevParse, "--is-inside-work-tree"], ct).ConfigureAwait(false);
-    if (!probe.Ok)
+    Result<GitRun> probe = await RunGitVerifiedAsync(repoPath, [RevParse, "--is-inside-work-tree"], ct).ConfigureAwait(false);
+    if (!probe.IsSuccess)
     {
-      return Result.Failure<GitStatus>(probe.Err);
-    }
-
-    if (probe.ExitCode != 0)
-    {
-      return Result.Failure<GitStatus>(ToGitFailure(repoPath, probe.ExitCode, probe.StdErr));
+      return Result.Failure<GitStatus>(probe.Error!);
     }
 
     // Resolve the branch via symbolic-ref: unlike 'rev-parse --abbrev-ref HEAD'
     // this also works on an UNBORN HEAD (fresh 'git init', no commits yet).
     // Only a detached HEAD lacks a symbolic ref — surface a visible marker.
+    // Raw run (no nonzero-exit guard): a detached HEAD's exit code IS the signal.
     GitRun branchRes = await RunGitAsync(repoPath, ["symbolic-ref", "--short", "HEAD"], ct).ConfigureAwait(false);
     if (!branchRes.Ok)
     {
@@ -51,22 +47,28 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
 
     string branch = branchRes.ExitCode == 0 ? branchRes.StdOut.Trim() : "(detached)";
 
-    GitRun statusRes = await RunGitAsync(repoPath, ["status", "--porcelain"], ct).ConfigureAwait(false);
-    if (!statusRes.Ok)
+    Result<GitRun> statusRes = await RunGitVerifiedAsync(repoPath, ["status", "--porcelain"], ct).ConfigureAwait(false);
+    if (!statusRes.IsSuccess)
     {
-      return Result.Failure<GitStatus>(statusRes.Err);
+      return Result.Failure<GitStatus>(statusRes.Error!);
     }
 
-    if (statusRes.ExitCode != 0)
-    {
-      return Result.Failure<GitStatus>(ToGitFailure(repoPath, statusRes.ExitCode, statusRes.StdErr));
-    }
+    (List<GitStatusEntry> staged, List<GitStatusEntry> unstaged, List<string> untracked) =
+        ParsePorcelain(statusRes.Value!.StdOut);
+    GitStatus status = new(branch, staged, unstaged, untracked);
+    return Result.Success(status);
+  }
 
+  /// <summary>Splits 'git status --porcelain' output into staged, unstaged, and
+  ///     untracked entries.</summary>
+  private static (List<GitStatusEntry> Staged, List<GitStatusEntry> Unstaged, List<string> Untracked) ParsePorcelain(
+      string stdout)
+  {
     List<GitStatusEntry> staged = [];
     List<GitStatusEntry> unstaged = [];
     List<string> untracked = [];
 
-    string[] lines = statusRes.StdOut.Split(NewLines, StringSplitOptions.RemoveEmptyEntries);
+    string[] lines = stdout.Split(NewLines, StringSplitOptions.RemoveEmptyEntries);
     foreach (string line in lines)
     {
       if (string.IsNullOrWhiteSpace(line) || line.Length < 4)
@@ -81,6 +83,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
         untracked.Add(path);
         continue;
       }
+
       // Renames keep their FULL 'old -> new' porcelain string as the Path.
       char x = code[0];
       char y = code[1];
@@ -95,7 +98,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       }
     }
 
-    return Result.Success(new GitStatus(branch, staged, unstaged, untracked));
+    return (staged, unstaged, untracked);
   }
 
   public async Task<Result<GitDiff>> GetDiffAsync(string repoPath, string scope, string? path, CancellationToken ct = default)
@@ -106,15 +109,10 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
           $"Unknown diff scope '{scope}'. Expected 'Staged', 'Unstaged', or 'All'."));
     }
 
-    GitRun probe = await RunGitAsync(repoPath, [RevParse, "--git-dir"], ct).ConfigureAwait(false);
-    if (!probe.Ok)
+    Result<GitRun> probe = await RunGitVerifiedAsync(repoPath, [RevParse, "--git-dir"], ct).ConfigureAwait(false);
+    if (!probe.IsSuccess)
     {
-      return Result.Failure<GitDiff>(probe.Err);
-    }
-
-    if (probe.ExitCode != 0)
-    {
-      return Result.Failure<GitDiff>(ToGitFailure(repoPath, probe.ExitCode, probe.StdErr));
+      return Result.Failure<GitDiff>(probe.Error!);
     }
 
     // Optional pathspec filter: everything after '--'.
@@ -123,40 +121,71 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     bool wantStaged = scope is "Staged" or "All";
     bool wantUnstaged = scope is "Unstaged" or "All";
 
-    int files = 0;
-    int additions = 0;
-    int deletions = 0;
+    Result<GitDiffStats> stats = await CollectStatsAsync(repoPath, pathArgs, wantStaged, wantUnstaged, ct).ConfigureAwait(false);
+    if (!stats.IsSuccess)
+    {
+      return Result.Failure<GitDiff>(stats.Error!);
+    }
+
+    Result<string> patch = await RenderPatchAsync(repoPath, pathArgs, wantStaged, wantUnstaged, ct).ConfigureAwait(false);
+    if (!patch.IsSuccess)
+    {
+      return Result.Failure<GitDiff>(patch.Error!);
+    }
+
+    GitDiff diff = TruncatePatch(stats.Value!, patch.Value!);
+    return Result.Success(diff);
+  }
+
+  /// <summary>Runs both numstat passes in scope order, then folds them into the stats.</summary>
+  private static async Task<Result<GitDiffStats>> CollectStatsAsync(string repoPath, string[] pathArgs,
+      bool wantStaged, bool wantUnstaged, CancellationToken ct)
+  {
     List<string> numstatLines = [];
     if (wantStaged)
     {
-      GitRun r = await RunGitAsync(repoPath, WithPath(["diff", "--cached", "--numstat"], pathArgs), ct).ConfigureAwait(false);
-      if (!r.Ok)
+      Result<List<string>> staged = await CollectNumstatAsync(repoPath, ["diff", "--cached", "--numstat"], pathArgs, ct).ConfigureAwait(false);
+      if (!staged.IsSuccess)
       {
-        return Result.Failure<GitDiff>(r.Err);
+        return Result.Failure<GitDiffStats>(staged.Error!);
       }
 
-      if (r.ExitCode != 0)
-      {
-        return Result.Failure<GitDiff>(ToGitFailure(repoPath, r.ExitCode, r.StdErr));
-      }
-
-      numstatLines.AddRange(r.StdOut.Split(NewLines, StringSplitOptions.RemoveEmptyEntries));
+      numstatLines.AddRange(staged.Value!);
     }
+
     if (wantUnstaged)
     {
-      GitRun r = await RunGitAsync(repoPath, WithPath(["diff", "--numstat"], pathArgs), ct).ConfigureAwait(false);
-      if (!r.Ok)
+      Result<List<string>> unstaged = await CollectNumstatAsync(repoPath, ["diff", "--numstat"], pathArgs, ct).ConfigureAwait(false);
+      if (!unstaged.IsSuccess)
       {
-        return Result.Failure<GitDiff>(r.Err);
+        return Result.Failure<GitDiffStats>(unstaged.Error!);
       }
 
-      if (r.ExitCode != 0)
-      {
-        return Result.Failure<GitDiff>(ToGitFailure(repoPath, r.ExitCode, r.StdErr));
-      }
-
-      numstatLines.AddRange(r.StdOut.Split(NewLines, StringSplitOptions.RemoveEmptyEntries));
+      numstatLines.AddRange(unstaged.Value!);
     }
+
+    return Result.Success(FoldNumstat(numstatLines));
+  }
+
+  private static async Task<Result<List<string>>> CollectNumstatAsync(string repoPath, string[] baseArgs,
+      string[] pathArgs, CancellationToken ct)
+  {
+    Result<GitRun> run = await RunGitVerifiedAsync(repoPath, WithPath(baseArgs, pathArgs), ct).ConfigureAwait(false);
+    if (!run.IsSuccess)
+    {
+      return Result.Failure<List<string>>(run.Error!);
+    }
+
+    List<string> lines = [.. run.Value!.StdOut.Split(NewLines, StringSplitOptions.RemoveEmptyEntries)];
+    return Result.Success(lines);
+  }
+
+  /// <summary>Folds numstat rows into file/addition/deletion totals.</summary>
+  private static GitDiffStats FoldNumstat(List<string> numstatLines)
+  {
+    int files = 0;
+    int additions = 0;
+    int deletions = 0;
     foreach (string row in numstatLines)
     {
       if (string.IsNullOrWhiteSpace(row))
@@ -182,59 +211,67 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       }
     }
 
+    return new GitDiffStats(files, additions, deletions);
+  }
+
+  /// <summary>Runs the section diffs in scope order and joins them under their
+  ///     '### staged ###' / '### unstaged ###' gutters.</summary>
+  private static async Task<Result<string>> RenderPatchAsync(string repoPath, string[] pathArgs,
+      bool wantStaged, bool wantUnstaged, CancellationToken ct)
+  {
     StringBuilder sb = new();
     if (wantStaged)
     {
-      GitRun r = await RunGitAsync(repoPath, WithPath(["diff", "--cached"], pathArgs), ct).ConfigureAwait(false);
-      if (!r.Ok)
+      Result<bool> staged = await AppendDiffSectionAsync(sb, repoPath, ["diff", "--cached"], pathArgs, "staged", ct).ConfigureAwait(false);
+      if (!staged.IsSuccess)
       {
-        return Result.Failure<GitDiff>(r.Err);
-      }
-
-      if (r.ExitCode != 0)
-      {
-        return Result.Failure<GitDiff>(ToGitFailure(repoPath, r.ExitCode, r.StdErr));
-      }
-
-      if (r.StdOut.Length > 0)
-      {
-        if (sb.Length > 0)
-        {
-          _ = sb.Append('\n');
-        }
-
-        _ = sb.Append("### staged ###\n").Append(r.StdOut);
+        return Result.Failure<string>(staged.Error!);
       }
     }
+
     if (wantUnstaged)
     {
-      GitRun r = await RunGitAsync(repoPath, WithPath(["diff"], pathArgs), ct).ConfigureAwait(false);
-      if (!r.Ok)
+      Result<bool> unstaged = await AppendDiffSectionAsync(sb, repoPath, ["diff"], pathArgs, "unstaged", ct).ConfigureAwait(false);
+      if (!unstaged.IsSuccess)
       {
-        return Result.Failure<GitDiff>(r.Err);
-      }
-
-      if (r.ExitCode != 0)
-      {
-        return Result.Failure<GitDiff>(ToGitFailure(repoPath, r.ExitCode, r.StdErr));
-      }
-
-      if (r.StdOut.Length > 0)
-      {
-        if (sb.Length > 0)
-        {
-          _ = sb.Append('\n');
-        }
-
-        _ = sb.Append("### unstaged ###\n").Append(r.StdOut);
+        return Result.Failure<string>(unstaged.Error!);
       }
     }
-    string patch = sb.ToString();
 
-    // Bound the patch at the cap, cutting at the last complete line before the
-    // cap. TotalChars always reports the FULL untruncated length.
-    int totalChars = patch.Length;
+    string patch = sb.ToString();
+    return Result.Success(patch);
+  }
+
+  /// <summary>Appends one diff section under its gutter when the section is non-empty.</summary>
+  private static async Task<Result<bool>> AppendDiffSectionAsync(StringBuilder sb, string repoPath,
+      string[] baseArgs, string[] pathArgs, string label, CancellationToken ct)
+  {
+    Result<GitRun> r = await RunGitVerifiedAsync(repoPath, WithPath(baseArgs, pathArgs), ct).ConfigureAwait(false);
+    if (!r.IsSuccess)
+    {
+      return Result.Failure<bool>(r.Error!);
+    }
+
+    if (r.Value!.StdOut.Length > 0)
+    {
+      if (sb.Length > 0)
+      {
+        _ = sb.Append('\n');
+      }
+
+      _ = sb.Append("### ").Append(label).Append(" ###\n").Append(r.Value.StdOut);
+    }
+
+    return Result.Success(true);
+  }
+
+  /// <summary>Bounds the patch at the cap, cutting at the last complete line before the
+  ///     cap. TotalChars always reports the FULL untruncated length.</summary>
+  private static GitDiff TruncatePatch(GitDiffStats stats, string fullPatch)
+  {
+    int totalChars = fullPatch.Length;
     bool truncated = false;
+    string patch = fullPatch;
     int cap = WorkingDiffTool.PatchCharCap;
     if (totalChars > cap)
     {
@@ -248,8 +285,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       truncated = true;
     }
 
-    return Result.Success(new GitDiff(
-        new GitDiffStats(files, additions, deletions), patch, truncated, totalChars));
+    return new GitDiff(stats, patch, truncated, totalChars);
   }
 
   public async Task<Result<GitCommitOutcome>> CommitAsync(string repoPath, string message, CancellationToken ct = default)
@@ -361,6 +397,22 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     public static GitRun OkRun(int exitCode, string stdout, string stderr)
         => new(true, exitCode, stdout, stderr, null!);
     public static GitRun Fail(DomainError error) => new(false, 0, "", "", error);
+  }
+
+  /// <summary>Runs git and fails the result when the process could not start or exited
+  ///     nonzero — the guard every query repeats after its invocation.</summary>
+  private static async Task<Result<GitRun>> RunGitVerifiedAsync(string repoPath, string[] args, CancellationToken ct)
+  {
+    GitRun run = await RunGitAsync(repoPath, args, ct).ConfigureAwait(false);
+    if (!run.Ok)
+    {
+      return Result.Failure<GitRun>(run.Err);
+    }
+
+    Result<GitRun> verified = run.ExitCode == 0
+        ? Result.Success(run)
+        : Result.Failure<GitRun>(ToGitFailure(repoPath, run.ExitCode, run.StdErr));
+    return verified;
   }
 
   private static async Task<GitRun> RunGitAsync(string repoPath, string[] args, CancellationToken ct)

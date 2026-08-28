@@ -10,8 +10,15 @@ public sealed record SearchToolInput(
   public const int MaxResultsCap = 200;
 
   private const string PatternName = "pattern";
+  private const string ModeName = "mode";
+  private const string PathName = "path";
+  private const string GlobName = "glob";
   private const string MaxResultsName = "maxResults";
-  private const string StringType = "string";
+  private const string ContextLinesName = "contextLines";
+  private const string RequiredParamsText = "This tool requires pattern, mode, and maxResults.";
+
+  private static readonly string[] AllowedNames =
+      [PatternName, ModeName, PathName, GlobName, MaxResultsName, ContextLinesName, ToolTimeout.ParameterName];
 
   public static Result<SearchToolInput> Create(string jsonArguments)
   {
@@ -22,133 +29,146 @@ public sealed record SearchToolInput(
     }
 
     JsonElement json = baseParse.Value;
-
-    HashSet<string> known = new(
-        [PatternName, "mode", "path", "glob", MaxResultsName, "contextLines", ToolTimeout.ParameterName],
-        StringComparer.Ordinal);
-    List<string> unknown = [.. json.EnumerateObject()
-        .Where(p => !known.Contains(p.Name))
-        .Select(p => p.Name)];
-    if (unknown.Count > 0)
+    DomainError? unknown = ToolArguments.RejectUnknownParameters(json, AllowedNames);
+    if (unknown is not null)
     {
-      return Fail(new DomainError("UnknownParameter",
-          $"Unknown parameter(s): {string.Join(", ", unknown)}. " +
-          $"Allowed: pattern, mode, path, glob, maxResults, contextLines, {ToolTimeout.ParameterName}."));
+      return Fail(unknown);
     }
 
-    if (!json.TryGetProperty(PatternName, out JsonElement patternEl))
+    Result<string> pattern = ParsePattern(json);
+    if (!pattern.IsSuccess)
     {
-      return Missing(PatternName);
+      return Fail(pattern.Error!);
     }
 
-    if (patternEl.ValueKind != JsonValueKind.String)
+    Result<bool> mode = ParseMode(json);
+    if (!mode.IsSuccess)
     {
-      return WrongType(PatternName, StringType, patternEl.ValueKind);
+      return Fail(mode.Error!);
     }
 
-    string pattern = patternEl.GetString()!;
-    if (pattern.Length == 0)
+    Result<string?> path = ParseOptionalNonEmpty(json, PathName);
+    if (!path.IsSuccess)
     {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'pattern' must be a non-empty string."));
+      return Fail(path.Error!);
     }
 
-    if (!json.TryGetProperty("mode", out JsonElement modeEl))
+    Result<string?> glob = ParseOptionalNonEmpty(json, GlobName);
+    if (!glob.IsSuccess)
     {
-      return Missing("mode");
+      return Fail(glob.Error!);
     }
 
-    if (modeEl.ValueKind != JsonValueKind.String)
+    Result<int> max = ParseMaxResults(json);
+    if (!max.IsSuccess)
     {
-      return WrongType("mode", StringType, modeEl.ValueKind);
+      return Fail(max.Error!);
     }
 
-    string modeRaw = modeEl.GetString()!;
-    bool? regex = modeRaw switch
+    Result<int> contextLines = ParseContextLines(json);
+    if (!contextLines.IsSuccess)
+    {
+      return Fail(contextLines.Error!);
+    }
+
+    int clampedMax = Math.Min(max.Value, MaxResultsCap);
+    SearchToolInput input = new(
+        pattern.Value!, mode.Value, path.Value, glob.Value, clampedMax, contextLines.Value,
+        Clamped: clampedMax != max.Value);
+    return Result.Success(input);
+  }
+
+  private static Result<string> ParsePattern(JsonElement json)
+  {
+    Result<string> pattern = ToolArguments.RequireString(json, PatternName, RequiredParamsText);
+    if (!pattern.IsSuccess)
+    {
+      return pattern;
+    }
+
+    Result<string> nonEmpty = pattern.Value!.Length > 0
+      ? pattern
+      : Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "'pattern' must be a non-empty string."));
+    return nonEmpty;
+  }
+
+  private static Result<bool> ParseMode(JsonElement json)
+  {
+    Result<string> text = ToolArguments.RequireString(json, ModeName, RequiredParamsText);
+    if (!text.IsSuccess)
+    {
+      return Result.Failure<bool>(text.Error!);
+    }
+
+    bool? regex = text.Value switch
     {
       "Literal" => false,
       "Regex" => true,
       _ => null,
     };
-    if (regex is null)
-    {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          $"'mode' must be exactly \"Literal\" or \"Regex\" (got \"{modeRaw}\")."));
-    }
-
-    string? path = null;
-    if (json.TryGetProperty("path", out JsonElement pathEl))
-    {
-      if (pathEl.ValueKind != JsonValueKind.String)
-      {
-        return WrongType("path", StringType, pathEl.ValueKind);
-      }
-
-      path = pathEl.GetString()!;
-      if (path.Length == 0)
-      {
-        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'path' must be a non-empty string when present."));
-      }
-    }
-
-    string? glob = null;
-    if (json.TryGetProperty("glob", out JsonElement globEl))
-    {
-      if (globEl.ValueKind != JsonValueKind.String)
-      {
-        return WrongType("glob", StringType, globEl.ValueKind);
-      }
-
-      glob = globEl.GetString()!;
-      if (glob.Length == 0)
-      {
-        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'glob' must be a non-empty string when present."));
-      }
-    }
-
-    if (!json.TryGetProperty(MaxResultsName, out JsonElement maxEl))
-    {
-      return Missing(MaxResultsName);
-    }
-
-    if (maxEl.ValueKind != JsonValueKind.Number || !maxEl.TryGetInt32(out int max))
-    {
-      return WrongType(MaxResultsName, "integer", maxEl.ValueKind);
-    }
-
-    if (max < 1)
-    {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          $"'maxResults' must be ≥ 1 (got {max})."));
-    }
-
-    int clampedMax = Math.Min(max, MaxResultsCap);
-
-    int contextLines = 0;
-    if (json.TryGetProperty("contextLines", out JsonElement ctxEl))
-    {
-      if (ctxEl.ValueKind != JsonValueKind.Number || !ctxEl.TryGetInt32(out contextLines))
-      {
-        return WrongType("contextLines", "integer", ctxEl.ValueKind);
-      }
-
-      if (contextLines < 0)
-      {
-        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            $"'contextLines' must be ≥ 0 (got {contextLines})."));
-      }
-    }
-
-    return Result.Success<SearchToolInput>(new(
-        pattern, regex.Value, path, glob, clampedMax, contextLines, Clamped: clampedMax != max));
+    Result<bool> mode = regex is { } parsed
+      ? Result.Success(parsed)
+      : Result.Failure<bool>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{ModeName}' must be exactly \"Literal\" or \"Regex\" (got \"{text.Value!}\")."));
+    return mode;
   }
 
-  private static Result<SearchToolInput> Missing(string n) =>
-      Result.Failure<SearchToolInput>(new DomainError("MissingParameter",
-          $"Missing required parameter '{n}'. This tool requires pattern, mode, and maxResults."));
+  /// <summary>Reads an optional string that must be non-empty when present.</summary>
+  private static Result<string?> ParseOptionalNonEmpty(JsonElement json, string name)
+  {
+    Result<string?> text = ToolArguments.OptionalString(json, name);
+    if (!text.IsSuccess)
+    {
+      return text;
+    }
 
-  private static Result<SearchToolInput> WrongType(string n, string e, JsonValueKind a) =>
-      Result.Failure<SearchToolInput>(new DomainError("InvalidParameterType",
-          $"'{n}' must be a {e}, but got {a}."));
+    if (text.Value is null)
+    {
+      return Result.Success<string?>(null);
+    }
+
+    Result<string?> nonEmpty = text.Value.Length > 0
+      ? text
+      : Result.Failure<string?>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{name}' must be a non-empty string when present."));
+    return nonEmpty;
+  }
+
+  private static Result<int> ParseMaxResults(JsonElement json)
+  {
+    Result<int> max = ToolArguments.RequireInt(json, MaxResultsName, RequiredParamsText);
+    if (!max.IsSuccess)
+    {
+      return max;
+    }
+
+    Result<int> bounded = max.Value >= 1
+      ? max
+      : Result.Failure<int>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{MaxResultsName}' must be ≥ 1 (got {max.Value})."));
+    return bounded;
+  }
+
+  private static Result<int> ParseContextLines(JsonElement json)
+  {
+    Result<int?> parsed = ToolArguments.OptionalInt(json, ContextLinesName);
+    if (!parsed.IsSuccess)
+    {
+      return Result.Failure<int>(parsed.Error!);
+    }
+
+    if (parsed.Value is not { } lines)
+    {
+      return Result.Success(0);
+    }
+
+    Result<int> nonNegative = lines >= 0
+      ? Result.Success(lines)
+      : Result.Failure<int>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{ContextLinesName}' must be ≥ 0 (got {lines})."));
+    return nonNegative;
+  }
 
   private static Result<SearchToolInput> Fail(DomainError err) =>
       Result.Failure<SearchToolInput>(err);

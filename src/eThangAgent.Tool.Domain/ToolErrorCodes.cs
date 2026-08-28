@@ -11,4 +11,7 @@ public static class ToolErrorCodes
 
   /// <summary>A required parameter was absent.</summary>
   public const string MissingParameter = "MissingParameter";
+
+  /// <summary>An argument object carried a key the tool does not declare.</summary>
+  public const string UnknownParameter = "UnknownParameter";
 }

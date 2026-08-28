@@ -106,49 +106,88 @@ public sealed class CycleCheckTool : ITool
       return Fail("MissingEdges", "'edges' must be an array of {from, to, deferred} objects.");
     }
 
-    List<DependencyEdge> edges = [];
-    foreach (JsonElement e in rawEdges.EnumerateArray())
+    Result<List<DependencyEdge>> edges = ParseEdges(rawEdges);
+    if (!edges.IsSuccess)
     {
-      if (e.ValueKind != JsonValueKind.Object ||
-          !e.TryGetProperty("from", out JsonElement f) || f.ValueKind != JsonValueKind.String ||
-          !e.TryGetProperty("to", out JsonElement t) || t.ValueKind != JsonValueKind.String ||
-          !e.TryGetProperty("deferred", out JsonElement d) || d.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-      {
-        return Fail("MalformedEdge", "Every edge must be an object with string 'from', string 'to', boolean 'deferred'.");
-      }
-
-      if (f.GetString()!.Length == 0 || t.GetString()!.Length == 0)
-      {
-        return Fail("EmptyUnitName", "Unit names must be non-empty strings.");
-      }
-
-      edges.Add(new DependencyEdge(f.GetString()!, t.GetString()!, d.GetBoolean()));
+      return Result.Failure<ParsedArgs>(edges.Error!);
     }
-    if (edges.Count == 0)
+
+    if (edges.Value!.Count == 0)
     {
       return Fail("MissingEdges", "'edges' must contain at least one edge.");
     }
 
-    List<string> entries = [];
-    if (json.TryGetProperty("entry", out JsonElement rawEntry))
+    Result<List<string>> entries = ParseEntries(json);
+    if (!entries.IsSuccess)
     {
-      if (rawEntry.ValueKind != JsonValueKind.Array ||
-          rawEntry.EnumerateArray().Any(x => x.ValueKind != JsonValueKind.String))
-      {
-        return Fail("InvalidEntry", "'entry' must be an array of unit-name strings.");
-      }
-
-      entries.AddRange(rawEntry.EnumerateArray().Select(x => x.GetString()!));
-      if (entries.Any(n => n.Length == 0))
-      {
-        return Fail("EmptyUnitName", "Entry-point names must be non-empty strings.");
-      }
+      return Result.Failure<ParsedArgs>(entries.Error!);
     }
 
     Result<TimeSpan> budget = ToolTimeout.Parse(json);
-    return !budget.IsSuccess
-      ? Result.Failure<ParsedArgs>(budget.Error!)
-      : Result.Success(new ParsedArgs(json, entries, edges));
+    Result<ParsedArgs> parsed = budget.IsSuccess
+      ? Result.Success(new ParsedArgs(json, entries.Value!, edges.Value!))
+      : Result.Failure<ParsedArgs>(budget.Error!);
+    return parsed;
+  }
+
+  private static Result<List<DependencyEdge>> ParseEdges(JsonElement rawEdges)
+  {
+    List<DependencyEdge> edges = [];
+    foreach (JsonElement e in rawEdges.EnumerateArray())
+    {
+      DomainError? invalid = ParseEdge(e, edges);
+      if (invalid is not null)
+      {
+        return Result.Failure<List<DependencyEdge>>(invalid);
+      }
+    }
+
+    return Result.Success(edges);
+  }
+
+  /// <summary>One edge: object with string 'from', string 'to', boolean 'deferred',
+  ///     both unit names non-empty.</summary>
+  private static DomainError? ParseEdge(JsonElement e, List<DependencyEdge> edges)
+  {
+    if (e.ValueKind != JsonValueKind.Object ||
+        !e.TryGetProperty("from", out JsonElement f) || f.ValueKind != JsonValueKind.String ||
+        !e.TryGetProperty("to", out JsonElement t) || t.ValueKind != JsonValueKind.String ||
+        !e.TryGetProperty("deferred", out JsonElement d) || d.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+    {
+      return new DomainError("MalformedEdge", "Every edge must be an object with string 'from', string 'to', boolean 'deferred'.");
+    }
+
+    if (f.GetString()!.Length == 0 || t.GetString()!.Length == 0)
+    {
+      return new DomainError("EmptyUnitName", "Unit names must be non-empty strings.");
+    }
+
+    edges.Add(new DependencyEdge(f.GetString()!, t.GetString()!, d.GetBoolean()));
+    return null;
+  }
+
+  private static Result<List<string>> ParseEntries(JsonElement json)
+  {
+    List<string> entries = [];
+    if (!json.TryGetProperty("entry", out JsonElement rawEntry))
+    {
+      return Result.Success(entries);
+    }
+
+    if (rawEntry.ValueKind != JsonValueKind.Array ||
+        rawEntry.EnumerateArray().Any(x => x.ValueKind != JsonValueKind.String))
+    {
+      return Result.Failure<List<string>>(new DomainError("InvalidEntry", "'entry' must be an array of unit-name strings."));
+    }
+
+    entries.AddRange(rawEntry.EnumerateArray().Select(x => x.GetString()!));
+    if (entries.Any(n => n.Length == 0))
+    {
+      return Result.Failure<List<string>>(new DomainError("EmptyUnitName", "Entry-point names must be non-empty strings."));
+    }
+
+    Result<List<string>> result = Result.Success(entries);
+    return result;
   }
 
   private sealed record ParsedArgs(JsonElement Json, IReadOnlyList<string> Entries, IReadOnlyList<DependencyEdge> Edges);

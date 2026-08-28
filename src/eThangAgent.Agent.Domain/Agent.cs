@@ -128,25 +128,32 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
         Conversation.AddAssistantMessage(response.Content ?? "",
             [.. response.ToolCalls.Select(tc => new ToolCall(tc.Id, tc.Name, tc.Arguments))]);
-
-        foreach (ToolCallRequest call in response.ToolCalls)
-        {
-          LastTurnToolCalls++;
-          callbacks?.OnToolCall?.Invoke(call.Name, call.Arguments);
-          ITool? tool = _tools.Find(call.Name);
-          ToolResult toolResult = tool is null
-              ? new ToolResult($"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
-              : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
-          Conversation.AddToolResult(call.Id, toolResult.Content);
-          string summary = SummarizeToolResult(toolResult);
-          callbacks?.OnToolResult?.Invoke(call.Name, summary);
-        }
+        await ExecuteToolCallsAsync(response.ToolCalls, callbacks, ct).ConfigureAwait(false);
       }
     }
     catch (OperationCanceledException)
     {
       RepairInterruptedToolCalls();
       return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
+    }
+  }
+
+  /// <summary>Runs each requested tool call in order, appending its result to the
+  ///     conversation and reporting the call and its summary to the observers.</summary>
+  private async Task ExecuteToolCallsAsync(IReadOnlyList<ToolCallRequest> calls,
+      TurnCallbacks? callbacks, CancellationToken ct)
+  {
+    foreach (ToolCallRequest call in calls)
+    {
+      LastTurnToolCalls++;
+      callbacks?.OnToolCall?.Invoke(call.Name, call.Arguments);
+      ITool? tool = _tools.Find(call.Name);
+      ToolResult toolResult = tool is null
+          ? new ToolResult($"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
+          : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
+      Conversation.AddToolResult(call.Id, toolResult.Content);
+      string summary = SummarizeToolResult(toolResult);
+      callbacks?.OnToolResult?.Invoke(call.Name, summary);
     }
   }
 

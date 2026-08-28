@@ -14,7 +14,16 @@ public sealed record GitCommitInput(
     string Description, string? Body)
 {
   private const string StyleName = "style";
+  private const string TypeName = "type";
+  private const string ScopeName = "scope";
+  private const string EmojiKeyName = "emoji_key";
   private const string DescriptionName = "description";
+  private const string BodyName = "body";
+  private const string RequirementText = "This tool requires style and description.";
+
+  private static readonly string[] AllowedNames =
+      [StyleName, TypeName, ScopeName, EmojiKeyName, DescriptionName, BodyName, ToolTimeout.ParameterName];
+
   public static Result<GitCommitInput> Create(string jsonArguments)
   {
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
@@ -24,99 +33,51 @@ public sealed record GitCommitInput(
     }
 
     JsonElement json = baseParse.Value;
-
-    HashSet<string> known = new(
-        [StyleName, "type", "scope", "emoji_key", DescriptionName, "body", ToolTimeout.ParameterName],
-        StringComparer.Ordinal);
-    List<string> unknown = [.. json.EnumerateObject()
-        .Where(p => !known.Contains(p.Name))
-        .Select(p => p.Name)];
-    if (unknown.Count > 0)
+    DomainError? unknown = ToolArguments.RejectUnknownParameters(json, AllowedNames);
+    if (unknown is not null)
     {
-      return Fail(new DomainError("UnknownParameter",
-          $"Unknown parameter(s): {string.Join(", ", unknown)}. " +
-          $"Allowed: style, type, scope, emoji_key, description, body, {ToolTimeout.ParameterName}."));
+      return Fail(unknown);
     }
 
-    if (!json.TryGetProperty(StyleName, out JsonElement styleEl))
+    Result<string> style = ToolArguments.RequireString(json, StyleName, RequirementText);
+    if (!style.IsSuccess)
     {
-      return Missing(StyleName);
+      return Fail(style.Error!);
     }
 
-    if (styleEl.ValueKind != JsonValueKind.String)
+    Result<string?> type = ToolArguments.OptionalString(json, TypeName);
+    if (!type.IsSuccess)
     {
-      return WrongType(StyleName, styleEl.ValueKind);
+      return Fail(type.Error!);
     }
 
-    string style = styleEl.GetString()!;
-
-    string? type = null;
-    if (json.TryGetProperty("type", out JsonElement typeEl))
+    Result<string?> scope = ToolArguments.OptionalString(json, ScopeName);
+    if (!scope.IsSuccess)
     {
-      if (typeEl.ValueKind != JsonValueKind.String)
-      {
-        return WrongType("type", typeEl.ValueKind);
-      }
-
-      type = typeEl.GetString()!;
+      return Fail(scope.Error!);
     }
 
-    string? scope = null;
-    if (json.TryGetProperty("scope", out JsonElement scopeEl))
+    Result<string?> emojiKey = ToolArguments.OptionalString(json, EmojiKeyName);
+    if (!emojiKey.IsSuccess)
     {
-      if (scopeEl.ValueKind != JsonValueKind.String)
-      {
-        return WrongType("scope", scopeEl.ValueKind);
-      }
-
-      scope = scopeEl.GetString()!;
+      return Fail(emojiKey.Error!);
     }
 
-    string? emojiKey = null;
-    if (json.TryGetProperty("emoji_key", out JsonElement emojiEl))
+    Result<string> description = ToolArguments.RequireString(json, DescriptionName, RequirementText);
+    if (!description.IsSuccess)
     {
-      if (emojiEl.ValueKind != JsonValueKind.String)
-      {
-        return WrongType("emoji_key", emojiEl.ValueKind);
-      }
-
-      emojiKey = emojiEl.GetString()!;
+      return Fail(description.Error!);
     }
 
-    if (!json.TryGetProperty(DescriptionName, out JsonElement descEl))
+    Result<string?> body = ToolArguments.OptionalString(json, BodyName);
+    if (!body.IsSuccess)
     {
-      return Missing(DescriptionName);
+      return Fail(body.Error!);
     }
 
-    if (descEl.ValueKind != JsonValueKind.String)
-    {
-      return WrongType(DescriptionName, descEl.ValueKind);
-    }
-
-    string description = descEl.GetString()!;
-
-    string? body = null;
-    if (json.TryGetProperty("body", out JsonElement bodyEl))
-    {
-      if (bodyEl.ValueKind != JsonValueKind.String)
-      {
-        return WrongType("body", bodyEl.ValueKind);
-      }
-
-      body = bodyEl.GetString()!;
-    }
-
-    return Result.Success<GitCommitInput>(
-        new(style, type, scope, emojiKey, description, body));
+    GitCommitInput input = new(style.Value!, type.Value, scope.Value, emojiKey.Value, description.Value!, body.Value);
+    return Result.Success(input);
   }
-
-  private static Result<GitCommitInput> Missing(string n) =>
-      Result.Failure<GitCommitInput>(new DomainError("MissingParameter",
-          $"Missing required parameter '{n}'. This tool requires style and description."));
-
-  private static Result<GitCommitInput> WrongType(string n, JsonValueKind actual) =>
-      Result.Failure<GitCommitInput>(new DomainError("InvalidParameterType",
-          $"'{n}' must be a string, but got {actual}."));
 
   private static Result<GitCommitInput> Fail(DomainError err) =>
       Result.Failure<GitCommitInput>(err);

@@ -5,6 +5,17 @@ namespace eThangAgent.ToolDomain;
 
 public sealed record EditToolInput(string Path, string Old, string New, bool All, int Occurrences)
 {
+  private const string PathName = "path";
+  private const string OldName = "old";
+  private const string NewName = "new";
+  private const string AllName = "all";
+  private const string OccurrencesName = "occurrences";
+  private const string RequirementText =
+      "This tool requires path, old, and new, plus exactly one of 'all' or 'occurrences'.";
+
+  private static readonly string[] AllowedNames =
+      [PathName, OldName, NewName, AllName, OccurrencesName, ToolTimeout.ParameterName];
+
   public static Result<EditToolInput> Create(string jsonArguments)
   {
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
@@ -14,110 +25,100 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
     }
 
     JsonElement json = baseParse.Value;
-
-    HashSet<string> known = new(["path", "old", "new", "all", "occurrences", ToolTimeout.ParameterName], StringComparer.Ordinal);
-    List<string> unknown = [.. json.EnumerateObject()
-        .Where(p => !known.Contains(p.Name))
-        .Select(p => p.Name)];
-    if (unknown.Count > 0)
+    DomainError? unknown = ToolArguments.RejectUnknownParameters(json, AllowedNames);
+    if (unknown is not null)
     {
-      return Fail(new DomainError("UnknownParameter",
-          $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, old, new, all, occurrences, {ToolTimeout.ParameterName}."));
+      return Fail(unknown);
     }
 
-    if (!json.TryGetProperty("path", out JsonElement pathEl))
+    Result<string> path = RequireNonEmptyText(
+        ToolArguments.RequireString(json, PathName, RequirementText),
+        "'path' must be a non-empty string.");
+    if (!path.IsSuccess)
     {
-      return Missing("path");
+      return Fail(path.Error!);
     }
 
-    if (pathEl.ValueKind != JsonValueKind.String)
+    Result<string> old = RequireNonEmptyText(
+        ToolArguments.RequireString(json, OldName, RequirementText),
+        "'old' must be a non-empty string — an empty anchor would match everywhere.");
+    if (!old.IsSuccess)
     {
-      return WrongType("path", "string", pathEl.ValueKind);
+      return Fail(old.Error!);
     }
 
-    string path = pathEl.GetString()!;
-    if (path.Length == 0)
+    // 'new' may be empty: deletion is explicit intent.
+    Result<string> @new = ToolArguments.RequireString(json, NewName, RequirementText);
+    if (!@new.IsSuccess)
     {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue, "'path' must be a non-empty string."));
+      return Fail(@new.Error!);
     }
 
-    if (!json.TryGetProperty("old", out JsonElement oldEl))
+    Result<(bool All, int Occurrences)> selector = ParseSelector(json);
+    if (!selector.IsSuccess)
     {
-      return Missing("old");
+      return Fail(selector.Error!);
     }
 
-    if (oldEl.ValueKind != JsonValueKind.String)
+    EditToolInput input = new(path.Value!, old.Value!, @new.Value!, selector.Value.All, selector.Value.Occurrences);
+    return Result.Success(input);
+  }
+
+  /// <summary>Rejects an empty string after the type check passes.</summary>
+  private static Result<string> RequireNonEmptyText(Result<string> text, string emptyMessage)
+  {
+    if (!text.IsSuccess)
     {
-      return WrongType("old", "string", oldEl.ValueKind);
+      return text;
     }
 
-    string old = oldEl.GetString()!;
-    if (old.Length == 0)
-    {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          "'old' must be a non-empty string — an empty anchor would match everywhere."));
-    }
+    Result<string> nonEmpty = text.Value!.Length > 0
+      ? text
+      : Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue, emptyMessage));
+    return nonEmpty;
+  }
 
-    if (!json.TryGetProperty("new", out JsonElement newEl))
+  /// <summary>Exactly one of 'all' (boolean true) or 'occurrences' (integer ≥ 1).</summary>
+  private static Result<(bool All, int Occurrences)> ParseSelector(JsonElement json)
+  {
+    bool hasAll = json.TryGetProperty(AllName, out JsonElement allEl);
+    bool hasOccurrences = json.TryGetProperty(OccurrencesName, out JsonElement occurrencesEl);
+    if (hasAll == hasOccurrences)
     {
-      return Missing("new");
-    }
-
-    if (newEl.ValueKind != JsonValueKind.String)
-    {
-      return WrongType("new", "string", newEl.ValueKind);
-    }
-
-    string @new = newEl.GetString()!; // may be empty: deletion is explicit intent
-
-    bool hasAll = json.TryGetProperty("all", out JsonElement allEl);
-    bool hasOcc = json.TryGetProperty("occurrences", out JsonElement occEl);
-    if (hasAll == hasOcc)
-    {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
+      return Result.Failure<(bool, int)>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "Provide exactly one of 'all' (boolean true) or 'occurrences' (integer ≥ 1)."));
     }
 
-    bool all;
-    int occurrences;
-    if (hasAll)
-    {
-      if (allEl.ValueKind is not JsonValueKind.True)
-      {
-        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            "'all' must be exactly true. Provide exactly one of " +
-            "'all' (boolean true) or 'occurrences' (integer ≥ 1)."));
-      }
-
-      all = true;
-      occurrences = 0;
-    }
-    else
-    {
-      if (occEl.ValueKind != JsonValueKind.Number || !occEl.TryGetInt32(out occurrences))
-      {
-        return WrongType("occurrences", "integer", occEl.ValueKind);
-      }
-
-      if (occurrences < 1)
-      {
-        return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            $"'occurrences' must be ≥ 1 (got {occurrences})."));
-      }
-
-      all = false;
-    }
-
-    return Result.Success<EditToolInput>(new(path, old, @new, all, occurrences));
+    Result<(bool All, int Occurrences)> selector = hasAll
+      ? RequireExplicitAll(allEl)
+      : RequireOccurrences(occurrencesEl);
+    return selector;
   }
 
-  private static Result<EditToolInput> Missing(string n) =>
-      Result.Failure<EditToolInput>(new DomainError("MissingParameter",
-          $"Missing required parameter '{n}'. This tool requires path, old, and new, plus exactly one of 'all' or 'occurrences'."));
+  private static Result<(bool All, int Occurrences)> RequireExplicitAll(JsonElement allEl)
+  {
+    Result<(bool All, int Occurrences)> all = allEl.ValueKind is JsonValueKind.True
+      ? Result.Success((true, 0))
+      : Result.Failure<(bool, int)>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "'all' must be exactly true. Provide exactly one of " +
+          "'all' (boolean true) or 'occurrences' (integer ≥ 1)."));
+    return all;
+  }
 
-  private static Result<EditToolInput> WrongType(string n, string e, JsonValueKind a) =>
-      Result.Failure<EditToolInput>(new DomainError("InvalidParameterType",
-          $"'{n}' must be a {e}, but got {a}."));
+  private static Result<(bool All, int Occurrences)> RequireOccurrences(JsonElement occurrencesEl)
+  {
+    if (occurrencesEl.ValueKind != JsonValueKind.Number || !occurrencesEl.TryGetInt32(out int occurrences))
+    {
+      return Result.Failure<(bool, int)>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{OccurrencesName}' must be a integer, but got {occurrencesEl.ValueKind}."));
+    }
+
+    Result<(bool All, int Occurrences)> positive = occurrences >= 1
+      ? Result.Success((false, occurrences))
+      : Result.Failure<(bool, int)>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{OccurrencesName}' must be ≥ 1 (got {occurrences})."));
+    return positive;
+  }
 
   private static Result<EditToolInput> Fail(DomainError err) =>
       Result.Failure<EditToolInput>(err);

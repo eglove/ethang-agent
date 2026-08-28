@@ -171,51 +171,72 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
     }
 
     string id = idEl.GetString()!;
-    int contextLength = item.TryGetProperty("context_length", out JsonElement ctx) && ctx.ValueKind == JsonValueKind.Number
-        ? ctx.GetInt32() : 0;
-
-    decimal promptPrice = 0m;
-    decimal completionPrice = 0m;
-    decimal discount = 0m;
-    if (item.TryGetProperty("pricing", out JsonElement pricing) && pricing.ValueKind == JsonValueKind.Object)
-    {
-      promptPrice = ParseDecimal(pricing, "prompt");
-      completionPrice = ParseDecimal(pricing, "completion");
-      discount = ParseDiscount(pricing);
-    }
-
+    int contextLength = GetIntOr(item, "context_length", 0);
+    (decimal promptPrice, decimal completionPrice, decimal discount) = ParsePricing(item);
     bool supportsToolUse = item.TryGetProperty("supported_parameters", out JsonElement paramsEl)
         && paramsEl.ValueKind == JsonValueKind.Array
         && ContainsString(paramsEl, "tools");
-
-    bool supportsVision = false;
-    if (item.TryGetProperty("architecture", out JsonElement arch) && arch.ValueKind == JsonValueKind.Object
-        && arch.TryGetProperty("input_modalities", out JsonElement modalities) && modalities.ValueKind == JsonValueKind.Array)
-    {
-      supportsVision = ContainsString(modalities, "image");
-    }
-
-    string? description = item.TryGetProperty("description", out JsonElement desc) && desc.ValueKind == JsonValueKind.String
-        ? desc.GetString() : null;
-
+    bool supportsVision = ParseSupportsVision(item);
+    string? description = GetStringOrNull(item, "description");
     (double? intelligence, double? coding, double? agentic) = ParseScores(item);
+    (string? topProviderName, int topProviderContext, int topProviderMaxTokens) =
+        ParseTopProvider(item, contextLength);
 
-    string? topProviderName = null;
-    int topProviderContext = contextLength;
-    int topProviderMaxTokens = 0;
-    if (item.TryGetProperty("top_provider", out JsonElement tp) && tp.ValueKind == JsonValueKind.Object)
-    {
-      topProviderName = tp.TryGetProperty("provider_name", out JsonElement tpn) && tpn.ValueKind == JsonValueKind.String
-          ? tpn.GetString() : null;
-      topProviderContext = tp.TryGetProperty("context_length", out JsonElement tpc) && tpc.ValueKind == JsonValueKind.Number
-          ? tpc.GetInt32() : contextLength;
-      topProviderMaxTokens = tp.TryGetProperty("max_completion_tokens", out JsonElement tpm) && tpm.ValueKind == JsonValueKind.Number
-          ? tpm.GetInt32() : 0;
-    }
-
-    return new IntermediateModel(id, contextLength, promptPrice, completionPrice, discount,
+    IntermediateModel model = new(id, contextLength, promptPrice, completionPrice, discount,
         supportsToolUse, supportsVision, description, intelligence, coding, agentic,
         topProviderName, topProviderContext, topProviderMaxTokens);
+    return model;
+  }
+
+  /// <summary>Model-level pricing triplet, all zero when pricing is absent or not an object.</summary>
+  private static (decimal PromptPrice, decimal CompletionPrice, decimal Discount) ParsePricing(JsonElement item)
+  {
+    if (item.TryGetProperty("pricing", out JsonElement pricing) && pricing.ValueKind == JsonValueKind.Object)
+    {
+      return (ParseDecimal(pricing, "prompt"), ParseDecimal(pricing, "completion"), ParseDiscount(pricing));
+    }
+
+    return (0m, 0m, 0m);
+  }
+
+  /// <summary>Vision capability: any image input modality in the architecture block.</summary>
+  private static bool ParseSupportsVision(JsonElement item)
+  {
+    return item.TryGetProperty("architecture", out JsonElement arch) && arch.ValueKind == JsonValueKind.Object
+        && arch.TryGetProperty("input_modalities", out JsonElement modalities) && modalities.ValueKind == JsonValueKind.Array
+        && ContainsString(modalities, "image");
+  }
+
+  /// <summary>Top-provider display name and limits, falling back to the model-level
+  ///     context length and zero completion tokens when absent.</summary>
+  private static (string? TopProviderName, int TopProviderContext, int TopProviderMaxTokens) ParseTopProvider(
+      JsonElement item, int contextLength)
+  {
+    if (!item.TryGetProperty("top_provider", out JsonElement tp) || tp.ValueKind != JsonValueKind.Object)
+    {
+      return (null, contextLength, 0);
+    }
+
+    string? topProviderName = GetStringOrNull(tp, "provider_name");
+    int topProviderContext = GetIntOr(tp, "context_length", contextLength);
+    int topProviderMaxTokens = GetIntOr(tp, "max_completion_tokens", 0);
+    return (topProviderName, topProviderContext, topProviderMaxTokens);
+  }
+
+  /// <summary>Reads an optional integer property, falling back when absent or not a number.</summary>
+  private static int GetIntOr(JsonElement parent, string name, int fallback)
+  {
+    return parent.TryGetProperty(name, out JsonElement el) && el.ValueKind == JsonValueKind.Number
+        ? el.GetInt32()
+        : fallback;
+  }
+
+  /// <summary>Reads an optional string property, null when absent or not a string.</summary>
+  private static string? GetStringOrNull(JsonElement parent, string name)
+  {
+    return parent.TryGetProperty(name, out JsonElement el) && el.ValueKind == JsonValueKind.String
+        ? el.GetString()
+        : null;
   }
 
   private static ModelProviderEntry? ParseEndpoint(JsonElement endpoint, IntermediateModel model)

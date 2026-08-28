@@ -1,5 +1,6 @@
 using System.Text.Json;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Zai.ACL;
 
@@ -8,67 +9,101 @@ public sealed record ZaiWebSearchInput(string Query, int Count, string? Recency)
   internal const string AllowedList = "query, count, recency, timeoutSeconds";
 
   private const string QueryName = "query";
+  private const string CountName = "count";
+  private const string RecencyName = "recency";
+  private const int DefaultCount = 10;
 
   public static Result<ZaiWebSearchInput> Create(JsonElement json)
   {
-    DomainError? unknown = ZaiToolInput.RejectUnknown(json, AllowedList, QueryName, "count", "recency");
+    DomainError? unknown = ZaiToolInput.RejectUnknown(json, AllowedList, QueryName, CountName, RecencyName);
     if (unknown is not null)
     {
       return Fail(unknown);
     }
 
-    if (!json.TryGetProperty(QueryName, out JsonElement queryEl))
+    Result<string> query = ParseQuery(json);
+    if (!query.IsSuccess)
     {
-      return Missing(QueryName);
-    }
-    if (queryEl.ValueKind != JsonValueKind.String)
-    {
-      return WrongType(QueryName, "string", queryEl.ValueKind);
-    }
-    string query = queryEl.GetString()!;
-    if (query.Length == 0)
-    {
-      return Fail(new DomainError("InvalidParameterValue", "'query' must be a non-empty string."));
+      return Fail(query.Error!);
     }
 
-    int count = 10;
-    if (json.TryGetProperty("count", out JsonElement countEl))
+    Result<int> count = ParseCount(json);
+    if (!count.IsSuccess)
     {
-      if (countEl.ValueKind != JsonValueKind.Number || !countEl.TryGetInt32(out count))
-      {
-        return WrongType("count", "integer", countEl.ValueKind);
-      }
-      if (count is < 1 or > 50)
-      {
-        return Fail(new DomainError("InvalidParameterValue", $"'count' must be 1..50 (got {count})."));
-      }
+      return Fail(count.Error!);
     }
 
-    string? recency = null;
-    if (json.TryGetProperty("recency", out JsonElement recencyEl))
+    Result<string?> recency = ParseRecency(json);
+    if (!recency.IsSuccess)
     {
-      if (recencyEl.ValueKind != JsonValueKind.String)
-      {
-        return WrongType("recency", "string", recencyEl.ValueKind);
-      }
-      recency = recencyEl.GetString();
-      if (recency is not ("oneDay" or "oneWeek" or "oneMonth" or "oneYear" or "noLimit"))
-      {
-        return Fail(new DomainError("InvalidParameterValue",
-            $"'recency' must be exactly one of oneDay, oneWeek, oneMonth, oneYear, noLimit (got \"{recency}\")."));
-      }
+      return Fail(recency.Error!);
     }
 
-    return Result.Success(new ZaiWebSearchInput(query, count, recency));
+    ZaiWebSearchInput input = new(query.Value!, count.Value, recency.Value);
+    return Result.Success(input);
   }
 
-  private static Result<ZaiWebSearchInput> Missing(string n) =>
-      Result.Failure<ZaiWebSearchInput>(new DomainError("MissingParameter",
-          $"Missing required parameter '{n}'. This tool requires query."));
+  private static Result<string> ParseQuery(JsonElement json)
+  {
+    if (!json.TryGetProperty(QueryName, out JsonElement queryEl))
+    {
+      return Result.Failure<string>(new DomainError(ToolErrorCodes.MissingParameter,
+          $"Missing required parameter '{QueryName}'. This tool requires query."));
+    }
 
-  private static Result<ZaiWebSearchInput> WrongType(string n, string e, JsonValueKind a) =>
-      Result.Failure<ZaiWebSearchInput>(new DomainError("InvalidParameterType",
-          $"'{n}' must be a {e}, but got {a}."));
+    if (queryEl.ValueKind != JsonValueKind.String)
+    {
+      return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{QueryName}' must be a string, but got {queryEl.ValueKind}."));
+    }
+
+    Result<string> nonEmpty = queryEl.GetString()!.Length > 0
+      ? Result.Success(queryEl.GetString()!)
+      : Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "'query' must be a non-empty string."));
+    return nonEmpty;
+  }
+
+  private static Result<int> ParseCount(JsonElement json)
+  {
+    if (!json.TryGetProperty(CountName, out JsonElement countEl))
+    {
+      return Result.Success(DefaultCount);
+    }
+
+    if (countEl.ValueKind != JsonValueKind.Number || !countEl.TryGetInt32(out int count))
+    {
+      return Result.Failure<int>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{CountName}' must be a integer, but got {countEl.ValueKind}."));
+    }
+
+    Result<int> inRange = count is >= 1 and <= 50
+      ? Result.Success(count)
+      : Result.Failure<int>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{CountName}' must be 1..50 (got {count})."));
+    return inRange;
+  }
+
+  private static Result<string?> ParseRecency(JsonElement json)
+  {
+    if (!json.TryGetProperty(RecencyName, out JsonElement recencyEl))
+    {
+      return Result.Success<string?>(null);
+    }
+
+    if (recencyEl.ValueKind != JsonValueKind.String)
+    {
+      return Result.Failure<string?>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{RecencyName}' must be a string, but got {recencyEl.ValueKind}."));
+    }
+
+    string recency = recencyEl.GetString()!;
+    Result<string?> allowed = recency is "oneDay" or "oneWeek" or "oneMonth" or "oneYear" or "noLimit"
+      ? Result.Success<string?>(recency)
+      : Result.Failure<string?>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{RecencyName}' must be exactly one of oneDay, oneWeek, oneMonth, oneYear, noLimit (got \"{recency}\")."));
+    return allowed;
+  }
 
   private static Result<ZaiWebSearchInput> Fail(DomainError err) =>
       Result.Failure<ZaiWebSearchInput>(err);
