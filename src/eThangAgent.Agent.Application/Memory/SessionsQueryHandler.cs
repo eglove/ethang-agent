@@ -32,7 +32,7 @@ public sealed class SessionsQueryHandler(IAgentStore store) : IMemorySessionsQue
     Result<SessionScope> parsedScope = SessionScope.Parse(scope);
     if (!parsedScope.IsSuccess)
     {
-      return Result.Failure<IReadOnlyList<SessionSummary>>(parsedScope.Error!);
+      return Result.Failure<IReadOnlyList<SessionSummary>>(parsedScope.Error);
     }
 
     bool branchKnown = string.Equals(branches, "active", StringComparison.Ordinal) ||
@@ -45,16 +45,16 @@ public sealed class SessionsQueryHandler(IAgentStore store) : IMemorySessionsQue
     Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync(ct).ConfigureAwait(false);
     if (!listed.IsSuccess)
     {
-      return Result.Failure<IReadOnlyList<SessionSummary>>(listed.Error!);
+      return Result.Failure<IReadOnlyList<SessionSummary>>(listed.Error);
     }
 
     List<SessionSummary> summaries = [];
-    foreach (AgentRecord? record in listed.Value!.OrderByDescending(r => r.CreatedAt).Take(limit))
+    foreach (AgentRecord? record in listed.Value.OrderByDescending(r => r.CreatedAt).Take(limit))
     {
       Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(record.Id, ct).ConfigureAwait(false);
       if (!transcript.IsSuccess)
       {
-        return Result.Failure<IReadOnlyList<SessionSummary>>(transcript.Error!);
+        return Result.Failure<IReadOnlyList<SessionSummary>>(transcript.Error);
       }
 
       summaries.Add(new SessionSummary(
@@ -63,7 +63,7 @@ public sealed class SessionsQueryHandler(IAgentStore store) : IMemorySessionsQue
           // label rather than inventing a display name.
           record.Label ?? string.Empty,
           record.Depth,
-          transcript.Value!.Count,
+          transcript.Value.Count,
           record.Status.ToString(),
           Tier: "hot"));
     }

@@ -74,10 +74,10 @@ public sealed class WorkingDiffTool(IPathResolver resolver, IGitQueryAccess git)
     Result<GitDiff> diff = await _git.GetDiffAsync(repoRoot, scope, resolvedPath, ct).ConfigureAwait(false);
     if (!diff.IsSuccess)
     {
-      return Err(diff.Error!);
+      return Err(diff.Error);
     }
 
-    GitDiff o = diff.Value!;
+    GitDiff o = diff.Value;
 
     string target = resolvedPath ?? "none";
     if (o.Stats.Files == 0)

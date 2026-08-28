@@ -321,8 +321,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       if (!result.IsSuccess || !sawStream)
       {
         Transcript.AddNotice(result.IsSuccess
-            ? result.Value!
-            : $"Error [{result.Error!.Code}]: {result.Error.Message}");
+            ? result.Value
+            : $"Error [{result.Error.Code}]: {result.Error.Message}");
       }
     }
     finally

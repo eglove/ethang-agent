@@ -66,10 +66,10 @@ public sealed class SearchTool(IPathResolver resolver, ISearchAccess search) : I
         scope, v.Pattern, v.Regex, v.Glob, v.MaxResults, v.ContextLines, ct).ConfigureAwait(false);
     if (!found.IsSuccess)
     {
-      return Err(found.Error!);
+      return Err(found.Error);
     }
 
-    FileSearch o = found.Value!;
+    FileSearch o = found.Value;
 
     StringBuilder sb = new();
     if (o.Matches.Count == 0)

@@ -50,21 +50,21 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
     Result<IReadOnlyList<SkillDefinition>> builtIn = await _catalog.ListAsync(ct).ConfigureAwait(false);
     if (builtIn.IsSuccess)
     {
-      skills.AddRange(builtIn.Value!);
+      skills.AddRange(builtIn.Value);
     }
     else
     {
-      warnings.Add($"[warning] built-in skills unavailable: {builtIn.Error!.Message}");
+      warnings.Add($"[warning] built-in skills unavailable: {builtIn.Error.Message}");
     }
 
     Result<IReadOnlyList<SkillDefinition>> learnedResult = await _learned.ListAsync(ct).ConfigureAwait(false);
     if (learnedResult.IsSuccess)
     {
-      skills.AddRange(learnedResult.Value!);
+      skills.AddRange(learnedResult.Value);
     }
     else
     {
-      warnings.Add($"[warning] learned skills unavailable: {learnedResult.Error!.Message}");
+      warnings.Add($"[warning] learned skills unavailable: {learnedResult.Error.Message}");
     }
 
     List<string> lines =
@@ -97,14 +97,14 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Fail(baseParse.Error!)
+      return Fail(baseParse.Error)
 ;
     }
 
     Result<TimeSpan> budget = ToolTimeout.Parse(baseParse.Value);
     if (!budget.IsSuccess)
     {
-      return Fail(budget.Error!);
+      return Fail(budget.Error);
     }
 
     List<string> unknown = [.. baseParse.Value.EnumerateObject()

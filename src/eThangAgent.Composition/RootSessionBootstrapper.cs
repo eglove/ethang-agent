@@ -27,6 +27,6 @@ public static class RootSessionBootstrapper
     return saved.IsSuccess
         ? Result.Success(rootId)
         : Result.Failure<AgentId>(new DomainError("PersistFailed",
-            $"failed to persist root session: [{saved.Error!.Code}] {saved.Error.Message}"));
+            $"failed to persist root session: [{saved.Error.Code}] {saved.Error.Message}"));
   }
 }

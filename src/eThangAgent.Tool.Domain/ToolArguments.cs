@@ -40,12 +40,12 @@ public static class ToolArguments
     Result<JsonElement> baseParse = ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Result.Failure<(JsonElement, TimeSpan)>(baseParse.Error!);
+      return Result.Failure<(JsonElement, TimeSpan)>(baseParse.Error);
     }
 
     Result<TimeSpan> timeout = ToolTimeout.Parse(baseParse.Value);
     return !timeout.IsSuccess
-      ? (Result<(JsonElement Json, TimeSpan Timeout)>)Result.Failure<(JsonElement, TimeSpan)>(timeout.Error!)
+      ? (Result<(JsonElement Json, TimeSpan Timeout)>)Result.Failure<(JsonElement, TimeSpan)>(timeout.Error)
       : (Result<(JsonElement Json, TimeSpan Timeout)>)Result.Success((baseParse.Value, timeout.Value));
   }
 
@@ -95,8 +95,8 @@ public static class ToolArguments
 
     Result<string> text = StringOf(el, name);
     return !text.IsSuccess
-      ? Result.Failure<string?>(text.Error!)
-      : Result.Success(text.Value);
+      ? Result.Failure<string?>(text.Error)
+      : Result.Success<string?>(text.Value);
   }
 
   /// <summary>Reads a required JSON integer parameter. Range checks are value rules
@@ -119,7 +119,7 @@ public static class ToolArguments
 
     Result<int> value = IntOf(el, name);
     return !value.IsSuccess
-      ? Result.Failure<int?>(value.Error!)
+      ? Result.Failure<int?>(value.Error)
       : Result.Success<int?>(value.Value);
   }
 

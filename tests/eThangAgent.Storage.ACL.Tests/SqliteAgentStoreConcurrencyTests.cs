@@ -61,7 +61,7 @@ public sealed class SqliteAgentStoreConcurrencyTests : IDisposable
 
     Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(shared.Id);
     Assert.True(transcript.IsSuccess);
-    Assert.Equal(10, transcript.Value!.Count);
+    Assert.Equal(10, transcript.Value.Count);
     Assert.Equal(
         messages.Select(m => m.Content).Order().ToArray(),
         transcript.Value.Select(m => m.Content).Order().ToArray());

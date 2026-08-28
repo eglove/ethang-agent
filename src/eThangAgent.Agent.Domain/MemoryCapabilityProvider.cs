@@ -74,7 +74,7 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
     Result<JsonElement> root = ParseObjectRoot(json);
     if (!root.IsSuccess)
     {
-      return Fail(root.Error!);
+      return Fail(root.Error);
     }
 
     HashSet<string> allowed = new(StringComparer.Ordinal)
@@ -87,52 +87,52 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
     Result<string?> query = OptionalString(root.Value, "query");
     if (!query.IsSuccess)
     {
-      return Fail(query.Error!);
+      return Fail(query.Error);
     }
 
     Result<string?> queryMode = OptionalString(root.Value, "queryMode");
     if (!queryMode.IsSuccess)
     {
-      return Fail(queryMode.Error!);
+      return Fail(queryMode.Error);
     }
 
     Result<string?> scope = OptionalString(root.Value, Scope);
     if (!scope.IsSuccess)
     {
-      return Fail(scope.Error!);
+      return Fail(scope.Error);
     }
 
     Result<string?> branches = OptionalString(root.Value, Branches);
     if (!branches.IsSuccess)
     {
-      return Fail(branches.Error!);
+      return Fail(branches.Error);
     }
 
     Result<string?> role = OptionalString(root.Value, "role");
     if (!role.IsSuccess)
     {
-      return Fail(role.Error!);
+      return Fail(role.Error);
     }
 
     Result<int> page = OptionalNumber(root.Value, "page", fallback: 1);
     if (!page.IsSuccess)
     {
-      return Fail(page.Error!);
+      return Fail(page.Error);
     }
 
     Result<int> pageSize = OptionalNumber(root.Value, "pageSize", fallback: 25);
     if (!pageSize.IsSuccess)
     {
-      return Fail(pageSize.Error!);
+      return Fail(pageSize.Error);
     }
 
     Result<RecallPage> recalled = await _recallQuery.Execute(
-        new RecallRequest(query.Value, queryMode.Value ?? "literal", scope.Value ?? "global",
-            branches.Value ?? "active", role.Value, page.Value, pageSize.Value),
+        new RecallRequest(query.Value, queryMode.ValueOrNull ?? "literal", scope.ValueOrNull ?? "global",
+            branches.ValueOrNull ?? "active", role.Value, page.Value, pageSize.Value),
         ct).ConfigureAwait(false);
     return recalled.IsSuccess
-        ? CapabilityInvocationResult.Ok(RenderPage(recalled.Value!))
-        : Fail(recalled.Error!);
+        ? CapabilityInvocationResult.Ok(RenderPage(recalled.Value))
+        : Fail(recalled.Error);
   }
 
   private async Task<CapabilityInvocationResult> Sessions(string json, CancellationToken ct)
@@ -140,7 +140,7 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
     Result<JsonElement> root = ParseObjectRoot(json);
     if (!root.IsSuccess)
     {
-      return Fail(root.Error!);
+      return Fail(root.Error);
     }
 
     HashSet<string> allowed = new(StringComparer.Ordinal) { Scope, Branches, "limit" };
@@ -152,26 +152,26 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
     Result<string?> scope = OptionalString(root.Value, Scope);
     if (!scope.IsSuccess)
     {
-      return Fail(scope.Error!);
+      return Fail(scope.Error);
     }
 
     Result<string?> branches = OptionalString(root.Value, Branches);
     if (!branches.IsSuccess)
     {
-      return Fail(branches.Error!);
+      return Fail(branches.Error);
     }
 
     Result<int> limit = OptionalNumber(root.Value, "limit", fallback: 50);
     if (!limit.IsSuccess)
     {
-      return Fail(limit.Error!);
+      return Fail(limit.Error);
     }
 
     Result<IReadOnlyList<SessionSummary>> listed = await _sessionsQuery.Execute(
-        scope.Value ?? "global", branches.Value ?? "active", limit.Value, ct).ConfigureAwait(false);
+        scope.ValueOrNull ?? "global", branches.ValueOrNull ?? "active", limit.Value, ct).ConfigureAwait(false);
     return listed.IsSuccess
-        ? CapabilityInvocationResult.Ok(RenderSummaries(listed.Value!))
-        : Fail(listed.Error!);
+        ? CapabilityInvocationResult.Ok(RenderSummaries(listed.Value))
+        : Fail(listed.Error);
   }
 
   /// <summary>Renders the recall output contract: one annotation line per hit, then the

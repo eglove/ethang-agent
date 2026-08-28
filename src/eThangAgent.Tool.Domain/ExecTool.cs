@@ -56,10 +56,10 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutpu
     Result<IReadOnlyList<ExecParseError>> parse = await _engine.ValidateAsync(exec, ct).ConfigureAwait(false);
     if (!parse.IsSuccess)
     {
-      return new ToolResult($"Error [{parse.Error!.Code}]: {parse.Error.Message}", true);
+      return new ToolResult($"Error [{parse.Error.Code}]: {parse.Error.Message}", true);
     }
 
-    if (parse.Value!.Count > 0)
+    if (parse.Value.Count > 0)
     {
       return ExecResultFormatter.ParseErrors(parse.Value, _options.MaxParseErrors);
     }

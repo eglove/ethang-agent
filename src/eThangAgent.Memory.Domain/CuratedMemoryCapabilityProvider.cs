@@ -119,33 +119,33 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<(int Limit, string? Warning)> limit = ParseLimit(args);
     if (!limit.IsSuccess)
     {
-      return Fail(limit.Error!);
+      return Fail(limit.Error);
     }
 
     Result<MemoryCategory?> category = ParseCategoryFilter(args);
     if (!category.IsSuccess)
     {
-      return Fail(category.Error!);
+      return Fail(category.Error);
     }
 
     Result<MemoryScope?> scope = ParseScopeFilter(args);
     if (!scope.IsSuccess)
     {
-      return Fail(scope.Error!);
+      return Fail(scope.Error);
     }
 
     Result<IReadOnlyList<CuratedMemory>> search = await _store.SearchAsync(
         _workspaceId(), OptString(args, "query"), category.Value, tagFilters, limit.Value.Limit).ConfigureAwait(false);
     if (!search.IsSuccess)
     {
-      return Fail(search.Error!);
+      return Fail(search.Error);
     }
 
     // The store ranks by visibility: global always, workspace only when it matches —
     // narrowing to a requested scope is a read-model concern on top of that ranking.
     IReadOnlyList<CuratedMemory> rows = scope.Value is { } wanted
-        ? [.. search.Value!.Where(m => m.Scope == wanted)]
-        : search.Value!;
+        ? [.. search.Value.Where(m => m.Scope == wanted)]
+        : search.Value;
     return RenderHits(rows, limit.Value.Warning);
   }
 
@@ -191,7 +191,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<MemoryCategory> parsed = CuratedMemorySpecifications.ParseCategory(OptString(args, Category));
     Result<MemoryCategory?> result = parsed.IsSuccess
       ? Result.Success<MemoryCategory?>(parsed.Value)
-      : Result.Failure<MemoryCategory?>(parsed.Error!);
+      : Result.Failure<MemoryCategory?>(parsed.Error);
     return result;
   }
 
@@ -205,7 +205,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<MemoryScope> parsed = CuratedMemorySpecifications.ParseScope(OptString(args, Scope));
     Result<MemoryScope?> result = parsed.IsSuccess
       ? Result.Success<MemoryScope?>(parsed.Value)
-      : Result.Failure<MemoryScope?>(parsed.Error!);
+      : Result.Failure<MemoryScope?>(parsed.Error);
     return result;
   }
 
@@ -358,27 +358,27 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<int> expectedVersion = ParseExpectedVersion(args);
     if (!expectedVersion.IsSuccess)
     {
-      return Fail(expectedVersion.Error!);
+      return Fail(expectedVersion.Error);
     }
 
     Result<MemoryDelta> delta = ParseDelta(args);
     if (!delta.IsSuccess)
     {
-      return Fail(delta.Error!);
+      return Fail(delta.Error);
     }
 
     Result<CuratedMemory> stored = await FetchForUpdateAsync(id, expectedVersion.Value).ConfigureAwait(false);
     if (!stored.IsSuccess)
     {
-      return Fail(stored.Error!);
+      return Fail(stored.Error);
     }
 
-    CuratedMemory updated = BuildUpdate(stored.Value!, args, delta.Value!);
+    CuratedMemory updated = BuildUpdate(stored.Value, args, delta.Value);
     Result<CuratedMemory> saved = await _store.UpdateAsync(updated).ConfigureAwait(false);
     CapabilityInvocationResult result = saved.IsSuccess
       ? CapabilityInvocationResult.Ok(
-        $"[memories] updated {saved.Value!.Id} v{saved.Value.Version}")
-      : Fail(saved.Error!);
+        $"[memories] updated {saved.Value.Id} v{saved.Value.Version}")
+      : Fail(saved.Error);
     return result;
   }
 
@@ -413,7 +413,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<MemoryCategory?> category = ParseCategoryUpdate(args, touchesCategory);
     if (!category.IsSuccess)
     {
-      return Result.Failure<MemoryDelta>(category.Error!);
+      return Result.Failure<MemoryDelta>(category.Error);
     }
 
     if (touchesTags && ValidateTags(args) is { } tagsError)
@@ -424,7 +424,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<string?> usageHint = ParseOptionalHint(args);
     if (!usageHint.IsSuccess)
     {
-      return Result.Failure<MemoryDelta>(usageHint.Error!);
+      return Result.Failure<MemoryDelta>(usageHint.Error);
     }
 
     IReadOnlyList<string>? tags = touchesTags
@@ -444,7 +444,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<MemoryCategory> parsed = CuratedMemorySpecifications.ParseCategory(OptString(args, Category));
     Result<MemoryCategory?> result = parsed.IsSuccess
       ? Result.Success<MemoryCategory?>(parsed.Value)
-      : Result.Failure<MemoryCategory?>(parsed.Error!);
+      : Result.Failure<MemoryCategory?>(parsed.Error);
     return result;
   }
 
@@ -456,7 +456,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<CuratedMemory?> fetched = await _store.GetAsync(id).ConfigureAwait(false);
     if (!fetched.IsSuccess)
     {
-      return Result.Failure<CuratedMemory>(fetched.Error!);
+      return Result.Failure<CuratedMemory>(fetched.Error);
     }
 
     if (fetched.Value is not { } stored)
@@ -512,7 +512,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<bool> deleted = await _store.DeleteAsync(id).ConfigureAwait(false);
     if (!deleted.IsSuccess)
     {
-      return Fail(deleted.Error!);
+      return Fail(deleted.Error);
     }
 
     if (!deleted.Value)

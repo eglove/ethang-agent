@@ -21,10 +21,10 @@ public sealed class AgentQueries(IAgentStore store) : IAgentQueries
     Result<AgentRecord> record = await _store.GetAsync(id, ct).ConfigureAwait(false);
     if (!record.IsSuccess)
     {
-      return Result.Failure<string>(record.Error!);
+      return Result.Failure<string>(record.Error);
     }
 
-    AgentRecord agent = record.Value!;
+    AgentRecord agent = record.Value;
     return agent.Status switch
     {
       AgentStatus.Running => Result.Failure<string>(new DomainError("NotComplete",

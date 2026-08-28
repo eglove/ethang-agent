@@ -85,16 +85,16 @@ public sealed class TodoTool(ITodoListStore store) : ITool
     IReadOnlyList<TodoItem> doc;
     if (read.IsSuccess)
     {
-      Result<IReadOnlyList<TodoItem>> parsedDoc = TodoDocument.Parse(read.Value!);
+      Result<IReadOnlyList<TodoItem>> parsedDoc = TodoDocument.Parse(read.Value);
       if (!parsedDoc.IsSuccess)
       {
-        return Corrupt(parsedDoc.Error!);
+        return Corrupt(parsedDoc.Error);
       }
 
-      doc = parsedDoc.Value!;
+      doc = parsedDoc.Value;
     }
     // A missing key is an empty document, not an error.
-    else if (read.Error!.Code == "KeyNotFound")
+    else if (read.Error.Code == "KeyNotFound")
     {
       doc = TodoDocument.Empty;
     }
@@ -208,7 +208,7 @@ public sealed class TodoTool(ITodoListStore store) : ITool
         _lastWrittenVersion, ct).ConfigureAwait(false);
     if (!saved.IsSuccess)
     {
-      DomainError error = saved.Error!;
+      DomainError error = saved.Error;
       return new ToolResult(error.Code == "VersionConflict"
           ? $"Error [VersionConflict]: {error.Message} The todo list changed concurrently " +
             "before this write landed. Re-issue the same call to retry against the latest state."

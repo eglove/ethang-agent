@@ -53,7 +53,7 @@ public sealed class ZaiTokenizerTool(HttpClient http, ZaiConfiguration config) :
         }, ct).ConfigureAwait(false);
     if (!response.IsSuccess)
     {
-      return ZaiToolHttp.Err(response.Error!);
+      return ZaiToolHttp.Err(response.Error);
     }
 
     if (!response.Value.TryGetProperty("usage", out JsonElement usage)

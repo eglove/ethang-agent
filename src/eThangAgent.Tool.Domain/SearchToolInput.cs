@@ -86,7 +86,7 @@ public sealed record SearchToolInput(
       return pattern;
     }
 
-    Result<string> nonEmpty = pattern.Value!.Length > 0
+    Result<string> nonEmpty = pattern.Value.Length > 0
       ? pattern
       : Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "'pattern' must be a non-empty string."));
@@ -98,7 +98,7 @@ public sealed record SearchToolInput(
     Result<string> text = ToolArguments.RequireString(json, ModeName, RequiredParamsText);
     if (!text.IsSuccess)
     {
-      return Result.Failure<bool>(text.Error!);
+      return Result.Failure<bool>(text.Error);
     }
 
     bool? regex = text.Value switch
@@ -110,7 +110,7 @@ public sealed record SearchToolInput(
     Result<bool> mode = regex is { } parsed
       ? Result.Success(parsed)
       : Result.Failure<bool>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          $"'{ModeName}' must be exactly \"Literal\" or \"Regex\" (got \"{text.Value!}\")."));
+          $"'{ModeName}' must be exactly \"Literal\" or \"Regex\" (got \"{text.Value}\")."));
     return mode;
   }
 
@@ -123,7 +123,7 @@ public sealed record SearchToolInput(
       return text;
     }
 
-    if (text.Value is null)
+    if (text.ValueOrNull is null)
     {
       return Result.Success<string?>(null);
     }
@@ -155,7 +155,7 @@ public sealed record SearchToolInput(
     Result<int?> parsed = ToolArguments.OptionalInt(json, ContextLinesName);
     if (!parsed.IsSuccess)
     {
-      return Result.Failure<int>(parsed.Error!);
+      return Result.Failure<int>(parsed.Error);
     }
 
     if (parsed.Value is not { } lines)

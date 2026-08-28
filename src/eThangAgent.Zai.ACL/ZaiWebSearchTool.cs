@@ -65,7 +65,7 @@ public sealed class ZaiWebSearchTool(HttpClient http, ZaiConfiguration config) :
         _http, _config, ZaiToolHttp.WebSearchPath, body, ct).ConfigureAwait(false);
     if (!response.IsSuccess)
     {
-      return ZaiToolHttp.Err(response.Error!);
+      return ZaiToolHttp.Err(response.Error);
     }
 
     List<(string Title, string Link, string Content, string? Media, string? Published)> results = [];

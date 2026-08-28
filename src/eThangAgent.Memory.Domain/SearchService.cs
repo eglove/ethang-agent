@@ -167,10 +167,10 @@ public static class SearchService
     Result<IReadOnlyList<int>> result = BoundedRegex.Execute(pattern, [.. ordered.Select(e => e.Content)]);
     if (!result.IsSuccess)
     {
-      return new SearchFail($"Error [{result.Error!.Code}]: {result.Error.Message}");
+      return new SearchFail($"Error [{result.Error.Code}]: {result.Error.Message}");
     }
 
-    List<MemoryEntry> matched = [.. result.Value!.Select(i => ordered[i])];
+    List<MemoryEntry> matched = [.. result.Value.Select(i => ordered[i])];
     return Page(matched, page, pageSize);
   }
 

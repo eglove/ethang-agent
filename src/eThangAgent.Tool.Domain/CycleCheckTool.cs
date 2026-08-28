@@ -61,10 +61,10 @@ public sealed class CycleCheckTool : ITool
     Result<CycleReport> report = CycleDetector.Detect(entries, edges);
     if (!report.IsSuccess)
     {
-      return Err(report.Error!);
+      return Err(report.Error);
     }
 
-    CycleReport r = report.Value!;
+    CycleReport r = report.Value;
 
     int nodeCount = edges.SelectMany(e => new[] { e.From, e.To }).Distinct().Count();
     List<string> lines =
@@ -96,7 +96,7 @@ public sealed class CycleCheckTool : ITool
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Result.Failure<ParsedArgs>(baseParse.Error!);
+      return Result.Failure<ParsedArgs>(baseParse.Error);
     }
 
     JsonElement json = baseParse.Value;
@@ -109,10 +109,10 @@ public sealed class CycleCheckTool : ITool
     Result<List<DependencyEdge>> edges = ParseEdges(rawEdges);
     if (!edges.IsSuccess)
     {
-      return Result.Failure<ParsedArgs>(edges.Error!);
+      return Result.Failure<ParsedArgs>(edges.Error);
     }
 
-    if (edges.Value!.Count == 0)
+    if (edges.Value.Count == 0)
     {
       return Fail("MissingEdges", "'edges' must contain at least one edge.");
     }
@@ -120,13 +120,13 @@ public sealed class CycleCheckTool : ITool
     Result<List<string>> entries = ParseEntries(json);
     if (!entries.IsSuccess)
     {
-      return Result.Failure<ParsedArgs>(entries.Error!);
+      return Result.Failure<ParsedArgs>(entries.Error);
     }
 
     Result<TimeSpan> budget = ToolTimeout.Parse(json);
     Result<ParsedArgs> parsed = budget.IsSuccess
-      ? Result.Success(new ParsedArgs(json, entries.Value!, edges.Value))
-      : Result.Failure<ParsedArgs>(budget.Error!);
+      ? Result.Success(new ParsedArgs(json, entries.Value, edges.Value))
+      : Result.Failure<ParsedArgs>(budget.Error);
     return parsed;
   }
 

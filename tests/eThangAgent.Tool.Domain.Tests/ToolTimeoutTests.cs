@@ -11,7 +11,7 @@ public class ToolTimeoutTests
   private static Result<TimeSpan> Parse(string json)
   {
     Result<JsonElement> parsed = ToolArguments.ParseObject(json);
-    return !parsed.IsSuccess ? Result.Failure<TimeSpan>(parsed.Error!) : ToolTimeout.Parse(parsed.Value);
+    return !parsed.IsSuccess ? Result.Failure<TimeSpan>(parsed.Error) : ToolTimeout.Parse(parsed.Value);
   }
 
   [Fact]

@@ -135,10 +135,10 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
     Result<string> value = await _service.GetAsync(key).ConfigureAwait(false);
     if (!value.IsSuccess)
     {
-      return Gutter(value.Error!);
+      return Gutter(value.Error);
     }
 
-    string[] lines = value.Value!.Split('\n');
+    string[] lines = value.Value.Split('\n');
     int total = lines.Length;
     int clampedEnd = Math.Min(end, total);
     string slice = string.Join("\n", lines[(start - 1)..clampedEnd]);
@@ -150,7 +150,7 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
     if (keys.IsSuccess)
     {
       string prefix = key + " v";
-      string? match = keys.Value!.FirstOrDefault(k => k.StartsWith(prefix, StringComparison.Ordinal));
+      string? match = keys.Value.FirstOrDefault(k => k.StartsWith(prefix, StringComparison.Ordinal));
       if (match is not null)
       {
         versionPart = "v" + match[prefix.Length..];
@@ -177,11 +177,11 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
     Result<IReadOnlyList<StateSearchHit>> result = await _service.SearchAsync(query, limit).ConfigureAwait(false);
     if (!result.IsSuccess)
     {
-      return Gutter(result.Error!);
+      return Gutter(result.Error);
     }
 
     StringBuilder sb = new();
-    _ = sb.Append(CultureInfo.InvariantCulture, $"[state.find '{query}'] {result.Value!.Count} hit(s)");
+    _ = sb.Append(CultureInfo.InvariantCulture, $"[state.find '{query}'] {result.Value.Count} hit(s)");
     foreach (StateSearchHit hit in result.Value)
     {
       _ = sb.Append(CultureInfo.InvariantCulture, $"\n{hit.Ns}/{hit.Name}");
@@ -200,8 +200,8 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
 
     Result<StateKeyValue> saved = await _service.SetAsync(ReqString(args, "key"), ReqString(args, "value"), OptInt(args, ExpectedVersion)).ConfigureAwait(false);
     return saved.IsSuccess
-        ? CapabilityInvocationResult.Ok($"saved {saved.Value!.Ns}/{saved.Value.Name} v{saved.Value.Version}")
-        : Gutter(saved.Error!);
+        ? CapabilityInvocationResult.Ok($"saved {saved.Value.Ns}/{saved.Value.Name} v{saved.Value.Version}")
+        : Gutter(saved.Error);
   }
 
   private async Task<CapabilityInvocationResult> DeleteAsync(string json)
@@ -254,8 +254,8 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
     Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("key", "text", ExpectedVersion));
     Result<StateKeyValue> saved = await _service.AppendAsync(ReqString(args, "key"), ReqString(args, "text"), OptInt(args, ExpectedVersion)).ConfigureAwait(false);
     return saved.IsSuccess
-        ? CapabilityInvocationResult.Ok($"appended to {saved.Value!.Ns}/{saved.Value.Name} v{saved.Value.Version}")
-        : Gutter(saved.Error!);
+        ? CapabilityInvocationResult.Ok($"appended to {saved.Value.Ns}/{saved.Value.Name} v{saved.Value.Version}")
+        : Gutter(saved.Error);
   }
 
   private async Task<CapabilityInvocationResult> PruneAsync(string json)
@@ -263,14 +263,14 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
     Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(Prefix));
     Result<int> result = await _service.DeletePrefixAsync(ReqString(args, Prefix)).ConfigureAwait(false);
     return !result.IsSuccess
-          ? Gutter(result.Error!)
+          ? Gutter(result.Error)
           : CapabilityInvocationResult.Ok($"[prune {ReqString(args, Prefix)}] {result.Value} key(s) removed");
   }
 
   private static CapabilityInvocationResult ToResult<T>(Result<T> result)
         => result.IsSuccess
-            ? CapabilityInvocationResult.Ok(result.Value!.ToString() ?? "")
-            : Gutter(result.Error!);
+            ? CapabilityInvocationResult.Ok(result.Value.ToString() ?? "")
+            : Gutter(result.Error);
 
   private static CapabilityInvocationResult Gutter(DomainError error)
       => CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");

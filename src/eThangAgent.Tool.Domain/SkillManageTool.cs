@@ -84,7 +84,7 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
       return Err(existing.Error!);
     }
 
-    if (existing.Value is not null)
+    if (existing.ValueOrNull is not null)
     {
       return Err(new DomainError("SkillExists",
           $"A learned skill named '{input.Name}' already exists. Use action Update to change it."));
@@ -115,10 +115,10 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
     Result<SkillDefinition?> current = await _learned.GetAsync(input.Name, ct).ConfigureAwait(false);
     if (!current.IsSuccess)
     {
-      return Err(current.Error!);
+      return Err(current.Error);
     }
 
-    if (current.Value is null)
+    if (current.ValueOrNull is null)
     {
       return Err(new DomainError("SkillNotFound",
           $"No learned skill named '{input.Name}' to update. Use action Create first."));
@@ -137,10 +137,10 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
     Result<SkillDefinition> result = await _learned.UpdateAsync(updated, ct).ConfigureAwait(false);
     if (!result.IsSuccess)
     {
-      return Err(result.Error!);
+      return Err(result.Error);
     }
 
-    SkillDefinition skill = result.Value!;
+    SkillDefinition skill = result.Value;
     return new ToolResult($"[skill-manage] updated '{skill.Name}' v{skill.Version}", false);
   }
 
@@ -156,10 +156,10 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
     Result<SkillDefinition?> existing = await _learned.GetAsync(input.Name, ct).ConfigureAwait(false);
     if (!existing.IsSuccess)
     {
-      return Err(existing.Error!);
+      return Err(existing.Error);
     }
 
-    if (existing.Value is null)
+    if (existing.ValueOrNull is null)
     {
       return Err(NotFoundDeleteError(input.Name));
     }
@@ -167,7 +167,7 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
     Result<bool> deleted = await _learned.DeleteAsync(input.Name, ct).ConfigureAwait(false);
     if (!deleted.IsSuccess)
     {
-      return Err(deleted.Error!);
+      return Err(deleted.Error);
     }
 
     bool notFound = !deleted.Value;

@@ -62,10 +62,10 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
         path, args.Old, args.New, args.All ? null : args.Occurrences, ct).ConfigureAwait(false);
     if (!replaced.IsSuccess)
     {
-      return Err(replaced.Error!);
+      return Err(replaced.Error);
     }
 
-    ReplaceOutcome o = replaced.Value!;
+    ReplaceOutcome o = replaced.Value;
     string noun = o.Replaced == 1 ? "occurrence" : "occurrence(s)";
     return new ToolResult(
         $"[edit {path}] replaced {o.Replaced} {noun}, file now {o.NewLineCount} lines",

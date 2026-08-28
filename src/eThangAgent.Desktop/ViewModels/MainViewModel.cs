@@ -728,7 +728,7 @@ internal sealed partial class MainViewModel : ObservableObject
         });
     Result<AgentTabViewModel> opened = await vm.OpenAgentAsync(session.WorkspaceRoot, session.ProviderName);
     return !opened.IsSuccess
-        ? throw new InvalidOperationException($"prebuilt session failed to open: [{opened.Error!.Code}] {opened.Error.Message}")
+        ? throw new InvalidOperationException($"prebuilt session failed to open: [{opened.Error.Code}] {opened.Error.Message}")
         : vm;
   }
 }

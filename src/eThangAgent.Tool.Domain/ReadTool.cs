@@ -41,10 +41,10 @@ public sealed class ReadTool(IFileSystemAccess files) : ITool
     Result<FileRead> read = await _files.ReadLinesAsync(args.Path, args.StartLine, args.EndLine, ct).ConfigureAwait(false);
     if (!read.IsSuccess)
     {
-      return Err(read.Error!);
+      return Err(read.Error);
     }
 
-    FileRead file = read.Value!;
+    FileRead file = read.Value;
     if (file.LastLineRead == 0)
     {
       return Err(new DomainError("StartLineBeyondEof",

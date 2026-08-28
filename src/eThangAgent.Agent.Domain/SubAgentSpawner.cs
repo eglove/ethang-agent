@@ -153,7 +153,7 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
     {
       throw new InvalidOperationException(
           $"failed to persist terminal state for agent '{terminal.Id}': " +
-          $"[{update.Error!.Code}] {update.Error.Message}");
+          $"[{update.Error.Code}] {update.Error.Message}");
     }
   }
 

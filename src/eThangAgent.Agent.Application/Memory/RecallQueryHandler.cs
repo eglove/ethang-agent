@@ -32,7 +32,7 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
     Result<SessionScope> parsedScope = SessionScope.Parse(request.Scope);
     if (!parsedScope.IsSuccess)
     {
-      return Result.Failure<RecallPage>(parsedScope.Error!);
+      return Result.Failure<RecallPage>(parsedScope.Error);
     }
 
     if (!string.Equals(request.QueryMode, "literal", StringComparison.Ordinal) &&
@@ -60,15 +60,15 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
       return InvalidArgument("branches must be 'active' or 'all'.");
     }
 
-    Result<List<SessionCorpus>> corpora = await BuildCorporaAsync(parsedScope.Value!, ct).ConfigureAwait(false);
+    Result<List<SessionCorpus>> corpora = await BuildCorporaAsync(parsedScope.Value, ct).ConfigureAwait(false);
     if (!corpora.IsSuccess)
     {
-      return Result.Failure<RecallPage>(corpora.Error!);
+      return Result.Failure<RecallPage>(corpora.Error);
     }
 
     MemoryQueryPlan plan = MemoryQueryPlan.Plan(request.Query, request.QueryMode);
     SearchOutcome outcome = SearchService.Search(
-        corpora.Value!, plan, parsedScope.Value!, mode, request.Role, request.Page, request.PageSize);
+        corpora.Value, plan, parsedScope.Value, mode, request.Role, request.Page, request.PageSize);
 
     return outcome switch
     {
@@ -111,23 +111,23 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
   {
     if (!records.IsSuccess)
     {
-      return Result.Failure<List<SessionCorpus>>(records.Error!);
+      return Result.Failure<List<SessionCorpus>>(records.Error);
     }
 
     List<SessionCorpus> corpora = [];
-    foreach (AgentRecord record in records.Value!)
+    foreach (AgentRecord record in records.Value)
     {
       Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(record.Id, ct).ConfigureAwait(false);
       if (!transcript.IsSuccess)
       {
-        return Result.Failure<List<SessionCorpus>>(transcript.Error!);
+        return Result.Failure<List<SessionCorpus>>(transcript.Error);
       }
 
       corpora.Add(new SessionCorpus(
           record.Id,
           record.ParentId,
           record.Depth,
-          [.. transcript.Value!.Select((message, index) => new MemoryEntry(
+          [.. transcript.Value.Select((message, index) => new MemoryEntry(
                     record.Id, index, message.Role.ToString(), message.Content, message.Timestamp))]));
     }
 

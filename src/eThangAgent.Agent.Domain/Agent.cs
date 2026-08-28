@@ -92,12 +92,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
             callbacks?.OnContentDelta, callbacks?.OnReasoningDelta, ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
-          return Result.Failure<string>(result.Error!);
+          return Result.Failure<string>(result.Error);
         }
 
         callbacks?.OnIterationEnd?.Invoke();
 
-        ModelResponse response = result.Value!;
+        ModelResponse response = result.Value;
         if (response.ToolCalls.Count == 0)
         {
           string content = response.Content ?? "";

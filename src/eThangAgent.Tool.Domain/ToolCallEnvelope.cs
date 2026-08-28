@@ -16,12 +16,12 @@ public static class ToolCallEnvelopeParser
     Result<JsonElement> parsed = ToolArguments.ParseObject(jsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Result.Failure<ToolCallEnvelope>(parsed.Error!);
+      return Result.Failure<ToolCallEnvelope>(parsed.Error);
     }
 
     Result<TimeSpan> budget = ToolTimeout.Parse(parsed.Value);
     return !budget.IsSuccess
-      ? Result.Failure<ToolCallEnvelope>(budget.Error!)
+      ? Result.Failure<ToolCallEnvelope>(budget.Error)
       : Result.Success(
         new ToolCallEnvelope(toolName, budget.Value, parsed.Value));
   }

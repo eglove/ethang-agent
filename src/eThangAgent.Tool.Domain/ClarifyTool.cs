@@ -60,10 +60,10 @@ public sealed class ClarifyTool(IClarifyChannel channel) : ITool
         new ClarifyQuestion(v.Question, v.Options ?? [], v.AllowFreeText), ct).ConfigureAwait(false);
     if (!asked.IsSuccess)
     {
-      return Err(asked.Error!);
+      return Err(asked.Error);
     }
 
-    string raw = asked.Value!;
+    string raw = asked.Value;
     string answered;
     if (v.Options is { Count: > 0 } && int.TryParse(raw.Trim(), out int selection))
     {

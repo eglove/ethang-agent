@@ -60,25 +60,26 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
     Result<TodoAction> action = ParseAction(json);
     if (!action.IsSuccess)
     {
-      return Result.Failure<(TodoAction, int?, string?, TodoStatus?)>(action.Error!);
+      return Result.Failure<(TodoAction, int?, string?, TodoStatus?)>(action.Error);
     }
 
     Result<int?> id = ParseId(json);
     if (!id.IsSuccess)
     {
-      return Result.Failure<(TodoAction, int?, string?, TodoStatus?)>(id.Error!);
+      return Result.Failure<(TodoAction, int?, string?, TodoStatus?)>(id.Error);
     }
 
     Result<string?> description = ToolArguments.OptionalString(json, DescriptionName);
     if (!description.IsSuccess)
     {
-      return Result.Failure<(TodoAction, int?, string?, TodoStatus?)>(description.Error!);
+      return Result.Failure<(TodoAction, int?, string?, TodoStatus?)>(description.Error);
     }
 
     Result<TodoStatus?> status = ParseStatus(json);
     Result<(TodoAction Action, int? Id, string? Description, TodoStatus? Status)> fields = status.IsSuccess
-      ? Result.Success((action.Value, id.Value, description.Value, status.Value))
-      : Result.Failure<(TodoAction, int?, string?, TodoStatus?)>(status.Error!);
+      ? Result.Success<(TodoAction Action, int? Id, string? Description, TodoStatus? Status)>(
+          (action.Value, id.Value, description.Value, status.Value))
+      : Result.Failure<(TodoAction, int?, string?, TodoStatus?)>(status.Error);
     return fields;
   }
 
@@ -87,8 +88,8 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
     Result<string> text = ToolArguments.RequireString(json, ActionName,
         "This tool requires action (Add, Update, Complete, Remove, List, or Clear).");
     return text.IsSuccess
-      ? ToolArguments.ParseEnum<TodoAction>(ActionName, text.Value!, AllowedActions)
-      : Result.Failure<TodoAction>(text.Error!);
+      ? ToolArguments.ParseEnum<TodoAction>(ActionName, text.Value, AllowedActions)
+      : Result.Failure<TodoAction>(text.Error);
   }
 
   private static Result<int?> ParseId(JsonElement json)
@@ -116,7 +117,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
     Result<string?> text = ToolArguments.OptionalString(json, StatusName);
     if (!text.IsSuccess)
     {
-      return Result.Failure<TodoStatus?>(text.Error!);
+      return Result.Failure<TodoStatus?>(text.Error);
     }
 
     if (text.Value is not { } statusText)
@@ -127,7 +128,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
     Result<TodoStatus> status = ToolArguments.ParseEnum<TodoStatus>(StatusName, statusText, AllowedStatuses);
     Result<TodoStatus?> result = status.IsSuccess
       ? Result.Success<TodoStatus?>(status.Value)
-      : Result.Failure<TodoStatus?>(status.Error!);
+      : Result.Failure<TodoStatus?>(status.Error);
     return result;
   }
 

@@ -91,8 +91,8 @@ public sealed class IntelligentModelSelector : IModelSelector
     Result<ModelResponse> response = await _provider.SendAsync(_stage1Config, request, ct).ConfigureAwait(false);
     return !response.IsSuccess
       ? Result.Failure<TaskCategory>(new DomainError("CategorizationFailed",
-          $"Stage 1 LLM call failed: {response.Error!.Message}"))
-      : ParseCategory(response.Value!.Content);
+          $"Stage 1 LLM call failed: {response.Error.Message}"))
+      : ParseCategory(response.Value.Content);
   }
 
   private static Result<TaskCategory> ParseCategory(string? json)
@@ -170,8 +170,8 @@ public sealed class IntelligentModelSelector : IModelSelector
     Result<ModelResponse> response = await _provider.SendAsync(_stage2Config, request, ct).ConfigureAwait(false);
     return !response.IsSuccess
       ? Result.Failure<ModelSelectionResult>(new DomainError(SelectionFailed,
-          $"Stage 2 LLM call failed: {response.Error!.Message}"))
-      : ParseSelection(response.Value!.Content, category, candidates);
+          $"Stage 2 LLM call failed: {response.Error.Message}"))
+      : ParseSelection(response.Value.Content, category, candidates);
   }
 
   private static string SerializeCandidates(IReadOnlyList<ModelProviderEntry> candidates)

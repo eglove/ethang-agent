@@ -261,7 +261,7 @@ public sealed class ScriptTools
     Result<ResolvedCapability> resolved = _registry.Resolve(name);
     if (!resolved.IsSuccess)
     {
-      return $"Error [UnknownAction]: {resolved.Error!.Message}";
+      return $"Error [UnknownAction]: {resolved.Error.Message}";
     }
 
     string json = args switch
@@ -289,13 +289,13 @@ public sealed class ScriptTools
     Result<TimeSpan> budget = ToolTimeout.Parse(document);
     if (!budget.IsSuccess)
     {
-      return $"Error [{budget.Error!.Code}]: {budget.Error.Message}";
+      return $"Error [{budget.Error.Code}]: {budget.Error.Message}";
     }
 
     // Tools whose contract declares timeoutSeconds (ITool-backed actions) re-validate
     // it themselves — pass arguments through untouched. Pure capability providers never
     // declare it; strip the harness-reserved key so their strict parsers accept the rest.
-    bool declaresTimeout = resolved.Value!.Action.Parameters
+    bool declaresTimeout = resolved.Value.Action.Parameters
         .Any(pr => pr.Name == ToolTimeout.ParameterName);
     string stripped = declaresTimeout ? json : StripTimeout(document);
 

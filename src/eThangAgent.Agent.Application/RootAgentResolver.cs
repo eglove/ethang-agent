@@ -78,10 +78,10 @@ public sealed class RootAgentResolver(
     if (!selection.IsSuccess)
     {
       return (Make(_fallbackModelId, null),
-          $"Model selection failed: {selection.Error!.Message}; using {_fallbackModelId}.");
+          $"Model selection failed: {selection.Error.Message}; using {_fallbackModelId}.");
     }
 
-    string modelId = selection.Value!.ModelId;
+    string modelId = selection.Value.ModelId;
     string? providerName = selection.Value.ProviderName;
 
     // 4. Persist the resolved model onto the root record (best effort — a store failure
@@ -111,7 +111,7 @@ public sealed class RootAgentResolver(
   {
     Result<ModelConfig> created = ModelConfig.Create(
         modelId, providerName, _maxTokens, _temperature, _preferences?.ReasoningEffort);
-    return created.IsSuccess ? created.Value! : Make(_fallbackModelId, null);
+    return created.IsSuccess ? created.Value : Make(_fallbackModelId, null);
   }
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)
@@ -123,7 +123,7 @@ public sealed class RootAgentResolver(
     }
 
     Result<AgentRecord> record = await _store.GetAsync(rootId.Value, ct).ConfigureAwait(false);
-    if (!record.IsSuccess || record.Value is null)
+    if (!record.IsSuccess)
     {
       return null;
     }

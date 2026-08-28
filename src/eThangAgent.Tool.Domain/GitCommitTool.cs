@@ -74,10 +74,10 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
     Result<GitCommitOutcome> committed = await _commits.CommitAsync(repoRoot, message, ct).ConfigureAwait(false);
     if (!committed.IsSuccess)
     {
-      return Err(committed.Error!);
+      return Err(committed.Error);
     }
 
-    GitCommitOutcome o = committed.Value!;
+    GitCommitOutcome o = committed.Value;
 
     return new ToolResult($"[git-commit {o.Hash}] committed on {o.Branch}\n{o.Message}", false);
   }

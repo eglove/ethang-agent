@@ -48,13 +48,13 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     string branch = branchRes.ExitCode == 0 ? branchRes.StdOut.Trim() : "(detached)";
 
     Result<GitRun> statusRes = await RunGitVerifiedAsync(repoPath, ["status", "--porcelain"], ct).ConfigureAwait(false);
-    if (statusRes.Value is not { } statusRun)
+    if (!statusRes.IsSuccess)
     {
-      return Result.Failure<GitStatus>(statusRes.Error!);
+      return Result.Failure<GitStatus>(statusRes.Error);
     }
 
     (List<GitStatusEntry> staged, List<GitStatusEntry> unstaged, List<string> untracked) =
-        ParsePorcelain(statusRun.StdOut);
+        ParsePorcelain(statusRes.Value.StdOut);
     GitStatus status = new(branch, staged, unstaged, untracked);
     return Result.Success(status);
   }
@@ -147,10 +147,10 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       Result<List<string>> staged = await CollectNumstatAsync(repoPath, ["diff", "--cached", "--numstat"], pathArgs, ct).ConfigureAwait(false);
       if (!staged.IsSuccess)
       {
-        return Result.Failure<GitDiffStats>(staged.Error!);
+        return Result.Failure<GitDiffStats>(staged.Error);
       }
 
-      numstatLines.AddRange(staged.Value!);
+      numstatLines.AddRange(staged.Value);
     }
 
     if (wantUnstaged)
@@ -158,10 +158,10 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       Result<List<string>> unstaged = await CollectNumstatAsync(repoPath, ["diff", "--numstat"], pathArgs, ct).ConfigureAwait(false);
       if (!unstaged.IsSuccess)
       {
-        return Result.Failure<GitDiffStats>(unstaged.Error!);
+        return Result.Failure<GitDiffStats>(unstaged.Error);
       }
 
-      numstatLines.AddRange(unstaged.Value!);
+      numstatLines.AddRange(unstaged.Value);
     }
 
     return Result.Success(FoldNumstat(numstatLines));
@@ -171,12 +171,12 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       string[] pathArgs, CancellationToken ct)
   {
     Result<GitRun> run = await RunGitVerifiedAsync(repoPath, WithPath(baseArgs, pathArgs), ct).ConfigureAwait(false);
-    if (run.Value is not { } numstatRun)
+    if (!run.IsSuccess)
     {
-      return Result.Failure<List<string>>(run.Error!);
+      return Result.Failure<List<string>>(run.Error);
     }
 
-    List<string> lines = [.. numstatRun.StdOut.Split(NewLines, StringSplitOptions.RemoveEmptyEntries)];
+    List<string> lines = [.. run.Value.StdOut.Split(NewLines, StringSplitOptions.RemoveEmptyEntries)];
     return Result.Success(lines);
   }
 
@@ -225,7 +225,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       Result<bool> staged = await AppendDiffSectionAsync(sb, repoPath, ["diff", "--cached"], pathArgs, "staged", ct).ConfigureAwait(false);
       if (!staged.IsSuccess)
       {
-        return Result.Failure<string>(staged.Error!);
+        return Result.Failure<string>(staged.Error);
       }
     }
 
@@ -234,7 +234,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       Result<bool> unstaged = await AppendDiffSectionAsync(sb, repoPath, ["diff"], pathArgs, "unstaged", ct).ConfigureAwait(false);
       if (!unstaged.IsSuccess)
       {
-        return Result.Failure<string>(unstaged.Error!);
+        return Result.Failure<string>(unstaged.Error);
       }
     }
 
@@ -249,10 +249,10 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     Result<GitRun> r = await RunGitVerifiedAsync(repoPath, WithPath(baseArgs, pathArgs), ct).ConfigureAwait(false);
     if (!r.IsSuccess)
     {
-      return Result.Failure<bool>(r.Error!);
+      return Result.Failure<bool>(r.Error);
     }
 
-    if (r.Value!.StdOut.Length > 0)
+    if (r.Value.StdOut.Length > 0)
     {
       if (sb.Length > 0)
       {

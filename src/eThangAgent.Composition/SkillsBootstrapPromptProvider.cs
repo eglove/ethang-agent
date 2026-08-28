@@ -36,7 +36,7 @@ public sealed class SkillsBootstrapPromptProvider(ISkillCatalog catalog) : ISkil
   private SkillDefinition Require(string name)
   {
     Result<SkillDefinition> result = _catalog.GetAsync(name).GetAwaiter().GetResult();
-    return !result.IsSuccess || result.Value is null
+    return !result.IsSuccess
       ? throw new InvalidOperationException(
           $"Built-in skill '{name}' is missing from the skill catalog " +
           "(packaging defect); cannot build the skills bootstrap prompt.")

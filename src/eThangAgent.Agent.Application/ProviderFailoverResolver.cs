@@ -92,7 +92,7 @@ public sealed class ProviderFailoverResolver(
   private ModelConfig Make(string modelId, string? providerName)
   {
     Result<ModelConfig> created = ModelConfig.Create(modelId, providerName, _maxTokens, _temperature);
-    return created.IsSuccess ? created.Value! : Make(_fallbackModelId, null);
+    return created.IsSuccess ? created.Value : Make(_fallbackModelId, null);
   }
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)
@@ -104,7 +104,7 @@ public sealed class ProviderFailoverResolver(
     }
 
     Result<AgentRecord> record = await _store.GetAsync(rootId.Value, ct).ConfigureAwait(false);
-    if (!record.IsSuccess || record.Value is null)
+    if (!record.IsSuccess)
     {
       return null;
     }

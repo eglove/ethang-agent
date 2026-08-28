@@ -69,18 +69,19 @@ public static class MarkdownDocumentParser
       Result<MarkdownBlock?> parsed = ParseBlock(b);
       if (!parsed.IsSuccess)
       {
-        DomainError wrapped = new(parsed.Error!.Code, $"block[{index}]: {parsed.Error.Message}");
+        DomainError wrapped = new(parsed.Error.Code, $"block[{index}]: {parsed.Error.Message}");
         return FailBlocksAndFrontMatter(wrapped);
       }
 
-      blocks.Add(parsed.Value!);
+      blocks.Add(parsed.Value);
       index++;
     }
 
     Result<IReadOnlyDictionary<string, object>?> frontMatter = ParseFrontMatter(root, source);
     Result<(List<MarkdownBlock?> Blocks, IReadOnlyDictionary<string, object>? FrontMatter)> result = frontMatter.IsSuccess
-      ? Result.Success((blocks, frontMatter.Value))
-      : FailBlocksAndFrontMatter(frontMatter.Error!);
+      ? Result.Success<(List<MarkdownBlock?> Blocks, IReadOnlyDictionary<string, object>? FrontMatter)>(
+          (blocks, frontMatter.Value))
+      : FailBlocksAndFrontMatter(frontMatter.Error);
     return result;
   }
 
@@ -212,8 +213,8 @@ public static class MarkdownDocumentParser
 
     Result<string> text = RequireText(b, "text");
     return text.IsSuccess
-        ? Result.Success<MarkdownBlock?>(new HeaderBlock(level, text.Value!))
-        : FailMarkdownBlock(text.Error!);
+        ? Result.Success<MarkdownBlock?>(new HeaderBlock(level, text.Value))
+        : FailMarkdownBlock(text.Error);
   }
 
   private static Result<MarkdownBlock?> ParseAlert(JsonElement b)
@@ -246,7 +247,7 @@ public static class MarkdownDocumentParser
     Result<string> code = RequireText(b, "code");
     if (!code.IsSuccess)
     {
-      return FailMarkdownBlock(code.Error!);
+      return FailMarkdownBlock(code.Error);
     }
 
     string? language = null;
@@ -259,7 +260,7 @@ public static class MarkdownDocumentParser
 
       language = langEl.GetString();
     }
-    return Result.Success<MarkdownBlock?>(new CodeBlock(code.Value!, language));
+    return Result.Success<MarkdownBlock?>(new CodeBlock(code.Value, language));
   }
 
   private static Result<MarkdownBlock?> ParseSpace(JsonElement b)
@@ -295,11 +296,11 @@ public static class MarkdownDocumentParser
     Result<IReadOnlyList<ListItem>> items = ParseListItems(itemsEl);
     if (!items.IsSuccess)
     {
-      return FailMarkdownBlock(items.Error!);
+      return FailMarkdownBlock(items.Error);
     }
 
     ListKind kind = type == "numberedList" ? ListKind.Numbered : ListKind.Unordered;
-    return Result.Success<MarkdownBlock?>(new ListBlock(kind, items.Value!));
+    return Result.Success<MarkdownBlock?>(new ListBlock(kind, items.Value));
   }
 
   private static Result<IReadOnlyList<ListItem>> ParseListItems(JsonElement arr) =>
@@ -318,10 +319,10 @@ public static class MarkdownDocumentParser
       Result<ListItem> item = ParseListItem(el, depth);
       if (!item.IsSuccess)
       {
-        return FailList(item.Error!);
+        return FailList(item.Error);
       }
 
-      items.Add(item.Value!);
+      items.Add(item.Value);
     }
 
     return Result.Success<IReadOnlyList<ListItem>>(items);
@@ -376,8 +377,8 @@ public static class MarkdownDocumentParser
 
     Result<IReadOnlyList<ListItem>> kids = ParseListItems(childrenEl, depth + 1);
     Result<IReadOnlyList<ListItem>?> result = kids.IsSuccess
-      ? Result.Success(kids.Value)
-      : Result.Failure<IReadOnlyList<ListItem>?>(kids.Error!);
+      ? Result.Success<IReadOnlyList<ListItem>?>(kids.Value)
+      : Result.Failure<IReadOnlyList<ListItem>?>(kids.Error);
     return result;
   }
 
@@ -436,7 +437,7 @@ public static class MarkdownDocumentParser
     Result<(List<TableHeader> Headers, List<IReadOnlyList<string>> Rows)> table = ParseTableBody(headersEl, rowsEl);
     if (!table.IsSuccess)
     {
-      return FailMarkdownBlock(table.Error!);
+      return FailMarkdownBlock(table.Error);
     }
 
     MarkdownBlock block = new TableBlock(table.Value.Headers, table.Value.Rows);
@@ -449,13 +450,13 @@ public static class MarkdownDocumentParser
     Result<List<TableHeader>> headers = ParseTableHeaders(headersEl);
     if (!headers.IsSuccess)
     {
-      return Result.Failure<(List<TableHeader>, List<IReadOnlyList<string>>)>(headers.Error!);
+      return Result.Failure<(List<TableHeader>, List<IReadOnlyList<string>>)>(headers.Error);
     }
 
-    Result<List<IReadOnlyList<string>>> rows = ParseTableRows(rowsEl, headers.Value!.Count);
+    Result<List<IReadOnlyList<string>>> rows = ParseTableRows(rowsEl, headers.Value.Count);
     Result<(List<TableHeader> Headers, List<IReadOnlyList<string>> Rows)> table = rows.IsSuccess
-      ? Result.Success((headers.Value, rows.Value!))
-      : Result.Failure<(List<TableHeader>, List<IReadOnlyList<string>>)>(rows.Error!);
+      ? Result.Success((headers.Value, rows.Value))
+      : Result.Failure<(List<TableHeader>, List<IReadOnlyList<string>>)>(rows.Error);
     return table;
   }
 

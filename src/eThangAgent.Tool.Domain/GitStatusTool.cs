@@ -50,10 +50,10 @@ public sealed class GitStatusTool(IPathResolver resolver, IGitQueryAccess git) :
     Result<GitStatus> status = await _git.GetStatusAsync(repoRoot, ct).ConfigureAwait(false);
     if (!status.IsSuccess)
     {
-      return Err(status.Error!);
+      return Err(status.Error);
     }
 
-    GitStatus s = status.Value!;
+    GitStatus s = status.Value;
 
     List<string> lines = [];
     bool clean = s.Staged.Count == 0 && s.Unstaged.Count == 0 && s.Untracked.Count == 0;
@@ -91,13 +91,13 @@ public sealed class GitStatusTool(IPathResolver resolver, IGitQueryAccess git) :
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Result.Failure<bool>(baseParse.Error!);
+      return Result.Failure<bool>(baseParse.Error);
     }
 
     Result<TimeSpan> budget = ToolTimeout.Parse(baseParse.Value);
     if (!budget.IsSuccess)
     {
-      return Result.Failure<bool>(budget.Error!);
+      return Result.Failure<bool>(budget.Error);
     }
 
     List<string> unknown = [.. baseParse.Value.EnumerateObject()

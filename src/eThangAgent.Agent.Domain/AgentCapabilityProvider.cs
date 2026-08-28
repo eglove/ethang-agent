@@ -87,13 +87,13 @@ public sealed class AgentCapabilityProvider(
     Result<AgentId> id = ParseIdArgument(json);
     if (!id.IsSuccess)
     {
-      return CapabilityInvocationResult.Fail($"Error [{id.Error!.Code}]: {id.Error.Message}");
+      return CapabilityInvocationResult.Fail($"Error [{id.Error.Code}]: {id.Error.Message}");
     }
 
     Result<AgentRecord> lookup = await _queries.GetStatus(id.Value, ct).ConfigureAwait(false);
     return lookup.IsSuccess
-        ? CapabilityInvocationResult.Ok(StateLine(lookup.Value!))
-        : CapabilityInvocationResult.Fail($"Error [{lookup.Error!.Code}]: {lookup.Error.Message}");
+        ? CapabilityInvocationResult.Ok(StateLine(lookup.Value))
+        : CapabilityInvocationResult.Fail($"Error [{lookup.Error.Code}]: {lookup.Error.Message}");
   }
 
   private async Task<CapabilityInvocationResult> GetResult(string json, CancellationToken ct)
@@ -101,13 +101,13 @@ public sealed class AgentCapabilityProvider(
     Result<AgentId> id = ParseIdArgument(json);
     if (!id.IsSuccess)
     {
-      return CapabilityInvocationResult.Fail($"Error [{id.Error!.Code}]: {id.Error.Message}");
+      return CapabilityInvocationResult.Fail($"Error [{id.Error.Code}]: {id.Error.Message}");
     }
 
     Result<string> report = await _queries.GetResult(id.Value, ct).ConfigureAwait(false);
     return report.IsSuccess
-        ? CapabilityInvocationResult.Ok(report.Value!)
-        : CapabilityInvocationResult.Fail($"Error [{report.Error!.Code}]: {report.Error.Message}");
+        ? CapabilityInvocationResult.Ok(report.Value)
+        : CapabilityInvocationResult.Fail($"Error [{report.Error.Code}]: {report.Error.Message}");
   }
 
   /// <summary>Renders the status output contract: the state line, plus the reason suffix

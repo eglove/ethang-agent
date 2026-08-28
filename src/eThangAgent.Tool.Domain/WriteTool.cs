@@ -53,10 +53,10 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : 
     Result<FileWriteOutcome> written = await _files.WriteFileAsync(path, args.Content, args.Overwrite, ct).ConfigureAwait(false);
     if (!written.IsSuccess)
     {
-      return Err(written.Error!);
+      return Err(written.Error);
     }
 
-    FileWriteOutcome o = written.Value!;
+    FileWriteOutcome o = written.Value;
     return new ToolResult(
         $"[write {path}] {(o.Created ? "created" : "overwritten")}, {o.BytesWritten} bytes",
         false);

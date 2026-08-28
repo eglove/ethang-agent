@@ -42,7 +42,7 @@ public sealed record CommitMessage(string Rendered, string Subject)
     Result<CommitStyle> parsedStyle = ParseStyle(style);
     if (!parsedStyle.IsSuccess)
     {
-      return Result.Failure<CommitMessage>(parsedStyle.Error!);
+      return Result.Failure<CommitMessage>(parsedStyle.Error);
     }
 
     // Rules 2-4 — per-style parameter rules (Gitmoji resolves its emoji here).
@@ -57,7 +57,7 @@ public sealed record CommitMessage(string Rendered, string Subject)
     Result<string> parsedDescription = ValidateDescription(description);
     if (!parsedDescription.IsSuccess)
     {
-      return Result.Failure<CommitMessage>(parsedDescription.Error!);
+      return Result.Failure<CommitMessage>(parsedDescription.Error);
     }
 
     // Rule 6 — scope (Conventional only): ^[a-z0-9-]+$; stored as given.
@@ -69,7 +69,7 @@ public sealed record CommitMessage(string Rendered, string Subject)
 
     // Rendering — deterministic subject + optional blank-line/body, one trailing \n.
     // Rule 1 has already narrowed parsedStyle to the three named values.
-    string subject = RenderSubject(parsedStyle.Value, type, scope, gitmoji, parsedDescription.Value!);
+    string subject = RenderSubject(parsedStyle.Value, type, scope, gitmoji, parsedDescription.Value);
 
     // Trailing newline(s) on the body are trimmed at render time so the message
     // ends with exactly one newline regardless of how the caller formatted the body —

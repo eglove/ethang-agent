@@ -136,11 +136,11 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       Result<IReadOnlyList<ModelProviderEntry>> catalog = await scheduled;
       if (!catalog.IsSuccess)
       {
-        LoadError = catalog.Error!.Message;
+        LoadError = catalog.Error.Message;
         return;
       }
 
-      ModelRows = BuildRows(catalog.Value!);
+      ModelRows = BuildRows(catalog.Value);
       RebuildFilteredRows();
       // Pre-select the session's live choice; otherwise the auto row when offered.
       SelectedRow = FilteredRows.FirstOrDefault(r => r.ModelId == _currentModelId)

@@ -65,13 +65,13 @@ public sealed record SkillManageInput(
     Result<SkillManageAction> action = ParseAction(json);
     if (!action.IsSuccess)
     {
-      return FailFields(action.Error!);
+      return FailFields(action.Error);
     }
 
     Result<string> name = ParseName(json);
     if (!name.IsSuccess)
     {
-      return FailFields(name.Error!);
+      return FailFields(name.Error);
     }
 
     // description / body: required non-empty for Create, optional-but-non-empty
@@ -79,20 +79,21 @@ public sealed record SkillManageInput(
     Result<string?> description = ToolArguments.OptionalString(json, DescriptionName);
     if (!description.IsSuccess)
     {
-      return FailFields(description.Error!);
+      return FailFields(description.Error);
     }
 
     Result<string?> body = ToolArguments.OptionalString(json, BodyName);
     if (!body.IsSuccess)
     {
-      return FailFields(body.Error!);
+      return FailFields(body.Error);
     }
 
     Result<string?> provenanceSession = ToolArguments.OptionalString(json, ProvenanceSessionName);
     Result<(SkillManageAction Action, string Name, string? Description, string? Body, string? ProvenanceSession)> fields =
         provenanceSession.IsSuccess
-      ? Result.Success((action.Value, name.Value!, description.Value, body.Value, provenanceSession.Value))
-      : FailFields(provenanceSession.Error!);
+      ? Result.Success<(SkillManageAction Action, string Name, string? Description, string? Body, string? ProvenanceSession)>(
+          (action.Value, name.Value, description.Value, body.Value, provenanceSession.Value))
+      : FailFields(provenanceSession.Error);
     return fields;
   }
 
@@ -104,8 +105,8 @@ public sealed record SkillManageInput(
   {
     Result<string> text = ToolArguments.RequireString(json, ActionName, ActionAndNameRequirement);
     return text.IsSuccess
-      ? ToolArguments.ParseEnum<SkillManageAction>(ActionName, text.Value!, AllowedActions)
-      : Result.Failure<SkillManageAction>(text.Error!);
+      ? ToolArguments.ParseEnum<SkillManageAction>(ActionName, text.Value, AllowedActions)
+      : Result.Failure<SkillManageAction>(text.Error);
   }
 
   private static Result<string> ParseName(JsonElement json)
@@ -116,7 +117,7 @@ public sealed record SkillManageInput(
       return name;
     }
 
-    string value = name.Value!;
+    string value = name.Value;
     if (value.Length == 0)
     {
       return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue,

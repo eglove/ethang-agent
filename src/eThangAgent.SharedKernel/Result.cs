@@ -1,12 +1,27 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace eThangAgent.SharedKernel;
 
 /// <summary>The outcome of an operation that can fail: a value on success, a
-/// <see cref="DomainError"/> on failure. Expected failures flow as data — never exceptions.</summary>
+/// <see cref="DomainError"/> on failure. Expected failures flow as data — never exceptions.
+/// <para>Null-state contract (enforced via MemberNotNullWhen): when <see cref="IsSuccess"/>
+/// is true, <see cref="Value"/> is non-null; when false, <see cref="Error"/> is non-null.
+/// The one caveat: when T itself is instantiated nullable (Result&lt;string?&gt;), Value may
+/// legitimately be null on success — read such Results through <see cref="ValueOrNull"/>
+/// and null-check that, because the compiler trusts the contract for <see cref="Value"/>.</para></summary>
 public class Result<T>
 {
   public T? Value { get; }
   public DomainError? Error { get; }
+
+  [MemberNotNullWhen(true, nameof(Value))]
+  [MemberNotNullWhen(false, nameof(Error))]
   public bool IsSuccess { get; }
+
+  /// <summary>Unannotated view of <see cref="Value"/> for nullable-type-argument Results
+  /// (Result&lt;T?&gt;): null checks against this member stay live, because the
+  /// MemberNotNullWhen claim on <see cref="IsSuccess"/> does not carry over to it.</summary>
+  public T? ValueOrNull => Value;
 
   private Result(T value)
   {
@@ -31,19 +46,19 @@ public class Result<T>
   {
     ArgumentNullException.ThrowIfNull(success);
     ArgumentNullException.ThrowIfNull(failure);
-    return IsSuccess ? success(Value!) : failure(Error!);
+    return IsSuccess ? success(Value) : failure(Error);
   }
 
   public Result<TResult> Map<TResult>(Func<T, TResult> f)
   {
     ArgumentNullException.ThrowIfNull(f);
-    return IsSuccess ? Result.Success(f(Value!)) : Result.Failure<TResult>(Error!);
+    return IsSuccess ? Result.Success(f(Value)) : Result.Failure<TResult>(Error);
   }
 
   public Result<TResult> Bind<TResult>(Func<T, Result<TResult>> f)
   {
     ArgumentNullException.ThrowIfNull(f);
-    return IsSuccess ? f(Value!) : Result.Failure<TResult>(Error!);
+    return IsSuccess ? f(Value) : Result.Failure<TResult>(Error);
   }
 }
 

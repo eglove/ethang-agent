@@ -72,7 +72,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
       return text;
     }
 
-    Result<string> nonEmpty = text.Value!.Length > 0
+    Result<string> nonEmpty = text.Value.Length > 0
       ? text
       : Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue, emptyMessage));
     return nonEmpty;

@@ -38,11 +38,11 @@ public class RootSessionLifecycle(IAgentStore store)
   {
     ArgumentNullException.ThrowIfNull(reportError);
     Result<AgentRecord> record = await store.GetAsync(rootId).ConfigureAwait(false);
-    if (!record.IsSuccess || record.Value is null)
+    if (!record.IsSuccess)
     {
       reportError(record.IsSuccess
           ? $"Error [NotFound]: root session {rootId} was not found."
-          : $"Error [{record.Error!.Code}]: {record.Error.Message}");
+          : $"Error [{record.Error.Code}]: {record.Error.Message}");
       return;
     }
 

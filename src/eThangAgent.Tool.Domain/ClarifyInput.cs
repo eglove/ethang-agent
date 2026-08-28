@@ -56,7 +56,7 @@ public sealed record ClarifyInput(string Question, IReadOnlyList<string>? Option
 
     // An options-free, free-text-blocked question can never succeed: every
     // answer would be rejected as FreeTextNotAllowed. Reject it at the boundary.
-    Result<ClarifyInput> result = !allowFreeText.Value && options.Value is null
+    Result<ClarifyInput> result = !allowFreeText.Value && options.ValueOrNull is null
       ? Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "'allowFreeText' is false but 'options' was not provided: without options " +
           "every answer would be rejected as free text. Provide at least 2 options " +
