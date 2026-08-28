@@ -10,7 +10,7 @@
     <TextBox Grid.Row="0" Watermark="Search models…" Text="{Binding SearchText}"/>
 
     <Panel Grid.Row="1" Margin="0,8,0,0">
-      <ListBox ItemsSource="{Binding FilteredRows}" SelectedItem="{Binding SelectedRow}"
+      <ListBox x:Name="ModelList" ItemsSource="{Binding FilteredRows}" SelectedItem="{Binding SelectedRow}"
                DoubleTapped="OnRowDoubleTapped">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:ModelPickerRow">
@@ -32,7 +32,7 @@
     <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"
                 Margin="0,8,0,0">
       <Button Content="Cancel" Click="OnCancel"/>
-      <Button Content="Select" Command="{Binding ConfirmCommand}"/>
+      <Button x:Name="SelectButton" Content="Select" Command="{Binding ConfirmCommand}"/>
     </StackPanel>
   </Grid>
 </Window>

@@ -33,6 +33,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   private readonly bool _allowAuto;
   private readonly string? _currentModelId;
   private IReadOnlyList<ModelPickerRow> ModelRows { get; set; } = [];
+  private IReadOnlyList<ModelPickerRow> FilteredRowsList { get; set; } = [];
   private bool _loaded;
 
   /// <summary>Raised when the user confirms a row; carries the choice. The view closes
@@ -42,7 +43,6 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   public IRelayCommand ConfirmCommand { get; }
 
   [ObservableProperty]
-  [NotifyPropertyChangedFor(nameof(FilteredRows))]
   public partial string SearchText { get; set; }
 
   [ObservableProperty]
@@ -51,29 +51,37 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   [ObservableProperty]
   public partial string? LoadError { get; set; }
 
+  /// <summary>The filtered list is rebuilt ONLY here — selection changes must never
+  ///     swap ItemsSource (see <see cref="FilteredRows"/>).</summary>
+  partial void OnSearchTextChanged(string value) => RebuildFilteredRows();
+
   [ObservableProperty]
-  [NotifyPropertyChangedFor(nameof(FilteredRows))]
   [NotifyCanExecuteChangedFor(nameof(ConfirmCommand))]
   public partial ModelPickerRow? SelectedRow { get; set; }
 
   /// <summary>The auto row (pinned first, never filtered out) followed by the models
-  ///     matching the search text, case-insensitive on the model id.</summary>
-  public IReadOnlyList<ModelPickerRow> FilteredRows
-  {
-    get
-    {
-      string needle = SearchText.Trim();
-      List<ModelPickerRow> rows = [];
-      if (_allowAuto)
-      {
-        rows.Add(AutoRow);
-      }
+  ///     matching the search text, case-insensitive on the model id. The list identity
+  ///     is STABLE between rebuilds: <see cref="SelectedRow"/> deliberately does not
+  ///     raise it — swapping ItemsSource on every selection change would reset the
+  ///     ListBox mid-click, lose the row the user just picked, and write a stale
+  ///     selection back into this property (the click-twice desync, headless-tested
+  ///     in ModelPickerWindowTests).</summary>
+  public IReadOnlyList<ModelPickerRow> FilteredRows => FilteredRowsList;
 
-      rows.AddRange(needle.Length == 0
-          ? ModelRows
-          : ModelRows.Where(r => r.ModelId!.Contains(needle, StringComparison.OrdinalIgnoreCase)));
-      return rows;
+  private void RebuildFilteredRows()
+  {
+    string needle = SearchText.Trim();
+    List<ModelPickerRow> rows = [];
+    if (_allowAuto)
+    {
+      rows.Add(AutoRow);
     }
+
+    rows.AddRange(needle.Length == 0
+        ? ModelRows
+        : ModelRows.Where(r => r.ModelId!.Contains(needle, StringComparison.OrdinalIgnoreCase)));
+    FilteredRowsList = rows;
+    OnPropertyChanged(nameof(FilteredRows));
   }
 
   /// <param name="loadCatalog">Loads the open session's provider catalog (UI thread
@@ -96,7 +104,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
     // load-bearing: ICommand.Execute does not consult CanExecute, and a disabled
     // button is only one of several ways this command can be invoked.
     ConfirmCommand = new RelayCommand(Confirm, () => SelectedRow is not null);
-    SearchText = string.Empty;
+    SearchText = string.Empty; // raises OnSearchTextChanged → initial (auto-only) list
   }
 
   /// <summary>Fetches the catalog off the UI thread and fills the rows. A failure lands
@@ -133,7 +141,7 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
       }
 
       ModelRows = BuildRows(catalog.Value!);
-      OnPropertyChanged(nameof(FilteredRows));
+      RebuildFilteredRows();
       // Pre-select the session's live choice; otherwise the auto row when offered.
       SelectedRow = FilteredRows.FirstOrDefault(r => r.ModelId == _currentModelId)
           ?? (_allowAuto ? AutoRow : null);
