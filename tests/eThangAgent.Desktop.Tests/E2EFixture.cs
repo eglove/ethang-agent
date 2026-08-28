@@ -7,6 +7,7 @@ using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -47,10 +48,7 @@ internal static class E2E
       DatabasePath = Path.Combine(Path.GetTempPath(), $"ethang-e2e-{Guid.NewGuid():N}.db");
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", DatabasePath);
 
-      AgentSettings settings = new(
-          new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
-          new ZaiSettings(null, new Uri("https://zai.test")),
-          new SubAgentOptions(null, TimeSpan.FromSeconds(30), 2));
+      AgentSettings settings = BuildSettings();
 
       _services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.OpenRouter,
@@ -68,9 +66,12 @@ internal static class E2E
 
       // Root-session bootstrap via the shared composition helper — the SAME code
       // path as the desktop host, so the persisted id and the id the view-model
-      // appends under can never drift apart.
+      // appends under can never drift apart. The binding (workspace + provider) is
+      // what resume needs to rehydrate this session later.
+      string workspaceRoot = Directory.GetCurrentDirectory();
       RootId = (await RootSessionBootstrapper.PersistRootAsync(
-          _services.GetRequiredService<IAgentStore>()).ConfigureAwait(false)).Value!;
+          _services.GetRequiredService<IAgentStore>(), workspaceRoot,
+          Providers.OpenRouter).ConfigureAwait(false)).Value!;
       SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
       RootSessionLifecycle lifecycle = _services.GetRequiredService<RootSessionLifecycle>();
       Conversation conversation = _services.GetRequiredService<Conversation>();
@@ -80,7 +81,7 @@ internal static class E2E
       AgentSession session = new(
           _services!, RootId, conversation, handler, lifecycle,
           ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f).Value!,
-          WorkspaceRoot: Directory.GetCurrentDirectory(),
+          WorkspaceRoot: workspaceRoot,
           ProviderName: Providers.OpenRouter,
           ClarifyChannel: new NeverClarifyChannel(),
           Inbox: _services!.GetRequiredService<IAgentInbox>(),
@@ -99,6 +100,19 @@ internal static class E2E
       sessionVmRef = Vm;
       return this;
     }
+
+    /// <summary>The settings snapshot serving the harness: the mock server as the
+    ///     OpenRouter endpoint. Shared by the live container and any resume factory.</summary>
+    internal AgentSettings BuildSettings() => new(
+        new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
+        new ZaiSettings(null, new Uri("https://zai.test")),
+        new SubAgentOptions(null, TimeSpan.FromSeconds(30), 2));
+
+    /// <summary>A factory over the SAME temp database and mock server the harness runs
+    ///     on — lets tests drive the real <see cref="AgentSessionFactory.ResumeAsync"/>
+    ///     path against a session this harness persisted.</summary>
+    internal AgentSessionFactory CreateResumeFactory() =>
+        new(BuildSettings(), new AppDatabase(DatabasePath));
 
     public void Dispose()
     {

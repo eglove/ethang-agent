@@ -33,7 +33,7 @@ public sealed class ListAllRoundTripTests : IDisposable
   public async Task ListAll_ReturnsEveryRow_OrderedByCreatedAt_NotInsertionOrder()
   {
     AgentRecord late = AgentRecord.Root(AgentId.NewId(),
-        new DateTimeOffset(2026, 8, 21, 18, 0, 0, TimeSpan.Zero));
+        new DateTimeOffset(2026, 8, 21, 18, 0, 0, TimeSpan.Zero), @"C:\workspaces\demo", "openrouter");
     AgentRecord early = AgentRecord.Spawned(AgentId.NewId(), parentId: null, depth: 1,
         modelUsed: "mock/model", label: "early child", taskPrompt: "run first",
         createdAt: new DateTimeOffset(2026, 8, 21, 8, 0, 0, TimeSpan.Zero));

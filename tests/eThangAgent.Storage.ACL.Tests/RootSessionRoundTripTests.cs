@@ -35,7 +35,8 @@ public sealed class RootSessionRoundTripTests : IDisposable
     AgentId rootId = AgentId.NewId();
     DateTimeOffset createdAt = new(2026, 8, 21, 9, 0, 0, TimeSpan.Zero);
 
-    Result<string> saved = await _store.SaveAsync(AgentRecord.Root(rootId, createdAt));
+    Result<string> saved = await _store.SaveAsync(
+        AgentRecord.Root(rootId, createdAt, @"C:\workspaces\demo", "openrouter"));
 
     Assert.True(saved.IsSuccess);
     AgentRecord record = (await _store.GetAsync(rootId)).Value!;
@@ -50,6 +51,8 @@ public sealed class RootSessionRoundTripTests : IDisposable
     Assert.Equal(createdAt, record.CreatedAt);
     Assert.Null(record.CompletedAt);
     Assert.Null(record.FinalReport);
+    Assert.Equal(@"C:\workspaces\demo", record.WorkspaceId);
+    Assert.Equal("openrouter", record.Provider);
   }
 
   [Fact]
@@ -57,7 +60,7 @@ public sealed class RootSessionRoundTripTests : IDisposable
   {
     AgentId rootId = AgentId.NewId();
     _ = await _store.SaveAsync(AgentRecord.Root(rootId,
-        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero)));
+        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero), @"C:\workspaces\demo", "openrouter"));
 
     Message user = new(Role.User, "list the test files",
         new DateTimeOffset(2026, 8, 21, 10, 0, 1, TimeSpan.Zero));
@@ -88,7 +91,7 @@ public sealed class RootSessionRoundTripTests : IDisposable
   {
     AgentId rootId = AgentId.NewId();
     _ = await _store.SaveAsync(AgentRecord.Root(rootId,
-        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero)));
+        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero), @"C:\workspaces\demo", "openrouter"));
 
     DateTimeOffset completedAt = new(2026, 8, 21, 10, 5, 0, TimeSpan.Zero);
     AgentRecord running = (await _store.GetAsync(rootId)).Value!;

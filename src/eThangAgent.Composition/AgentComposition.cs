@@ -32,7 +32,7 @@ public static class AgentComposition
   /// <exception cref="InvalidOperationException">the selected provider has no configured API key.</exception>
   public static IServiceCollection AddEThangAgentCore(this IServiceCollection services,
       AgentSettings settings, string providerName, ModelConfig defaultModel, AgentHostOptions host,
-      AppDatabase? database = null)
+      AppDatabase? database = null, IEnumerable<Message>? conversationSeed = null)
   {
     ArgumentNullException.ThrowIfNull(settings);
     ArgumentNullException.ThrowIfNull(defaultModel);
@@ -46,7 +46,9 @@ public static class AgentComposition
 
     IServiceCollection wired = AddProviderServices(services, settings, providerName)
         .AddSingleton(defaultModel)
-        .AddSingleton<Conversation>()
+        // Seed hydrates a resumed session's transcript; a fresh session passes null
+        // and starts from an empty conversation.
+        .AddSingleton(_ => new Conversation(conversationSeed))
         .AddSingleton<IConversationRepository, InMemoryConversationRepository>()
         .AddSingleton<DirectFileSystemAccess>()
         .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())

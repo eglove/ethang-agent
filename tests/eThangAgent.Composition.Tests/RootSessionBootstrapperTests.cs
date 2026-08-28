@@ -10,10 +10,10 @@ namespace eThangAgent.Composition.Tests;
 public class RootSessionBootstrapperTests
 {
   [Fact]
-  public async Task PersistRoot_PersistsARunningDepthZeroRoot_AndReturnsTheSameId()
+  public async Task PersistRoot_PersistsARunningDepthZeroRoot_BoundToWorkspaceAndProvider()
   {
     FakeAgentStore store = new();
-    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store);
+    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", "openrouter");
 
     Assert.True(result.IsSuccess);
     AgentRecord record = Assert.Single(store.Saved);
@@ -21,13 +21,32 @@ public class RootSessionBootstrapperTests
     Assert.Null(record.ParentId);
     Assert.Equal(0, record.Depth);
     Assert.Equal(AgentStatus.Running, record.Status);
+    // The binding is discovery metadata for the Sessions catalog and resume.
+    Assert.Equal(@"C:\workspaces\demo", record.WorkspaceId);
+    Assert.Equal("openrouter", record.Provider);
+  }
+
+  [Fact]
+  public async Task PersistRoot_EmptyWorkspace_Throws()
+  {
+    FakeAgentStore store = new();
+    _ = await Assert.ThrowsAnyAsync<ArgumentException>(
+        () => RootSessionBootstrapper.PersistRootAsync(store, " ", "openrouter"));
+  }
+
+  [Fact]
+  public async Task PersistRoot_EmptyProvider_Throws()
+  {
+    FakeAgentStore store = new();
+    _ = await Assert.ThrowsAnyAsync<ArgumentException>(
+        () => RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", ""));
   }
 
   [Fact]
   public async Task PersistRoot_StoreFailure_SurfacesTheStoreError()
   {
     FakeAgentStore store = new() { FailOnSave = true };
-    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store);
+    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", "openrouter");
 
     Assert.False(result.IsSuccess);
     Assert.Equal("PersistFailed", result.Error!.Code);

@@ -41,8 +41,8 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
 #pragma warning restore CA2007
       using SqliteCommand command = connection.CreateCommand();
       command.CommandText = """
-                INSERT INTO agents (id, parent_id, depth, status, failure_reason, model_used, label, task_prompt, created_at, completed_at, final_report)
-                VALUES (@id, @parent, @depth, @status, @failure, @model, @label, @prompt, @created, @completed, @report);
+                INSERT INTO agents (id, parent_id, depth, status, failure_reason, model_used, label, task_prompt, created_at, completed_at, final_report, workspace_id, provider)
+                VALUES (@id, @parent, @depth, @status, @failure, @model, @label, @prompt, @created, @completed, @report, @workspace, @provider);
                 """;
       BindRecord(command, record);
       _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
@@ -68,7 +68,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
       command.CommandText = """
                 UPDATE agents SET parent_id=@parent, depth=@depth, status=@status, failure_reason=@failure,
                     model_used=@model, label=@label, task_prompt=@prompt, created_at=@created,
-                    completed_at=@completed, final_report=@report
+                    completed_at=@completed, final_report=@report, workspace_id=@workspace, provider=@provider
                 WHERE id=@id;
                 """;
       BindRecord(command, record);
@@ -91,7 +91,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = """
             SELECT id, parent_id, depth, status, failure_reason, model_used, label, task_prompt,
-                   created_at, completed_at, final_report
+                   created_at, completed_at, final_report, workspace_id, provider
             FROM agents WHERE id=@id;
             """;
     Add(command, "@id", id.ToString());
@@ -181,7 +181,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = """
             SELECT id, parent_id, depth, status, failure_reason, model_used, label, task_prompt,
-                   created_at, completed_at, final_report
+                   created_at, completed_at, final_report, workspace_id, provider
             FROM agents WHERE parent_id=@parent ORDER BY created_at;
             """;
     Add(command, "@parent", parentId.ToString());
@@ -204,7 +204,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = """
             SELECT id, parent_id, depth, status, failure_reason, model_used, label, task_prompt,
-                   created_at, completed_at, final_report
+                   created_at, completed_at, final_report, workspace_id, provider
             FROM agents ORDER BY created_at;
             """;
     List<AgentRecord> records = [];
@@ -304,6 +304,8 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     Add(command, "@created", record.CreatedAt.ToString("o"));
     Add(command, "@completed", (object?)record.CompletedAt?.ToString("o") ?? DBNull.Value);
     Add(command, "@report", (object?)record.FinalReport ?? DBNull.Value);
+    Add(command, "@workspace", (object?)record.WorkspaceId ?? DBNull.Value);
+    Add(command, "@provider", (object?)record.Provider ?? DBNull.Value);
   }
 
   private static AgentRecord ReadRecord(SqliteDataReader reader) => new(
@@ -317,7 +319,9 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
       reader.GetString(7),
       DateTimeOffset.Parse(reader.GetString(8), CultureInfo.InvariantCulture),
       reader.IsDBNull(9) ? null : DateTimeOffset.Parse(reader.GetString(9), CultureInfo.InvariantCulture),
-      reader.IsDBNull(10) ? null : reader.GetString(10));
+      reader.IsDBNull(10) ? null : reader.GetString(10),
+      reader.IsDBNull(11) ? null : reader.GetString(11),
+      reader.IsDBNull(12) ? null : reader.GetString(12));
 
   private static DomainError NotFound(AgentId id)
       => new("NotFound", $"agent {id} was not found.");

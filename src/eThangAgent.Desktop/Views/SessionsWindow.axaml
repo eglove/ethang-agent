@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:eThangAgent.Desktop.ViewModels"
+        x:Class="eThangAgent.Desktop.Views.SessionsWindow"
+        x:DataType="vm:SessionsViewModel"
+        Title="Sessions" Width="560" Height="520" MinWidth="420" MinHeight="320"
+        CanResize="True" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="*,Auto,Auto" Margin="16">
+
+    <Panel Grid.Row="0">
+      <ListBox x:Name="SessionList" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow}"
+               DoubleTapped="OnRowDoubleTapped">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:SessionRow">
+            <StackPanel Margin="2,4" Opacity="{Binding Dimming}" ToolTip.Tip="{Binding ToolTip}">
+              <TextBlock FontWeight="SemiBold" Text="{Binding WorkspaceName}"/>
+              <TextBlock FontSize="12" Opacity="0.6" Text="{Binding Detail}"/>
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock Text="Loading sessions…" HorizontalAlignment="Center" VerticalAlignment="Center"
+                 Opacity="0.7" IsVisible="{Binding IsLoading}"/>
+    </Panel>
+
+    <TextBlock Grid.Row="1" Text="{Binding LoadError}" Foreground="OrangeRed" TextWrapping="Wrap"
+               FontSize="12" Margin="0,8,0,0"
+               IsVisible="{Binding LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"
+                Margin="0,8,0,0">
+      <Button Content="Cancel" Click="OnCancel"/>
+      <Button x:Name="ResumeButton" Content="Resume" Command="{Binding ConfirmCommand}"/>
+    </StackPanel>
+  </Grid>
+</Window>

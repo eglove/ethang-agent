@@ -1,4 +1,5 @@
 using System.Collections.Specialized;
+using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
 
 namespace eThangAgent.Desktop.Tests;
@@ -135,6 +136,67 @@ public class TranscriptViewModelTests
     TranscriptViewModel vm = new();
     vm.AppendAssistantDelta("");
     vm.AppendReasoning("");
+    Assert.Empty(vm.Entries);
+  }
+
+  // ---- restore (resume replay of a persisted transcript) ----
+
+  [Fact]
+  public void Restore_Replays_The_Persisted_Transcript_Into_Entries()
+  {
+    TranscriptViewModel vm = new();
+    DateTimeOffset at = DateTimeOffset.UtcNow;
+    vm.Restore(
+    [
+        new Message(Role.User, "first", at),
+            new Message(Role.Assistant, "", at, [new ToolCall("call-1", "read", /*lang=json,strict*/ "{\"path\":\"a.cs\"}")]),
+            new Message(Role.Tool, "file content", at, ToolCallId: "call-1"),
+            new Message(Role.Assistant, "final answer", at),
+            new Message(Role.System, "nudge line", at),
+    ]);
+
+    Assert.Equal(5, vm.Entries.Count);
+    _ = Assert.IsType<UserMessageEntry>(vm.Entries[0]);
+    ToolCallEntry call = Assert.IsType<ToolCallEntry>(vm.Entries[1]);
+    Assert.Equal("read", call.Name);
+    Assert.Equal(/*lang=json,strict*/ "{\"path\":\"a.cs\"}", call.Arguments);
+    // The tool name resolves from the PRECEDING call batch by tool-call id.
+    ToolResultEntry result = Assert.IsType<ToolResultEntry>(vm.Entries[2]);
+    Assert.Equal("read", result.Name);
+    Assert.Equal("file content", result.Summary);
+    Assert.Equal("final answer", Assert.IsType<AssistantTextEntry>(vm.Entries[3]).Text);
+    // System messages (nudges, continuation prompts) render as notices.
+    Assert.Equal("nudge line", Assert.IsType<NoticeEntry>(vm.Entries[4]).Text);
+  }
+
+  [Fact]
+  public void Restore_ToolResult_Without_A_Known_Call_Falls_Back_To_Generic_Name()
+  {
+    TranscriptViewModel vm = new();
+    vm.Restore([new Message(Role.Tool, "orphan result", DateTimeOffset.UtcNow, ToolCallId: "unknown-id")]);
+    ToolResultEntry result = Assert.IsType<ToolResultEntry>(Assert.Single(vm.Entries));
+    Assert.Equal("tool", result.Name);
+  }
+
+  [Fact]
+  public void Restore_Assistant_Text_With_ToolCalls_Shows_Both()
+  {
+    TranscriptViewModel vm = new();
+    DateTimeOffset at = DateTimeOffset.UtcNow;
+    vm.Restore(
+    [
+        new Message(Role.Assistant, "checking now", at, [new ToolCall("c", "exec", "{}")]),
+    ]);
+    Assert.Equal(2, vm.Entries.Count);
+    Assert.Equal("checking now", Assert.IsType<AssistantTextEntry>(vm.Entries[0]).Text);
+    _ = Assert.IsType<ToolCallEntry>(vm.Entries[1]);
+  }
+
+  [Fact]
+  public void Restore_Empty_Conversation_Adds_Nothing()
+  {
+    TranscriptViewModel vm = new();
+    vm.Restore([]);
     Assert.Empty(vm.Entries);
   }
 }

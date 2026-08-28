@@ -32,7 +32,7 @@ public class RootAgentResolverTests
   private static async Task<AgentId> SeedRootAsync(FakeAgentStore store)
   {
     AgentId rootId = AgentId.NewId();
-    _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow)).ConfigureAwait(false);
+    _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, "C:/workspaces/demo", "openrouter")).ConfigureAwait(false);
     return rootId;
   }
 
@@ -133,7 +133,7 @@ public class RootAgentResolverTests
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     // Pre-persist the model so persistence is a no-op (ModelUsed already matches).
-    _ = await store.UpdateAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow) with { ModelUsed = "anthropic/claude-3.5-sonnet" }).ConfigureAwait(true);
+    _ = await store.UpdateAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, "C:/workspaces/demo", "openrouter") with { ModelUsed = "anthropic/claude-3.5-sonnet" }).ConfigureAwait(true);
     FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
     RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 

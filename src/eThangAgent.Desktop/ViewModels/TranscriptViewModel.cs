@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.ViewModels;
@@ -46,6 +47,62 @@ internal sealed class TranscriptViewModel
   }
 
   public void EndIteration() => CloseOpen();
+
+  /// <summary>
+  /// Replays a persisted transcript into the entries list — the resume surface, called
+  /// once on a fresh transcript. User → user entry; plain assistant → assistant entry;
+  /// an assistant tool-call message → its text (when non-empty) plus one call entry per
+  /// call; a tool result → result entry with the tool name resolved from the preceding
+  /// assistant batch by <see cref="Message.ToolCallId"/> ("tool" when unresolvable);
+  /// system messages (nudges, continuation prompts) → notices. Reasoning traces and
+  /// stream notices are never persisted, so a restored transcript shows content only.
+  /// </summary>
+  public void Restore(IReadOnlyList<Message> messages)
+  {
+    ArgumentNullException.ThrowIfNull(messages);
+    Dictionary<string, string> callNames = [];
+
+    foreach (Message message in messages)
+    {
+      switch (message.Role)
+      {
+        case Role.User:
+          AddUser(message.Content);
+          break;
+        case Role.Assistant:
+          CloseOpen();
+          if (message.Content.Length > 0)
+          {
+            Entries.Add(new AssistantTextEntry(message.Content));
+          }
+
+          if (message.ToolCalls is { Count: > 0 } calls)
+          {
+            foreach (ToolCall call in calls)
+            {
+              callNames[call.Id] = call.Name;
+              Entries.Add(new ToolCallEntry(call.Name, call.Arguments));
+            }
+          }
+
+          break;
+        case Role.Tool:
+          AddToolResult(
+              message.ToolCallId is not null && callNames.TryGetValue(message.ToolCallId, out string? name)
+                  ? name
+                  : "tool",
+              message.Content);
+          break;
+        case Role.System:
+          AddNotice(message.Content);
+          break;
+        default:
+          break;
+      }
+    }
+
+    CloseOpen();
+  }
 
   public void AppendAssistantDelta(string text)
   {

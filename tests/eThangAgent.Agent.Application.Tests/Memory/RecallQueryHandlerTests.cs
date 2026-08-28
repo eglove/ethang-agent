@@ -30,7 +30,7 @@ public class RecallQueryHandlerTests
     AgentId orphanId = AgentId.NewId();
     AgentId missingAncestor = AgentId.NewId();
 
-    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0))).ConfigureAwait(false);
+    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0), "C:/workspaces/demo", "openrouter")).ConfigureAwait(false);
     // Orphan child: references an absent parent row.
     _ = await _store.SaveAsync(AgentRecord.Spawned(orphanId, missingAncestor, depth: 1,
         modelUsed: "mock/model", label: "orphan", taskPrompt: "lost lineage", createdAt: At(1))).ConfigureAwait(false);
@@ -213,7 +213,7 @@ public class RecallQueryHandlerTests
   public async Task Execute_LiteralRegexMetacharacters_TreatedAsTerms_NeverCompiled()
   {
     AgentId rootId = AgentId.NewId();
-    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0))).ConfigureAwait(true);
+    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0), "C:/workspaces/demo", "openrouter")).ConfigureAwait(true);
     _ = await _store.AppendMessageAsync(rootId,
         new Message(Role.User, "the price is a.c literally", At(1)));
     _ = await _store.AppendMessageAsync(rootId,
@@ -249,7 +249,7 @@ public class RecallQueryHandlerTests
   public async Task Execute_RegexMode_TimeoutSurfacesAsTypedFailResult()
   {
     AgentId rootId = AgentId.NewId();
-    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0))).ConfigureAwait(true);
+    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0), "C:/workspaces/demo", "openrouter")).ConfigureAwait(true);
     _ = await _store.AppendMessageAsync(rootId,
         new Message(Role.User, $"{new string('a', 5000)}b", At(1)));
 
@@ -326,7 +326,7 @@ public class RecallQueryHandlerTests
   public async Task Execute_Paging_PreservesTotalPageAndPages()
   {
     AgentId rootId = AgentId.NewId();
-    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0))).ConfigureAwait(true);
+    _ = await _store.SaveAsync(AgentRecord.Root(rootId, At(0), "C:/workspaces/demo", "openrouter")).ConfigureAwait(true);
     for (int n = 1; n <= 5; n++)
     {
       _ = await _store.AppendMessageAsync(rootId,

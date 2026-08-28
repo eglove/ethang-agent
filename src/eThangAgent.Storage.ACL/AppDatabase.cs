@@ -10,6 +10,13 @@ public sealed class AppDatabase
 {
   private readonly string _connectionString;
 
+  /// <summary>Process-wide migration gate. Containers may be constructed concurrently
+  ///     (one per session), and two Migrate() passes over the same file must not
+  ///     interleave: user_version is read before the schema change, so a concurrent
+  ///     pass can re-apply a migration the other just committed. SQLite serializes
+  ///     writers at the file level, but not the check-then-apply pair.</summary>
+  private static readonly SemaphoreSlim MigrationGate = new(1, 1);
+
   public AppDatabase(string? databasePath = null)
   {
     string path = databasePath
@@ -19,7 +26,15 @@ public sealed class AppDatabase
             "eThangAgent", "eThangAgent.db");
     _ = Directory.CreateDirectory(Path.GetDirectoryName(path)!);
     _connectionString = new SqliteConnectionStringBuilder { DataSource = path }.ToString();
-    Migrate();
+    MigrationGate.Wait();
+    try
+    {
+      Migrate();
+    }
+    finally
+    {
+      _ = MigrationGate.Release();
+    }
   }
 
   public SqliteConnection Open()
@@ -66,6 +81,11 @@ public sealed class AppDatabase
     {
       ApplyV7(connection);
       SetVersion(connection, 7);
+    }
+    if (GetVersion(connection) < 8)
+    {
+      ApplyV8(connection);
+      SetVersion(connection, 8);
     }
   }
 
@@ -307,5 +327,43 @@ public sealed class AppDatabase
     command.CommandText = sql;
 #pragma warning restore CA2100
     _ = command.ExecuteNonQuery();
+  }
+
+  // Root agent rows gain their workspace binding and provider so sessions can be
+  // listed per workspace and resumed by id. Discovery metadata only — conversation
+  // content stays keyed by agent id. NULL for legacy rows (not resumable) and for
+  // spawned children (they inherit their root's workspace).
+  private static void ApplyV8(SqliteConnection connection)
+  {
+    AddColumnIfMissing(connection, "agents", "workspace_id");
+    AddColumnIfMissing(connection, "agents", "provider");
+    string sql = """
+        CREATE INDEX IF NOT EXISTS ix_agents_ws_created ON agents (workspace_id, created_at);
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>SQLite has no ADD COLUMN IF NOT EXISTS; the catalog check makes the one
+  ///     non-idempotent migration step safe to re-run — a pass that read a stale
+  ///     user_version must not fail on a column a concurrent pass already added.
+  ///     Table and column names are call-site constants, never input.</summary>
+  private static void AddColumnIfMissing(SqliteConnection connection, string table, string column)
+  {
+    using SqliteCommand check = connection.CreateCommand();
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+    check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}';";
+#pragma warning restore CA2100
+    if (Convert.ToInt64(check.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
+    {
+      using SqliteCommand alter = connection.CreateCommand();
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+      alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} TEXT NULL;";
+#pragma warning restore CA2100
+      _ = alter.ExecuteNonQuery();
+    }
   }
 }

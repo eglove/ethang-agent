@@ -28,7 +28,7 @@ public class SessionsQueryHandlerTests
     AgentId childId = AgentId.NewId();
     AgentId orphanId = AgentId.NewId();
 
-    AgentRecord root = AgentRecord.Root(rootId, At(0));
+    AgentRecord root = AgentRecord.Root(rootId, At(0), "C:/workspaces/demo", "openrouter");
     _ = await _store.SaveAsync(root).ConfigureAwait(false);
     _ = await _store.UpdateAsync(root with { Status = AgentStatus.Completed }).ConfigureAwait(false);
 

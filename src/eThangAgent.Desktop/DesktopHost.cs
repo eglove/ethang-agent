@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
 using Avalonia.Threading;
+using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
@@ -21,7 +22,8 @@ internal sealed record DesktopBootstrap(
     AgentSettings Settings,
     string PreferredProviderId,
     IAppPreferenceStore Preferences,
-    IApiKeyProtector ApiKeys);
+    IApiKeyProtector ApiKeys,
+    SessionCatalogQueryHandler Catalog);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads configuration (provider API keys come from the app database, DPAPI-
@@ -51,12 +53,17 @@ internal static class DesktopHost
         await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey),
         await LoadKeyAsync(preferences, protector, ZaiSettings.PreferenceKey));
 
+    // The Sessions dialog reads the shared store directly — it must work with zero
+    // tabs open, i.e. outside any per-session container.
+    SessionCatalogQueryHandler catalog = new(new SqliteAgentStore(database));
+
     return new DesktopBootstrap(
         new AgentSessionFactory(settings, database),
         settings,
         await ResolvePreferredProviderAsync(settings, preferences),
         preferences,
-        protector);
+        protector,
+        catalog);
   }
 
   /// <summary>Recovers one stored key: absent stays null; undecryptable (corrupted or
@@ -143,6 +150,7 @@ internal static class DesktopHost
           Settings = boot.Settings,
           SessionFactory = boot.Sessions,
           ApiKeyProtector = boot.ApiKeys,
+          SessionCatalog = boot.Catalog,
         });
     return new MainWindow(vm);
   }

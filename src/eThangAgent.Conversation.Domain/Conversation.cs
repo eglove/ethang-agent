@@ -1,8 +1,8 @@
 namespace eThangAgent.ConversationDomain;
 
-public class Conversation
+public class Conversation(IEnumerable<Message>? seed = null)
 {
-  private readonly List<Message> _messages = [];
+  private readonly List<Message> _messages = [.. seed ?? []];
 
   public IReadOnlyList<Message> Messages => _messages.AsReadOnly();
 

@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using eThangAgent.Agent.Application.Sessions;
+using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
@@ -27,15 +29,45 @@ internal partial class MainWindow : Window
     DataContext = vm;
 
     // The menu button asks the view to show the new-agent modal (UI-affine); the
-    // chosen provider/workspace pair comes back through OpenAgentAsync. The gear
-    // button shows the settings modal the same way, and its result flows through
-    // ApplySettingsAsync. The Model button shows the selected tab's model picker
-    // with its result flowing through ApplyModelChoiceAsync, and the Effort button
-    // shows the selected tab's effort picker through ApplyEffortChoiceAsync.
+    // chosen provider/workspace pair comes back through OpenAgentAsync. The Sessions
+    // button shows the sessions dialog the same way, its pick flowing through
+    // ResumeSessionAsync. The gear button shows the settings modal the same way, and
+    // its result flows through ApplySettingsAsync. The Model button shows the selected
+    // tab's model picker with its result flowing through ApplyModelChoiceAsync, and
+    // the Effort button shows the selected tab's effort picker through
+    // ApplyEffortChoiceAsync.
     vm.OpenAgentRequested += async (_, _) => await ShowNewAgentDialogAsync();
+    vm.SessionsRequested += async (_, _) => await ShowSessionsDialogAsync();
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
     vm.ModelPickerRequested += async (_, _) => await ShowModelPickerDialogAsync();
     vm.EffortPickerRequested += async (_, _) => await ShowEffortPickerDialogAsync();
+  }
+
+  /// <summary>Shows the Sessions dialog (persisted root sessions, already-open ones
+  ///     greyed) and resumes the pick. A cancelled dialog is a no-op. Failures surface
+  ///     as a dialog.</summary>
+  private async Task ShowSessionsDialogAsync()
+  {
+    Func<CancellationToken, Task<Result<IReadOnlyList<SessionCatalogEntry>>>>? loader =
+        _vm!.SessionCatalogLoader;
+    if (loader is null)
+    {
+      await ShowOpenFailedAsync("The session catalog is unavailable in this host.");
+      return;
+    }
+
+    SessionsWindow dialog = new(loader, () => _vm.OpenSessionIds);
+    AgentId? resumed = await dialog.ShowDialog<AgentId?>(this);
+    if (resumed is null)
+    {
+      return; // user cancelled — no-op
+    }
+
+    Result<AgentTabViewModel> result = await _vm.ResumeSessionAsync(resumed.Value);
+    if (!result.IsSuccess)
+    {
+      await ShowOpenFailedAsync(result.Error.Message);
+    }
   }
 
   /// <summary>Shows the new-agent dialog (provider dropdown + workspace picker) and

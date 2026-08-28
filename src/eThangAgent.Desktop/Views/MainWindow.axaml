@@ -16,6 +16,10 @@
         <Button x:Name="OpenAgentButton" DockPanel.Dock="Top" Content="Open Agent"
                 HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
                 Command="{Binding OpenAgentCommand}"/>
+        <Button x:Name="SessionsButton" DockPanel.Dock="Top" Content="Sessions"
+                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
+                Command="{Binding OpenSessionsCommand}"
+                ToolTip.Tip="Resume a previous session"/>
         <Button x:Name="ModelButton" DockPanel.Dock="Top" Content="Model"
                 HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
                 Command="{Binding ChooseModelCommand}"

@@ -4,10 +4,14 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Composition;
 
-/// <summary>Persists the root session around a turn loop: appends one completed exchange
-///     (user then final assistant — the same Message instances the aggregate holds) and marks
-///     the row Completed on graceful exit. Persistence failures surface via reportError;
-///     the session continues. Semantics lifted verbatim from the CLI's Program helpers.</summary>
+/// <summary>Persists the root session around a turn loop: appends EVERY message the turn
+///     added (user, assistant tool-call messages, tool results, continuation prompts,
+///     nudges — the full slice from messageCountBefore) so the transcript is a lossless
+///     resume source, and marks the row Completed on graceful exit. Failed turns persist
+///     too: cancellation is protocol-repaired by the loop and a provider failure carries
+///     just the user message — both leave the transcript valid, and dropping them would
+///     make resume unfaithful. Persistence failures surface via reportError; the session
+///     continues.</summary>
 public class RootSessionLifecycle(IAgentStore store)
 {
   public virtual async Task AppendExchangeAsync(AgentId rootId, Conversation conversation,
@@ -16,21 +20,21 @@ public class RootSessionLifecycle(IAgentStore store)
     ArgumentNullException.ThrowIfNull(conversation);
     ArgumentNullException.ThrowIfNull(result);
     ArgumentNullException.ThrowIfNull(reportError);
-    if (!result.IsSuccess)
+    // messageCountBefore below zero (or beyond the end) would silently slice the wrong
+    // range; a turn that appended nothing still has its count within bounds.
+    if (messageCountBefore < 0 || messageCountBefore > conversation.Messages.Count)
     {
+      reportError($"Error [InvalidSlice]: turn persistence skipped — message count {messageCountBefore} outside conversation range 0..{conversation.Messages.Count}.");
       return;
     }
 
-    Result<string> user = await store.AppendMessageAsync(rootId, conversation.Messages[messageCountBefore]).ConfigureAwait(false);
-    if (!user.IsSuccess)
+    foreach (Message message in conversation.Messages.Skip(messageCountBefore))
     {
-      reportError($"Error [{user.Error.Code}]: {user.Error.Message}");
-    }
-
-    Result<string> assistant = await store.AppendMessageAsync(rootId, conversation.Messages[^1]).ConfigureAwait(false);
-    if (!assistant.IsSuccess)
-    {
-      reportError($"Error [{assistant.Error.Code}]: {assistant.Error.Message}");
+      Result<string> appended = await store.AppendMessageAsync(rootId, message).ConfigureAwait(false);
+      if (!appended.IsSuccess)
+      {
+        reportError($"Error [{appended.Error.Code}]: {appended.Error.Message}");
+      }
     }
   }
 

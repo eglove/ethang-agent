@@ -55,33 +55,65 @@ public class RootSessionLifecycleTests
   private static readonly AgentId RootId = AgentId.NewId();
 
   [Fact]
-  public async Task Failed_Turn_Appends_Nothing()
+  public async Task Failed_Turn_Still_Appends_Its_Slice()
   {
+    // A provider failure leaves the user message in the conversation; a cancelled turn
+    // is protocol-repaired. Either way the slice is valid transcript — resume fidelity
+    // requires it to persist even though the turn result is a failure.
     FakeAgentStore store = new();
     RootSessionLifecycle lifecycle = new(store);
+    Conversation conversation = new();
+    conversation.AddUserMessage("hi");
     List<string> errors = [];
-    await lifecycle.AppendExchangeAsync(RootId, new Conversation(), 0,
+    await lifecycle.AppendExchangeAsync(RootId, conversation, 0,
         Result.Failure<string>(new DomainError("E", "boom")), errors.Add);
-    Assert.Empty(store._appended);
+    _ = Assert.Single(store._appended);
+    Assert.Same(conversation.Messages[0], store._appended[0].Message);
     Assert.Empty(errors);
   }
 
   [Fact]
-  public async Task Successful_Turn_Appends_User_Then_Assistant_Message()
+  public async Task Turn_Slice_Appends_Every_Message_In_Order_Including_Tool_Traffic_And_Nudges()
+  {
+    FakeAgentStore store = new();
+    RootSessionLifecycle lifecycle = new(store);
+    Conversation conversation = new();
+    conversation.AddUserMessage("list files");
+    IReadOnlyList<ToolCall> calls = [new ToolCall("call-1", "search", /*lang=json,strict*/ "{\"pattern\":\"*.cs\"}")];
+    conversation.AddAssistantMessage("", calls);
+    conversation.AddToolResult("call-1", "found 3 files");
+    conversation.AddAssistantMessage("found three files");
+    conversation.AddSystemMessage("nudge: write a memory");
+    await lifecycle.AppendExchangeAsync(RootId, conversation, 0,
+        Result.Success("found three files"), _ => Assert.Fail("no errors expected"));
+    Assert.Equal(5, store._appended.Count);
+    Assert.Equal(Role.User, store._appended[0].Message.Role);
+    Assert.Equal(Role.Assistant, store._appended[1].Message.Role);
+    Assert.Equal(calls, store._appended[1].Message.ToolCalls);
+    Assert.Equal(Role.Tool, store._appended[2].Message.Role);
+    Assert.Equal("call-1", store._appended[2].Message.ToolCallId);
+    Assert.Equal(Role.Assistant, store._appended[3].Message.Role);
+    // The nudge lands AFTER the assistant message — the persisted order is the true
+    // conversation order, never the old "final message only" snapshot.
+    Assert.Equal(Role.System, store._appended[^1].Message.Role);
+    // The same Message instances the aggregate holds — never re-mapped copies.
+    Assert.Same(conversation.Messages[0], store._appended[0].Message);
+    Assert.Same(conversation.Messages[^1], store._appended[^1].Message);
+  }
+
+  [Fact]
+  public async Task OutOfRange_MessageCountBefore_Reports_And_Appends_Nothing()
   {
     FakeAgentStore store = new();
     RootSessionLifecycle lifecycle = new(store);
     Conversation conversation = new();
     conversation.AddUserMessage("hi");
-    conversation.AddAssistantMessage("hello");
-    await lifecycle.AppendExchangeAsync(RootId, conversation, 0,
-        Result.Success("hello"), _ => Assert.Fail("no errors expected"));
-    Assert.Equal(2, store._appended.Count);
-    Assert.Equal(Role.User, store._appended[0].Message.Role);
-    Assert.Equal(Role.Assistant, store._appended[^1].Message.Role);
-    // The same Message instances the aggregate holds — never re-mapped copies.
-    Assert.Same(conversation.Messages[0], store._appended[0].Message);
-    Assert.Same(conversation.Messages[1], store._appended[1].Message);
+    List<string> errors = [];
+    await lifecycle.AppendExchangeAsync(RootId, conversation, 5,
+        Result.Success("hi"), errors.Add);
+    Assert.Empty(store._appended);
+    _ = Assert.Single(errors);
+    Assert.Contains("InvalidSlice", errors[0], StringComparison.Ordinal);
   }
 
   [Fact]
@@ -126,7 +158,7 @@ public class RootSessionLifecycleTests
   public async Task Complete_Marks_Row_Completed_Preserving_Other_Fields()
   {
     DateTimeOffset createdAt = DateTimeOffset.UtcNow;
-    AgentRecord root = AgentRecord.Root(RootId, createdAt);
+    AgentRecord root = AgentRecord.Root(RootId, createdAt, @"C:\workspaces\demo", "openrouter");
     FakeAgentStore store = new() { _current = root, _getOutcome = Result.Success(root) };
     RootSessionLifecycle lifecycle = new(store);
     List<string> errors = [];
@@ -144,6 +176,8 @@ public class RootSessionLifecycleTests
     Assert.Equal(root.Label, persisted.Label);
     Assert.Equal(root.TaskPrompt, persisted.TaskPrompt);
     Assert.Equal(root.CreatedAt, persisted.CreatedAt);
+    Assert.Equal(root.WorkspaceId, persisted.WorkspaceId);
+    Assert.Equal(root.Provider, persisted.Provider);
     Assert.Null(persisted.FinalReport);
     _ = Assert.Single(store._updated);
     Assert.DoesNotContain(persisted, store._saved); // update, never re-save
@@ -163,7 +197,7 @@ public class RootSessionLifecycleTests
   [Fact]
   public async Task Complete_When_Update_Fails_Reports_Error()
   {
-    AgentRecord root = AgentRecord.Root(RootId, DateTimeOffset.UtcNow);
+    AgentRecord root = AgentRecord.Root(RootId, DateTimeOffset.UtcNow, @"C:\workspaces\demo", "openrouter");
     FakeAgentStore store = new()
     {
       _current = root,

@@ -83,11 +83,11 @@ public sealed class SqliteAppPreferenceStoreTests : IDisposable
   [Fact]
   public void MigrationV7_CreatesAppPreferencesTable()
   {
-    // Fresh databases migrate to version 7 with the app_preferences table present.
+    // Fresh databases migrate past the app_preferences and session-binding migrations.
     using SqliteConnection connection = _db.Open();
     using SqliteCommand version = connection.CreateCommand();
     version.CommandText = "PRAGMA user_version;";
-    Assert.Equal(7, Convert.ToInt32(version.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture));
+    Assert.Equal(8, Convert.ToInt32(version.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture));
 
     using SqliteCommand table = connection.CreateCommand();
     table.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'app_preferences';";

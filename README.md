@@ -58,10 +58,19 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
   Applies from the next turn to the root agent and children alike, on both OpenRouter and
   z.ai tabs (OpenRouter maps the level to what the chosen model supports). The choice is
   remembered per workspace + provider and restored when the same directory reopens
+- **Sessions** entry (left menu) — resume a previous conversation: every persisted
+  session is listed newest-first with its workspace, provider, start time, and status;
+  sessions already open in a tab are greyed out (hover explains why). Confirming a row
+  reopens that session on its original provider and workspace and replays the full
+  persisted transcript — including tool calls and results — so the conversation continues
+  where it stopped, with prior history carried into the next turn. Opening a workspace
+  through **Open Agent** always starts a NEW session; resume is a deliberate pick from
+  the menu, never automatic per directory. A workspace can hold many sessions, and
+  resuming one never merges another session's history into it
 - `todo` tool — durable workspace task list with compare-and-swap writes
 - Capability registry exposing agent tools plus spawnable sub-agents, durable workspace state, and memory recall
 - Nested sub-agents with depth limits and concurrency caps
-- Session persistence and recall via a versioned, app-owned SQLite database
+- Session persistence, recall, and resume via a versioned, app-owned SQLite database
 
 ## Requirements
 

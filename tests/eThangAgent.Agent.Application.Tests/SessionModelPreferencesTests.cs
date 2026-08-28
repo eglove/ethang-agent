@@ -92,7 +92,7 @@ public class SessionModelPreferencesTests
   {
     FakeAgentStore store = new();
     AgentId rootId = AgentId.NewId();
-    _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow));
+    _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, "C:/workspaces/demo", "openrouter"));
     SessionModelPreferences preferences = new();
     RootAgentResolver resolver = new(
         selector: null, store, new RootSessionIdentity() { Id = rootId },

@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Agent.Application;
+using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.Streaming;
@@ -56,22 +57,31 @@ internal sealed record MainViewModelOptions
   /// <summary>Protects keys before they reach durable storage. When null (tests),
   ///     key saves are not persisted at all.</summary>
   public IApiKeyProtector? ApiKeyProtector { get; init; }
+
+  /// <summary>Lists resumable root sessions for the Sessions dialog. When null (hosts
+  ///     that compose sessions without a shared store), the Sessions entry reports the
+  ///     catalog as unavailable.</summary>
+  public SessionCatalogQueryHandler? SessionCatalog { get; init; }
 }
 
-/// <summary>Shell-level state for the main window: the left menu bar (Open Agent, the
-///     per-tab Model and Effort entries, and the bottom-anchored Settings entry) and
-///     the open agent tabs. 'Open Agent' shows the new-agent dialog (provider dropdown
-///     plus workspace picker); each tab owns an <see cref="AgentSessionViewModel"/>
-///     bound to its own isolated <see cref="AgentSession"/> created through the
-///     injected provider-aware session-factory hook. The Model entry shows the selected
-///     tab's model picker and the Effort entry its effort picker: confirming applies
-///     the choice to the session (from the next turn, root and children alike) and
-///     persists it per workspace + provider, so reopening the same directory restores
-///     it. The settings modal edits the provider API keys: saving persists them
-///     (protected) and rebuilds the factory so future opens use the new keys —
-///     already-open tabs keep the credentials they were created with. The shell itself
-///     holds no agent state. A static <see cref="ForPrebuiltSessionAsync"/> keeps
-///     single-session hosts and tests simple while tabs remain the primary surface.</summary>
+/// <summary>Shell-level state for the main window: the left menu bar (Open Agent,
+///     Sessions, the per-tab Model and Effort entries, and the bottom-anchored Settings
+///     entry) and the open agent tabs. 'Open Agent' shows the new-agent dialog (provider
+///     dropdown plus workspace picker); each tab owns an <see cref="AgentSessionViewModel"/>
+///     bound to its own isolated <see cref="AgentSession"/> created through the injected
+///     provider-aware session-factory hook. 'Sessions' lists every persisted root session
+///     (newest first, already-open ones greyed); confirming one resumes it — the persisted
+///     transcript replays into the tab — while a plain open always starts a FRESH session
+///     (never an automatic resume). A workspace holds many sessions; resume targets one
+///     session id. The Model entry shows the selected tab's model picker and the Effort
+///     entry its effort picker: confirming applies the choice to the session (from the
+///     next turn, root and children alike) and persists it per workspace + provider, so
+///     reopening the same directory restores it. The settings modal edits the provider
+///     API keys: saving persists them (protected) and rebuilds the factory so future
+///     opens use the new keys — already-open tabs keep the credentials they were created
+///     with. The shell itself holds no agent state. A static
+///     <see cref="ForPrebuiltSessionAsync"/> keeps single-session hosts and tests simple
+///     while tabs remain the primary surface.</summary>
 internal sealed partial class MainViewModel : ObservableObject
 {
   // The delegate reads _sessionFactory at invocation time, so a settings-save rebind
@@ -98,6 +108,15 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Factory rebound via <see cref="AgentSessionFactory.WithSettings"/> when
   ///     saved keys change; the creation delegate always reads the current instance.</summary>
   private AgentSessionFactory? _sessionFactory;
+
+  /// <summary>Lists resumable sessions for the Sessions dialog (null when the host
+  ///     has no shared store — the dialog then reports the catalog unavailable).</summary>
+  private readonly SessionCatalogQueryHandler? _sessionCatalog;
+
+  /// <summary>Resume hook mirroring the creation delegate: derived from the factory so
+  ///     saved keys rebind future resumes; a host without a factory gets a structured
+  ///     ResumeUnavailable failure instead of a crash.</summary>
+  private readonly Func<AgentId, Task<Result<AgentSession>>> _resumeSession;
 
   [ObservableProperty]
   [NotifyPropertyChangedFor(nameof(HasSelectedTab))]
@@ -135,6 +154,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public IRelayCommand OpenAgentCommand { get; }
 
+  public IRelayCommand OpenSessionsCommand { get; }
+
   public IRelayCommand OpenSettingsCommand { get; }
 
   public IRelayCommand ChooseModelCommand { get; }
@@ -143,6 +164,9 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Raised when the shell wants the new-agent dialog shown.</summary>
   public event EventHandler? OpenAgentRequested;
+
+  /// <summary>Raised when the shell wants the Sessions dialog shown.</summary>
+  public event EventHandler? SessionsRequested;
 
   /// <summary>Raised when the shell wants the settings modal shown.</summary>
   public event EventHandler? SettingsRequested;
@@ -177,14 +201,24 @@ internal sealed partial class MainViewModel : ObservableObject
     _settings = options?.Settings;
     _sessionFactory = options?.SessionFactory;
     _keyProtector = options?.ApiKeyProtector;
+    _sessionCatalog = options?.SessionCatalog;
     _createSession = createSession ?? ((root, provider) =>
         _sessionFactory!.CreateAsync(root, provider, new AvaloniaClarifyChannel(null)));
+    // Reads the factory at invocation (settings rebind reaches future resumes). A host
+    // composing sessions itself (no factory) degrades to a structured failure — resume
+    // needs the shared store the factory owns.
+    _resumeSession = sessionId => _sessionFactory is null
+        ? Task.FromResult(Result.Failure<AgentSession>(new DomainError("ResumeUnavailable",
+            "this host composed its sessions without a shared store; sessions cannot be resumed.")))
+        : _sessionFactory.ResumeAsync(sessionId, new AvaloniaClarifyChannel(null));
 
     // Commands exist before the observable properties: setting those raises the
     // changed hooks, which requery command availability.
     OpenAgentCommand = new RelayCommand(
         () => OpenAgentRequested?.Invoke(this, EventArgs.Empty),
         () => !IsOpeningAgent && HasConfiguredProvider);
+    OpenSessionsCommand = new RelayCommand(
+        () => SessionsRequested?.Invoke(this, EventArgs.Empty));
     OpenSettingsCommand = new RelayCommand(() => SettingsRequested?.Invoke(this, EventArgs.Empty));
     ChooseModelCommand = new RelayCommand(
         () => ModelPickerRequested?.Invoke(this, EventArgs.Empty),
@@ -424,75 +458,135 @@ internal sealed partial class MainViewModel : ObservableObject
       }
 
       Result<AgentSession> created = await scheduled;
-      if (!created.IsSuccess)
-      {
-        return Result.Failure<AgentTabViewModel>(created.Error);
-      }
-
-      AgentSession session = created.Value;
-
-      // Self-referencing sink hook, the same pattern as the pre-tab window wiring:
-      // the VM is captured after construction so its own sink marshals its events
-      // onto the UI thread. An injected shell-level sink (tests) takes precedence.
-      AgentSessionViewModel? sessionVmRef = null;
-      AgentSessionViewModel sessionVm = new(
-          // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
-          // (CA1068) — adapt the parameter order at the call site.
-          (command, ct, callbacks, onNotice) => session.Handler.Handle(command, callbacks, onNotice, ct),
-          session.Lifecycle,
-          session.RootId,
-          session.Conversation,
-          Providers.DisplayName(session.ProviderName),
-          session.ModelId,
-          new AgentSessionViewModelOptions
-          {
-            WorkspaceRoot = session.WorkspaceRoot,
-            UiStreamSink = _streamSink ?? (evt => (sessionVmRef ??
-                throw new InvalidOperationException("session view-model not initialized"))
-                .ApplyUiStreamEventOnUIThreadAsync(evt)),
-            Inbox = session.Inbox,
-            ChildRuntime = session.ChildRuntime,
-            StatusModelUpdater = id => sessionVmRef!.Status.ModelId = id,
-            ModelPreferences = session.Preferences,
-          });
-      sessionVmRef = sessionVm;
-
-      // Restore the per-workspace model and effort choices (if any) BEFORE the tab can
-      // take a turn: both ride the session preferences, so the first turn resolves
-      // straight to them — no selection runs. A stale persisted model id is not
-      // re-validated — that would crawl the whole OpenRouter catalog on every open —
-      // it surfaces as a provider error on the next turn and the user re-picks.
-      if (session.Preferences is { } preferences)
-      {
-        string? restoredChoice = await ReadModelChoiceAsync(providerName, full);
-        if (restoredChoice is not null)
-        {
-          preferences.ModelId = restoredChoice;
-          sessionVm.Status.ModelId = restoredChoice;
-        }
-
-        ReasoningEffort? restoredEffort = await ReadEffortChoiceAsync(providerName, full);
-        if (restoredEffort is { } effort)
-        {
-          preferences.ReasoningEffort = effort;
-          sessionVm.Status.Effort = EffortLevels.DisplayName(effort);
-        }
-      }
-
-      AttachClarifyChannel(sessionVm, session.ClarifyChannel);
-
-      AgentTabViewModel tab = new(session, sessionVm);
-      Tabs.Add(tab);
-      SelectedTab = tab;
-
-      await PersistProviderPreferenceAsync(providerName).ConfigureAwait(false);
-      return Result.Success(tab);
+      return created.IsSuccess
+          ? Result.Success(await AttachSessionAsync(created.Value))
+          : Result.Failure<AgentTabViewModel>(created.Error);
     }
     finally
     {
       IsOpeningAgent = false;
     }
   }
+
+  /// <summary>Resumes a persisted root session by id: its transcript replays into the
+  ///     tab, so the conversation continues where it stopped. A session already open in
+  ///     a tab is selected, never double-resumed. The provider and workspace come from
+  ///     the persisted record; a fresh open stays the only way to start a new session
+  ///     for a directory. Fails with the factory's structured error; the shell surfaces
+  ///     it.</summary>
+  public async Task<Result<AgentTabViewModel>> ResumeSessionAsync(AgentId sessionId)
+  {
+    AgentTabViewModel? existing = Tabs.FirstOrDefault(t => t.Container.RootId == sessionId);
+    if (existing is not null)
+    {
+      SelectedTab = existing;
+      return Result.Success(existing);
+    }
+
+    IsOpeningAgent = true;
+    try
+    {
+      // Container build + transcript hydration — off the UI thread, context flow
+      // suppressed, exactly like a fresh open.
+      Task<Result<AgentSession>> scheduled;
+      using (ExecutionContext.SuppressFlow())
+      {
+        scheduled = Task.Run(() => _resumeSession(sessionId));
+      }
+
+      Result<AgentSession> resumed = await scheduled;
+      return resumed.IsSuccess
+          ? Result.Success(await AttachSessionAsync(resumed.Value))
+          : Result.Failure<AgentTabViewModel>(resumed.Error);
+    }
+    finally
+    {
+      IsOpeningAgent = false;
+    }
+  }
+
+  /// <summary>Wires a created (fresh or resumed) session into a new tab: session
+  ///     view-model with the self-referencing stream sink, per-workspace model/effort
+  ///     restore BEFORE the tab can take a turn, persisted-transcript replay (a no-op
+  ///     for a fresh session — its conversation is empty), clarify presentation, and
+  ///     tab attach. Must run on the UI thread.</summary>
+  private async Task<AgentTabViewModel> AttachSessionAsync(AgentSession session)
+  {
+    // Self-referencing sink hook, the same pattern as the pre-tab window wiring:
+    // the VM is captured after construction so its own sink marshals its events
+    // onto the UI thread. An injected shell-level sink (tests) takes precedence.
+    AgentSessionViewModel? sessionVmRef = null;
+    AgentSessionViewModel sessionVm = new(
+        // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
+        // (CA1068) — adapt the parameter order at the call site.
+        (command, ct, callbacks, onNotice) => session.Handler.Handle(command, callbacks, onNotice, ct),
+        session.Lifecycle,
+        session.RootId,
+        session.Conversation,
+        Providers.DisplayName(session.ProviderName),
+        session.ModelId,
+        new AgentSessionViewModelOptions
+        {
+          WorkspaceRoot = session.WorkspaceRoot,
+          UiStreamSink = _streamSink ?? (evt => (sessionVmRef ??
+              throw new InvalidOperationException("session view-model not initialized"))
+              .ApplyUiStreamEventOnUIThreadAsync(evt)),
+          Inbox = session.Inbox,
+          ChildRuntime = session.ChildRuntime,
+          StatusModelUpdater = id => sessionVmRef!.Status.ModelId = id,
+          ModelPreferences = session.Preferences,
+        });
+    sessionVmRef = sessionVm;
+
+    // Restore the per-workspace model and effort choices (if any) BEFORE the tab can
+    // take a turn: both ride the session preferences, so the first turn resolves
+    // straight to them — no selection runs. A stale persisted model id is not
+    // re-validated — that would crawl the whole OpenRouter catalog on every open —
+    // it surfaces as a provider error on the next turn and the user re-picks.
+    if (session.Preferences is { } preferences)
+    {
+      string? restoredChoice = await ReadModelChoiceAsync(session.ProviderName, session.WorkspaceRoot);
+      if (restoredChoice is not null)
+      {
+        preferences.ModelId = restoredChoice;
+        sessionVm.Status.ModelId = restoredChoice;
+      }
+
+      ReasoningEffort? restoredEffort = await ReadEffortChoiceAsync(session.ProviderName, session.WorkspaceRoot);
+      if (restoredEffort is { } effort)
+      {
+        preferences.ReasoningEffort = effort;
+        sessionVm.Status.Effort = EffortLevels.DisplayName(effort);
+      }
+    }
+
+    // Resume replay: the persisted transcript (already hydrated into the session's
+    // conversation) renders into the transcript view. A fresh session replays nothing.
+    sessionVm.Transcript.Restore(session.Conversation.Messages);
+
+    AttachClarifyChannel(sessionVm, session.ClarifyChannel);
+
+    AgentTabViewModel tab = new(session, sessionVm);
+    Tabs.Add(tab);
+    SelectedTab = tab;
+
+    await PersistProviderPreferenceAsync(session.ProviderName).ConfigureAwait(false);
+    return tab;
+  }
+
+  /// <summary>Menu-bar entry point: raises the Sessions request. The view shows the
+  ///     Sessions dialog and calls <see cref="ResumeSessionAsync"/> with the pick.</summary>
+  public void RequestOpenSessions() => SessionsRequested?.Invoke(this, EventArgs.Empty);
+
+  /// <summary>Loads the Sessions catalog for the dialog, or null when the host wired no
+  ///     shared store (the dialog is then not shown).</summary>
+  public Func<CancellationToken, Task<Result<IReadOnlyList<SessionCatalogEntry>>>>? SessionCatalogLoader
+      => _sessionCatalog is null ? null : ct => _sessionCatalog.ListAsync(ct);
+
+  /// <summary>The ids of the sessions currently open in tabs — the Sessions dialog
+  ///     greys these out, since resuming an open session would fork it.</summary>
+  public IReadOnlySet<AgentId> OpenSessionIds =>
+      Tabs.Select(t => t.Container.RootId).ToHashSet();
 
   /// <summary>Remembers the chosen provider as the next dialog's default. Best effort:
   ///     the preference only seeds a default, so a failed write never fails the open —

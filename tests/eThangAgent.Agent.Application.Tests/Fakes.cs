@@ -17,6 +17,9 @@ internal sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
   /// <summary>When set, the next SaveAsync fails with this error instead of persisting.</summary>
   public DomainError? SaveFailure { get; set; }
 
+  /// <summary>When set, ListAllAsync fails with this error instead of listing.</summary>
+  public DomainError? ListAllFailure { get; set; }
+
   public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
   {
     if (SaveFailure is { } failure)
@@ -66,8 +69,10 @@ internal sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
           [.. _records.Values.Where(r => r.ParentId == parentId)]));
 
   public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
-      => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>(
-          [.. _records.Values.OrderBy(r => r.CreatedAt)]));
+      => Task.FromResult(ListAllFailure is { } failure
+          ? Result.Failure<IReadOnlyList<AgentRecord>>(failure)
+          : Result.Success<IReadOnlyList<AgentRecord>>(
+              [.. _records.Values.OrderBy(r => r.CreatedAt)]));
 }
 
 /// <summary>Fake IAgentRuntime capturing started records; returns a scripted outcome when set.</summary>
