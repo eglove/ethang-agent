@@ -9,14 +9,11 @@ using Microsoft.CodeAnalysis.Scripting;
 
 namespace eThangAgent.Roslyn.ACL;
 
-public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry, ExecOptions options,
+public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     Func<string>? workspaceRoot = null) : IExecEngine
 {
   private readonly Func<ICapabilityRegistry> _registry = registry ?? throw new ArgumentNullException(nameof(registry));
   private readonly Func<string> _workspaceRoot = workspaceRoot ?? ThrowMissingWorkspace;
-#pragma warning disable IDE0051 // Remove unread private member
-  private ExecOptions? OptionsUnused => options; // retained for API compatibility
-#pragma warning restore IDE0051
 
   private static readonly ScriptOptions ScriptOpts = ScriptOptions.Default
       .AddImports("System", "System.IO", "System.Linq",
@@ -24,9 +21,9 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry, E
           "System.Text", "System.Text.RegularExpressions")
       .AddReferences(typeof(ScriptGlobals).Assembly);
 
-  public CSharpScriptExecEngine(ICapabilityRegistry registry, ExecOptions options,
+  public CSharpScriptExecEngine(ICapabilityRegistry registry,
       Func<string>? workspaceRoot = null)
-      : this(() => registry, options, workspaceRoot) { }
+      : this(() => registry, workspaceRoot) { }
 
   /// <summary>Executes against the ambient workspace identity when the host supplies
   ///     none. The scripts' globals must name the agent's own workspace root; without

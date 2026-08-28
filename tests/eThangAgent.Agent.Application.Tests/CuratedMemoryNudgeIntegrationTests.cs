@@ -109,7 +109,7 @@ public class CuratedMemoryNudgeIntegrationTests
       Handler = new SendMessageCommandHandler(
           agent,
           Conversation,
-          new DefaultNudgePolicy(() => FixedNow),
+          new DefaultNudgePolicy(),
           () => Counter.Count);
     }
   }

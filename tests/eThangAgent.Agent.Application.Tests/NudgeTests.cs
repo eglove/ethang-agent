@@ -19,7 +19,7 @@ public class NudgeTests
   [Fact]
   public void Evaluate_AllConditionsHold_ReturnsVerbatimLine()
   {
-    DefaultNudgePolicy policy = new(() => DateTimeOffset.UtcNow);
+    DefaultNudgePolicy policy = new();
 
     string? line = policy.Evaluate(new NudgeContext(TurnNumber: 5, LastToolCalls: 3, MemoriesWrittenTotal: 0));
 
@@ -41,7 +41,7 @@ public class NudgeTests
   public void Evaluate_TruthTable_FiresOnlyWhenAllConditionsHold(
       int turnNumber, int lastToolCalls, int memoriesWritten, bool fires)
   {
-    DefaultNudgePolicy policy = new(() => DateTimeOffset.UtcNow);
+    DefaultNudgePolicy policy = new();
 
     string? line = policy.Evaluate(new NudgeContext(turnNumber, lastToolCalls, memoriesWritten));
 

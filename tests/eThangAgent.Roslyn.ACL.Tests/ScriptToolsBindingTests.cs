@@ -24,7 +24,7 @@ public class ScriptToolsBindingTests
   }
 
   private static CSharpScriptExecEngine MakeEngine() =>
-      new(CapabilityRegistry.Create([new StubProvider()]), ExecOptions.Default,
+      new(CapabilityRegistry.Create([new StubProvider()]),
           workspaceRoot: () => AppContext.BaseDirectory);
 
   [Fact]

@@ -134,7 +134,7 @@ public static class AgentComposition
         .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
         .AddSingleton<IAgentInbox, AgentInbox>()
         .AddSingleton<SessionMemoryWriteCounter>()
-        .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy(() => DateTimeOffset.UtcNow))
+        .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy())
         ;
 
     // Only OpenRouter wires the two-stage intelligent selector: z.ai sessions run no
@@ -213,7 +213,6 @@ public static class AgentComposition
         })
         .AddSingleton<IExecEngine>(sp => new CSharpScriptExecEngine(
             sp.GetRequiredService<Func<ICapabilityRegistry>>(),
-            sp.GetRequiredService<ExecOptions>(),
             // Registry and workspace are both resolved per execution so concurrent
             // sessions in one process each see their own context, never a stale
             // construction-time value pinned to whichever container was built first.

@@ -165,7 +165,7 @@ internal sealed partial class MainViewModel : ObservableObject
   public MainViewModel(Func<string, string, Task<Result<AgentSession>>>? createSession,
       MainViewModelOptions? options = null)
   {
-    if (createSession is null && (options?.Settings is null || options?.SessionFactory is null))
+    if (createSession is null && (options?.Settings is null || options.SessionFactory is null))
     {
       throw new ArgumentException(
           "Either a session-creation delegate or both settings and a session factory are required.",

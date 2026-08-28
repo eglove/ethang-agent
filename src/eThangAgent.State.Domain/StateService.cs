@@ -4,12 +4,8 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.StateDomain;
 
 public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
-    IWorkspaceContext workspace, EvidenceOptions? options = null) : IStateService
+    IWorkspaceContext workspace) : IStateService
 {
-  // options retained for API compatibility; currently carries no behavior.
-#pragma warning disable IDE0051 // Remove unread private member
-  private EvidenceOptions? OptionsUnused => options;
-#pragma warning restore IDE0051
   public const string HeadNs = "current";
   public const string HeadName = "head";
   public const string CertificateNs = "current";

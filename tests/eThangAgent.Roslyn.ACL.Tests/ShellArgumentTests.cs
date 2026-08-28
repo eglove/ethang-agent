@@ -11,7 +11,7 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 public class ShellArgumentTests
 {
   private readonly CSharpScriptExecEngine _engine =
-      new(CapabilityRegistry.Create([]), ExecOptions.Default,
+      new(CapabilityRegistry.Create([]),
           workspaceRoot: () => AppContext.BaseDirectory);
 
   [Fact]

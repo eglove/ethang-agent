@@ -14,7 +14,7 @@ public class ScriptThreadingTests
   public async Task ExecScript_CallingToolsInvoke_Completes_UnderNonPumpingContext()
   {
     CSharpScriptExecEngine engine = new(
-        CapabilityRegistry.Create([new StubProvider()]), ExecOptions.Default,
+        CapabilityRegistry.Create([new StubProvider()]),
         workspaceRoot: () => AppContext.BaseDirectory);
 
     (ExecRunResult? Value, bool Leaked) = await RunUnderNonPumpingContext(

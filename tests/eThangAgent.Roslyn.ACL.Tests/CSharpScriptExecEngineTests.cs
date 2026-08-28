@@ -9,8 +9,8 @@ public class CSharpScriptExecEngineTests
 {
   /// <summary>Tests exercise engine semantics against a fixed workspace root — the
   ///     same contract the composition supplies per session (IWorkspaceContext).</summary>
-  private static CSharpScriptExecEngine CreateEngine(ExecOptions? options = null)
-      => new(CapabilityRegistry.Create([]), options ?? ExecOptions.Default,
+  private static CSharpScriptExecEngine CreateEngine()
+      => new(CapabilityRegistry.Create([]),
           workspaceRoot: () => AppContext.BaseDirectory);
 
   [Fact]
@@ -134,7 +134,7 @@ public class CSharpScriptExecEngineTests
   public async Task Workspace_Global_Reflects_Injected_Resolver_PerExecution()
   {
     string current = AppContext.BaseDirectory;
-    CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([]), ExecOptions.Default,
+    CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([]),
         workspaceRoot: () => current);
     ExecRunResult first = await engine.ExecuteAsync(new ExecProgram("return Workspace;"));
     Assert.Equal(current, first.Output);
