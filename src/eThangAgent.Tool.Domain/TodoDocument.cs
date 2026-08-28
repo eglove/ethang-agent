@@ -46,10 +46,10 @@ public static class TodoDocument
         Result<TodoItem> item = ParseItem(element, index);
         if (!item.IsSuccess)
         {
-          return Result.Failure<IReadOnlyList<TodoItem>>(item.Error!);
+          return Result.Failure<IReadOnlyList<TodoItem>>(item.Error);
         }
 
-        if (!seenIds.Add(item.Value!.Id))
+        if (!seenIds.Add(item.Value.Id))
         {
           return Fail($"item {index} repeats id {item.Value.Id}; ids must be unique.");
         }

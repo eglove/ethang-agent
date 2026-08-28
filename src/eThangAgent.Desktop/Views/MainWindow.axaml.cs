@@ -53,7 +53,7 @@ internal partial class MainWindow : Window
     Result<AgentTabViewModel> result = await _vm.OpenAgentAsync(choice.WorkspaceRoot, choice.ProviderId);
     if (!result.IsSuccess)
     {
-      await ShowOpenFailedAsync(result.Error!.Message);
+      await ShowOpenFailedAsync(result.Error.Message);
     }
   }
 

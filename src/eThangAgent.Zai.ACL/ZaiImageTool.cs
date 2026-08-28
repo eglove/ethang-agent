@@ -42,20 +42,20 @@ public sealed class ZaiImageTool(
     Result<ToolCallEnvelope> envelope = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     if (!envelope.IsSuccess)
     {
-      return Task.FromResult(ZaiToolHttp.Err(envelope.Error!));
+      return Task.FromResult(ZaiToolHttp.Err(envelope.Error));
     }
 
-    Result<ZaiImageInput> parsed = ZaiImageInput.Create(envelope.Value!.Arguments);
+    Result<ZaiImageInput> parsed = ZaiImageInput.Create(envelope.Value.Arguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(ZaiToolHttp.Err(parsed.Error!));
+      return Task.FromResult(ZaiToolHttp.Err(parsed.Error));
     }
 
-    Result<string> target = _resolver.Resolve(parsed.Value!.Filename);
+    Result<string> target = _resolver.Resolve(parsed.Value.Filename);
     return !target.IsSuccess
-      ? Task.FromResult(ZaiToolHttp.Err(target.Error!))
+      ? Task.FromResult(ZaiToolHttp.Err(target.Error))
       : ToolExecution.RunAsync(input.Name, envelope.Value.Timeout, token =>
-        GenerateAsync(parsed.Value, target.Value!, token), ct);
+        GenerateAsync(parsed.Value, target.Value, token), ct);
   }
 
   private async Task<ToolResult> GenerateAsync(ZaiImageInput v, string targetPath, CancellationToken ct)

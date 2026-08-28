@@ -10,7 +10,7 @@ public sealed record ExecToolInput(string Program)
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Failure(baseParse.Error!);
+      return Failure(baseParse.Error);
     }
 
     JsonElement json = baseParse.Value;

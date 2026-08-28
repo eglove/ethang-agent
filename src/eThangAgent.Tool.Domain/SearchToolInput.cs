@@ -25,7 +25,7 @@ public sealed record SearchToolInput(
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Fail(baseParse.Error!);
+      return Fail(baseParse.Error);
     }
 
     JsonElement json = baseParse.Value;
@@ -38,42 +38,42 @@ public sealed record SearchToolInput(
     Result<string> pattern = ParsePattern(json);
     if (!pattern.IsSuccess)
     {
-      return Fail(pattern.Error!);
+      return Fail(pattern.Error);
     }
 
     Result<bool> mode = ParseMode(json);
     if (!mode.IsSuccess)
     {
-      return Fail(mode.Error!);
+      return Fail(mode.Error);
     }
 
     Result<string?> path = ParseOptionalNonEmpty(json, PathName);
     if (!path.IsSuccess)
     {
-      return Fail(path.Error!);
+      return Fail(path.Error);
     }
 
     Result<string?> glob = ParseOptionalNonEmpty(json, GlobName);
     if (!glob.IsSuccess)
     {
-      return Fail(glob.Error!);
+      return Fail(glob.Error);
     }
 
     Result<int> max = ParseMaxResults(json);
     if (!max.IsSuccess)
     {
-      return Fail(max.Error!);
+      return Fail(max.Error);
     }
 
     Result<int> contextLines = ParseContextLines(json);
     if (!contextLines.IsSuccess)
     {
-      return Fail(contextLines.Error!);
+      return Fail(contextLines.Error);
     }
 
     int clampedMax = Math.Min(max.Value, MaxResultsCap);
     SearchToolInput input = new(
-        pattern.Value!, mode.Value, path.Value, glob.Value, clampedMax, contextLines.Value,
+        pattern.Value, mode.Value, path.Value, glob.Value, clampedMax, contextLines.Value,
         Clamped: clampedMax != max.Value);
     return Result.Success(input);
   }

@@ -42,22 +42,22 @@ public sealed class SearchTool(IPathResolver resolver, ISearchAccess search) : I
     Result<SearchToolInput> parsed = SearchToolInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
-    SearchToolInput v = parsed.Value!;
+    SearchToolInput v = parsed.Value;
 
     Result<string> scope = _resolver.Resolve(v.Path ?? ".");
     if (!scope.IsSuccess)
     {
-      return Task.FromResult(Err(scope.Error!));
+      return Task.FromResult(Err(scope.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
-      ? Task.FromResult(Err(budget.Error!))
-      : ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
-        SearchAsync(scope.Value!, v, token), ct);
+      ? Task.FromResult(Err(budget.Error))
+      : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
+        SearchAsync(scope.Value, v, token), ct);
   }
 
   private async Task<ToolResult> SearchAsync(string scope, SearchToolInput v, CancellationToken ct)

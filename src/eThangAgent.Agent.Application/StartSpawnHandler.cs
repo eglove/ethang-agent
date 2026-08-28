@@ -51,13 +51,13 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     Result<string> saved = await _store.SaveAsync(record, ct).ConfigureAwait(false);
     if (!saved.IsSuccess)
     {
-      return Result.Failure<AgentId>(saved.Error!);
+      return Result.Failure<AgentId>(saved.Error);
     }
 
     Result<AgentId> started = await _runtime.Start(record, ct).ConfigureAwait(false);
     return started.IsSuccess
         ? Result.Success(record.Id)
-        : Result.Failure<AgentId>(started.Error!);
+        : Result.Failure<AgentId>(started.Error);
   }
 
   private async Task<ModelConfig> ResolveModelAsync(SpawnRequest request, CancellationToken ct)
@@ -87,7 +87,7 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       Result<ModelSelectionResult> selection = await _modelSelector.SelectAsync(request.TaskPrompt, excludedKeys: null, ct).ConfigureAwait(false);
       if (selection.IsSuccess)
       {
-        return ModelConfig.Create(selection.Value!.ModelId, selection.Value.ProviderName,
+        return ModelConfig.Create(selection.Value.ModelId, selection.Value.ProviderName,
             _spawn.MaxTokens, _spawn.Temperature).Value!;
       }
     }

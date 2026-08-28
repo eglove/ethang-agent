@@ -79,7 +79,7 @@ public sealed class AgentCapabilityProvider(
     Result<AgentId> started = await _spawnCommand.Execute(_parentContext(), request!, ct).ConfigureAwait(false);
     return started.IsSuccess
         ? CapabilityInvocationResult.Ok($"id={started.Value} status=running")
-        : CapabilityInvocationResult.Fail($"Error [{started.Error!.Code}]: {started.Error.Message}");
+        : CapabilityInvocationResult.Fail($"Error [{started.Error.Code}]: {started.Error.Message}");
   }
 
   private async Task<CapabilityInvocationResult> Status(string json, CancellationToken ct)

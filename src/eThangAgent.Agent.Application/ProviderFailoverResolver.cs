@@ -45,10 +45,10 @@ public sealed class ProviderFailoverResolver(
     if (!selection.IsSuccess)
     {
       return (Make(_fallbackModelId, null),
-          $"Model selection failed: {selection.Error!.Message}; using {_fallbackModelId}.");
+          $"Model selection failed: {selection.Error.Message}; using {_fallbackModelId}.");
     }
 
-    string modelId = selection.Value!.ModelId;
+    string modelId = selection.Value.ModelId;
     string? providerName = selection.Value.ProviderName;
 
     string? persistNotice = await TryPersistModelAsync(modelId, ct).ConfigureAwait(false);
@@ -81,7 +81,7 @@ public sealed class ProviderFailoverResolver(
           $"Model {failedModelId} via {failedProviderName} failed; all alternatives exhausted, using {_fallbackModelId}.");
     }
 
-    string modelId = selection.Value!.ModelId;
+    string modelId = selection.Value.ModelId;
     string? providerName = selection.Value.ProviderName;
     _ = await TryPersistModelAsync(modelId, ct).ConfigureAwait(false);
 

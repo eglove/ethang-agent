@@ -32,7 +32,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     Result<GitRun> probe = await RunGitVerifiedAsync(repoPath, [RevParse, "--is-inside-work-tree"], ct).ConfigureAwait(false);
     if (!probe.IsSuccess)
     {
-      return Result.Failure<GitStatus>(probe.Error!);
+      return Result.Failure<GitStatus>(probe.Error);
     }
 
     // Resolve the branch via symbolic-ref: unlike 'rev-parse --abbrev-ref HEAD'
@@ -112,7 +112,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     Result<GitRun> probe = await RunGitVerifiedAsync(repoPath, [RevParse, "--git-dir"], ct).ConfigureAwait(false);
     if (!probe.IsSuccess)
     {
-      return Result.Failure<GitDiff>(probe.Error!);
+      return Result.Failure<GitDiff>(probe.Error);
     }
 
     // Optional pathspec filter: everything after '--'.
@@ -124,16 +124,16 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     Result<GitDiffStats> stats = await CollectStatsAsync(repoPath, pathArgs, wantStaged, wantUnstaged, ct).ConfigureAwait(false);
     if (!stats.IsSuccess)
     {
-      return Result.Failure<GitDiff>(stats.Error!);
+      return Result.Failure<GitDiff>(stats.Error);
     }
 
     Result<string> patch = await RenderPatchAsync(repoPath, pathArgs, wantStaged, wantUnstaged, ct).ConfigureAwait(false);
     if (!patch.IsSuccess)
     {
-      return Result.Failure<GitDiff>(patch.Error!);
+      return Result.Failure<GitDiff>(patch.Error);
     }
 
-    GitDiff diff = TruncatePatch(stats.Value!, patch.Value!);
+    GitDiff diff = TruncatePatch(stats.Value, patch.Value);
     return Result.Success(diff);
   }
 

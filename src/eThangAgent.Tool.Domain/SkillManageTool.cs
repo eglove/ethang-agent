@@ -46,17 +46,17 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
     Result<SkillManageInput> parsed = SkillManageInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     if (!budget.IsSuccess)
     {
-      return Task.FromResult(Err(budget.Error!));
+      return Task.FromResult(Err(budget.Error));
     }
 
-    SkillManageInput v = parsed.Value!;
-    return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token => v.Action switch
+    SkillManageInput v = parsed.Value;
+    return ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token => v.Action switch
     {
       SkillManageAction.Create => CreateAsync(v, token),
       SkillManageAction.Update => UpdateAsync(v, token),
@@ -81,7 +81,7 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
     Result<SkillDefinition?> existing = await _learned.GetAsync(input.Name, ct).ConfigureAwait(false);
     if (!existing.IsSuccess)
     {
-      return Err(existing.Error!);
+      return Err(existing.Error);
     }
 
     if (existing.ValueOrNull is not null)
@@ -96,10 +96,10 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
             SkillSource.Learned, input.ProvenanceSession, now, now), ct).ConfigureAwait(false);
     if (!created.IsSuccess)
     {
-      return Err(created.Error!);
+      return Err(created.Error);
     }
 
-    SkillDefinition skill = created.Value!;
+    SkillDefinition skill = created.Value;
     return new ToolResult($"[skill-manage] created '{skill.Name}' v{skill.Version}", false);
   }
 

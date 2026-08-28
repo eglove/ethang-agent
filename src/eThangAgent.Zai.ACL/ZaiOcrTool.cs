@@ -45,20 +45,20 @@ public sealed class ZaiOcrTool(
     Result<ToolCallEnvelope> envelope = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     if (!envelope.IsSuccess)
     {
-      return Task.FromResult(ZaiToolHttp.Err(envelope.Error!));
+      return Task.FromResult(ZaiToolHttp.Err(envelope.Error));
     }
 
-    Result<ZaiOcrInput> parsed = ZaiOcrInput.Create(envelope.Value!.Arguments);
+    Result<ZaiOcrInput> parsed = ZaiOcrInput.Create(envelope.Value.Arguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(ZaiToolHttp.Err(parsed.Error!));
+      return Task.FromResult(ZaiToolHttp.Err(parsed.Error));
     }
 
-    Result<string> resolved = _resolver.Resolve(parsed.Value!.Path);
+    Result<string> resolved = _resolver.Resolve(parsed.Value.Path);
     return !resolved.IsSuccess
-      ? Task.FromResult(ZaiToolHttp.Err(resolved.Error!))
+      ? Task.FromResult(ZaiToolHttp.Err(resolved.Error))
       : ToolExecution.RunAsync(input.Name, envelope.Value.Timeout, token =>
-        OcrAsync(parsed.Value, resolved.Value!, token), ct);
+        OcrAsync(parsed.Value, resolved.Value, token), ct);
   }
 
   private async Task<ToolResult> OcrAsync(ZaiOcrInput v, string resolvedPath, CancellationToken ct)
@@ -66,12 +66,12 @@ public sealed class ZaiOcrTool(
     Result<byte[]> bytes = await _files.ReadBytesAsync(resolvedPath, ct).ConfigureAwait(false);
     if (!bytes.IsSuccess)
     {
-      return ZaiToolHttp.Err(bytes.Error!);
+      return ZaiToolHttp.Err(bytes.Error);
     }
 
     bool isPdf = resolvedPath.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
     long byteLimit = isPdf ? ZaiOcrInput.PdfByteLimit : ZaiOcrInput.ImageByteLimit;
-    if (bytes.Value!.Length > byteLimit)
+    if (bytes.Value.Length > byteLimit)
     {
       return ZaiToolHttp.Err(new DomainError("InvalidParameterValue",
           $"'{v.Path}' is {bytes.Value.Length} bytes; the {(isPdf ? "PDF" : "image")} limit is {byteLimit}."));
@@ -95,7 +95,7 @@ public sealed class ZaiOcrTool(
         _http, _config, ZaiToolHttp.LayoutParsingPath, body, ct).ConfigureAwait(false);
     if (!response.IsSuccess)
     {
-      return ZaiToolHttp.Err(response.Error!);
+      return ZaiToolHttp.Err(response.Error);
     }
 
     if (!response.Value.TryGetProperty("md_results", out JsonElement md)

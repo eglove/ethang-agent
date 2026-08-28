@@ -244,7 +244,7 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<MemoryCategory> category = ParseRequiredCategory(args);
     if (!category.IsSuccess)
     {
-      return Fail(category.Error!);
+      return Fail(category.Error);
     }
 
     if (ValidateTags(args) is { } tagsError)
@@ -259,25 +259,25 @@ public sealed class CuratedMemoryCapabilityProvider(
     Result<string?> usageHint = ParseOptionalHint(args);
     if (!usageHint.IsSuccess)
     {
-      return Fail(usageHint.Error!);
+      return Fail(usageHint.Error);
     }
 
     Result<MemoryScope> scope = ParseRequiredScope(args);
     if (!scope.IsSuccess)
     {
-      return Fail(scope.Error!);
+      return Fail(scope.Error);
     }
 
     CuratedMemory memory = BuildMemory(category.Value, scope.Value, tags, content, usageHint.Value);
     Result<CuratedMemory> added = await _store.AddAsync(memory).ConfigureAwait(false);
     if (!added.IsSuccess)
     {
-      return Fail(added.Error!);
+      return Fail(added.Error);
     }
 
     _ = _bumpWrites();
     CapabilityInvocationResult ok = CapabilityInvocationResult.Ok(
-        $"[memories] added {added.Value!.Id} v1"
+        $"[memories] added {added.Value.Id} v1"
         + $" (cat={Wire(added.Value.Category)} scope={Wire(added.Value.Scope)})");
     return ok;
   }

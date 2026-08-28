@@ -15,7 +15,7 @@ public sealed record ReadToolInput(string Path, int StartLine, int EndLine)
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Failure(baseParse.Error!);
+      return Failure(baseParse.Error);
     }
 
     JsonElement json = baseParse.Value;

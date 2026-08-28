@@ -32,7 +32,7 @@ public sealed record SkillManageInput(
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Fail(baseParse.Error!);
+      return Fail(baseParse.Error);
     }
 
     JsonElement json = baseParse.Value;
@@ -46,7 +46,7 @@ public sealed record SkillManageInput(
         parsed = ParseFields(json);
     if (!parsed.IsSuccess)
     {
-      return Fail(parsed.Error!);
+      return Fail(parsed.Error);
     }
 
     DomainError? invalid = ValidateForAction(parsed.Value.Action, json, parsed.Value.Description, parsed.Value.Body);

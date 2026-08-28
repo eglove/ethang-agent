@@ -33,14 +33,14 @@ public sealed class ZaiTokenizerTool(HttpClient http, ZaiConfiguration config) :
     Result<ToolCallEnvelope> envelope = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     if (!envelope.IsSuccess)
     {
-      return Task.FromResult(ZaiToolHttp.Err(envelope.Error!));
+      return Task.FromResult(ZaiToolHttp.Err(envelope.Error));
     }
 
-    Result<ZaiTokenizerInput> parsed = ZaiTokenizerInput.Create(envelope.Value!.Arguments);
+    Result<ZaiTokenizerInput> parsed = ZaiTokenizerInput.Create(envelope.Value.Arguments);
     return !parsed.IsSuccess
-      ? Task.FromResult(ZaiToolHttp.Err(parsed.Error!))
+      ? Task.FromResult(ZaiToolHttp.Err(parsed.Error))
       : ToolExecution.RunAsync(input.Name, envelope.Value.Timeout, token =>
-        CountAsync(parsed.Value!, token), ct);
+        CountAsync(parsed.Value, token), ct);
   }
 
   private async Task<ToolResult> CountAsync(ZaiTokenizerInput v, CancellationToken ct)

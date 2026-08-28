@@ -33,13 +33,13 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
     Result<bool> parsed = ParseArguments(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
-      ? Task.FromResult(Err(budget.Error!))
-      : ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, ListAsync, ct);
+      ? Task.FromResult(Err(budget.Error))
+      : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, ListAsync, ct);
   }
 
   private async Task<ToolResult> ListAsync(CancellationToken ct)

@@ -104,7 +104,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       if (!bootstrapped.IsSuccess)
       {
         await services.DisposeAsync().ConfigureAwait(false);
-        return Result.Failure<AgentSession>(bootstrapped.Error!);
+        return Result.Failure<AgentSession>(bootstrapped.Error);
       }
 
       // Publish the root id to the container BEFORE the session is handed out: the

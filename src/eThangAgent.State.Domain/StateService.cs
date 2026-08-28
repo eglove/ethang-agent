@@ -28,7 +28,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     Result<(string Ns, string Name)> parsed = StateKey.Parse(key);
     if (!parsed.IsSuccess)
     {
-      return Result.Failure<string>(parsed.Error!);
+      return Result.Failure<string>(parsed.Error);
     }
 
     (string? ns, string? name) = parsed.Value;
@@ -44,7 +44,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     Result<(string Ns, string Name)> parsed = StateKey.Parse(key);
     if (!parsed.IsSuccess)
     {
-      return Result.Failure<StateKeyValue>(parsed.Error!);
+      return Result.Failure<StateKeyValue>(parsed.Error);
     }
 
     (string? ns, string? name) = parsed.Value;
@@ -64,7 +64,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     Result<(string Ns, string Name)> parsed = StateKey.Parse(key);
     if (!parsed.IsSuccess)
     {
-      return Result.Failure<string>(parsed.Error!);
+      return Result.Failure<string>(parsed.Error);
     }
 
     (string? ns, string? name) = parsed.Value;
@@ -101,7 +101,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     Result<(string Ns, string Name)> parsedKey = StateKey.Parse(key);
     if (!parsedKey.IsSuccess)
     {
-      return Result.Failure<StateKeyValue>(parsedKey.Error!);
+      return Result.Failure<StateKeyValue>(parsedKey.Error);
     }
 
     (string? ns, string? name) = parsedKey.Value;

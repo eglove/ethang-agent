@@ -21,7 +21,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Fail(baseParse.Error!);
+      return Fail(baseParse.Error);
     }
 
     JsonElement json = baseParse.Value;
@@ -36,7 +36,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
         "'path' must be a non-empty string.");
     if (!path.IsSuccess)
     {
-      return Fail(path.Error!);
+      return Fail(path.Error);
     }
 
     Result<string> old = RequireNonEmptyText(
@@ -44,23 +44,23 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
         "'old' must be a non-empty string — an empty anchor would match everywhere.");
     if (!old.IsSuccess)
     {
-      return Fail(old.Error!);
+      return Fail(old.Error);
     }
 
     // 'new' may be empty: deletion is explicit intent.
     Result<string> @new = ToolArguments.RequireString(json, NewName, RequirementText);
     if (!@new.IsSuccess)
     {
-      return Fail(@new.Error!);
+      return Fail(@new.Error);
     }
 
     Result<(bool All, int Occurrences)> selector = ParseSelector(json);
     if (!selector.IsSuccess)
     {
-      return Fail(selector.Error!);
+      return Fail(selector.Error);
     }
 
-    EditToolInput input = new(path.Value!, old.Value!, @new.Value!, selector.Value.All, selector.Value.Occurrences);
+    EditToolInput input = new(path.Value, old.Value, @new.Value, selector.Value.All, selector.Value.Occurrences);
     return Result.Success(input);
   }
 

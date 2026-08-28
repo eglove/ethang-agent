@@ -31,14 +31,14 @@ public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore lear
     Result<SkillViewInput> parsed = SkillViewInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
-      ? Task.FromResult(Err(budget.Error!))
-      : ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
-        ViewAsync(parsed.Value!.Name, token), ct);
+      ? Task.FromResult(Err(budget.Error))
+      : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
+        ViewAsync(parsed.Value.Name, token), ct);
   }
 
   private async Task<ToolResult> ViewAsync(string name, CancellationToken ct)

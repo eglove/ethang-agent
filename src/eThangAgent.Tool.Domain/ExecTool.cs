@@ -31,23 +31,23 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutpu
     Result<ExecToolInput> parsed = ExecToolInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(new ToolResult($"Error [{parsed.Error!.Code}]: {parsed.Error.Message}", true));
+      return Task.FromResult(new ToolResult($"Error [{parsed.Error.Code}]: {parsed.Error.Message}", true));
     }
 
-    Result<ExecProgram> program = ExecProgram.Create(parsed.Value!.Program, _options);
+    Result<ExecProgram> program = ExecProgram.Create(parsed.Value.Program, _options);
     if (!program.IsSuccess)
     {
-      return Task.FromResult(new ToolResult($"exec error [{program.Error!.Code}]: {program.Error.Message}", true));
+      return Task.FromResult(new ToolResult($"exec error [{program.Error.Code}]: {program.Error.Message}", true));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     if (!budget.IsSuccess)
     {
-      return Task.FromResult(new ToolResult($"Error [{budget.Error!.Code}]: {budget.Error.Message}", true));
+      return Task.FromResult(new ToolResult($"Error [{budget.Error.Code}]: {budget.Error.Message}", true));
     }
 
-    ExecProgram exec = program.Value!;
-    return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
+    ExecProgram exec = program.Value;
+    return ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
         RunAsync(exec, token), ct);
   }
 

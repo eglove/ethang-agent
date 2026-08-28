@@ -426,10 +426,10 @@ internal sealed partial class MainViewModel : ObservableObject
       Result<AgentSession> created = await scheduled;
       if (!created.IsSuccess)
       {
-        return Result.Failure<AgentTabViewModel>(created.Error!);
+        return Result.Failure<AgentTabViewModel>(created.Error);
       }
 
-      AgentSession session = created.Value!;
+      AgentSession session = created.Value;
 
       // Self-referencing sink hook, the same pattern as the pre-tab window wiring:
       // the VM is captured after construction so its own sink marshals its events

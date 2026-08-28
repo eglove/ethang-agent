@@ -61,27 +61,27 @@ public sealed class IntelligentModelSelector : IModelSelector
     Result<TaskCategory> categoryResult = await CategorizeAsync(taskPrompt, ct).ConfigureAwait(false);
     if (!categoryResult.IsSuccess)
     {
-      return Result.Failure<ModelSelectionResult>(categoryResult.Error!);
+      return Result.Failure<ModelSelectionResult>(categoryResult.Error);
     }
 
     Result<IReadOnlyList<ModelProviderEntry>> catalogResult = await _catalog.GetAsync(ct).ConfigureAwait(false);
     if (!catalogResult.IsSuccess)
     {
-      return Result.Failure<ModelSelectionResult>(catalogResult.Error!);
+      return Result.Failure<ModelSelectionResult>(catalogResult.Error);
     }
 
-    IReadOnlyList<ModelProviderEntry> allModels = catalogResult.Value!;
+    IReadOnlyList<ModelProviderEntry> allModels = catalogResult.Value;
     if (allModels.Count == 0)
     {
       return Result.Failure<ModelSelectionResult>(new DomainError("CatalogEmpty", "Model catalog is empty."));
     }
 
-    IReadOnlyList<ModelProviderEntry> candidates = PreFilter(allModels, categoryResult.Value!, excludedKeys);
+    IReadOnlyList<ModelProviderEntry> candidates = PreFilter(allModels, categoryResult.Value, excludedKeys);
     return candidates.Count == 0
       ? Result.Failure<ModelSelectionResult>(new DomainError("NoMatchingModels",
           "No models match the task's capability requirements."))
       : await SelectFromCandidatesAsync(
-        categoryResult.Value!, candidates, ct).ConfigureAwait(false);
+        categoryResult.Value, candidates, ct).ConfigureAwait(false);
   }
 
   private async Task<Result<TaskCategory>> CategorizeAsync(string taskPrompt, CancellationToken ct)

@@ -50,11 +50,11 @@ public sealed class EmbeddedSkillCatalog : ISkillCatalog
       {
         throw new InvalidOperationException(
             $"Embedded skill resource '{resourceName}' failed frontmatter parsing: " +
-            parsed.Error!.Message);
+            parsed.Error.Message);
       }
 
       SkillDefinition definition = new(
-          parsed.Value!.Name, parsed.Value.Description, parsed.Value.Body,
+          parsed.Value.Name, parsed.Value.Description, parsed.Value.Body,
           Version: 1, SkillSource.BuiltIn, ProvenanceSessionId: null,
           DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
       byName[definition.Name] = definition;

@@ -35,14 +35,14 @@ public sealed class ZaiWebReaderTool(HttpClient http, ZaiConfiguration config) :
     Result<ToolCallEnvelope> envelope = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     if (!envelope.IsSuccess)
     {
-      return Task.FromResult(ZaiToolHttp.Err(envelope.Error!));
+      return Task.FromResult(ZaiToolHttp.Err(envelope.Error));
     }
 
-    Result<ZaiWebReaderInput> parsed = ZaiWebReaderInput.Create(envelope.Value!.Arguments);
+    Result<ZaiWebReaderInput> parsed = ZaiWebReaderInput.Create(envelope.Value.Arguments);
     return !parsed.IsSuccess
-      ? Task.FromResult(ZaiToolHttp.Err(parsed.Error!))
+      ? Task.FromResult(ZaiToolHttp.Err(parsed.Error))
       : ToolExecution.RunAsync(input.Name, envelope.Value.Timeout, token =>
-        ReadAsync(parsed.Value!, token), ct);
+        ReadAsync(parsed.Value, token), ct);
   }
 
   private async Task<ToolResult> ReadAsync(ZaiWebReaderInput v, CancellationToken ct)
@@ -56,7 +56,7 @@ public sealed class ZaiWebReaderTool(HttpClient http, ZaiConfiguration config) :
         }, ct).ConfigureAwait(false);
     if (!response.IsSuccess)
     {
-      return ZaiToolHttp.Err(response.Error!);
+      return ZaiToolHttp.Err(response.Error);
     }
 
     if (!response.Value.TryGetProperty("reader_result", out JsonElement result)

@@ -38,14 +38,14 @@ public sealed class ZaiWebSearchTool(HttpClient http, ZaiConfiguration config) :
     Result<ToolCallEnvelope> envelope = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     if (!envelope.IsSuccess)
     {
-      return Task.FromResult(ZaiToolHttp.Err(envelope.Error!));
+      return Task.FromResult(ZaiToolHttp.Err(envelope.Error));
     }
 
-    Result<ZaiWebSearchInput> parsed = ZaiWebSearchInput.Create(envelope.Value!.Arguments);
+    Result<ZaiWebSearchInput> parsed = ZaiWebSearchInput.Create(envelope.Value.Arguments);
     return !parsed.IsSuccess
-      ? Task.FromResult(ZaiToolHttp.Err(parsed.Error!))
+      ? Task.FromResult(ZaiToolHttp.Err(parsed.Error))
       : ToolExecution.RunAsync(input.Name, envelope.Value.Timeout, token =>
-        SearchAsync(parsed.Value!, token), ct);
+        SearchAsync(parsed.Value, token), ct);
   }
 
   private async Task<ToolResult> SearchAsync(ZaiWebSearchInput v, CancellationToken ct)

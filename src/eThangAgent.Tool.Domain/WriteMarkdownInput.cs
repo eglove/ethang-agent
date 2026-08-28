@@ -17,7 +17,7 @@ public sealed record WriteMarkdownInput(
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Fail(baseParse.Error!);
+      return Fail(baseParse.Error);
     }
 
     JsonElement json = baseParse.Value;
@@ -41,7 +41,7 @@ public sealed record WriteMarkdownInput(
     Result<MarkdownDocument> parsedDoc = MarkdownDocumentParser.Parse(docEl, "document");
     if (!parsedDoc.IsSuccess)
     {
-      return Fail(parsedDoc.Error!);
+      return Fail(parsedDoc.Error);
     }
 
     string? path = null;
@@ -79,7 +79,7 @@ public sealed record WriteMarkdownInput(
           "'overwrite' is only valid together with 'path'; without a file target the rendered markdown is returned instead."));
     }
 
-    return Result.Success<WriteMarkdownInput>(new(parsedDoc.Value!, path, overwrite));
+    return Result.Success<WriteMarkdownInput>(new(parsedDoc.Value, path, overwrite));
   }
 
   private static Result<WriteMarkdownInput> Fail(DomainError err) =>

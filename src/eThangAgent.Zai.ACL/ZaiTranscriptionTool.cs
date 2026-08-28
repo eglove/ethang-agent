@@ -37,20 +37,20 @@ public sealed class ZaiTranscriptionTool(
     Result<ToolCallEnvelope> envelope = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     if (!envelope.IsSuccess)
     {
-      return Task.FromResult(ZaiToolHttp.Err(envelope.Error!));
+      return Task.FromResult(ZaiToolHttp.Err(envelope.Error));
     }
 
-    Result<ZaiTranscriptionInput> parsed = ZaiTranscriptionInput.Create(envelope.Value!.Arguments);
+    Result<ZaiTranscriptionInput> parsed = ZaiTranscriptionInput.Create(envelope.Value.Arguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(ZaiToolHttp.Err(parsed.Error!));
+      return Task.FromResult(ZaiToolHttp.Err(parsed.Error));
     }
 
-    Result<string> resolved = _resolver.Resolve(parsed.Value!.Path);
+    Result<string> resolved = _resolver.Resolve(parsed.Value.Path);
     return !resolved.IsSuccess
-      ? Task.FromResult(ZaiToolHttp.Err(resolved.Error!))
+      ? Task.FromResult(ZaiToolHttp.Err(resolved.Error))
       : ToolExecution.RunAsync(input.Name, envelope.Value.Timeout, token =>
-        TranscribeAsync(parsed.Value, resolved.Value!, token), ct);
+        TranscribeAsync(parsed.Value, resolved.Value, token), ct);
   }
 
   private async Task<ToolResult> TranscribeAsync(
@@ -59,9 +59,9 @@ public sealed class ZaiTranscriptionTool(
     Result<byte[]> bytes = await _files.ReadBytesAsync(resolvedPath, ct).ConfigureAwait(false);
     if (!bytes.IsSuccess)
     {
-      return ZaiToolHttp.Err(bytes.Error!);
+      return ZaiToolHttp.Err(bytes.Error);
     }
-    if (bytes.Value!.Length > ZaiTranscriptionInput.ByteLimit)
+    if (bytes.Value.Length > ZaiTranscriptionInput.ByteLimit)
     {
       return ZaiToolHttp.Err(new DomainError("InvalidParameterValue",
           $"'{v.Path}' is {bytes.Value.Length} bytes; the limit is {ZaiTranscriptionInput.ByteLimit}."));

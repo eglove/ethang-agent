@@ -28,7 +28,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Fail(baseParse.Error!);
+      return Fail(baseParse.Error);
     }
 
     JsonElement json = baseParse.Value;
@@ -41,7 +41,7 @@ public sealed record TodoInput(TodoAction Action, int? Id, string? Description, 
     Result<(TodoAction Action, int? Id, string? Description, TodoStatus? Status)> parsed = ParseFields(json);
     if (!parsed.IsSuccess)
     {
-      return Fail(parsed.Error!);
+      return Fail(parsed.Error);
     }
 
     DomainError? invalid = ValidateForAction(

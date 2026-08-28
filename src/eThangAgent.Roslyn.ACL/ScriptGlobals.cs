@@ -371,10 +371,10 @@ public sealed class ScriptTools
     Result<ResolvedCapability> resolved = _registry.Resolve(name);
     if (!resolved.IsSuccess)
     {
-      return $"Error [UnknownAction]: {resolved.Error!.Message}";
+      return $"Error [UnknownAction]: {resolved.Error.Message}";
     }
 
-    ActionDescriptor action = resolved.Value!.Action;
+    ActionDescriptor action = resolved.Value.Action;
     StringBuilder sb = new($"{action.Name} — {action.Summary}\n\n{action.Description}");
     foreach (ActionParameter p in action.Parameters)
     {

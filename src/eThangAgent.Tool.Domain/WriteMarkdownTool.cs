@@ -36,22 +36,22 @@ public sealed class WriteMarkdownTool(IPathResolver resolver, IFileWriteAccess f
     Result<WriteMarkdownInput> parsed = WriteMarkdownInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
-    Result<string> resolvedPath = parsed.Value!.Path is null
+    Result<string> resolvedPath = parsed.Value.Path is null
         ? Result.Success("")
         : _resolver.Resolve(parsed.Value.Path);
     if (!resolvedPath.IsSuccess)
     {
-      return Task.FromResult(Err(resolvedPath.Error!));
+      return Task.FromResult(Err(resolvedPath.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
-      ? Task.FromResult(Err(budget.Error!))
-      : ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
-        RenderAndMaybeWriteAsync(resolvedPath.Value!, parsed.Value, token), ct);
+      ? Task.FromResult(Err(budget.Error))
+      : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
+        RenderAndMaybeWriteAsync(resolvedPath.Value, parsed.Value, token), ct);
   }
 
   private async Task<ToolResult> RenderAndMaybeWriteAsync(string resolvedPath, WriteMarkdownInput args, CancellationToken ct)
@@ -66,10 +66,10 @@ public sealed class WriteMarkdownTool(IPathResolver resolver, IFileWriteAccess f
     Result<FileWriteOutcome> written = await _files.WriteFileAsync(resolvedPath, rendered, args.Overwrite!.Value, ct).ConfigureAwait(false);
     if (!written.IsSuccess)
     {
-      return Err(written.Error!);
+      return Err(written.Error);
     }
 
-    FileWriteOutcome o = written.Value!;
+    FileWriteOutcome o = written.Value;
     return new ToolResult(
         $"[write_markdown {resolvedPath}] {(o.Created ? "created" : "overwritten")}, {o.BytesWritten} bytes",
         false);

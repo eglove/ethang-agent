@@ -36,10 +36,10 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
       Result<List<IntermediateModel>> phase1 = await FetchModelsAsync(ct).ConfigureAwait(false);
       if (!phase1.IsSuccess)
       {
-        return Result.Failure<IReadOnlyList<ModelProviderEntry>>(phase1.Error!);
+        return Result.Failure<IReadOnlyList<ModelProviderEntry>>(phase1.Error);
       }
 
-      List<ModelProviderEntry> entries = await ExpandEndpointsAsync(phase1.Value!, ct).ConfigureAwait(false);
+      List<ModelProviderEntry> entries = await ExpandEndpointsAsync(phase1.Value, ct).ConfigureAwait(false);
       _cached = entries;
       _fetchedAt = DateTimeOffset.UtcNow;
       return Result.Success<IReadOnlyList<ModelProviderEntry>>(entries);

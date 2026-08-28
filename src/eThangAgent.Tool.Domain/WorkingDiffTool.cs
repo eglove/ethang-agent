@@ -38,15 +38,15 @@ public sealed class WorkingDiffTool(IPathResolver resolver, IGitQueryAccess git)
     Result<WorkingDiffInput> parsed = WorkingDiffInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
-    WorkingDiffInput v = parsed.Value!;
+    WorkingDiffInput v = parsed.Value;
 
     Result<string> root = _resolver.Resolve(".");
     if (!root.IsSuccess)
     {
-      return Task.FromResult(Err(root.Error!));
+      return Task.FromResult(Err(root.Error));
     }
 
     string? resolvedPath = null;
@@ -55,17 +55,17 @@ public sealed class WorkingDiffTool(IPathResolver resolver, IGitQueryAccess git)
       Result<string> resolved = _resolver.Resolve(v.Path);
       if (!resolved.IsSuccess)
       {
-        return Task.FromResult(Err(resolved.Error!));
+        return Task.FromResult(Err(resolved.Error));
       }
 
-      resolvedPath = resolved.Value!;
+      resolvedPath = resolved.Value;
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
-      ? Task.FromResult(Err(budget.Error!))
-      : ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
-        DiffAsync(root.Value!, v.Scope, resolvedPath, v, token), ct);
+      ? Task.FromResult(Err(budget.Error))
+      : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
+        DiffAsync(root.Value, v.Scope, resolvedPath, v, token), ct);
   }
 
   private async Task<ToolResult> DiffAsync(

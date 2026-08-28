@@ -169,10 +169,10 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     Result<Regex?> compiled = CompilePattern(pattern, regex);
     if (!compiled.IsSuccess)
     {
-      return Task.FromResult(Result.Failure<FileSearch>(compiled.Error!));
+      return Task.FromResult(Result.Failure<FileSearch>(compiled.Error));
     }
 
-    SearchPlan plan = new(compiled.Value!, pattern, glob, maxResults, contextLines);
+    SearchPlan plan = new(compiled.Value, pattern, glob, maxResults, contextLines);
     List<SearchMatch> matches = [];
     int scanned = 0;
     bool truncated = CollectMatches(rootPath, plan, matches, ref scanned);

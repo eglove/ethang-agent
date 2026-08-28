@@ -24,22 +24,22 @@ public sealed record ZaiWebSearchInput(string Query, int Count, string? Recency)
     Result<string> query = ParseQuery(json);
     if (!query.IsSuccess)
     {
-      return Fail(query.Error!);
+      return Fail(query.Error);
     }
 
     Result<int> count = ParseCount(json);
     if (!count.IsSuccess)
     {
-      return Fail(count.Error!);
+      return Fail(count.Error);
     }
 
     Result<string?> recency = ParseRecency(json);
     if (!recency.IsSuccess)
     {
-      return Fail(recency.Error!);
+      return Fail(recency.Error);
     }
 
-    ZaiWebSearchInput input = new(query.Value!, count.Value, recency.Value);
+    ZaiWebSearchInput input = new(query.Value, count.Value, recency.Value);
     return Result.Success(input);
   }
 

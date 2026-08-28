@@ -52,7 +52,7 @@ public static class MarkdownDocumentParser
         ParseBlocksAndFrontMatter(root, blocksEl, source);
     if (!parsed.IsSuccess)
     {
-      return Fail(parsed.Error!);
+      return Fail(parsed.Error);
     }
 
     MarkdownDocument document = new(parsed.Value.Blocks, parsed.Value.FrontMatter);
@@ -238,8 +238,8 @@ public static class MarkdownDocumentParser
 
     Result<string> text = RequireText(b, "text");
     return text.IsSuccess
-        ? Result.Success<MarkdownBlock?>(new AlertBlock(WordToAlert(word), text.Value!))
-        : FailMarkdownBlock(text.Error!);
+        ? Result.Success<MarkdownBlock?>(new AlertBlock(WordToAlert(word), text.Value))
+        : FailMarkdownBlock(text.Error);
   }
 
   private static Result<MarkdownBlock?> ParseCodeBlock(JsonElement b)
@@ -356,7 +356,7 @@ public static class MarkdownDocumentParser
     Result<IReadOnlyList<ListItem>?> children = ParseItemChildren(el, depth);
     if (!children.IsSuccess)
     {
-      return Result.Failure<ListItem>(children.Error!);
+      return Result.Failure<ListItem>(children.Error);
     }
 
     ListItem item = new(text, children.Value);
@@ -499,7 +499,7 @@ public static class MarkdownDocumentParser
     Result<TableAlign?> align = ParseHeaderAlign(h);
     if (!align.IsSuccess)
     {
-      return align.Error!;
+      return align.Error;
     }
 
     headers.Add(new TableHeader(ht.GetString()!, align.Value));

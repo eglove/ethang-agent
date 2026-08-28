@@ -42,10 +42,10 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
     Result<GitCommitInput> parsed = GitCommitInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
-    GitCommitInput v = parsed.Value!;
+    GitCommitInput v = parsed.Value;
 
     // Message assembly first: every validation code surfaces verbatim before any
     // git work happens.
@@ -53,20 +53,20 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
         v.Style, v.Type, v.Scope, v.EmojiKey, v.Description, v.Body);
     if (!message.IsSuccess)
     {
-      return Task.FromResult(Err(message.Error!));
+      return Task.FromResult(Err(message.Error));
     }
 
     Result<string> root = _resolver.Resolve(".");
     if (!root.IsSuccess)
     {
-      return Task.FromResult(Err(root.Error!));
+      return Task.FromResult(Err(root.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
-      ? Task.FromResult(Err(budget.Error!))
-      : ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
-        CommitAsync(root.Value!, message.Value!.Rendered, token), ct);
+      ? Task.FromResult(Err(budget.Error))
+      : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
+        CommitAsync(root.Value, message.Value.Rendered, token), ct);
   }
 
   private async Task<ToolResult> CommitAsync(string repoRoot, string message, CancellationToken ct)

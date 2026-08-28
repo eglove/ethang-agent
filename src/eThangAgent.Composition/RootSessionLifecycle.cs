@@ -24,13 +24,13 @@ public class RootSessionLifecycle(IAgentStore store)
     Result<string> user = await store.AppendMessageAsync(rootId, conversation.Messages[messageCountBefore]).ConfigureAwait(false);
     if (!user.IsSuccess)
     {
-      reportError($"Error [{user.Error!.Code}]: {user.Error.Message}");
+      reportError($"Error [{user.Error.Code}]: {user.Error.Message}");
     }
 
     Result<string> assistant = await store.AppendMessageAsync(rootId, conversation.Messages[^1]).ConfigureAwait(false);
     if (!assistant.IsSuccess)
     {
-      reportError($"Error [{assistant.Error!.Code}]: {assistant.Error.Message}");
+      reportError($"Error [{assistant.Error.Code}]: {assistant.Error.Message}");
     }
   }
 
@@ -53,7 +53,7 @@ public class RootSessionLifecycle(IAgentStore store)
     }).ConfigureAwait(false);
     if (!updated.IsSuccess)
     {
-      reportError($"Error [{updated.Error!.Code}]: {updated.Error.Message}");
+      reportError($"Error [{updated.Error.Code}]: {updated.Error.Message}");
     }
   }
 }

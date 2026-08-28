@@ -32,20 +32,20 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : 
     Result<WriteToolInput> parsed = WriteToolInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
-    Result<string> resolved = _resolver.Resolve(parsed.Value!.Path);
+    Result<string> resolved = _resolver.Resolve(parsed.Value.Path);
     if (!resolved.IsSuccess)
     {
-      return Task.FromResult(Err(resolved.Error!));
+      return Task.FromResult(Err(resolved.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
-      ? Task.FromResult(Err(budget.Error!))
-      : ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
-        WriteAsync(resolved.Value!, parsed.Value, token), ct);
+      ? Task.FromResult(Err(budget.Error))
+      : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
+        WriteAsync(resolved.Value, parsed.Value, token), ct);
   }
 
   private async Task<ToolResult> WriteAsync(string path, WriteToolInput args, CancellationToken ct)

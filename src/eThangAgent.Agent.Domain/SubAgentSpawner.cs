@@ -82,7 +82,7 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
           inbox: null, ct: timeoutCts.Token).ConfigureAwait(false);
       if (run.IsSuccess)
       {
-        report = run.Value!;
+        report = run.Value;
       }
       // The caller's token firing means an explicit interrupt (user stop), which is
       // distinct from this run's own timeout budget expiring.

@@ -29,7 +29,7 @@ public sealed record GitCommitInput(
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Fail(baseParse.Error!);
+      return Fail(baseParse.Error);
     }
 
     JsonElement json = baseParse.Value;
@@ -42,40 +42,40 @@ public sealed record GitCommitInput(
     Result<string> style = ToolArguments.RequireString(json, StyleName, RequirementText);
     if (!style.IsSuccess)
     {
-      return Fail(style.Error!);
+      return Fail(style.Error);
     }
 
     Result<string?> type = ToolArguments.OptionalString(json, TypeName);
     if (!type.IsSuccess)
     {
-      return Fail(type.Error!);
+      return Fail(type.Error);
     }
 
     Result<string?> scope = ToolArguments.OptionalString(json, ScopeName);
     if (!scope.IsSuccess)
     {
-      return Fail(scope.Error!);
+      return Fail(scope.Error);
     }
 
     Result<string?> emojiKey = ToolArguments.OptionalString(json, EmojiKeyName);
     if (!emojiKey.IsSuccess)
     {
-      return Fail(emojiKey.Error!);
+      return Fail(emojiKey.Error);
     }
 
     Result<string> description = ToolArguments.RequireString(json, DescriptionName, RequirementText);
     if (!description.IsSuccess)
     {
-      return Fail(description.Error!);
+      return Fail(description.Error);
     }
 
     Result<string?> body = ToolArguments.OptionalString(json, BodyName);
     if (!body.IsSuccess)
     {
-      return Fail(body.Error!);
+      return Fail(body.Error);
     }
 
-    GitCommitInput input = new(style.Value!, type.Value, scope.Value, emojiKey.Value, description.Value!, body.Value);
+    GitCommitInput input = new(style.Value, type.Value, scope.Value, emojiKey.Value, description.Value, body.Value);
     return Result.Success(input);
   }
 

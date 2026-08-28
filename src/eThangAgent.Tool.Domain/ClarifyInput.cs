@@ -18,7 +18,7 @@ public sealed record ClarifyInput(string Question, IReadOnlyList<string>? Option
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Fail(baseParse.Error!);
+      return Fail(baseParse.Error);
     }
 
     JsonElement json = baseParse.Value;
@@ -31,10 +31,10 @@ public sealed record ClarifyInput(string Question, IReadOnlyList<string>? Option
     Result<string> question = ToolArguments.RequireString(json, QuestionName, RequirementText);
     if (!question.IsSuccess)
     {
-      return Fail(question.Error!);
+      return Fail(question.Error);
     }
 
-    DomainError? emptyQuestion = question.Value!.Length == 0
+    DomainError? emptyQuestion = question.Value.Length == 0
       ? new DomainError(ToolErrorCodes.InvalidParameterValue, "'question' must be a non-empty string.")
       : null;
     if (emptyQuestion is not null)
@@ -45,13 +45,13 @@ public sealed record ClarifyInput(string Question, IReadOnlyList<string>? Option
     Result<IReadOnlyList<string>?> options = ParseOptions(json);
     if (!options.IsSuccess)
     {
-      return Fail(options.Error!);
+      return Fail(options.Error);
     }
 
     Result<bool> allowFreeText = ToolArguments.RequireBool(json, AllowFreeTextName, RequirementText);
     if (!allowFreeText.IsSuccess)
     {
-      return Fail(allowFreeText.Error!);
+      return Fail(allowFreeText.Error);
     }
 
     // An options-free, free-text-blocked question can never succeed: every

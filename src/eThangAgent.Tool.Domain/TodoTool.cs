@@ -69,14 +69,14 @@ public sealed class TodoTool(ITodoListStore store) : ITool
     Result<TodoInput> parsed = TodoInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
-      ? Task.FromResult(Err(budget.Error!))
-      : ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
-        RunAsync(parsed.Value!, token), ct);
+      ? Task.FromResult(Err(budget.Error))
+      : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
+        RunAsync(parsed.Value, token), ct);
   }
 
   private async Task<ToolResult> RunAsync(TodoInput input, CancellationToken ct)

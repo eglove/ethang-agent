@@ -29,20 +29,20 @@ public sealed class GitStatusTool(IPathResolver resolver, IGitQueryAccess git) :
     Result<bool> args = ParseArguments(input.JsonArguments);
     if (!args.IsSuccess)
     {
-      return Task.FromResult(Err(args.Error!));
+      return Task.FromResult(Err(args.Error));
     }
 
     Result<string> root = _resolver.Resolve(".");
     if (!root.IsSuccess)
     {
-      return Task.FromResult(Err(root.Error!));
+      return Task.FromResult(Err(root.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
-      ? Task.FromResult(Err(budget.Error!))
-      : ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
-        StatusAsync(root.Value!, token), ct);
+      ? Task.FromResult(Err(budget.Error))
+      : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
+        StatusAsync(root.Value, token), ct);
   }
 
   private async Task<ToolResult> StatusAsync(string repoRoot, CancellationToken ct)

@@ -36,24 +36,24 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
     Result<EditToolInput> parsed = EditToolInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
-    Result<string> resolved = _resolver.Resolve(parsed.Value!.Path);
+    Result<string> resolved = _resolver.Resolve(parsed.Value.Path);
     if (!resolved.IsSuccess)
     {
-      return Task.FromResult(Err(resolved.Error!));
+      return Task.FromResult(Err(resolved.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     if (!budget.IsSuccess)
     {
-      return Task.FromResult(Err(budget.Error!));
+      return Task.FromResult(Err(budget.Error));
     }
 
     EditToolInput v = parsed.Value;
-    return ToolExecution.RunAsync(input.Name, budget.Value!.Timeout, token =>
-        ReplaceAsync(resolved.Value!, v, token), ct);
+    return ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
+        ReplaceAsync(resolved.Value, v, token), ct);
   }
 
   private async Task<ToolResult> ReplaceAsync(string path, EditToolInput args, CancellationToken ct)

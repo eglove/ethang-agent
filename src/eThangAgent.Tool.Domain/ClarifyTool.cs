@@ -36,16 +36,16 @@ public sealed class ClarifyTool(IClarifyChannel channel) : ITool
     Result<ClarifyInput> parsed = ClarifyInput.Create(input.JsonArguments);
     if (!parsed.IsSuccess)
     {
-      return Task.FromResult(Err(parsed.Error!));
+      return Task.FromResult(Err(parsed.Error));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     if (!budget.IsSuccess)
     {
-      return Task.FromResult(Err(budget.Error!));
+      return Task.FromResult(Err(budget.Error));
     }
 
-    ClarifyInput v = parsed.Value!;
+    ClarifyInput v = parsed.Value;
     // Human thinking time is not machine work: the envelope budget is validated
     // above but must never bound the wait, so it is deliberately not passed on.
     // An unbounded ask still honors caller cancellation (a turn abort), which
