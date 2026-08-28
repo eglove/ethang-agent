@@ -182,6 +182,63 @@ public class AgentSessionFactoryTests
   }
 
   [Fact]
+  public async Task WithSettings_Serves_The_Updated_Keys_On_Future_Sessions()
+  {
+    // The rebind seam behind the settings modal: a factory built without a z.ai
+    // key refuses z.ai sessions; after WithSettings with the key, future sessions
+    // open — over the SAME app database — without touching the original factory.
+    (AgentSessionFactory factory, string db) = CreateFactory();
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-rebind");
+      try
+      {
+        Assert.False((await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel())).IsSuccess);
+
+        AgentSessionFactory rebound = factory.WithSettings(Settings(zaiKey: "zai-test-key"));
+        Result<AgentSession> opened = await rebound.CreateAsync(dir.FullName, Providers.Zai, new StubChannel());
+        Assert.True(opened.IsSuccess);
+        Assert.Equal(Providers.Zai, opened.Value!.ProviderName);
+
+        // The original factory keeps refusing — rebind is a new instance, not a mutation.
+        Assert.False((await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel())).IsSuccess);
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      try
+      {
+        File.Delete(db);
+      }
+      catch { }
+    }
+  }
+
+  [Fact]
+  public void WithSettings_Null_Throws()
+  {
+    (AgentSessionFactory factory, string db) = CreateFactory();
+    try
+    {
+      _ = Assert.Throws<ArgumentNullException>(() => factory.WithSettings(null!));
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      try
+      {
+        File.Delete(db);
+      }
+      catch { }
+    }
+  }
+
+  [Fact]
   public async Task CreateAsync_ZaiConfigured_WiresZaiProviderAndCarriesProviderName()
   {
     (AgentSessionFactory? factory, string? db) = CreateFactory(Settings(zaiKey: "zai-test-key"));

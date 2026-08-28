@@ -53,6 +53,8 @@ public class ShellViewModelTests
   {
     public List<(string Key, string Value)> Writes { get; } = [];
 
+    public List<string> Deletions { get; } = [];
+
     public Task<string?> GetAsync(string key, CancellationToken ct = default)
         => Task.FromResult<string?>(null);
 
@@ -61,7 +63,42 @@ public class ShellViewModelTests
       Writes.Add((key, value));
       return Task.FromResult(true);
     }
+
+    public Task<bool> DeleteAsync(string key, CancellationToken ct = default)
+    {
+      Deletions.Add(key);
+      return Task.FromResult(true);
+    }
   }
+
+  /// <summary>Protects keys with a recognizable marker so persistence tests can see
+  ///     exactly what would land in the store (and that it is NOT plaintext).</summary>
+  private sealed class FakeKeyProtector : IApiKeyProtector
+  {
+    public string Protect(string apiKey) => $"protected:{apiKey}";
+
+    public string? Unprotect(string storedValue)
+        => storedValue.StartsWith("protected:", StringComparison.Ordinal)
+            ? storedValue["protected:".Length..]
+            : null;
+  }
+
+  private static AgentSettings Settings(string? openRouter = null, string? zai = null) => new(
+      new OpenRouterSettings(openRouter, new Uri("https://openrouter.test")),
+      new ZaiSettings(zai, new Uri("https://zai.test")),
+      new AgentDomain.SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
+
+  private static MainViewModel CreateSettingsShell(
+      AgentSettings settings,
+      IAppPreferenceStore? preferences = null,
+      IApiKeyProtector? protector = null,
+      string? preferredProviderId = null)
+      => new(null,
+          preferredProviderId: preferredProviderId,
+          preferences: preferences,
+          settings: settings,
+          sessionFactory: new AgentSessionFactory(settings),
+          keyProtector: protector);
 
   [Fact]
   public void OpenAgentCommand_Raises_Dialog_Request()
@@ -188,5 +225,106 @@ public class ShellViewModelTests
     (string key, string value) = Assert.Single(preferences.Writes);
     Assert.Equal(Providers.PreferenceKey, key);
     Assert.Equal("zai", value);
+  }
+
+  [Fact]
+  public void OpenSettingsCommand_Raises_Settings_Request()
+  {
+    MainViewModel vm = CreateShell();
+    bool raised = false;
+    vm.SettingsRequested += (_, _) => raised = true;
+
+    vm.OpenSettingsCommand.Execute(null);
+
+    Assert.True(raised);
+  }
+
+  [Fact]
+  public void Ctor_Without_Delegate_Or_Settings_Fails_Fast()
+      => _ = Assert.Throws<ArgumentException>(() => new MainViewModel(null));
+
+  [Fact]
+  public async Task ApplySettings_Persists_Protected_Keys_And_Refreshes_Providers()
+  {
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateSettingsShell(Settings(), preferences, new FakeKeyProtector());
+    Assert.False(vm.HasConfiguredProvider);
+
+    await vm.ApplySettingsAsync(new SettingsUpdate("  sk-or-v1-abc  ", " zai-key "));
+
+    // Keys land trimmed and PROTECTED — never plaintext; nothing to delete.
+    Assert.Equal(
+        [
+            (OpenRouterSettings.PreferenceKey, "protected:sk-or-v1-abc"),
+            (ZaiSettings.PreferenceKey, "protected:zai-key"),
+        ],
+        preferences.Writes);
+    Assert.Empty(preferences.Deletions);
+
+    Assert.Equal(["openrouter", "zai"], vm.AvailableProviders.Select(p => p.Id));
+    Assert.True(vm.HasConfiguredProvider);
+    Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
+    Assert.Equal("zai-key", vm.ConfiguredZaiKey);
+  }
+
+  [Fact]
+  public async Task ApplySettings_Cleared_Keys_Delete_Preferences_And_Drop_Providers()
+  {
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateSettingsShell(
+        Settings(openRouter: "sk-or-v1-abc"), preferences, new FakeKeyProtector(),
+        preferredProviderId: Providers.OpenRouter);
+    Assert.Equal(["openrouter"], vm.AvailableProviders.Select(p => p.Id));
+
+    await vm.ApplySettingsAsync(new SettingsUpdate(null, null));
+
+    Assert.Equal([OpenRouterSettings.PreferenceKey, ZaiSettings.PreferenceKey], preferences.Deletions);
+    Assert.Empty(preferences.Writes);
+    Assert.Empty(vm.AvailableProviders);
+    Assert.False(vm.HasConfiguredProvider);
+    // Nothing configured to preselect — the stored preference survives untouched.
+    Assert.Equal(Providers.OpenRouter, vm.PreferredProviderId);
+  }
+
+  [Fact]
+  public async Task ApplySettings_Revalidates_Preferred_Provider()
+  {
+    MainViewModel vm = CreateSettingsShell(
+        Settings(openRouter: "sk-or-v1-abc", zai: "zai-key"),
+        new FakePreferenceStore(), new FakeKeyProtector(),
+        preferredProviderId: Providers.Zai);
+    Assert.Equal("zai", vm.PreferredProviderId);
+
+    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", "")); // z.ai key cleared
+
+    Assert.Equal(["openrouter"], vm.AvailableProviders.Select(p => p.Id));
+    Assert.Equal("openrouter", vm.PreferredProviderId);
+  }
+
+  [Fact]
+  public async Task ApplySettings_Without_Protector_Never_Persists_Plaintext()
+  {
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateSettingsShell(Settings(), preferences, protector: null);
+
+    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", null));
+
+    // Strict boundary: no protector means no durable key, ever. The in-memory
+    // surface still reflects the edit — only persistence is skipped. (The z.ai
+    // delete no-ops — the key was never stored.)
+    Assert.Empty(preferences.Writes);
+    Assert.Equal([ZaiSettings.PreferenceKey], preferences.Deletions);
+    Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
+  }
+
+  [Fact]
+  public void OpenAgent_Is_Gated_When_No_Provider_Is_Configured()
+  {
+    MainViewModel vm = new(
+        (_, _) => Task.FromResult(Result.Success(FakeSession(@"C:\work"))),
+        availableProviders: []);
+
+    Assert.False(vm.HasConfiguredProvider);
+    Assert.False(vm.OpenAgentCommand.CanExecute(null));
   }
 }

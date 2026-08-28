@@ -13,4 +13,9 @@ public interface IAppPreferenceStore
   /// <summary>Stores the value, overwriting any previous one. Returns false when the
   ///     write did not land (never throws for storage failures).</summary>
   Task<bool> SetAsync(string key, string value, CancellationToken ct = default);
+
+  /// <summary>Removes the preference entirely. Returns false when the key was not set.
+  ///     This is how a preference is cleared: values are required non-blank, so an
+  ///     "empty" write is expressed as a delete.</summary>
+  Task<bool> DeleteAsync(string key, CancellationToken ct = default);
 }

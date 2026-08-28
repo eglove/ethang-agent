@@ -25,8 +25,11 @@ internal partial class MainWindow : Window
     DataContext = vm;
 
     // The menu button asks the view to show the new-agent modal (UI-affine); the
-    // chosen provider/workspace pair comes back through OpenAgentAsync.
+    // chosen provider/workspace pair comes back through OpenAgentAsync. The gear
+    // button shows the settings modal the same way; its result flows through
+    // ApplySettingsAsync.
     vm.OpenAgentRequested += async (_, _) => await ShowNewAgentDialogAsync();
+    vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
   }
 
   /// <summary>Shows the new-agent dialog (provider dropdown + workspace picker) and
@@ -46,6 +49,21 @@ internal partial class MainWindow : Window
     {
       await ShowOpenFailedAsync(result.Error!.Message);
     }
+  }
+
+  /// <summary>Shows the settings modal prefilled with the current keys. A cancelled
+  ///     dialog is a no-op; a confirmed one applies the keys (persist + factory rebind)
+  ///     on the shell.</summary>
+  private async Task ShowSettingsDialogAsync()
+  {
+    SettingsWindow dialog = new(_vm!.ConfiguredOpenRouterKey, _vm.ConfiguredZaiKey);
+    SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
+    if (update is null)
+    {
+      return; // user cancelled — no-op
+    }
+
+    await _vm.ApplySettingsAsync(update);
   }
 
   private async Task ShowOpenFailedAsync(string message)

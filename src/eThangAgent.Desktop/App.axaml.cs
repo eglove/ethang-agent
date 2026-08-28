@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -20,16 +19,17 @@ internal class App : Application
       // behavior mid-startup.
       DesktopHost.DeferShutdownDuringStartup(desktop);
 
-      // Startup is now two phases: config load + session-factory construction on a
-      // background thread (no Avalonia controls), then shell-window construction on
-      // the UI thread. No workspace is requested at startup — agents open per tab
-      // via 'Open Agent'. Bootstrap failures surface as an error dialog and a
-      // non-zero exit inside DesktopHost.
+      // Startup is now two phases: config load + key recovery + session-factory
+      // construction on a background thread (no Avalonia controls), then shell-window
+      // construction on the UI thread. No workspace is requested at startup — agents
+      // open per tab via 'Open Agent', and no API key is required until then.
+      // Infrastructure failures surface as an error dialog and a non-zero exit
+      // inside DesktopHost.
       _ = Task.Run(async () =>
       {
         try
         {
-          DesktopBootstrap boot = await DesktopHost.PrepareAsync(desktop);
+          DesktopBootstrap boot = await DesktopHost.PrepareAsync();
           await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                   MainWindow window = DesktopHost.CreateMainWindow(boot);
@@ -38,10 +38,6 @@ internal class App : Application
                   // A real window now owns the lifetime: closing it should exit.
                   DesktopHost.EnableWindowCloseShutdown(desktop);
                 });
-        }
-        catch (UnreachableException)
-        {
-          // Error dialog path already scheduled shutdown(1) inside DesktopHost.
         }
         // Named decision (CA1031): startup is a fault boundary — ANY failure must
         // surface in the error dialog, never kill the process silently.

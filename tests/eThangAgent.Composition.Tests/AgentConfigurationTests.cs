@@ -3,38 +3,15 @@ namespace eThangAgent.Composition.Tests;
 public class AgentConfigurationTests
 {
   [Fact]
-  public void Missing_Api_Keys_Are_Null_Not_Throw()
+  public void Api_Key_Environment_Variables_Are_Ignored()
   {
-    AgentSettings s = Load(env: []);
+    // Keys live in each host's credential store (the Desktop's settings modal),
+    // never in configuration: hosts overlay them via AgentSettings.WithApiKeys.
+    AgentSettings s = Load(env: [("OPENROUTER_API_KEY", "sk-or-test"), ("ZAI_API_KEY", "zai-test-key")]);
     Assert.Null(s.OpenRouter.ApiKey);
     Assert.Null(s.Zai.ApiKey);
     Assert.False(s.HasOpenRouter);
     Assert.False(s.HasZai);
-  }
-
-  [Fact]
-  public void OpenRouter_Api_Key_Is_Read_From_Environment()
-  {
-    AgentSettings s = Load(env: [("OPENROUTER_API_KEY", "sk-or-test")]);
-    Assert.Equal("sk-or-test", s.OpenRouter.ApiKey);
-    Assert.True(s.HasOpenRouter);
-    Assert.False(s.HasZai);
-  }
-
-  [Fact]
-  public void Zai_Api_Key_Is_Read_From_Environment()
-  {
-    AgentSettings s = Load(env: [("ZAI_API_KEY", "zai-test-key")]);
-    Assert.Equal("zai-test-key", s.Zai.ApiKey);
-    Assert.True(s.HasZai);
-    Assert.False(s.HasOpenRouter);
-  }
-
-  [Fact]
-  public void Blank_Api_Keys_Count_As_Unconfigured()
-  {
-    AgentSettings s = Load(env: [("OPENROUTER_API_KEY", "  ")]);
-    Assert.False(s.HasOpenRouter);
   }
 
   [Fact]
@@ -70,16 +47,14 @@ public class AgentConfigurationTests
   [Fact]
   public void Invalid_Base_Url_Throws_InvalidOperationException()
   {
-    Exception ex = Record.Exception(() => Load(env: [
-        ("OPENROUTER_API_KEY", "k"), ("OPENROUTER_BASE_URL", "not-a-url")]));
+    Exception ex = Record.Exception(() => Load(env: [("OPENROUTER_BASE_URL", "not-a-url")]));
     _ = Assert.IsType<InvalidOperationException>(ex);
   }
 
   [Fact]
   public void Invalid_Zai_Base_Url_Throws_InvalidOperationException()
   {
-    Exception ex = Record.Exception(() => Load(env: [
-        ("ZAI_API_KEY", "k"), ("ZAI_BASE_URL", "not-a-url")]));
+    Exception ex = Record.Exception(() => Load(env: [("ZAI_BASE_URL", "not-a-url")]));
     InvalidOperationException invalid = Assert.IsType<InvalidOperationException>(ex);
     Assert.Contains("ZAI_BASE_URL", invalid.Message, StringComparison.Ordinal);
   }
@@ -87,8 +62,7 @@ public class AgentConfigurationTests
   [Fact]
   public void Invalid_SubAgent_Configuration_Throws()
   {
-    Exception ex = Record.Exception(() => Load(env: [
-        ("OPENROUTER_API_KEY", "k"), ("SubAgent__MaxConcurrentAgents", "0")]));
+    Exception ex = Record.Exception(() => Load(env: [("SubAgent__MaxConcurrentAgents", "0")]));
     _ = Assert.IsType<InvalidOperationException>(ex);
   }
 

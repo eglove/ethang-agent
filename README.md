@@ -74,21 +74,16 @@ eThang Agent is an AI coding agent for Windows, built on .NET 10 and delivered t
 ## Getting started
 
 1. Clone the repository.
-2. Set an API key for each provider you want available (at least one):
-
-   ```powershell
-   $env:OPENROUTER_API_KEY = "sk-or-..."
-   $env:ZAI_API_KEY = "..."
-   ```
-
-3. Build and run:
+2. Build and run:
 
 ```powershell
 dotnet build
 dotnet run --project src/eThangAgent.Desktop # Avalonia desktop app
 ```
 
-The window opens directly on the shell: no workspace is required up front. Click **Open Agent**, pick a directory, and that agent's chat opens as a tab; repeat to work with several workspaces side by side.
+3. Add an API key: click **⚙ Settings** at the bottom of the left menu and paste your [OpenRouter](https://openrouter.ai/keys) and/or z.ai key. Keys are stored DPAPI-encrypted in the app database (only your Windows user can read them back) and apply to newly opened agents.
+
+The window opens directly on the shell: no workspace and no pre-configured key are required up front. Click **Open Agent**, pick a directory, and that agent's chat opens as a tab; repeat to work with several workspaces side by side.
 
 ## Usage
 
@@ -96,12 +91,14 @@ The window opens directly on the shell: no workspace is required up front. Click
 
 | Setting | Where | Notes |
 | ------- | ----- | ----- |
-| `OPENROUTER_API_KEY` | environment variable | OpenRouter credential. At least one provider key must be set. |
-| `ZAI_API_KEY` | environment variable | z.ai credential. At least one provider key must be set. |
+| OpenRouter API key | **⚙ Settings → API Keys** | DPAPI-encrypted in the app database. Providers without a key are not offered in the Open-Agent dialog. |
+| z.ai API key | **⚙ Settings → API Keys** | Same storage and rules. Leave a field blank to remove that key. |
 | `OPENROUTER_BASE_URL` | environment variable | Optional; defaults to `https://openrouter.ai`. Useful for pointing tests at a mock server. |
 | `ZAI_BASE_URL` | environment variable | Optional; defaults to `https://api.z.ai/api`. Also for tests. |
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. |
 | Sub-agent settings (`DefaultModel`, `ChildTimeoutSeconds`, `MaxConcurrentAgents`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. |
+
+Saved keys apply to newly opened agents; already-open tabs keep the credentials they were created with.
 
 The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. Model choice works differently per provider:
 
@@ -111,6 +108,7 @@ The active provider is chosen per agent in the Open-Agent dialog — switching p
 ### Where your data lives
 
 - Sessions, state transitions, and events: one SQLite database owned by the app, by default at `%LOCALAPPDATA%\eThangAgent\eThangAgent.db` (override with `ETHANG_AGENT_DB`). Schema changes run through versioned migrations.
+- API keys: the same database (Settings → API Keys), DPAPI-encrypted with current-user scope — plaintext keys never touch disk.
 - Exec artifacts: `%TEMP%\eThangAgent\exec-artifacts`.
 
 ## Development

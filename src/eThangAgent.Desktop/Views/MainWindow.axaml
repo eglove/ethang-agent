@@ -7,11 +7,14 @@
         Closed="OnWindowClosed">
   <Grid ColumnDefinitions="Auto,*">
 
-    <!-- Left-hand side menu bar. One button today; more menu actions land here later. -->
+    <!-- Left-hand side menu bar: 'Open Agent' plus the bottom-anchored settings entry. -->
     <Border Grid.Column="0" Background="#FF1B1B2F" Width="190">
       <DockPanel>
         <TextBlock DockPanel.Dock="Top" Text="eThang Agent" FontWeight="Bold" FontSize="16"
                    Margin="12,14,12,10"/>
+        <Button x:Name="SettingsButton" DockPanel.Dock="Bottom" Content="⚙ Settings"
+                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
+                Command="{Binding OpenSettingsCommand}"/>
         <Button x:Name="OpenAgentButton" Content="Open Agent"
                 HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
                 Command="{Binding OpenAgentCommand}"/>
@@ -22,11 +25,16 @@
     <!-- Tab host: one tab per open agent, each hosting its own AgentView. -->
     <Grid Grid.Column="1">
       <Panel>
-        <TextBlock x:Name="EmptyState"
-                   Text="No agent is open.&#x0a;'Open Agent' chooses the directory the agent works from."
-                   TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center"
-                   Opacity="0.65" FontSize="15"
-                   IsVisible="{Binding !HasTabs}"/>
+        <StackPanel x:Name="EmptyState" VerticalAlignment="Center" Spacing="10"
+                    IsVisible="{Binding !HasTabs}">
+          <TextBlock
+              Text="No agent is open.&#x0a;'Open Agent' chooses the directory the agent works from."
+              TextWrapping="Wrap" TextAlignment="Center" Opacity="0.65" FontSize="15"/>
+          <TextBlock
+              Text="No API key configured yet — click ⚙ Settings to add one."
+              TextWrapping="Wrap" TextAlignment="Center" Opacity="0.85" FontSize="14"
+              IsVisible="{Binding !HasConfiguredProvider}"/>
+        </StackPanel>
         <TabControl x:Name="AgentTabs" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
           <TabControl.ItemTemplate>
             <DataTemplate>

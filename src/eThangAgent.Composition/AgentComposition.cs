@@ -291,7 +291,7 @@ public static class AgentComposition
       _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id.")
     } ?? throw new InvalidOperationException(
         $"Provider '{providerName}' is selected but its API key is not configured. " +
-        "Set the provider's key environment variable before opening a session with it.");
+        "Add the key under Settings (gear icon) before opening a session with it.");
 
     return providerName == Providers.OpenRouter
         ? services

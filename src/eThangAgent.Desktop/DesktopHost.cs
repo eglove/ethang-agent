@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
@@ -12,59 +11,71 @@ using eThangAgent.Storage.ACL;
 namespace eThangAgent.Desktop;
 
 /// <summary>Everything <see cref="DesktopHost.CreateMainWindow"/> needs, prepared OFF the UI thread:
-///     validated configuration, the provider-aware session factory the shell uses to open
-///     one isolated agent container per chosen directory, the choosable providers, the
-///     preferred one, and the preference store that persists the choice. No agent exists
-///     until the user opens one.</summary>
+///     validated configuration with the API keys lifted from app preferences, the
+///     provider-aware session factory the shell uses to open one isolated agent
+///     container per chosen directory, the settings snapshot behind the Settings modal,
+///     the preferred provider, the preference store, and the key protector. No agent
+///     exists until the user opens one; no key is required until then either.</summary>
 internal sealed record DesktopBootstrap(
     AgentSessionFactory Sessions,
-    IReadOnlyList<ProviderOption> Providers,
+    AgentSettings Settings,
     string PreferredProviderId,
-    IAppPreferenceStore Preferences);
+    IAppPreferenceStore Preferences,
+    IApiKeyProtector ApiKeys);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
-///     Startup validates configuration and shows the shell immediately; each 'Open Agent'
-///     pick builds an isolated <see cref="AgentSession"/> whose directory roots path
-///     resolution, workspace identity, and — when an AGENTS.md exists there — a verbatim
-///     system-prompt injection announcing it as read. Bootstrap validation failures surface
-///     as an error dialog followed by exit code 1.</summary>
+///     Startup loads configuration (provider API keys come from the app database, DPAPI-
+///     protected — never from environment variables) and shows the shell immediately;
+///     each 'Open Agent' pick builds an isolated <see cref="AgentSession"/> whose directory
+///     roots path resolution, workspace identity, and — when an AGENTS.md exists there — a
+///     verbatim system-prompt injection announcing it as read. Startup infrastructure
+///     failures surface as an error dialog followed by exit code 1; a missing key is NOT
+///     one — the unkeyed provider simply is not offered.</summary>
 internal static class DesktopHost
 {
-  /// <summary>Background-thread-safe preparation: strict config load and the provider-aware
-  ///     session factory. Constructs NO Avalonia controls (they are thread-affine and must be
-  ///     built on the UI thread via <see cref="CreateMainWindow"/>). Provider keys are
-  ///     validated here so a misconfigured install fails at startup, not on first open.
-  ///     No workspace is required up front: agents are opened per tab from the shell.</summary>
-  public static async Task<DesktopBootstrap> PrepareAsync(
-      IClassicDesktopStyleApplicationLifetime desktop)
+  /// <summary>Background-thread-safe preparation: strict config load, key recovery from
+  ///     app preferences, and the provider-aware session factory. Constructs NO Avalonia
+  ///     controls (they are thread-affine and must be built on the UI thread via
+  ///     <see cref="CreateMainWindow"/>). No workspace is required up front: agents are
+  ///     opened per tab from the shell.</summary>
+  public static async Task<DesktopBootstrap> PrepareAsync()
   {
     AgentSettings settings = AgentConfiguration.Load();
-    if (!settings.HasOpenRouter && !settings.HasZai)
-    {
-      await ShowErrorAndExitAsync(desktop,
-          "No AI provider configured. Set the OPENROUTER_API_KEY or ZAI_API_KEY environment variable.");
-      throw new UnreachableException("unreachable after error dialog shutdown");
-    }
 
     // ONE app-owned database for every opened session (rows are keyed by workspace id).
     AppDatabase database = new();
     IAppPreferenceStore preferences = new SqliteAppPreferenceStore(database);
+    IApiKeyProtector protector = new DpapiKeyProtector();
 
-    List<ProviderOption> providers = [];
-    if (settings.HasOpenRouter)
-    {
-      providers.Add(new ProviderOption(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter)));
-    }
-    if (settings.HasZai)
-    {
-      providers.Add(new ProviderOption(Providers.Zai, Providers.DisplayName(Providers.Zai)));
-    }
+    settings = settings.WithApiKeys(
+        await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey),
+        await LoadKeyAsync(preferences, protector, ZaiSettings.PreferenceKey));
 
     return new DesktopBootstrap(
         new AgentSessionFactory(settings, database),
-        providers,
-        await ResolvePreferredProviderAsync(settings, preferences).ConfigureAwait(false),
-        preferences);
+        settings,
+        await ResolvePreferredProviderAsync(settings, preferences),
+        preferences,
+        protector);
+  }
+
+  /// <summary>Recovers one stored key: absent stays null; undecryptable (corrupted or
+  ///     foreign blob) reads as absent with a stderr note, never a crash.</summary>
+  private static async Task<string?> LoadKeyAsync(
+      IAppPreferenceStore preferences, IApiKeyProtector protector, string preferenceKey)
+  {
+    string? stored = await preferences.GetAsync(preferenceKey);
+    if (stored is null)
+    {
+      return null;
+    }
+
+    string? key = protector.Unprotect(stored);
+    if (key is null)
+    {
+      await Console.Error.WriteLineAsync($"stored '{preferenceKey}' could not be decrypted; treating as unconfigured");
+    }
+    return key;
   }
 
   /// <summary>The provider the new-agent dialog pre-selects: the persisted choice when it
@@ -111,12 +122,16 @@ internal static class DesktopHost
     // One fresh clarify channel per opened session: each agent tab presents its own
     // pending questions through its own view-model (wired in MainViewModel when the
     // session VM is created). The presenter starts unavailable — a structured,
-    // model-actionable failure — until that tab's VM installs it.
+    // model-actionable failure — until that tab's VM installs it. No session
+    // delegate is injected: the shell derives it from the factory so saved keys
+    // rebind future opens.
     MainViewModel vm = new(
-        (root, provider) => boot.Sessions.CreateAsync(root, provider, new AvaloniaClarifyChannel(null)),
-        boot.Providers,
-        boot.PreferredProviderId,
-        boot.Preferences);
+        createSession: null,
+        preferredProviderId: boot.PreferredProviderId,
+        preferences: boot.Preferences,
+        settings: boot.Settings,
+        sessionFactory: boot.Sessions,
+        keyProtector: boot.ApiKeys);
     return new MainWindow(vm);
   }
 

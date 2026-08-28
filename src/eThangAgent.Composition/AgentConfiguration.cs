@@ -6,7 +6,10 @@ namespace eThangAgent.Composition;
 
 /// <summary>Shared, strict configuration load for every host: optional appsettings.json next
 ///     to the executable, overridden by environment variables. Optional-value binding errors
-///     throw InvalidOperationException — never coerced, defaulted, or clamped.</summary>
+///     throw InvalidOperationException — never coerced, defaulted, or clamped. Provider
+///     API keys are NOT loaded here: each host sources them from its own credential store
+///     (the Desktop reads DPAPI-protected keys from app preferences) and overlays them via
+///     <see cref="AgentSettings.WithApiKeys"/>.</summary>
 public static class AgentConfiguration
 {
   public static AgentSettings Load()
@@ -27,11 +30,11 @@ public static class AgentConfiguration
       ? throw new InvalidOperationException("Model:Id is present but empty. Remove the key or supply a model reference.")
       : new AgentSettings(
         new OpenRouterSettings(
-            Environment.GetEnvironmentVariable("OPENROUTER_API_KEY"),
+            null,
             BindBaseUrl("OPENROUTER_BASE_URL",
                 Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL"), "https://openrouter.ai")),
         new ZaiSettings(
-            Environment.GetEnvironmentVariable("ZAI_API_KEY"),
+            null,
             BindBaseUrl("ZAI_BASE_URL",
                 Environment.GetEnvironmentVariable("ZAI_BASE_URL"), ZaiConfiguration.DefaultBaseUrl)),
         subAgents,

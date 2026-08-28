@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
-using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Agent.Application;
@@ -22,24 +21,42 @@ internal delegate Task<Result<string>> TurnRunner(
     Action<string, string>? onToolResult,
     Action<string>? onNotice = null);
 
-/// <summary>Shell-level state for the main window: the left menu bar and the open
-///     agent tabs. 'Open Agent' shows the new-agent dialog (provider dropdown plus
-///     workspace picker); each tab owns an <see cref="AgentSessionViewModel"/> bound
-///     to its own isolated <see cref="AgentSession"/> created through the injected
-///     provider-aware session-factory hook. The shell itself holds no agent state.
-///     A static <see cref="ForPrebuiltSessionAsync"/> keeps single-session hosts and
-///     tests simple while tabs remain the primary surface.</summary>
+/// <summary>Shell-level state for the main window: the left menu bar (Open Agent plus
+///     the Settings entry) and the open agent tabs. 'Open Agent' shows the new-agent
+///     dialog (provider dropdown plus workspace picker); each tab owns an
+///     <see cref="AgentSessionViewModel"/> bound to its own isolated
+///     <see cref="AgentSession"/> created through the injected provider-aware
+///     session-factory hook. The settings modal edits the provider API keys: saving
+///     persists them (protected) and rebuilds the factory so future opens use the new
+///     keys — already-open tabs keep the credentials they were created with. The shell
+///     itself holds no agent state. A static <see cref="ForPrebuiltSessionAsync"/> keeps
+///     single-session hosts and tests simple while tabs remain the primary surface.</summary>
 internal sealed partial class MainViewModel : ObservableObject
 {
+  // The delegate reads _sessionFactory at invocation time, so a settings-save rebind
+  // reaches future opens without touching this field.
   private readonly Func<string, string, Task<Result<AgentSession>>> _createSession;
 
-  /// <summary>Optional preference store persisting the last-chosen provider (test seam:
-  ///     when null, opens still work and the preference is simply not remembered).</summary>
+  /// <summary>Optional preference store persisting the last-chosen provider and the
+  ///     protected API keys (test seam: when null, opens still work and nothing is
+  ///     remembered).</summary>
   private readonly IAppPreferenceStore? _preferences;
 
   /// <summary>Optional stream-sink override for every opened session (test seam).
   ///     When null, production self-marshaling applies per session view-model.</summary>
   private readonly Func<UiStreamEvent, Task>? _streamSink;
+
+  /// <summary>Optional API-key protector guarding durable storage (test seam: when
+  ///     null, keys are never persisted — plaintext must never reach the store).</summary>
+  private readonly IApiKeyProtector? _keyProtector;
+
+  /// <summary>Current settings snapshot. Null together with a null factory disables
+  ///     settings editing (prebuilt-session hosts own their configuration).</summary>
+  private AgentSettings? _settings;
+
+  /// <summary>Factory rebound via <see cref="AgentSessionFactory.WithSettings"/> when
+  ///     saved keys change; the creation delegate always reads the current instance.</summary>
+  private AgentSessionFactory? _sessionFactory;
 
   [ObservableProperty]
   public partial AgentTabViewModel? SelectedTab { get; set; }
@@ -47,38 +64,101 @@ internal sealed partial class MainViewModel : ObservableObject
   [ObservableProperty]
   public partial bool IsOpeningAgent { get; set; }
 
+  /// <summary>Providers offered by the new-agent dialog: those with a configured key.
+  ///     Refreshed when the settings modal saves new keys.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(HasConfiguredProvider))]
+  public partial IReadOnlyList<ProviderOption> AvailableProviders { get; set; }
+
+  /// <summary>Provider the new-agent dialog pre-selects (last persisted choice).</summary>
+  [ObservableProperty]
+  public partial string PreferredProviderId { get; set; }
+
   public ObservableCollection<AgentTabViewModel> Tabs { get; } = [];
 
   public bool HasTabs => Tabs.Count > 0;
 
-  /// <summary>Providers offered by the new-agent dialog: those with a configured key.</summary>
-  public IReadOnlyList<ProviderOption> AvailableProviders { get; }
+  /// <summary>True when at least one provider has a configured API key; gates Open Agent.</summary>
+  public bool HasConfiguredProvider => AvailableProviders.Count > 0;
 
-  /// <summary>Provider the new-agent dialog pre-selects (last persisted choice).</summary>
-  public string PreferredProviderId { get; }
+  /// <summary>Keys currently configured — the settings dialog's prefill (null when
+  ///     no key is set or settings editing is disabled).</summary>
+  public string? ConfiguredOpenRouterKey => _settings?.OpenRouter.ApiKey;
 
-  public ICommand OpenAgentCommand { get; }
+  public string? ConfiguredZaiKey => _settings?.Zai.ApiKey;
+
+  public IRelayCommand OpenAgentCommand { get; }
+
+  public IRelayCommand OpenSettingsCommand { get; }
 
   /// <summary>Raised when the shell wants the new-agent dialog shown.</summary>
   public event EventHandler? OpenAgentRequested;
 
-  public MainViewModel(Func<string, string, Task<Result<AgentSession>>> createSession,
+  /// <summary>Raised when the shell wants the settings modal shown.</summary>
+  public event EventHandler? SettingsRequested;
+
+  /// <param name="createSession">Session-creation hook. Null in production — the shell
+  ///     derives it from <paramref name="settings"/> + <paramref name="sessionFactory"/>
+  ///     so saved keys can rebuild it; hosts/tests that compose sessions themselves pass
+  ///     their own delegate and forgo settings editing.</param>
+  /// <param name="availableProviders">Providers the dialog offers when no settings
+  ///     snapshot is injected; ignored (derived from the snapshot) otherwise.</param>
+  /// <param name="preferredProviderId">Provider the dialog pre-selects; falls back to
+  ///     the first configured one when absent or no longer configured.</param>
+  /// <param name="preferences">Optional preference store (test seam: null remembers
+  ///     nothing).</param>
+  /// <param name="uiStreamSink">Optional shell-level stream sink override (test seam).</param>
+  /// <param name="settings">Current settings snapshot; enables settings editing.</param>
+  /// <param name="sessionFactory">Factory rebound when saved keys change; pairs with
+  ///     <paramref name="settings"/>.</param>
+  /// <param name="keyProtector">Protects keys before they reach durable storage. When
+  ///     null (tests), key saves are not persisted at all.</param>
+  public MainViewModel(Func<string, string, Task<Result<AgentSession>>>? createSession,
       IReadOnlyList<ProviderOption>? availableProviders = null,
       string? preferredProviderId = null,
       IAppPreferenceStore? preferences = null,
-      Func<UiStreamEvent, Task>? uiStreamSink = null)
+      Func<UiStreamEvent, Task>? uiStreamSink = null,
+      AgentSettings? settings = null,
+      AgentSessionFactory? sessionFactory = null,
+      IApiKeyProtector? keyProtector = null)
   {
-    _createSession = createSession ?? throw new ArgumentNullException(nameof(createSession));
+    if (createSession is null && (settings is null || sessionFactory is null))
+    {
+      throw new ArgumentException(
+          "Either a session-creation delegate or both settings and a session factory are required.",
+          nameof(createSession));
+    }
+
     _preferences = preferences;
     _streamSink = uiStreamSink;
-    AvailableProviders = availableProviders ?? [new(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter))];
-    string preferred = preferredProviderId ?? AvailableProviders[0].Id;
-    PreferredProviderId = AvailableProviders.Any(p => p.Id == preferred) ? preferred : AvailableProviders[0].Id;
+    _settings = settings;
+    _sessionFactory = sessionFactory;
+    _keyProtector = keyProtector;
+    _createSession = createSession ?? ((root, provider) =>
+        _sessionFactory!.CreateAsync(root, provider, new AvaloniaClarifyChannel(null)));
+
+    // Commands exist before the observable properties: setting those raises the
+    // changed hooks, which requery command availability.
     OpenAgentCommand = new RelayCommand(
         () => OpenAgentRequested?.Invoke(this, EventArgs.Empty),
-        () => !IsOpeningAgent);
+        () => !IsOpeningAgent && HasConfiguredProvider);
+    OpenSettingsCommand = new RelayCommand(() => SettingsRequested?.Invoke(this, EventArgs.Empty));
+
+    AvailableProviders = settings is not null
+        ? ProvidersFrom(settings)
+        : availableProviders ?? [new(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter))];
+    string preferred = preferredProviderId ?? (AvailableProviders.Count > 0 ? AvailableProviders[0].Id : Providers.OpenRouter);
+    PreferredProviderId = AvailableProviders.Any(p => p.Id == preferred)
+        ? preferred
+        : AvailableProviders.Count > 0 ? AvailableProviders[0].Id : Providers.OpenRouter;
     Tabs.CollectionChanged += OnTabsChanged;
   }
+
+  // Command availability depends on both; requery on every change.
+  partial void OnIsOpeningAgentChanged(bool value) => OpenAgentCommand.NotifyCanExecuteChanged();
+
+  partial void OnAvailableProvidersChanged(IReadOnlyList<ProviderOption> value) =>
+      OpenAgentCommand.NotifyCanExecuteChanged();
 
   private void OnTabsChanged(object? sender, NotifyCollectionChangedEventArgs e)
   {
@@ -92,6 +172,98 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Menu-bar entry point: raises the dialog request. The view shows the
   ///     new-agent dialog and calls <see cref="OpenAgentAsync"/> with the choices.</summary>
   public void RequestOpenAgent() => OpenAgentRequested?.Invoke(this, EventArgs.Empty);
+
+  /// <summary>Menu-bar entry point: raises the settings request. The view shows the
+  ///     settings modal and calls <see cref="ApplySettingsAsync"/> with the result.</summary>
+  public void RequestOpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
+
+  /// <summary>Applies a settings-modal result: persists the keys (protected) or deletes
+  ///     the cleared ones, rebuilds the session factory so future opens use the new
+  ///     keys, and refreshes the provider surface. Already-open tabs keep the
+  ///     credentials they were created with. The update carries FULL field state, not a
+  ///     delta; values are normalized defensively here (trimmed, blank → cleared) — the
+  ///     stricter no-internal-whitespace rule is the modal's boundary. A no-op for hosts
+  ///     that compose sessions themselves (no settings snapshot). Persistence is best
+  ///     effort — the same named decision as the provider preference.</summary>
+  public async Task ApplySettingsAsync(SettingsUpdate update)
+  {
+    ArgumentNullException.ThrowIfNull(update);
+    if (_settings is null)
+    {
+      return;
+    }
+
+    string? openRouterKey = Normalize(update.OpenRouterApiKey);
+    string? zaiKey = Normalize(update.ZaiApiKey);
+
+    await PersistApiKeyAsync(OpenRouterSettings.PreferenceKey, openRouterKey);
+    await PersistApiKeyAsync(ZaiSettings.PreferenceKey, zaiKey);
+
+    _settings = _settings.WithApiKeys(openRouterKey, zaiKey);
+    _sessionFactory = _sessionFactory?.WithSettings(_settings);
+
+    AvailableProviders = ProvidersFrom(_settings);
+    if (!AvailableProviders.Any(p => p.Id == PreferredProviderId) && AvailableProviders.Count > 0)
+    {
+      PreferredProviderId = AvailableProviders[0].Id;
+    }
+  }
+
+  private static string? Normalize(string? key)
+  {
+    string trimmed = key?.Trim() ?? string.Empty;
+    return trimmed.Length == 0 ? null : trimmed;
+  }
+
+  /// <summary>Writes one key preference: set (protected) when configured, delete when
+  ///     cleared. Best effort — a failed write logs to stderr and never fails the save.
+  ///     Plaintext keys never reach durable storage: without a protector a key save is
+  ///     skipped with a note instead of stored raw.</summary>
+  private async Task PersistApiKeyAsync(string preferenceKey, string? apiKey)
+  {
+    if (_preferences is null)
+    {
+      return; // test seam: nothing is remembered
+    }
+
+    if (apiKey is not null && _keyProtector is null)
+    {
+      await Console.Error.WriteLineAsync($"no API key protector configured; '{preferenceKey}' not persisted");
+      return;
+    }
+
+    // Named decision (CA1031): preference persistence must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      bool landed = apiKey is null
+          ? await _preferences.DeleteAsync(preferenceKey)
+          : await _preferences.SetAsync(preferenceKey, _keyProtector!.Protect(apiKey));
+      if (!landed)
+      {
+        await Console.Error.WriteLineAsync($"api key preference write failed for '{preferenceKey}'");
+      }
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"api key preference write failed for '{preferenceKey}': {ex.Message}");
+    }
+#pragma warning restore CA1031
+  }
+
+  private static List<ProviderOption> ProvidersFrom(AgentSettings settings)
+  {
+    List<ProviderOption> providers = [];
+    if (settings.HasOpenRouter)
+    {
+      providers.Add(new ProviderOption(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter)));
+    }
+    if (settings.HasZai)
+    {
+      providers.Add(new ProviderOption(Providers.Zai, Providers.DisplayName(Providers.Zai)));
+    }
+    return providers;
+  }
 
   /// <summary>Opens a new agent tab over <paramref name="workspaceRoot"/>, wired
   ///     exclusively for <paramref name="providerName"/> for the tab's whole lifetime.

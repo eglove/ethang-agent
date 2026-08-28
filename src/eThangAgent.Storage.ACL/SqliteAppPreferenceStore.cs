@@ -43,4 +43,17 @@ public sealed class SqliteAppPreferenceStore(AppDatabase database) : IAppPrefere
     _ = command.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture));
     return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
   }
+
+  public async Task<bool> DeleteAsync(string key, CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+#pragma warning disable CA2007
+    await using SqliteConnection connection = _db.Open();
+#pragma warning restore CA2007
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "DELETE FROM app_preferences WHERE key = $key;";
+    _ = command.Parameters.AddWithValue("$key", key);
+    return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+  }
 }

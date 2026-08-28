@@ -25,6 +25,12 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   private readonly AgentSettings _settings = settings ?? throw new ArgumentNullException(nameof(settings));
   private readonly AppDatabase? _database = database;
 
+  /// <summary>Returns a factory over the same database serving the updated settings.
+  ///     Hosts call this when credentials change (the Desktop's Settings modal);
+  ///     sessions already built keep the credentials they were created with.</summary>
+  public AgentSessionFactory WithSettings(AgentSettings settings) =>
+      new(settings ?? throw new ArgumentNullException(nameof(settings)), _database);
+
   /// <summary>Creates a session rooted at <paramref name="workspaceRoot"/> on the selected
   ///     <paramref name="providerName"/>. The directory must exist; workspace identity is
   ///     its full path, so reopening the same directory resumes that workspace's durable
@@ -49,7 +55,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     if (!configured)
     {
       return Result.Failure<AgentSession>(new DomainError("ProviderNotConfigured",
-          $"Provider '{Providers.DisplayName(providerName)}' has no API key configured. Set its key environment variable and restart."));
+          $"Provider '{Providers.DisplayName(providerName)}' has no API key configured. Add one under Settings (gear icon) and open the agent again."));
     }
 
     if (string.IsNullOrWhiteSpace(workspaceRoot))

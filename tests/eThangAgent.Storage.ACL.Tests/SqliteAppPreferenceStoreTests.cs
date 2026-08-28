@@ -54,6 +54,30 @@ public sealed class SqliteAppPreferenceStoreTests : IDisposable
     _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.GetAsync(" "));
     _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.SetAsync("", "v"));
     _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.SetAsync("k", " "));
+    _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.DeleteAsync(" "));
+  }
+
+  [Fact]
+  public async Task DeleteAsync_Removes_The_Preference_And_Reports_It()
+  {
+    _ = await _store.SetAsync("active_provider", "zai");
+
+    Assert.True(await _store.DeleteAsync("active_provider"));
+    Assert.Null(await _store.GetAsync("active_provider"));
+  }
+
+  [Fact]
+  public async Task DeleteAsync_AbsentKey_ReturnsFalse()
+      => Assert.False(await _store.DeleteAsync("never-set"));
+
+  [Fact]
+  public async Task DeleteAsync_ThenSetAsync_Restores_The_Preference()
+  {
+    _ = await _store.SetAsync("active_provider", "zai");
+    _ = await _store.DeleteAsync("active_provider");
+
+    Assert.True(await _store.SetAsync("active_provider", "openrouter"));
+    Assert.Equal("openrouter", await _store.GetAsync("active_provider"));
   }
 
   [Fact]
