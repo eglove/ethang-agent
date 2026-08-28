@@ -13,50 +13,43 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
 {
   private readonly IAgentStore _store = store ?? throw new ArgumentNullException(nameof(store));
 
-  /// <param name="query">Null or whitespace browses newest-first; literal input is tokenized,
-  ///     never compiled as regex.</param>
-  /// <param name="queryMode">Exactly "literal" or "regex".</param>
-  /// <param name="scope">Null/"global" or "session:&lt;agentId&gt;" (exact 'D' guid format).</param>
-  /// <param name="branches">Exactly "active" or "all".</param>
-  /// <param name="role">Null, or one of user/assistant/tool in any casing.</param>
-  /// <param name="page">1-based page number, at least 1.</param>
-  /// <param name="pageSize">Page size between 1 and 200.</param>
-  /// <param name="ct">Cancellation token.</param>
-  public async Task<Result<RecallPage>> Execute(
-      string? query, string queryMode, string? scope, string branches, string? role,
-      int page, int pageSize, CancellationToken ct = default)
+  /// <summary>Runs one recall query. Every member of <paramref name="request"/> is
+  ///     validated strictly here, in a fixed order — unknown values are typed errors
+  ///     naming valid spellings, never silent fallbacks.</summary>
+  public async Task<Result<RecallPage>> Execute(RecallRequest request, CancellationToken ct = default)
   {
-    if (page < 1)
+    ArgumentNullException.ThrowIfNull(request);
+    if (request.Page < 1)
     {
       return InvalidArgument("page must be at least 1.");
     }
 
-    if (pageSize is < 1 or > 200)
+    if (request.PageSize is < 1 or > 200)
     {
       return InvalidArgument("pageSize must be between 1 and 200.");
     }
 
-    Result<SessionScope> parsedScope = SessionScope.Parse(scope);
+    Result<SessionScope> parsedScope = SessionScope.Parse(request.Scope);
     if (!parsedScope.IsSuccess)
     {
       return Result.Failure<RecallPage>(parsedScope.Error!);
     }
 
-    if (!string.Equals(queryMode, "literal", StringComparison.Ordinal) &&
-        !string.Equals(queryMode, "regex", StringComparison.Ordinal))
+    if (!string.Equals(request.QueryMode, "literal", StringComparison.Ordinal) &&
+        !string.Equals(request.QueryMode, "regex", StringComparison.Ordinal))
     {
       return InvalidArgument("queryMode must be 'literal' or 'regex'.");
     }
 
-    if (role is not null &&
-        !string.Equals(role, "user", StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(role, "tool", StringComparison.OrdinalIgnoreCase))
+    if (request.Role is not null &&
+        !string.Equals(request.Role, "user", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(request.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(request.Role, "tool", StringComparison.OrdinalIgnoreCase))
     {
       return InvalidArgument("role must be 'user', 'assistant', or 'tool'.");
     }
 
-    BranchMode? branchMode = branches switch
+    BranchMode? branchMode = request.Branches switch
     {
       "active" => BranchMode.ActivePath,
       "all" => BranchMode.AllBranches,
@@ -73,9 +66,9 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
       return Result.Failure<RecallPage>(corpora.Error!);
     }
 
-    MemoryQueryPlan plan = MemoryQueryPlan.Plan(query, queryMode);
+    MemoryQueryPlan plan = MemoryQueryPlan.Plan(request.Query, request.QueryMode);
     SearchOutcome outcome = SearchService.Search(
-        corpora.Value!, plan, parsedScope.Value!, mode, role, page, pageSize);
+        corpora.Value!, plan, parsedScope.Value!, mode, request.Role, request.Page, request.PageSize);
 
     return outcome switch
     {

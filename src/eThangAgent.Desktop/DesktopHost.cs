@@ -136,11 +136,14 @@ internal static class DesktopHost
     // rebind future opens.
     MainViewModel vm = new(
         createSession: null,
-        preferredProviderId: boot.PreferredProviderId,
-        preferences: boot.Preferences,
-        settings: boot.Settings,
-        sessionFactory: boot.Sessions,
-        keyProtector: boot.ApiKeys);
+        new MainViewModelOptions
+        {
+          PreferredProviderId = boot.PreferredProviderId,
+          Preferences = boot.Preferences,
+          Settings = boot.Settings,
+          SessionFactory = boot.Sessions,
+          ApiKeyProtector = boot.ApiKeys,
+        });
     return new MainWindow(vm);
   }
 
@@ -187,7 +190,7 @@ internal static class DesktopHost
   /// explicitly onto the dispatcher.</summary>
   public static TurnRunner OffUiThread(TurnRunner inner)
   {
-    return (command, ct, contentDelta, reasoningDelta, iterationEnd, toolCall, toolResult, notice) =>
+    return (command, ct, callbacks, notice) =>
     {
       // Suppress the execution context along with the thread switch: Task.Run alone
       // still flows the caller's SynchronizationContext (.NET 6+), which would pin
@@ -195,8 +198,7 @@ internal static class DesktopHost
       Task<Result<string>> scheduled;
       using (ExecutionContext.SuppressFlow())
       {
-        scheduled = Task.Run(() => inner(command, ct, contentDelta,
-                reasoningDelta, iterationEnd, toolCall, toolResult, notice));
+        scheduled = Task.Run(() => inner(command, ct, callbacks, notice));
       }
 
       return scheduled;

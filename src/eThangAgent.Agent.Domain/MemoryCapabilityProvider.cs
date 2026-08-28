@@ -127,8 +127,9 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
     }
 
     Result<RecallPage> recalled = await _recallQuery.Execute(
-        query.Value, queryMode.Value ?? "literal", scope.Value ?? "global",
-        branches.Value ?? "active", role.Value, page.Value, pageSize.Value, ct).ConfigureAwait(false);
+        new RecallRequest(query.Value, queryMode.Value ?? "literal", scope.Value ?? "global",
+            branches.Value ?? "active", role.Value, page.Value, pageSize.Value),
+        ct).ConfigureAwait(false);
     return recalled.IsSuccess
         ? CapabilityInvocationResult.Ok(RenderPage(recalled.Value!))
         : Fail(recalled.Error!);

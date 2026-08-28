@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Agent.Application;
+using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.ModelDomain;
@@ -16,12 +17,46 @@ namespace eThangAgent.Desktop.ViewModels;
 internal delegate Task<Result<string>> TurnRunner(
     SendMessageCommand command,
     CancellationToken ct,
-    Action<string>? onContentDelta,
-    Action<string>? onReasoningDelta,
-    Action? onIterationEnd,
-    Action<string, string>? onToolCall,
-    Action<string, string>? onToolResult,
+    TurnCallbacks? callbacks,
     Action<string>? onNotice = null);
+
+/// <summary>Optional shell configuration for <see cref="MainViewModel"/>. Every member
+///     is an optional seam or default override whose null behaves exactly as the
+///     former absent parameter: providers fall back to the built-in list, the dialog's
+///     pre-selection to the first configured provider, the preference store and key
+///     protector remember/persist nothing, the stream sink falls back to the session
+///     view-model's own marshaling, and a null settings/factory pair disables settings
+///     editing (prebuilt-session hosts own their configuration).</summary>
+internal sealed record MainViewModelOptions
+{
+  /// <summary>Providers the dialog offers when no settings snapshot is injected;
+  ///     ignored (derived from the snapshot) otherwise.</summary>
+  public IReadOnlyList<ProviderOption>? AvailableProviders { get; init; }
+
+  /// <summary>Provider the dialog pre-selects; falls back to the first configured
+  ///     one when absent or no longer configured.</summary>
+  public string? PreferredProviderId { get; init; }
+
+  /// <summary>Optional preference store persisting the last-chosen provider and the
+  ///     protected API keys (test seam: when null, opens still work and nothing is
+  ///     remembered).</summary>
+  public IAppPreferenceStore? Preferences { get; init; }
+
+  /// <summary>Optional stream-sink override for every opened session (test seam).
+  ///     When null, production self-marshaling applies per session view-model.</summary>
+  public Func<UiStreamEvent, Task>? UiStreamSink { get; init; }
+
+  /// <summary>Current settings snapshot; enables settings editing.</summary>
+  public AgentSettings? Settings { get; init; }
+
+  /// <summary>Factory rebound when saved keys change; pairs with
+  ///     <see cref="Settings"/>.</summary>
+  public AgentSessionFactory? SessionFactory { get; init; }
+
+  /// <summary>Protects keys before they reach durable storage. When null (tests),
+  ///     key saves are not persisted at all.</summary>
+  public IApiKeyProtector? ApiKeyProtector { get; init; }
+}
 
 /// <summary>Shell-level state for the main window: the left menu bar (Open Agent, the
 ///     per-tab Model and Effort entries, and the bottom-anchored Settings entry) and
@@ -119,42 +154,29 @@ internal sealed partial class MainViewModel : ObservableObject
   public event EventHandler? EffortPickerRequested;
 
   /// <param name="createSession">Session-creation hook. Null in production — the shell
-  ///     derives it from <paramref name="settings"/> + <paramref name="sessionFactory"/>
-  ///     so saved keys can rebuild it; hosts/tests that compose sessions themselves pass
-  ///     their own delegate and forgo settings editing.</param>
-  /// <param name="availableProviders">Providers the dialog offers when no settings
-  ///     snapshot is injected; ignored (derived from the snapshot) otherwise.</param>
-  /// <param name="preferredProviderId">Provider the dialog pre-selects; falls back to
-  ///     the first configured one when absent or no longer configured.</param>
-  /// <param name="preferences">Optional preference store (test seam: null remembers
-  ///     nothing).</param>
-  /// <param name="uiStreamSink">Optional shell-level stream sink override (test seam).</param>
-  /// <param name="settings">Current settings snapshot; enables settings editing.</param>
-  /// <param name="sessionFactory">Factory rebound when saved keys change; pairs with
-  ///     <paramref name="settings"/>.</param>
-  /// <param name="keyProtector">Protects keys before they reach durable storage. When
-  ///     null (tests), key saves are not persisted at all.</param>
+  ///     derives it from <paramref name="options"/> so saved keys can rebuild it; hosts
+  ///     and tests that compose sessions themselves pass their own delegate and forgo
+  ///     settings editing.</param>
+  /// <param name="options">Optional shell configuration: the offered providers, the
+  ///     dialog's pre-selected provider, the preference store, the shell-level stream
+  ///     sink, the settings snapshot, the rebinding session factory, and the key
+  ///     protector. Each null member behaves as the corresponding absent parameter
+  ///     always did.</param>
   public MainViewModel(Func<string, string, Task<Result<AgentSession>>>? createSession,
-      IReadOnlyList<ProviderOption>? availableProviders = null,
-      string? preferredProviderId = null,
-      IAppPreferenceStore? preferences = null,
-      Func<UiStreamEvent, Task>? uiStreamSink = null,
-      AgentSettings? settings = null,
-      AgentSessionFactory? sessionFactory = null,
-      IApiKeyProtector? keyProtector = null)
+      MainViewModelOptions? options = null)
   {
-    if (createSession is null && (settings is null || sessionFactory is null))
+    if (createSession is null && (options?.Settings is null || options?.SessionFactory is null))
     {
       throw new ArgumentException(
           "Either a session-creation delegate or both settings and a session factory are required.",
           nameof(createSession));
     }
 
-    _preferences = preferences;
-    _streamSink = uiStreamSink;
-    _settings = settings;
-    _sessionFactory = sessionFactory;
-    _keyProtector = keyProtector;
+    _preferences = options?.Preferences;
+    _streamSink = options?.UiStreamSink;
+    _settings = options?.Settings;
+    _sessionFactory = options?.SessionFactory;
+    _keyProtector = options?.ApiKeyProtector;
     _createSession = createSession ?? ((root, provider) =>
         _sessionFactory!.CreateAsync(root, provider, new AvaloniaClarifyChannel(null)));
 
@@ -171,10 +193,11 @@ internal sealed partial class MainViewModel : ObservableObject
         () => EffortPickerRequested?.Invoke(this, EventArgs.Empty),
         () => HasSelectedTab);
 
-    AvailableProviders = settings is not null
-        ? ProvidersFrom(settings)
-        : availableProviders ?? [new(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter))];
-    string preferred = preferredProviderId ?? (AvailableProviders.Count > 0 ? AvailableProviders[0].Id : Providers.OpenRouter);
+    AvailableProviders = _settings is not null
+        ? ProvidersFrom(_settings)
+        : options?.AvailableProviders ?? [new(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter))];
+    string preferred = options?.PreferredProviderId
+        ?? (AvailableProviders.Count > 0 ? AvailableProviders[0].Id : Providers.OpenRouter);
     PreferredProviderId = ResolvePreferredProviderId(preferred);
     Tabs.CollectionChanged += OnTabsChanged;
   }
@@ -415,22 +438,23 @@ internal sealed partial class MainViewModel : ObservableObject
       AgentSessionViewModel sessionVm = new(
           // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
           // (CA1068) — adapt the parameter order at the call site.
-          (command, ct, onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult, onNotice)
-              => session.Handler.Handle(command, onContentDelta, onReasoningDelta,
-                  onIterationEnd, onToolCall, onToolResult, onNotice, ct),
+          (command, ct, callbacks, onNotice) => session.Handler.Handle(command, callbacks, onNotice, ct),
           session.Lifecycle,
           session.RootId,
           session.Conversation,
           Providers.DisplayName(session.ProviderName),
           session.ModelId,
-          session.WorkspaceRoot,
-          uiStreamSink: _streamSink ?? (evt => (sessionVmRef ??
-              throw new InvalidOperationException("session view-model not initialized"))
-              .ApplyUiStreamEventOnUIThreadAsync(evt)),
-          inbox: session.Inbox,
-          childRuntime: session.ChildRuntime,
-          statusModelUpdater: id => sessionVmRef!.Status.ModelId = id,
-          modelPreferences: session.Preferences);
+          new AgentSessionViewModelOptions
+          {
+            WorkspaceRoot = session.WorkspaceRoot,
+            UiStreamSink = _streamSink ?? (evt => (sessionVmRef ??
+                throw new InvalidOperationException("session view-model not initialized"))
+                .ApplyUiStreamEventOnUIThreadAsync(evt)),
+            Inbox = session.Inbox,
+            ChildRuntime = session.ChildRuntime,
+            StatusModelUpdater = id => sessionVmRef!.Status.ModelId = id,
+            ModelPreferences = session.Preferences,
+          });
       sessionVmRef = sessionVm;
 
       // Restore the per-workspace model and effort choices (if any) BEFORE the tab can
@@ -696,7 +720,12 @@ internal sealed partial class MainViewModel : ObservableObject
     ProviderOption option = new(session.ProviderName, Providers.DisplayName(session.ProviderName));
     MainViewModel vm = new(
         (_, _) => Task.FromResult(Result.Success(session)),
-        [option], session.ProviderName, preferences: null, uiStreamSink: uiStreamSink);
+        new MainViewModelOptions
+        {
+          AvailableProviders = [option],
+          PreferredProviderId = session.ProviderName,
+          UiStreamSink = uiStreamSink,
+        });
     Result<AgentTabViewModel> opened = await vm.OpenAgentAsync(session.WorkspaceRoot, session.ProviderName);
     return !opened.IsSuccess
         ? throw new InvalidOperationException($"prebuilt session failed to open: [{opened.Error!.Code}] {opened.Error.Message}")

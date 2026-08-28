@@ -45,12 +45,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
   /// <summary>
   /// Runs one user turn through the provider/tool loop. Content deltas stream out through
-  /// <paramref name="onContentDelta"/> exactly as the provider emits them — every iteration,
-  /// interstitial text between tool calls included — and <paramref name="onIterationEnd"/>
-  /// fires once after each provider response so observers can separate iterations. Both are
-  /// optional: providers without streaming support simply never invoke the delta callback,
-  /// and the returned result is identical either way. Callbacks may fire on arbitrary
-  /// threads; observers must marshal to their own context.
+  /// <see cref="TurnCallbacks.OnContentDelta"/> exactly as the provider emits them — every
+  /// iteration, interstitial text between tool calls included — and
+  /// <see cref="TurnCallbacks.OnIterationEnd"/> fires once after each provider response so
+  /// observers can separate iterations. All callbacks are optional: providers without
+  /// streaming support simply never invoke the delta callback, and the returned result is
+  /// identical either way. Callbacks may fire on arbitrary threads; observers must marshal
+  /// to their own context.
   ///
   /// Steering: when <paramref name="inbox"/> is supplied, messages posted to it while the
   /// turn runs are drained as User messages — once before the turn starts (leftovers from a
@@ -63,11 +64,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   /// the method returns Failure(TurnCancelled).
   /// </summary>
   public async Task<Result<string>> SendMessage(string text,
-      Action<string>? onContentDelta = null,
-      Action<string>? onReasoningDelta = null,
-      Action? onIterationEnd = null,
-      Action<string, string>? onToolCall = null,
-      Action<string, string>? onToolResult = null,
+      TurnCallbacks? callbacks = null,
       IAgentInbox? inbox = null,
       CancellationToken ct = default)
   {
@@ -93,13 +90,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         ModelRequest request = new(
             [.. Conversation.Messages], _tools.Definitions, _systemPrompt?.Build());
         Result<ModelResponse> result = await _provider.SendStreamingAsync(Config, request,
-            onContentDelta, onReasoningDelta, ct).ConfigureAwait(false);
+            callbacks?.OnContentDelta, callbacks?.OnReasoningDelta, ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
           return Result.Failure<string>(result.Error!);
         }
 
-        onIterationEnd?.Invoke();
+        callbacks?.OnIterationEnd?.Invoke();
 
         ModelResponse response = result.Value!;
         if (response.ToolCalls.Count == 0)
@@ -135,14 +132,14 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         foreach (ToolCallRequest call in response.ToolCalls)
         {
           LastTurnToolCalls++;
-          onToolCall?.Invoke(call.Name, call.Arguments);
+          callbacks?.OnToolCall?.Invoke(call.Name, call.Arguments);
           ITool? tool = _tools.Find(call.Name);
           ToolResult toolResult = tool is null
               ? new ToolResult($"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
               : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
           Conversation.AddToolResult(call.Id, toolResult.Content);
           string summary = SummarizeToolResult(toolResult);
-          onToolResult?.Invoke(call.Name, summary);
+          callbacks?.OnToolResult?.Invoke(call.Name, summary);
         }
       }
     }

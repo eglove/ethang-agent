@@ -23,12 +23,10 @@ public class AgentSteeringDesktopTests
     public Task Started => _started.Task.WaitAsync(TimeSpan.FromSeconds(10));
     public void Release() => _release.TrySetResult();
 
-    // IDE0060: parameter required to match the TurnRunner delegate shape; value ignored.
+    // IDE0060: parameters required to match the TurnRunner delegate shape; values ignored.
 #pragma warning disable IDE0060 // Remove unused parameter
     public async Task<Result<string>> RunAsync(SendMessageCommand _command, CancellationToken ct,
-        Action<string>? __ = null, Action<string>? ___ = null, Action? ____ = null,
-        Action<string, string>? _____ = null, Action<string, string>? ______ = null,
-        Action<string>? _______ = null)
+        TurnCallbacks? __ = null, Action<string>? ___ = null)
     {
       ObservedToken = ct;
       _ = _started.TrySetResult();
@@ -53,8 +51,13 @@ public class AgentSteeringDesktopTests
     RecordingLifecycle lifecycle = new(new StubStore());
     AgentSessionViewModel vm = new(
         runner, lifecycle, AgentId.NewId(), new Conversation(),
-        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo",
-        inbox: inbox, childRuntime: runtime);
+        "OpenRouter", "test/model",
+        new AgentSessionViewModelOptions
+        {
+          WorkspaceRoot = @"C:\work\demo",
+          Inbox = inbox,
+          ChildRuntime = runtime,
+        });
     return (vm, lifecycle);
   }
 
@@ -105,7 +108,7 @@ public class AgentSteeringDesktopTests
   public async Task StopWhenIdle_ShowsNotice_AndDoesNotInterruptChildren()
   {
     TestFixtures.StubAgentRuntime runtime = new();
-    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build((_, ct, a, b, c, d, e, f) => Task.FromResult(Result.Success("ok")),
+    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build((_, _, _, _) => Task.FromResult(Result.Success("ok")),
         new AgentInbox(), runtime);
 
     await vm.SubmitAsync("quick turn");
@@ -126,7 +129,8 @@ public class AgentSteeringDesktopTests
     RecordingLifecycle lifecycle = new(new StubStore());
     AgentSessionViewModel vm = new(
         park.RunAsync, lifecycle, AgentId.NewId(), new Conversation(),
-        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo");
+        "OpenRouter", "test/model",
+        new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo" });
 
     Task turnTask = vm.SubmitAsync("work");
     await park.Started.ConfigureAwait(true);

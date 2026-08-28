@@ -10,6 +10,39 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
 
+/// <summary>Construction options for <see cref="AgentSessionViewModel"/>. The workspace
+///     root is required identity; every other member is an optional seam whose null
+///     keeps the built-in default exactly as the former absent parameter did: an inline
+///     clarify view-model, a calling-thread stream sink, no inbox (steering rejected
+///     with a notice), no child runtime (stop never interrupts children), no status
+///     model updater, and no model preferences (pickers report unavailable).</summary>
+internal sealed record AgentSessionViewModelOptions
+{
+  /// <summary>The workspace directory this agent works from (tab subtitle and title).</summary>
+  public required string WorkspaceRoot { get; init; }
+
+  /// <summary>Presents clarify questions; default builds the view-model inline.
+  ///     Production supplies hooks that marshal onto the UI thread via the Dispatcher.</summary>
+  public Func<ClarifyQuestion, Task<ClarifyViewModel>>? PresentClarify { get; init; }
+
+  /// <summary>Applies stream events; default applies on the calling thread (adequate
+  ///     for unit tests — production passes UI-thread marshaling).</summary>
+  public Func<UiStreamEvent, Task>? UiStreamSink { get; init; }
+
+  /// <summary>The session steering inbox.</summary>
+  public IAgentInbox? Inbox { get; init; }
+
+  /// <summary>The session's child-agent runtime.</summary>
+  public IAgentRuntime? ChildRuntime { get; init; }
+
+  /// <summary>Updates the status bar when root model resolution picks a model.</summary>
+  public Action<string>? StatusModelUpdater { get; init; }
+
+  /// <summary>The session's live model/effort preferences backing the Model and Effort
+  ///     pickers.</summary>
+  public SessionModelPreferences? ModelPreferences { get; init; }
+}
+
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
 ///     status bar, clarify presentation, and turn loop — the chat interaction
 ///     surface moved here from MainViewModel when the shell gained tabs. Several
@@ -68,16 +101,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       Conversation conversation,
       string provider,
       string modelId,
-      string workspaceRoot,
-      Func<ClarifyQuestion, Task<ClarifyViewModel>>? presentClarify = null,
-      Func<UiStreamEvent, Task>? uiStreamSink = null,
-      IAgentInbox? inbox = null,
-      IAgentRuntime? childRuntime = null,
-      Action<string>? statusModelUpdater = null,
-      SessionModelPreferences? modelPreferences = null)
+      AgentSessionViewModelOptions options)
   {
-    WorkspaceRoot = workspaceRoot;
-    _statusModelUpdater = statusModelUpdater;
+    ArgumentNullException.ThrowIfNull(options);
+    WorkspaceRoot = options.WorkspaceRoot;
+    _statusModelUpdater = options.StatusModelUpdater;
     // Turns must never run on the UI thread: their awaits would post back to
     // Avalonia's SynchronizationContext and one blocking tool call would freeze
     // the whole shell (see DesktopHost.OffUiThread). The schedule wraps EVERY
@@ -89,20 +117,20 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
     // Default present builds the view-model inline. Production supplies hooks that
     // marshal onto the UI thread via the Dispatcher.
-    _presentClarify = presentClarify ?? (q => Task.FromResult(new ClarifyViewModel(q)));
+    _presentClarify = options.PresentClarify ?? (q => Task.FromResult(new ClarifyViewModel(q)));
     // Default sink applies on the calling thread — adequate for unit tests.
     // Production passes ApplyUiStreamEventOnUIThreadAsync so transcript mutations
     // always land on the UI thread.
-    _streamSink = uiStreamSink ?? (evt =>
+    _streamSink = options.UiStreamSink ?? (evt =>
     {
       ApplyStreamEvent(evt);
       return Task.CompletedTask;
     });
-    _modelPreferences = modelPreferences;
-    Status = new StatusViewModel(provider, modelId, EffortLevels.DisplayName(modelPreferences?.ReasoningEffort));
+    _modelPreferences = options.ModelPreferences;
+    Status = new StatusViewModel(provider, modelId, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort));
     _sessionDefaultModelId = modelId;
-    _inbox = inbox;
-    _childRuntime = childRuntime;
+    _inbox = options.Inbox;
+    _childRuntime = options.ChildRuntime;
   }
 
   /// <summary>
@@ -242,15 +270,16 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       result = await _runner(
           new SendMessageCommand(input),
           cts.Token,
-          onContentDelta: d =>
-          {
-            sawStream = true;
-            bridge.OnContentDelta(d);
-          },
-          onReasoningDelta: bridge.OnReasoningDelta,
-          onIterationEnd: bridge.OnIterationEnd,
-          onToolCall: bridge.OnToolCall,
-          onToolResult: bridge.OnToolResult,
+          new TurnCallbacks(
+              OnContentDelta: d =>
+              {
+                sawStream = true;
+                bridge.OnContentDelta(d);
+              },
+              OnReasoningDelta: bridge.OnReasoningDelta,
+              OnIterationEnd: bridge.OnIterationEnd,
+              OnToolCall: bridge.OnToolCall,
+              OnToolResult: bridge.OnToolResult),
           onNotice: notice =>
           {
             // Selection (and reselection) notices surface in the transcript so the user

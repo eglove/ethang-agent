@@ -20,11 +20,10 @@ public class MemoryCapabilityProviderTests
     private readonly Result<RecallPage> _reply =
         reply ?? Result.Success(new RecallPage([], 0, 1, 1));
 
-    public Task<Result<RecallPage>> Execute(string? query, string queryMode, string? scope,
-        string branches, string? role, int page, int pageSize, CancellationToken ct = default)
+    public Task<Result<RecallPage>> Execute(RecallRequest request, CancellationToken ct = default)
     {
       _calls++;
-      _lastArgs = (query, queryMode, scope, branches, role, page, pageSize);
+      _lastArgs = (request.Query, request.QueryMode, request.Scope, request.Branches, request.Role, request.Page, request.PageSize);
       _lastCt = ct;
       return Task.FromResult(_reply);
     }

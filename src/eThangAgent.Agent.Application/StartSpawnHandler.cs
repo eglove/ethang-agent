@@ -10,20 +10,18 @@ namespace eThangAgent.Agent.Application;
 ///     that previously lived in SubAgentSpawner's synchronous path. When no explicit model is
 ///     provided and no session model preference is set, an available IModelSelector runs
 ///     intelligent model selection; the chain falls back to the host-injected
-///     <paramref name="fallbackModelId"/> on any selection failure.</summary>
+///     <see cref="SpawnOptions.FallbackModelId"/> on any selection failure.</summary>
 public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, SubAgentOptions options,
-    string fallbackModelId, SessionModelPreferences? preferences = null, IModelSelector? modelSelector = null,
-    int maxTokens = 4096, float temperature = 0.7f)
+    SpawnOptions spawn, IModelSelector? modelSelector = null)
     : IAgentSpawnCommand
 {
-  private readonly int _maxTokens = maxTokens;
-  private readonly float _temperature = temperature;
+  private readonly SpawnOptions _spawn = spawn ?? throw new ArgumentNullException(nameof(spawn));
   private readonly IAgentStore _store = store ?? throw new ArgumentNullException(nameof(store));
   private readonly IAgentRuntime _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
   private readonly SubAgentOptions _options = options ?? throw new ArgumentNullException(nameof(options));
-  private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IModelSelector? _modelSelector = modelSelector;
-  private readonly string _fallbackModelId = fallbackModelId ?? throw new ArgumentNullException(nameof(fallbackModelId));
+  private readonly string _fallbackModelId = spawn?.FallbackModelId
+      ?? throw new ArgumentNullException(nameof(spawn));
 
   private readonly NonEmptyTaskPromptSpecification _promptSpec = new();
   private readonly ValidModelReferenceSpecification _modelSpec = new();
@@ -64,24 +62,23 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
 
   private async Task<ModelConfig> ResolveModelAsync(SpawnRequest request, CancellationToken ct)
   {
-
     // 1. Explicit per-spawn model always wins.
     if (!string.IsNullOrWhiteSpace(request.Model))
     {
-      return ModelConfig.Create(request.Model, null, _maxTokens, _temperature).Value!;
+      return ModelConfig.Create(request.Model, null, _spawn.MaxTokens, _spawn.Temperature).Value!;
     }
 
     // 2. The session's live model choice (the host's model picker) is session-wide:
     //    children follow it too, ahead of the static configured default.
-    if (!string.IsNullOrWhiteSpace(_preferences?.ModelId))
+    if (!string.IsNullOrWhiteSpace(_spawn.Preferences?.ModelId))
     {
-      return ModelConfig.Create(_preferences.ModelId, null, _maxTokens, _temperature).Value!;
+      return ModelConfig.Create(_spawn.Preferences.ModelId, null, _spawn.MaxTokens, _spawn.Temperature).Value!;
     }
 
     // 3. Configured default model wins.
     if (!string.IsNullOrWhiteSpace(_options.DefaultModel))
     {
-      return ModelConfig.Create(_options.DefaultModel, null, _maxTokens, _temperature).Value!;
+      return ModelConfig.Create(_options.DefaultModel, null, _spawn.MaxTokens, _spawn.Temperature).Value!;
     }
 
     // 4. Intelligent selection when a selector is available.
@@ -91,11 +88,11 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       if (selection.IsSuccess)
       {
         return ModelConfig.Create(selection.Value!.ModelId, selection.Value.ProviderName,
-            _maxTokens, _temperature).Value!;
+            _spawn.MaxTokens, _spawn.Temperature).Value!;
       }
     }
 
     // 5. Fallback to the host-injected fallback model.
-    return ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature).Value!;
+    return ModelConfig.Create(_fallbackModelId, null, _spawn.MaxTokens, _spawn.Temperature).Value!;
   }
 }

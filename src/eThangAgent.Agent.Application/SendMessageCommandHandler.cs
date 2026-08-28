@@ -35,11 +35,7 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
   private int _turnCount;
 
   public async Task<Result<string>> Handle(SendMessageCommand command,
-      Action<string>? onContentDelta = null,
-      Action<string>? onReasoningDelta = null,
-      Action? onIterationEnd = null,
-      Action<string, string>? onToolCall = null,
-      Action<string, string>? onToolResult = null,
+      TurnCallbacks? callbacks = null,
       Action<string>? onNotice = null,
       CancellationToken ct = default)
   {
@@ -48,8 +44,8 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
 
     Ag active = await ResolveAgentAsync(command.Text, onNotice, ct).ConfigureAwait(false);
 
-    Result<string> result = await active.SendMessage(command.Text,
-        onContentDelta, onReasoningDelta, onIterationEnd, onToolCall, onToolResult, _inbox, ct).ConfigureAwait(false);
+    Result<string> result = await active.SendMessage(command.Text, callbacks, _inbox, ct)
+        .ConfigureAwait(false);
     if (!result.IsSuccess)
     {
       return result;

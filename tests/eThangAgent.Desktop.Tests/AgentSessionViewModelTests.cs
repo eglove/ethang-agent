@@ -58,7 +58,8 @@ public class AgentSessionViewModelTests
     List<string> errors = [];
     AgentSessionViewModel vm = new(
         runner, lifecycle, AgentId.NewId(), new Conversation(),
-        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo");
+        "OpenRouter", "test/model",
+        new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo" });
     return (vm, errors, lifecycle);
   }
 
@@ -67,10 +68,10 @@ public class AgentSessionViewModelTests
   [Fact]
   public async Task Normal_Turn_Appends_User_Entry_Disables_Input_And_Books_Exchange()
   {
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle? lifecycle) = Build(async (_, _, onContent, _, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle? lifecycle) = Build(async (_, _, callbacks, _) =>
     {
-      onContent!("hel");
-      onContent!("lo");
+      callbacks?.OnContentDelta?.Invoke("hel");
+      callbacks?.OnContentDelta?.Invoke("lo");
       await Task.Yield();
       return Result.Success("hello");
     });
@@ -92,7 +93,7 @@ public class AgentSessionViewModelTests
   [Fact]
   public async Task Failure_Produces_Error_Notice_With_Code()
   {
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _) =>
         Task.FromResult(Result.Failure<string>(new DomainError("RateLimited", "slow down"))));
 
     await vm.SubmitAsync("go");
@@ -107,7 +108,7 @@ public class AgentSessionViewModelTests
   [Fact]
   public async Task Success_Without_Streamed_Deltas_Falls_Back_To_Final_Text_Notice()
   {
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _) =>
         Task.FromResult(Result.Success("plain answer")));
 
     await vm.SubmitAsync("q");
@@ -123,7 +124,7 @@ public class AgentSessionViewModelTests
   public async Task Submission_While_Busy_Is_Ignored()
   {
     TaskCompletionSource release = new();
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _) =>
         release.Task.ContinueWith(_ => Result.Success("done"),
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
 
@@ -146,10 +147,10 @@ public class AgentSessionViewModelTests
   {
     PersistenceErroringLifecycle lifecycle = new(new StubStore());
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _, _) =>
+        (_, _, _, _) =>
             Task.FromResult(Result.Success("answer")),
         lifecycle, AgentId.NewId(), new Conversation(), "OpenRouter", "test/model",
-        workspaceRoot: @"C:\work\demo");
+        new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo" });
 
     await vm.SubmitAsync("hi");
     await vm.WaitForTurnAsync();
@@ -164,7 +165,7 @@ public class AgentSessionViewModelTests
   [Fact]
   public async Task Blank_Input_Is_Ignored()
   {
-    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _, _, _, _, _) =>
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle _) = Build((_, _, _, _) =>
         Task.FromResult(Result.Success("x")));
 
     await vm.SubmitAsync("   ");
@@ -179,10 +180,9 @@ public class AgentSessionViewModelTests
   {
     SessionModelPreferences preferences = new();
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
-        "OpenRouter", "openrouter/auto", workspaceRoot: @"C:\work\demo",
-        modelPreferences: preferences);
+        "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
     vm.ApplyModelChoice("anthropic/claude");
 
@@ -198,10 +198,9 @@ public class AgentSessionViewModelTests
   {
     SessionModelPreferences preferences = new() { ModelId = "anthropic/claude" };
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
-        "OpenRouter", "openrouter/auto", workspaceRoot: @"C:\work\demo",
-        modelPreferences: preferences);
+        "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
     vm.ApplyModelChoice(null);
 
@@ -215,9 +214,9 @@ public class AgentSessionViewModelTests
   public void ApplyModelChoice_Without_Preferences_Notices_Unavailable()
   {
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
-        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo");
+        "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo" });
 
     vm.ApplyModelChoice("anthropic/claude");
 
@@ -233,10 +232,9 @@ public class AgentSessionViewModelTests
   {
     SessionModelPreferences preferences = new();
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
-        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo",
-        modelPreferences: preferences);
+        "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
     vm.ApplyEffortChoice(ReasoningEffort.ExtraHigh);
 
@@ -252,10 +250,9 @@ public class AgentSessionViewModelTests
   {
     SessionModelPreferences preferences = new() { ReasoningEffort = ReasoningEffort.High };
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
-        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo",
-        modelPreferences: preferences);
+        "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
     Assert.Equal("High", vm.Status.Effort); // the seeded preference drives the initial status
 
@@ -271,9 +268,9 @@ public class AgentSessionViewModelTests
   public void ApplyEffortChoice_Without_Preferences_Notices_Unavailable()
   {
     AgentSessionViewModel vm = new(
-        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
-        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo");
+        "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo" });
 
     vm.ApplyEffortChoice(ReasoningEffort.High);
 

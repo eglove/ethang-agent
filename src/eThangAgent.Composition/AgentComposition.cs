@@ -167,8 +167,9 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<IAgentRuntime>(),
             sp.GetRequiredService<SubAgentOptions>(),
-            Providers.FallbackModelId(providerName),
-            sp.GetRequiredService<SessionModelPreferences>(),
+            new SpawnOptions(
+                Providers.FallbackModelId(providerName),
+                sp.GetRequiredService<SessionModelPreferences>()),
             sp.GetService<IModelSelector>()))
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()

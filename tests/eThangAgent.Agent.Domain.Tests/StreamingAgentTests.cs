@@ -49,8 +49,11 @@ public class StreamingAgentTests
     int iterations = 0;
 
     Result<string> result = await agent.SendMessage("hi",
-        onContentDelta: deltas.Add,
-        onIterationEnd: () => iterations++);
+        new TurnCallbacks
+        {
+          OnContentDelta = deltas.Add,
+          OnIterationEnd = () => iterations++,
+        });
 
     Assert.True(result.IsSuccess);
     Assert.Equal("final", result.Value);
@@ -71,7 +74,8 @@ public class StreamingAgentTests
     List<string> deltas = [];
     int iterations = 0;
 
-    Result<string> result = await agent.SendMessage("hi", onContentDelta: deltas.Add, onIterationEnd: () => iterations++);
+    Result<string> result = await agent.SendMessage("hi",
+        new TurnCallbacks { OnContentDelta = deltas.Add, OnIterationEnd = () => iterations++ });
 
     Assert.True(result.IsSuccess);
     Assert.Equal("done", result.Value);

@@ -26,7 +26,7 @@ public class ShellViewModelTests
       AgentSession session = factory(root, provider);
       return Task.FromResult(Result.Success(session));
     }
-    return new MainViewModel(create, preferences: preferences);
+    return new MainViewModel(create, new MainViewModelOptions { Preferences = preferences });
   }
 
   private static AgentSession FakeSession(string root, string provider = "openrouter",
@@ -103,11 +103,14 @@ public class ShellViewModelTests
       IApiKeyProtector? protector = null,
       string? preferredProviderId = null)
       => new(null,
-          preferredProviderId: preferredProviderId,
-          preferences: preferences,
-          settings: settings,
-          sessionFactory: new AgentSessionFactory(settings),
-          keyProtector: protector);
+          new MainViewModelOptions
+          {
+            PreferredProviderId = preferredProviderId,
+            Preferences = preferences,
+            Settings = settings,
+            SessionFactory = new AgentSessionFactory(settings),
+            ApiKeyProtector = protector,
+          });
 
   [Fact]
   public void OpenAgentCommand_Raises_Dialog_Request()
@@ -331,7 +334,7 @@ public class ShellViewModelTests
   {
     MainViewModel vm = new(
         (_, _) => Task.FromResult(Result.Success(FakeSession(@"C:\work"))),
-        availableProviders: []);
+        new MainViewModelOptions { AvailableProviders = [] });
 
     Assert.False(vm.HasConfiguredProvider);
     Assert.False(vm.OpenAgentCommand.CanExecute(null));
