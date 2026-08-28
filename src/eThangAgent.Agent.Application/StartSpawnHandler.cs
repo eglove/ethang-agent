@@ -71,8 +71,8 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       return ModelConfig.Create(request.Model!, null, _maxTokens, _temperature).Value!;
     }
 
-    // 2. The session's live /model choice is session-wide: children follow it too,
-    //    ahead of the static configured default.
+    // 2. The session's live model choice (the host's model picker) is session-wide:
+    //    children follow it too, ahead of the static configured default.
     if (!string.IsNullOrWhiteSpace(_preferences?.ModelId))
     {
       return ModelConfig.Create(_preferences.ModelId!, null, _maxTokens, _temperature).Value!;

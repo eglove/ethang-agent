@@ -39,27 +39,11 @@ public class RootAgentResolverTests
   private static RootSessionIdentity Identity(AgentId rootId) => new() { Id = rootId };
 
   [Fact]
-  public async Task ExplicitModel_Wins_And_Never_Runs_Selection()
-  {
-    FakeAgentStore store = new();
-    AgentId rootId = await SeedRootAsync(store);
-    FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
-    ModelConfig explicitModel = ModelConfig.Create("pinned/model", null, 1024, 0.5f).Value!;
-    RootAgentResolver resolver = new(selector, store, Identity(rootId), explicitModel, FallbackModel, 2048, 0.7f);
-
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "any task");
-
-    Assert.Equal("pinned/model", config.ModelId);
-    Assert.Null(notice);
-    Assert.Equal(0, selector.Calls);
-  }
-
-  [Fact]
   public async Task NoSelector_Uses_Fallback_Without_Selection()
   {
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    RootAgentResolver resolver = new(selector: null, store, Identity(rootId), explicitModel: null, FallbackModel, 2048, 0.7f);
+    RootAgentResolver resolver = new(selector: null, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 
     (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "any task");
 
@@ -73,7 +57,7 @@ public class RootAgentResolverTests
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
-    RootAgentResolver resolver = new(selector, store, Identity(rootId), explicitModel: null, FallbackModel, 2048, 0.7f);
+    RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 
     (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "write a C# function");
 
@@ -91,7 +75,7 @@ public class RootAgentResolverTests
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     FailingModelSelector selector = new();
-    RootAgentResolver resolver = new(selector, store, Identity(rootId), explicitModel: null, FallbackModel, 2048, 0.7f);
+    RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 
     (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "task");
 
@@ -108,7 +92,7 @@ public class RootAgentResolverTests
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
-    RootAgentResolver resolver = new(selector, store, Identity(rootId), explicitModel: null, FallbackModel, 2048, 0.7f);
+    RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 
     // Seed one prior user message (turn 1 already happened): turn 2 is off-cadence.
     Conversation conversation = new();
@@ -127,7 +111,7 @@ public class RootAgentResolverTests
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     FakeModelSelector selector = new(Selection("google/gemini-2.0-flash-001"));
-    RootAgentResolver resolver = new(selector, store, Identity(rootId), explicitModel: null, FallbackModel, 2048, 0.7f);
+    RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 
     // Ten prior user messages: 10 % 10 == 0 → cadence boundary (the 11th turn reclassifies).
     Conversation conversation = new();
@@ -151,7 +135,7 @@ public class RootAgentResolverTests
     // Pre-persist the model so persistence is a no-op (ModelUsed already matches).
     _ = await store.UpdateAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow) with { ModelUsed = "anthropic/claude-3.5-sonnet" }).ConfigureAwait(true);
     FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
-    RootAgentResolver resolver = new(selector, store, Identity(rootId), explicitModel: null, FallbackModel, 2048, 0.7f);
+    RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 
     (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "task");
 
@@ -162,7 +146,7 @@ public class RootAgentResolverTests
   [Fact]
   public async Task ResolveAsync_NullConversation_Throws()
   {
-    RootAgentResolver resolver = new(selector: null, store: null, identity: null, explicitModel: null, FallbackModel, 2048, 0.7f);
+    RootAgentResolver resolver = new(selector: null, store: null, identity: null, FallbackModel, 2048, 0.7f);
     _ = await Assert.ThrowsAsync<ArgumentNullException>(() => resolver.ResolveAsync(null!, "task"));
   }
   [Fact]
@@ -171,7 +155,7 @@ public class RootAgentResolverTests
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet", "Anthropic"));
-    RootAgentResolver resolver = new(selector, store, Identity(rootId), explicitModel: null, FallbackModel, 2048, 0.7f);
+    RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "write a C# function");
 
     Assert.Equal("anthropic/claude-3.5-sonnet", config.ModelId);

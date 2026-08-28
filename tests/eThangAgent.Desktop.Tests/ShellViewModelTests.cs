@@ -1,5 +1,6 @@
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,7 +29,8 @@ public class ShellViewModelTests
     return new MainViewModel(create, preferences: preferences);
   }
 
-  private static AgentSession FakeSession(string root, string provider = "openrouter")
+  private static AgentSession FakeSession(string root, string provider = "openrouter",
+      SessionModelPreferences? preferences = null)
   {
     // A session whose container is never disposed (no ServiceProvider) — tests that
     // close tabs must not touch Services. Build via a throwaway ServiceCollection so
@@ -41,12 +43,13 @@ public class ShellViewModelTests
         new ConversationDomain.Conversation(),
         Handler: null!,
         Lifecycle: new RootSessionLifecycle(new TestFixtures.StubStore()),
-        Model: ModelDomain.ModelConfig.Create("test/model", null, 128, 0.1f).Value!,
+        Model: ModelConfig.Create("test/model", null, 128, 0.1f).Value!,
         WorkspaceRoot: root,
         ProviderName: provider,
         ClarifyChannel: null!,
         Inbox: new AgentDomain.AgentInbox(),
-        ChildRuntime: new TestFixtures.StubAgentRuntime());
+        ChildRuntime: new TestFixtures.StubAgentRuntime(),
+        Preferences: preferences);
   }
 
   private sealed class FakePreferenceStore : IAppPreferenceStore
@@ -55,18 +58,24 @@ public class ShellViewModelTests
 
     public List<string> Deletions { get; } = [];
 
+    /// <summary>Persisted values served back by <see cref="GetAsync"/> (empty store by
+    ///     default — matching the pre-existing "remembers nothing" behavior).</summary>
+    public Dictionary<string, string> Stored { get; } = [];
+
     public Task<string?> GetAsync(string key, CancellationToken ct = default)
-        => Task.FromResult<string?>(null);
+        => Task.FromResult(Stored.TryGetValue(key, out string? value) ? value : null);
 
     public Task<bool> SetAsync(string key, string value, CancellationToken ct = default)
     {
       Writes.Add((key, value));
+      Stored[key] = value;
       return Task.FromResult(true);
     }
 
     public Task<bool> DeleteAsync(string key, CancellationToken ct = default)
     {
       Deletions.Add(key);
+      _ = Stored.Remove(key);
       return Task.FromResult(true);
     }
   }
@@ -326,5 +335,108 @@ public class ShellViewModelTests
 
     Assert.False(vm.HasConfiguredProvider);
     Assert.False(vm.OpenAgentCommand.CanExecute(null));
+  }
+
+  // ── Model picker ──────────────────────────────────────────────────────────
+
+  [Fact]
+  public async Task ChooseModelCommand_Gated_On_Selected_Tab_And_Raises_Request()
+  {
+    MainViewModel vm = CreateShell((root, provider) => FakeSession(
+        root, provider, new SessionModelPreferences()));
+    bool raised = false;
+    vm.ModelPickerRequested += (_, _) => raised = true;
+
+    Assert.False(vm.HasSelectedTab);
+    Assert.False(vm.ChooseModelCommand.CanExecute(null));
+
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    Assert.True(vm.HasSelectedTab);
+    Assert.True(vm.ChooseModelCommand.CanExecute(null));
+    vm.ChooseModelCommand.Execute(null);
+    Assert.True(raised);
+  }
+
+  [Fact]
+  public async Task ApplyModelChoice_Updates_Session_And_Persists_Per_Workspace()
+  {
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateShell((root, provider) => FakeSession(
+        root, provider, new SessionModelPreferences()), preferences);
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    await vm.ApplyModelChoiceAsync("anthropic/claude");
+
+    AgentSessionViewModel tab = vm.SelectedTab!.ViewModel;
+    Assert.Equal("anthropic/claude", tab.Status.ModelId);
+    Assert.Contains(tab.Transcript.Entries.OfType<NoticeEntry>(),
+        n => n.Text.Contains("anthropic/claude", StringComparison.Ordinal));
+    (string key, string value) = Assert.Single(preferences.Writes,
+        w => w.Key.StartsWith("model_choice:", StringComparison.Ordinal));
+    Assert.Equal($"model_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}", key);
+    Assert.Equal("anthropic/claude", value);
+  }
+
+  [Fact]
+  public async Task ApplyModelChoice_Auto_Clears_Session_And_Deletes_Persisted_Choice()
+  {
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateShell((root, provider) => FakeSession(
+        root, provider, new SessionModelPreferences { ModelId = "anthropic/claude" }), preferences);
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    await vm.ApplyModelChoiceAsync(null);
+
+    AgentTabViewModel tab = vm.SelectedTab!;
+    Assert.Null(tab.Container.Preferences!.ModelId);
+    Assert.Equal("test/model", tab.ViewModel.Status.ModelId); // the session's bootstrap model
+    string expectedKey = $"model_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}";
+    Assert.Equal([expectedKey], preferences.Deletions);
+    // The open persisted the provider preference; the auto choice added NO model write.
+    Assert.DoesNotContain(preferences.Writes,
+        w => w.Key.StartsWith("model_choice:", StringComparison.Ordinal));
+  }
+
+  [Fact]
+  public async Task ApplyModelChoice_Without_Tab_Is_A_NoOp()
+  {
+    MainViewModel vm = CreateShell();
+
+    await vm.ApplyModelChoiceAsync("anthropic/claude");
+
+    Assert.Null(vm.SelectedTab); // nothing to reach — must not throw
+  }
+
+  [Fact]
+  public async Task OpenAgent_Restores_Persisted_Model_Choice_Into_The_Session()
+  {
+    FakePreferenceStore preferences = new();
+    string root = Path.GetFullPath(@"C:\work\alpha");
+    preferences.Stored[$"model_choice:openrouter:{root}"] = "anthropic/claude";
+    MainViewModel vm = CreateShell((r, provider) => FakeSession(
+        r, provider, new SessionModelPreferences()), preferences);
+
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    AgentTabViewModel tab = vm.SelectedTab!;
+    Assert.Equal("anthropic/claude", tab.Container.Preferences!.ModelId);
+    Assert.Equal("anthropic/claude", tab.ViewModel.Status.ModelId);
+    // The restore is silent — no notice before any turn has run.
+    Assert.DoesNotContain(tab.ViewModel.Transcript.Entries, e => e is NoticeEntry);
+  }
+
+  [Fact]
+  public async Task OpenAgent_Leaves_No_Choice_Restored_When_None_Persisted()
+  {
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateShell((root, provider) => FakeSession(
+        root, provider, new SessionModelPreferences()), preferences);
+
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    AgentTabViewModel tab = vm.SelectedTab!;
+    Assert.Null(tab.Container.Preferences!.ModelId);
+    Assert.Equal("test/model", tab.ViewModel.Status.ModelId);
   }
 }

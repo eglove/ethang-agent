@@ -50,8 +50,7 @@ internal static class E2E
       AgentSettings settings = new(
           new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
           new ZaiSettings(null, new Uri("https://zai.test")),
-          new SubAgentOptions(null, TimeSpan.FromSeconds(30), 2),
-          ModelId: SessionModel);
+          new SubAgentOptions(null, TimeSpan.FromSeconds(30), 2));
 
       _services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.OpenRouter,
@@ -61,6 +60,11 @@ internal static class E2E
                   new FixedWorkspaceContext("app"),
                   new UnrootedPathResolver()))
           .BuildServiceProvider();
+
+      // Pin the session's model through the same live-preference surface the desktop
+      // model picker uses — selection must not run here, or it would consume the
+      // mock's scripted chat responses before the turn under test.
+      _services.GetRequiredService<SessionModelPreferences>().ModelId = SessionModel;
 
       // Root-session bootstrap via the shared composition helper — the SAME code
       // path as the desktop host, so the persisted id and the id the view-model

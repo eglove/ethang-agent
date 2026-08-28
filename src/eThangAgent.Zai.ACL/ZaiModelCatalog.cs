@@ -7,10 +7,10 @@ namespace eThangAgent.Zai.ACL;
 ///     endpoint (confirmed against the published OpenAPI spec), so entries are curated
 ///     from the model and pricing doc pages. This catalog IS the session's selectable
 ///     lineup: z.ai sessions run no automatic selection — the user picks one of these
-///     models through the /model command, and glm-5.3-flash is the default. Prices are
-///     LIST (non-promotional) USD per token; context windows are the advertised figures;
-///     capability scores are omitted (z.ai publishes none) — descriptions carry the
-///     signal instead. Extend by adding entries after verifying limits against the
+///     models through the host's model picker, and glm-5.3-flash is the default. Prices
+///     are LIST (non-promotional) USD per token; context windows are the advertised
+///     figures; capability scores are omitted (z.ai publishes none) — descriptions carry
+///     the signal instead. Extend by adding entries after verifying limits against the
 ///     per-model doc pages.</summary>
 public sealed class ZaiModelCatalog : IModelCatalog
 {

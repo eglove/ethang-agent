@@ -5,9 +5,11 @@ using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Agent.Application;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.Streaming;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -21,12 +23,15 @@ internal delegate Task<Result<string>> TurnRunner(
     Action<string, string>? onToolResult,
     Action<string>? onNotice = null);
 
-/// <summary>Shell-level state for the main window: the left menu bar (Open Agent plus
-///     the Settings entry) and the open agent tabs. 'Open Agent' shows the new-agent
-///     dialog (provider dropdown plus workspace picker); each tab owns an
-///     <see cref="AgentSessionViewModel"/> bound to its own isolated
-///     <see cref="AgentSession"/> created through the injected provider-aware
-///     session-factory hook. The settings modal edits the provider API keys: saving
+/// <summary>Shell-level state for the main window: the left menu bar (Open Agent, the
+///     per-tab Model entry, and the bottom-anchored Settings entry) and the open agent
+///     tabs. 'Open Agent' shows the new-agent dialog (provider dropdown plus workspace
+///     picker); each tab owns an <see cref="AgentSessionViewModel"/> bound to its own
+///     isolated <see cref="AgentSession"/> created through the injected provider-aware
+///     session-factory hook. The Model entry shows the selected tab's model picker:
+///     confirming applies the choice to the session (from the next turn, root and
+///     children alike) and persists it per workspace + provider, so reopening the same
+///     directory restores it. The settings modal edits the provider API keys: saving
 ///     persists them (protected) and rebuilds the factory so future opens use the new
 ///     keys — already-open tabs keep the credentials they were created with. The shell
 ///     itself holds no agent state. A static <see cref="ForPrebuiltSessionAsync"/> keeps
@@ -59,6 +64,7 @@ internal sealed partial class MainViewModel : ObservableObject
   private AgentSessionFactory? _sessionFactory;
 
   [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(HasSelectedTab))]
   public partial AgentTabViewModel? SelectedTab { get; set; }
 
   [ObservableProperty]
@@ -78,6 +84,10 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public bool HasTabs => Tabs.Count > 0;
 
+  /// <summary>True when a tab is selected — drives the Model menu entry's visibility
+  ///     (every provider has a model picker).</summary>
+  public bool HasSelectedTab => SelectedTab is not null;
+
   /// <summary>True when at least one provider has a configured API key; gates Open Agent.</summary>
   public bool HasConfiguredProvider => AvailableProviders.Count > 0;
 
@@ -91,11 +101,16 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public IRelayCommand OpenSettingsCommand { get; }
 
+  public IRelayCommand ChooseModelCommand { get; }
+
   /// <summary>Raised when the shell wants the new-agent dialog shown.</summary>
   public event EventHandler? OpenAgentRequested;
 
   /// <summary>Raised when the shell wants the settings modal shown.</summary>
   public event EventHandler? SettingsRequested;
+
+  /// <summary>Raised when the shell wants the selected tab's model picker shown.</summary>
+  public event EventHandler? ModelPickerRequested;
 
   /// <param name="createSession">Session-creation hook. Null in production — the shell
   ///     derives it from <paramref name="settings"/> + <paramref name="sessionFactory"/>
@@ -143,6 +158,9 @@ internal sealed partial class MainViewModel : ObservableObject
         () => OpenAgentRequested?.Invoke(this, EventArgs.Empty),
         () => !IsOpeningAgent && HasConfiguredProvider);
     OpenSettingsCommand = new RelayCommand(() => SettingsRequested?.Invoke(this, EventArgs.Empty));
+    ChooseModelCommand = new RelayCommand(
+        () => ModelPickerRequested?.Invoke(this, EventArgs.Empty),
+        () => HasSelectedTab);
 
     AvailableProviders = settings is not null
         ? ProvidersFrom(settings)
@@ -160,6 +178,9 @@ internal sealed partial class MainViewModel : ObservableObject
   partial void OnAvailableProvidersChanged(IReadOnlyList<ProviderOption> value) =>
       OpenAgentCommand.NotifyCanExecuteChanged();
 
+  partial void OnSelectedTabChanged(AgentTabViewModel? value) =>
+      ChooseModelCommand.NotifyCanExecuteChanged();
+
   private void OnTabsChanged(object? sender, NotifyCollectionChangedEventArgs e)
   {
     OnPropertyChanged(nameof(HasTabs));
@@ -176,6 +197,40 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Menu-bar entry point: raises the settings request. The view shows the
   ///     settings modal and calls <see cref="ApplySettingsAsync"/> with the result.</summary>
   public void RequestOpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
+
+  /// <summary>Menu-bar entry point: raises the model-picker request. The view shows the
+  ///     picker modal and calls <see cref="ApplyModelChoiceAsync"/> with the choice.</summary>
+  public void RequestChooseModel() => ModelPickerRequested?.Invoke(this, EventArgs.Empty);
+
+  /// <summary>Loads the selected tab's provider catalog for the model picker, or null
+  ///     when no tab is selected. The loader escapes collection evaluation in the
+  ///     picker's view-model, which runs it off the UI thread.</summary>
+  public Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogLoader
+  {
+    get
+    {
+      AgentTabViewModel? tab = SelectedTab;
+      return tab is null
+          ? null
+          : ct => tab.Container.Services.GetRequiredService<IModelCatalog>().GetAsync(ct);
+    }
+  }
+
+  /// <summary>Applies a model-picker choice to the selected tab and persists it per
+  ///     workspace + provider (best effort — the same named decision as the other
+  ///     preferences). Null means auto choice and clears the persisted preference, so
+  ///     future opens of the same directory start on automatic resolution.</summary>
+  public async Task ApplyModelChoiceAsync(string? modelId)
+  {
+    AgentTabViewModel? tab = SelectedTab;
+    if (tab is null)
+    {
+      return;
+    }
+
+    tab.ViewModel.ApplyModelChoice(modelId);
+    await PersistModelChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot, modelId);
+  }
 
   /// <summary>Applies a settings-modal result: persists the keys (protected) or deletes
   ///     the cleared ones, rebuilds the session factory so future opens use the new
@@ -331,9 +386,21 @@ internal sealed partial class MainViewModel : ObservableObject
           inbox: session.Inbox,
           childRuntime: session.ChildRuntime,
           statusModelUpdater: id => sessionVmRef!.Status.ModelId = id,
-          modelPreferences: session.Preferences,
-          selectableModels: session.SelectableModels);
+          modelPreferences: session.Preferences);
       sessionVmRef = sessionVm;
+
+      // Restore the per-workspace model choice (if any) BEFORE the tab can take a
+      // turn: the choice rides the session preferences, so the first turn resolves
+      // straight to it — no selection runs. A stale persisted id is not re-validated
+      // (that would crawl the whole OpenRouter catalog on every open); it surfaces as
+      // a provider error on the next turn and the user re-picks.
+      string? restoredChoice = await ReadModelChoiceAsync(providerName, full);
+      if (restoredChoice is not null && session.Preferences is { } preferences)
+      {
+        preferences.ModelId = restoredChoice;
+        sessionVm.Status.ModelId = restoredChoice;
+      }
+
       AttachClarifyChannel(sessionVm, session.ClarifyChannel);
 
       AgentTabViewModel tab = new(session, sessionVm);
@@ -374,6 +441,67 @@ internal sealed partial class MainViewModel : ObservableObject
     catch (Exception ex)
     {
       await Console.Error.WriteLineAsync($"provider preference write failed for '{providerName}': {ex.Message}");
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Composite preference key of the per-workspace model choice: the same
+  ///     directory may be open under both providers, and their lineups differ, so the
+  ///     key is scoped to the (provider, workspace) pair. Keys are only ever read back
+  ///     verbatim — never parsed — so path colons need no escaping.</summary>
+  private static string ModelChoiceKey(string providerName, string workspaceRoot)
+      => $"model_choice:{providerName}:{workspaceRoot}";
+
+  /// <summary>Reads the per-workspace model choice, or null when unset (or the store
+  ///     is unavailable — a failed read degrades to the session default, never fails
+  ///     the open; named decision, CA1031).</summary>
+  private async Task<string?> ReadModelChoiceAsync(string providerName, string workspaceRoot)
+  {
+    if (_preferences is null)
+    {
+      return null;
+    }
+
+    // Named decision (CA1031): preference reads must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      return await _preferences.GetAsync(ModelChoiceKey(providerName, workspaceRoot));
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"model choice preference read failed: {ex.Message}");
+      return null;
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Persists (or, for the auto choice, clears) the per-workspace model
+  ///     choice. Best effort — a failed write logs to stderr and never fails the pick
+  ///     (named decision, CA1031; same reasoning as the provider preference).</summary>
+  private async Task PersistModelChoiceAsync(string providerName, string workspaceRoot, string? modelId)
+  {
+    if (_preferences is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): preference persistence must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      string key = ModelChoiceKey(providerName, workspaceRoot);
+      bool landed = modelId is null
+          ? await _preferences.DeleteAsync(key)
+          : await _preferences.SetAsync(key, modelId);
+      if (!landed)
+      {
+        await Console.Error.WriteLineAsync($"model choice preference write failed for '{key}'");
+      }
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"model choice preference write failed: {ex.Message}");
     }
 #pragma warning restore CA1031
   }

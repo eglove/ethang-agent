@@ -24,13 +24,14 @@ public sealed record ZaiSettings(string? ApiKey, Uri BaseUrl)
 /// <summary>Everything a host needs before building the core. Provider keys are
 ///     independent: every configured provider is offered, and each opened session
 ///     picks one by id (<see cref="Providers"/>). ApiKeys may be null — each host
-///     decides how to present a missing key (Desktop shows a dialog). ModelId, when
-///     set, pins the root agent model and skips intelligent selection.</summary>
+///     decides how to present a missing key (Desktop shows a dialog). There is no
+///     configured model pin: the model is chosen per session (intelligent selection
+///     on OpenRouter, the provider default on z.ai) or by the user through the
+///     host's model picker.</summary>
 public sealed record AgentSettings(
     OpenRouterSettings OpenRouter,
     ZaiSettings Zai,
-    SubAgentOptions SubAgents,
-    string? ModelId = null)
+    SubAgentOptions SubAgents)
 {
   /// <summary>True when an OpenRouter API key (non-blank) is configured.</summary>
   public bool HasOpenRouter => !string.IsNullOrWhiteSpace(OpenRouter.ApiKey);

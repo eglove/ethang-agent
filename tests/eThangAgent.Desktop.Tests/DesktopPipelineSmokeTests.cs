@@ -29,8 +29,7 @@ public class DesktopPipelineSmokeTests
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", server.BaseUrl),
         new ZaiSettings(null, new Uri("https://zai.test")),
-        new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1),
-        ModelId: "mock/model");
+        new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1));
 
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
@@ -40,6 +39,11 @@ public class DesktopPipelineSmokeTests
                 new FixedWorkspaceContext("app"),
                 new UnrootedPathResolver()))
         .BuildServiceProvider();
+
+    // Pin the session's model through the same live-preference surface the desktop
+    // model picker uses — selection must not run here, or it would consume the
+    // mock's scripted chat responses before the turn under test.
+    services.GetRequiredService<SessionModelPreferences>().ModelId = "mock/model";
 
     SendMessageCommandHandler handler = services.GetRequiredService<SendMessageCommandHandler>();
     RootSessionLifecycle lifecycle = services.GetRequiredService<RootSessionLifecycle>();

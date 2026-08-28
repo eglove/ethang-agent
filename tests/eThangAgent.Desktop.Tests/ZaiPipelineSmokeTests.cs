@@ -35,8 +35,7 @@ public class ZaiPipelineSmokeTests
       AgentSettings settings = new(
           new OpenRouterSettings(null, new Uri("https://openrouter.test")),
           new ZaiSettings("zai-test-key", server.BaseUrl),
-          new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1),
-          ModelId: "glm-5.3");
+          new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1));
 
       using ServiceProvider services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.Zai,
@@ -46,6 +45,11 @@ public class ZaiPipelineSmokeTests
                   new FixedWorkspaceContext("app"),
                   new UnrootedPathResolver()))
           .BuildServiceProvider();
+
+      // Pin the session's model through the same live-preference surface the desktop
+      // model picker uses — z.ai has no selector, and without the choice the resolver
+      // would serve its fallback (glm-5.3-flash) instead of the scripted glm-5.3.
+      services.GetRequiredService<SessionModelPreferences>().ModelId = "glm-5.3";
 
       SendMessageCommandHandler handler = services.GetRequiredService<SendMessageCommandHandler>();
       RootSessionLifecycle lifecycle = services.GetRequiredService<RootSessionLifecycle>();

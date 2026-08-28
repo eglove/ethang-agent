@@ -1,7 +1,9 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.Views;
@@ -27,9 +29,11 @@ internal partial class MainWindow : Window
     // The menu button asks the view to show the new-agent modal (UI-affine); the
     // chosen provider/workspace pair comes back through OpenAgentAsync. The gear
     // button shows the settings modal the same way; its result flows through
-    // ApplySettingsAsync.
+    // ApplySettingsAsync. The Model button shows the selected tab's model picker;
+    // its result flows through ApplyModelChoiceAsync.
     vm.OpenAgentRequested += async (_, _) => await ShowNewAgentDialogAsync();
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
+    vm.ModelPickerRequested += async (_, _) => await ShowModelPickerDialogAsync();
   }
 
   /// <summary>Shows the new-agent dialog (provider dropdown + workspace picker) and
@@ -64,6 +68,31 @@ internal partial class MainWindow : Window
     }
 
     await _vm.ApplySettingsAsync(update);
+  }
+
+  /// <summary>Shows the model picker for the selected tab. A cancelled dialog is a
+  ///     no-op; a confirmed one applies the choice on the shell (session + per-workspace
+  ///     preference). Only OpenRouter offers the auto row — z.ai has no automatic
+  ///     resolution, so its picker is just the static lineup.</summary>
+  private async Task ShowModelPickerDialogAsync()
+  {
+    Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? loader =
+        _vm!.SelectedTabCatalogLoader;
+    if (loader is null || _vm.SelectedTab is not { } tab)
+    {
+      return; // no selected tab — the menu entry is hidden anyway
+    }
+
+    bool allowAuto = string.Equals(
+        tab.Container.ProviderName, Providers.OpenRouter, StringComparison.Ordinal);
+    ModelPickerWindow dialog = new(loader, allowAuto, tab.Container.Preferences?.ModelId);
+    ModelChoice? choice = await dialog.ShowDialog<ModelChoice?>(this);
+    if (choice is null)
+    {
+      return; // user cancelled — no-op
+    }
+
+    await _vm.ApplyModelChoiceAsync(choice.ModelId);
   }
 
   private async Task ShowOpenFailedAsync(string message)

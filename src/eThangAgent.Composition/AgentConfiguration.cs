@@ -25,10 +25,7 @@ public static class AgentConfiguration
         configuration["SubAgent:ChildTimeoutSeconds"],
         configuration["SubAgent:MaxConcurrentAgents"]);
 
-    string? modelId = configuration["Model:Id"];
-    return modelId is not null && string.IsNullOrWhiteSpace(modelId)
-      ? throw new InvalidOperationException("Model:Id is present but empty. Remove the key or supply a model reference.")
-      : new AgentSettings(
+    return new AgentSettings(
         new OpenRouterSettings(
             null,
             BindBaseUrl("OPENROUTER_BASE_URL",
@@ -37,8 +34,7 @@ public static class AgentConfiguration
             null,
             BindBaseUrl("ZAI_BASE_URL",
                 Environment.GetEnvironmentVariable("ZAI_BASE_URL"), ZaiConfiguration.DefaultBaseUrl)),
-        subAgents,
-        modelId);
+        subAgents);
   }
 
   private static Uri BindBaseUrl(string variableName, string? baseUrlEnv, string defaultUrl)

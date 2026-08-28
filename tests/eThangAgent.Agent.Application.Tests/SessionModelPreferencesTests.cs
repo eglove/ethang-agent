@@ -24,7 +24,7 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new() { ReasoningEffort = ReasoningEffort.Low };
     RootAgentResolver resolver = new(
         new FakeModelSelector(Selection("anthropic/claude-3.5-sonnet")), store: null, identity: null,
-        explicitModel: null, "openrouter/auto", 2048, 0.7f, preferences);
+        "openrouter/auto", 2048, 0.7f, preferences);
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task");
 
@@ -32,25 +32,10 @@ public class SessionModelPreferencesTests
   }
 
   [Fact]
-  public async Task RootResolver_ExplicitPin_StillCarriesPreferredEffort()
-  {
-    SessionModelPreferences preferences = new() { ReasoningEffort = ReasoningEffort.Max };
-    RootAgentResolver resolver = new(
-        selector: null, store: null, identity: null,
-        explicitModel: ModelConfig.Create("glm-5.3", null, 1024, 0.5f).Value!,
-        "glm-5.3-flash", 2048, 0.7f, preferences);
-
-    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task");
-
-    Assert.Equal("glm-5.3", config.ModelId);
-    Assert.Equal(ReasoningEffort.Max, config.Effort);
-  }
-
-  [Fact]
   public async Task RootResolver_NoPreference_LeavesEffortUnset()
   {
     RootAgentResolver resolver = new(
-        selector: null, store: null, identity: null, explicitModel: null,
+        selector: null, store: null, identity: null,
         "openrouter/auto", 2048, 0.7f);
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task");
@@ -63,7 +48,7 @@ public class SessionModelPreferencesTests
   {
     SessionModelPreferences preferences = new();
     RootAgentResolver resolver = new(
-        selector: null, store: null, identity: null, explicitModel: null,
+        selector: null, store: null, identity: null,
         "openrouter/auto", 2048, 0.7f, preferences);
     Conversation conversation = new();
 
@@ -81,7 +66,7 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
     RootAgentResolver resolver = new(
         new FakeModelSelector(Selection("anthropic/claude-3.5-sonnet")), store: null, identity: null,
-        explicitModel: null, "glm-5.3-flash", 2048, 0.7f, preferences);
+        "glm-5.3-flash", 2048, 0.7f, preferences);
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task");
 
@@ -89,25 +74,11 @@ public class SessionModelPreferencesTests
   }
 
   [Fact]
-  public async Task RootResolver_PreferredModel_BeatsConfiguredPin()
-  {
-    SessionModelPreferences preferences = new() { ModelId = "glm-5.3-flash" };
-    RootAgentResolver resolver = new(
-        selector: null, store: null, identity: null,
-        explicitModel: ModelConfig.Create("glm-5.3", null, 1024, 0.5f).Value!,
-        "glm-5.3-flash", 2048, 0.7f, preferences);
-
-    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task");
-
-    Assert.Equal("glm-5.3-flash", config.ModelId);
-  }
-
-  [Fact]
   public async Task RootResolver_PreferredModel_CarriesPreferredEffort()
   {
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3", ReasoningEffort = ReasoningEffort.High };
     RootAgentResolver resolver = new(
-        selector: null, store: null, identity: null, explicitModel: null,
+        selector: null, store: null, identity: null,
         "glm-5.3-flash", 2048, 0.7f, preferences);
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task");
@@ -124,7 +95,7 @@ public class SessionModelPreferencesTests
     _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow));
     SessionModelPreferences preferences = new();
     RootAgentResolver resolver = new(
-        selector: null, store, new RootSessionIdentity() { Id = rootId }, explicitModel: null,
+        selector: null, store, new RootSessionIdentity() { Id = rootId },
         "glm-5.3-flash", 2048, 0.7f, preferences);
     Conversation conversation = new();
 
@@ -148,7 +119,7 @@ public class SessionModelPreferencesTests
   {
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3-flash" };
     RootAgentResolver resolver = new(
-        selector: null, store: null, identity: null, explicitModel: null,
+        selector: null, store: null, identity: null,
         "glm-5.3-flash", 2048, 0.7f, preferences);
     Conversation conversation = new();
 

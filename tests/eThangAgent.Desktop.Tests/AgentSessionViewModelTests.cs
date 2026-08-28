@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.Tests;
@@ -217,5 +218,59 @@ public class AgentSessionViewModelTests
     await vm.SubmitAsync("   ");
 
     Assert.Empty(vm.Transcript.Entries);
+  }
+
+  // ── 7. Model picker choice ────────────────────────────────────────────────
+
+  [Fact]
+  public void ApplyModelChoice_Pins_Session_Model_Updates_Status_And_Announces()
+  {
+    SessionModelPreferences preferences = new();
+    AgentSessionViewModel vm = new(
+        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "openrouter/auto", workspaceRoot: @"C:\work\demo",
+        modelPreferences: preferences);
+
+    vm.ApplyModelChoice("anthropic/claude");
+
+    Assert.Equal("anthropic/claude", preferences.ModelId);
+    Assert.Equal("anthropic/claude", vm.Status.ModelId);
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("anthropic/claude", notice.Text, StringComparison.Ordinal);
+    Assert.Contains("next turn", notice.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void ApplyModelChoice_Auto_Clears_Choice_And_Restores_Session_Default()
+  {
+    SessionModelPreferences preferences = new() { ModelId = "anthropic/claude" };
+    AgentSessionViewModel vm = new(
+        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "openrouter/auto", workspaceRoot: @"C:\work\demo",
+        modelPreferences: preferences);
+
+    vm.ApplyModelChoice(null);
+
+    Assert.Null(preferences.ModelId);
+    Assert.Equal("openrouter/auto", vm.Status.ModelId); // the session's bootstrap model
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("automatic", notice.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void ApplyModelChoice_Without_Preferences_Notices_Unavailable()
+  {
+    AgentSessionViewModel vm = new(
+        (_, _, _, _, _, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo");
+
+    vm.ApplyModelChoice("anthropic/claude");
+
+    Assert.Equal("test/model", vm.Status.ModelId); // untouched
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("unavailable", notice.Text, StringComparison.Ordinal);
   }
 }

@@ -78,11 +78,12 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     workspaceRoot = Path.GetFullPath(workspaceRoot);
 
-    // Bootstrap model: an explicit pin serves every turn; otherwise the provider's
-    // default — z.ai's glm-5.3-flash (user-changeable via /model) or OpenRouter's
-    // placeholder, replaced on the first turn by intelligent selection.
-    string modelId = _settings.ModelId ?? Providers.FallbackModelId(providerName);
-    ModelConfig defaultModel = ModelConfig.Create(modelId, null, 32 * 1024, 0.7f).Value!;
+    // Bootstrap model: the provider's default — z.ai's glm-5.3-flash or OpenRouter's
+    // openrouter/auto placeholder — serving until the first turn resolves the real one
+    // (intelligent selection, or the user's model picker choice restored from the
+    // per-workspace preference).
+    ModelConfig defaultModel = ModelConfig.Create(
+        Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f).Value!;
 
     ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(_settings, providerName, defaultModel,
@@ -111,18 +112,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // must be set before the first turn can fire.
       services.GetRequiredService<RootSessionIdentity>().Id = bootstrapped.Value!;
 
-      // z.ai exposes its static curated lineup to the /model command; OpenRouter keeps
-      // automatic selection, so there is nothing for the user to pick from.
-      IReadOnlyList<string>? selectableModels = null;
-      if (providerName == Providers.Zai)
-      {
-        Result<IReadOnlyList<ModelProviderEntry>> catalog = await services
-            .GetRequiredService<IModelCatalog>()
-            .GetAsync(ct)
-            .ConfigureAwait(false);
-        selectableModels = catalog.IsSuccess ? [.. catalog.Value!.Select(entry => entry.ModelId)] : null;
-      }
-
+      // Provider lineups are no longer published at session open: the model picker
+      // (host UI) fetches the catalog lazily when shown, for either provider.
       return Result.Success(new AgentSession(
           services,
           bootstrapped.Value!,
@@ -135,8 +126,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
           clarifyChannel,
           services.GetRequiredService<IAgentInbox>(),
           services.GetRequiredService<IAgentRuntime>(),
-          services.GetRequiredService<SessionModelPreferences>(),
-          selectableModels));
+          services.GetRequiredService<SessionModelPreferences>()));
     }
     catch
     {

@@ -138,9 +138,10 @@ public static class AgentComposition
         ;
 
     // Only OpenRouter wires the two-stage intelligent selector: z.ai sessions run no
-    // automatic selection — the user picks glm-5.3 or glm-5.3-flash via /model, so a
-    // selector there would only burn tokens. Consumers treat a missing selector as
-    // "serve the fallback / preference" (RootAgentResolver, StartSpawnHandler).
+    // automatic selection — the user picks glm-5.3 or glm-5.3-flash through the host's
+    // model picker, so a selector there would only burn tokens. Consumers treat a
+    // missing selector as "serve the fallback / preference" (RootAgentResolver,
+    // StartSpawnHandler).
     wired = AddModelServices(wired, providerName);
     if (providerName == Providers.OpenRouter)
     {
@@ -236,8 +237,8 @@ public static class AgentComposition
         ]))
         .AddSingleton(subAgents(settings, defaultModel.ModelId))
         // Root agent is built lazily on the first turn (and rebuilt on every model
-        // reselection) by RootAgentHolder; the root is NOT known at container build time when
-        // intelligent selection is active (no explicit ModelId). The holder reuses the shared
+        // reselection) by RootAgentHolder; the root is NOT known at container build time
+        // while intelligent selection is active. The holder reuses the shared
         // Conversation/provider/tools/system-prompt so a rebuild preserves all message history.
         .AddSingleton<SessionModelPreferences>()
         .AddSingleton<RootSessionIdentity>()
@@ -250,7 +251,6 @@ public static class AgentComposition
             sp.GetService<IModelSelector>(),
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<RootSessionIdentity>(),
-            settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
             Providers.FallbackModelId(providerName),
             defaultModel.MaxTokens,
             defaultModel.Temperature,
@@ -260,7 +260,6 @@ public static class AgentComposition
             sp.GetRequiredService<IProviderExclusionStore>(),
             sp.GetRequiredService<RootSessionIdentity>(),
             sp.GetRequiredService<IAgentStore>(),
-            settings.ModelId is null ? null : sp.GetRequiredService<ModelConfig>(),
             Providers.FallbackModelId(providerName),
             defaultModel.MaxTokens,
             defaultModel.Temperature))

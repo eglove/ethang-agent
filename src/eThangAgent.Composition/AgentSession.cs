@@ -26,8 +26,7 @@ public sealed record AgentSession(
     IClarifyChannel ClarifyChannel,
     IAgentInbox Inbox,
     IAgentRuntime ChildRuntime,
-    SessionModelPreferences? Preferences = null,
-    IReadOnlyList<string>? SelectableModels = null)
+    SessionModelPreferences? Preferences = null)
 {
   public string ModelId => Model.ModelId;
 }

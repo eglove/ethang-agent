@@ -18,7 +18,12 @@
         <Button x:Name="OpenAgentButton" Content="Open Agent"
                 HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
                 Command="{Binding OpenAgentCommand}"/>
-        <!-- Future menu entries append below 'Open Agent'. -->
+        <Button x:Name="ModelButton" Content="Model"
+                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
+                Command="{Binding ChooseModelCommand}"
+                IsVisible="{Binding HasSelectedTab}"
+                ToolTip.Tip="Choose the model for the selected agent"/>
+        <!-- Future menu entries append below 'Model'. -->
       </DockPanel>
     </Border>
 

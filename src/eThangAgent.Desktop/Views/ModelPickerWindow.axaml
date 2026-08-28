@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:eThangAgent.Desktop.ViewModels"
+        x:Class="eThangAgent.Desktop.Views.ModelPickerWindow"
+        x:DataType="vm:ModelPickerViewModel"
+        Title="Choose Model" Width="560" Height="520" MinWidth="420" MinHeight="320"
+        CanResize="True" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="16">
+
+    <TextBox Grid.Row="0" Watermark="Search models…" Text="{Binding SearchText}"/>
+
+    <Panel Grid.Row="1" Margin="0,8,0,0">
+      <ListBox ItemsSource="{Binding FilteredRows}" SelectedItem="{Binding SelectedRow}"
+               DoubleTapped="OnRowDoubleTapped">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:ModelPickerRow">
+            <StackPanel Margin="2,4">
+              <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+              <TextBlock Text="{Binding Detail}" Opacity="0.6" FontSize="12"/>
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock Text="Loading model catalog…" HorizontalAlignment="Center" VerticalAlignment="Center"
+                 Opacity="0.7" IsVisible="{Binding IsLoading}"/>
+    </Panel>
+
+    <TextBlock Grid.Row="2" Text="{Binding LoadError}" Foreground="OrangeRed" TextWrapping="Wrap"
+               FontSize="12" Margin="0,8,0,0"
+               IsVisible="{Binding LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+    <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"
+                Margin="0,8,0,0">
+      <Button Content="Cancel" Click="OnCancel"/>
+      <Button Content="Select" Command="{Binding ConfirmCommand}"/>
+    </StackPanel>
+  </Grid>
+</Window>

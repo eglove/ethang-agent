@@ -120,8 +120,9 @@ public class CompositionGuardTests
   [Fact]
   public void ZaiSession_WiresNoModelSelector_OpenRouterSessionDoes()
   {
-    // z.ai's model is the user's choice (/model over its static catalog); only
-    // OpenRouter wires the two-stage automatic selector. Consumers taking an
+    // z.ai's model is the user's choice (the host's model picker over its static
+    // catalog); only OpenRouter wires the two-stage automatic selector. Consumers
+    // taking an
     // optional selector must still resolve on a selector-less container.
     static ServiceProvider BuildFor(string provider) =>
         new ServiceCollection()

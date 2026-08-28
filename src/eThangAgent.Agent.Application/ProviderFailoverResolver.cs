@@ -6,17 +6,16 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.Agent.Application;
 
 /// <summary>Resolves the root agent's model with failover. When a model+provider fails
-/// mid-turn, <see cref="ReSelectExcludingAsync"/> records the exclusion and re-runs
-/// selection with the failed pair filtered out. Mirrors <see cref="RootAgentResolver"/>
-/// for the normal path but adds exclusion-aware re-selection. Sessions wired without a
-/// selector (z.ai picks its model through the /model command instead) resolve the
-/// fallback on every path — there is nothing to re-select from.</summary>
+///     mid-turn, <see cref="ReSelectExcludingAsync"/> records the exclusion and re-runs
+///     selection with the failed pair filtered out. Mirrors <see cref="RootAgentResolver"/>
+///     for the normal path but adds exclusion-aware re-selection. Sessions wired without a
+///     selector (z.ai picks its model through the host's model picker instead) resolve the
+///     fallback on every path — there is nothing to re-select from.</summary>
 public sealed class ProviderFailoverResolver(
     IModelSelector? selector,
     IProviderExclusionStore exclusions,
     RootSessionIdentity? identity,
     IAgentStore? store,
-    ModelConfig? explicitModel,
     string fallbackModelId,
     int maxTokens,
     float temperature)
@@ -27,7 +26,6 @@ public sealed class ProviderFailoverResolver(
   private readonly IProviderExclusionStore _exclusions = exclusions ?? throw new ArgumentNullException(nameof(exclusions));
   private readonly RootSessionIdentity? _identity = identity;
   private readonly IAgentStore? _store = store;
-  private readonly ModelConfig? _explicitModel = explicitModel;
   private readonly string _fallbackModelId = fallbackModelId ?? throw new ArgumentNullException(nameof(fallbackModelId));
   private readonly int _maxTokens = maxTokens;
   private readonly float _temperature = temperature;
@@ -36,11 +34,6 @@ public sealed class ProviderFailoverResolver(
       Conversation conversation, string prompt, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(conversation);
-
-    if (_explicitModel is not null)
-    {
-      return (_explicitModel, null);
-    }
 
     if (_selector is null)
     {
@@ -72,8 +65,9 @@ public sealed class ProviderFailoverResolver(
     IReadOnlySet<string> existing = await _exclusions.GetActiveExclusionsAsync(ct).ConfigureAwait(false);
     HashSet<string> excluded = [.. existing, failedKey];
 
-    // No selector (z.ai picks its model via /model): the exclusion is still recorded,
-    // but there is nothing to re-select from — the fallback serves the retry turn.
+    // No selector (z.ai picks its model via the host's model picker): the exclusion is
+    // still recorded, but there is nothing to re-select from — the fallback serves the
+    // retry turn.
     if (_selector is null)
     {
       return (Make(_fallbackModelId, null),

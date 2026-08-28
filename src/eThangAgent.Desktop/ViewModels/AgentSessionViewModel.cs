@@ -25,7 +25,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly Func<UiStreamEvent, Task> _streamSink;
   private readonly Action<string>? _statusModelUpdater;
   private readonly SessionModelPreferences? _modelPreferences;
-  private readonly IReadOnlyList<string>? _selectableModels;
+
+  /// <summary>The session's bootstrap model (the provider default). Serves as the
+  ///     status-bar display when the user returns the session to automatic choice.</summary>
+  private readonly string _sessionDefaultModelId;
 
   private Task? _runningTurn;
 
@@ -71,8 +74,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       IAgentInbox? inbox = null,
       IAgentRuntime? childRuntime = null,
       Action<string>? statusModelUpdater = null,
-      SessionModelPreferences? modelPreferences = null,
-      IReadOnlyList<string>? selectableModels = null)
+      SessionModelPreferences? modelPreferences = null)
   {
     WorkspaceRoot = workspaceRoot;
     _statusModelUpdater = statusModelUpdater;
@@ -98,7 +100,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     });
     Status = new StatusViewModel(provider, modelId);
     _modelPreferences = modelPreferences;
-    _selectableModels = selectableModels;
+    _sessionDefaultModelId = modelId;
     _inbox = inbox;
     _childRuntime = childRuntime;
   }
@@ -194,12 +196,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return Task.CompletedTask;
     }
 
-    if (DesktopCommands.IsModel(input))
-    {
-      HandleModelCommand(input);
-      return Task.CompletedTask;
-    }
-
     // Real turn — start and track it.
     _runningTurn = ExecuteTurnAsync(input);
     return _runningTurn;
@@ -240,38 +236,24 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>
-  /// /model: shows the current session model with no argument, switches the session's
-  /// model with a valid choice (applies from the next turn, root and children alike),
-  /// and errors on anything else. Only z.ai sessions expose a selectable lineup — on
-  /// OpenRouter the model is chosen automatically, so the command is unavailable there.
+  /// Applies the user's model picker choice: pins the session's model (null returns it
+  /// to automatic choice — intelligent selection on OpenRouter, the provider default on
+  /// z.ai), updates the status bar, and announces the change. Applies from the next turn,
+  /// root and children alike; persisted per workspace by the shell.
   /// </summary>
-  private void HandleModelCommand(string input)
+  public void ApplyModelChoice(string? modelId)
   {
-    if (_modelPreferences is null || _selectableModels is null || _selectableModels.Count == 0)
+    if (_modelPreferences is null)
     {
-      Transcript.AddNotice("/model is unavailable in this session (this provider selects models automatically).");
+      Transcript.AddNotice("Model choice is unavailable in this session (no model preferences wired).");
       return;
     }
 
-    string argument = DesktopCommands.ModelArgument(input);
-    if (argument.Length == 0)
-    {
-      string current = _modelPreferences.ModelId ?? Status.ModelId;
-      Transcript.AddNotice(
-          $"Session model: {current}. Usage: /model <{string.Join("|", _selectableModels)}>.");
-      return;
-    }
-
-    if (!_selectableModels.Contains(argument, StringComparer.Ordinal))
-    {
-      Transcript.AddNotice(
-          $"Unknown model '{argument}'. Valid choices: {string.Join(", ", _selectableModels)}.");
-      return;
-    }
-
-    _modelPreferences.ModelId = argument;
-    Status.ModelId = argument;
-    Transcript.AddNotice($"Model set to {argument}; applies from the next turn.");
+    _modelPreferences.ModelId = modelId;
+    Status.ModelId = modelId ?? _sessionDefaultModelId;
+    Transcript.AddNotice(modelId is null
+        ? "Model set to automatic choice; applies from the next turn."
+        : $"Model set to {modelId}; applies from the next turn.");
   }
 
   /// <summary>Raised when the agent asks to close (e.g. /exit). The view closes the tab.</summary>

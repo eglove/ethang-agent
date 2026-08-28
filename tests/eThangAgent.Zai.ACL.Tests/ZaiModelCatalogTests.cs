@@ -18,10 +18,10 @@ public class ZaiModelCatalogTests
   }
 
   [Fact]
-  public async Task Catalog_IsTheSelectableLineup_ForTheModelCommand()
+  public async Task Catalog_IsTheSelectableLineup_ForTheModelPicker()
   {
-    // z.ai sessions run no automatic selection: the user picks one of these via
-    // /model, and glm-5.3-flash is the session default.
+    // z.ai sessions run no automatic selection: the user picks one of these in the
+    // host's model picker, and glm-5.3-flash is the session default.
     ZaiModelCatalog catalog = new();
 
     Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync();

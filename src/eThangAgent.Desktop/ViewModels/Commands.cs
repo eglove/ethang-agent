@@ -8,7 +8,6 @@ internal sealed record DesktopCommand(string Name, string Description);
 internal static class DesktopCommands
 {
   private const string Effort = "/effort";
-  private const string Model = "/model";
   private static readonly string[] QuitNames = ["/exit", "/quit"];
 
   public static IReadOnlyList<DesktopCommand> All { get; } =
@@ -16,7 +15,6 @@ internal static class DesktopCommands
       new("/effort", "Show or set reasoning effort (z.ai): /effort <level>"),
         new("/exit", "Exit the agent"),
         new("/help", "Show the command list"),
-        new("/model", "Show or set the session model (z.ai): /model <model>"),
         new("/quit", "Exit the agent (alias of /exit)"),
         new("/stop", "Interrupt the running turn and all sub-agents"),
     ];
@@ -27,13 +25,6 @@ internal static class DesktopCommands
 
   public static bool IsEffort(string input)
       => input == Effort || input.StartsWith(Effort + " ", StringComparison.Ordinal);
-
-  public static bool IsModel(string input)
-      => input == Model || input.StartsWith(Model + " ", StringComparison.Ordinal);
-
-  /// <summary>The argument after /model, or empty when the command was bare.</summary>
-  public static string ModelArgument(string input)
-      => input[Model.Length..].Trim();
 
   /// <summary>The argument after /effort, or empty when the command was bare.</summary>
   public static string EffortArgument(string input)

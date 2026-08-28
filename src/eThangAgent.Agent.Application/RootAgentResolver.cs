@@ -6,21 +6,19 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.Agent.Application;
 
 /// <summary>Resolves the root agent's model for an upcoming turn. The session's live
-///     /model choice (when set) serves every turn — a typed command is more recent user
-///     intent than any static wiring, so it outranks the configured pin. Next, an explicit
-///     configured model (the pin) serves every turn and no selection runs. Otherwise, the
-///     two-stage <see cref="IModelSelector"/> pipeline runs on the turn's prompt at the
-///     first turn and every <see cref="Recadence"/> user messages thereafter; on success
-///     the root <see cref="AgentRecord.ModelUsed"/> is updated. Selection failures fall
-///     back to the host-injected <paramref name="fallbackModelId"/> and are surfaced via
-///     the notice string so the user sees that selection failed. Mirrors
+///     model choice (the host's model picker, when set) serves every turn — a recent
+///     user choice outranks everything static. Otherwise, the two-stage
+///     <see cref="IModelSelector"/> pipeline runs on the turn's prompt at the first turn
+///     and every <see cref="Recadence"/> user messages thereafter; on success the root
+///     <see cref="AgentRecord.ModelUsed"/> is updated. Selection failures fall back to
+///     the host-injected <paramref name="fallbackModelId"/> and are surfaced via the
+///     notice string so the user sees that selection failed. Mirrors
 ///     <c>StartSpawnHandler.ResolveModelAsync</c> for the root path, which previously ran
 ///     once at startup with a canned prompt.</summary>
 public sealed class RootAgentResolver(
     IModelSelector? selector,
     IAgentStore? store,
     RootSessionIdentity? identity,
-    ModelConfig? explicitModel,
     string fallbackModelId,
     int maxTokens,
     float temperature,
@@ -33,25 +31,24 @@ public sealed class RootAgentResolver(
   private readonly IModelSelector? _selector = selector;
   private readonly IAgentStore? _store = store;
   private readonly RootSessionIdentity? _identity = identity;
-  private readonly ModelConfig? _explicitModel = explicitModel;
   private readonly string _fallbackModelId = fallbackModelId ?? throw new ArgumentNullException(nameof(fallbackModelId));
   private readonly int _maxTokens = maxTokens;
   private readonly float _temperature = temperature;
   private readonly SessionModelPreferences? _preferences = preferences;
 
-  /// <summary>True when the caller may skip selection entirely — an explicit model is pinned
-  ///     or no selector is wired. Exposed for diagnostics and tests.</summary>
-  public bool IsExplicit => _explicitModel is not null || _selector is null;
+  /// <summary>True when the caller may skip selection entirely — no selector is wired.
+  ///     Exposed for diagnostics and tests.</summary>
+  public bool IsExplicit => _selector is null;
 
   /// <summary>Resolves the model to serve the upcoming turn. Returns the <see cref="ModelConfig"/>
   ///     and a notice string to surface to the user (null when nothing notable happened — e.g.
-  ///     the explicit model is unchanged, or selection ran cleanly with no model change).</summary>
+  ///     the chosen model is unchanged, or selection ran cleanly with no model change).</summary>
   public async Task<(ModelConfig Config, string? Notice)> ResolveAsync(
       Conversation conversation, string prompt, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(conversation);
 
-    // 0. The user's live /model choice wins over everything static — pin, selection,
+    // 0. The user's live model choice wins over everything static — selection,
     //    cadence, and fallback. Runtime preferences (/effort) still apply: the choice
     //    fixes the model identity, not the knobs.
     if (_preferences?.ModelId is { } preferred)
@@ -61,29 +58,22 @@ public sealed class RootAgentResolver(
           preferredNotice is null ? null : $"Model selected: {preferredNotice}");
     }
 
-    // 1. Explicit pinned model always wins and never reclassifies. Runtime
-    //    preferences (/effort) still apply — the pin fixes the model, not the knobs.
-    if (_explicitModel is not null)
-    {
-      return (ApplyPreferences(_explicitModel), null);
-    }
-
-    // 2. No selector wired: use the fallback for every turn.
+    // 1. No selector wired: use the fallback for every turn.
     if (_selector is null)
     {
       return (Make(_fallbackModelId, null), null);
     }
 
-    // 3. Decide whether this turn is on the reclassification cadence.
+    // 2. Decide whether this turn is on the reclassification cadence.
     int priorUserMessages = CountUserMessages(conversation);
     if (!IsCadenceBoundary(priorUserMessages))
     {
-      // Off-cadence turns keep whatever the last selection produced. Before the first
-      // selection has run (no prior config), fall back rather than serve nothing.
+      // Off-cadence turns serve the fallback (OpenRouter's openrouter/auto routes
+      // server-side); reclassification only runs on the cadence boundaries below.
       return (Make(_fallbackModelId, null), null);
     }
 
-    // 4. Run selection on the actual prompt.
+    // 3. Run selection on the actual prompt.
     Result<ModelSelectionResult> selection = await _selector.SelectAsync(prompt, excludedKeys: null, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)
     {
@@ -94,7 +84,7 @@ public sealed class RootAgentResolver(
     string modelId = selection.Value!.ModelId;
     string? providerName = selection.Value!.ProviderName;
 
-    // 5. Persist the resolved model onto the root record (best effort — a store failure
+    // 4. Persist the resolved model onto the root record (best effort — a store failure
     //    must not stop the turn; it surfaces as a notice instead).
     string? persistNotice = await TryPersistModelAsync(modelId, ct).ConfigureAwait(false);
 
@@ -134,11 +124,6 @@ public sealed class RootAgentResolver(
         modelId, providerName, _maxTokens, _temperature, _preferences?.ReasoningEffort);
     return created.IsSuccess ? created.Value! : Make(_fallbackModelId, null);
   }
-
-  /// <summary>Overlays the session's runtime preferences (reasoning effort) onto a
-  ///     resolved config without touching its model identity.</summary>
-  private ModelConfig ApplyPreferences(ModelConfig config)
-      => _preferences?.ReasoningEffort is { } effort ? config with { Effort = effort } : config;
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)
   {
