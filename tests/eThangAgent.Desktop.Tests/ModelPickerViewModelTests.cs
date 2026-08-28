@@ -74,6 +74,38 @@ public class ModelPickerViewModelTests
   }
 
   [Fact]
+  public async Task LoadAsync_Negative_Pricing_Renders_PricingVaries()
+  {
+    // OpenRouter reports -1 per-token prices on routing pseudo-models such as
+    // openrouter/auto: the raw number must never render as a dollar figure.
+    ModelPickerViewModel vm = await LoadAsync(
+        [Entry("openrouter/auto", promptPrice: -1, completionPrice: -1, context: 2_000_000)],
+        allowAuto: false);
+
+    string detail = Assert.Single(vm.FilteredRows).Detail;
+    Assert.Contains("pricing varies", detail, StringComparison.Ordinal);
+    Assert.Contains("2M ctx", detail, StringComparison.Ordinal);
+    Assert.DoesNotContain("-", detail, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task LoadAsync_Negative_Priced_Endpoint_Never_Wins_The_Cheapest_Comparison()
+  {
+    // One routing endpoint (-1) alongside normally-priced endpoints for the same
+    // model: the row must be priced by the cheapest REAL endpoint, not the -1.
+    ModelPickerViewModel vm = await LoadAsync(
+    [
+        Entry("alpha/model", providerName: "Routing", promptPrice: -1, completionPrice: -1),
+            Entry("alpha/model", providerName: "Cheap", promptPrice: 0.000001m, completionPrice: 0.000002m),
+            Entry("alpha/model", providerName: "Expensive", promptPrice: 0.000009m, completionPrice: 0.000045m),
+    ], allowAuto: false);
+
+    string detail = Assert.Single(vm.FilteredRows).Detail;
+    Assert.Contains("$1 in / $2 out", detail, StringComparison.Ordinal);
+    Assert.DoesNotContain("pricing varies", detail, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task AutoRow_Pinned_First_When_Allowed_And_Absent_Otherwise()
   {
     ModelPickerViewModel withAuto = await LoadAsync([Entry("alpha/model")], allowAuto: true);

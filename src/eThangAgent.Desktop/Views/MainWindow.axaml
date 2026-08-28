@@ -7,23 +7,23 @@
         Closed="OnWindowClosed">
   <Grid ColumnDefinitions="Auto,*">
 
-    <!-- Left-hand side menu bar: 'Open Agent' plus the bottom-anchored settings entry. -->
+    <!-- Left-hand side menu bar: stacked entries at the top, settings anchored at the
+         bottom. No fill child: every button is docked explicitly. -->
     <Border Grid.Column="0" Background="#FF1B1B2F" Width="190">
-      <DockPanel>
+      <DockPanel LastChildFill="False">
         <TextBlock DockPanel.Dock="Top" Text="eThang Agent" FontWeight="Bold" FontSize="16"
                    Margin="12,14,12,10"/>
-        <Button x:Name="SettingsButton" DockPanel.Dock="Bottom" Content="⚙ Settings"
-                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
-                Command="{Binding OpenSettingsCommand}"/>
-        <Button x:Name="OpenAgentButton" Content="Open Agent"
+        <Button x:Name="OpenAgentButton" DockPanel.Dock="Top" Content="Open Agent"
                 HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
                 Command="{Binding OpenAgentCommand}"/>
-        <Button x:Name="ModelButton" Content="Model"
+        <Button x:Name="ModelButton" DockPanel.Dock="Top" Content="Model"
                 HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
                 Command="{Binding ChooseModelCommand}"
                 IsVisible="{Binding HasSelectedTab}"
                 ToolTip.Tip="Choose the model for the selected agent"/>
-        <!-- Future menu entries append below 'Model'. -->
+        <Button x:Name="SettingsButton" DockPanel.Dock="Bottom" Content="⚙ Settings"
+                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
+                Command="{Binding OpenSettingsCommand}"/>
       </DockPanel>
     </Border>
 

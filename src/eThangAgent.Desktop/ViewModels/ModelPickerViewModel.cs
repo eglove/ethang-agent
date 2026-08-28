@@ -161,20 +161,31 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   {
     return [.. entries
         .GroupBy(e => e.ModelId, StringComparer.Ordinal)
-        .Select(g => g.OrderBy(e => e.PromptPricePerToken)
-            .ThenBy(e => e.CompletionPricePerToken)
-            .First())
-        .OrderBy(e => e.ModelId, StringComparer.OrdinalIgnoreCase)
-        .Select(e => new ModelPickerRow(
-            e.ModelId,
-            e.ModelId,
-            FormatDetail(e)))];
+        .Select(g => new ModelPickerRow(g.Key, g.Key, FormatDetail(Representative(g))))
+        .OrderBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase)];
+  }
+
+  /// <summary>The endpoint a model's row is priced by: the cheapest normally-priced
+  ///     one. OpenRouter reports -1 per-token prices on routing pseudo-models
+  ///     (openrouter/auto) and the occasional endpoint — meaning "set at routing
+  ///     time" — so a negative price must never win the cheapest comparison.</summary>
+  private static ModelProviderEntry Representative(IEnumerable<ModelProviderEntry> endpoints)
+  {
+    List<ModelProviderEntry> priced = [.. endpoints
+        .Where(e => e.PromptPricePerToken >= 0 && e.CompletionPricePerToken >= 0)];
+    return priced.Count > 0
+        ? priced.OrderBy(e => e.PromptPricePerToken).ThenBy(e => e.CompletionPricePerToken).First()
+        : endpoints.First();
   }
 
   private static string FormatDetail(ModelProviderEntry entry)
-      => $"{FormatPrice(entry.PromptPricePerToken * 1_000_000m)} in / " +
-         $"{FormatPrice(entry.CompletionPricePerToken * 1_000_000m)} out per M tokens · " +
-         $"{FormatContext(entry.ContextLength)} ctx";
+  {
+    string pricing = entry.PromptPricePerToken < 0 || entry.CompletionPricePerToken < 0
+        ? "pricing varies"
+        : $"{FormatPrice(entry.PromptPricePerToken * 1_000_000m)} in / " +
+          $"{FormatPrice(entry.CompletionPricePerToken * 1_000_000m)} out per M tokens";
+    return $"{pricing} · {FormatContext(entry.ContextLength)} ctx";
+  }
 
   private static string FormatPrice(decimal perMillion)
       => perMillion.ToString("$0.##", CultureInfo.InvariantCulture);
