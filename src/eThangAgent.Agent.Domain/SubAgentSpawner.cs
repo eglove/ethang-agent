@@ -83,9 +83,7 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
       // distinct from this run's own timeout budget expiring.
       else
       {
-        failureReason = ct.IsCancellationRequested
-          ? AgentFailureReason.Interrupted
-          : timeoutCts.IsCancellationRequested ? AgentFailureReason.Timeout : AgentFailureReason.ProviderError;
+        failureReason = ClassifyRunFailure(ct, timeoutCts.Token);
       }
     }
     catch (OperationCanceledException)
@@ -152,6 +150,20 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
           $"failed to persist terminal state for agent '{terminal.Id}': " +
           $"[{update.Error!.Code}] {update.Error.Message}");
     }
+  }
+
+  /// <summary>Guard-style early returns: the caller's token firing is an explicit user
+  /// interrupt, this run's own timeout budget expiring is a timeout, anything else is a
+  /// provider failure.</summary>
+  private static AgentFailureReason ClassifyRunFailure(CancellationToken callerToken, CancellationToken runToken)
+  {
+    if (callerToken.IsCancellationRequested)
+    {
+      return AgentFailureReason.Interrupted;
+    }
+
+    bool runTimedOut = runToken.IsCancellationRequested;
+    return runTimedOut ? AgentFailureReason.Timeout : AgentFailureReason.ProviderError;
   }
 
   private static string FailureDetail(AgentFailureReason reason) => reason switch

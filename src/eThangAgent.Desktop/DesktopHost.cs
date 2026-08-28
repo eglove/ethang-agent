@@ -85,9 +85,18 @@ internal static class DesktopHost
       AgentSettings settings, IAppPreferenceStore preferences)
   {
     string? persisted = await preferences.GetAsync(Providers.PreferenceKey).ConfigureAwait(false);
-    return persisted == Providers.OpenRouter && settings.HasOpenRouter
-      ? Providers.OpenRouter
-      : persisted == Providers.Zai && settings.HasZai ? Providers.Zai : settings.HasOpenRouter ? Providers.OpenRouter : Providers.Zai;
+    if (persisted == Providers.OpenRouter && settings.HasOpenRouter)
+    {
+      return Providers.OpenRouter;
+    }
+
+    if (persisted == Providers.Zai && settings.HasZai)
+    {
+      return Providers.Zai;
+    }
+
+    bool preferOpenRouter = settings.HasOpenRouter;
+    return preferOpenRouter ? Providers.OpenRouter : Providers.Zai;
   }
 
   /// <summary>Defers shutdown while startup runs. Between framework initialization and

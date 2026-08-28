@@ -43,12 +43,19 @@ public sealed record ZaiTokenizerInput(string Model, string Text)
       return WrongType("text", "string", textEl.ValueKind);
     }
     string text = textEl.GetString()!;
-    return text.Length == 0
-      ? Fail(new DomainError("InvalidParameterValue", "'text' must be a non-empty string."))
-      : text.Length > TextLimit
-      ? Fail(new DomainError("InvalidParameterValue",
-          $"'text' exceeds {TextLimit} characters ({text.Length}); count a smaller piece."))
-      : Result.Success(new ZaiTokenizerInput(model, text));
+    if (text.Length == 0)
+    {
+      return Fail(new DomainError("InvalidParameterValue", "'text' must be a non-empty string."));
+    }
+
+    if (text.Length > TextLimit)
+    {
+      return Fail(new DomainError("InvalidParameterValue",
+          $"'text' exceeds {TextLimit} characters ({text.Length}); count a smaller piece."));
+    }
+
+    ZaiTokenizerInput input = new(model, text);
+    return Result.Success(input);
   }
 
   private static Result<ZaiTokenizerInput> Missing(string n) =>

@@ -141,9 +141,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
               ? new ToolResult($"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
               : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
           Conversation.AddToolResult(call.Id, toolResult.Content);
-          string summary = toolResult.IsError
-              ? (toolResult.Content.Length > 80 ? toolResult.Content[..77] + "…" : toolResult.Content)
-              : "ok";
+          string summary = SummarizeToolResult(toolResult);
           onToolResult?.Invoke(call.Name, summary);
         }
       }
@@ -153,6 +151,19 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       RepairInterruptedToolCalls();
       return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
     }
+  }
+
+  /// <summary>Guard-style early returns: a failed result truncates its content to the
+  /// first 77 characters plus an ellipsis; success summarizes as "ok".</summary>
+  private static string SummarizeToolResult(ToolResult toolResult)
+  {
+    if (!toolResult.IsError)
+    {
+      return "ok";
+    }
+
+    string content = toolResult.Content;
+    return content.Length > 80 ? content[..77] + "…" : content;
   }
 
   /// <summary>Drains every queued steering message into the conversation as User messages,

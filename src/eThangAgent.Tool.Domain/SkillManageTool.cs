@@ -165,9 +165,15 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
     }
 
     Result<bool> deleted = await _learned.DeleteAsync(input.Name, ct).ConfigureAwait(false);
-    return !deleted.IsSuccess
-      ? Err(deleted.Error!)
-      : !deleted.Value ? Err(NotFoundDeleteError(input.Name)) : new ToolResult($"[skill-manage] deleted '{input.Name}'", false);
+    if (!deleted.IsSuccess)
+    {
+      return Err(deleted.Error!);
+    }
+
+    bool notFound = !deleted.Value;
+    return notFound
+        ? Err(NotFoundDeleteError(input.Name))
+        : new ToolResult($"[skill-manage] deleted '{input.Name}'", false);
   }
 
   private static DomainError BuiltInImmutableError(string name) =>

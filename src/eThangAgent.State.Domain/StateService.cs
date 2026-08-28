@@ -107,15 +107,26 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     (string? ns, string? name) = parsedKey.Value;
     StateKeyValue? row = await _store.GetKeyAsync(_workspace.WorkspaceId, ns, name, ct).ConfigureAwait(false);
 
-    return row is null
-      ? expectedVersion.HasValue
-        ? Result.Failure<StateKeyValue>(new DomainError(VersionConflict,
-                    $"Version conflict for '{key}': it does not exist (expected version {expectedVersion.Value})."))
-              : await SetAsync(key, text, null, ct).ConfigureAwait(false)
-      : expectedVersion.HasValue && expectedVersion.Value != row.Version
-          ? Result.Failure<StateKeyValue>(new DomainError(VersionConflict,
-                $"Version conflict for '{key}': current version is {row.Version}."))
-          : await SetAsync(key, row.Value + "\n" + text, row.Version, ct).ConfigureAwait(false);
+    if (row is null)
+    {
+      if (expectedVersion.HasValue)
+      {
+        return Result.Failure<StateKeyValue>(new DomainError(VersionConflict,
+              $"Version conflict for '{key}': it does not exist (expected version {expectedVersion.Value})."));
+      }
+
+      Result<StateKeyValue> created = await SetAsync(key, text, null, ct).ConfigureAwait(false);
+      return created;
+    }
+
+    if (expectedVersion.HasValue && expectedVersion.Value != row.Version)
+    {
+      return Result.Failure<StateKeyValue>(new DomainError(VersionConflict,
+            $"Version conflict for '{key}': current version is {row.Version}."));
+    }
+
+    string appended = row.Value + "\n" + text;
+    return await SetAsync(key, appended, row.Version, ct).ConfigureAwait(false);
   }
 
   public async Task<Result<int>> DeletePrefixAsync(string nsPrefix, CancellationToken ct = default)
@@ -129,24 +140,39 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
 
   private async Task<Result<int>> ValidateAndDelete(string nsPrefix, CancellationToken ct)
   {
-    return nsPrefix == "todo" || nsPrefix.StartsWith("todo.", StringComparison.Ordinal)
-      ? Result.Failure<int>(new DomainError("ReservedNamespace",
-                "'todo' namespaces are owned by the todo tool and cannot be bulk-deleted."))
-      : nsPrefix == CurrentPrefix
-          ? Result.Failure<int>(new DomainError("ReservedNamespace",
-                $"'{CurrentPrefix}' namespaces carry head/certificate state and cannot be bulk-deleted."))
-          : Result.Success(await _store.DeleteNamespacePrefixAsync(_workspace.WorkspaceId, nsPrefix, ct).ConfigureAwait(false));
+    if (nsPrefix == "todo" || nsPrefix.StartsWith("todo.", StringComparison.Ordinal))
+    {
+      return Result.Failure<int>(new DomainError("ReservedNamespace",
+            "'todo' namespaces are owned by the todo tool and cannot be bulk-deleted."));
+    }
+
+    if (nsPrefix == CurrentPrefix)
+    {
+      return Result.Failure<int>(new DomainError("ReservedNamespace",
+            $"'{CurrentPrefix}' namespaces carry head/certificate state and cannot be bulk-deleted."));
+    }
+
+    int deleted = await _store.DeleteNamespacePrefixAsync(_workspace.WorkspaceId, nsPrefix, ct).ConfigureAwait(false);
+    return Result.Success(deleted);
   }
   public async Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(
         string query, int limit, CancellationToken ct = default)
   {
-    return string.IsNullOrWhiteSpace(query)
-      ? Result.Failure<IReadOnlyList<StateSearchHit>>(
-                new DomainError("InvalidQuery", "Query is required and must contain non-whitespace characters."))
-      : limit is < 1 or > 100
-          ? Result.Failure<IReadOnlyList<StateSearchHit>>(
-                new DomainError("InvalidLimit", $"Limit must be between 1 and 100, got {limit}."))
-          : await _store.SearchKeysAsync(_workspace.WorkspaceId, query.Trim(), limit, ct).ConfigureAwait(false);
+    if (string.IsNullOrWhiteSpace(query))
+    {
+      return Result.Failure<IReadOnlyList<StateSearchHit>>(
+            new DomainError("InvalidQuery", "Query is required and must contain non-whitespace characters."));
+    }
+
+    if (limit is < 1 or > 100)
+    {
+      return Result.Failure<IReadOnlyList<StateSearchHit>>(
+            new DomainError("InvalidLimit", $"Limit must be between 1 and 100, got {limit}."));
+    }
+
+    Result<IReadOnlyList<StateSearchHit>> hits =
+        await _store.SearchKeysAsync(_workspace.WorkspaceId, query.Trim(), limit, ct).ConfigureAwait(false);
+    return hits;
   }
   public async Task<Result<string>> TransitionAsync(string from, string toState, string summary,
         IReadOnlyList<string> evidence, CancellationToken ct = default)

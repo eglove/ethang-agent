@@ -158,16 +158,23 @@ public sealed class AgentCapabilityProvider(
       string[] unknown = [.. doc.RootElement.EnumerateObject()
           .Where(p => !allowed.Contains(p.Name))
           .Select(p => p.Name)];
-      return unknown.Length > 0
-        ? Result.Failure<AgentId>(new DomainError("InvalidActionInput",
-            $"unknown parameter(s): {string.Join(", ", unknown)}."))
-        : !doc.RootElement.TryGetProperty("id", out JsonElement el)
+      if (unknown.Length > 0)
+      {
+        return Result.Failure<AgentId>(new DomainError("InvalidActionInput",
+            $"unknown parameter(s): {string.Join(", ", unknown)}."));
+      }
+
+      if (!doc.RootElement.TryGetProperty("id", out JsonElement el)
           || el.ValueKind is not JsonValueKind.String
           || el.GetString() is not { } raw
-          || !Guid.TryParseExact(raw, "D", out Guid guid)
-        ? Result.Failure<AgentId>(new DomainError("InvalidArgument",
-            "'id' must be a GUID string."))
-        : Result.Success(new AgentId(guid));
+          || !Guid.TryParseExact(raw, "D", out Guid guid))
+      {
+        return Result.Failure<AgentId>(new DomainError("InvalidArgument",
+            "'id' must be a GUID string."));
+      }
+
+      AgentId agentId = new(guid);
+      return Result.Success(agentId);
     }
   }
 

@@ -8,12 +8,22 @@ public sealed record ModelConfig(
   public static Result<ModelConfig> Create(
       string modelId, string? provider, int maxTokens, float temperature, ReasoningEffort? effort = null)
   {
-    return string.IsNullOrWhiteSpace(modelId)
-      ? Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Model ID is required."))
-      : maxTokens < 1
-      ? Result.Failure<ModelConfig>(new DomainError("InvalidModel", "MaxTokens must be positive."))
-      : temperature is < 0f or > 2f
-      ? Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Temperature must be between 0 and 2."))
-      : Result.Success(new ModelConfig(modelId, provider, maxTokens, temperature, effort));
+    if (string.IsNullOrWhiteSpace(modelId))
+    {
+      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Model ID is required."));
+    }
+
+    if (maxTokens < 1)
+    {
+      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "MaxTokens must be positive."));
+    }
+
+    if (temperature is < 0f or > 2f)
+    {
+      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Temperature must be between 0 and 2."));
+    }
+
+    ModelConfig config = new(modelId, provider, maxTokens, temperature, effort);
+    return Result.Success(config);
   }
 }

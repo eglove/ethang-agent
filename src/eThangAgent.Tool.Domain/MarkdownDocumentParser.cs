@@ -257,10 +257,13 @@ public static class MarkdownDocumentParser
     }
 
     Result<IReadOnlyList<ListItem>> items = ParseListItems(itemsEl);
-    return items.IsSuccess
-        ? Result.Success<MarkdownBlock?>(new ListBlock(
-            type == "numberedList" ? ListKind.Numbered : ListKind.Unordered, items.Value!))
-        : FailMarkdownBlock(items.Error!);
+    if (!items.IsSuccess)
+    {
+      return FailMarkdownBlock(items.Error!);
+    }
+
+    ListKind kind = type == "numberedList" ? ListKind.Numbered : ListKind.Unordered;
+    return Result.Success<MarkdownBlock?>(new ListBlock(kind, items.Value!));
   }
 
   private static Result<IReadOnlyList<ListItem>> ParseListItems(JsonElement arr) =>
@@ -444,11 +447,18 @@ public static class MarkdownDocumentParser
 
   private static Result<string> RequireText(JsonElement b, string field)
   {
-    return !b.TryGetProperty(field, out JsonElement el)
-      ? Result.Failure<string>(new DomainError(ToolErrorCodes.MissingParameter, $"'{field}' is required."))
-      : el.ValueKind != JsonValueKind.String
-      ? Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType, $"'{field}' must be a string, but got {el.ValueKind}."))
-      : Result.Success(el.GetString()!);
+    if (!b.TryGetProperty(field, out JsonElement el))
+    {
+      return Result.Failure<string>(new DomainError(ToolErrorCodes.MissingParameter, $"'{field}' is required."));
+    }
+
+    if (el.ValueKind != JsonValueKind.String)
+    {
+      return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType, $"'{field}' must be a string, but got {el.ValueKind}."));
+    }
+
+    string text = el.GetString()!;
+    return Result.Success(text);
   }
 
   private static HashSet<string>? TypeFields(string type) => type switch

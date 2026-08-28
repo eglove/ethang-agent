@@ -146,7 +146,16 @@ public sealed class ScriptGlobals
   /// <summary>Returns the last <paramref name="chars"/> characters of text (or the
   ///     whole string when it is shorter). Convenience for bounded output of shell results:
   ///     Output(Tail(r.Stdout, 2000)) never throws on short output, unlike r.Stdout[^N..].</summary>
-  public static string Tail(string? text, int chars) => text is null || chars <= 0 ? "" : text.Length <= chars ? text : text[^chars..];
+  public static string Tail(string? text, int chars)
+  {
+    if (text is null || chars <= 0)
+    {
+      return "";
+    }
+
+    bool bounded = text.Length <= chars;
+    return bounded ? text : text[^chars..];
+  }
   /// <summary>Append a line to the script output. Does not terminate the script.
   /// Also capture any text written to Console.Out.</summary>
   public void Output(object? value)

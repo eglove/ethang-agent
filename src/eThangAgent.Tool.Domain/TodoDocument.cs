@@ -153,15 +153,28 @@ public static class TodoDocument
       }
     }
 
-    return !hasId
-      ? ItemFail(index, "is missing 'id'.")
-      : id <= 0
-      ? ItemFail(index, "'id' must be a positive integer.")
-      : description is null
-      ? ItemFail(index, "is missing 'description'.")
-      : description.Length == 0
-      ? ItemFail(index, "'description' must be a non-empty string.")
-      : Result.Success(new TodoItem(id, description, status));
+    if (!hasId)
+    {
+      return ItemFail(index, "is missing 'id'.");
+    }
+
+    if (id <= 0)
+    {
+      return ItemFail(index, "'id' must be a positive integer.");
+    }
+
+    if (description is null)
+    {
+      return ItemFail(index, "is missing 'description'.");
+    }
+
+    if (description.Length == 0)
+    {
+      return ItemFail(index, "'description' must be a non-empty string.");
+    }
+
+    TodoItem item = new(id, description, status);
+    return Result.Success(item);
   }
 
   private static Result<TodoItem> ItemFail(int index, string detail) =>

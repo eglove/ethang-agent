@@ -27,22 +27,35 @@ public static class ToolTimeout
   ///     object. Returns the budget or a typed error suitable for verbatim surfacing.</summary>
   public static Result<TimeSpan> Parse(JsonElement json)
   {
-    return !json.TryGetProperty(ParameterName, out JsonElement el)
-      ? Result.Failure<TimeSpan>(new DomainError("MissingParameter",
+    if (!json.TryGetProperty(ParameterName, out JsonElement el))
+    {
+      return Result.Failure<TimeSpan>(new DomainError("MissingParameter",
           "Missing required parameter '" + ParameterName +
-          "'. Every tool call must state its execution budget in seconds."))
-      : el.ValueKind != JsonValueKind.Number || !el.TryGetInt32(out int seconds)
-      ? Result.Failure<TimeSpan>(new DomainError("InvalidParameterType",
+          "'. Every tool call must state its execution budget in seconds."));
+    }
+
+    if (el.ValueKind != JsonValueKind.Number || !el.TryGetInt32(out int seconds))
+    {
+      return Result.Failure<TimeSpan>(new DomainError("InvalidParameterType",
           "'" + ParameterName + "' must be an integer number of seconds, but got " +
-          el.ValueKind + "."))
-      : seconds < 1
-      ? Result.Failure<TimeSpan>(new DomainError("InvalidParameterValue",
-          "'" + ParameterName + "' must be ≥ 1 second (got " + seconds + ")."))
-      : seconds > MaxSeconds
-      ? Result.Failure<TimeSpan>(new DomainError("InvalidParameterValue",
+          el.ValueKind + "."));
+    }
+
+    if (seconds < 1)
+    {
+      return Result.Failure<TimeSpan>(new DomainError("InvalidParameterValue",
+          "'" + ParameterName + "' must be ≥ 1 second (got " + seconds + ")."));
+    }
+
+    if (seconds > MaxSeconds)
+    {
+      return Result.Failure<TimeSpan>(new DomainError("InvalidParameterValue",
           "'" + ParameterName + "' must be ≤ " + MaxSeconds +
-          " seconds (got " + seconds + ")."))
-      : Result.Success(TimeSpan.FromSeconds(seconds));
+          " seconds (got " + seconds + ")."));
+    }
+
+    TimeSpan budget = TimeSpan.FromSeconds(seconds);
+    return Result.Success(budget);
   }
 
   /// <summary>Formats the standard error result for an exceeded budget. The message

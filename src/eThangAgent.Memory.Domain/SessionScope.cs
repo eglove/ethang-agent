@@ -22,13 +22,20 @@ public abstract record SessionScope
   /// </summary>
   public static Result<SessionScope> Parse(string? raw)
   {
-    return raw is null || string.Equals(raw, "global", StringComparison.OrdinalIgnoreCase)
-      ? Result.Success<SessionScope>(new AllSessionsScope())
-      : raw.StartsWith("session:", StringComparison.Ordinal) &&
-        Guid.TryParseExact(raw["session:".Length..], "D", out Guid id)
-      ? Result.Success<SessionScope>(new SingleSessionScope(new AgentId(id)))
-      : Result.Failure<SessionScope>(new DomainError(
-        "InvalidScope",
-        $"Unknown scope '{raw}'. Valid scopes: global | session:<agentId>."));
+    if (raw is null || string.Equals(raw, "global", StringComparison.OrdinalIgnoreCase))
+    {
+      return Result.Success<SessionScope>(new AllSessionsScope());
+    }
+
+    if (!raw.StartsWith("session:", StringComparison.Ordinal) ||
+        !Guid.TryParseExact(raw["session:".Length..], "D", out Guid id))
+    {
+      return Result.Failure<SessionScope>(new DomainError(
+          "InvalidScope",
+          $"Unknown scope '{raw}'. Valid scopes: global | session:<agentId>."));
+    }
+
+    SingleSessionScope scope = new(new AgentId(id));
+    return Result.Success<SessionScope>(scope);
   }
 }

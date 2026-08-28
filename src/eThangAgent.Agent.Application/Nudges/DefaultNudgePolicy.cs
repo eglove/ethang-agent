@@ -21,8 +21,10 @@ public sealed class DefaultNudgePolicy(Func<DateTimeOffset> clock) : INudgePolic
   public string? Evaluate(NudgeContext context)
   {
     ArgumentNullException.ThrowIfNull(context);
-    return context.TurnNumber % 5 != 0
-      ? null
-      : context.LastToolCalls < 3 ? null : context.MemoriesWrittenTotal != 0 ? null : ReminderLine;
+    return context.TurnNumber % 5 == 0
+        && context.LastToolCalls >= 3
+        && context.MemoriesWrittenTotal == 0
+        ? ReminderLine
+        : null;
   }
 }

@@ -39,21 +39,32 @@ public sealed record ZaiOcrInput(string Path, int? StartPage, int? EndPage)
 
     int? startPage = ParsePage(json, "startPage");
     int? endPage = ParsePage(json, "endPage");
-    return startPage is 0 || endPage is 0
-      ? Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          "'startPage' and 'endPage' must be integers ≥ 1 when present."))
-      : startPage is { } start && endPage is { } end && end < start
-      ? Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          $"'endPage' ({end}) must not be below 'startPage' ({start})."))
-      : Result.Success(new ZaiOcrInput(path, startPage, endPage));
+    if (startPage is 0 || endPage is 0)
+    {
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "'startPage' and 'endPage' must be integers ≥ 1 when present."));
+    }
+
+    if (startPage is { } start && endPage is { } end && end < start)
+    {
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'endPage' ({end}) must not be below 'startPage' ({start})."));
+    }
+
+    ZaiOcrInput input = new(path, startPage, endPage);
+    return Result.Success(input);
   }
 
   /// <summary>Parses an optional page bound; 0 signals a parse/range violation.</summary>
   private static int? ParsePage(JsonElement json, string name)
   {
-    return !json.TryGetProperty(name, out JsonElement el)
-      ? null
-      : el.ValueKind != JsonValueKind.Number || !el.TryGetInt32(out int page) || page < 1 ? 0 : page;
+    if (!json.TryGetProperty(name, out JsonElement el))
+    {
+      return null;
+    }
+
+    int? page = el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int value) ? value : null;
+    return page is >= 1 ? page : 0;
   }
 
   private static Result<ZaiOcrInput> Missing(string n) =>

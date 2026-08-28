@@ -235,9 +235,13 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
 
   private static Result<string?> OptionalString(JsonElement args, string key)
   {
-    return !args.TryGetProperty(key, out JsonElement element)
-      ? Result.Success<string?>(null)
-      : element.ValueKind is JsonValueKind.String
+    if (!args.TryGetProperty(key, out JsonElement element))
+    {
+      return Result.Success<string?>(null);
+    }
+
+    bool isString = element.ValueKind is JsonValueKind.String;
+    return isString
         ? Result.Success(element.GetString())
         : Result.Failure<string?>(new DomainError(InvalidArgument,
             $"argument '{key}' must be a string."));
@@ -245,10 +249,20 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
 
   private static Result<int> OptionalNumber(JsonElement args, string key, int fallback)
   {
-    return !args.TryGetProperty(key, out JsonElement element)
-      ? Result.Success(fallback)
-      : element.ValueKind is JsonValueKind.Number && element.TryGetInt32(out int value)
-        ? Result.Success(value)
+    if (!args.TryGetProperty(key, out JsonElement element))
+    {
+      return Result.Success(fallback);
+    }
+
+    if (element.ValueKind is not JsonValueKind.Number)
+    {
+      return Result.Failure<int>(new DomainError(InvalidArgument,
+          $"argument '{key}' must be a number."));
+    }
+
+    int? parsed = element.TryGetInt32(out int value) ? value : null;
+    return parsed is not null
+        ? Result.Success(parsed.Value)
         : Result.Failure<int>(new DomainError(InvalidArgument,
             $"argument '{key}' must be a number."));
   }

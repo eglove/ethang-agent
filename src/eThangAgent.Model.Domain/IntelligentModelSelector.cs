@@ -285,10 +285,19 @@ public sealed class IntelligentModelSelector : IModelSelector
 
   private static bool? GetNullableBool(JsonElement root, string parentKey, string name)
   {
-    return root.TryGetProperty(parentKey, out JsonElement parent) && parent.ValueKind == JsonValueKind.Object
-        && parent.TryGetProperty(name, out JsonElement el)
-      ? el.ValueKind == JsonValueKind.True ? true : el.ValueKind == JsonValueKind.False ? false : null
-      : null;
+    if (!root.TryGetProperty(parentKey, out JsonElement parent) || parent.ValueKind != JsonValueKind.Object
+        || !parent.TryGetProperty(name, out JsonElement el))
+    {
+      return null;
+    }
+
+    if (el.ValueKind == JsonValueKind.True)
+    {
+      return true;
+    }
+
+    bool isFalse = el.ValueKind == JsonValueKind.False;
+    return isFalse ? false : null;
   }
 
   private static double? GetNullableDouble(JsonElement root, string parentKey, string name)

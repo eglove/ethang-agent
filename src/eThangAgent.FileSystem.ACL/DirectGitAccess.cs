@@ -340,12 +340,18 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     }
 
     GitRun branchRes = await RunGitAsync(repoPath, [RevParse, "--abbrev-ref", "HEAD"], ct).ConfigureAwait(false);
-    return !branchRes.Ok
-      ? Result.Failure<GitCommitOutcome>(branchRes.Err)
-      : branchRes.ExitCode != 0
-      ? Result.Failure<GitCommitOutcome>(ToGitFailure(repoPath, branchRes.ExitCode, branchRes.StdErr))
-      : Result.Success(new GitCommitOutcome(
-        hashRes.StdOut.Trim(), branchRes.StdOut.Trim(), message));
+    if (!branchRes.Ok)
+    {
+      return Result.Failure<GitCommitOutcome>(branchRes.Err);
+    }
+
+    if (branchRes.ExitCode != 0)
+    {
+      return Result.Failure<GitCommitOutcome>(ToGitFailure(repoPath, branchRes.ExitCode, branchRes.StdErr));
+    }
+
+    GitCommitOutcome committed = new(hashRes.StdOut.Trim(), branchRes.StdOut.Trim(), message);
+    return Result.Success(committed);
   }
 
   /// <summary>Result of a single git CLI invocation. <see cref="Ok"/> is false only

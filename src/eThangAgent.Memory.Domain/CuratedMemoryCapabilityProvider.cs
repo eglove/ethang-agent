@@ -400,12 +400,19 @@ public sealed class CuratedMemoryCapabilityProvider(
     }
 
     Result<bool> deleted = await _store.DeleteAsync(id).ConfigureAwait(false);
-    return !deleted.IsSuccess
-      ? Fail(deleted.Error!)
-      : !deleted.Value
-      ? Fail(new DomainError(CuratedMemoryErrors.MemoryNotFound,
-          $"No curated memory with id '{id}'."))
-      : CapabilityInvocationResult.Ok($"[memories] removed {id}");
+    if (!deleted.IsSuccess)
+    {
+      return Fail(deleted.Error!);
+    }
+
+    if (!deleted.Value)
+    {
+      return Fail(new DomainError(CuratedMemoryErrors.MemoryNotFound,
+          $"No curated memory with id '{id}'."));
+    }
+
+    CapabilityInvocationResult removed = CapabilityInvocationResult.Ok($"[memories] removed {id}");
+    return removed;
   }
 
   // ---- shared validation ----
@@ -415,14 +422,18 @@ public sealed class CuratedMemoryCapabilityProvider(
   private static DomainError? ValidateContent(Dictionary<string, JsonElement> args)
   {
     string? content = OptString(args, Content);
-    return content is null || content.Trim().Length == 0
-      ? new DomainError("MissingContent",
-          "'content' is required and must be non-empty after trimming.")
-      : content.Trim().Length > CuratedMemorySpecifications.MaxContentChars
-      ? new DomainError("ContentTooLong",
-          $"Content exceeds the {CuratedMemorySpecifications.MaxContentChars}-character limit"
-          + $" (actual: {content.Trim().Length}).")
-      : null;
+    if (content is null || content.Trim().Length == 0)
+    {
+      return new DomainError("MissingContent",
+          "'content' is required and must be non-empty after trimming.");
+    }
+
+    string trimmed = content.Trim();
+    return trimmed.Length > CuratedMemorySpecifications.MaxContentChars
+        ? new DomainError("ContentTooLong",
+            $"Content exceeds the {CuratedMemorySpecifications.MaxContentChars}-character limit"
+            + $" (actual: {trimmed.Length}).")
+        : null;
   }
 
   /// <summary>Tag rules shared by add and update: array of strings, at most MaxTags

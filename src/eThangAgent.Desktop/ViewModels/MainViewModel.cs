@@ -175,10 +175,21 @@ internal sealed partial class MainViewModel : ObservableObject
         ? ProvidersFrom(settings)
         : availableProviders ?? [new(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter))];
     string preferred = preferredProviderId ?? (AvailableProviders.Count > 0 ? AvailableProviders[0].Id : Providers.OpenRouter);
-    PreferredProviderId = AvailableProviders.Any(p => p.Id == preferred)
-        ? preferred
-        : AvailableProviders.Count > 0 ? AvailableProviders[0].Id : Providers.OpenRouter;
+    PreferredProviderId = ResolvePreferredProviderId(preferred);
     Tabs.CollectionChanged += OnTabsChanged;
+  }
+
+  /// <summary>Guard-style early returns: the requested provider when it is among the
+  /// configured ones, else the first configured provider, else the OpenRouter default.</summary>
+  private string ResolvePreferredProviderId(string preferred)
+  {
+    if (AvailableProviders.Any(p => p.Id == preferred))
+    {
+      return preferred;
+    }
+
+    bool hasProvider = AvailableProviders.Count > 0;
+    return hasProvider ? AvailableProviders[0].Id : Providers.OpenRouter;
   }
 
   // Command availability depends on both; requery on every change.

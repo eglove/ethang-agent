@@ -277,21 +277,26 @@ public sealed class SqliteCuratedMemoryStore(AppDatabase database) : ICuratedMem
     }
 
     Result<MemoryScope> scopeResult = CuratedMemorySpecifications.ParseScope(reader.GetString(6));
-    return !scopeResult.IsSuccess
-      ? throw new InvalidOperationException(
-          $"Stored curated memory '{reader.GetString(0)}' has an unreadable scope.", null)
-      : new CuratedMemory(
-        Guid.Parse(reader.GetString(0)),
-        reader.GetString(1),
-        categoryResult.Value,
-        JsonSerializer.Deserialize<List<string>>(reader.GetString(3)) ?? [],
-        reader.GetString(4),
-        reader.IsDBNull(5) ? null : reader.GetString(5),
-        scopeResult.Value,
-        reader.IsDBNull(7) ? null : reader.GetString(7),
-        reader.GetInt32(8),
-        DateTimeOffset.Parse(reader.GetString(9), CultureInfo.InvariantCulture),
-        DateTimeOffset.Parse(reader.GetString(10), CultureInfo.InvariantCulture));
+    if (!scopeResult.IsSuccess)
+    {
+      throw new InvalidOperationException(
+          $"Stored curated memory '{reader.GetString(0)}' has an unreadable scope.", null);
+    }
+
+    string? usageHint = reader.IsDBNull(5) ? null : reader.GetString(5);
+    string? provenanceSession = reader.IsDBNull(7) ? null : reader.GetString(7);
+    return new CuratedMemory(
+      Guid.Parse(reader.GetString(0)),
+      reader.GetString(1),
+      categoryResult.Value,
+      JsonSerializer.Deserialize<List<string>>(reader.GetString(3)) ?? [],
+      reader.GetString(4),
+      usageHint,
+      scopeResult.Value,
+      provenanceSession,
+      reader.GetInt32(8),
+      DateTimeOffset.Parse(reader.GetString(9), CultureInfo.InvariantCulture),
+      DateTimeOffset.Parse(reader.GetString(10), CultureInfo.InvariantCulture));
   }
 
   private static void Add(SqliteCommand command, string name, object value)
