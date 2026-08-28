@@ -241,6 +241,7 @@ public class AgentSessionViewModelTests
     vm.ApplyEffortChoice(ReasoningEffort.ExtraHigh);
 
     Assert.Equal(ReasoningEffort.ExtraHigh, preferences.ReasoningEffort);
+    Assert.Equal("Extra High", vm.Status.Effort);
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
     Assert.Contains("Extra High", notice.Text, StringComparison.Ordinal);
     Assert.Contains("next turn", notice.Text, StringComparison.Ordinal);
@@ -256,9 +257,12 @@ public class AgentSessionViewModelTests
         "OpenRouter", "test/model", workspaceRoot: @"C:\work\demo",
         modelPreferences: preferences);
 
+    Assert.Equal("High", vm.Status.Effort); // the seeded preference drives the initial status
+
     vm.ApplyEffortChoice(null);
 
     Assert.Null(preferences.ReasoningEffort);
+    Assert.Equal("Model default", vm.Status.Effort);
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
     Assert.Contains("model default", notice.Text, StringComparison.Ordinal);
   }

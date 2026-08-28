@@ -523,6 +523,7 @@ public class ShellViewModelTests
 
     AgentTabViewModel tab = vm.SelectedTab!;
     Assert.Equal(ReasoningEffort.ExtraHigh, tab.Container.Preferences!.ReasoningEffort);
+    Assert.Equal("Extra High", tab.ViewModel.Status.Effort);
     // The restore is silent — no notice before any turn has run.
     Assert.DoesNotContain(tab.ViewModel.Transcript.Entries, e => e is NoticeEntry);
   }

@@ -98,8 +98,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       ApplyStreamEvent(evt);
       return Task.CompletedTask;
     });
-    Status = new StatusViewModel(provider, modelId);
     _modelPreferences = modelPreferences;
+    Status = new StatusViewModel(provider, modelId, EffortLevels.DisplayName(modelPreferences?.ReasoningEffort));
     _sessionDefaultModelId = modelId;
     _inbox = inbox;
     _childRuntime = childRuntime;
@@ -172,8 +172,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
   /// <summary>
   /// Applies the user's effort-picker choice: sets the session's reasoning effort
-  /// (null returns it to the provider default). Applies from the next turn, root and
-  /// children alike; persisted per workspace by the shell.
+  /// (null returns it to the provider default) and updates the status bar. Applies
+  /// from the next turn, root and children alike; persisted per workspace by the shell.
   /// </summary>
   public void ApplyEffortChoice(ReasoningEffort? effort)
   {
@@ -184,6 +184,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
 
     _modelPreferences.ReasoningEffort = effort;
+    Status.Effort = EffortLevels.DisplayName(effort);
     Transcript.AddNotice(effort is null
         ? "Reasoning effort set to the model default; applies from the next turn."
         : $"Reasoning effort set to {EffortLevels.DisplayName(effort.Value)}; applies from the next turn.");

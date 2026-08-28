@@ -436,7 +436,12 @@ internal sealed partial class MainViewModel : ObservableObject
           sessionVm.Status.ModelId = restoredChoice;
         }
 
-        preferences.ReasoningEffort = await ReadEffortChoiceAsync(providerName, full);
+        ReasoningEffort? restoredEffort = await ReadEffortChoiceAsync(providerName, full);
+        if (restoredEffort is { } effort)
+        {
+          preferences.ReasoningEffort = effort;
+          sessionVm.Status.Effort = EffortLevels.DisplayName(effort);
+        }
       }
 
       AttachClarifyChannel(sessionVm, session.ClarifyChannel);

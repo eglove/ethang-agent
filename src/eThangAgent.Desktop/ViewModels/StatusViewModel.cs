@@ -12,12 +12,12 @@ internal enum TurnPhase
 }
 
 /// <summary>
-///     Status bar state: the session's provider, the model id, and an animated spinner
-///     whose frame advances via <see cref="Tick"/> while a turn is in flight. Phase may
-///     be set from any thread (agent callbacks run off-UI); property-changed
-///     notifications marshal onto the UI thread so bindings stay safe.
+///     Status bar state: the session's provider, the model id, the reasoning effort,
+///     and an animated spinner whose frame advances via <see cref="Tick"/> while a turn
+///     is in flight. Phase may be set from any thread (agent callbacks run off-UI);
+///     property-changed notifications marshal onto the UI thread so bindings stay safe.
 /// </summary>
-internal sealed class StatusViewModel(string provider, string modelId) : INotifyPropertyChanged
+internal sealed class StatusViewModel(string provider, string modelId, string effort) : INotifyPropertyChanged
 {
   // Identical glyph set to the terminal spinner (Program.SpinnerFrames).
   private static readonly string[] Frames =
@@ -45,6 +45,24 @@ internal sealed class StatusViewModel(string provider, string modelId) : INotify
       Raise(nameof(ModelId));
     }
   } = modelId;
+
+  /// <summary>The session's current reasoning effort as a display string — "Model default"
+  ///     when no level is set. Updated by the effort picker and the shell's restore-on-open
+  ///     (callers own the display-name vocabulary, <see cref="EffortLevels"/>).</summary>
+  public string Effort
+  {
+    get;
+    set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(Effort));
+    }
+  } = effort;
 
   public TurnPhase Phase
   {
