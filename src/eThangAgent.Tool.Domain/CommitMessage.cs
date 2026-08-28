@@ -163,16 +163,8 @@ public sealed record CommitMessage(string Rendered, string Subject)
     }
 
     // Rendering — deterministic subject + optional blank-line/body, one trailing \n.
-    string subject = parsedStyle switch
-    {
-      CommitStyle.Conventional => string.IsNullOrEmpty(scope)
-          ? $"{type}: {trimmedDescription}"
-          : $"{type}({scope}): {trimmedDescription}",
-      CommitStyle.Gitmoji => $"{gitmoji!.Emoji} {trimmedDescription}",
-      CommitStyle.None => trimmedDescription,
-      // Unnamed enum values cannot occur; render plainly rather than throw.
-      _ => trimmedDescription,
-    };
+    // Rule 1 has already narrowed parsedStyle to the three named values.
+    string subject = RenderSubject(parsedStyle.Value, type, scope, gitmoji, trimmedDescription);
 
     // Trailing newline(s) on the body are trimmed at render time so the message
     // ends with exactly one \n regardless of how the caller formatted the body;
@@ -212,6 +204,27 @@ public sealed record CommitMessage(string Rendered, string Subject)
   /// <summary>Equivalent to <c>^[a-z0-9-]+$</c> without a regex dependency.</summary>
   private static bool IsValidScope(string scope) =>
       scope.All(c => c is '-' or (>= 'a' and <= 'z') or (>= '0' and <= '9'));
+
+  /// <summary>Guard-style early returns: the switch shapes (expression or statement) are
+  /// each rejected by one of CS8524 / IDE0072 / IDE0066 / IDE0010 / S2583, and if/else
+  /// assignment is rejected by IDE0045.</summary>
+  private static string RenderSubject(CommitStyle style, string? type, string? scope,
+      Gitmoji? gitmoji, string description)
+  {
+    if (style == CommitStyle.Gitmoji)
+    {
+      return $"{gitmoji!.Emoji} {description}";
+    }
+
+    if (style == CommitStyle.Conventional)
+    {
+      return string.IsNullOrEmpty(scope)
+          ? $"{type}: {description}"
+          : $"{type}({scope}): {description}";
+    }
+
+    return description; // CommitStyle.None
+  }
 
   private static Result<CommitMessage> Failure(string code, string message) =>
       Result.Failure<CommitMessage>(new DomainError(code, message));

@@ -77,14 +77,16 @@ jobs:
           # NOTE: SonarSource C# properties end in 'reporTSPaths' (plural) - the
           # previously used 'cs.cobertura.reportPaths' (singular) was silently
           # ignored, yielding green analyses with 0% coverage every run.
-          ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"eglove_ethang-agent" /o:"eglove" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.cs.vscoveragexml.reportsPaths="${{ github.workspace }}/coverage-vs/merged.coveragexml"
+          # SONAR_TOKEN reaches the scanner through the step env above; expanding
+          # the secret into the command line would put it in process argv.
+          ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"eglove_ethang-agent" /o:"eglove" /d:sonar.cs.vscoveragexml.reportsPaths="${{ github.workspace }}/coverage-vs/merged.coveragexml"
           dotnet build eThangAgent.slnx -c Release --nologo
           $buildExit = $LASTEXITCODE
           # Circuit breaker: a hung test produces a named dump instead of freezing
           # the runner until the next push cancels it (runs 32923889217, 32918551633).
           dotnet-coverage collect "dotnet test eThangAgent.slnx -c Release --no-build --nologo --blame-hang-timeout 5m --blame-hang-dump-type mini" -f xml -o "${{ github.workspace }}\coverage-vs\merged.coveragexml"
           $testExit = $LASTEXITCODE
-          ${{ runner.temp }}\scanner\dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+          ${{ runner.temp }}\scanner\dotnet-sonarscanner end
           $endExit = $LASTEXITCODE
           if ($buildExit -ne 0) { exit $buildExit }
           if ($testExit -ne 0) { exit $testExit }

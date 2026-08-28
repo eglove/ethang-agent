@@ -74,7 +74,7 @@ public class MarkdownDocumentParserTests
     Assert.True(parsed.IsSuccess, parsed.Error?.Message);
     IReadOnlyDictionary<string, object> fm = parsed.Value!.FrontMatter!;
     Assert.Equal(80.0, (double)fm["weight"]);
-    Assert.Equal(true, fm["ok"]);
+    Assert.True((bool)fm["ok"]);
     Assert.Equal("T", fm["title"]);
   }
 

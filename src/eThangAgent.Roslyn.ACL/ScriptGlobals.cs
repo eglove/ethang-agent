@@ -83,8 +83,12 @@ public sealed class ScriptGlobals
       using Process p = Process.Start(psi)!;
       // Drain both pipes concurrently: sequential ReadToEnd calls deadlock when the
       // child fills the pipe that is not being read (chatty stderr under quiet stdout).
-      Task<string> stdoutTask = p.StandardOutput.ReadToEndAsync();
-      Task<string> stderrTask = p.StandardError.ReadToEndAsync();
+      // Named decision (S8949): the reads take CancellationToken.None — cancellation is
+      // enforced by the kill registration below (killing closes the pipes, completing
+      // the drains); a cancelled mid-read would fault the unconditional drain the
+      // cancellation path relies on.
+      Task<string> stdoutTask = p.StandardOutput.ReadToEndAsync(CancellationToken.None);
+      Task<string> stderrTask = p.StandardError.ReadToEndAsync(CancellationToken.None);
       // Kill the whole tree when the exec budget elapses or the turn is stopped:
       // a synchronous Shell cannot observe the token any other way. Killing closes
       // the pipes, which completes the drain tasks.
@@ -115,7 +119,9 @@ public sealed class ScriptGlobals
       // a stopped turn must never surface as a successful shell result.
       if (_ct.IsCancellationRequested)
       {
-        Task.WaitAll([stdoutTask, stderrTask]);
+        // Named decision (S8949): this wait must complete unconditionally — the token
+        // has already fired, and a token-aware WaitAll would throw without draining.
+        Task.WaitAll([stdoutTask, stderrTask], CancellationToken.None);
         p.WaitForExit(); // flushes output handlers before the tree dies fully
         throw new OperationCanceledException(_ct);
       }

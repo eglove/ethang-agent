@@ -91,8 +91,10 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry, E
       Task<ScriptState<object>> scheduled;
       using (ExecutionContext.SuppressFlow())
       {
+        // The linked token on Task.Run itself: a cancellation that fires before the
+        // delegate starts yields a Canceled task instead of executing the script.
         scheduled = Task.Run(() => script.RunAsync(globals,
-            err => err is OperationCanceledException, cts.Token));
+            err => err is OperationCanceledException, cts.Token), cts.Token);
       }
       // The ACL is context-free by contract: its resumptions must never depend
       // on the caller's pump, so shed the captured context here as well.

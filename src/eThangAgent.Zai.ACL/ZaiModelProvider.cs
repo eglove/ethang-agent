@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -29,10 +30,10 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
   public async Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)
   {
     int attempts = _config.Retry.MaxAttempts;
-    for (int attempt = 1; ; attempt++)
+    for (int attempt = 1; attempt <= attempts; attempt++)
     {
       AttemptOutcome outcome = await SendOnceAsync(config, request, ct).ConfigureAwait(false);
-      if (!outcome.Retryable || ct.IsCancellationRequested || attempt >= attempts)
+      if (!outcome.Retryable || ct.IsCancellationRequested || attempt == attempts)
       {
         return outcome.Result;
       }
@@ -42,6 +43,9 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
         return outcome.Result; // cancelled while waiting — surface the last failure
       }
     }
+
+    // Dead code: RetryPolicy validates MaxAttempts >= 1, so the loop always runs.
+    throw new UnreachableException();
   }
 
   /// <summary>Sleeps the policy-computed backoff before the next retry. Returns false when
@@ -96,7 +100,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       CancellationToken ct = default)
   {
     int attempts = _config.Retry.MaxAttempts;
-    for (int attempt = 1; ; attempt++)
+    for (int attempt = 1; attempt <= attempts; attempt++)
     {
       bool emitted = false;
       Action<string>? contentSink = onContentDelta is null ? null : t =>
@@ -113,7 +117,7 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       AttemptOutcome outcome = await SendStreamingOnceAsync(config, request, contentSink, reasoningSink, ct).ConfigureAwait(false);
       // Once a delta has reached a callback it cannot be replayed without duplicating
       // output — mid-stream failures surface to the caller as errors, not retries.
-      if (!outcome.Retryable || emitted || ct.IsCancellationRequested || attempt >= attempts)
+      if (!outcome.Retryable || emitted || ct.IsCancellationRequested || attempt == attempts)
       {
         return outcome.Result;
       }
@@ -123,6 +127,9 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
         return outcome.Result;
       }
     }
+
+    // Dead code: RetryPolicy validates MaxAttempts >= 1, so the loop always runs.
+    throw new UnreachableException();
   }
 
   private async Task<AttemptOutcome> SendStreamingOnceAsync(ModelConfig config, ModelRequest request,

@@ -19,6 +19,10 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
 {
   private static readonly string[] NewLines = ["\r\n", "\n"];
 
+  // Resolved once: spawning git through an absolute path keeps the executable
+  // from being shadowed by a manipulated PATH (S4036).
+  private static readonly Lazy<string> GitExePath = new(ResolveGitExecutable);
+
   public async Task<Result<GitStatus>> GetStatusAsync(string repoPath, CancellationToken ct = default)
   {
     // Probe repo-ness explicitly so a plain directory reports NotAGitRepository
@@ -284,10 +288,21 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     // --cleanup=verbatim keeps the message byte-for-byte; git's default
     // 'whitespace' cleanup silently collapses blank lines and would make the
     // committed message differ from what we report.
-    string tmp = Path.GetTempFileName();
+    string tmp = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
     try
     {
-      await File.WriteAllTextAsync(tmp, message, new UTF8Encoding(false), ct).ConfigureAwait(false);
+      // CreateNew claims the unpredictable name before anything is written,
+      // closing the pre-creation window GetTempFileName left open (S5445).
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using (StreamWriter writer = new(
+          new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.Read),
+          new UTF8Encoding(false)))
+      {
+        await writer.WriteAsync(message.AsMemory(), ct).ConfigureAwait(false);
+      }
+#pragma warning restore CA2007
+
       GitRun commitRes = await RunGitAsync(repoPath, ["commit", "--cleanup=verbatim", "-F", tmp], ct).ConfigureAwait(false);
       if (!commitRes.Ok)
       {
@@ -342,7 +357,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
 
   private static async Task<GitRun> RunGitAsync(string repoPath, string[] args, CancellationToken ct)
   {
-    ProcessStartInfo psi = new("git")
+    ProcessStartInfo psi = new(GitExePath.Value)
     {
       WorkingDirectory = repoPath,
       RedirectStandardOutput = true,
@@ -377,6 +392,50 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     catch (Exception ex)
     {
       return GitRun.Fail(new DomainError("FileSystemError", ex.Message));
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+  }
+
+  private static string ResolveGitExecutable()
+  {
+    // Probe the standard per-machine and per-user Git install layouts before
+    // falling back to PATH, without hard-coding a single install location.
+    string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+    string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    string[] candidates =
+    [
+      Path.Combine(programFiles, "Git", "cmd", "git.exe"),
+      Path.Combine(localAppData, "Programs", "Git", "cmd", "git.exe"),
+    ];
+
+    string? resolved = candidates.FirstOrDefault(File.Exists);
+    if (resolved is not null)
+    {
+      return resolved;
+    }
+
+    // System32\where.exe is always present, so the PATH probe itself goes
+    // through an absolute path too. On any failure the bare name keeps the
+    // spawn failure surfacing through the existing typed GitRun.Fail path.
+    try
+    {
+      using Process where = Process.Start(new ProcessStartInfo(
+          Path.Combine(Environment.SystemDirectory, "where.exe"), "git")
+      {
+        UseShellExecute = false,
+        RedirectStandardOutput = true,
+        CreateNoWindow = true
+      })!;
+      string? line = where.StandardOutput.ReadLine();
+      where.WaitForExit();
+      string candidate = line?.Trim() ?? "";
+      return candidate.Length > 0 && File.Exists(candidate) ? candidate : "git";
+    }
+    // Named decision (CA1031): path probing is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+    {
+      return "git";
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }

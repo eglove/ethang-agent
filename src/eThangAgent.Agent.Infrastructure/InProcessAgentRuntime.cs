@@ -79,13 +79,16 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     try
     {
       AgentRunOutcome outcome = await _runner.RunAsync(record, cts.Token).ConfigureAwait(false);
+      // Named decision (S8949): CancellationToken.None — Interrupt() cancels cts while
+      // the run is settling; the terminal-outcome write must not itself be cancellable,
+      // or the record would stay 'running' with no retrievable outcome.
       _ = await _store.UpdateAsync(record with
       {
         Status = outcome.Status,
         FailureReason = outcome.Reason,
         CompletedAt = DateTimeOffset.UtcNow,
         FinalReport = outcome.Report,
-      }).ConfigureAwait(false);
+      }, CancellationToken.None).ConfigureAwait(false);
     }
     // Named decision (CA1031): the runtime is an actor boundary - ANY runner fault must
     // become a well-formed Failed outcome for agent.result retrieval, never a crash.
@@ -94,13 +97,15 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     {
       // Runner faults are terminal child outcomes, not crashes: persist them so the parent
       // can retrieve a well-formed failure via agent.result.
+      // Named decision (S8949): CancellationToken.None — same contract as the success
+      // path above; the failure record must land even if cts was cancelled.
       _ = await _store.UpdateAsync(record with
       {
         Status = AgentStatus.Failed,
         FailureReason = AgentFailureReason.ProviderError,
         CompletedAt = DateTimeOffset.UtcNow,
         FinalReport = "Error [ProviderError]: " + ex.Message,
-      }).ConfigureAwait(false);
+      }, CancellationToken.None).ConfigureAwait(false);
     }
     finally
     {
