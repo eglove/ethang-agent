@@ -90,6 +90,32 @@ public class ToolContractAdvertisementTests
     Assert.DoesNotContain("body", tool.Definition.RequiredParameters);
   }
 
+  [Fact]
+  public void GitCommit_Files_IsAdvertisedAsAnOptionalArrayOfStrings()
+  {
+    GitCommitTool tool = new(new UnrootedPathResolver(), new StubCommitAccess());
+    ToolParameter p = Param(tool, "files");
+    Assert.Equal(ToolParameterType.TextArray, p.Type);
+    Assert.DoesNotContain("files", tool.Definition.RequiredParameters);
+  }
+
+  [Fact]
+  public void GitCommit_Files_Description_StatesTheStagingContract()
+  {
+    ToolParameter p = Param(new GitCommitTool(new UnrootedPathResolver(), new StubCommitAccess()), "files");
+    Assert.Contains("JSON array of workspace-relative paths", p.Description, StringComparison.Ordinal);
+    Assert.Contains("non-empty relative paths", p.Description, StringComparison.Ordinal);
+    Assert.Contains("'..'", p.Description, StringComparison.Ordinal);
+    Assert.Contains("Omit to commit the index as-is", p.Description, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void GitCommit_Description_StatesBothModes()
+  {
+    string d = new GitCommitTool(new UnrootedPathResolver(), new StubCommitAccess()).Definition.Description;
+    Assert.Contains("never stages", d, StringComparison.Ordinal);
+    Assert.Contains("stages exactly those", d, StringComparison.Ordinal);
+  }
   // ── search_files ─────────────────────────────────────────────────────────
 
   [Fact]
@@ -186,6 +212,9 @@ internal sealed class StubClarifyChannel : IClarifyChannel
 
 internal sealed class StubCommitAccess : IGitCommitAccess
 {
+  public Task<Result<bool>> StageAsync(string repoPath, IReadOnlyList<string> paths, CancellationToken ct = default) =>
+      Task.FromResult(Result.Failure<bool>(new DomainError("Unused", "not exercised")));
+
   public Task<Result<GitCommitOutcome>> CommitAsync(string repoPath, string message, CancellationToken ct = default) =>
       Task.FromResult(Result.Failure<GitCommitOutcome>(new DomainError("Unused", "not exercised")));
 }

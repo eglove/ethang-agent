@@ -100,6 +100,71 @@ public sealed class DirectGitAccessTests : IDisposable
   }
 
   [Fact]
+  public async Task StageAsync_NamedFiles_AreStagedAndCommitExactlyThose()
+  {
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "one.txt"), "1", TestContext.Current.CancellationToken);
+    _ = Directory.CreateDirectory(Path.Combine(_repoDir, "sub"));
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "sub", "two.txt"), "2", TestContext.Current.CancellationToken);
+    DirectGitAccess access = new();
+
+    Result<bool> staged = await access.StageAsync(_repoDir, ["one.txt", "sub/two.txt"], ct: TestContext.Current.CancellationToken);
+    Assert.True(staged.IsSuccess);
+
+    Result<GitCommitOutcome> committed = await access.CommitAsync(_repoDir, "feat: two files", ct: TestContext.Current.CancellationToken);
+    Assert.True(committed.IsSuccess);
+
+    Result<GitStatus> status = await access.GetStatusAsync(_repoDir, ct: TestContext.Current.CancellationToken);
+    Assert.True(status.IsSuccess);
+    Assert.Empty(status.Value.Staged);
+    Assert.Empty(status.Value.Unstaged);
+    Assert.Empty(status.Value.Untracked);
+  }
+
+  [Fact]
+  public async Task StageAsync_LeavesOtherModifiedFilesUnstaged()
+  {
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "a.txt"), "a", TestContext.Current.CancellationToken);
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "b.txt"), "b", TestContext.Current.CancellationToken);
+    DirectGitAccess access = new();
+
+    Result<bool> staged = await access.StageAsync(_repoDir, ["a.txt"], ct: TestContext.Current.CancellationToken);
+    Assert.True(staged.IsSuccess);
+
+    Result<GitStatus> status = await access.GetStatusAsync(_repoDir, ct: TestContext.Current.CancellationToken);
+    Assert.True(status.IsSuccess);
+    _ = Assert.Single(status.Value.Staged, e => e.Path == "a.txt");
+    _ = Assert.Single(status.Value.Untracked, p => p == "b.txt");
+  }
+
+  [Fact]
+  public async Task StageAsync_NonexistentPath_SurfacesGitError()
+  {
+    DirectGitAccess access = new();
+
+    Result<bool> staged = await access.StageAsync(_repoDir, ["ghost.txt"], ct: TestContext.Current.CancellationToken);
+
+    Assert.False(staged.IsSuccess);
+    Assert.Equal("GitError", staged.Error.Code);
+  }
+
+  [Fact]
+  public async Task StageAsync_OutsideRepo_SurfacesNotAGitRepository()
+  {
+    string plain = Path.Combine(Path.GetTempPath(), "ethang-not-a-repo-" + Guid.NewGuid().ToString("N"));
+    _ = Directory.CreateDirectory(plain);
+    try
+    {
+      DirectGitAccess access = new();
+      Result<bool> staged = await access.StageAsync(plain, ["x.txt"], ct: TestContext.Current.CancellationToken);
+      Assert.False(staged.IsSuccess);
+      Assert.Equal("NotAGitRepository", staged.Error.Code);
+    }
+    finally
+    {
+      Directory.Delete(plain, true);
+    }
+  }
+  [Fact]
   public async Task GetDiffAsync_CleanRepo_ReturnsEmptyDiff()
   {
     DirectGitAccess access = new();

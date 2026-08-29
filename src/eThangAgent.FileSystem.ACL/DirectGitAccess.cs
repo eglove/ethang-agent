@@ -288,6 +288,23 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     return new GitDiff(stats, patch, truncated, totalChars);
   }
 
+  /// <summary>Stages exactly the given paths via 'git add --' with each path
+  ///     is one argv token after '--', so no option or flag injection is possible.
+  ///     Repo-ness is probed first so a plain directory reports NotAGitRepository.
+  ///     A pathspec matching nothing exits nonzero and surfaces as GitError.</summary>
+  public async Task<Result<bool>> StageAsync(string repoPath, IReadOnlyList<string> paths, CancellationToken ct = default)
+  {
+    Result<GitRun> probe = await RunGitVerifiedAsync(repoPath, [RevParse, "--git-dir"], ct).ConfigureAwait(false);
+    if (!probe.IsSuccess)
+    {
+      return Result.Failure<bool>(probe.Error);
+    }
+
+    string[] args = ["add", "--", .. paths];
+    Result<GitRun> run = await RunGitVerifiedAsync(repoPath, args, ct).ConfigureAwait(false);
+    return run.IsSuccess ? Result.Success(true) : Result.Failure<bool>(run.Error);
+  }
+
   public async Task<Result<GitCommitOutcome>> CommitAsync(string repoPath, string message, CancellationToken ct = default)
   {
     // Outside a repository 'git diff --cached' exits 129 with usage text, so

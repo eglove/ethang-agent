@@ -157,6 +157,37 @@ public static class ToolArguments
       : Result.Success<bool?>(value.Value);
   }
 
+  /// <summary>Reads an optional JSON array-of-strings parameter: null when absent,
+  ///     a typed error when present but not an array of strings. Entries pass
+  ///     through verbatim — emptiness and content are caller value rules.</summary>
+  public static Result<IReadOnlyList<string>?> OptionalStringArray(JsonElement json, string name)
+  {
+    if (!json.TryGetProperty(name, out JsonElement el))
+    {
+      return Result.Success<IReadOnlyList<string>?>(null);
+    }
+
+    if (el.ValueKind != JsonValueKind.Array)
+    {
+      return Result.Failure<IReadOnlyList<string>?>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'{name}' must be an array of strings, but got {el.ValueKind}."));
+    }
+
+    List<string> items = [];
+    foreach (JsonElement item in el.EnumerateArray())
+    {
+      if (item.ValueKind != JsonValueKind.String)
+      {
+        return Result.Failure<IReadOnlyList<string>?>(new DomainError(ToolErrorCodes.InvalidParameterType,
+            $"'{name}' must contain only strings, but got {item.ValueKind}."));
+      }
+
+      items.Add(item.GetString()!);
+    }
+
+    return Result.Success<IReadOnlyList<string>?>(items);
+  }
+
   /// <summary>Parses an enum-typed string by exact ordinal match against
   ///     <paramref name="allowedNames"/> — no case folding, no numeric fallback.</summary>
   public static Result<T> ParseEnum<T>(string name, string text, IReadOnlyList<string> allowedNames)

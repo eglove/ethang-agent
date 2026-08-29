@@ -11,7 +11,7 @@ namespace eThangAgent.ToolDomain;
 /// </summary>
 public sealed record GitCommitInput(
     string Style, string? Type, string? Scope, string? EmojiKey,
-    string Description, string? Body)
+    string Description, string? Body, CommitFilePaths? Files)
 {
   private const string StyleName = "style";
   private const string TypeName = "type";
@@ -21,8 +21,10 @@ public sealed record GitCommitInput(
   private const string BodyName = "body";
   private const string RequirementText = "This tool requires style and description.";
 
+  private const string FilesName = "files";
   private static readonly string[] AllowedNames =
-      [StyleName, TypeName, ScopeName, EmojiKeyName, DescriptionName, BodyName, ToolTimeout.ParameterName];
+    [StyleName, TypeName, ScopeName, EmojiKeyName, DescriptionName, BodyName,
+        FilesName, ToolTimeout.ParameterName];
 
   public static Result<GitCommitInput> Create(string jsonArguments)
   {
@@ -70,12 +72,31 @@ public sealed record GitCommitInput(
     }
 
     Result<string?> body = ToolArguments.OptionalString(json, BodyName);
+
+    Result<IReadOnlyList<string>?> files = ToolArguments.OptionalStringArray(json, FilesName);
+    if (!files.IsSuccess)
+    {
+      return Fail(files.Error);
+    }
+
+    CommitFilePaths? paths = null;
+    if (files.Value is not null)
+    {
+      Result<CommitFilePaths> created = CommitFilePaths.Create(files.Value);
+      if (!created.IsSuccess)
+      {
+        return Fail(created.Error);
+      }
+
+      paths = created.Value;
+    }
     if (!body.IsSuccess)
     {
       return Fail(body.Error);
     }
 
-    GitCommitInput input = new(style.Value, type.Value, scope.Value, emojiKey.Value, description.Value, body.Value);
+    GitCommitInput input = new(style.Value, type.Value, scope.Value, emojiKey.Value,
+        description.Value, body.Value, paths);
     return Result.Success(input);
   }
 

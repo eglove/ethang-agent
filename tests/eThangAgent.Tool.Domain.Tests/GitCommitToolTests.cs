@@ -168,7 +168,48 @@ public class GitCommitToolTests
     Assert.Contains("author", result.Content, StringComparison.Ordinal);
   }
 
-  // ---- Backend errors surface verbatim with hints ----
+  // ---- files staging sequence ----
+
+  [Fact]
+  public async Task FilesProvided_StagesExactPathsBeforeCommitting()
+  {
+    GitCommitTool tool = Make(OkFor("x\n"), out FakeGitCommitAccess? fake);
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_commit",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"style":"None","description":"x","files":["a.cs","b/b.txt"]}"""), ct: TestContext.Current.CancellationToken);
+    Assert.False(result.IsError);
+    Assert.Equal(["stage", "commit"], fake.CallLog);
+    Assert.Equal(["a.cs", "b/b.txt"], fake.StagedPaths);
+  }
+
+  [Fact]
+  public async Task FilesAbsent_NeverStages()
+  {
+    GitCommitTool tool = Make(OkFor("x\n"), out FakeGitCommitAccess? fake);
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_commit",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"style":"None","description":"x"}"""), ct: TestContext.Current.CancellationToken);
+    Assert.False(result.IsError);
+    Assert.Equal(["commit"], fake.CallLog);
+  }
+
+  [Fact]
+  public async Task StageFailure_AbortsBeforeCommitAndSurfacesError()
+  {
+    FakeGitCommitAccess fake = new(
+        Result.Failure<GitCommitOutcome>(new DomainError("Seed", "never reached")))
+    {
+      StageOutcome = Result.Failure<bool>(new DomainError("PathspecFailed",
+          "fatal: pathspec 'nope.cs' did not match any files")),
+    };
+    GitCommitTool tool = new(new WorkspacePathResolver(Root), fake);
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_commit",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"style":"None","description":"x","files":["nope.cs"]}"""), ct: TestContext.Current.CancellationToken);
+    Assert.True(result.IsError);
+    Assert.Equal(["stage"], fake.CallLog);
+    Assert.Contains("Error [PathspecFailed]:", result.Content, StringComparison.Ordinal);
+  }  // ---- Backend errors surface verbatim with hints ----
 
   [Fact]
   public async Task NothingStaged_SurfacesBackendHint()
@@ -186,11 +227,23 @@ public class GitCommitToolTests
 
   private sealed class FakeGitCommitAccess(Result<GitCommitOutcome> outcome) : IGitCommitAccess
   {
+    public List<string> CallLog { get; } = [];
+    public List<string> StagedPaths { get; } = [];
     public string RepoPath { get; private set; } = "";
     public string Message { get; private set; } = "";
+    public Result<bool> StageOutcome { get; init; } = Result.Success(true);
+
+    public Task<Result<bool>> StageAsync(string repoPath, IReadOnlyList<string> paths, CancellationToken ct = default)
+    {
+      CallLog.Add("stage");
+      StagedPaths.AddRange(paths);
+      RepoPath = repoPath;
+      return Task.FromResult(StageOutcome);
+    }
 
     public Task<Result<GitCommitOutcome>> CommitAsync(string repoPath, string message, CancellationToken ct = default)
     {
+      CallLog.Add("commit");
       RepoPath = repoPath;
       Message = message;
       return Task.FromResult(outcome);

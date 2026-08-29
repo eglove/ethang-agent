@@ -10,7 +10,9 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
   public ToolDefinition Definition { get; } = new(
       "git_commit",
       "Commit the CURRENT INDEX of the repository at the workspace root with a fully " +
-      "validated message. Never stages anything — stage first, then call this. timeoutSeconds and style are " +
+      "validated message. Without 'files' this never stages — stage first, then call this. With the optional " +
+      "'files' array the tool stages exactly those workspace-relative paths, then commits the index (never " +
+      "anything else). timeoutSeconds and style are " +
       "mandatory: style is exactly 'Conventional', 'Gitmoji', or 'None' (case-sensitive); description is the " +
       "single-line subject (at most 72 characters after trimming). Conventional requires " +
       "type from the fixed set and an optional lowercase scope; Gitmoji requires emoji_key " +
@@ -33,6 +35,8 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
                 "Single-line subject, at most 72 characters after trimming."),
             new ToolParameter("body", ToolParameterType.Text,
                 "Optional body paragraph, appended after a blank line."),
+            new ToolParameter("files", ToolParameterType.TextArray,
+                "Optional JSON array of workspace-relative paths: the tool stages exactly these paths immediately before committing, and nothing else. Rules: entries must be non-empty relative paths (no drive, no leading slash, no '..' segment, no whole-tree '.'). Omit to commit the index as-is."),
       ],
       ["timeoutSeconds", "style", "description"]);
 
@@ -66,11 +70,21 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
     return !budget.IsSuccess
       ? Task.FromResult(Err(budget.Error))
       : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
-        CommitAsync(root.Value, message.Value.Rendered, token), ct);
+        CommitAsync(root.Value, message.Value.Rendered, v.Files?.Paths, token), ct);
   }
 
-  private async Task<ToolResult> CommitAsync(string repoRoot, string message, CancellationToken ct)
+  private async Task<ToolResult> CommitAsync(string repoRoot, string message,
+      IReadOnlyList<string>? files, CancellationToken ct)
   {
+    if (files is not null)
+    {
+      Result<bool> staged = await _commits.StageAsync(repoRoot, files, ct).ConfigureAwait(false);
+      if (!staged.IsSuccess)
+      {
+        return Err(staged.Error);
+      }
+    }
+
     Result<GitCommitOutcome> committed = await _commits.CommitAsync(repoRoot, message, ct).ConfigureAwait(false);
     if (!committed.IsSuccess)
     {
