@@ -9,9 +9,10 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : 
 
   public ToolDefinition Definition { get; } = new(
       "write",
-      "Create or replace a text file. timeoutSeconds, path, content, and overwrite are all mandatory; " +
+      "Create or replace a text file. timeoutSeconds, path, and content are mandatory; " +
       "the call fails if the file exists unless overwrite is exactly true — it will never " +
-      "silently replace anything. Parent directories are never created automatically; create " +
+      "silently replace anything. Omitting overwrite keeps the call create-only. Parent " +
+      "directories are never created automatically; create " +
       "them first if needed. Paths resolve inside the workspace; escapes are rejected. Content " +
       "is written verbatim as UTF-8 without BOM (an empty string writes an empty file). Output " +
       "is a single annotation line in [brackets]: `[write <path>] created|overwritten, N bytes` — " +
@@ -23,7 +24,7 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : 
             new ToolParameter("content", ToolParameterType.Text,
                 "Exact file content. May be empty."),
             new ToolParameter("overwrite", ToolParameterType.Flag,
-                "true to replace an existing file, false to refuse."),
+                "Optional. Defaults to refusing replacement of an existing file; true replaces it."),
       ]);
 
   public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)

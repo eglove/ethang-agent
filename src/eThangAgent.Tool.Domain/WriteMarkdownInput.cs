@@ -5,7 +5,7 @@ namespace eThangAgent.ToolDomain;
 
 /// <summary>Strictly validated input for <see cref="WriteMarkdownTool"/>. 'document' is
 /// always required and parsed through <see cref="MarkdownDocumentParser"/>; 'path' and
-/// 'overwrite' stand or fall together - a file target demands the explicit overwrite gate,
+/// 'overwrite' stand or fall together - a file target honors the overwrite gate,
 /// and the gate is meaningless (therefore rejected) without a target.</summary>
 public sealed record WriteMarkdownInput(
     MarkdownDocument Document,
@@ -60,10 +60,10 @@ public sealed record WriteMarkdownInput(
         return Fail(new DomainError("InvalidParameterValue", "'path' must be a non-empty string."));
       }
 
+      // Omitted 'overwrite' defaults to refusing replacement (create-only), matching write.
       if (!json.TryGetProperty("overwrite", out JsonElement owEl))
       {
-        return Fail(new DomainError("MissingParameter",
-            "'overwrite' is required when 'path' is present (true replaces an existing file, false refuses)."));
+        return Result.Success<WriteMarkdownInput>(new(parsedDoc.Value, path, Overwrite: false));
       }
 
       if (owEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))

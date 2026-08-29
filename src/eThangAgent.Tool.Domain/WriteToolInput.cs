@@ -56,9 +56,12 @@ public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
     // Content may be empty — an explicitly empty file is a legitimate write.
     string content = contentEl.GetString()!;
 
+    // Omitted 'overwrite' defaults to refusing replacement: the call stays a create-only
+    // write and an existing file fails with FileExists. Replacement still requires the
+    // explicit opt-in, so nothing is ever silently replaced.
     if (!json.TryGetProperty(OverwriteName, out JsonElement owEl))
     {
-      return Missing(OverwriteName);
+      return Result.Success<WriteToolInput>(new(path, content, Overwrite: false));
     }
 
     if (owEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
@@ -73,7 +76,7 @@ public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
 
   private static Result<WriteToolInput> Missing(string n) =>
       Result.Failure<WriteToolInput>(new DomainError("MissingParameter",
-          $"Missing required parameter '{n}'. This tool requires path, content, and overwrite."));
+          $"Missing required parameter '{n}'. This tool requires path and content; 'overwrite' is optional and defaults to refusing replacement of an existing file."));
 
   private static Result<WriteToolInput> WrongType(string n, string e, JsonValueKind a) =>
       Result.Failure<WriteToolInput>(new DomainError("InvalidParameterType",

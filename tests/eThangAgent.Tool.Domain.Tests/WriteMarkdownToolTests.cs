@@ -48,12 +48,12 @@ public class WriteMarkdownToolTests
   }
 
   [Fact]
-  public async Task PathWithoutOverwrite_Rejected()
+  public async Task PathWithoutOverwrite_DefaultsToRefuse()
   {
-    ToolResult result = await MakeTool().ExecuteAsync(new RawToolInput("write_markdown",
+    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 42))).ExecuteAsync(new RawToolInput("write_markdown",
             """{"timeoutSeconds":120,"path":"a.md","document":""" + DocJson + "}"), ct: TestContext.Current.CancellationToken);
-    Assert.True(result.IsError);
-    Assert.Contains("overwrite", result.Content, StringComparison.Ordinal);
+    Assert.False(result.IsError);
+    Assert.Equal($"[write_markdown {Resolved}] created, 42 bytes", result.Content);
   }
 
   [Fact]
@@ -144,7 +144,7 @@ public class WriteMarkdownToolTests
     WriteMarkdownTool tool = new(new UnrootedPathResolver(), new FakeFileWriteAccess(null));
     Assert.Contains("verbatim", tool.Definition.Description, StringComparison.Ordinal);
     Assert.Contains("Optional", Param(tool, "path").Description, StringComparison.Ordinal);
-    Assert.Contains("required when 'path' is present", Param(tool, "overwrite").Description, StringComparison.Ordinal);
+    Assert.Contains("Defaults to refusing", Param(tool, "overwrite").Description, StringComparison.Ordinal);
   }
 
   private static ToolParameter Param(WriteMarkdownTool tool, string name) =>

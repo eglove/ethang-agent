@@ -33,13 +33,28 @@ public class WriteToolTests
   }
 
   [Fact]
-  public async Task MissingOverwrite_ReturnsError()
+  public async Task OmittedOverwrite_DefaultsToRefuse()
   {
-    ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
+    FakeFileWriteAccess fake = new(Result.Success<FileWriteOutcome>(new(true, 42)));
+    ToolResult result = await new WriteTool(new WorkspacePathResolver(Root), fake)
+        .ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"path":"a.txt","content":"x"}"""), ct: TestContext.Current.CancellationToken);
+    Assert.False(result.IsError);
+    Assert.Equal($"[write {Resolved}] created, 42 bytes", result.Content);
+    Assert.False(fake.LastOverwrite);
+  }
+
+  [Fact]
+  public async Task OmittedOverwrite_ExistingFile_SurfacesFileExists()
+  {
+    ToolResult result = await MakeTool(Result.Failure<FileWriteOutcome>(
+                new DomainError("FileExists", "File already exists: a.txt")))
+            .ExecuteAsync(new RawToolInput("write",
+                                     /*lang=json,strict*/
+                                     """{"timeoutSeconds":120,"path":"a.txt","content":"x"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
-    Assert.Contains("overwrite", result.Content, StringComparison.Ordinal);
+    Assert.Contains("Error [FileExists]", result.Content, StringComparison.Ordinal);
   }
 
   // ---- Wrong types ----
@@ -144,8 +159,13 @@ public class WriteToolTests
         string path, byte[] bytes, bool overwrite, CancellationToken ct = default)
         => throw new NotImplementedException();
 
+    public bool LastOverwrite { get; private set; }
+
     public Task<Result<FileWriteOutcome>> WriteFileAsync(
         string path, string content, bool overwrite, CancellationToken ct = default)
-        => Task.FromResult(outcome);
+    {
+      LastOverwrite = overwrite;
+      return Task.FromResult(outcome);
+    }
   }
 }

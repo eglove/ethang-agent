@@ -16,8 +16,8 @@ public sealed class WriteMarkdownTool(IPathResolver resolver, IFileWriteAccess f
       "table {headers:[string | {text, align? left|center|right}], rows:[[string]] - row length must equal header count}, space {count? >=1}. " +
       "A block array entry may be null (skipped). Frontmatter values are string/number/boolean only, single-line. " +
       "Without 'path', the rendered markdown is returned verbatim as the result (usable for db/state entries). With optional 'path', the " +
-      "markdown is written to that workspace file through the same gate as write: 'overwrite' becomes required when 'path' is present and " +
-      "the call fails on an existing file unless overwrite is exactly true; parent directories are never created. Output in write mode is a " +
+      "markdown is written to that workspace file through the same gate as write: an existing file " +
+      "is refused unless overwrite is exactly true (omitting overwrite keeps the call create-only); parent directories are never created. Output in write mode is a " +
       "single annotation line `[write_markdown <path>] created|overwritten, N bytes`. Errors begin with `Error [Code]:`.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
@@ -26,7 +26,7 @@ public sealed class WriteMarkdownTool(IPathResolver resolver, IFileWriteAccess f
             new ToolParameter("path", ToolParameterType.Text,
                 "Optional. File target, workspace-relative or absolute-inside-workspace. Omit to receive the rendered markdown as the result."),
             new ToolParameter("overwrite", ToolParameterType.Flag,
-                "Optional but required when 'path' is present: true to replace an existing file, false to refuse."),
+                "Optional. Defaults to refusing replacement of an existing file; true replaces it."),
       ],
       ["timeoutSeconds", "document"]);
 
