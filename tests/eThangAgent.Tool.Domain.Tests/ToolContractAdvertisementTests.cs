@@ -73,17 +73,32 @@ public class ToolContractAdvertisementTests
 
   // ── git_commit ───────────────────────────────────────────────────────────
 
+  private static GitCommitTool NewTool() =>
+      new(new UnrootedPathResolver(), new StubCommitAccess(), new FixedStyleProvider(CommitStyle.None));
+
   [Fact]
-  public void GitCommit_StyleAndDescription_AreRequired()
+  public void GitCommit_OnlyTimeoutAndDescription_AreRequired() =>
+      Assert.Equal(["timeoutSeconds", "description"], NewTool().Definition.RequiredParameters);
+
+  [Fact]
+  public void GitCommit_Style_IsNotAModelFacingParameter() =>
+      // The style is a host setting resolved at execution time — it must not be
+      // advertised to the model; stale callers naming it are rejected as unknown
+      // input by the parser (pinned in GitCommitToolStyleResolutionTests).
+      Assert.DoesNotContain(NewTool().Definition.Parameters, p => p.Name == "style");
+
+  [Fact]
+  public void GitCommit_Description_StatesStyleComesFromHostSetting()
   {
-    GitCommitTool tool = new(new UnrootedPathResolver(), new StubCommitAccess());
-    Assert.Equal(["timeoutSeconds", "style", "description"], tool.Definition.RequiredParameters);
+    string d = NewTool().Definition.Description;
+    Assert.Contains("style", d, StringComparison.Ordinal);
+    Assert.Contains("host", d, StringComparison.Ordinal);
   }
 
   [Fact]
   public void GitCommit_OptionalsAreNotRequired()
   {
-    GitCommitTool tool = new(new UnrootedPathResolver(), new StubCommitAccess());
+    GitCommitTool tool = NewTool();
     Assert.DoesNotContain("type", tool.Definition.RequiredParameters);
     Assert.DoesNotContain("scope", tool.Definition.RequiredParameters);
     Assert.DoesNotContain("emoji_key", tool.Definition.RequiredParameters);
@@ -93,7 +108,7 @@ public class ToolContractAdvertisementTests
   [Fact]
   public void GitCommit_Files_IsAdvertisedAsAnOptionalArrayOfStrings()
   {
-    GitCommitTool tool = new(new UnrootedPathResolver(), new StubCommitAccess());
+    GitCommitTool tool = NewTool();
     ToolParameter p = Param(tool, "files");
     Assert.Equal(ToolParameterType.TextArray, p.Type);
     Assert.DoesNotContain("files", tool.Definition.RequiredParameters);
@@ -102,7 +117,7 @@ public class ToolContractAdvertisementTests
   [Fact]
   public void GitCommit_Files_Description_StatesTheStagingContract()
   {
-    ToolParameter p = Param(new GitCommitTool(new UnrootedPathResolver(), new StubCommitAccess()), "files");
+    ToolParameter p = Param(NewTool(), "files");
     Assert.Contains("JSON array of workspace-relative paths", p.Description, StringComparison.Ordinal);
     Assert.Contains("non-empty relative paths", p.Description, StringComparison.Ordinal);
     Assert.Contains("'..'", p.Description, StringComparison.Ordinal);
@@ -112,7 +127,7 @@ public class ToolContractAdvertisementTests
   [Fact]
   public void GitCommit_Description_StatesBothModes()
   {
-    string d = new GitCommitTool(new UnrootedPathResolver(), new StubCommitAccess()).Definition.Description;
+    string d = NewTool().Definition.Description;
     Assert.Contains("never stages", d, StringComparison.Ordinal);
     Assert.Contains("stages exactly those", d, StringComparison.Ordinal);
   }

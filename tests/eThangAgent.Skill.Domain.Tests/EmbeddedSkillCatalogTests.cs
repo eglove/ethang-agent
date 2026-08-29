@@ -9,7 +9,8 @@ public class EmbeddedSkillCatalogTests
 
   private static readonly string[] ExpectedNames =
   [
-      "brainstorming", "dispatching-parallel-agents", "ethang-tools-mapping",
+      "brainstorming", "commit-style-conventional", "commit-style-gitmoji",
+        "commit-style-none", "dispatching-parallel-agents", "ethang-tools-mapping",
         "executing-plans", "finishing-a-development-branch", "receiving-code-review",
         "requesting-code-review", "subagent-driven-development",
         "systematic-debugging", "test-driven-development", "using-git-worktrees",
@@ -18,7 +19,7 @@ public class EmbeddedSkillCatalogTests
     ];
 
   [Fact]
-  public async Task Lists_AllFifteenSkills_WithMetadata()
+  public async Task Lists_AllEighteenSkills_WithMetadata()
   {
     Result<IReadOnlyList<SkillDefinition>> r = await _catalog.ListAsync(TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);

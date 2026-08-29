@@ -4,26 +4,28 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.ToolDomain;
 
 /// <summary>
-///     Shape-only parsing for git_commit. Style and description are required keys;
-///     type, scope, emoji_key, and body are optional. All semantic rules (style
-///     legality, type sets, emoji lookup, length limits) belong to
+///     Shape-only parsing for git_commit. Description is the only required key;
+///     type, scope, emoji_key, and body are optional. The commit style is NOT
+///     model input — the tool resolves it from the host's
+///     <see cref="ICommitStyleProvider"/> at execution time, so a stale caller
+///     naming 'style' is rejected here as unknown input. All semantic rules
+///     (style legality, type sets, emoji lookup, length limits) belong to
 ///     <see cref="CommitMessage.Create"/> — their error codes surface verbatim.
 /// </summary>
 public sealed record GitCommitInput(
-    string Style, string? Type, string? Scope, string? EmojiKey,
+    string? Type, string? Scope, string? EmojiKey,
     string Description, string? Body, CommitFilePaths? Files)
 {
-  private const string StyleName = "style";
   private const string TypeName = "type";
   private const string ScopeName = "scope";
   private const string EmojiKeyName = "emoji_key";
   private const string DescriptionName = "description";
   private const string BodyName = "body";
-  private const string RequirementText = "This tool requires style and description.";
+  private const string RequirementText = "This tool requires description.";
 
   private const string FilesName = "files";
   private static readonly string[] AllowedNames =
-    [StyleName, TypeName, ScopeName, EmojiKeyName, DescriptionName, BodyName,
+    [TypeName, ScopeName, EmojiKeyName, DescriptionName, BodyName,
         FilesName, ToolTimeout.ParameterName];
 
   public static Result<GitCommitInput> Create(string jsonArguments)
@@ -39,12 +41,6 @@ public sealed record GitCommitInput(
     if (unknown is not null)
     {
       return Fail(unknown);
-    }
-
-    Result<string> style = ToolArguments.RequireString(json, StyleName, RequirementText);
-    if (!style.IsSuccess)
-    {
-      return Fail(style.Error);
     }
 
     Result<string?> type = ToolArguments.OptionalString(json, TypeName);
@@ -95,7 +91,7 @@ public sealed record GitCommitInput(
       return Fail(body.Error);
     }
 
-    GitCommitInput input = new(style.Value, type.Value, scope.Value, emojiKey.Value,
+    GitCommitInput input = new(type.Value, scope.Value, emojiKey.Value,
         description.Value, body.Value, paths);
     return Result.Success(input);
   }

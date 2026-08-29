@@ -403,7 +403,7 @@ TESTS: <one line>
 CONCERNS: <none, or one line each>
 
 Rules:
-- Commit your work with the git_commit tool; never raw shell commits.
+- Commit your work with the git_commit tool following the session's active commit-style guidance (bootstrap section); never raw shell commits.
 - Tests run via dotnet CLI. Every change leaves the suite green.
 - NEVER spawn subagents — not helpers, not reviewers. Review arrives from the
   controller after your report.

@@ -30,23 +30,18 @@ public sealed record CommitMessage(string Rendered, string Subject)
     ];
 
   /// <summary>
-  ///     Validates the parts and renders the commit message. Each violation is its
-  ///     own error, checked in rule order: style → style-specific parameter rules →
-  ///     description → scope. Body never fails validation.
+  ///     Validates the parts and renders the commit message. The style arrives
+  ///     already resolved (a host setting; see <c>CommitStylePreference</c> for how
+  ///     a stored value becomes the enum). Each violation is its own error,
+  ///     checked in rule order: style-specific parameter rules → description →
+  ///     scope. Body never fails validation.
   /// </summary>
   public static Result<CommitMessage> Create(
-      string style, string? type, string? scope, string? emojiKey,
+      CommitStyle style, string? type, string? scope, string? emojiKey,
       string description, string? body)
   {
-    // Rule 1 — style must be exactly one of the three names (ordinal).
-    Result<CommitStyle> parsedStyle = ParseStyle(style);
-    if (!parsedStyle.IsSuccess)
-    {
-      return Result.Failure<CommitMessage>(parsedStyle.Error);
-    }
-
     // Rules 2-4 — per-style parameter rules (Gitmoji resolves its emoji here).
-    DomainError? styleRules = ValidateStyleRules(parsedStyle.Value, type, scope, emojiKey, out Gitmoji? gitmoji);
+    DomainError? styleRules = ValidateStyleRules(style, type, scope, emojiKey, out Gitmoji? gitmoji);
     if (styleRules is not null)
     {
       return Result.Failure<CommitMessage>(styleRules);
@@ -61,15 +56,15 @@ public sealed record CommitMessage(string Rendered, string Subject)
     }
 
     // Rule 6 — scope (Conventional only): ^[a-z0-9-]+$; stored as given.
-    DomainError? scopeRule = ValidateScopeRule(parsedStyle.Value, scope);
+    DomainError? scopeRule = ValidateScopeRule(style, scope);
     if (scopeRule is not null)
     {
       return Result.Failure<CommitMessage>(scopeRule);
     }
 
     // Rendering — deterministic subject + optional blank-line/body, one trailing \n.
-    // Rule 1 has already narrowed parsedStyle to the three named values.
-    string subject = RenderSubject(parsedStyle.Value, type, scope, gitmoji, parsedDescription.Value);
+    // The style argument is already the parsed enum value.
+    string subject = RenderSubject(style, type, scope, gitmoji, parsedDescription.Value);
 
     // Trailing newline(s) on the body are trimmed at render time so the message
     // ends with exactly one newline regardless of how the caller formatted the body —
@@ -83,25 +78,6 @@ public sealed record CommitMessage(string Rendered, string Subject)
 
     CommitMessage message = new(rendered, subject);
     return Result.Success(message);
-  }
-
-  /// <summary>Rule 1 — style must be exactly one of the three names (ordinal).</summary>
-  private static Result<CommitStyle> ParseStyle(string style)
-  {
-    CommitStyle? parsed = style switch
-    {
-      nameof(CommitStyle.Conventional) => CommitStyle.Conventional,
-      nameof(CommitStyle.Gitmoji) => CommitStyle.Gitmoji,
-      nameof(CommitStyle.None) => CommitStyle.None,
-      _ => null,
-    };
-    Result<CommitStyle> result = parsed is { } value
-      ? Result.Success(value)
-      : Result.Failure<CommitStyle>(new DomainError("InvalidStyle",
-          $"'style' must be exactly one of: {nameof(CommitStyle.Conventional)}, " +
-          $"{nameof(CommitStyle.Gitmoji)}, {nameof(CommitStyle.None)} (case-sensitive) " +
-          $"— got '{style}'."));
-    return result;
   }
 
   /// <summary>Rules 2-4 — the style-specific parameter rules. Returns the violation,

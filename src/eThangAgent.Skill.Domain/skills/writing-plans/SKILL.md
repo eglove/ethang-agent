@@ -123,7 +123,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 Stage the touched files (`git add ...` via exec), then commit with the
-`git_commit` tool — style Conventional, type feat, description `add specific feature`. Never raw shell commits.
+`git_commit` tool — description `add specific feature`, with type/scope or emoji_key per the session's active commit-style guidance. Never raw shell commits.
 ````
 
 ## No Placeholders

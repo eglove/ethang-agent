@@ -20,7 +20,7 @@ Skills name actions; this harness binds them to real tools:
 | Ask the human partner a clarifying question | `clarify` tool (MANDATORY during brainstorming) |
 | Store or read specs, plans, ledgers, briefs, reports | `state` tools — `state.get` / `state.set` / `state.append` (CAS ledger lines) / `state.list` / `state.find` (full-text search) / `state.prune` (SDD cleanup) |
 | Inspect the agent's own database (sessions, transcripts, state, memories, skills, preferences) | `db_schema` / `db_query` (read-only SQL; run `db_schema` first) |
-| Commit work | `git_commit` tool (never raw shell commits) |
+| Commit work | `git_commit` tool (never raw shell commits); the style is the user's host setting — follow the commit-style guidance in this bootstrap, not a parameter |
 
 Windows-native throughout. Tests run via the dotnet CLI with xUnit (`dotnet test`);
 repo automation is plain `dotnet` CLI invocations — no `.ps1`/`.sh`/`.cmd`/`.bat`.

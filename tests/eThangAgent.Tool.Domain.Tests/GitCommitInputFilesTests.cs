@@ -11,7 +11,7 @@ public class GitCommitInputFilesTests
   {
     Result<GitCommitInput> r = GitCommitInput.Create(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":60,"style":"None","description":"x"}""");
+                             """{"timeoutSeconds":60,"description":"x"}""");
     Assert.True(r.IsSuccess);
     Assert.Null(r.Value.Files);
   }
@@ -21,7 +21,7 @@ public class GitCommitInputFilesTests
   {
     Result<GitCommitInput> r = GitCommitInput.Create(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":60,"style":"None","description":"x","files":["src/A.cs"]}""");
+                             """{"timeoutSeconds":60,"description":"x","files":["src/A.cs"]}""");
     Assert.True(r.IsSuccess);
     Assert.NotNull(r.Value.Files);
     Assert.Equal(["src/A.cs"], r.Value.Files.Paths);
@@ -32,7 +32,7 @@ public class GitCommitInputFilesTests
   {
     Result<GitCommitInput> r = GitCommitInput.Create(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":60,"style":"None","description":"x","files":"src/A.cs"}""");
+                             """{"timeoutSeconds":60,"description":"x","files":"src/A.cs"}""");
     Assert.False(r.IsSuccess);
     Assert.Equal("InvalidParameterType", r.Error.Code);
   }
@@ -42,7 +42,7 @@ public class GitCommitInputFilesTests
   {
     Result<GitCommitInput> r = GitCommitInput.Create(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":60,"style":"None","description":"x","files":["../x"]}""");
+                             """{"timeoutSeconds":60,"description":"x","files":["../x"]}""");
     Assert.False(r.IsSuccess);
     Assert.Equal("InvalidParameterValue", r.Error.Code);
     Assert.Contains("../x", r.Error.Message, StringComparison.Ordinal);
@@ -53,21 +53,22 @@ public class GitCommitInputFilesTests
   {
     Result<GitCommitInput> r = GitCommitInput.Create(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":60,"style":"None","description":"x","files":[]}""");
+                             """{"timeoutSeconds":60,"description":"x","files":[]}""");
     Assert.False(r.IsSuccess);
     Assert.Equal("InvalidParameterValue", r.Error.Code);
   }
 
   [Fact]
-  public void FilesValidatedAtInputLevel_StyleLegalityStaysWithCommitMessage()
+  public void StyleIsNotInput_RejectedAsUnknownParameter_BeforeValueRules()
   {
-    // Input-level rule: files paths are validated here (CommitFilePaths), while
-    // style legality is CommitMessage's concern — a bogus style still parses.
+    // 'style' is no longer model input at all: shape-level rejection of unknown
+    // parameters precedes value rules, so a stale caller naming it — even
+    // alongside an invalid files path — gets the unknown-parameter error.
     Result<GitCommitInput> r = GitCommitInput.Create(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":60,"style":"Bogus","description":"x","files":["../x"]}""");
+                             """{"timeoutSeconds":60,"description":"x","files":["../x"],"style":"Bogus"}""");
     Assert.False(r.IsSuccess);
-    Assert.Equal("InvalidParameterValue", r.Error.Code);
-    Assert.Contains("../x", r.Error.Message, StringComparison.Ordinal);
+    Assert.Equal("UnknownParameter", r.Error.Code);
+    Assert.Contains("style", r.Error.Message, StringComparison.Ordinal);
   }
 }

@@ -28,6 +28,17 @@
     <TextBlock Text="Coding plan (subscription) keys work only on the coding endpoint — against the general endpoint they are rejected as rate-limited. The z.ai capability tools (web search, reader, tokenizer, image, OCR, transcription) exist only on the general endpoint."
                Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
 
+    <TextBlock Text="Commit style" FontWeight="Bold" Margin="0,8,0,0"/>
+    <ComboBox ItemsSource="{Binding CommitStyles}" SelectedItem="{Binding SelectedCommitStyle}">
+      <ComboBox.ItemTemplate>
+        <DataTemplate>
+          <TextBlock Text="{Binding Display}"/>
+        </DataTemplate>
+      </ComboBox.ItemTemplate>
+    </ComboBox>
+    <TextBlock Text="Applies to newly opened agents and to the next commit in open ones. Conventional uses type/scope, Gitmoji an emoji key, Plain a bare description."
+               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
     <CheckBox Content="Show keys" IsChecked="{Binding KeysVisible}" Margin="0,4,0,0"/>
 
     <TextBlock Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave a field blank to remove that key."

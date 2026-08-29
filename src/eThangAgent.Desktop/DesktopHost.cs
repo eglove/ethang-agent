@@ -4,6 +4,8 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.Composition;
+using CommitStyle = eThangAgent.ToolDomain.CommitStyle;
+using CommitStylePreference = eThangAgent.ToolDomain.CommitStylePreference;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
@@ -24,7 +26,8 @@ internal sealed record DesktopBootstrap(
     string PreferredProviderId,
     IAppPreferenceStore Preferences,
     IApiKeyProtector ApiKeys,
-    SessionCatalogQueryHandler Catalog);
+    SessionCatalogQueryHandler Catalog,
+    CommitStyle CommitStyle);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads configuration (provider API keys come from the app database, DPAPI-
@@ -55,6 +58,7 @@ internal static class DesktopHost
             await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey),
             await LoadKeyAsync(preferences, protector, ZaiSettings.PreferenceKey))
         .WithZaiEndpointMode(await LoadEndpointModeAsync(preferences));
+    CommitStyle commitStyle = await LoadCommitStyleAsync(preferences);
 
     // The Sessions dialog reads the shared store directly — it must work with zero
     // tabs open, i.e. outside any per-session container.
@@ -66,7 +70,8 @@ internal static class DesktopHost
         await ResolvePreferredProviderAsync(settings, preferences),
         preferences,
         protector,
-        catalog);
+        catalog,
+        commitStyle);
   }
 
   /// <summary>Recovers one stored key: absent stays null; undecryptable (corrupted or
@@ -107,6 +112,23 @@ internal static class DesktopHost
     await Console.Error.WriteLineAsync(
         $"stored '{ZaiSettings.EndpointModePreferenceKey}' value '{stored}' is not a valid endpoint mode; using the coding-plan default");
     return ZaiEndpointMode.CodingPlan;
+  }
+  /// <summary>Recovers the stored commit style: absent stays at the Conventional
+  ///     default; an unrecognized stored value logs to stderr and falls back to the
+  ///     default for the PREFILL only — the tool side surfaces the typed error if a
+  ///     commit actually runs against corrupt data.</summary>
+  private static async Task<CommitStyle> LoadCommitStyleAsync(IAppPreferenceStore preferences)
+  {
+    string? stored = await preferences.GetAsync(AppPreferenceCommitStyleProvider.PreferenceKey);
+    Result<CommitStyle> resolved = CommitStylePreference.Resolve(stored);
+    if (!resolved.IsSuccess)
+    {
+      await Console.Error.WriteLineAsync(
+          $"stored '{AppPreferenceCommitStyleProvider.PreferenceKey}' value '{stored}' is not a valid commit style; using the conventional default");
+      return CommitStyle.Conventional;
+    }
+
+    return resolved.Value;
   }
 
   /// <summary>The provider the new-agent dialog pre-selects: the persisted choice when it
@@ -170,6 +192,7 @@ internal static class DesktopHost
         new MainViewModelOptions
         {
           PreferredProviderId = boot.PreferredProviderId,
+          CommitStyle = boot.CommitStyle,
           Preferences = boot.Preferences,
           Settings = boot.Settings,
           SessionFactory = boot.Sessions,

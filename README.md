@@ -47,11 +47,13 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   SELECT/WITH statement on a read-only connection with a bounded row cap — writes, multiple
   statements, and ATTACH/DETACH are rejected
 - `git_status` / `working_diff` tools — inspect branch state and bounded diffs
-- `git_commit` tool — validated conventional or gitmoji commits of the current index, with an optional
-  `files` array of workspace-relative paths to stage first (relative-only: no drives, no `..`, no `.`)
+- `git_commit` tool — validated commits of the current index in the user's chosen style
+  (Conventional, Gitmoji, or plain — a host setting, resolved live per commit; never a model parameter),
+  with an optional `files` array of workspace-relative paths to stage first (relative-only: no drives, no `..`, no `.`)
 - Curated memory loop — `memories.search/add/update/remove` over a categorized, full-text,
   versioned knowledge base, with turn-boundary nudges prompting curation
-- Skill subsystem: 15 embedded development-methodology skills, session-start bootstrap injection, and `skill_list` / `skill_view` / `skill_manage` tools
+- Skill subsystem: 18 embedded skills (development methodology plus per-style commit guidance),
+  session-start bootstrap injection, and `skill_list` / `skill_view` / `skill_manage` tools
 - `clarify` tool — structured clarifying questions with numbered options
 - z.ai capability tools (available only on z.ai tabs in the **General API** endpoint
   mode — the capability endpoints do not exist on the coding endpoint): `web_search` — live web search with

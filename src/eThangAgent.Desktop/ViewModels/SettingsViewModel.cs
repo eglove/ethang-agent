@@ -1,8 +1,20 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using eThangAgent.ToolDomain;
 using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.ViewModels;
+
+/// <summary>One selectable commit message style in the settings modal.</summary>
+internal sealed record CommitStyleOption(CommitStyle Style, string Display)
+{
+  internal static readonly CommitStyleOption Conventional = new(CommitStyle.Conventional,
+      "Conventional commits");
+  internal static readonly CommitStyleOption Gitmoji = new(CommitStyle.Gitmoji,
+      "Gitmoji");
+  internal static readonly CommitStyleOption None = new(CommitStyle.None,
+      "Plain (no prefix)");
+}
 
 /// <summary>One selectable z.ai endpoint mode in the settings modal.</summary>
 internal sealed record ZaiEndpointModeOption(ZaiEndpointMode Mode, string Display)
@@ -13,12 +25,13 @@ internal sealed record ZaiEndpointModeOption(ZaiEndpointMode Mode, string Displa
       "General API (pay-as-you-go)");
 }
 
-/// <summary>The settings confirmed in the settings modal: the API keys plus the z.ai
-///     endpoint mode. Null keys mean "cleared" — the provider stops being configured.
+/// <summary>The settings confirmed in the settings modal: the API keys, the z.ai
+///     endpoint mode, and the commit style. Null keys mean "cleared" — the provider
+///     stops being configured.
 ///     (A cancelled dialog closes with no result at all, so unchanged-vs-cleared never
 ///     collides.)</summary>
 internal sealed record SettingsUpdate(string? OpenRouterApiKey, string? ZaiApiKey,
-    ZaiEndpointMode ZaiEndpointMode);
+    ZaiEndpointMode ZaiEndpointMode, CommitStyle CommitStyle);
 
 /// <summary>View-model behind the settings modal: the API-key fields for the two
 ///     providers, a reveal toggle, the z.ai endpoint mode, and their shared validation.
@@ -32,6 +45,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
   public event EventHandler<SettingsUpdate>? SaveRequested;
 
   public IRelayCommand SaveCommand { get; }
+
+  /// <summary>The three commit styles, in display order.</summary>
+  public IReadOnlyList<CommitStyleOption> CommitStyles { get; } =
+      [CommitStyleOption.Conventional, CommitStyleOption.Gitmoji, CommitStyleOption.None];
 
   /// <summary>The two endpoint modes, in display order.</summary>
   public IReadOnlyList<ZaiEndpointModeOption> EndpointModes { get; } =
@@ -51,6 +68,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
   public partial ZaiEndpointModeOption SelectedEndpointMode { get; set; }
 
   [ObservableProperty]
+  public partial CommitStyleOption SelectedCommitStyle { get; set; }
+
+  [ObservableProperty]
   [NotifyPropertyChangedFor(nameof(KeyPasswordChar))]
   public partial bool KeysVisible { get; set; }
 
@@ -64,7 +84,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>The first validation problem across both fields, or null when clean.</summary>
   public string? ValidationError => Validate(OpenRouterKey) ?? Validate(ZaiKey);
 
-  public SettingsViewModel(string? openRouterKey, string? zaiKey, ZaiEndpointMode zaiEndpointMode)
+  public SettingsViewModel(string? openRouterKey, string? zaiKey,
+      ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle = CommitStyle.Conventional)
   {
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
@@ -76,7 +97,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
           if (CanSave)
           {
             SaveRequested?.Invoke(this, new SettingsUpdate(
-                Normalize(OpenRouterKey), Normalize(ZaiKey), SelectedEndpointMode.Mode));
+                Normalize(OpenRouterKey), Normalize(ZaiKey), SelectedEndpointMode.Mode,
+                SelectedCommitStyle.Style));
           }
         },
         () => CanSave);
@@ -85,6 +107,13 @@ internal sealed partial class SettingsViewModel : ObservableObject
     SelectedEndpointMode = zaiEndpointMode == ZaiEndpointMode.GeneralApi
         ? ZaiEndpointModeOption.GeneralApi
         : ZaiEndpointModeOption.CodingPlan;
+    SelectedCommitStyle = commitStyle switch
+    {
+      CommitStyle.Conventional => CommitStyleOption.Conventional,
+      CommitStyle.Gitmoji => CommitStyleOption.Gitmoji,
+      CommitStyle.None => CommitStyleOption.None,
+      _ => CommitStyleOption.Conventional, // unnamed enum values cannot occur across the typed boundary
+    };
   }
 
   // Validation edits must requery the Save button's CanExecute.

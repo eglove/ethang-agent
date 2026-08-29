@@ -117,7 +117,8 @@ public static class AgentComposition
                     "Show staged/unstaged/all working-tree diff, bounded."),
                 new AgentToolBinding(
                     new GitCommitTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IGitCommitAccess>()),
+                        sp.GetRequiredService<IGitCommitAccess>(),
+                        sp.GetRequiredService<ICommitStyleProvider>()),
                     "Commit the current index with a validated conventional or gitmoji message."),
                 // Pure graph math, no external access: safe for sub-agents too.
                 new AgentToolBinding(
@@ -133,7 +134,10 @@ public static class AgentComposition
         // One app-owned database: hosts opening several sessions pass a shared
         // instance here so every session's stores hit the same SQLite file.
         .AddSingleton(_ => database ?? new AppDatabase())
+        .AddSingleton<IAppPreferenceStore>(sp => new SqliteAppPreferenceStore(
+            sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<ISelfDatabaseAccess, SqliteSelfDatabaseAccess>()
+        .AddSingleton<ICommitStyleProvider, AppPreferenceCommitStyleProvider>()
         .AddSingleton<IStateStore, SqliteStateStore>()
         .AddSingleton<IAgentStore, SqliteAgentStore>()
         .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
@@ -235,7 +239,8 @@ public static class AgentComposition
             new ToolRegistry([sp.GetRequiredService<ITool>()]))
         .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
         [
-            new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>()),
+            new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>(),
+                sp.GetRequiredService<ICommitStyleProvider>()),
                 new StaticPromptProvider(
                     "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
                     "workspace, prefer the provided tools over guessing, and keep responses tight."),

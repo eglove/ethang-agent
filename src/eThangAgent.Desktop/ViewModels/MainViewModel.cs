@@ -44,6 +44,11 @@ internal sealed record MainViewModelOptions
   ///     remembered).</summary>
   public IAppPreferenceStore? Preferences { get; init; }
 
+  /// <summary>Commit style the settings modal prefills; the host loads it from the
+  ///     preference store at startup (async) and passes it in. Null (hosts that load
+  ///     nothing) means the Conventional default — the same one the tool side uses.</summary>
+  public CommitStyle? CommitStyle { get; init; }
+
   /// <summary>Optional stream-sink override for every opened session (test seam).
   ///     When null, production self-marshaling applies per session view-model.</summary>
   public Func<UiStreamEvent, Task>? UiStreamSink { get; init; }
@@ -158,6 +163,11 @@ internal sealed partial class MainViewModel : ObservableObject
   public ZaiEndpointMode ConfiguredZaiEndpointMode =>
       _settings?.Zai.EndpointMode ?? ZaiEndpointMode.CodingPlan;
 
+  /// <summary>The commit style the settings modal prefills; the stored choice, or the
+  ///     Conventional default when none is stored (matching the tool-side default).
+  ///     Loaded from preferences at construction; updated when settings save.</summary>
+  public CommitStyle ConfiguredCommitStyle { get; private set; } = CommitStyle.Conventional;
+
   public IRelayCommand OpenAgentCommand { get; }
 
   public IRelayCommand OpenSessionsCommand { get; }
@@ -203,6 +213,7 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     _preferences = options?.Preferences;
+    ConfiguredCommitStyle = options?.CommitStyle ?? CommitStyle.Conventional;
     _streamSink = options?.UiStreamSink;
     _settings = options?.Settings;
     _sessionFactory = options?.SessionFactory;
@@ -363,6 +374,9 @@ internal sealed partial class MainViewModel : ObservableObject
     await PersistApiKeyAsync(ZaiSettings.PreferenceKey, zaiKey);
     await PersistPreferenceAsync(ZaiSettings.EndpointModePreferenceKey,
         update.ZaiEndpointMode.ToConfigValue());
+    await PersistPreferenceAsync(AppPreferenceCommitStyleProvider.PreferenceKey,
+        update.CommitStyle.ToString());
+    ConfiguredCommitStyle = update.CommitStyle;
 
     _settings = _settings
         .WithApiKeys(openRouterKey, zaiKey)

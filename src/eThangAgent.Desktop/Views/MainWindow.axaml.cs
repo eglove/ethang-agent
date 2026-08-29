@@ -95,7 +95,7 @@ internal partial class MainWindow : Window
   private async Task ShowSettingsDialogAsync()
   {
     SettingsWindow dialog = new(_vm!.ConfiguredOpenRouterKey, _vm.ConfiguredZaiKey,
-        _vm.ConfiguredZaiEndpointMode);
+        _vm.ConfiguredZaiEndpointMode, _vm.ConfiguredCommitStyle);
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {

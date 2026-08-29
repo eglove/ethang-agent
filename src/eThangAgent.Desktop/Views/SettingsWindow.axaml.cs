@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.ToolDomain;
 using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Views;
@@ -16,9 +17,9 @@ internal partial class SettingsWindow : Window
   public SettingsWindow() => InitializeComponent();
 
   public SettingsWindow(string? openRouterKey, string? zaiKey,
-      ZaiEndpointMode zaiEndpointMode) : this()
+      ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle) : this()
   {
-    _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode);
+    _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);
   }
