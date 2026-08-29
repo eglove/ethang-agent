@@ -194,13 +194,14 @@ public sealed class SqliteSelfDatabaseAccess(AppDatabase database) : ISelfDataba
   private static async Task<long> CountRowsAsync(SqliteConnection connection, string name, CancellationToken ct)
   {
     // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
-    // Named decision (CA2100): the identifier comes from sqlite_master, never from
-    // user input, and embedded quotes are doubled by Quote. Identifiers cannot be
-    // bound parameters.
-#pragma warning disable CA2007, CA2100 // Review SQL query for security vulnerabilities
+    // Named decision (CA2100/S2077): the composed fragment is an identifier from
+    // sqlite_master, never user input, with embedded quotes doubled by Quote. SQL
+    // identifiers cannot be bound parameters, so a parameterized query is not an
+    // option here.
+#pragma warning disable CA2007, CA2100, S2077 // Review SQL query for security vulnerabilities
     await using SqliteCommand command = connection.CreateCommand();
     command.CommandText = $"SELECT COUNT(*) FROM {Quote(name)};";
-#pragma warning restore CA2007, CA2100
+#pragma warning restore CA2007, CA2100, S2077
     return Convert.ToInt64(await command.ExecuteScalarAsync(ct).ConfigureAwait(false), CultureInfo.InvariantCulture);
   }
 
@@ -224,20 +225,9 @@ public sealed class SqliteSelfDatabaseAccess(AppDatabase database) : ISelfDataba
   /// <summary>Internal sqlite_* tables (including sqlite_sequence) and the FTS5 shadow
   ///     tables that mirror content already stored in their base tables are hidden
   ///     from the schema report. They remain fully queryable through db_query.</summary>
-  private static bool IsHidden(string name)
-  {
-    if (name.StartsWith("sqlite_", StringComparison.OrdinalIgnoreCase))
-    {
-      return true;
-    }
-    foreach (string suffix in FtsShadowSuffixes)
-    {
-      if (name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
-          && name[..^suffix.Length].EndsWith("_fts", StringComparison.OrdinalIgnoreCase))
-      {
-        return true;
-      }
-    }
-    return false;
-  }
+  private static bool IsHidden(string name) =>
+      name.StartsWith("sqlite_", StringComparison.OrdinalIgnoreCase)
+      || FtsShadowSuffixes.Any(suffix =>
+          name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+          && name[..^suffix.Length].EndsWith("_fts", StringComparison.OrdinalIgnoreCase));
 }

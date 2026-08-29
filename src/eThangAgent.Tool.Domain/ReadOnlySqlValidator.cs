@@ -22,9 +22,8 @@ public static class ReadOnlySqlValidator
     }
 
     string first = NextWord(sql, SkipTrivia(sql, 0), out int _);
-    bool readOnly = first.Equals("SELECT", StringComparison.OrdinalIgnoreCase)
-        || first.Equals("WITH", StringComparison.OrdinalIgnoreCase);
-    if (!readOnly)
+    if (!first.Equals("SELECT", StringComparison.OrdinalIgnoreCase)
+        && !first.Equals("WITH", StringComparison.OrdinalIgnoreCase))
     {
       return Err($"The statement must begin with SELECT or WITH (got '{first}'). " +
           "db_query only runs read-only queries; writes and pragmas are not allowed.");
@@ -34,66 +33,73 @@ public static class ReadOnlySqlValidator
     int p = 0;
     while (p < sql.Length)
     {
-      // Comments and quoted regions are consumed wholesale by their handlers, so a
-      // ';' seen here is always in normal text — a real statement separator.
-      switch (sql[p])
+      (DomainError? error, bool done, bool attach) = ScanNext(sql, ref p);
+      sawAttach |= attach;
+      if (error is not null)
       {
-        case '\'':
-          if (!SkipQuoted(sql, ref p, '\''))
-          {
-            return Err("Unterminated string literal — close the quote.");
-          }
-          break;
-        case '"':
-          if (!SkipQuoted(sql, ref p, '"'))
-          {
-            return Err("Unterminated quoted identifier — close the double quote.");
-          }
-          break;
-        case '`':
-          if (!SkipQuoted(sql, ref p, '`'))
-          {
-            return Err("Unterminated quoted identifier — close the backtick.");
-          }
-          break;
-        case '[':
-          int close = sql.IndexOf(']', p + 1);
-          if (close < 0)
-          {
-            return Err("Unterminated bracketed identifier — close the bracket.");
-          }
-          p = close + 1;
-          break;
-        case ';':
-          int after = SkipTrivia(sql, p + 1);
-          if (after < sql.Length)
-          {
-            return Err("Multiple SQL statements are not allowed — run one query per call.");
-          }
-          return sawAttach ? AttachError() : null;
-        default:
-          if (IsWordChar(sql[p]))
-          {
-            string word = NextWord(sql, p, out int end);
-            if (word.Equals("ATTACH", StringComparison.OrdinalIgnoreCase)
-                || word.Equals("DETACH", StringComparison.OrdinalIgnoreCase))
-            {
-              sawAttach = true;
-            }
-            p = end;
-          }
-          else
-          {
-            // Whitespace and comments (which may legally contain ';') are skipped as
-            // a unit; any other punctuation advances exactly one character.
-            int next = SkipTrivia(sql, p);
-            p = next > p ? next : p + 1;
-          }
-          break;
+        return error;
+      }
+      if (done)
+      {
+        return sawAttach ? AttachError() : null;
       }
     }
-
     return sawAttach ? AttachError() : null;
+  }
+
+  /// <summary>Consumes one token or region starting at <paramref name="p"/>. Comments
+  ///     and quoted regions are consumed wholesale by their handlers, so a ';' seen
+  ///     here is always in normal text — a real statement separator. The tuple's
+  ///     <c>done</c> element reports a clean end at a trailing separator.</summary>
+  private static (DomainError? Error, bool Done, bool Attach) ScanNext(string sql, ref int p)
+  {
+    switch (sql[p])
+    {
+      case '\'':
+        return (SkipQuoted(sql, ref p, '\'')
+            ? null : Err("Unterminated string literal — close the quote."), false, false);
+      case '"':
+        return (SkipQuoted(sql, ref p, '"')
+            ? null : Err("Unterminated quoted identifier — close the double quote."), false, false);
+      case '`':
+        return (SkipQuoted(sql, ref p, '`')
+            ? null : Err("Unterminated quoted identifier — close the backtick."), false, false);
+      case '[':
+        return ScanBracketed(sql, ref p);
+      case ';':
+        int after = SkipTrivia(sql, p + 1);
+        if (after < sql.Length)
+        {
+          return (Err("Multiple SQL statements are not allowed — run one query per call."), false, false);
+        }
+        p = after;
+        return (null, true, false);
+      default:
+        if (IsWordChar(sql[p]))
+        {
+          string word = NextWord(sql, p, out int end);
+          p = end;
+          bool attach = word.Equals("ATTACH", StringComparison.OrdinalIgnoreCase)
+              || word.Equals("DETACH", StringComparison.OrdinalIgnoreCase);
+          return (null, false, attach);
+        }
+        // Whitespace and comments (which may legally contain ';') are skipped as a
+        // unit; any other punctuation advances exactly one character.
+        int next = SkipTrivia(sql, p);
+        p = next > p ? next : p + 1;
+        return (null, false, false);
+    }
+  }
+
+  private static (DomainError? Error, bool Done, bool Attach) ScanBracketed(string sql, ref int p)
+  {
+    int close = sql.IndexOf(']', p + 1);
+    if (close < 0)
+    {
+      return (Err("Unterminated bracketed identifier — close the bracket."), false, false);
+    }
+    p = close + 1;
+    return (null, false, false);
   }
 
   private static DomainError AttachError() => Err(

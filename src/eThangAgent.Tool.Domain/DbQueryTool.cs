@@ -75,9 +75,12 @@ public sealed class DbQueryTool(ISelfDatabaseAccess database) : ITool
       string.Join(" | ", [.. cells.Select(RenderCell)]);
 
   private static string RenderCell(SelfQueryCell cell) =>
-      cell.BlobByteCount is { } bytes ? string.Create(CultureInfo.InvariantCulture, $"<blob {bytes} bytes>")
-      : cell.Text is null ? "<null>"
-      : Escape(cell.Text);
+      cell switch
+      {
+        { BlobByteCount: { } bytes } => string.Create(CultureInfo.InvariantCulture, $"<blob {bytes} bytes>"),
+        { Text: { } text } => Escape(text),
+        _ => "<null>",
+      };
 
   private static string Gutter(int columns) =>
       string.Join("+", Enumerable.Repeat("-----", columns));
