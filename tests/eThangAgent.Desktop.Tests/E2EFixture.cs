@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
@@ -197,6 +198,20 @@ internal static class E2E
     }
     Assert.Fail($"no decoded tool message containing '{marker}' found in {bodies.Count} request bodies");
     return "";
+  }
+
+  /// <summary>Regex for the UTC stamp prefix the wire contract puts on every model-bound
+  ///     message content (see MessageTimestamp): tool results reach the model with this
+  ///     prefix already in place, so anchored assertions must account for it. The date
+  ///     varies with wall-clock time, hence a pattern rather than a literal.</summary>
+  public static string TimestampPrefixPattern { get; } = @"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z\] ";
+
+  /// <summary>Removes the leading wire stamp from tool-result content so assertions match
+  ///     the tool contract itself rather than the transport-level timestamp.</summary>
+  public static string StripTimestampPrefix(string content)
+  {
+    Match prefix = Regex.Match(content, TimestampPrefixPattern);
+    return prefix.Success ? content[prefix.Length..] : content;
   }
 
   /// <summary>Returns the decoded content of the LAST tool-role message in a chat request
