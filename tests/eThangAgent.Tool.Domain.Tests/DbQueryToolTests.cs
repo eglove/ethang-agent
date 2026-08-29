@@ -18,7 +18,7 @@ public class DbQueryToolTests
   public async Task MissingSql_ReturnsError()
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("db_query",
-                                 /*lang=json,strict*/ """{"timeoutSeconds":120}"""));
+                                 /*lang=json,strict*/ """{"timeoutSeconds":120}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("sql", result.Content, StringComparison.Ordinal);
   }
@@ -27,7 +27,7 @@ public class DbQueryToolTests
   public async Task EmptySql_ReturnsError()
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("db_query",
-                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"sql":""}"""));
+                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"sql":""}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("non-empty", result.Content, StringComparison.Ordinal);
   }
@@ -36,7 +36,7 @@ public class DbQueryToolTests
   public async Task UnknownParameter_Rejected()
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("db_query",
-                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"sql":"SELECT 1","limit":5}"""));
+                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"sql":"SELECT 1","limit":5}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("limit", result.Content, StringComparison.Ordinal);
@@ -50,7 +50,7 @@ public class DbQueryToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("db_query",
                                  /*lang=json,strict*/
-                                 $$"""{"timeoutSeconds":120,"sql":"SELECT 1","maxRows":{{rows}}}"""));
+                                 $$"""{"timeoutSeconds":120,"sql":"SELECT 1","maxRows":{{rows}}}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("maxRows", result.Content, StringComparison.Ordinal);
     Assert.Contains("1000", result.Content, StringComparison.Ordinal);
@@ -60,7 +60,7 @@ public class DbQueryToolTests
   public async Task MaxRowsAsString_Rejected()
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("db_query",
-                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"sql":"SELECT 1","maxRows":"5"}"""));
+                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"sql":"SELECT 1","maxRows":"5"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("integer", result.Content, StringComparison.Ordinal);
   }
@@ -73,7 +73,7 @@ public class DbQueryToolTests
     FakeSelfDatabaseAccess access = new();
     DbQueryTool tool = new(access);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("db_query",
-        /*lang=json,strict*/ """{"timeoutSeconds":120,"sql":"DROP TABLE agents"}"""));
+        /*lang=json,strict*/ """{"timeoutSeconds":120,"sql":"DROP TABLE agents"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Error [InvalidSql]", result.Content, StringComparison.Ordinal);
     Assert.Null(access.QueriedSql);
@@ -84,7 +84,7 @@ public class DbQueryToolTests
   {
     FakeSelfDatabaseAccess access = new() { QueryOutcome = Result.Failure<SelfQueryResult>(new DomainError("Unused", "n/a")) };
     DbQueryTool tool = new(access);
-    _ = await tool.ExecuteAsync(new RawToolInput("db_query", Args));
+    _ = await tool.ExecuteAsync(new RawToolInput("db_query", Args), ct: TestContext.Current.CancellationToken);
     Assert.Equal("SELECT 1", access.QueriedSql);
     Assert.Equal(DbQueryToolInput.DefaultMaxRows, access.QueriedMaxRows);
   }
@@ -101,7 +101,7 @@ public class DbQueryToolTests
             [new SelfQueryCell("agents", null), new SelfQueryCell("table", null)],
         ],
         Truncated: false);
-    ToolResult result = await MakeTool(Result.Success(outcome)).ExecuteAsync(new RawToolInput("db_query", Args));
+    ToolResult result = await MakeTool(Result.Success(outcome)).ExecuteAsync(new RawToolInput("db_query", Args), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal(
         string.Join(Environment.NewLine,
@@ -117,7 +117,7 @@ public class DbQueryToolTests
   public async Task Truncated_AnnotationCarriesTheMarker()
   {
     SelfQueryResult outcome = new(["c"], [[new SelfQueryCell("x", null)]], Truncated: true);
-    ToolResult result = await MakeTool(Result.Success(outcome)).ExecuteAsync(new RawToolInput("db_query", Args));
+    ToolResult result = await MakeTool(Result.Success(outcome)).ExecuteAsync(new RawToolInput("db_query", Args), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.StartsWith(
         "[db_query] 1 row(s) shown, 1 column(s); result set truncated — add or raise LIMIT",
@@ -128,7 +128,7 @@ public class DbQueryToolTests
   public async Task ZeroRows_StillShowsHeaderRowAndGutter()
   {
     SelfQueryResult outcome = new(["a", "b"], [], Truncated: false);
-    ToolResult result = await MakeTool(Result.Success(outcome)).ExecuteAsync(new RawToolInput("db_query", Args));
+    ToolResult result = await MakeTool(Result.Success(outcome)).ExecuteAsync(new RawToolInput("db_query", Args), ct: TestContext.Current.CancellationToken);
     Assert.Equal(
         string.Join(Environment.NewLine,
             "[db_query] 0 row(s) shown, 2 column(s)",
@@ -153,7 +153,7 @@ public class DbQueryToolTests
             new SelfQueryCell("x\\y", null),
         ]],
         Truncated: false);
-    ToolResult result = await MakeTool(Result.Success(outcome)).ExecuteAsync(new RawToolInput("db_query", Args));
+    ToolResult result = await MakeTool(Result.Success(outcome)).ExecuteAsync(new RawToolInput("db_query", Args), ct: TestContext.Current.CancellationToken);
     Assert.Contains(
         "<null> | <blob 4 bytes> | a\\|b | x\\ny | x\\ty | x\\\\y",
         result.Content, StringComparison.Ordinal);
@@ -166,7 +166,7 @@ public class DbQueryToolTests
   {
     ToolResult result = await MakeTool(Result.Failure<SelfQueryResult>(
             new DomainError("QueryFailed", "SQLite Error 1: 'no such table: nope'.")))
-        .ExecuteAsync(new RawToolInput("db_query", Args));
+        .ExecuteAsync(new RawToolInput("db_query", Args), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Error [QueryFailed]", result.Content, StringComparison.Ordinal);
     Assert.Contains("no such table: nope", result.Content, StringComparison.Ordinal);

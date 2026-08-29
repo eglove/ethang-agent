@@ -7,13 +7,28 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- MTP test applications are executables; xunit.v3's targets require Exe
+         (Microsoft.NET.Test.Sdk used to set this, and is deliberately absent). -->
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
+  <!-- xunit.v3 runs on Microsoft.Testing.Platform; the MTP mode of dotnet test
+       is enabled globally via the test section in global.json. The whole MTP
+       family must stay generation-aligned: xunit.v3 3.2.x bridges through MTP
+       1.9.1, so the extensions below are 1.9.x / 17.12.x (the MTP-1.x
+       generation). Microsoft.NET.Test.Sdk is deliberately absent - it pins MTP
+       2.3.x, which breaks the 3.2.x bridge (TypeLoadException at startup).
+       xunit.runner.visualstudio and coverlet.collector are VSTest-only
+       extensions (dead weight under MTP) and are also absent.
+       Follow-up: Avalonia.Headless.XUnit 12.1.1 is compiled against the
+       xunit.v3 3.2.2 API; xunit.v3 4.x is binary-incompatible with it
+       (MissingMethodException during discovery). Bump xunit.v3 to 4.x only
+       together with an Avalonia release that supports it, and move the MTP
+       extensions to the matching generation in the same change. -->
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.*" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
-    <PackageReference Include="xunit" Version="2.*" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="17.12.*" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Testing.Extensions.HangDump" Version="1.9.*" PrivateAssets="all" />
+    <PackageReference Include="xunit.v3" Version="3.2.*" />
   </ItemGroup>
 
   <!-- Test assemblies use the xUnit Method_Scenario_Expected naming convention,

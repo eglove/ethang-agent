@@ -23,7 +23,7 @@ public class WorkspaceRootAcceptanceTests
     {
       _ = Directory.CreateDirectory(Path.Combine(root.FullName, "src"));
       await File.WriteAllTextAsync(
-          Path.Combine(root.FullName, "src", "hit.cs"), "class Acceptance { }");
+          Path.Combine(root.FullName, "src", "hit.cs"), "class Acceptance { }", TestContext.Current.CancellationToken);
 
       // Production shape: trailing separator, exactly as DesktopHost receives it.
       WorkspacePathResolver resolver = new(root.FullName + Path.DirectorySeparatorChar);
@@ -33,7 +33,7 @@ public class WorkspaceRootAcceptanceTests
       Assert.True(resolved.IsSuccess, $"resolve('.') failed: {resolved.Error?.Message}");
 
       Result<FileSearch> hits = await files.SearchFilesAsync(resolved.Value, "Acceptance", regex: false,
-          glob: "*.cs", maxResults: 5, contextLines: 0);
+          glob: "*.cs", maxResults: 5, contextLines: 0, ct: TestContext.Current.CancellationToken);
       Assert.True(hits.IsSuccess);
       Assert.NotEmpty(hits.Value.Matches);
     }

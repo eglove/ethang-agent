@@ -22,7 +22,7 @@ public class AgentContinuationTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([]));
 
-    Result<string> result = await agent.SendMessage("hi", default);
+    Result<string> result = await agent.SendMessage("hi", default, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(2, provider.Calls);
@@ -43,7 +43,7 @@ public class AgentContinuationTests
     Agent agent = new(alwaysTruncated, new Conversation(), DefaultConfig,
         new ToolRegistry([]), new AgentOptions { MaxAutoContinuations = 2 });
 
-    Result<string> result = await agent.SendMessage("hi", default);
+    Result<string> result = await agent.SendMessage("hi", default, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("MaxOutputContinuations", result.Error.Code);
@@ -58,7 +58,7 @@ public class AgentContinuationTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([]));
 
-    Result<string> result = await agent.SendMessage("hi", default);
+    Result<string> result = await agent.SendMessage("hi", default, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(1, provider.Calls);

@@ -18,7 +18,7 @@ public class ShellArgumentTests
   public async Task MultiTokenArguments_ArePassedAsSeparateTokens()
   {
     ExecRunResult run = await _engine.ExecuteAsync(new ExecProgram(
-        "var r = Shell(\"cmd\", \"/c\", \"echo\", \"hello world\"); return r.Stdout;"));
+        "var r = Shell(\"cmd\", \"/c\", \"echo\", \"hello world\"); return r.Stdout;"), ct: TestContext.Current.CancellationToken);
     Assert.Equal(ExecRunStatus.Completed, run.Status);
     Assert.Contains("hello world", run.Output, StringComparison.Ordinal);
   }
@@ -27,7 +27,7 @@ public class ShellArgumentTests
   public async Task GitStatusShort_ParsesMultiTokenFlag()
   {
     ExecRunResult run = await _engine.ExecuteAsync(new ExecProgram(
-        "var r = Shell(\"git\", \"status\", \"--short\"); return r.ExitCode.ToString();"));
+        "var r = Shell(\"git\", \"status\", \"--short\"); return r.ExitCode.ToString();"), ct: TestContext.Current.CancellationToken);
     Assert.Equal(ExecRunStatus.Completed, run.Status);
     Assert.Equal("0", run.Output.Trim());
   }
@@ -44,14 +44,14 @@ public class ShellArgumentTests
 
       string initScript =
           $"var r = Shell(\"git\", \"init \\\"{dir}\\\"\"); return r.ExitCode.ToString();";
-      ExecRunResult init = await _engine.ExecuteAsync(new ExecProgram(initScript));
+      ExecRunResult init = await _engine.ExecuteAsync(new ExecProgram(initScript), ct: TestContext.Current.CancellationToken);
       Assert.True(init.Output.Trim() == "0",
           $"git init failed: {init.Output} {string.Join(';', init.ErrorLines)}");
 
       string commitScript =
           $"var r = Shell(\"git\", \"-c user.email=t@t -c user.name=t -C \\\"{dir}\\\"" +
           $" commit --allow-empty -m x\"); return r.ExitCode.ToString();";
-      ExecRunResult commit = await _engine.ExecuteAsync(new ExecProgram(commitScript));
+      ExecRunResult commit = await _engine.ExecuteAsync(new ExecProgram(commitScript), ct: TestContext.Current.CancellationToken);
       Assert.True(commit.Output.Trim() == "0",
           $"expected exit 0 from git invoked with a multi-token single argument; got: " +
           $"{commit.Output} {string.Join(';', commit.ErrorLines)}");

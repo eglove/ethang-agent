@@ -17,7 +17,7 @@ public class SendMessageCommandHandlerTests
         ModelConfig.Create("m", null, 100, 0.5f).Value!, new ToolRegistry([]));
     SendMessageCommandHandler handler = new(agent);
 
-    Result<string> result = await handler.Handle(new SendMessageCommand("hello"));
+    Result<string> result = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("response", result.Value);
@@ -32,7 +32,7 @@ public class SendMessageCommandHandlerTests
         ModelConfig.Create("m", null, 100, 0.5f).Value!, new ToolRegistry([]));
     SendMessageCommandHandler handler = new(agent);
 
-    Result<string> result = await handler.Handle(new SendMessageCommand("hello"));
+    Result<string> result = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal(error, result.Error);

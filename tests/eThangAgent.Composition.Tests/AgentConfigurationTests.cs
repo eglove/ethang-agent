@@ -57,7 +57,7 @@ public class AgentConfigurationTests
   [InlineData("subscription")]
   public void Invalid_Zai_Endpoint_Mode_Throws_InvalidOperationException(string value)
   {
-    Exception ex = Record.Exception(() => Load(env: ("ZAI_ENDPOINT_MODE", value)));
+    Exception? ex = Record.Exception(() => Load(env: ("ZAI_ENDPOINT_MODE", value)));
     InvalidOperationException invalid = Assert.IsType<InvalidOperationException>(ex);
     Assert.Contains("ZAI_ENDPOINT_MODE", invalid.Message, StringComparison.Ordinal);
   }
@@ -81,14 +81,14 @@ public class AgentConfigurationTests
   [Fact]
   public void Invalid_Base_Url_Throws_InvalidOperationException()
   {
-    Exception ex = Record.Exception(() => Load(env: ("OPENROUTER_BASE_URL", "not-a-url")));
+    Exception? ex = Record.Exception(() => Load(env: ("OPENROUTER_BASE_URL", "not-a-url")));
     _ = Assert.IsType<InvalidOperationException>(ex);
   }
 
   [Fact]
   public void Invalid_Zai_Base_Url_Throws_InvalidOperationException()
   {
-    Exception ex = Record.Exception(() => Load(env: ("ZAI_BASE_URL", "not-a-url")));
+    Exception? ex = Record.Exception(() => Load(env: ("ZAI_BASE_URL", "not-a-url")));
     InvalidOperationException invalid = Assert.IsType<InvalidOperationException>(ex);
     Assert.Contains("ZAI_BASE_URL", invalid.Message, StringComparison.Ordinal);
   }
@@ -96,7 +96,7 @@ public class AgentConfigurationTests
   [Fact]
   public void Invalid_SubAgent_Configuration_Throws()
   {
-    Exception ex = Record.Exception(() => Load(env: ("SubAgent__MaxConcurrentAgents", "0")));
+    Exception? ex = Record.Exception(() => Load(env: ("SubAgent__MaxConcurrentAgents", "0")));
     _ = Assert.IsType<InvalidOperationException>(ex);
   }
 

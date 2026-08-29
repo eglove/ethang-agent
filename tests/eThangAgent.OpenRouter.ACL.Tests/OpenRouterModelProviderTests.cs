@@ -27,7 +27,7 @@ public class OpenRouterModelProviderTests
     OpenRouterModelProvider provider = new(http, Config);
     ModelConfig config = ModelConfig.Create("openai/gpt-4o-mini", null, 256, 0.7f).Value!;
 
-    Result<ModelResponse> result = await provider.SendAsync(config, new ModelRequest([UserMsg("hi")]));
+    Result<ModelResponse> result = await provider.SendAsync(config, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("Hello back", result.Value.Content);
@@ -53,7 +53,7 @@ public class OpenRouterModelProviderTests
 
     Result<ModelResponse> result = await provider.SendAsync(
         ModelConfig.Create("openai/gpt-4o-mini", null, 128, 0.7f).Value!,
-        new ModelRequest([UserMsg("hi")]));
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("Bearer test-key", captured!.Headers.Authorization?.ToString());
@@ -80,7 +80,7 @@ public class OpenRouterModelProviderTests
 
     _ = await provider.SendAsync(
         ModelConfig.Create("openai/gpt-4o-mini", null, 128, 0.7f).Value!,
-        new ModelRequest([UserMsg("hi")]));
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.Equal("https://proxy.test/openrouter/api/v1/chat/completions", captured!.RequestUri!.ToString());
   }
@@ -111,7 +111,7 @@ public class OpenRouterModelProviderTests
 
     _ = await provider.SendAsync(
         ModelConfig.Create("m", null, 100, 0.5f).Value!,
-        new ModelRequest([UserMsg("hi")], tools));
+        new ModelRequest([UserMsg("hi")], tools), TestContext.Current.CancellationToken);
 
     Assert.Contains("\"required\":[\"path\",\"startLine\",\"endLine\"]", capturedBody, StringComparison.Ordinal);
     Assert.Contains("\"additionalProperties\":false", capturedBody, StringComparison.Ordinal);
@@ -130,7 +130,7 @@ public class OpenRouterModelProviderTests
 
     Result<ModelResponse> result = await provider.SendAsync(
         ModelConfig.Create("m", null, 100, 0.5f).Value!,
-        new ModelRequest([UserMsg("hi")]));
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.Content);
@@ -164,7 +164,7 @@ public class OpenRouterModelProviderTests
 
     _ = await provider.SendAsync(
         ModelConfig.Create("m", null, 100, 0.5f).Value!,
-        new ModelRequest(messages));
+        new ModelRequest(messages), TestContext.Current.CancellationToken);
 
     Assert.Contains("\"role\":\"tool\"", capturedBody, StringComparison.Ordinal);
     Assert.Contains("\"tool_call_id\":\"call_1\"", capturedBody, StringComparison.Ordinal);
@@ -186,7 +186,7 @@ public class OpenRouterModelProviderTests
 
     Result<ModelResponse> result = await provider.SendAsync(
         ModelConfig.Create("m", null, 100, 0.5f).Value!,
-        new ModelRequest([UserMsg("hi")]));
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("ProviderError", result.Error.Code);
@@ -202,7 +202,7 @@ public class OpenRouterModelProviderTests
 
     Result<ModelResponse> result = await provider.SendAsync(
         ModelConfig.Create("m", null, 100, 0.5f).Value!,
-        new ModelRequest([UserMsg("hi")]));
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("RateLimited", result.Error.Code);
@@ -218,7 +218,7 @@ public class OpenRouterModelProviderTests
 
     Result<ModelResponse> result = await provider.SendAsync(
         ModelConfig.Create("m", null, 100, 0.5f).Value!,
-        new ModelRequest([UserMsg("hi")]));
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("ProviderTimeout", result.Error.Code);
@@ -243,7 +243,7 @@ public class OpenRouterModelProviderTests
 
     _ = await provider.SendAsync(
         ModelConfig.Create("openai/gpt-4o", "OpenAI", 128, 0.7f).Value!,
-        new ModelRequest([UserMsg("hi")]));
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.Contains("provider", capturedBody!, StringComparison.Ordinal);
     Assert.Contains("only", capturedBody!, StringComparison.Ordinal);
@@ -267,7 +267,7 @@ public class OpenRouterModelProviderTests
 
     _ = await provider.SendAsync(
         ModelConfig.Create("openai/gpt-4o", null, 128, 0.7f).Value!,
-        new ModelRequest([UserMsg("hi")]));
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     using JsonDocument doc = JsonDocument.Parse(capturedBody!);
     Assert.False(doc.RootElement.TryGetProperty("provider", out _));

@@ -38,42 +38,42 @@ public sealed class SqliteProviderExclusionStoreTests : IDisposable
   [Fact]
   public async Task AddExclusion_ThenGet_ReturnsItInActiveSet()
   {
-    bool added = await _store.AddExclusionAsync("model-x:ProviderY", TimeSpan.FromMinutes(10));
+    bool added = await _store.AddExclusionAsync("model-x:ProviderY", TimeSpan.FromMinutes(10), ct: TestContext.Current.CancellationToken);
     Assert.True(added);
 
-    IReadOnlySet<string> active = await _store.GetActiveExclusionsAsync();
+    IReadOnlySet<string> active = await _store.GetActiveExclusionsAsync(TestContext.Current.CancellationToken);
     Assert.Contains("model-x:ProviderY", active);
   }
 
   [Fact]
   public async Task GetActive_AfterTtlExpiry_PurgesAndReturnsEmpty()
   {
-    _ = await _store.AddExclusionAsync("model-x:ProviderY", TimeSpan.Zero);
-    await Task.Delay(50);
+    _ = await _store.AddExclusionAsync("model-x:ProviderY", TimeSpan.Zero, ct: TestContext.Current.CancellationToken);
+    await Task.Delay(50, TestContext.Current.CancellationToken);
 
-    IReadOnlySet<string> active = await _store.GetActiveExclusionsAsync();
+    IReadOnlySet<string> active = await _store.GetActiveExclusionsAsync(TestContext.Current.CancellationToken);
     Assert.Empty(active);
   }
 
   [Fact]
   public async Task AddExclusion_OverwritesExisting_ResetsExpiry()
   {
-    _ = await _store.AddExclusionAsync("model-x:ProviderY", TimeSpan.Zero);
-    await Task.Delay(50);
-    _ = await _store.AddExclusionAsync("model-x:ProviderY", TimeSpan.FromMinutes(10));
+    _ = await _store.AddExclusionAsync("model-x:ProviderY", TimeSpan.Zero, ct: TestContext.Current.CancellationToken);
+    await Task.Delay(50, TestContext.Current.CancellationToken);
+    _ = await _store.AddExclusionAsync("model-x:ProviderY", TimeSpan.FromMinutes(10), ct: TestContext.Current.CancellationToken);
 
-    IReadOnlySet<string> active = await _store.GetActiveExclusionsAsync();
+    IReadOnlySet<string> active = await _store.GetActiveExclusionsAsync(TestContext.Current.CancellationToken);
     Assert.Contains("model-x:ProviderY", active);
   }
 
   [Fact]
   public async Task RemoveExclusion_RemovesFromActiveSet()
   {
-    _ = await _store.AddExclusionAsync("model-x:ProviderY", TimeSpan.FromMinutes(10));
-    bool removed = await _store.RemoveExclusionAsync("model-x:ProviderY");
+    _ = await _store.AddExclusionAsync("model-x:ProviderY", TimeSpan.FromMinutes(10), ct: TestContext.Current.CancellationToken);
+    bool removed = await _store.RemoveExclusionAsync("model-x:ProviderY", ct: TestContext.Current.CancellationToken);
     Assert.True(removed);
 
-    IReadOnlySet<string> active = await _store.GetActiveExclusionsAsync();
+    IReadOnlySet<string> active = await _store.GetActiveExclusionsAsync(TestContext.Current.CancellationToken);
     Assert.Empty(active);
   }
 }

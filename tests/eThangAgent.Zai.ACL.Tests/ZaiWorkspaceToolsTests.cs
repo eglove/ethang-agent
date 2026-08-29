@@ -67,7 +67,7 @@ public class ZaiWorkspaceToolsTests
 
     ToolResult result = await tool.ExecuteAsync(Args(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":60,"prompt":"a cat","filename":"out/cat.png"}"""));
+                             """{"timeoutSeconds":60,"prompt":"a cat","filename":"out/cat.png"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("https://cdn.zai.test/img.png", requestedUrl);
@@ -87,7 +87,7 @@ public class ZaiWorkspaceToolsTests
     ZaiImageTool tool = new(new HttpClient(new FakeHttpMessageHandler(_ => Task.FromResult(Json("{}")))),
         Config, new StubResolver(), new StubFiles());
 
-    ToolResult result = await tool.ExecuteAsync(Args(json));
+    ToolResult result = await tool.ExecuteAsync(Args(json), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith($"Error [{code}]:", result.Content, StringComparison.Ordinal);
@@ -110,7 +110,7 @@ public class ZaiWorkspaceToolsTests
 
     ToolResult result = await tool.ExecuteAsync(Args(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":30,"path":"doc.pdf"}"""));
+                             """{"timeoutSeconds":30,"path":"doc.pdf"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Contains("\"model\":\"glm-ocr\"", capturedBody, StringComparison.Ordinal);
@@ -129,7 +129,7 @@ public class ZaiWorkspaceToolsTests
     ZaiOcrTool tool = new(new HttpClient(new FakeHttpMessageHandler(_ => Task.FromResult(Json("{}")))),
         Config, new StubResolver(), new StubFiles());
 
-    ToolResult result = await tool.ExecuteAsync(Args(json));
+    ToolResult result = await tool.ExecuteAsync(Args(json), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith($"Error [{code}]:", result.Content, StringComparison.Ordinal);
@@ -161,7 +161,7 @@ public class ZaiWorkspaceToolsTests
 
     ToolResult result = await tool.ExecuteAsync(Args(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":30,"path":"clip.wav","context":"general meeting"}"""));
+                             """{"timeoutSeconds":30,"path":"clip.wav","context":"general meeting"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError, result.Content);
     Assert.Equal("multipart/form-data", capturedContentType);
@@ -180,7 +180,7 @@ public class ZaiWorkspaceToolsTests
     ZaiTranscriptionTool tool = new(new HttpClient(new FakeHttpMessageHandler(_ => Task.FromResult(Json("{}")))),
         Config, new StubResolver(), new StubFiles());
 
-    ToolResult result = await tool.ExecuteAsync(Args(json));
+    ToolResult result = await tool.ExecuteAsync(Args(json), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith($"Error [{code}]:", result.Content, StringComparison.Ordinal);

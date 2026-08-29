@@ -28,7 +28,7 @@ public class WorkingDiffToolTests
   public async Task MissingScope_ReturnsError()
   {
     WorkingDiffTool tool = Make(Ok(), out _);
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("MissingParameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("'scope'", result.Content, StringComparison.Ordinal);
@@ -40,7 +40,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":42}"""));
+                                 """{"timeoutSeconds":120,"scope":42}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterType", result.Content, StringComparison.Ordinal);
     Assert.Contains("string", result.Content, StringComparison.Ordinal);
@@ -52,7 +52,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"Both"}"""));
+                                 """{"timeoutSeconds":120,"scope":"Both"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
     Assert.Contains("Staged", result.Content, StringComparison.Ordinal);
@@ -66,7 +66,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"staged"}"""));
+                                 """{"timeoutSeconds":120,"scope":"staged"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
   }
@@ -77,7 +77,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"All","path":""}"""));
+                                 """{"timeoutSeconds":120,"scope":"All","path":""}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
     Assert.Contains("'path'", result.Content, StringComparison.Ordinal);
@@ -89,7 +89,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"All","path":"..\\evil.txt"}"""));
+                                 """{"timeoutSeconds":120,"scope":"All","path":"..\\evil.txt"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("PathOutsideWorkspace", result.Content, StringComparison.Ordinal);
   }
@@ -100,7 +100,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"All","stat":true}"""));
+                                 """{"timeoutSeconds":120,"scope":"All","stat":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("stat", result.Content, StringComparison.Ordinal);
@@ -114,7 +114,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(files: 2, additions: 3, deletions: 1), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"All"}"""));
+                                 """{"timeoutSeconds":120,"scope":"All"}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.StartsWith("[working-diff scope=All path=none: 2 file(s), +3/-1 lines]\n", result.Content, StringComparison.Ordinal);
   }
@@ -126,7 +126,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(patch: patch), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"Unstaged"}"""));
+                                 """{"timeoutSeconds":120,"scope":"Unstaged"}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal(
         "[working-diff scope=Unstaged path=none: 2 file(s), +3/-1 lines]\n" + patch,
@@ -140,7 +140,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(patch: patch, truncated: true, totalChars: 45123), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"All"}"""));
+                                 """{"timeoutSeconds":120,"scope":"All"}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.EndsWith(
         "\n[warning] truncated at 20000 chars; total 45123 — narrow with path/scope",
@@ -153,7 +153,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(files: 0, additions: 0, deletions: 0, patch: ""), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"Staged"}"""));
+                                 """{"timeoutSeconds":120,"scope":"Staged"}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal("[working-diff scope=Staged path=none: no differences]", result.Content);
   }
@@ -166,7 +166,7 @@ public class WorkingDiffToolTests
     WorkingDiffTool tool = Make(Ok(), out FakeGitQueryAccess? fake);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"Unstaged","path":"sub/a.cs"}"""));
+                                 """{"timeoutSeconds":120,"scope":"Unstaged","path":"sub/a.cs"}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal(Root, fake.RepoPath);
     Assert.Equal(SubFile, fake.Path);
@@ -185,7 +185,7 @@ public class WorkingDiffToolTests
             out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"All"}"""));
+                                 """{"timeoutSeconds":120,"scope":"All"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains($"Error [NotAGitRepository]: Not a git repository: {Root}", result.Content, StringComparison.Ordinal);
   }
@@ -198,7 +198,7 @@ public class WorkingDiffToolTests
             out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"scope":"Staged"}"""));
+                                 """{"timeoutSeconds":120,"scope":"Staged"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Error [GitError]: fatal: unable to read tree", result.Content, StringComparison.Ordinal);
   }

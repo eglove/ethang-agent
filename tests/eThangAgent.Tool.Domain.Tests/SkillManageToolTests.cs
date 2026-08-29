@@ -28,7 +28,7 @@ public class SkillManageToolTests
   public async Task MissingAction_MissingParameter_NamingAllowedActions()
   {
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore _) = MakeTool();
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("MissingParameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("'action'", result.Content, StringComparison.Ordinal);
@@ -43,7 +43,7 @@ public class SkillManageToolTests
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore? store) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"create","name":"x-skill"}"""));
+                                 """{"timeoutSeconds":120,"action":"create","name":"x-skill"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
     Assert.Contains("'create'", result.Content, StringComparison.Ordinal);
@@ -60,7 +60,7 @@ public class SkillManageToolTests
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":42}"""));
+                                 """{"timeoutSeconds":120,"action":42}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterType", result.Content, StringComparison.Ordinal);
     Assert.Contains("'action'", result.Content, StringComparison.Ordinal);
@@ -74,7 +74,7 @@ public class SkillManageToolTests
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Create","name":"My-Skill"}"""));
+                                 """{"timeoutSeconds":120,"action":"Create","name":"My-Skill"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
     Assert.Contains("lowercase", result.Content, StringComparison.Ordinal);
@@ -86,7 +86,7 @@ public class SkillManageToolTests
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Create","name":"-bad"}"""));
+                                 """{"timeoutSeconds":120,"action":"Create","name":"-bad"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
     Assert.Contains("must start with a letter or digit", result.Content, StringComparison.Ordinal);
@@ -98,7 +98,7 @@ public class SkillManageToolTests
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Create","name":""}"""));
+                                 """{"timeoutSeconds":120,"action":"Create","name":""}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
     Assert.Contains("non-empty", result.Content, StringComparison.Ordinal);
@@ -110,7 +110,7 @@ public class SkillManageToolTests
   public async Task InvalidJsonArguments_Rejected()
   {
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore _) = MakeTool();
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage", "{\"timeoutSeconds\":120,bad"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage", "{\"timeoutSeconds\":120,bad"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("not valid JSON", result.Content, StringComparison.Ordinal);
   }
@@ -119,7 +119,7 @@ public class SkillManageToolTests
   public async Task NonObjectArguments_Rejected()
   {
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore _) = MakeTool();
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage", "[]"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage", "[]"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("JSON object", result.Content, StringComparison.Ordinal);
   }
@@ -132,7 +132,7 @@ public class SkillManageToolTests
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":true,"force":true}"""));
+                                 """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":true,"force":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("force", result.Content, StringComparison.Ordinal);
@@ -147,7 +147,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"What it does.","body":"Step one.","provenanceSession":"sess-1"}"""));
+                                 """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"What it does.","body":"Step one.","provenanceSession":"sess-1"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[skill-manage] created 'my-skill' v1", result.Content);
@@ -177,7 +177,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Create","name":"brainstorming","description":"d","body":"b"}"""));
+                                 """{"timeoutSeconds":120,"action":"Create","name":"brainstorming","description":"d","body":"b"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("NameCollision", result.Content, StringComparison.Ordinal);
@@ -198,7 +198,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"d","body":"b"}"""));
+                                 """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"d","body":"b"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("SkillExists", result.Content, StringComparison.Ordinal);
@@ -214,7 +214,7 @@ public class SkillManageToolTests
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Create","name":"my-skill","body":"b"}"""));
+                                 """{"timeoutSeconds":120,"action":"Create","name":"my-skill","body":"b"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("MissingParameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("'description'", result.Content, StringComparison.Ordinal);
@@ -226,7 +226,7 @@ public class SkillManageToolTests
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"d"}"""));
+                                 """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"d"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("MissingParameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("'body'", result.Content, StringComparison.Ordinal);
@@ -238,7 +238,7 @@ public class SkillManageToolTests
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore? store) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"","body":"b"}"""));
+                                 """{"timeoutSeconds":120,"action":"Create","name":"my-skill","description":"","body":"b"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
     Assert.Contains("'description'", result.Content, StringComparison.Ordinal);
@@ -257,7 +257,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","name":"my-skill","body":"New body."}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","name":"my-skill","body":"New body."}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[skill-manage] updated 'my-skill' v2", result.Content);
@@ -282,7 +282,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","name":"brainstorming","body":"New body."}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","name":"brainstorming","body":"New body."}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("BuiltInImmutable", result.Content, StringComparison.Ordinal);
@@ -300,7 +300,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","name":"nope","body":"New body."}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","name":"nope","body":"New body."}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("SkillNotFound", result.Content, StringComparison.Ordinal);
@@ -316,7 +316,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","name":"my-skill"}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","name":"my-skill"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -334,7 +334,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","name":"my-skill","body":""}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","name":"my-skill","body":""}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -352,7 +352,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Delete","name":"my-skill"}"""));
+                                 """{"timeoutSeconds":120,"action":"Delete","name":"my-skill"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -369,7 +369,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":false}"""));
+                                 """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":false}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -385,7 +385,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":"true"}"""));
+                                 """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":"true"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -400,7 +400,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Delete","name":"brainstorming","confirm":true}"""));
+                                 """{"timeoutSeconds":120,"action":"Delete","name":"brainstorming","confirm":true}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("BuiltInImmutable", result.Content, StringComparison.Ordinal);
@@ -418,7 +418,7 @@ public class SkillManageToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":true}"""));
+                                 """{"timeoutSeconds":120,"action":"Delete","name":"my-skill","confirm":true}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[skill-manage] deleted 'my-skill'", result.Content);

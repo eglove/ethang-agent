@@ -15,7 +15,7 @@ public class StateServiceAppendTests
   {
     _store.Keys["ws1|sdd.x/ledger"] = new StateKeyValue("sdd.x", "ledger", "line one", 3);
 
-    Result<StateKeyValue> r = await Service().AppendAsync("sdd.x/ledger", "line two", expectedVersion: 3);
+    Result<StateKeyValue> r = await Service().AppendAsync("sdd.x/ledger", "line two", expectedVersion: 3, ct: TestContext.Current.CancellationToken);
 
     Assert.True(r.IsSuccess);
     Assert.Equal(4, r.Value.Version);
@@ -25,7 +25,7 @@ public class StateServiceAppendTests
   [Fact]
   public async Task Append_ToMissingKey_CreatesWithSingleLine()
   {
-    Result<StateKeyValue> r = await Service().AppendAsync("sdd.y/ledger", "first line", null);
+    Result<StateKeyValue> r = await Service().AppendAsync("sdd.y/ledger", "first line", null, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     Assert.Equal(1, r.Value.Version);
     Assert.Equal("first line", r.Value.Value);
@@ -35,7 +35,7 @@ public class StateServiceAppendTests
   public async Task Append_VersionConflict_FailsClosed()
   {
     _store.Conflict = true;
-    Result<StateKeyValue> r = await Service().AppendAsync("sdd.x/ledger", "line", expectedVersion: 9);
+    Result<StateKeyValue> r = await Service().AppendAsync("sdd.x/ledger", "line", expectedVersion: 9, ct: TestContext.Current.CancellationToken);
     Assert.False(r.IsSuccess);
     Assert.Equal("VersionConflict", r.Error.Code);
   }
@@ -46,7 +46,7 @@ public class StateServiceAppendTests
   [InlineData("multi\nline")]
   public async Task Append_InvalidText_Fails(string text)
   {
-    Result<StateKeyValue> r = await Service().AppendAsync("sdd.x/ledger", text, null);
+    Result<StateKeyValue> r = await Service().AppendAsync("sdd.x/ledger", text, null, ct: TestContext.Current.CancellationToken);
     Assert.False(r.IsSuccess);
     Assert.Equal("InvalidText", r.Error.Code);
   }
@@ -58,7 +58,7 @@ public class StateServiceAppendTests
     _store.Keys["ws1|sdd.alphabeta/b"] = new StateKeyValue("sdd.alphabeta", "b", "v", 1);
     _store.Keys["ws1|sdd.other/c"] = new StateKeyValue("sdd.other", "c", "v", 1);
 
-    Result<int> r = await Service().DeletePrefixAsync("sdd.alpha");
+    Result<int> r = await Service().DeletePrefixAsync("sdd.alpha", ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     Assert.Equal(1, r.Value); // dotted boundary: sdd.alpha yes, sdd.alphabeta NO
 
@@ -70,10 +70,10 @@ public class StateServiceAppendTests
   [Fact]
   public async Task DeletePrefix_RejectsMalformedAndReserved()
   {
-    Assert.Equal("InvalidKey", (await Service().DeletePrefixAsync("has/slash")).Error!.Code);
-    Assert.Equal("InvalidKey", (await Service().DeletePrefixAsync("has space")).Error!.Code);
-    Assert.Equal("ReservedNamespace", (await Service().DeletePrefixAsync("todo")).Error!.Code);
-    Assert.Equal("ReservedNamespace", (await Service().DeletePrefixAsync("current")).Error!.Code);
+    Assert.Equal("InvalidKey", (await Service().DeletePrefixAsync("has/slash", ct: TestContext.Current.CancellationToken)).Error!.Code);
+    Assert.Equal("InvalidKey", (await Service().DeletePrefixAsync("has space", ct: TestContext.Current.CancellationToken)).Error!.Code);
+    Assert.Equal("ReservedNamespace", (await Service().DeletePrefixAsync("todo", ct: TestContext.Current.CancellationToken)).Error!.Code);
+    Assert.Equal("ReservedNamespace", (await Service().DeletePrefixAsync("current", ct: TestContext.Current.CancellationToken)).Error!.Code);
   }
 
   private sealed class FakeAppendStore : IStateStore

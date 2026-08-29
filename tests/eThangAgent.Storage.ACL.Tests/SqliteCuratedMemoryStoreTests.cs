@@ -117,10 +117,10 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
         provenanceSession: null,
         version: 3);
 
-    Result<CuratedMemory> addedWith = await _store.AddAsync(withProvenance);
-    Result<CuratedMemory> addedWithout = await _store.AddAsync(withoutProvenance);
-    Result<CuratedMemory?> fetchedWith = await _store.GetAsync(withProvenance.Id);
-    Result<CuratedMemory?> fetchedWithout = await _store.GetAsync(withoutProvenance.Id);
+    Result<CuratedMemory> addedWith = await _store.AddAsync(withProvenance, ct: TestContext.Current.CancellationToken);
+    Result<CuratedMemory> addedWithout = await _store.AddAsync(withoutProvenance, ct: TestContext.Current.CancellationToken);
+    Result<CuratedMemory?> fetchedWith = await _store.GetAsync(withProvenance.Id, ct: TestContext.Current.CancellationToken);
+    Result<CuratedMemory?> fetchedWithout = await _store.GetAsync(withoutProvenance.Id, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(addedWith);
     Assert.Equal(withProvenance, addedWith.Value);
@@ -155,12 +155,12 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   {
     CuratedMemory globalRow = MakeMemory(workspaceId: "", scope: MemoryScope.Global, content: "global rule about deploys");
     CuratedMemory wsARow = MakeMemory(workspaceId: "ws-a", scope: MemoryScope.Workspace, content: "workspace rule about deploys");
-    _ = await _store.AddAsync(globalRow);
-    _ = await _store.AddAsync(wsARow);
+    _ = await _store.AddAsync(globalRow, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(wsARow, ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<CuratedMemory>> viaOwner = await _store.SearchAsync("ws-a", null, null, null, 10);
-    Result<IReadOnlyList<CuratedMemory>> viaOther = await _store.SearchAsync("ws-b", null, null, null, 10);
-    Result<IReadOnlyList<CuratedMemory>> viaNull = await _store.SearchAsync(null, null, null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> viaOwner = await _store.SearchAsync("ws-a", null, null, null, 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> viaOther = await _store.SearchAsync("ws-b", null, null, null, 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> viaNull = await _store.SearchAsync(null, null, null, null, 10, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(viaOwner);
     Assert.Equal(
@@ -172,10 +172,10 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     Assert.Equal([globalRow.Id], [.. viaNull.Value!.Select(m => m.Id)]);
 
     // Both ways: a workspace-scoped query term surfaces the owner's row and never another workspace's.
-    Result<IReadOnlyList<CuratedMemory>> ownerHit = await _store.SearchAsync("ws-a", "workspace", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> ownerHit = await _store.SearchAsync("ws-a", "workspace", null, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(ownerHit);
     Assert.Equal([wsARow.Id], [.. ownerHit.Value!.Select(m => m.Id)]);
-    Result<IReadOnlyList<CuratedMemory>> otherHit = await _store.SearchAsync("ws-b", "workspace", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> otherHit = await _store.SearchAsync("ws-b", "workspace", null, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(otherHit);
     Assert.Empty(otherHit.Value!);
   }
@@ -186,11 +186,11 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     CuratedMemory strong = MakeMemory(content: "quantum flux calibration quantum flux alignment quantum");
     CuratedMemory weak = MakeMemory(content: "a note about quantum mechanics");
     CuratedMemory unrelated = MakeMemory(content: "gardening tips for spring");
-    _ = await _store.AddAsync(strong);
-    _ = await _store.AddAsync(weak);
-    _ = await _store.AddAsync(unrelated);
+    _ = await _store.AddAsync(strong, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(weak, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(unrelated, ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<CuratedMemory>> searched = await _store.SearchAsync("ws-1", "quantum", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> searched = await _store.SearchAsync("ws-1", "quantum", null, null, 10, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(searched);
     Assert.Equal([strong.Id, weak.Id], [.. searched.Value!.Select(m => m.Id)]);
@@ -202,10 +202,10 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   {
     CuratedMemory both = MakeMemory(content: "alpha beta deployment");
     CuratedMemory onlyAlpha = MakeMemory(content: "alpha gamma deployment");
-    _ = await _store.AddAsync(both);
-    _ = await _store.AddAsync(onlyAlpha);
+    _ = await _store.AddAsync(both, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(onlyAlpha, ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<CuratedMemory>> searched = await _store.SearchAsync("ws-1", "alpha beta", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> searched = await _store.SearchAsync("ws-1", "alpha beta", null, null, 10, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(searched);
     Assert.Equal([both.Id], [.. searched.Value!.Select(m => m.Id)]);
@@ -214,10 +214,10 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   [Fact]
   public async Task Search_QueryWithFtsSpecialChars_ExecutesSafely_AndMatchesNothing()
   {
-    _ = await _store.AddAsync(MakeMemory(content: "safe content about migrations"));
+    _ = await _store.AddAsync(MakeMemory(content: "safe content about migrations"), ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<CuratedMemory>> injection = await _store.SearchAsync("ws-1", "test; DROP", null, null, 10);
-    Result<IReadOnlyList<CuratedMemory>> embeddedQuote = await _store.SearchAsync("ws-1", "a\"b", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> injection = await _store.SearchAsync("ws-1", "test; DROP", null, null, 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> embeddedQuote = await _store.SearchAsync("ws-1", "a\"b", null, null, 10, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(injection);
     Assert.Empty(injection.Value!);
@@ -225,7 +225,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     Assert.Empty(embeddedQuote.Value!);
 
     // The store is unharmed: normal search still works after the hostile input.
-    Result<IReadOnlyList<CuratedMemory>> stillWorking = await _store.SearchAsync("ws-1", "migrations", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> stillWorking = await _store.SearchAsync("ws-1", "migrations", null, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(stillWorking);
     _ = Assert.Single(stillWorking.Value!);
   }
@@ -235,12 +235,12 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   {
     CuratedMemory convention = MakeMemory(category: MemoryCategory.Convention, content: "naming conventions");
     CuratedMemory insight = MakeMemory(category: MemoryCategory.Insight, content: "insight about caching");
-    _ = await _store.AddAsync(convention);
-    _ = await _store.AddAsync(insight);
+    _ = await _store.AddAsync(convention, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(insight, ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<CuratedMemory>> conventions = await _store.SearchAsync("ws-1", null, MemoryCategory.Convention, null, 10);
-    Result<IReadOnlyList<CuratedMemory>> insights = await _store.SearchAsync("ws-1", null, MemoryCategory.Insight, null, 10);
-    Result<IReadOnlyList<CuratedMemory>> any = await _store.SearchAsync("ws-1", null, null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> conventions = await _store.SearchAsync("ws-1", null, MemoryCategory.Convention, null, 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> insights = await _store.SearchAsync("ws-1", null, MemoryCategory.Insight, null, 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> any = await _store.SearchAsync("ws-1", null, null, null, 10, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(conventions);
     Assert.Equal([convention.Id], [.. conventions.Value!.Select(m => m.Id)]);
@@ -250,10 +250,10 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     Assert.Equal(2, any.Value!.Count);
 
     // The filter also constrains FTS mode.
-    Result<IReadOnlyList<CuratedMemory>> conventionsViaQuery = await _store.SearchAsync("ws-1", "caching", MemoryCategory.Convention, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> conventionsViaQuery = await _store.SearchAsync("ws-1", "caching", MemoryCategory.Convention, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(conventionsViaQuery);
     Assert.Empty(conventionsViaQuery.Value!);
-    Result<IReadOnlyList<CuratedMemory>> insightsViaQuery = await _store.SearchAsync("ws-1", "caching", MemoryCategory.Insight, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> insightsViaQuery = await _store.SearchAsync("ws-1", "caching", MemoryCategory.Insight, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(insightsViaQuery);
     Assert.Equal([insight.Id], [.. insightsViaQuery.Value!.Select(m => m.Id)]);
   }
@@ -263,12 +263,12 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   {
     CuratedMemory tagged = MakeMemory(tags: ["api", "sql"], content: "connection pooling advice");
     CuratedMemory untagged = MakeMemory(tags: ["style"], content: "style guidance");
-    _ = await _store.AddAsync(tagged);
-    _ = await _store.AddAsync(untagged);
+    _ = await _store.AddAsync(tagged, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(untagged, ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<CuratedMemory>> bySql = await _store.SearchAsync("ws-1", null, null, ["sql"], 10);
-    Result<IReadOnlyList<CuratedMemory>> byApiAndSql = await _store.SearchAsync("ws-1", null, null, ["api", "sql"], 10);
-    Result<IReadOnlyList<CuratedMemory>> byNope = await _store.SearchAsync("ws-1", null, null, ["nope"], 10);
+    Result<IReadOnlyList<CuratedMemory>> bySql = await _store.SearchAsync("ws-1", null, null, ["sql"], 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> byApiAndSql = await _store.SearchAsync("ws-1", null, null, ["api", "sql"], 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> byNope = await _store.SearchAsync("ws-1", null, null, ["nope"], 10, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(bySql);
     Assert.Equal([tagged.Id], [.. bySql.Value!.Select(m => m.Id)]);
@@ -278,7 +278,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     Assert.Empty(byNope.Value!);
 
     // An empty tags list imposes no constraint.
-    Result<IReadOnlyList<CuratedMemory>> byEmpty = await _store.SearchAsync("ws-1", null, null, [], 10);
+    Result<IReadOnlyList<CuratedMemory>> byEmpty = await _store.SearchAsync("ws-1", null, null, [], 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(byEmpty);
     Assert.Equal(2, byEmpty.Value!.Count);
   }
@@ -290,13 +290,13 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     // LIKE over the serialized JSON array would return wrong rows as hits.
     CuratedMemory mysql = MakeMemory(tags: ["mysql"], content: "mysql connection advice");
     CuratedMemory apidocs = MakeMemory(tags: ["apidocs"], content: "api documentation advice");
-    _ = await _store.AddAsync(mysql);
-    _ = await _store.AddAsync(apidocs);
+    _ = await _store.AddAsync(mysql, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(apidocs, ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<CuratedMemory>> bySql = await _store.SearchAsync("ws-1", null, null, ["sql"], 10);
-    Result<IReadOnlyList<CuratedMemory>> byApi = await _store.SearchAsync("ws-1", null, null, ["api"], 10);
-    Result<IReadOnlyList<CuratedMemory>> byMySql = await _store.SearchAsync("ws-1", null, null, ["mysql"], 10);
-    Result<IReadOnlyList<CuratedMemory>> byApiDocs = await _store.SearchAsync("ws-1", null, null, ["apidocs"], 10);
+    Result<IReadOnlyList<CuratedMemory>> bySql = await _store.SearchAsync("ws-1", null, null, ["sql"], 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> byApi = await _store.SearchAsync("ws-1", null, null, ["api"], 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> byMySql = await _store.SearchAsync("ws-1", null, null, ["mysql"], 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> byApiDocs = await _store.SearchAsync("ws-1", null, null, ["apidocs"], 10, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(bySql);
     Assert.Empty(bySql.Value!);
@@ -317,10 +317,10 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     List<Guid> idsAscending = [.. Enumerable.Range(0, 6).Select(_ => Guid.NewGuid()).OrderBy(g => g.ToString(), StringComparer.Ordinal)];
     foreach (Guid id in Enumerable.Reverse(idsAscending))
     {
-      _ = await _store.AddAsync(MakeMemory(id: id, content: "tiebreaker probe"));
+      _ = await _store.AddAsync(MakeMemory(id: id, content: "tiebreaker probe"), ct: TestContext.Current.CancellationToken);
     }
 
-    Result<IReadOnlyList<CuratedMemory>> searched = await _store.SearchAsync("ws-1", null, null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> searched = await _store.SearchAsync("ws-1", null, null, null, 10, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(searched);
     Assert.Equal(idsAscending, searched.Value!.Select(m => m.Id).ToArray());
@@ -330,7 +330,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   public async Task Update_HappyPath_BumpsVersionAndUpdatedAt_HistoryFree()
   {
     CuratedMemory original = MakeMemory(content: "old advice about indexes", tags: ["sql"]);
-    _ = await _store.AddAsync(original);
+    _ = await _store.AddAsync(original, ct: TestContext.Current.CancellationToken);
     CuratedMemory updated = original with
     {
       Content = "new advice about covering indexes",
@@ -339,12 +339,12 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
       UpdatedAt = Timestamp.AddHours(1),
     };
 
-    Result<CuratedMemory> result = await _store.UpdateAsync(updated);
+    Result<CuratedMemory> result = await _store.UpdateAsync(updated, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(result);
     Assert.Equal(updated, result.Value);
 
-    Result<CuratedMemory?> fetched = await _store.GetAsync(original.Id);
+    Result<CuratedMemory?> fetched = await _store.GetAsync(original.Id, ct: TestContext.Current.CancellationToken);
     AssertSuccess(fetched);
     Assert.Equal(2, fetched.Value!.Version);
     Assert.Equal("new advice about covering indexes", fetched.Value.Content);
@@ -354,10 +354,10 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
 
     // History-free: still exactly one row, and the FTS index tracks the new content only.
     Assert.Equal(1L, Scalar($"SELECT COUNT(*) FROM curated_memories WHERE id = '{original.Id}';"));
-    Result<IReadOnlyList<CuratedMemory>> oldTerm = await _store.SearchAsync("ws-1", "old", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> oldTerm = await _store.SearchAsync("ws-1", "old", null, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(oldTerm);
     Assert.Empty(oldTerm.Value!);
-    Result<IReadOnlyList<CuratedMemory>> newTerm = await _store.SearchAsync("ws-1", "covering", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> newTerm = await _store.SearchAsync("ws-1", "covering", null, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(newTerm);
     Assert.Equal([updated.Id], [.. newTerm.Value!.Select(m => m.Id)]);
   }
@@ -366,19 +366,19 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   public async Task Update_StaleVersion_FailsVersionConflict_NamingCurrentVersion()
   {
     CuratedMemory original = MakeMemory(content: "versioned note");
-    _ = await _store.AddAsync(original);
-    Result<CuratedMemory> current = await _store.UpdateAsync(original with { Content = "second write", Version = 2 });
+    _ = await _store.AddAsync(original, ct: TestContext.Current.CancellationToken);
+    Result<CuratedMemory> current = await _store.UpdateAsync(original with { Content = "second write", Version = 2 }, ct: TestContext.Current.CancellationToken);
     AssertSuccess(current);
     CuratedMemory stale = original with { Content = "stale write", Version = 1 };
 
-    Result<CuratedMemory> result = await _store.UpdateAsync(stale);
+    Result<CuratedMemory> result = await _store.UpdateAsync(stale, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal(CuratedMemoryErrors.VersionConflict, result.Error.Code);
     Assert.Contains("2", result.Error.Message, StringComparison.Ordinal);
 
     // The conflicting write changed nothing.
-    Result<CuratedMemory?> fetched = await _store.GetAsync(original.Id);
+    Result<CuratedMemory?> fetched = await _store.GetAsync(original.Id, ct: TestContext.Current.CancellationToken);
     Assert.Equal("second write", fetched.Value!.Content);
     Assert.Equal(2, fetched.Value.Version);
   }
@@ -388,7 +388,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   {
     CuratedMemory ghost = MakeMemory(content: "never added");
 
-    Result<CuratedMemory> result = await _store.UpdateAsync(ghost);
+    Result<CuratedMemory> result = await _store.UpdateAsync(ghost, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal(CuratedMemoryErrors.MemoryNotFound, result.Error.Code);
@@ -398,23 +398,23 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   public async Task Delete_RemovesRowAndFtsEntry_UnknownReturnsFalse()
   {
     CuratedMemory doomed = MakeMemory(content: "ephemeral zebra note");
-    _ = await _store.AddAsync(doomed);
-    Result<IReadOnlyList<CuratedMemory>> before = await _store.SearchAsync("ws-1", "zebra", null, null, 10);
+    _ = await _store.AddAsync(doomed, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> before = await _store.SearchAsync("ws-1", "zebra", null, null, 10, ct: TestContext.Current.CancellationToken);
     _ = Assert.Single(before.Value!);
 
-    Result<bool> deleted = await _store.DeleteAsync(doomed.Id);
+    Result<bool> deleted = await _store.DeleteAsync(doomed.Id, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(deleted);
     Assert.True(deleted.Value);
-    Assert.Null((await _store.GetAsync(doomed.Id)).Value);
+    Assert.Null((await _store.GetAsync(doomed.Id, ct: TestContext.Current.CancellationToken)).Value);
     Assert.Equal(0L, Scalar("SELECT COUNT(*) FROM curated_memories;"));
     Assert.Equal(0L, Scalar("SELECT COUNT(*) FROM curated_memories_fts;"));
 
-    Result<IReadOnlyList<CuratedMemory>> after = await _store.SearchAsync("ws-1", "zebra", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> after = await _store.SearchAsync("ws-1", "zebra", null, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(after);
     Assert.Empty(after.Value!);
 
-    Result<bool> unknown = await _store.DeleteAsync(Guid.NewGuid());
+    Result<bool> unknown = await _store.DeleteAsync(Guid.NewGuid(), ct: TestContext.Current.CancellationToken);
     AssertSuccess(unknown);
     Assert.False(unknown.Value);
   }
@@ -422,7 +422,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   [Fact]
   public void Migration_CreatesFtsIndexAndTriggers_CountSucceedsPostInit()
   {
-    Exception exception = Record.Exception(() => Scalar("SELECT COUNT(*) FROM curated_memories_fts;"));
+    Exception? exception = Record.Exception(() => Scalar("SELECT COUNT(*) FROM curated_memories_fts;"));
     Assert.Null(exception);
 
     Assert.Equal(3L, Scalar(
@@ -440,13 +440,13 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     CuratedMemory oldest = MakeMemory(content: "first written", updatedAt: Timestamp);
     CuratedMemory newest = MakeMemory(content: "last written", updatedAt: Timestamp.AddHours(2));
     CuratedMemory middle = MakeMemory(content: "in between", updatedAt: Timestamp.AddHours(1));
-    _ = await _store.AddAsync(oldest);
-    _ = await _store.AddAsync(newest);
-    _ = await _store.AddAsync(middle);
+    _ = await _store.AddAsync(oldest, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(newest, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(middle, ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<CuratedMemory>> byNullQuery = await _store.SearchAsync("ws-1", null, null, null, 10);
-    Result<IReadOnlyList<CuratedMemory>> byEmptyQuery = await _store.SearchAsync("ws-1", "", null, null, 10);
-    Result<IReadOnlyList<CuratedMemory>> byWhitespaceQuery = await _store.SearchAsync("ws-1", "   ", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> byNullQuery = await _store.SearchAsync("ws-1", null, null, null, 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> byEmptyQuery = await _store.SearchAsync("ws-1", "", null, null, 10, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> byWhitespaceQuery = await _store.SearchAsync("ws-1", "   ", null, null, 10, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(byNullQuery);
     Assert.Equal([newest.Id, middle.Id, oldest.Id], [.. byNullQuery.Value!.Select(m => m.Id)]);
@@ -461,11 +461,11 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   {
     for (int i = 0; i < 5; i++)
     {
-      _ = await _store.AddAsync(MakeMemory(content: $"limit probe {i}", updatedAt: Timestamp.AddMinutes(i)));
+      _ = await _store.AddAsync(MakeMemory(content: $"limit probe {i}", updatedAt: Timestamp.AddMinutes(i)), ct: TestContext.Current.CancellationToken);
     }
 
-    Result<IReadOnlyList<CuratedMemory>> limited = await _store.SearchAsync("ws-1", null, null, null, 3);
-    Result<IReadOnlyList<CuratedMemory>> all = await _store.SearchAsync("ws-1", null, null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> limited = await _store.SearchAsync("ws-1", null, null, null, 3, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<CuratedMemory>> all = await _store.SearchAsync("ws-1", null, null, null, 10, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(limited);
     Assert.Equal(3, limited.Value!.Count);
@@ -482,8 +482,8 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     Assert.Equal(CuratedMemorySpecifications.MaxContentChars, body.Length);
     CuratedMemory memory = MakeMemory(content: body);
 
-    Result<CuratedMemory> added = await _store.AddAsync(memory);
-    Result<CuratedMemory?> fetched = await _store.GetAsync(memory.Id);
+    Result<CuratedMemory> added = await _store.AddAsync(memory, ct: TestContext.Current.CancellationToken);
+    Result<CuratedMemory?> fetched = await _store.GetAsync(memory.Id, ct: TestContext.Current.CancellationToken);
 
     AssertSuccess(added);
     Assert.Equal(memory, added.Value);
@@ -492,7 +492,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     Assert.Equal(CuratedMemorySpecifications.MaxContentChars, fetched.Value.Content.Length);
     Assert.Equal(body, fetched.Value.Content);
 
-    Result<IReadOnlyList<CuratedMemory>> searched = await _store.SearchAsync("ws-1", "zebrafin", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> searched = await _store.SearchAsync("ws-1", "zebrafin", null, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(searched);
     Assert.Equal([memory.Id], [.. searched.Value!.Select(m => m.Id)]);
   }
@@ -502,21 +502,21 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   {
     CuratedMemory first = MakeMemory(content: "durable note about indexing", category: MemoryCategory.Reference);
     CuratedMemory second = MakeMemory(workspaceId: "ws-2", content: "another durable note about vacuums");
-    _ = await _store.AddAsync(first);
-    _ = await _store.AddAsync(second);
+    _ = await _store.AddAsync(first, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(second, ct: TestContext.Current.CancellationToken);
 
     SqliteCuratedMemoryStore reopenedStore = new(new AppDatabase(_dbPath));
 
-    Result<CuratedMemory?> fetched = await reopenedStore.GetAsync(first.Id);
+    Result<CuratedMemory?> fetched = await reopenedStore.GetAsync(first.Id, ct: TestContext.Current.CancellationToken);
     AssertSuccess(fetched);
     Assert.NotNull(fetched.Value);
     AssertSameFields(first, fetched.Value);
 
-    Result<IReadOnlyList<CuratedMemory>> searched = await reopenedStore.SearchAsync("ws-1", "durable indexing", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> searched = await reopenedStore.SearchAsync("ws-1", "durable indexing", null, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(searched);
     Assert.Equal([first.Id], [.. searched.Value!.Select(m => m.Id)]);
 
-    Result<IReadOnlyList<CuratedMemory>> otherWorkspace = await reopenedStore.SearchAsync("ws-2", "vacuums", null, null, 10);
+    Result<IReadOnlyList<CuratedMemory>> otherWorkspace = await reopenedStore.SearchAsync("ws-2", "vacuums", null, null, 10, ct: TestContext.Current.CancellationToken);
     AssertSuccess(otherWorkspace);
     Assert.Equal([second.Id], [.. otherWorkspace.Value!.Select(m => m.Id)]);
 

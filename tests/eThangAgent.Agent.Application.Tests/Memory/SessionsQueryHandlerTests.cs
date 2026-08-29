@@ -59,7 +59,7 @@ public class SessionsQueryHandlerTests
   [InlineData(-7)]
   public async Task Execute_LimitBelowOne_FailsWithExactString(int limit)
   {
-    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", limit);
+    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", limit, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("Error [InvalidArgument]: limit must be between 1 and 500.", Rendered(result));
   }
@@ -67,7 +67,7 @@ public class SessionsQueryHandlerTests
   [Fact]
   public async Task Execute_LimitAbove500_FailsWithExactString()
   {
-    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", 501);
+    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", 501, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("Error [InvalidArgument]: limit must be between 1 and 500.", Rendered(result));
   }
@@ -75,7 +75,7 @@ public class SessionsQueryHandlerTests
   [Fact]
   public async Task Execute_UnknownScope_SurfacesParseFailureUntouched()
   {
-    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute("project:x", "active", 50);
+    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute("project:x", "active", 50, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(
         "Error [InvalidScope]: Unknown scope 'project:x'. Valid scopes: global | session:<agentId>.",
@@ -85,7 +85,7 @@ public class SessionsQueryHandlerTests
   [Fact]
   public async Task Execute_UnknownBranches_FailsWithExactString()
   {
-    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "everywhere", 50);
+    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "everywhere", 50, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("Error [InvalidArgument]: branches must be 'active' or 'all'.", Rendered(result));
   }
@@ -93,13 +93,13 @@ public class SessionsQueryHandlerTests
   [Fact]
   public async Task Execute_ValidationOrder_LimitBeforeScopeBeforeBranches()
   {
-    Result<IReadOnlyList<SessionSummary>> limitFirst = await _handler.Execute("bogus", "everywhere", 0);
+    Result<IReadOnlyList<SessionSummary>> limitFirst = await _handler.Execute("bogus", "everywhere", 0, ct: TestContext.Current.CancellationToken);
     Assert.Equal("Error [InvalidArgument]: limit must be between 1 and 500.", Rendered(limitFirst));
 
-    Result<IReadOnlyList<SessionSummary>> scopeSecond = await _handler.Execute("bogus", "everywhere", 50);
+    Result<IReadOnlyList<SessionSummary>> scopeSecond = await _handler.Execute("bogus", "everywhere", 50, ct: TestContext.Current.CancellationToken);
     Assert.StartsWith("Error [InvalidScope]:", Rendered(scopeSecond), StringComparison.Ordinal);
 
-    Result<IReadOnlyList<SessionSummary>> branchesThird = await _handler.Execute(null, "everywhere", 50);
+    Result<IReadOnlyList<SessionSummary>> branchesThird = await _handler.Execute(null, "everywhere", 50, ct: TestContext.Current.CancellationToken);
     Assert.Equal("Error [InvalidArgument]: branches must be 'active' or 'all'.", Rendered(branchesThird));
   }
 
@@ -110,7 +110,7 @@ public class SessionsQueryHandlerTests
   {
     (AgentId rootId, AgentId childId, AgentId orphanId) = await SeedSessionsAsync();
 
-    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", 500);
+    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", 500, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     IReadOnlyList<SessionSummary> summaries = result.Value;
@@ -142,7 +142,7 @@ public class SessionsQueryHandlerTests
   {
     (AgentId _, AgentId _, AgentId _) = await SeedSessionsAsync();
 
-    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "all", 2);
+    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "all", 2, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     IReadOnlyList<SessionSummary> summaries = result.Value;
@@ -155,7 +155,7 @@ public class SessionsQueryHandlerTests
   [Fact]
   public async Task Execute_EmptyStore_YieldsEmptySuccess()
   {
-    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", 50);
+    Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", 50, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Empty(result.Value);

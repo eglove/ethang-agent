@@ -65,8 +65,9 @@ jobs:
 
       # Always run (not cache-gated): coverage collection depends on it.
       # 'update' installs when missing, so this is idempotent.
-      - name: Install dotnet-coverage
-        run: dotnet tool update --global dotnet-coverage
+      # Coverage comes from the MTP CodeCoverage extension switches on the
+      # dotnet test command line below (dotnet-coverage wrapping cannot reach
+      # the MTP test executable chain, so the standalone tool is not used).
 
       - name: Build and analyze
         env:
@@ -82,9 +83,12 @@ jobs:
           ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"eglove_ethang-agent" /o:"eglove" /d:sonar.cs.vscoveragexml.reportsPaths="${{ github.workspace }}/coverage-vs/merged.coveragexml"
           dotnet build eThangAgent.slnx -c Release --nologo
           $buildExit = $LASTEXITCODE
-          # Circuit breaker: a hung test produces a named dump instead of freezing
-          # the runner until the next push cancels it (runs 32923889217, 32918551633).
-          dotnet-coverage collect "dotnet test eThangAgent.slnx -c Release --no-build --nologo --blame-hang-timeout 5m --blame-hang-dump-type mini" -f xml -o "${{ github.workspace }}\coverage-vs\merged.coveragexml"
+          # Circuit breaker + coverage: a hung test produces a dump + log under
+          # TestResults/ instead of freezing the runner until the next push cancels
+          # it (runs 32923889217, 32918551633). xunit.v3 runs on Microsoft.Testing
+          # .Platform (global.json test runner); hang protection and coverage both
+          # ride MTP extension switches after the argument separator.
+          dotnet test --solution eThangAgent.slnx -c Release --no-build -- --hangdump --hangdump-timeout 5m --hangdump-type mini --coverage --coverage-output "${{ github.workspace }}\coverage-vs\merged.coveragexml" --coverage-output-format xml
           $testExit = $LASTEXITCODE
           ${{ runner.temp }}\scanner\dotnet-sonarscanner end
           $endExit = $LASTEXITCODE
@@ -100,8 +104,8 @@ jobs:
           path: ./coverage-vs/merged.coveragexml
           if-no-files-found: error
 
-      # Autopsy material: when the blame circuit breaker fires it writes hang dumps
-      # and execution sequences here. CI-only testhost lingering (all tests pass,
+      # Autopsy material: when the MTP HangDump circuit breaker fires it writes a
+      # minidump plus the hung-test log here. CI-only testhost lingering (all tests pass,
       # host refuses to exit) has no local repro - these files are the evidence.
       - name: Upload test diagnostics
         if: success() || failure()
@@ -109,8 +113,8 @@ jobs:
         with:
           name: test-diagnostics
           path: |
-            ./coverage/**/*.dmp
-            ./coverage/**/Sequence_*.xml
+            ./TestResults/**/*.dmp
+            ./TestResults/**/*.log
           if-no-files-found: ignore
 
   lint:

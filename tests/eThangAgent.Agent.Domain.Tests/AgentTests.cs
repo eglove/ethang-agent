@@ -42,7 +42,7 @@ public class AgentTests
         Result.Success(new ModelResponse("Hello back", [])));
     Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
 
-    Result<string> result = await agent.SendMessage("Hi");
+    Result<string> result = await agent.SendMessage("Hi", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("Hello back", result.Value);
@@ -57,7 +57,7 @@ public class AgentTests
     ScriptedModelProvider provider = new(Result.Failure<ModelResponse>(err));
     Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
 
-    Result<string> result = await agent.SendMessage("Hi");
+    Result<string> result = await agent.SendMessage("Hi", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal(err, result.Error);
@@ -74,7 +74,7 @@ public class AgentTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([fakeTool]));
 
-    Result<string> result = await agent.SendMessage("read file");
+    Result<string> result = await agent.SendMessage("read file", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("done", result.Value);
@@ -97,7 +97,7 @@ public class AgentTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([]));
 
-    Result<string> result = await agent.SendMessage("hi");
+    Result<string> result = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Message toolMsg = agent.Conversation.Messages[2];
@@ -123,7 +123,7 @@ public class AgentTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([new FakeTool("loopy", "again")]));
 
-    Result<string> result = await agent.SendMessage("hi");
+    Result<string> result = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("finally done", result.Value);
@@ -136,7 +136,7 @@ public class AgentTests
         Result.Success(new ModelResponse("done", [])));
     Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
 
-    _ = await agent.SendMessage("hi");
+    _ = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(0, agent.LastTurnToolCalls);
   }
@@ -155,7 +155,7 @@ public class AgentTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([new FakeTool("t", "ok")]));
 
-    _ = await agent.SendMessage("hi");
+    _ = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(3, agent.LastTurnToolCalls);
   }
@@ -171,12 +171,12 @@ public class AgentTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([new FakeTool("t", "ok")]));
 
-    Result<string> first = await agent.SendMessage("hi");
+    Result<string> first = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
     Assert.True(first.IsSuccess);
     Assert.Equal(1, agent.LastTurnToolCalls);
 
-    Result<string> second = await agent.SendMessage("again");
+    Result<string> second = await agent.SendMessage("again", ct: TestContext.Current.CancellationToken);
 
     Assert.False(second.IsSuccess);
     Assert.Equal(0, agent.LastTurnToolCalls);
@@ -189,7 +189,7 @@ public class AgentTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([]), new AgentOptions { SystemPrompt = new StaticPromptProvider("guide text") });
 
-    _ = await agent.SendMessage("hi");
+    _ = await agent.SendMessage("hi", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("guide text", provider.LastRequest!.SystemPrompt);
   }

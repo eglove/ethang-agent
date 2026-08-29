@@ -14,7 +14,7 @@ public class AvaloniaClarifyChannelTests
   {
     AvaloniaClarifyChannel channel = new(null);
 
-    Result<string> result = await channel.AskAsync(new ClarifyQuestion("Which?", ["a", "b"], true));
+    Result<string> result = await channel.AskAsync(new ClarifyQuestion("Which?", ["a", "b"], true), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("PresenterUnavailable", result.Error.Code);
@@ -34,7 +34,7 @@ public class AvaloniaClarifyChannelTests
       return Task.FromResult(vm);
     });
 
-    Result<string> result = await channel.AskAsync(question);
+    Result<string> result = await channel.AskAsync(question, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("2", result.Value); // channel returns the raw selection; the tool maps it to text

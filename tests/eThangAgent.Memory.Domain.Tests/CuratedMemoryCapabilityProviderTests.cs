@@ -69,7 +69,7 @@ public class CuratedMemoryCapabilityProviderTests
   [Fact]
   public async Task Search_ZeroHits_ExactSingleLine()
   {
-    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("search", "{}");
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("search", "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[memories] 0 hit(s)", result.Content);
@@ -84,7 +84,7 @@ public class CuratedMemoryCapabilityProviderTests
         category: MemoryCategory.Preference, tags: ["api", "sql"],
         content: "Prefer explicit over implicit.", usageHint: "Cite in reviews.");
 
-    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}");
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal(
@@ -99,7 +99,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     Harness h = new();
 
-    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}");
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal(Workspace, h.Store._lastSearchWorkspaceId);
@@ -116,7 +116,7 @@ public class CuratedMemoryCapabilityProviderTests
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("search",
                              /*lang=json,strict*/
-                             """{"query":"ftx","category":"failure","tags":["api","sql"],"scope":"workspace","limit":5}""");
+                             """{"query":"ftx","category":"failure","tags":["api","sql"],"scope":"workspace","limit":5}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("ftx", h.Store._lastSearchQuery);
@@ -133,7 +133,7 @@ public class CuratedMemoryCapabilityProviderTests
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("search",
                              /*lang=json,strict*/
-                             """{"tags":["SQL"]}""");
+                             """{"tags":["SQL"]}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidTag]:", result.Content, StringComparison.Ordinal);
@@ -149,7 +149,7 @@ public class CuratedMemoryCapabilityProviderTests
     string longHint = new('y', 150);
     h.Store._rows[KnownId] = Row(id: KnownId, content: longContent, usageHint: longHint);
 
-    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}");
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}", ct: TestContext.Current.CancellationToken);
 
     string[] lines = result.Content.Split('\n');
     Assert.Equal(3, lines.Length);
@@ -165,7 +165,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     Harness h = new();
 
-    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", /*lang=json,strict*/ """{"limit":250}""");
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", /*lang=json,strict*/ """{"limit":250}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal(100, h.Store._lastSearchLimit);
@@ -179,7 +179,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     Harness h = new();
 
-    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", $$"""{"limit":{{limit}}}""");
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", $$"""{"limit":{{limit}}}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [InvalidLimit]: 'limit' must be an integer >= 1.", result.Content);
@@ -189,7 +189,7 @@ public class CuratedMemoryCapabilityProviderTests
   [Fact]
   public async Task Search_Category_IsExactLowercaseOnly()
   {
-    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("search", /*lang=json,strict*/ """{"category":"Insight"}""");
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("search", /*lang=json,strict*/ """{"category":"Insight"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidCategory]:", result.Content, StringComparison.Ordinal);
@@ -202,7 +202,7 @@ public class CuratedMemoryCapabilityProviderTests
   [Fact]
   public async Task Search_Scope_IsExactLowercaseOnly()
   {
-    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("search", /*lang=json,strict*/ """{"scope":"Galaxy"}""");
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("search", /*lang=json,strict*/ """{"scope":"Galaxy"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidScope]:", result.Content, StringComparison.Ordinal);
@@ -218,9 +218,9 @@ public class CuratedMemoryCapabilityProviderTests
     h.Store._rows[wsRow.Id] = wsRow;
     h.Store._rows[globalRow.Id] = globalRow;
 
-    CapabilityInvocationResult anyScope = await h.Provider().InvokeAsync("search", "{}");
-    CapabilityInvocationResult workspaceOnly = await h.Provider().InvokeAsync("search", /*lang=json,strict*/ """{"scope":"workspace"}""");
-    CapabilityInvocationResult globalOnly = await h.Provider().InvokeAsync("search", /*lang=json,strict*/ """{"scope":"global"}""");
+    CapabilityInvocationResult anyScope = await h.Provider().InvokeAsync("search", "{}", ct: TestContext.Current.CancellationToken);
+    CapabilityInvocationResult workspaceOnly = await h.Provider().InvokeAsync("search", /*lang=json,strict*/ """{"scope":"workspace"}""", ct: TestContext.Current.CancellationToken);
+    CapabilityInvocationResult globalOnly = await h.Provider().InvokeAsync("search", /*lang=json,strict*/ """{"scope":"global"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.Contains("ws note", anyScope.Content, StringComparison.Ordinal);
     Assert.Contains("global note", anyScope.Content, StringComparison.Ordinal);
@@ -239,7 +239,7 @@ public class CuratedMemoryCapabilityProviderTests
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
                              /*lang=json,strict*/
-                             """{"content":"  Deploy via winget.  ","category":"convention","tags":["deploy","winget","deploy"],"usage_hint":"Check before releases","scope":"workspace"}""");
+                             """{"content":"  Deploy via winget.  ","category":"convention","tags":["deploy","winget","deploy"],"usage_hint":"Check before releases","scope":"workspace"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal(1, h.Store._addCallCount);
@@ -269,7 +269,7 @@ public class CuratedMemoryCapabilityProviderTests
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
                              /*lang=json,strict*/
-                             """{"content":"Pin .NET 10 SDK.","category":"reference","scope":"global"}""");
+                             """{"content":"Pin .NET 10 SDK.","category":"reference","scope":"global"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     CuratedMemory stored = h.Store._rows.Values.Single();
@@ -289,7 +289,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     Harness h = new();
 
-    CapabilityInvocationResult result = await h.Provider().InvokeAsync("add", json);
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("add", json, ct: TestContext.Current.CancellationToken);
 
     Assert.StartsWith("Error [MissingContent]:", result.Content, StringComparison.Ordinal);
     Assert.Equal(0, h.Store._addCallCount);
@@ -303,7 +303,7 @@ public class CuratedMemoryCapabilityProviderTests
     string json = """{"content":""" + "\"" + new string('a', 4001) + "\""
                + ""","category":"insight","scope":"global"}""";
 
-    CapabilityInvocationResult result = await h.Provider().InvokeAsync("add", json);
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("add", json, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [ContentTooLong]:", result.Content, StringComparison.Ordinal);
@@ -319,7 +319,7 @@ public class CuratedMemoryCapabilityProviderTests
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
                              /*lang=json,strict*/
-                             """{"content":"note","scope":"workspace"}""");
+                             """{"content":"note","scope":"workspace"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.StartsWith("Error [MissingCategory]:", result.Content, StringComparison.Ordinal);
     Assert.Equal(0, h.Store._addCallCount);
@@ -331,7 +331,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("add",
                              /*lang=json,strict*/
-                             """{"content":"note","category":"Curated","scope":"workspace"}""");
+                             """{"content":"note","category":"Curated","scope":"workspace"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidCategory]:", result.Content, StringComparison.Ordinal);
@@ -348,7 +348,7 @@ public class CuratedMemoryCapabilityProviderTests
     string json = """{"content":"note","category":"insight","scope":"global","tags":["""
                + string.Join(",", tags.Select(t => $"\"{t}\"")) + "]}";
 
-    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("add", json);
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("add", json, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [TooManyTags]:", result.Content, StringComparison.Ordinal);
@@ -361,7 +361,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("add",
                              /*lang=json,strict*/
-                             """{"content":"note","category":"insight","scope":"global","tags":["Bad Tag"]}""");
+                             """{"content":"note","category":"insight","scope":"global","tags":["Bad Tag"]}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidTag]:", result.Content, StringComparison.Ordinal);
@@ -375,7 +375,7 @@ public class CuratedMemoryCapabilityProviderTests
     string json = """{"content":"note","category":"insight","scope":"global","usage_hint":"""
                + "\"" + new string('h', 201) + "\"}";
 
-    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("add", json);
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("add", json, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [HintTooLong]:", result.Content, StringComparison.Ordinal);
@@ -387,7 +387,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("add",
                              /*lang=json,strict*/
-                             """{"content":"note","category":"insight"}""");
+                             """{"content":"note","category":"insight"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.StartsWith("Error [MissingScope]:", result.Content, StringComparison.Ordinal);
   }
@@ -397,7 +397,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("add",
                              /*lang=json,strict*/
-                             """{"content":"note","category":"insight","scope":"Workspace"}""");
+                             """{"content":"note","category":"insight","scope":"Workspace"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidScope]:", result.Content, StringComparison.Ordinal);
@@ -411,7 +411,7 @@ public class CuratedMemoryCapabilityProviderTests
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
                              /*lang=json,strict*/
-                             """{"content":"note","category":"insight","scope":"global","session":"forged-id"}""");
+                             """{"content":"note","category":"insight","scope":"global","session":"forged-id"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", result.Content, StringComparison.Ordinal);
@@ -429,7 +429,7 @@ public class CuratedMemoryCapabilityProviderTests
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
                              /*lang=json,strict*/
-                             """{"content":"note","category":"insight","scope":"global"}""");
+                             """{"content":"note","category":"insight","scope":"global"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [StorageError]: disk unavailable", result.Content);
@@ -448,7 +448,7 @@ public class CuratedMemoryCapabilityProviderTests
     h.ClockValue = FixedNow.AddMinutes(5);
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("update",
-        $$"""{"id":"{{KnownId}}","expected_version":2,"content":"new body","tags":["fresh"]}""");
+        $$"""{"id":"{{KnownId}}","expected_version":2,"content":"new body","tags":["fresh"]}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal($"[memories] updated {KnownFullId} v3", result.Content);
@@ -471,7 +471,7 @@ public class CuratedMemoryCapabilityProviderTests
   [InlineData(/*lang=json,strict*/ """{"id":"3f2a9f0e-1111-2222-3333-444455556666","expected_version":"2","content":"x"}""")]
   public async Task Update_ExpectedVersion_MustBePresentIntegerAtLeastOne(string json)
   {
-    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("update", json);
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("update", json, ct: TestContext.Current.CancellationToken);
 
     Assert.StartsWith("Error [MissingVersion]:", result.Content, StringComparison.Ordinal);
   }
@@ -481,7 +481,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("update",
                              /*lang=json,strict*/
-                             """{"id":"not-a-guid","expected_version":1,"content":"x"}""");
+                             """{"id":"not-a-guid","expected_version":1,"content":"x"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.StartsWith("Error [InvalidId]:", result.Content, StringComparison.Ordinal);
     Assert.Contains("not-a-guid", result.Content, StringComparison.Ordinal);
@@ -493,7 +493,7 @@ public class CuratedMemoryCapabilityProviderTests
     Harness h = new();
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("update",
-        $$"""{"id":"{{KnownId}}","expected_version":2}""");
+        $$"""{"id":"{{KnownId}}","expected_version":2}""", ct: TestContext.Current.CancellationToken);
 
     Assert.StartsWith("Error [NothingToUpdate]:", result.Content, StringComparison.Ordinal);
     Assert.Equal(0, h.Store._getCallCount);
@@ -506,7 +506,7 @@ public class CuratedMemoryCapabilityProviderTests
     h.Store._rows[KnownId] = Row(id: KnownId, version: 3, content: "current truth");
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("update",
-        $$"""{"id":"{{KnownId}}","expected_version":2,"content":"stale write"}""");
+        $$"""{"id":"{{KnownId}}","expected_version":2,"content":"stale write"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [VersionConflict]: current stored version is 3.", result.Content);
@@ -518,7 +518,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Update_UnknownId_FailsMemoryNotFound()
   {
     CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("update",
-        $$"""{"id":"{{KnownId}}","expected_version":1,"content":"x"}""");
+        $$"""{"id":"{{KnownId}}","expected_version":1,"content":"x"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.StartsWith("Error [MemoryNotFound]:", result.Content, StringComparison.Ordinal);
   }
@@ -532,7 +532,7 @@ public class CuratedMemoryCapabilityProviderTests
     h.Store._rows[KnownId] = Row(id: KnownId);
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("remove",
-        $$"""{"id":"{{KnownId}}","confirm":true}""");
+        $$"""{"id":"{{KnownId}}","confirm":true}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal($"[memories] removed {KnownFullId}", result.Content);
@@ -549,7 +549,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     Harness h = new();
 
-    CapabilityInvocationResult result = await h.Provider().InvokeAsync("remove", json);
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("remove", json, ct: TestContext.Current.CancellationToken);
 
     Assert.StartsWith("Error [RemoveNotConfirmed]:", result.Content, StringComparison.Ordinal);
     Assert.Empty(h.Store._deletes);
@@ -559,7 +559,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Remove_UnknownId_FailsMemoryNotFound()
   {
     CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("remove",
-        $$"""{"id":"{{KnownId}}","confirm":true}""");
+        $$"""{"id":"{{KnownId}}","confirm":true}""", ct: TestContext.Current.CancellationToken);
 
     Assert.StartsWith("Error [MemoryNotFound]:", result.Content, StringComparison.Ordinal);
   }
@@ -573,7 +573,7 @@ public class CuratedMemoryCapabilityProviderTests
   [InlineData("remove", /*lang=json,strict*/ """{"bogus":1}""")]
   public async Task UnknownParameter_Rejected_OnEveryAction(string action, string json)
   {
-    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync(action, json);
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync(action, json, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", result.Content, StringComparison.Ordinal);
@@ -583,7 +583,7 @@ public class CuratedMemoryCapabilityProviderTests
   [Fact]
   public async Task MalformedJson_TypedInputError()
   {
-    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("search", "{oops");
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("search", "{oops", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", result.Content, StringComparison.Ordinal);
@@ -593,7 +593,7 @@ public class CuratedMemoryCapabilityProviderTests
   [Fact]
   public async Task NonObjectJson_Rejected()
   {
-    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("search", "[1,2]");
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("search", "[1,2]", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", result.Content, StringComparison.Ordinal);
@@ -603,7 +603,7 @@ public class CuratedMemoryCapabilityProviderTests
   [Fact]
   public async Task UnknownAction_ReturnsTypedError()
   {
-    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("upsert", "{}");
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("upsert", "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [UnknownAction]: Unknown action: upsert.", result.Content);

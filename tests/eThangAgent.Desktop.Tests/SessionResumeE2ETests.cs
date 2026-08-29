@@ -42,7 +42,7 @@ public class SessionResumeE2ETests
 
     // Resume through the real factory over the SAME temp database and mock server.
     AgentSessionFactory factory = host.CreateResumeFactory();
-    Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new ResumeStubChannel());
+    Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new ResumeStubChannel(), ct: TestContext.Current.CancellationToken);
     Assert.True(resumed.IsSuccess);
     AgentSession session = resumed.Value;
 

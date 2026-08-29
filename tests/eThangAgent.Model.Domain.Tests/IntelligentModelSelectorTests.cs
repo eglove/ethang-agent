@@ -75,7 +75,7 @@ public class IntelligentModelSelectorTests
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
-    Result<ModelSelectionResult> result = await selector.SelectAsync("write a C# function");
+    Result<ModelSelectionResult> result = await selector.SelectAsync("write a C# function", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("anthropic/claude-3.5-sonnet", result.Value.ModelId);
@@ -93,7 +93,7 @@ public class IntelligentModelSelectorTests
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
-    _ = await selector.SelectAsync("task");
+    _ = await selector.SelectAsync("task", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(2, provider.ReceivedConfigs.Count);
     Assert.All(provider.ReceivedConfigs, c => Assert.Equal(SelectorModelId, c.ModelId));
@@ -108,7 +108,7 @@ public class IntelligentModelSelectorTests
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
-    Result<ModelSelectionResult> result = await selector.SelectAsync("task");
+    Result<ModelSelectionResult> result = await selector.SelectAsync("task", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("CategorizationFailed", result.Error.Code);
@@ -121,7 +121,7 @@ public class IntelligentModelSelectorTests
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
-    Result<ModelSelectionResult> result = await selector.SelectAsync("task");
+    Result<ModelSelectionResult> result = await selector.SelectAsync("task", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("SelectionFailed", result.Error.Code);
@@ -135,7 +135,7 @@ public class IntelligentModelSelectorTests
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
-    Result<ModelSelectionResult> result = await selector.SelectAsync("task");
+    Result<ModelSelectionResult> result = await selector.SelectAsync("task", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("ModelNotFound", result.Error.Code);
@@ -148,7 +148,7 @@ public class IntelligentModelSelectorTests
     FakeModelCatalog catalog = new([]);
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
-    Result<ModelSelectionResult> result = await selector.SelectAsync("task");
+    Result<ModelSelectionResult> result = await selector.SelectAsync("task", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("CatalogEmpty", result.Error.Code);
@@ -161,7 +161,7 @@ public class IntelligentModelSelectorTests
     FailingCatalog catalog = new();
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
-    Result<ModelSelectionResult> result = await selector.SelectAsync("task");
+    Result<ModelSelectionResult> result = await selector.SelectAsync("task", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("CatalogUnavailable", result.Error.Code);
@@ -174,7 +174,7 @@ public class IntelligentModelSelectorTests
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
-    _ = await selector.SelectAsync("task");
+    _ = await selector.SelectAsync("task", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(2, provider.ReceivedUserMessages.Count);
     string stage2Message = provider.ReceivedUserMessages[1];
@@ -192,7 +192,7 @@ public class IntelligentModelSelectorTests
     FakeModelCatalog catalog = new(SampleCatalog);
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
-    _ = await selector.SelectAsync("task");
+    _ = await selector.SelectAsync("task", ct: TestContext.Current.CancellationToken);
 
     string stage2Message = provider.ReceivedUserMessages[1];
     Assert.Contains("google/gemini-2.0-flash-001", stage2Message, StringComparison.Ordinal);
@@ -213,7 +213,7 @@ public class IntelligentModelSelectorTests
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     HashSet<string> excluded = ["anthropic/claude-3.5-sonnet:Anthropic"];
-    Result<ModelSelectionResult> result = await selector.SelectAsync("task", excluded);
+    Result<ModelSelectionResult> result = await selector.SelectAsync("task", excluded, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("anthropic/claude-3.5-sonnet", result.Value.ModelId);
@@ -228,7 +228,7 @@ public class IntelligentModelSelectorTests
     IntelligentModelSelector selector = new(provider, catalog, SelectorModel);
 
     HashSet<string> excluded = [.. SampleCatalog.Select(c => c.Key)];
-    Result<ModelSelectionResult> result = await selector.SelectAsync("task", excluded);
+    Result<ModelSelectionResult> result = await selector.SelectAsync("task", excluded, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("NoMatchingModels", result.Error.Code);

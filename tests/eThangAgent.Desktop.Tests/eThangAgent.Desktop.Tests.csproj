@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <PackageReference Include="Avalonia.Headless.XUnit" Version="11.3.*" />
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.*" />
     <ProjectReference Include="../../src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
     <ProjectReference Include="../../src/eThangAgent.Desktop/eThangAgent.Desktop.csproj" />
   </ItemGroup>

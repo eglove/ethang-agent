@@ -34,7 +34,7 @@ public class StreamingFragmentTests
 
     List<string> content = [];
     List<string> reasoning = [];
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), content.Add, reasoning.Add);
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), content.Add, reasoning.Add, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(["think"], reasoning);

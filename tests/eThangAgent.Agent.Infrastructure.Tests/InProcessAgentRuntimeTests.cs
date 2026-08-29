@@ -97,7 +97,7 @@ public class InProcessAgentRuntimeTests
     InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 2);
     AgentRecord child = RunningChild();
 
-    Result<AgentId> result = await runtime.Start(child);
+    Result<AgentId> result = await runtime.Start(child, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(child.Id, result.Value);
@@ -140,7 +140,7 @@ public class InProcessAgentRuntimeTests
     InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 1);
     AgentRecord child = RunningChild();
 
-    _ = await runtime.Start(child);
+    _ = await runtime.Start(child, ct: TestContext.Current.CancellationToken);
     await runner.FirstCall.ConfigureAwait(true); // run is in-flight and parked on its token
 
     runtime.Interrupt(); // stop everything in this session's runtime
@@ -159,7 +159,7 @@ public class InProcessAgentRuntimeTests
     InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 1);
     AgentRecord child = RunningChild();
 
-    _ = await runtime.Start(child);
+    _ = await runtime.Start(child, ct: TestContext.Current.CancellationToken);
     await runner.FirstCall.ConfigureAwait(true);
 
     runtime.Interrupt(new AgentId(Guid.NewGuid()));
@@ -178,7 +178,7 @@ public class InProcessAgentRuntimeTests
     InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 1);
     AgentRecord child = RunningChild();
 
-    _ = await runtime.Start(child);
+    _ = await runtime.Start(child, ct: TestContext.Current.CancellationToken);
     runner.Complete(CompletedOutcome(child.Id, "the child report"));
 
     AgentRecord updated = await store.FirstUpdate.ConfigureAwait(true);
@@ -198,7 +198,7 @@ public class InProcessAgentRuntimeTests
     InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 1);
     AgentRecord child = RunningChild();
 
-    _ = await runtime.Start(child);
+    _ = await runtime.Start(child, ct: TestContext.Current.CancellationToken);
     runner.Throw(new InvalidOperationException("provider exploded"));
 
     AgentRecord updated = await store.FirstUpdate.ConfigureAwait(true);
@@ -218,11 +218,11 @@ public class InProcessAgentRuntimeTests
     InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 1);
     AgentRecord first = RunningChild();
 
-    Result<AgentId> accepted = await runtime.Start(first);
+    Result<AgentId> accepted = await runtime.Start(first, ct: TestContext.Current.CancellationToken);
     Assert.True(accepted.IsSuccess);
     await runner.FirstCall.ConfigureAwait(true); // the sole slot's child is provably in-flight
 
-    Result<AgentId> rejected = await runtime.Start(RunningChild());
+    Result<AgentId> rejected = await runtime.Start(RunningChild(), ct: TestContext.Current.CancellationToken);
 
     Assert.False(rejected.IsSuccess);
     Assert.NotNull(rejected.Error);
@@ -240,11 +240,11 @@ public class InProcessAgentRuntimeTests
     InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 1);
     AgentRecord first = RunningChild();
 
-    Result<AgentId> firstStart = await runtime.Start(first);
+    Result<AgentId> firstStart = await runtime.Start(first, ct: TestContext.Current.CancellationToken);
     Assert.True(firstStart.IsSuccess);
     await runner.FirstCall.ConfigureAwait(true);
 
-    Result<AgentId> blocked = await runtime.Start(RunningChild());
+    Result<AgentId> blocked = await runtime.Start(RunningChild(), ct: TestContext.Current.CancellationToken);
     Assert.False(blocked.IsSuccess); // slot held by the gated child
 
     runner.Complete(CompletedOutcome(first.Id, "first done"));
@@ -252,12 +252,12 @@ public class InProcessAgentRuntimeTests
 
     AgentRecord next = RunningChild();
     // Slot release races the awaited update; poll briefly until the freed slot admits the child.
-    Result<AgentId> secondStart = await runtime.Start(next);
+    Result<AgentId> secondStart = await runtime.Start(next, ct: TestContext.Current.CancellationToken);
     DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
     while (!secondStart.IsSuccess && DateTime.UtcNow < deadline)
     {
-      await Task.Delay(10);
-      secondStart = await runtime.Start(next);
+      await Task.Delay(10, TestContext.Current.CancellationToken);
+      secondStart = await runtime.Start(next, ct: TestContext.Current.CancellationToken);
     }
 
     Assert.True(secondStart.IsSuccess);

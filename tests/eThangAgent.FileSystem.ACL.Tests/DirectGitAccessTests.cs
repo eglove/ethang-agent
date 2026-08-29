@@ -65,7 +65,7 @@ public sealed class DirectGitAccessTests : IDisposable
   {
     DirectGitAccess access = new();
 
-    Result<GitStatus> r = await access.GetStatusAsync(_repoDir);
+    Result<GitStatus> r = await access.GetStatusAsync(_repoDir, ct: TestContext.Current.CancellationToken);
 
     Assert.True(r.IsSuccess);
     Assert.Empty(r.Value.Staged);
@@ -76,10 +76,10 @@ public sealed class DirectGitAccessTests : IDisposable
   [Fact]
   public async Task GetStatusAsync_WithUntrackedFile_ReturnsEntry()
   {
-    await File.WriteAllTextAsync(Path.Combine(_repoDir, "test.txt"), "hello");
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "test.txt"), "hello", TestContext.Current.CancellationToken);
     DirectGitAccess access = new();
 
-    Result<GitStatus> r = await access.GetStatusAsync(_repoDir);
+    Result<GitStatus> r = await access.GetStatusAsync(_repoDir, ct: TestContext.Current.CancellationToken);
 
     Assert.True(r.IsSuccess);
     Assert.NotEmpty(r.Value.Untracked);
@@ -88,11 +88,11 @@ public sealed class DirectGitAccessTests : IDisposable
   [Fact]
   public async Task CommitAsync_WithStagedChange_ReturnsHash()
   {
-    await File.WriteAllTextAsync(Path.Combine(_repoDir, "staged.txt"), "content");
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "staged.txt"), "content", TestContext.Current.CancellationToken);
     RunGit("add", "staged.txt");
     DirectGitAccess access = new();
 
-    Result<GitCommitOutcome> r = await access.CommitAsync(_repoDir, "feat: test commit");
+    Result<GitCommitOutcome> r = await access.CommitAsync(_repoDir, "feat: test commit", ct: TestContext.Current.CancellationToken);
 
     Assert.True(r.IsSuccess);
     Assert.NotEmpty(r.Value.Hash);
@@ -104,7 +104,7 @@ public sealed class DirectGitAccessTests : IDisposable
   {
     DirectGitAccess access = new();
 
-    Result<GitDiff> r = await access.GetDiffAsync(_repoDir, "Unstaged", path: null);
+    Result<GitDiff> r = await access.GetDiffAsync(_repoDir, "Unstaged", path: null, ct: TestContext.Current.CancellationToken);
 
     Assert.True(r.IsSuccess);
     Assert.Equal(0, r.Value.Stats.Files);

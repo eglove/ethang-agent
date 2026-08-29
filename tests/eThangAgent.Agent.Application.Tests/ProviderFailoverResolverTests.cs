@@ -66,7 +66,7 @@ public class ProviderFailoverResolverTests
         identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f);
 
     (ModelConfig? config, string? notice) = await resolver.ReSelectExcludingAsync(
-        "failed-model", "FailedProvider", "task prompt");
+        "failed-model", "FailedProvider", "task prompt", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("new-model", config.ModelId);
     Assert.Equal("NewProvider", config.Provider);
@@ -85,7 +85,7 @@ public class ProviderFailoverResolverTests
         identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f);
 
     (ModelConfig? config, string? notice) = await resolver.ReSelectExcludingAsync(
-        "failed-model", "FailedProvider", "task prompt");
+        "failed-model", "FailedProvider", "task prompt", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(FallbackModel, config.ModelId);
     Assert.Null(config.Provider);
@@ -101,7 +101,7 @@ public class ProviderFailoverResolverTests
     ProviderFailoverResolver resolver = new(selector, exclusions,
         identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f);
 
-    _ = await resolver.ReSelectExcludingAsync("failed", "Failed", "task");
+    _ = await resolver.ReSelectExcludingAsync("failed", "Failed", "task", ct: TestContext.Current.CancellationToken);
 
     IReadOnlySet<string>? received = Assert.Single(selector.ReceivedExcludedKeys);
     Assert.Contains("prior:model", received!);

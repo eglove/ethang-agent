@@ -99,7 +99,7 @@ public class SubAgentSpawnerTests
 
     AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "do things"), CancellationToken.None);
 
-    Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(outcome.ChildId);
+    Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(outcome.ChildId, ct: TestContext.Current.CancellationToken);
 
     Assert.True(transcript.IsSuccess);
     Assert.Equal(2, transcript.Value.Count);
@@ -133,7 +133,7 @@ public class SubAgentSpawnerTests
     // The tool result was appended after request 1 was sent, so it lives in the child's
     // conversation — requests are frozen snapshots, not live views of the growing list.
     AgentId outcomeChildId = store.Updated.Single().Id;
-    Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(outcomeChildId);
+    Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(outcomeChildId, ct: TestContext.Current.CancellationToken);
     Assert.True(transcript.IsSuccess);
     Assert.Equal(4, transcript.Value.Count);
     Assert.Equal("file content", transcript.Value[2].Content); // tool result fed back

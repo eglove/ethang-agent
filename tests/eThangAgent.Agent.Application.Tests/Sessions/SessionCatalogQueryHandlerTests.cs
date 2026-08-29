@@ -26,10 +26,10 @@ public class SessionCatalogQueryHandlerTests
     AgentRecord older = AgentRecord.Root(AgentId.NewId(), At(0), "C:/ws/a", "openrouter");
     AgentRecord newer = AgentRecord.Root(AgentId.NewId(), At(5), "C:/ws/b", "zai");
     // Insert oldest first; the listing must come back newest first.
-    _ = await _store.SaveAsync(older);
-    _ = await _store.SaveAsync(newer);
+    _ = await _store.SaveAsync(older, ct: TestContext.Current.CancellationToken);
+    _ = await _store.SaveAsync(newer, ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync();
+    Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync(TestContext.Current.CancellationToken);
 
     Assert.True(listed.IsSuccess);
     Assert.Equal([newer.Id, older.Id], listed.Value.Select(e => e.Id).ToList());
@@ -42,14 +42,14 @@ public class SessionCatalogQueryHandlerTests
   [Fact]
   public async Task List_Skips_Children_And_Unbound_Rows()
   {
-    _ = await _store.SaveAsync(AgentRecord.Root(AgentId.NewId(), At(0), "C:/ws/a", "openrouter"));
+    _ = await _store.SaveAsync(AgentRecord.Root(AgentId.NewId(), At(0), "C:/ws/a", "openrouter"), ct: TestContext.Current.CancellationToken);
     _ = await _store.SaveAsync(AgentRecord.Spawned(AgentId.NewId(), AgentId.NewId(), depth: 1,
-        modelUsed: "m", label: "child", taskPrompt: "task", createdAt: At(1)));
+        modelUsed: "m", label: "child", taskPrompt: "task", createdAt: At(1)), ct: TestContext.Current.CancellationToken);
     // A root persisted before the workspace-binding migration carries no binding.
     _ = await _store.SaveAsync(new AgentRecord(AgentId.NewId(), null, 0, AgentStatus.Completed,
-        null, "unassigned", "root", "conversation root", At(2), At(3), null));
+        null, "unassigned", "root", "conversation root", At(2), At(3), null), ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync();
+    Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync(TestContext.Current.CancellationToken);
 
     Assert.True(listed.IsSuccess);
     _ = Assert.Single(listed.Value);
@@ -61,7 +61,7 @@ public class SessionCatalogQueryHandlerTests
   {
     _store.ListAllFailure = new DomainError("DbDown", "nope");
 
-    Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync();
+    Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync(TestContext.Current.CancellationToken);
 
     Assert.False(listed.IsSuccess);
     Assert.Equal("DbDown", listed.Error.Code);

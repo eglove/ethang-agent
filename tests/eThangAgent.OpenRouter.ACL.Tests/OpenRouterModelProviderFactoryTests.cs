@@ -37,7 +37,7 @@ public class OpenRouterModelProviderFactoryTests
 
     Result<ModelResponse> result = await provider.SendAsync(
         ModelConfig.Create("mock/sub-model", null, 128, 0.7f).Value!,
-        new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]));
+        new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Contains("\"model\":\"mock/sub-model\"", body, StringComparison.Ordinal);

@@ -55,7 +55,7 @@ public class AgentSteeringTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([tool]));
 
-    _ = await agent.SendMessage("start", default, inbox: inbox);
+    _ = await agent.SendMessage("start", default, inbox: inbox, ct: TestContext.Current.CancellationToken);
 
     // The turn added a tool result, a steered user message, and a final answer after
     // request 1 was sent — none of it may appear in the captured first request.
@@ -76,7 +76,7 @@ public class AgentSteeringTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([tool]));
 
-    Result<string> result = await agent.SendMessage("start", default, inbox: inbox);
+    Result<string> result = await agent.SendMessage("start", default, inbox: inbox, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(2, provider.Calls);
@@ -94,7 +94,7 @@ public class AgentSteeringTests
     ScriptedProvider provider = new();
     Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
 
-    Result<string> result = await agent.SendMessage("fresh question", default, inbox: inbox);
+    Result<string> result = await agent.SendMessage("fresh question", default, inbox: inbox, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     IReadOnlyList<Message> first = provider.RequestsSeen[0].Messages;
@@ -118,7 +118,7 @@ public class AgentSteeringTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([tool]));
 
-    _ = await agent.SendMessage("go", default, inbox: inbox);
+    _ = await agent.SendMessage("go", default, inbox: inbox, ct: TestContext.Current.CancellationToken);
 
     // Drained after the tool batch: tool result precedes the steered user message.
     IReadOnlyList<Message> messages = agent.Conversation.Messages;
@@ -163,7 +163,7 @@ public class AgentSteeringTests
     ScriptedProvider provider = new(new ModelResponse("plain answer", []));
     Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
 
-    Result<string> result = await agent.SendMessage("hi", default);
+    Result<string> result = await agent.SendMessage("hi", default, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("plain answer", result.Value);

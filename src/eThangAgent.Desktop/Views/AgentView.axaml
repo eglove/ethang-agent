@@ -1,7 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:eThangAgent.Desktop.ViewModels"
-             x:Class="eThangAgent.Desktop.Views.AgentView">
+             x:Class="eThangAgent.Desktop.Views.AgentView"
+             x:DataType="vm:AgentSessionViewModel">
   <DockPanel>
     <!-- Status bar: phase, provider, model id, reasoning effort. -->
     <Border DockPanel.Dock="Bottom" Background="#22000000">
@@ -25,7 +26,7 @@
                    IsVisible="{Binding Clarify.ValidationMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
         <ItemsControl ItemsSource="{Binding Clarify.Options}" Margin="8,2">
           <ItemsControl.ItemTemplate>
-            <DataTemplate>
+            <DataTemplate x:DataType="x:String">
               <Button Content="{Binding}" Click="OnClarifyOption" Margin="2"/>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
@@ -43,7 +44,7 @@
            then steers the active turn; the Stop button interrupts it. -->
       <StackPanel x:Name="InputArea" DockPanel.Dock="Bottom">
         <StackPanel Orientation="Horizontal" Spacing="8">
-          <TextBox x:Name="InputBox" Width="480" Watermark="Type a message"
+          <TextBox x:Name="InputBox" Width="480" PlaceholderText="Type a message"
                    AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/>
           <Button x:Name="StopButton" Content="Stop"
                   IsVisible="{Binding IsBusy}" Click="OnStopClick" VerticalAlignment="Top"/>

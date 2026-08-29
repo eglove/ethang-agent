@@ -13,7 +13,7 @@ public class StateServiceSearchTests
   public async Task Search_PassesQueryAndLimit_ToStore()
   {
     _store.Hits = [new StateSearchHit("plans", "p1", "snippet one")];
-    Result<IReadOnlyList<StateSearchHit>> r = await Service().SearchAsync("ledger", 5);
+    Result<IReadOnlyList<StateSearchHit>> r = await Service().SearchAsync("ledger", 5, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     Assert.Equal("ledger", _store.LastQuery);
     Assert.Equal(5, _store.LastLimit);
@@ -24,24 +24,24 @@ public class StateServiceSearchTests
   [Fact]
   public async Task Search_EmptyOrWhitespaceQuery_Fails()
   {
-    Assert.Equal("InvalidQuery", (await Service().SearchAsync("", 20)).Error!.Code);
-    Assert.Equal("InvalidQuery", (await Service().SearchAsync("   ", 20)).Error!.Code);
+    Assert.Equal("InvalidQuery", (await Service().SearchAsync("", 20, ct: TestContext.Current.CancellationToken)).Error!.Code);
+    Assert.Equal("InvalidQuery", (await Service().SearchAsync("   ", 20, ct: TestContext.Current.CancellationToken)).Error!.Code);
     Assert.Null(_store.LastQuery); // never reached the store
   }
 
   [Fact]
   public async Task Search_LimitOutOfRange_Fails()
   {
-    Assert.Equal("InvalidLimit", (await Service().SearchAsync("x", 0)).Error!.Code);
-    Assert.Equal("InvalidLimit", (await Service().SearchAsync("x", 101)).Error!.Code);
+    Assert.Equal("InvalidLimit", (await Service().SearchAsync("x", 0, ct: TestContext.Current.CancellationToken)).Error!.Code);
+    Assert.Equal("InvalidLimit", (await Service().SearchAsync("x", 101, ct: TestContext.Current.CancellationToken)).Error!.Code);
     Assert.Null(_store.LastQuery);
   }
 
   [Fact]
   public async Task Search_LimitBoundaryValues_Accepted()
   {
-    _ = await Service().SearchAsync("x", 1);
-    _ = await Service().SearchAsync("x", 100);
+    _ = await Service().SearchAsync("x", 1, ct: TestContext.Current.CancellationToken);
+    _ = await Service().SearchAsync("x", 100, ct: TestContext.Current.CancellationToken);
     Assert.Equal(100, _store.LastLimit);
   }
 
@@ -49,7 +49,7 @@ public class StateServiceSearchTests
   public async Task Search_StoreFailure_SurfacesAsGutter()
   {
     _store.Failure = new DomainError("InvalidQuery", "fts5: syntax error near \"(\"");
-    Result<IReadOnlyList<StateSearchHit>> r = await Service().SearchAsync("AND (", 20);
+    Result<IReadOnlyList<StateSearchHit>> r = await Service().SearchAsync("AND (", 20, ct: TestContext.Current.CancellationToken);
     Assert.False(r.IsSuccess);
     Assert.Equal("InvalidQuery", r.Error.Code);
   }

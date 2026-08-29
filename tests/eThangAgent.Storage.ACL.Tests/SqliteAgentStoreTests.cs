@@ -47,11 +47,11 @@ public sealed class SqliteAgentStoreTests : IDisposable
         AgentId.NewId(), null, 0, AgentStatus.Running, null, "provider/model-root",
         null, "root task", new DateTimeOffset(2026, 8, 21, 9, 0, 0, TimeSpan.Zero), null, null);
 
-    Assert.True((await _store.SaveAsync(populated)).IsSuccess);
-    Assert.True((await _store.SaveAsync(root)).IsSuccess);
+    Assert.True((await _store.SaveAsync(populated, ct: TestContext.Current.CancellationToken)).IsSuccess);
+    Assert.True((await _store.SaveAsync(root, ct: TestContext.Current.CancellationToken)).IsSuccess);
 
-    Assert.Equal(populated, (await _store.GetAsync(populated.Id)).Value);
-    Assert.Equal(root, (await _store.GetAsync(root.Id)).Value);
+    Assert.Equal(populated, (await _store.GetAsync(populated.Id, ct: TestContext.Current.CancellationToken)).Value);
+    Assert.Equal(root, (await _store.GetAsync(root.Id, ct: TestContext.Current.CancellationToken)).Value);
   }
 
   [Fact]
@@ -60,7 +60,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
     AgentRecord running = AgentRecord.Spawned(
         AgentId.NewId(), AgentId.NewId(), 1, "provider/model", "child", "do work",
         new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero));
-    _ = await _store.SaveAsync(running);
+    _ = await _store.SaveAsync(running, ct: TestContext.Current.CancellationToken);
 
     AgentRecord completed = running with
     {
@@ -68,10 +68,10 @@ public sealed class SqliteAgentStoreTests : IDisposable
       CompletedAt = new DateTimeOffset(2026, 8, 21, 10, 3, 30, TimeSpan.Zero),
       FinalReport = "the final report",
     };
-    Result<string> updated = await _store.UpdateAsync(completed);
+    Result<string> updated = await _store.UpdateAsync(completed, ct: TestContext.Current.CancellationToken);
 
     Assert.True(updated.IsSuccess);
-    Assert.Equal(completed, (await _store.GetAsync(running.Id)).Value);
+    Assert.Equal(completed, (await _store.GetAsync(running.Id, ct: TestContext.Current.CancellationToken)).Value);
   }
 
   [Fact]
@@ -80,7 +80,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
     AgentId id = AgentId.NewId();
     _ = await _store.SaveAsync(AgentRecord.Spawned(
         id, null, 1, "provider/model", null, "task",
-        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero)));
+        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero)), ct: TestContext.Current.CancellationToken);
 
     Message first = new(Role.User, "first prompt",
         new DateTimeOffset(2026, 8, 21, 10, 0, 1, TimeSpan.Zero));
@@ -90,11 +90,11 @@ public sealed class SqliteAgentStoreTests : IDisposable
     Message third = new(Role.Tool, "tool output",
         new DateTimeOffset(2026, 8, 21, 10, 0, 3, TimeSpan.Zero), ToolCallId: "call_1");
 
-    _ = await _store.AppendMessageAsync(id, first);
-    _ = await _store.AppendMessageAsync(id, second);
-    _ = await _store.AppendMessageAsync(id, third);
+    _ = await _store.AppendMessageAsync(id, first, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AppendMessageAsync(id, second, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AppendMessageAsync(id, third, ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(id);
+    Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(id, ct: TestContext.Current.CancellationToken);
 
     Assert.True(transcript.IsSuccess);
     Assert.Equal(3, transcript.Value.Count);
@@ -123,11 +123,11 @@ public sealed class SqliteAgentStoreTests : IDisposable
     AgentId missing = AgentId.NewId();
     AgentRecord record = FullyPopulatedRecord(missing);
 
-    Assert.Equal("NotFound", (await _store.GetAsync(missing)).Error!.Code);
-    Assert.Equal("NotFound", (await _store.UpdateAsync(record)).Error!.Code);
+    Assert.Equal("NotFound", (await _store.GetAsync(missing, ct: TestContext.Current.CancellationToken)).Error!.Code);
+    Assert.Equal("NotFound", (await _store.UpdateAsync(record, ct: TestContext.Current.CancellationToken)).Error!.Code);
     Assert.Equal("NotFound", (await _store.AppendMessageAsync(missing,
-        new Message(Role.User, "x", DateTimeOffset.UtcNow))).Error!.Code);
-    Assert.Equal("NotFound", (await _store.GetTranscriptAsync(missing)).Error!.Code);
+        new Message(Role.User, "x", DateTimeOffset.UtcNow), ct: TestContext.Current.CancellationToken)).Error!.Code);
+    Assert.Equal("NotFound", (await _store.GetTranscriptAsync(missing, ct: TestContext.Current.CancellationToken)).Error!.Code);
   }
 
   [Fact]
@@ -147,10 +147,10 @@ public sealed class SqliteAgentStoreTests : IDisposable
 
     foreach (AgentRecord? child in new[] { newest, otherParent, oldest, middle })
     {
-      _ = await _store.SaveAsync(child);
+      _ = await _store.SaveAsync(child, ct: TestContext.Current.CancellationToken);
     }
 
-    Result<IReadOnlyList<AgentRecord>> children = await _store.ListChildrenAsync(parentA);
+    Result<IReadOnlyList<AgentRecord>> children = await _store.ListChildrenAsync(parentA, ct: TestContext.Current.CancellationToken);
 
     Assert.True(children.IsSuccess);
     Assert.Equal([oldest.Id, middle.Id, newest.Id],
@@ -170,13 +170,13 @@ public sealed class SqliteAgentStoreTests : IDisposable
         new DateTimeOffset(2026, 8, 21, 10, 4, 0, TimeSpan.Zero), AgentStatus.Failed,
         AgentFailureReason.ProviderError);
 
-    _ = await _store.AppendEventAsync(spawned);
+    _ = await _store.AppendEventAsync(spawned, ct: TestContext.Current.CancellationToken);
     _ = await _store.AppendEventAsync(new AgentSpawned(otherId,
-        new DateTimeOffset(2026, 8, 21, 10, 1, 0, TimeSpan.Zero), 1, "provider/model", null));
-    _ = await _store.AppendEventAsync(completed);
-    _ = await _store.AppendEventAsync(failed);
+        new DateTimeOffset(2026, 8, 21, 10, 1, 0, TimeSpan.Zero), 1, "provider/model", null), ct: TestContext.Current.CancellationToken);
+    _ = await _store.AppendEventAsync(completed, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AppendEventAsync(failed, ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<AgentDomainEvent>> events = await _store.GetEventsAsync(id);
+    Result<IReadOnlyList<AgentDomainEvent>> events = await _store.GetEventsAsync(id, ct: TestContext.Current.CancellationToken);
 
     Assert.True(events.IsSuccess);
     Assert.Equal(3, events.Value.Count);
@@ -191,14 +191,14 @@ public sealed class SqliteAgentStoreTests : IDisposable
     AgentId id = AgentId.NewId();
     AgentRecord record = AgentRecord.Spawned(id, null, 1, "provider/model", null, "task",
         new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero));
-    _ = await _store.SaveAsync(record);
+    _ = await _store.SaveAsync(record, ct: TestContext.Current.CancellationToken);
     _ = await _store.AppendMessageAsync(id,
-        new Message(Role.User, "hello", new DateTimeOffset(2026, 8, 21, 10, 0, 1, TimeSpan.Zero)));
+        new Message(Role.User, "hello", new DateTimeOffset(2026, 8, 21, 10, 0, 1, TimeSpan.Zero)), ct: TestContext.Current.CancellationToken);
 
     SqliteAgentStore reopened = new(new AppDatabase(_dbPath));
 
-    Assert.Equal(record, (await reopened.GetAsync(id)).Value);
-    Result<IReadOnlyList<Message>> transcript = await reopened.GetTranscriptAsync(id);
+    Assert.Equal(record, (await reopened.GetAsync(id, ct: TestContext.Current.CancellationToken)).Value);
+    Result<IReadOnlyList<Message>> transcript = await reopened.GetTranscriptAsync(id, ct: TestContext.Current.CancellationToken);
     _ = Assert.Single(transcript.Value!);
     Assert.Equal("hello", transcript.Value![0].Content);
   }

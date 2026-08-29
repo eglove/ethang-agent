@@ -81,7 +81,7 @@ public class AgentCapabilityProviderTests
 
     CapabilityInvocationResult result = await provider.InvokeAsync("spawn",
                              /*lang=json,strict*/
-                             """{"taskPrompt":"summarize","model":"prov/model-x","label":"research"}""");
+                             """{"taskPrompt":"summarize","model":"prov/model-x","label":"research"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     // Non-blocking contract: exactly the running line — no report gutter, no label segment.
@@ -102,7 +102,7 @@ public class AgentCapabilityProviderTests
         Result.Failure<AgentId>(new DomainError("DepthExceeded",
             "agent depth 2 is at the limit (3); children cannot spawn further")));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("spawn", /*lang=json,strict*/ """{"taskPrompt":"x"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("spawn", /*lang=json,strict*/ """{"taskPrompt":"x"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [DepthExceeded]: agent depth 2 is at the limit (3); children cannot spawn further",
@@ -120,7 +120,7 @@ public class AgentCapabilityProviderTests
     DomainError error = new(canonical[codeStart..codeEnd], canonical[(codeEnd + 3)..]);
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), Result.Failure<AgentId>(error));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("spawn", /*lang=json,strict*/ """{"taskPrompt":"x"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("spawn", /*lang=json,strict*/ """{"taskPrompt":"x"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Equal(canonical, result.Content);
@@ -135,7 +135,7 @@ public class AgentCapabilityProviderTests
   {
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)>? calls) = MakeProvider(ParentAtDepth(0));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("spawn", json);
+    CapabilityInvocationResult result = await provider.InvokeAsync("spawn", json, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains(expected, result.Content, StringComparison.Ordinal);
@@ -151,7 +151,7 @@ public class AgentCapabilityProviderTests
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries? queries, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._statuses[child.Id] =
         Result.Success(child));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal($"id={child.Id} status=running", result.Content);
@@ -165,7 +165,7 @@ public class AgentCapabilityProviderTests
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._statuses[child.Id] =
         Result.Success(child));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal($"id={child.Id} status=completed", result.Content);
@@ -181,7 +181,7 @@ public class AgentCapabilityProviderTests
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._statuses[child.Id] =
         Result.Success(child));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal($"id={child.Id} status=failed reason={text}", result.Content);
@@ -194,7 +194,7 @@ public class AgentCapabilityProviderTests
     string notFound = RuntimeErrors.NotFound(id.Value);
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{id}}"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("status", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Equal(notFound, result.Content);
@@ -205,7 +205,7 @@ public class AgentCapabilityProviderTests
   {
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries? queries, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("status", "{}");
+    CapabilityInvocationResult result = await provider.InvokeAsync("status", "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("'id' must be a GUID string.", result.Content, StringComparison.Ordinal);
@@ -222,7 +222,7 @@ public class AgentCapabilityProviderTests
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries? queries, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._results[child.Id] =
         Result.Success(report));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("result", $$"""{"id":"{{child.Id}}"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("result", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal(report, result.Content);
@@ -237,7 +237,7 @@ public class AgentCapabilityProviderTests
         Result.Failure<string>(new DomainError("NotComplete",
             $"Agent '{id}' has not finished running. Check agent.status later.")));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("result", $$"""{"id":"{{id}}"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("result", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Equal(RuntimeErrors.NotComplete(id.Value), result.Content);
@@ -250,7 +250,7 @@ public class AgentCapabilityProviderTests
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), seed: q => q._results[id] =
         Result.Failure<string>(new DomainError("NotFound", $"No agent exists with id '{id}'.")));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("result", $$"""{"id":"{{id}}"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("result", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Equal(RuntimeErrors.NotFound(id.Value), result.Content);
@@ -263,7 +263,7 @@ public class AgentCapabilityProviderTests
 
     CapabilityInvocationResult result = await provider.InvokeAsync("result",
                              /*lang=json,strict*/
-                             """{"id":"not-a-guid"}""");
+                             """{"id":"not-a-guid"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("'id' must be a GUID string.", result.Content, StringComparison.Ordinal);
@@ -277,7 +277,7 @@ public class AgentCapabilityProviderTests
   {
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("nope", "{}");
+    CapabilityInvocationResult result = await provider.InvokeAsync("nope", "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [UnknownAction]: Unknown action: nope.", result.Content);

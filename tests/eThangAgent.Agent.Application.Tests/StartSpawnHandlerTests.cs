@@ -34,7 +34,7 @@ public class StartSpawnHandlerTests
     StartSpawnHandler handler = new(store, runtime, options, new SpawnOptions(FallbackModel));
     AgentRecord parent = Parent(depth: 1);
 
-    Result<AgentId> result = await handler.Execute(parent, new SpawnRequest("do the thing", Model: "explicit-model", Label: "lbl"));
+    Result<AgentId> result = await handler.Execute(parent, new SpawnRequest("do the thing", Model: "explicit-model", Label: "lbl"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     _ = Assert.Single(store.Saved);
@@ -65,7 +65,7 @@ public class StartSpawnHandlerTests
     FakeAgentRuntime runtime = new();
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel));
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest(""));
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest(""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("InvalidSpawnRequest", result.Error.Code);
@@ -81,7 +81,7 @@ public class StartSpawnHandlerTests
     FakeAgentRuntime runtime = new();
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel));
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task", Model: "   "));
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task", Model: "   "), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("InvalidSpawnRequest", result.Error.Code);
@@ -97,7 +97,7 @@ public class StartSpawnHandlerTests
     FakeAgentRuntime runtime = new();
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m", MaxDepth: 3), new SpawnOptions(FallbackModel));
 
-    Result<AgentId> result = await handler.Execute(Parent(depth: 3), new SpawnRequest("task"));
+    Result<AgentId> result = await handler.Execute(Parent(depth: 3), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("DepthExceeded", result.Error.Code);
@@ -113,7 +113,7 @@ public class StartSpawnHandlerTests
     FakeAgentRuntime runtime = new();
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel));
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     AgentRecord saved = Assert.Single(store.Saved);
@@ -128,7 +128,7 @@ public class StartSpawnHandlerTests
     FakeAgentRuntime runtime = new();
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "fallback-model"), new SpawnOptions(FallbackModel));
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     AgentRecord saved = Assert.Single(store.Saved);
@@ -144,7 +144,7 @@ public class StartSpawnHandlerTests
     FakeAgentRuntime runtime = new() { StartOutcome = Result.Failure<AgentId>(capError) };
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel));
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Same(capError, result.Error);
@@ -161,7 +161,7 @@ public class StartSpawnHandlerTests
     FakeAgentRuntime runtime = new();
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel));
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Same(saveError, result.Error);
@@ -179,7 +179,7 @@ public class StartSpawnHandlerTests
     FakeModelSelector selector = new(selection);
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel), selector);
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"));
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     AgentRecord saved = Assert.Single(store.Saved);
@@ -194,7 +194,7 @@ public class StartSpawnHandlerTests
     FailingModelSelector selector = new();
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel), selector);
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"));
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     AgentRecord saved = Assert.Single(store.Saved);
@@ -209,7 +209,7 @@ public class StartSpawnHandlerTests
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "glm-5.3-flash"), new SpawnOptions(FallbackModel, preferences));
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"));
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     AgentRecord saved = Assert.Single(store.Saved);
@@ -224,7 +224,7 @@ public class StartSpawnHandlerTests
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "glm-5.3-flash"), new SpawnOptions(FallbackModel, preferences));
 
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task", Model: "spawn-specific"));
+    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task", Model: "spawn-specific"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     AgentRecord saved = Assert.Single(store.Saved);
@@ -239,9 +239,9 @@ public class StartSpawnHandlerTests
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3-flash" };
     StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel, preferences));
 
-    _ = await handler.Execute(Parent(), new SpawnRequest("first"));
+    _ = await handler.Execute(Parent(), new SpawnRequest("first"), ct: TestContext.Current.CancellationToken);
     preferences.ModelId = "glm-5.3";
-    _ = await handler.Execute(Parent(), new SpawnRequest("second"));
+    _ = await handler.Execute(Parent(), new SpawnRequest("second"), ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(2, store.Saved.Count);
     Assert.Equal("glm-5.3-flash", store.Saved[0].ModelUsed);

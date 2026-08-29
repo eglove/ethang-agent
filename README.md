@@ -129,7 +129,7 @@ The active provider is chosen per agent in the Open-Agent dialog — switching p
 
 ```powershell
 dotnet build   # solution: eThangAgent.slnx
-dotnet test    # xUnit — unit, integration, and E2E layers
+dotnet test    # xUnit v3 on Microsoft.Testing.Platform — unit, integration, E2E
 ```
 
 Production build (framework-dependent single file for win-x64):

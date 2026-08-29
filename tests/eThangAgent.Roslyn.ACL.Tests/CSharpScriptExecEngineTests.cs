@@ -17,7 +17,7 @@ public class CSharpScriptExecEngineTests
   public async Task StringReturnValue_BecomesOutput()
   {
     CSharpScriptExecEngine engine = CreateEngine();
-    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("\"hello from csharp\""));
+    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("\"hello from csharp\""), ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
     Assert.Equal("hello from csharp", run.Output);
@@ -28,7 +28,7 @@ public class CSharpScriptExecEngineTests
   public async Task IntReturnValue_SerializedToJson()
   {
     CSharpScriptExecEngine engine = CreateEngine();
-    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("42"));
+    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("42"), ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
     Assert.Equal("42", run.Output);
@@ -38,7 +38,7 @@ public class CSharpScriptExecEngineTests
   public async Task VoidScript_ReturnsEmptyOutput()
   {
     CSharpScriptExecEngine engine = CreateEngine();
-    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("var x = 1 + 1;"));
+    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("var x = 1 + 1;"), ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
     Assert.Equal("", run.Output);
@@ -48,7 +48,7 @@ public class CSharpScriptExecEngineTests
   public async Task Output_CapturesLinesDuringExecution()
   {
     CSharpScriptExecEngine engine = CreateEngine();
-    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("Output(\"line1\"); Output(\"line2\"); 0"));
+    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("Output(\"line1\"); Output(\"line2\"); 0"), ct: TestContext.Current.CancellationToken);
 
     Assert.Contains("line1", run.Output, StringComparison.Ordinal);
     Assert.Contains("line2", run.Output, StringComparison.Ordinal);
@@ -58,7 +58,7 @@ public class CSharpScriptExecEngineTests
   public async Task CompileError_ReturnsInValidate()
   {
     CSharpScriptExecEngine engine = CreateEngine();
-    Result<IReadOnlyList<ExecParseError>> errors = await engine.ValidateAsync(new ExecProgram("this is not valid csharp ??!!"));
+    Result<IReadOnlyList<ExecParseError>> errors = await engine.ValidateAsync(new ExecProgram("this is not valid csharp ??!!"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(errors.IsSuccess);
     Assert.NotEmpty(errors.Value);
@@ -68,7 +68,7 @@ public class CSharpScriptExecEngineTests
   public async Task RuntimeException_BecomesError()
   {
     CSharpScriptExecEngine engine = CreateEngine();
-    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("throw new System.Exception(\"boom\");"));
+    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("throw new System.Exception(\"boom\");"), ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ExecRunStatus.Completed, run.Status); // completed with error lines
     Assert.NotEmpty(run.ErrorLines);
@@ -79,7 +79,7 @@ public class CSharpScriptExecEngineTests
   public async Task Shell_RunsCommand()
   {
     CSharpScriptExecEngine engine = CreateEngine();
-    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("var r = Shell(\"cmd\", \"/c\", \"echo hello\"); return r.Stdout;"));
+    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("var r = Shell(\"cmd\", \"/c\", \"echo hello\"); return r.Stdout;"), ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
     Assert.Contains("hello", run.Output, StringComparison.Ordinal);
@@ -125,7 +125,7 @@ public class CSharpScriptExecEngineTests
   {
     CSharpScriptExecEngine engine = CreateEngine();
     string program = "var r = Shell(\"cmd\", \"/c\", \"for /L %i in (1,1,500) do @echo stderr-line-%i 1>&2\"); return r.Stderr.Length;";
-    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram(program));
+    ExecRunResult run = await engine.ExecuteAsync(new ExecProgram(program), ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ExecRunStatus.Completed, run.Status);
     Assert.True(int.Parse(run.Output, System.Globalization.CultureInfo.InvariantCulture) > 4096, $"stderr drained: {run.Output}");
@@ -136,13 +136,13 @@ public class CSharpScriptExecEngineTests
     string current = AppContext.BaseDirectory;
     CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([]),
         workspaceRoot: () => current);
-    ExecRunResult first = await engine.ExecuteAsync(new ExecProgram("return Workspace;"));
+    ExecRunResult first = await engine.ExecuteAsync(new ExecProgram("return Workspace;"), ct: TestContext.Current.CancellationToken);
     Assert.Equal(current, first.Output);
 
     // A second execution sees the resolver's NEW value — the construction-time
     // capture that pinned multi-session hosts to one root is gone.
     current = Path.GetTempPath();
-    ExecRunResult second = await engine.ExecuteAsync(new ExecProgram("return Workspace;"));
+    ExecRunResult second = await engine.ExecuteAsync(new ExecProgram("return Workspace;"), ct: TestContext.Current.CancellationToken);
     Assert.Equal(Path.GetTempPath(), second.Output);
   }
 }
@@ -153,7 +153,7 @@ public class CSharpEvidenceRunnerTests
   public async Task TrueExpression_ReturnsConfirmed()
   {
     CSharpEvidenceRunner runner = new(EvidenceOptions.Default);
-    EvidenceResult r = await runner.RunAsync("1 + 1 == 2");
+    EvidenceResult r = await runner.RunAsync("1 + 1 == 2", TestContext.Current.CancellationToken);
 
     Assert.True(r.Confirmed);
     Assert.Empty(r.Detail);
@@ -163,7 +163,7 @@ public class CSharpEvidenceRunnerTests
   public async Task FalseExpression_ReturnsNotConfirmed()
   {
     CSharpEvidenceRunner runner = new(EvidenceOptions.Default);
-    EvidenceResult r = await runner.RunAsync("1 == 2");
+    EvidenceResult r = await runner.RunAsync("1 == 2", TestContext.Current.CancellationToken);
 
     Assert.False(r.Confirmed);
     Assert.NotEmpty(r.Detail);
@@ -173,7 +173,7 @@ public class CSharpEvidenceRunnerTests
   public async Task Exception_ReturnsNotConfirmed()
   {
     CSharpEvidenceRunner runner = new(EvidenceOptions.Default);
-    EvidenceResult r = await runner.RunAsync("throw new System.Exception(\"fail\")");
+    EvidenceResult r = await runner.RunAsync("throw new System.Exception(\"fail\")", TestContext.Current.CancellationToken);
 
     Assert.False(r.Confirmed);
     Assert.Contains("fail", r.Detail, StringComparison.Ordinal);
@@ -186,7 +186,7 @@ public class CSharpEvidenceRunnerTests
     try
     {
       CSharpEvidenceRunner runner = new(EvidenceOptions.Default);
-      EvidenceResult r = await runner.RunAsync($"System.IO.File.Exists(@\"{tmp.Replace("\\", "\\\\", StringComparison.Ordinal)}\")");
+      EvidenceResult r = await runner.RunAsync($"System.IO.File.Exists(@\"{tmp.Replace("\\", "\\\\", StringComparison.Ordinal)}\")", TestContext.Current.CancellationToken);
       Assert.True(r.Confirmed);
     }
     finally

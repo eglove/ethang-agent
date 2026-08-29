@@ -99,7 +99,7 @@ public class ClarifyTests
       vm = new ClarifyViewModel(q);
       return Task.FromResult(vm);
     });
-    Task<Result<string>> ask = channel.AskAsync(Sample());
+    Task<Result<string>> ask = channel.AskAsync(Sample(), ct: TestContext.Current.CancellationToken);
     vm!.ChooseOption(2);
     Result<string> result = await ask.ConfigureAwait(true);
     Assert.True(result.IsSuccess);
@@ -121,7 +121,7 @@ public class ClarifyTests
 
     // Bounded wait: a TimeoutException here would mean AskAsync ignored the
     // CancellationToken and hung awaiting Completion.
-    _ = await ask.WaitAsync(TimeSpan.FromSeconds(5));
+    _ = await ask.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
     Result<string> result = await ask.ConfigureAwait(true);
     Assert.False(result.IsSuccess);

@@ -13,7 +13,7 @@ public class RootSessionBootstrapperTests
   public async Task PersistRoot_PersistsARunningDepthZeroRoot_BoundToWorkspaceAndProvider()
   {
     FakeAgentStore store = new();
-    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", "openrouter");
+    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", "openrouter", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     AgentRecord record = Assert.Single(store.Saved);
@@ -31,7 +31,7 @@ public class RootSessionBootstrapperTests
   {
     FakeAgentStore store = new();
     _ = await Assert.ThrowsAnyAsync<ArgumentException>(
-        () => RootSessionBootstrapper.PersistRootAsync(store, " ", "openrouter"));
+        () => RootSessionBootstrapper.PersistRootAsync(store, " ", "openrouter", ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]
@@ -39,14 +39,14 @@ public class RootSessionBootstrapperTests
   {
     FakeAgentStore store = new();
     _ = await Assert.ThrowsAnyAsync<ArgumentException>(
-        () => RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", ""));
+        () => RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", "", ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]
   public async Task PersistRoot_StoreFailure_SurfacesTheStoreError()
   {
     FakeAgentStore store = new() { FailOnSave = true };
-    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", "openrouter");
+    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", "openrouter", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("PersistFailed", result.Error.Code);

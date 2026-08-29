@@ -102,7 +102,7 @@ public class DesktopE2ETests
     _ = await host.StartAsync();
 
     string tempFile = Path.Combine(Path.GetTempPath(), $"ethang-exec-{Guid.NewGuid():N}.txt");
-    await File.WriteAllLinesAsync(tempFile, ["alpha line", "beta line"]);
+    await File.WriteAllLinesAsync(tempFile, ["alpha line", "beta line"], TestContext.Current.CancellationToken);
 
     string pathArg = tempFile.Replace("\\", "\\\\", StringComparison.Ordinal);
     string program = $"return Tools.read(new {{ timeoutSeconds = 120, path = \"{pathArg}\", startLine = 1, endLine = 2 }});";

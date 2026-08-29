@@ -12,9 +12,9 @@ public class StateServiceTests
   public async Task Set_StaleVersion_Fails_NamingCurrentVersion()
   {
     FakeStateStore store = new();
-    _ = await Create(store).SetAsync("current/head", "done", null);
+    _ = await Create(store).SetAsync("current/head", "done", null, ct: TestContext.Current.CancellationToken);
 
-    Result<StateKeyValue> result = await Create(store).SetAsync("current/head", "other", 5);
+    Result<StateKeyValue> result = await Create(store).SetAsync("current/head", "other", 5, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("VersionConflict", result.Error.Code);
@@ -24,7 +24,7 @@ public class StateServiceTests
   [Fact]
   public async Task Get_MissingKey_Fails_KeyNotFound()
   {
-    Result<string> result = await Create().GetAsync("current/head");
+    Result<string> result = await Create().GetAsync("current/head", ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsSuccess);
     Assert.Equal("KeyNotFound", result.Error.Code);
   }
@@ -32,7 +32,7 @@ public class StateServiceTests
   [Fact]
   public async Task Set_AllowsTodoNamespace_ForInternalComposition()
   {
-    Result<StateKeyValue> result = await Create().SetAsync("todo/list", "[]", null);
+    Result<StateKeyValue> result = await Create().SetAsync("todo/list", "[]", null, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("todo", result.Value.Ns);
@@ -43,9 +43,9 @@ public class StateServiceTests
   public async Task Delete_AllowsTodoNamespace_AfterSet()
   {
     StateService service = Create();
-    _ = await service.SetAsync("todo/list", "[]", null);
+    _ = await service.SetAsync("todo/list", "[]", null, ct: TestContext.Current.CancellationToken);
 
-    Result<string> deleted = await service.DeleteAsync("todo/list", 1);
+    Result<string> deleted = await service.DeleteAsync("todo/list", 1, ct: TestContext.Current.CancellationToken);
 
     Assert.True(deleted.IsSuccess);
     Assert.Equal("deleted todo/list", deleted.Value);
@@ -56,7 +56,7 @@ public class StateServiceTests
   {
     FakeStateStore store = new();
 
-    Result<string> result = await Create(store).TransitionAsync("coding", "done", "work", ["Write-Output ok"]);
+    Result<string> result = await Create(store).TransitionAsync("coding", "done", "work", ["Write-Output ok"], ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.StartsWith("tr-", result.Value, StringComparison.Ordinal);
@@ -69,16 +69,16 @@ public class StateServiceTests
   {
     FakeStateStore store = new();
     StateService service = Create(store, new FakeRunner(_ => new EvidenceResult("cmd", true, "")));
-    _ = await service.SetAsync("current/head", "done", null);
-    _ = await service.TransitionAsync("coding", "done", "work", ["Write-Output ok"]);
+    _ = await service.SetAsync("current/head", "done", null, ct: TestContext.Current.CancellationToken);
+    _ = await service.TransitionAsync("coding", "done", "work", ["Write-Output ok"], ct: TestContext.Current.CancellationToken);
 
-    CertificationReport report = await service.VerifyAsync(null);
+    CertificationReport report = await service.VerifyAsync(null, ct: TestContext.Current.CancellationToken);
 
     Assert.True(report.Certified);
     Assert.False(report.Violated);
     Assert.Equal("certified", store.Transitions.Single().Status);
     Assert.Contains("state.certified", store.EventKinds);
-    StateKeyValue? certificate = await store.GetKeyAsync("ws", "current", "certificate");
+    StateKeyValue? certificate = await store.GetKeyAsync("ws", "current", "certificate", ct: TestContext.Current.CancellationToken);
     Assert.NotNull(certificate);
   }
 
@@ -92,18 +92,18 @@ public class StateServiceTests
           bool confirmed = outcomes.Dequeue();
           return new EvidenceResult("cmd", confirmed, confirmed ? "" : "exit 1");
         }));
-    _ = await service.SetAsync("current/head", "done", null);
-    Result<string> id = await service.TransitionAsync("coding", "done", "work", ["Write-Output ok"]);
-    _ = await service.VerifyAsync(null); // certify first
+    _ = await service.SetAsync("current/head", "done", null, ct: TestContext.Current.CancellationToken);
+    Result<string> id = await service.TransitionAsync("coding", "done", "work", ["Write-Output ok"], ct: TestContext.Current.CancellationToken);
+    _ = await service.VerifyAsync(null, ct: TestContext.Current.CancellationToken); // certify first
     store.OperationLog.Clear();
 
-    CertificationReport report = await service.VerifyAsync([id.Value!]);
+    CertificationReport report = await service.VerifyAsync([id.Value!], ct: TestContext.Current.CancellationToken);
 
     Assert.False(report.Certified);
     Assert.True(report.Violated);
     Assert.Contains("exit 1", report.BlockingReasons.Single(), StringComparison.Ordinal);
     Assert.Equal("violated", store.Transitions.Single().Status);
-    Assert.Null(await store.GetKeyAsync("ws", "current", "certificate"));
+    Assert.Null(await store.GetKeyAsync("ws", "current", "certificate", ct: TestContext.Current.CancellationToken));
     int revokeIndex = store.OperationLog.IndexOf("delete:current/certificate");
     int violatedIndex = store.OperationLog.IndexOf("event:state.violated");
     Assert.True(revokeIndex >= 0 && violatedIndex > revokeIndex, "certificate must be revoked before the violated event");
@@ -114,9 +114,9 @@ public class StateServiceTests
   {
     FakeStateStore store = new();
     StateService service = Create(store);
-    _ = await service.TransitionAsync("coding", "done", "work", []);
+    _ = await service.TransitionAsync("coding", "done", "work", [], ct: TestContext.Current.CancellationToken);
 
-    CertificationReport report = await service.VerifyAsync(null);
+    CertificationReport report = await service.VerifyAsync(null, ct: TestContext.Current.CancellationToken);
 
     Assert.False(report.Certified);
     Assert.Contains("no attached evidence", report.BlockingReasons.Single(), StringComparison.Ordinal);
@@ -125,7 +125,7 @@ public class StateServiceTests
   [Fact]
   public async Task Verify_NothingSelected_FailsClosed()
   {
-    CertificationReport report = await Create().VerifyAsync(null);
+    CertificationReport report = await Create().VerifyAsync(null, ct: TestContext.Current.CancellationToken);
 
     Assert.False(report.Certified);
     Assert.Contains("No transitions selected", report.BlockingReasons.Single(), StringComparison.Ordinal);
@@ -134,7 +134,7 @@ public class StateServiceTests
   [Fact]
   public async Task Verify_MissingRequestedId_ListedInBlocking()
   {
-    CertificationReport report = await Create().VerifyAsync(["tr-missing"]);
+    CertificationReport report = await Create().VerifyAsync(["tr-missing"], ct: TestContext.Current.CancellationToken);
 
     Assert.False(report.Certified);
     Assert.Contains("Missing transition: tr-missing.", report.BlockingReasons.Single(), StringComparison.Ordinal);
@@ -145,9 +145,9 @@ public class StateServiceTests
   {
     FakeStateStore store = new();
     StateService service = Create(store, new FakeRunner(_ => new EvidenceResult("cmd", true, "")));
-    _ = await service.SetAsync("goal/check", "[\"Write-Output ok\"]", null);
+    _ = await service.SetAsync("goal/check", "[\"Write-Output ok\"]", null, ct: TestContext.Current.CancellationToken);
 
-    CertificationReport report = await service.CheckGoalAsync();
+    CertificationReport report = await service.CheckGoalAsync(TestContext.Current.CancellationToken);
 
     Assert.True(report.Certified);
     Assert.Empty(store.EventKinds);
@@ -159,10 +159,10 @@ public class StateServiceTests
   {
     FakeStateStore store = new();
     StateService service = Create(store);
-    _ = await service.SetAsync("current/head", "done", null);
-    _ = await service.TransitionAsync("a", "b", "s", []);
+    _ = await service.SetAsync("current/head", "done", null, ct: TestContext.Current.CancellationToken);
+    _ = await service.TransitionAsync("a", "b", "s", [], ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<string>> result = await service.HistoryAsync(20);
+    Result<IReadOnlyList<string>> result = await service.HistoryAsync(20, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     _ = Assert.Single(result.Value);

@@ -34,8 +34,8 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
   [Fact]
   public async Task Search_FindsByValueTerm()
   {
-    _ = await _store.SetKeyCasAsync("ws1", "plans", "alpha", "rewrite the SDD ledger flow", null);
-    Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "ledger", 20);
+    _ = await _store.SetKeyCasAsync("ws1", "plans", "alpha", "rewrite the SDD ledger flow", null, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "ledger", 20, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     StateSearchHit hit = Assert.Single(r.Value);
     Assert.Equal("plans", hit.Ns);
@@ -46,8 +46,8 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
   [Fact]
   public async Task Search_FindsByNamespaceOrNameTerm()
   {
-    _ = await _store.SetKeyCasAsync("ws1", "specs", "2026-08-24-native-skills-db-planning", "body text here", null);
-    Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "native* AND skills*", 20);
+    _ = await _store.SetKeyCasAsync("ws1", "specs", "2026-08-24-native-skills-db-planning", "body text here", null, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "native* AND skills*", 20, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     _ = Assert.Single(r.Value);
   }
@@ -55,9 +55,9 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
   [Fact]
   public async Task Search_IsWorkspaceScoped()
   {
-    _ = await _store.SetKeyCasAsync("ws1", "notes", "mine", "xylophone collection", null);
-    _ = await _store.SetKeyCasAsync("ws2", "notes", "theirs", "xylophone collection", null);
-    Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "xylophone", 20);
+    _ = await _store.SetKeyCasAsync("ws1", "notes", "mine", "xylophone collection", null, ct: TestContext.Current.CancellationToken);
+    _ = await _store.SetKeyCasAsync("ws2", "notes", "theirs", "xylophone collection", null, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "xylophone", 20, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     StateSearchHit hit = Assert.Single(r.Value);
     Assert.Equal("mine", hit.Name);
@@ -66,8 +66,8 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
   [Fact]
   public async Task Search_MalformedQuery_YieldsInvalidQuery_NotThrow()
   {
-    _ = await _store.SetKeyCasAsync("ws1", "notes", "a", "content", null);
-    Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "AND (", 20);
+    _ = await _store.SetKeyCasAsync("ws1", "notes", "a", "content", null, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "AND (", 20, ct: TestContext.Current.CancellationToken);
     Assert.False(r.IsSuccess);
     Assert.Equal("InvalidQuery", r.Error.Code);
   }
@@ -77,10 +77,10 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
   {
     for (int i = 0; i < 5; i++)
     {
-      _ = await _store.SetKeyCasAsync("ws1", "notes", $"k{i}", "shared term everywhere", null);
+      _ = await _store.SetKeyCasAsync("ws1", "notes", $"k{i}", "shared term everywhere", null, ct: TestContext.Current.CancellationToken);
     }
 
-    Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "shared", 3);
+    Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "shared", 3, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     Assert.Equal(3, r.Value.Count);
   }

@@ -65,7 +65,7 @@ public class NudgeTests
     CountingPolicy policy = new("[nudge] remember to curate");
     SendMessageCommandHandler handler = new(agent, conversation, policy, () => 0);
 
-    Result<string> result = await handler.Handle(new SendMessageCommand("hello"));
+    Result<string> result = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(3, conversation.Messages.Count);
@@ -82,7 +82,7 @@ public class NudgeTests
     CountingPolicy policy = new(null);
     SendMessageCommandHandler handler = new(agent, conversation, policy, () => 0);
 
-    _ = await handler.Handle(new SendMessageCommand("hello"));
+    _ = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(2, conversation.Messages.Count);
     Assert.Equal(Role.User, conversation.Messages[0].Role);
@@ -98,7 +98,7 @@ public class NudgeTests
     CountingPolicy policy = new("[nudge] should not appear");
     SendMessageCommandHandler handler = new(agent, conversation, policy, () => 0);
 
-    Result<string> result = await handler.Handle(new SendMessageCommand("hello"));
+    Result<string> result = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal(error, result.Error);
@@ -117,9 +117,9 @@ public class NudgeTests
     CountingPolicy policy = new(null);
     SendMessageCommandHandler handler = new(agent, conversation, policy, () => 0);
 
-    _ = await handler.Handle(new SendMessageCommand("a"));
-    _ = await handler.Handle(new SendMessageCommand("b"));
-    _ = await handler.Handle(new SendMessageCommand("c"));
+    _ = await handler.Handle(new SendMessageCommand("a"), ct: TestContext.Current.CancellationToken);
+    _ = await handler.Handle(new SendMessageCommand("b"), ct: TestContext.Current.CancellationToken);
+    _ = await handler.Handle(new SendMessageCommand("c"), ct: TestContext.Current.CancellationToken);
 
     Assert.Equal([1, 2, 3], policy.ContextsSeen.Select(c => c.TurnNumber));
   }
@@ -142,7 +142,7 @@ public class NudgeTests
     CountingPolicy policy = new(null);
     SendMessageCommandHandler handler = new(agent, conversation, policy, () => 7);
 
-    _ = await handler.Handle(new SendMessageCommand("hello"));
+    _ = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);
 
     NudgeContext context = Assert.Single(policy.ContextsSeen);
     Assert.Equal(1, context.TurnNumber);
@@ -158,7 +158,7 @@ public class NudgeTests
     CountingPolicy policy = new("[nudge] incomplete wiring");
     SendMessageCommandHandler handler = new(agent, conversation, policy);
 
-    _ = await handler.Handle(new SendMessageCommand("hello"));
+    _ = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);
 
     Assert.Empty(policy.ContextsSeen);
     Assert.Equal(2, conversation.Messages.Count);
@@ -172,7 +172,7 @@ public class NudgeTests
         ModelConfig.Create("m", null, 100, 0.5f).Value!, new ToolRegistry([]));
     SendMessageCommandHandler handler = new(agent);
 
-    Result<string> result = await handler.Handle(new SendMessageCommand("hello"));
+    Result<string> result = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal([Role.User, Role.Assistant],

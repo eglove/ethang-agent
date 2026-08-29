@@ -34,11 +34,11 @@ public sealed class ExecArtifactStoreTests : IDisposable
   {
     ExecArtifactStore store = new(_dir);
 
-    string path = await store.WriteAsync("full output text");
+    string path = await store.WriteAsync("full output text", ct: TestContext.Current.CancellationToken);
 
     Assert.StartsWith(_dir, path, StringComparison.Ordinal);
     Assert.True(File.Exists(path));
-    Assert.Equal("full output text", await File.ReadAllTextAsync(path));
+    Assert.Equal("full output text", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
   }
 
   [Fact]
@@ -46,8 +46,8 @@ public sealed class ExecArtifactStoreTests : IDisposable
   {
     ExecArtifactStore store = new(_dir);
 
-    string first = await store.WriteAsync("one");
-    string second = await store.WriteAsync("two");
+    string first = await store.WriteAsync("one", ct: TestContext.Current.CancellationToken);
+    string second = await store.WriteAsync("two", ct: TestContext.Current.CancellationToken);
 
     Assert.NotEqual(first, second);
   }

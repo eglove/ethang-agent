@@ -25,7 +25,7 @@ public class SkillViewToolTests
   public async Task MissingName_MissingParameter()
   {
     (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("MissingParameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("'name'", result.Content, StringComparison.Ordinal);
@@ -37,7 +37,7 @@ public class SkillViewToolTests
     (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"a","encoding":"utf16"}"""));
+                                 """{"timeoutSeconds":120,"name":"a","encoding":"utf16"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("encoding", result.Content, StringComparison.Ordinal);
@@ -49,7 +49,7 @@ public class SkillViewToolTests
     (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":42}"""));
+                                 """{"timeoutSeconds":120,"name":42}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterType", result.Content, StringComparison.Ordinal);
     Assert.Contains("string", result.Content, StringComparison.Ordinal);
@@ -61,7 +61,7 @@ public class SkillViewToolTests
     (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":""}"""));
+                                 """{"timeoutSeconds":120,"name":""}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("non-empty", result.Content, StringComparison.Ordinal);
   }
@@ -70,7 +70,7 @@ public class SkillViewToolTests
   public async Task InvalidJsonArguments_Rejected()
   {
     (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view", "{\"timeoutSeconds\":120,bad"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view", "{\"timeoutSeconds\":120,bad"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("not valid JSON", result.Content, StringComparison.Ordinal);
   }
@@ -79,7 +79,7 @@ public class SkillViewToolTests
   public async Task NonObjectArguments_Rejected()
   {
     (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view", "[]"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view", "[]"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("JSON object", result.Content, StringComparison.Ordinal);
   }
@@ -93,7 +93,7 @@ public class SkillViewToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"brainstorming"}"""));
+                                 """{"timeoutSeconds":120,"name":"brainstorming"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[skill brainstorming | builtin | v1]\nFirst line.\nSecond line.",
@@ -113,7 +113,7 @@ public class SkillViewToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"my-skill"}"""));
+                                 """{"timeoutSeconds":120,"name":"my-skill"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[skill my-skill | learned | v3]\nLearned body.", result.Content);
@@ -129,7 +129,7 @@ public class SkillViewToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"shared"}"""));
+                                 """{"timeoutSeconds":120,"name":"shared"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[skill shared | builtin | v1]\nBuilt-in body.", result.Content);
@@ -141,7 +141,7 @@ public class SkillViewToolTests
     (SkillViewTool? tool, FakeLearnedStore _) = MakeTool();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"nope"}"""));
+                                 """{"timeoutSeconds":120,"name":"nope"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Error [SkillNotFound]", result.Content, StringComparison.Ordinal);
     Assert.Contains("nope", result.Content, StringComparison.Ordinal);
@@ -157,7 +157,7 @@ public class SkillViewToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"brainstorming"}"""));
+                                 """{"timeoutSeconds":120,"name":"brainstorming"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[skill brainstorming | builtin | v1]\nThe body." +

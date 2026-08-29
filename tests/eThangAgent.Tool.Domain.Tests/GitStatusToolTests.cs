@@ -21,7 +21,7 @@ public class GitStatusToolTests
   public async Task CleanRepo_FormatsCleanLine()
   {
     (GitStatusTool? tool, FakeGitQueryAccess _) = Make(new GitStatus("main", [], [], []));
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal("[git-status main: clean]", result.Content);
   }
@@ -34,7 +34,7 @@ public class GitStatusToolTests
         [new GitStatusEntry(" M", "src/b.cs")],
         ["notes.txt"]);
     (GitStatusTool? tool, FakeGitQueryAccess _) = Make(status);
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal(
         """
@@ -56,7 +56,7 @@ public class GitStatusToolTests
         [new GitStatusEntry("A ", "x.cs"), new GitStatusEntry("D ", "y.cs")],
         [], []);
     (GitStatusTool? tool, FakeGitQueryAccess _) = Make(status);
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal(
         """
@@ -74,7 +74,7 @@ public class GitStatusToolTests
   public async Task NotAGitRepository_SurfacesBackendError()
   {
     (GitStatusTool? tool, FakeGitQueryAccess _) = Make();
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains($"Error [NotAGitRepository]: Not a git repository: {Root}", result.Content, StringComparison.Ordinal);
   }
@@ -85,7 +85,7 @@ public class GitStatusToolTests
     FakeGitQueryAccess fake = new(
         Result.Failure<GitStatus>(new DomainError("GitError", "fatal: bad object HEAD")));
     GitStatusTool tool = new(new WorkspacePathResolver(Root), fake);
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Error [GitError]: fatal: bad object HEAD", result.Content, StringComparison.Ordinal);
   }
@@ -98,7 +98,7 @@ public class GitStatusToolTests
     (GitStatusTool? tool, FakeGitQueryAccess _) = Make();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"verbose":true}"""));
+                                 """{"timeoutSeconds":120,"verbose":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("verbose", result.Content, StringComparison.Ordinal);
@@ -108,7 +108,7 @@ public class GitStatusToolTests
   public async Task NonObjectArguments_Rejected()
   {
     (GitStatusTool? tool, FakeGitQueryAccess _) = Make();
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", "[1]"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", "[1]"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("JSON object", result.Content, StringComparison.Ordinal);
   }
@@ -122,7 +122,7 @@ public class GitStatusToolTests
   public async Task MissingArguments_Rejected_MissingParameter()
   {
     (GitStatusTool? tool, FakeGitQueryAccess _) = Make(new GitStatus("main", [], [], []));
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", ""));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", ""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     // An empty payload is not valid JSON, so it fails one step earlier than
     // the budget check: malformed arguments, budget never reached.
@@ -133,7 +133,7 @@ public class GitStatusToolTests
   public async Task ResolvesImplicitRoot_AndPassesToQuery()
   {
     (GitStatusTool? tool, FakeGitQueryAccess? fake) = Make(new GitStatus("main", [], [], []));
-    _ = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"));
+    _ = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.Equal(Root, fake.RepoPath);
   }
 

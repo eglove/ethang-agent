@@ -10,7 +10,7 @@ public class ZaiModelCatalogTests
   {
     ZaiModelCatalog catalog = new();
 
-    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync();
+    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.NotEmpty(result.Value);
@@ -24,7 +24,7 @@ public class ZaiModelCatalogTests
     // host's model picker, and glm-5.3-flash is the session default.
     ZaiModelCatalog catalog = new();
 
-    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync();
+    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.Equal(["glm-5.3", "glm-5.3-flash"], result.Value!.Select(e => e.ModelId).ToList());
   }
@@ -34,7 +34,7 @@ public class ZaiModelCatalogTests
   {
     ZaiModelCatalog catalog = new();
 
-    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync();
+    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync(TestContext.Current.CancellationToken);
 
     IReadOnlyList<ModelProviderEntry> entries = result.Value!;
     Assert.Equal(entries.Count, entries.Select(e => e.ModelId).ToHashSet().Count);
@@ -49,7 +49,7 @@ public class ZaiModelCatalogTests
     // publishes no numeric scores.
     ZaiModelCatalog catalog = new();
 
-    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync();
+    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.All(result.Value!, e =>
     {
@@ -65,7 +65,7 @@ public class ZaiModelCatalogTests
   {
     ZaiModelCatalog catalog = new();
 
-    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync();
+    Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.All(result.Value!, e =>
     {

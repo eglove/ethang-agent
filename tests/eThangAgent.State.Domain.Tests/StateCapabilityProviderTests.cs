@@ -29,7 +29,7 @@ public class StateCapabilityProviderTests
       GetResult = Result.Success("hello")
     };
 
-    CapabilityInvocationResult result = await Create(service).InvokeAsync("get", /*lang=json,strict*/ """{"key":"current/head"}""");
+    CapabilityInvocationResult result = await Create(service).InvokeAsync("get", /*lang=json,strict*/ """{"key":"current/head"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("hello", result.Content);
@@ -46,7 +46,7 @@ public class StateCapabilityProviderTests
 
     CapabilityInvocationResult result = await Create(service).InvokeAsync("set",
                                  /*lang=json,strict*/
-                                 """{"key":"current/head","value":"x","expectedVersion":2}""");
+                                 """{"key":"current/head","value":"x","expectedVersion":2}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Contains("current/head v3", result.Content, StringComparison.Ordinal);
@@ -60,7 +60,7 @@ public class StateCapabilityProviderTests
 
     CapabilityInvocationResult result = await Create(service).InvokeAsync("set",
                                  /*lang=json,strict*/
-                                 """{"key":"todo/list","value":"[]"}""");
+                                 """{"key":"todo/list","value":"[]"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("Error [ReservedNamespace]:", result.Content, StringComparison.Ordinal);
@@ -75,7 +75,7 @@ public class StateCapabilityProviderTests
 
     CapabilityInvocationResult result = await Create(service).InvokeAsync("delete",
                                  /*lang=json,strict*/
-                                 """{"key":"todo/list","expectedVersion":1}""");
+                                 """{"key":"todo/list","expectedVersion":1}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("Error [ReservedNamespace]:", result.Content, StringComparison.Ordinal);
@@ -88,8 +88,8 @@ public class StateCapabilityProviderTests
   {
     FakeStateService service = new();
 
-    CapabilityInvocationResult set = await Create(service).InvokeAsync("set", /*lang=json,strict*/ """{"key":"notes/scratch","value":"{}"}""");
-    CapabilityInvocationResult delete = await Create(service).InvokeAsync("delete", /*lang=json,strict*/ """{"key":"notes/scratch"}""");
+    CapabilityInvocationResult set = await Create(service).InvokeAsync("set", /*lang=json,strict*/ """{"key":"notes/scratch","value":"{}"}""", ct: TestContext.Current.CancellationToken);
+    CapabilityInvocationResult delete = await Create(service).InvokeAsync("delete", /*lang=json,strict*/ """{"key":"notes/scratch"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(set.IsError);
     Assert.False(delete.IsError);
@@ -106,7 +106,7 @@ public class StateCapabilityProviderTests
 
     CapabilityInvocationResult result = await Create(service).InvokeAsync("transition",
                                  /*lang=json,strict*/
-                                 """{"from":"coding","to":"done","summary":"work","evidence":["Write-Output ok"]}""");
+                                 """{"from":"coding","to":"done","summary":"work","evidence":["Write-Output ok"]}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("tr-abc", result.Content);
@@ -123,7 +123,7 @@ public class StateCapabilityProviderTests
           [new EvidenceResult("Write-Output ok", true, "")], [])
     };
 
-    CapabilityInvocationResult result = await Create(service).InvokeAsync("verify", "{}");
+    CapabilityInvocationResult result = await Create(service).InvokeAsync("verify", "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Contains("\"Certified\":true", result.Content, StringComparison.Ordinal);
@@ -137,7 +137,7 @@ public class StateCapabilityProviderTests
       GetResult = Result.Failure<string>(new DomainError("KeyNotFound", "current/head does not exist."))
     };
 
-    CapabilityInvocationResult result = await Create(service).InvokeAsync("get", /*lang=json,strict*/ """{"key":"current/head"}""");
+    CapabilityInvocationResult result = await Create(service).InvokeAsync("get", /*lang=json,strict*/ """{"key":"current/head"}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("Error [KeyNotFound]:", result.Content, StringComparison.Ordinal);
@@ -146,7 +146,7 @@ public class StateCapabilityProviderTests
   [Fact]
   public async Task UnknownParameter_Rejected()
   {
-    CapabilityInvocationResult result = await Create().InvokeAsync("get", /*lang=json,strict*/ """{"key":"a","extra":1}""");
+    CapabilityInvocationResult result = await Create().InvokeAsync("get", /*lang=json,strict*/ """{"key":"a","extra":1}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("Error [InvalidActionInput]:", result.Content, StringComparison.Ordinal);
@@ -156,7 +156,7 @@ public class StateCapabilityProviderTests
   [Fact]
   public async Task UnknownAction_ReturnsError()
   {
-    CapabilityInvocationResult result = await Create().InvokeAsync("nope", "{}");
+    CapabilityInvocationResult result = await Create().InvokeAsync("nope", "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("Error [UnknownAction]:", result.Content, StringComparison.Ordinal);
@@ -174,7 +174,7 @@ public class StateCapabilityProviderTests
           ])
     };
 
-    CapabilityInvocationResult result = await Create(service).InvokeAsync("find", /*lang=json,strict*/ "{\"query\":\"ledger\",\"limit\":5}");
+    CapabilityInvocationResult result = await Create(service).InvokeAsync("find", /*lang=json,strict*/ "{\"query\":\"ledger\",\"limit\":5}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal(
@@ -186,7 +186,7 @@ public class StateCapabilityProviderTests
   [Fact]
   public async Task Search_ZeroHits_PrintsHeaderOnly()
   {
-    CapabilityInvocationResult result = await Create().InvokeAsync("find", /*lang=json,strict*/ "{\"query\":\"nothing\"}");
+    CapabilityInvocationResult result = await Create().InvokeAsync("find", /*lang=json,strict*/ "{\"query\":\"nothing\"}", ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal("[state.find 'nothing'] 0 hit(s)", result.Content);
   }
@@ -195,7 +195,7 @@ public class StateCapabilityProviderTests
   public async Task Search_DefaultLimit_Is20()
   {
     FakeStateService service = new();
-    _ = await Create(service).InvokeAsync("find", /*lang=json,strict*/ "{\"query\":\"x\"}");
+    _ = await Create(service).InvokeAsync("find", /*lang=json,strict*/ "{\"query\":\"x\"}", ct: TestContext.Current.CancellationToken);
     Assert.Equal(20, service.LastSearchLimit);
   }
 
@@ -207,7 +207,7 @@ public class StateCapabilityProviderTests
       SearchResult = Result.Failure<IReadOnlyList<StateSearchHit>>(new DomainError("InvalidQuery", "bad fts syntax"))
     };
 
-    CapabilityInvocationResult result = await Create(service).InvokeAsync("find", /*lang=json,strict*/ "{\"query\":\"AND (\"}");
+    CapabilityInvocationResult result = await Create(service).InvokeAsync("find", /*lang=json,strict*/ "{\"query\":\"AND (\"}", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("Error [InvalidQuery]:", result.Content, StringComparison.Ordinal);
@@ -222,7 +222,7 @@ public class StateCapabilityProviderTests
       ListResult = Result.Success<IReadOnlyList<string>>(["current/head v7"])
     };
 
-    CapabilityInvocationResult result = await Create(service).InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":2,\"endLine\":3}");
+    CapabilityInvocationResult result = await Create(service).InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":2,\"endLine\":3}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[current/head v7 | lines 2-3 of 3]\ntwo\nthree", result.Content);
@@ -237,7 +237,7 @@ public class StateCapabilityProviderTests
       ListResult = Result.Success<IReadOnlyList<string>>(["current/head v2"])
     };
 
-    CapabilityInvocationResult result = await Create(service).InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":1,\"endLine\":10}");
+    CapabilityInvocationResult result = await Create(service).InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":1,\"endLine\":10}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[current/head v2 | lines 1-2 of 2]\na\nb\n[note] endLine 10 exceeds last line 2; clamped.", result.Content);
@@ -252,7 +252,7 @@ public class StateCapabilityProviderTests
       ListResult = Result.Success<IReadOnlyList<string>>([])
     };
 
-    CapabilityInvocationResult result = await Create(service).InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":1,\"endLine\":1}");
+    CapabilityInvocationResult result = await Create(service).InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":1,\"endLine\":1}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[current/head | lines 1-1 of 1]\nsolo", result.Content);
@@ -261,8 +261,8 @@ public class StateCapabilityProviderTests
   [Fact]
   public async Task Get_OnlyOneRangeParameter_Rejected()
   {
-    CapabilityInvocationResult r1 = await Create().InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":1}");
-    CapabilityInvocationResult r2 = await Create().InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"endLine\":5}");
+    CapabilityInvocationResult r1 = await Create().InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":1}", ct: TestContext.Current.CancellationToken);
+    CapabilityInvocationResult r2 = await Create().InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"endLine\":5}", ct: TestContext.Current.CancellationToken);
     Assert.True(r1.IsError);
     Assert.Contains("InvalidActionInput", r1.Content, StringComparison.Ordinal);
     Assert.True(r2.IsError);
@@ -272,7 +272,7 @@ public class StateCapabilityProviderTests
   [Fact]
   public async Task Get_StartLineBelowOne_Rejected()
   {
-    CapabilityInvocationResult r = await Create().InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":0,\"endLine\":2}");
+    CapabilityInvocationResult r = await Create().InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":0,\"endLine\":2}", ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.Contains("InvalidActionInput", r.Content, StringComparison.Ordinal);
   }
@@ -280,7 +280,7 @@ public class StateCapabilityProviderTests
   [Fact]
   public async Task Get_EndLineBeforeStartLine_Rejected()
   {
-    CapabilityInvocationResult r = await Create().InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":5,\"endLine\":4}");
+    CapabilityInvocationResult r = await Create().InvokeAsync("get", /*lang=json,strict*/ "{\"key\":\"current/head\",\"startLine\":5,\"endLine\":4}", ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.Contains("InvalidActionInput", r.Content, StringComparison.Ordinal);
   }

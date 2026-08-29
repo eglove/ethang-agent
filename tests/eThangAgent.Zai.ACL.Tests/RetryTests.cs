@@ -76,7 +76,7 @@ public class RetryTests
     Recorder rec = new() { Respond = call => call switch { 1 or 2 => Status(HttpStatusCode.InternalServerError), _ => JsonOk() } };
     ZaiModelProvider provider = Provider(Config(new RetryPolicy(4)), rec);
 
-    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]));
+    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(3, rec._calls);
@@ -88,7 +88,7 @@ public class RetryTests
     Recorder rec = new() { Respond = call => call == 1 ? Status(HttpStatusCode.TooManyRequests) : JsonOk() };
     ZaiModelProvider provider = Provider(Config(), rec);
 
-    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]));
+    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(2, rec._calls);
@@ -100,7 +100,7 @@ public class RetryTests
     Recorder rec = new() { Respond = _ => Status(HttpStatusCode.BadRequest) };
     ZaiModelProvider provider = Provider(Config(), rec);
 
-    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]));
+    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal(1, rec._calls);
@@ -112,7 +112,7 @@ public class RetryTests
     Recorder rec = new() { Respond = _ => Status(HttpStatusCode.Unauthorized) };
     ZaiModelProvider provider = Provider(Config(), rec);
 
-    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]));
+    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal(1, rec._calls);
@@ -124,7 +124,7 @@ public class RetryTests
     Recorder rec = new() { Respond = _ => Status(HttpStatusCode.InternalServerError) };
     ZaiModelProvider provider = Provider(Config(new RetryPolicy(3)), rec);
 
-    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]));
+    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal(3, rec._calls);
@@ -137,7 +137,7 @@ public class RetryTests
     Recorder rec = new() { RespondAsync = call => call == 1 ? throw new HttpRequestException("boom") : Task.FromResult(JsonOk()) };
     ZaiModelProvider provider = Provider(Config(), rec);
 
-    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]));
+    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(2, rec._calls);
@@ -149,7 +149,7 @@ public class RetryTests
     Recorder rec = new() { RespondAsync = call => call == 1 ? throw new TaskCanceledException() : Task.FromResult(JsonOk()) };
     ZaiModelProvider provider = Provider(Config(), rec);
 
-    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]));
+    Result<ModelResponse> result = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(2, rec._calls);
@@ -161,7 +161,7 @@ public class RetryTests
     Recorder rec = new() { Respond = _ => Status(HttpStatusCode.InternalServerError) };
     ZaiModelProvider provider = Provider(Config(new RetryPolicy(3)), rec);
 
-    _ = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]));
+    _ = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.Equal([TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(1)], rec.Delays);
   }
@@ -175,7 +175,7 @@ public class RetryTests
     };
     ZaiModelProvider provider = Provider(Config(), rec);
 
-    _ = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]));
+    _ = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.Equal([TimeSpan.FromSeconds(2)], rec.Delays);
   }
@@ -194,7 +194,7 @@ public class RetryTests
     ZaiModelProvider provider = Provider(Config(), rec);
     List<string> deltas = [];
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add);
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(2, rec._calls);
@@ -213,7 +213,7 @@ public class RetryTests
     using HttpClient http = new(handler);
     ZaiModelProvider provider = new(http, Config());
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), _ => { });
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), _ => { }, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal(1, calls);

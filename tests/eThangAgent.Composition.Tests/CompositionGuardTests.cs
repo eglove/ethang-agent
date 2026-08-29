@@ -146,7 +146,7 @@ public class CompositionGuardTests
   public void SelectedProvider_WithoutApiKey_Throws()
   {
     AgentSettings settings = Settings(openRouterKey: null);
-    Exception ex = Record.Exception(() => new ServiceCollection()
+    Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("m", null, 512, 0.5f).Value!,
             new AgentHostOptions(new StubClarifyChannel(),
@@ -160,7 +160,7 @@ public class CompositionGuardTests
   public void UnknownProviderName_Throws_ArgumentException()
   {
     AgentSettings settings = Settings();
-    Exception ex = Record.Exception(() => new ServiceCollection()
+    Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(settings, "anthropic",
             ModelConfig.Create("m", null, 512, 0.5f).Value!,
             new AgentHostOptions(new StubClarifyChannel(),

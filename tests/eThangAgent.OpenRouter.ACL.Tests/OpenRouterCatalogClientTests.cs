@@ -43,7 +43,7 @@ public class OpenRouterCatalogClientTests
     using HttpClient http = new(handler);
     OpenRouterCatalogClient client = new(http, Config);
 
-    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync();
+    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     // 2 from gemini endpoints + 1 from llama endpoints = 3 entries
@@ -87,8 +87,8 @@ public class OpenRouterCatalogClientTests
     using HttpClient http = new(handler);
     OpenRouterCatalogClient client = new(http, Config);
 
-    _ = await client.GetAsync();
-    _ = await client.GetAsync();
+    _ = await client.GetAsync(TestContext.Current.CancellationToken);
+    _ = await client.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.Equal(3, callCount); // 1 models + 2 endpoints
   }
@@ -106,8 +106,8 @@ public class OpenRouterCatalogClientTests
     OpenRouterConfiguration config = new("test-key", BaseUrl) { CatalogCacheTtl = TimeSpan.Zero };
     OpenRouterCatalogClient client = new(http, config);
 
-    _ = await client.GetAsync();
-    _ = await client.GetAsync();
+    _ = await client.GetAsync(TestContext.Current.CancellationToken);
+    _ = await client.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.Equal(6, callCount); // 2 refreshes x 3 calls each
   }
@@ -120,7 +120,7 @@ public class OpenRouterCatalogClientTests
     using HttpClient http = new(handler);
     OpenRouterCatalogClient client = new(http, Config);
 
-    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync();
+    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("CatalogUnavailable", result.Error.Code);
@@ -134,7 +134,7 @@ public class OpenRouterCatalogClientTests
     using HttpClient http = new(handler);
     OpenRouterCatalogClient client = new(http, Config);
 
-    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync();
+    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("CatalogParseError", result.Error.Code);
@@ -160,7 +160,7 @@ public class OpenRouterCatalogClientTests
     using HttpClient http = new(handler);
     OpenRouterCatalogClient client = new(http, Config);
 
-    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync();
+    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     // 2 from gemini endpoints + 1 from llama top_provider fallback

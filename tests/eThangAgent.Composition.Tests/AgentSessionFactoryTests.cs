@@ -47,8 +47,8 @@ public class AgentSessionFactoryTests
       DirectoryInfo dirB = Directory.CreateTempSubdirectory("ethang-ws-b");
       try
       {
-        Result<AgentSession> a = await factory.CreateAsync(dirA.FullName, Providers.OpenRouter, new StubChannel());
-        Result<AgentSession> b = await factory.CreateAsync(dirB.FullName, Providers.OpenRouter, new StubChannel());
+        Result<AgentSession> a = await factory.CreateAsync(dirA.FullName, Providers.OpenRouter, new StubChannel(), ct: TestContext.Current.CancellationToken);
+        Result<AgentSession> b = await factory.CreateAsync(dirB.FullName, Providers.OpenRouter, new StubChannel(), ct: TestContext.Current.CancellationToken);
 
         Assert.True(a.IsSuccess);
         Assert.True(b.IsSuccess);
@@ -74,7 +74,7 @@ public class AgentSessionFactoryTests
         // The exec engine resolves Workspace per execution against the session's
         // own identity — never a process-global cwd captured at construction.
         IExecEngine engine = a.Value.Services.GetRequiredService<IExecEngine>();
-        ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("return Workspace;"));
+        ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("return Workspace;"), ct: TestContext.Current.CancellationToken);
         Assert.Contains(dirA.FullName, run.Output, StringComparison.OrdinalIgnoreCase);
       }
       finally
@@ -101,7 +101,7 @@ public class AgentSessionFactoryTests
     try
     {
       string missing = Path.Combine(Path.GetTempPath(), $"ethang-missing-{Guid.NewGuid():N}");
-      Result<AgentSession> result = await factory.CreateAsync(missing, Providers.OpenRouter, new StubChannel());
+      Result<AgentSession> result = await factory.CreateAsync(missing, Providers.OpenRouter, new StubChannel(), ct: TestContext.Current.CancellationToken);
 
       Assert.False(result.IsSuccess);
       Assert.Equal("WorkspaceNotFound", result.Error.Code);
@@ -126,7 +126,7 @@ public class AgentSessionFactoryTests
       DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-u");
       try
       {
-        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, "anthropic", new StubChannel());
+        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, "anthropic", new StubChannel(), ct: TestContext.Current.CancellationToken);
 
         Assert.False(result.IsSuccess);
         Assert.Equal("UnknownProvider", result.Error.Code);
@@ -159,7 +159,7 @@ public class AgentSessionFactoryTests
       DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-z");
       try
       {
-        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel());
+        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel(), ct: TestContext.Current.CancellationToken);
 
         Assert.False(result.IsSuccess);
         Assert.Equal("ProviderNotConfigured", result.Error.Code);
@@ -193,15 +193,15 @@ public class AgentSessionFactoryTests
       DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-rebind");
       try
       {
-        Assert.False((await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel())).IsSuccess);
+        Assert.False((await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel(), ct: TestContext.Current.CancellationToken)).IsSuccess);
 
         AgentSessionFactory rebound = factory.WithSettings(Settings(zaiKey: "zai-test-key"));
-        Result<AgentSession> opened = await rebound.CreateAsync(dir.FullName, Providers.Zai, new StubChannel());
+        Result<AgentSession> opened = await rebound.CreateAsync(dir.FullName, Providers.Zai, new StubChannel(), ct: TestContext.Current.CancellationToken);
         Assert.True(opened.IsSuccess);
         Assert.Equal(Providers.Zai, opened.Value.ProviderName);
 
         // The original factory keeps refusing — rebind is a new instance, not a mutation.
-        Assert.False((await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel())).IsSuccess);
+        Assert.False((await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel(), ct: TestContext.Current.CancellationToken)).IsSuccess);
       }
       finally
       {
@@ -247,7 +247,7 @@ public class AgentSessionFactoryTests
       DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-zc");
       try
       {
-        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel());
+        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel(), ct: TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(Providers.Zai, result.Value.ProviderName);

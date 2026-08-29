@@ -19,7 +19,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"old":"x","new":"y","all":true}"""));
+                                 """{"timeoutSeconds":120,"old":"x","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("path", result.Content, StringComparison.Ordinal);
   }
@@ -29,7 +29,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","new":"y","all":true}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("old", result.Content, StringComparison.Ordinal);
   }
@@ -39,7 +39,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","all":true}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("new", result.Content, StringComparison.Ordinal);
   }
@@ -51,7 +51,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y"}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("exactly one", result.Content, StringComparison.Ordinal);
   }
@@ -61,7 +61,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":true,"occurrences":2}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":true,"occurrences":2}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("exactly one", result.Content, StringComparison.Ordinal);
   }
@@ -71,7 +71,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":false}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":false}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("exactly one", result.Content, StringComparison.Ordinal);
   }
@@ -81,7 +81,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","occurrences":0}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","occurrences":0}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("occurrences", result.Content, StringComparison.Ordinal);
     Assert.Contains("\u2265 1", result.Content, StringComparison.Ordinal);
@@ -94,7 +94,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","occurrences":"1"}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","occurrences":"1"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("occurrences", result.Content, StringComparison.Ordinal);
     Assert.Contains("integer", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -105,7 +105,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"","new":"y","all":true}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("old", result.Content, StringComparison.Ordinal);
   }
@@ -115,7 +115,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 "{\"timeoutSeconds\":120,\"path\":\"a.txt\",\"old\":\"x\",\"new\":\"y\",\"all\":true,\"regex\":true}"));
+                                 "{\"timeoutSeconds\":120,\"path\":\"a.txt\",\"old\":\"x\",\"new\":\"y\",\"all\":true,\"regex\":true}"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("regex", result.Content, StringComparison.Ordinal);
@@ -128,7 +128,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"..\\evil.txt","old":"x","new":"y","all":true}"""));
+                                 """{"timeoutSeconds":120,"path":"..\\evil.txt","old":"x","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("PathOutsideWorkspace", result.Content, StringComparison.Ordinal);
   }
@@ -141,7 +141,7 @@ public class EditToolTests
     ToolResult result = await MakeTool(Result.Success<ReplaceOutcome>(new(3, 5)))
             .ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":true}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal($"[edit {Resolved}] replaced 3 occurrence(s), file now 5 lines", result.Content);
   }
@@ -150,7 +150,7 @@ public class EditToolTests
   public async Task SingleOccurrence_SingularWording()
   {
     ToolResult result = await MakeTool(Result.Success<ReplaceOutcome>(new(1, 2)))
-            .ExecuteAsync(new RawToolInput("edit", Args));
+            .ExecuteAsync(new RawToolInput("edit", Args), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal($"[edit {Resolved}] replaced 1 occurrence, file now 2 lines", result.Content);
   }
@@ -163,7 +163,7 @@ public class EditToolTests
   public async Task BackendErrors_SurfaceVerbatim(string code, string message)
   {
     ToolResult result = await MakeTool(Result.Failure<ReplaceOutcome>(new DomainError(code, message)))
-            .ExecuteAsync(new RawToolInput("edit", Args));
+            .ExecuteAsync(new RawToolInput("edit", Args), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains($"Error [{code}]", result.Content, StringComparison.Ordinal);
     Assert.Contains(message, result.Content, StringComparison.Ordinal);

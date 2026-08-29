@@ -98,7 +98,7 @@ public class CapabilityRegistryTests
     CapabilityRegistry registry = CapabilityRegistry.Create([provider]);
     ResolvedCapability resolved = registry.Resolve("read").Value!;
 
-    CapabilityInvocationResult result = await registry.InvokeAsync(resolved, "{}");
+    CapabilityInvocationResult result = await registry.InvokeAsync(resolved, "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("{}", provider.LastJson);

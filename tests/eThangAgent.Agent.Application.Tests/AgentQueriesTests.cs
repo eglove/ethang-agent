@@ -16,10 +16,10 @@ public class AgentQueriesTests
     FakeAgentStore store = new();
     AgentId id = new(Guid.NewGuid());
     AgentRecord record = MakeRecord(id, AgentStatus.Running);
-    _ = await store.SaveAsync(record);
+    _ = await store.SaveAsync(record, ct: TestContext.Current.CancellationToken);
     AgentQueries queries = new(store);
 
-    Result<AgentRecord> result = await queries.GetStatus(id);
+    Result<AgentRecord> result = await queries.GetStatus(id, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(record, result.Value);
@@ -32,8 +32,8 @@ public class AgentQueriesTests
     AgentQueries queries = new(store);
     AgentId id = new(Guid.NewGuid());
 
-    Result<AgentRecord> fromStore = await store.GetAsync(id);
-    Result<AgentRecord> fromQueries = await queries.GetStatus(id);
+    Result<AgentRecord> fromStore = await store.GetAsync(id, ct: TestContext.Current.CancellationToken);
+    Result<AgentRecord> fromQueries = await queries.GetStatus(id, ct: TestContext.Current.CancellationToken);
 
     Assert.False(fromStore.IsSuccess);
     Assert.False(fromQueries.IsSuccess);
@@ -54,10 +54,10 @@ public class AgentQueriesTests
   {
     FakeAgentStore store = new();
     AgentId id = new(Guid.NewGuid());
-    _ = await store.SaveAsync(MakeRecord(id, AgentStatus.Running));
+    _ = await store.SaveAsync(MakeRecord(id, AgentStatus.Running), ct: TestContext.Current.CancellationToken);
     AgentQueries queries = new(store);
 
-    Result<string> result = await queries.GetResult(id);
+    Result<string> result = await queries.GetResult(id, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("NotComplete", result.Error.Code);
@@ -70,10 +70,10 @@ public class AgentQueriesTests
   {
     FakeAgentStore store = new();
     AgentId id = new(Guid.NewGuid());
-    _ = await store.SaveAsync(MakeRecord(id, AgentStatus.Completed, finalReport: "the child's report"));
+    _ = await store.SaveAsync(MakeRecord(id, AgentStatus.Completed, finalReport: "the child's report"), ct: TestContext.Current.CancellationToken);
     AgentQueries queries = new(store);
 
-    Result<string> result = await queries.GetResult(id);
+    Result<string> result = await queries.GetResult(id, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("the child's report", result.Value);
@@ -84,10 +84,10 @@ public class AgentQueriesTests
   {
     FakeAgentStore store = new();
     AgentId id = new(Guid.NewGuid());
-    _ = await store.SaveAsync(MakeRecord(id, AgentStatus.Completed, finalReport: null));
+    _ = await store.SaveAsync(MakeRecord(id, AgentStatus.Completed, finalReport: null), ct: TestContext.Current.CancellationToken);
     AgentQueries queries = new(store);
 
-    Result<string> result = await queries.GetResult(id);
+    Result<string> result = await queries.GetResult(id, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("NotFound", result.Error.Code);
@@ -101,10 +101,10 @@ public class AgentQueriesTests
     FakeAgentStore store = new();
     AgentId id = new(Guid.NewGuid());
     _ = await store.SaveAsync(MakeRecord(id, AgentStatus.Failed, AgentFailureReason.Timeout,
-        finalReport: "partial progress before timeout"));
+        finalReport: "partial progress before timeout"), ct: TestContext.Current.CancellationToken);
     AgentQueries queries = new(store);
 
-    Result<string> result = await queries.GetResult(id);
+    Result<string> result = await queries.GetResult(id, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("partial progress before timeout", result.Value);
@@ -122,10 +122,10 @@ public class AgentQueriesTests
   {
     FakeAgentStore store = new();
     AgentId id = new(Guid.NewGuid());
-    _ = await store.SaveAsync(MakeRecord(id, AgentStatus.Failed, reason, finalReport: null));
+    _ = await store.SaveAsync(MakeRecord(id, AgentStatus.Failed, reason, finalReport: null), ct: TestContext.Current.CancellationToken);
     AgentQueries queries = new(store);
 
-    Result<string> result = await queries.GetResult(id);
+    Result<string> result = await queries.GetResult(id, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(expectedLine, result.Value);
@@ -138,7 +138,7 @@ public class AgentQueriesTests
     AgentQueries queries = new(store);
     AgentId id = new(Guid.NewGuid());
 
-    Result<string> result = await queries.GetResult(id);
+    Result<string> result = await queries.GetResult(id, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("NotFound", result.Error.Code);

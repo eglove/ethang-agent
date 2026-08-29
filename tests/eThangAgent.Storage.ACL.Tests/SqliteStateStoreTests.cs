@@ -29,8 +29,8 @@ public sealed class SqliteStateStoreTests : IDisposable
   [Fact]
   public async Task Set_InsertThenUpsert_BumpsVersions()
   {
-    StateKeyValue? first = await _store.SetKeyCasAsync("ws", "current", "head", "a", null);
-    StateKeyValue? second = await _store.SetKeyCasAsync("ws", "current", "head", "b", null);
+    StateKeyValue? first = await _store.SetKeyCasAsync("ws", "current", "head", "a", null, ct: TestContext.Current.CancellationToken);
+    StateKeyValue? second = await _store.SetKeyCasAsync("ws", "current", "head", "b", null, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(1, first!.Version);
     Assert.Equal(2, second!.Version);
@@ -40,12 +40,12 @@ public sealed class SqliteStateStoreTests : IDisposable
   [Fact]
   public async Task Cas_StaleVersion_ReturnsNull_AndKeepsRow()
   {
-    _ = await _store.SetKeyCasAsync("ws", "current", "head", "a", null);
+    _ = await _store.SetKeyCasAsync("ws", "current", "head", "a", null, ct: TestContext.Current.CancellationToken);
 
-    StateKeyValue? conflict = await _store.SetKeyCasAsync("ws", "current", "head", "b", 5);
+    StateKeyValue? conflict = await _store.SetKeyCasAsync("ws", "current", "head", "b", 5, ct: TestContext.Current.CancellationToken);
 
     Assert.Null(conflict);
-    StateKeyValue? row = await _store.GetKeyAsync("ws", "current", "head");
+    StateKeyValue? row = await _store.GetKeyAsync("ws", "current", "head", ct: TestContext.Current.CancellationToken);
     Assert.Equal("a", row!.Value);
     Assert.Equal(1, row.Version);
   }
@@ -53,9 +53,9 @@ public sealed class SqliteStateStoreTests : IDisposable
   [Fact]
   public async Task Cas_MatchingVersion_Succeeds()
   {
-    _ = await _store.SetKeyCasAsync("ws", "current", "head", "a", null);
+    _ = await _store.SetKeyCasAsync("ws", "current", "head", "a", null, ct: TestContext.Current.CancellationToken);
 
-    StateKeyValue? saved = await _store.SetKeyCasAsync("ws", "current", "head", "b", 1);
+    StateKeyValue? saved = await _store.SetKeyCasAsync("ws", "current", "head", "b", 1, ct: TestContext.Current.CancellationToken);
 
     Assert.NotNull(saved);
     Assert.Equal(2, saved.Version);
@@ -64,21 +64,21 @@ public sealed class SqliteStateStoreTests : IDisposable
   [Fact]
   public async Task Delete_RespectsExpectedVersion_AndMissingKeys()
   {
-    _ = await _store.SetKeyCasAsync("ws", "current", "head", "a", null);
+    _ = await _store.SetKeyCasAsync("ws", "current", "head", "a", null, ct: TestContext.Current.CancellationToken);
 
-    Assert.False(await _store.DeleteKeyCasAsync("ws", "current", "head", 5));
-    Assert.True(await _store.DeleteKeyCasAsync("ws", "current", "head", 1));
-    Assert.False(await _store.DeleteKeyCasAsync("ws", "current", "head", null));
+    Assert.False(await _store.DeleteKeyCasAsync("ws", "current", "head", 5, ct: TestContext.Current.CancellationToken));
+    Assert.True(await _store.DeleteKeyCasAsync("ws", "current", "head", 1, ct: TestContext.Current.CancellationToken));
+    Assert.False(await _store.DeleteKeyCasAsync("ws", "current", "head", null, ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]
   public async Task List_FiltersByNamespace()
   {
-    _ = await _store.SetKeyCasAsync("ws", "current", "head", "a", null);
-    _ = await _store.SetKeyCasAsync("ws", "goal", "check", "[]", null);
+    _ = await _store.SetKeyCasAsync("ws", "current", "head", "a", null, ct: TestContext.Current.CancellationToken);
+    _ = await _store.SetKeyCasAsync("ws", "goal", "check", "[]", null, ct: TestContext.Current.CancellationToken);
 
-    IReadOnlyList<StateKeyValue> all = await _store.ListKeysAsync("ws", null);
-    IReadOnlyList<StateKeyValue> currentOnly = await _store.ListKeysAsync("ws", "current");
+    IReadOnlyList<StateKeyValue> all = await _store.ListKeysAsync("ws", null, ct: TestContext.Current.CancellationToken);
+    IReadOnlyList<StateKeyValue> currentOnly = await _store.ListKeysAsync("ws", "current", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(2, all.Count);
     _ = Assert.Single(currentOnly);
@@ -87,9 +87,9 @@ public sealed class SqliteStateStoreTests : IDisposable
   [Fact]
   public async Task Workspaces_AreIsolated()
   {
-    _ = await _store.SetKeyCasAsync("ws-a", "current", "head", "a", null);
+    _ = await _store.SetKeyCasAsync("ws-a", "current", "head", "a", null, ct: TestContext.Current.CancellationToken);
 
-    Assert.Null(await _store.GetKeyAsync("ws-b", "current", "head"));
+    Assert.Null(await _store.GetKeyAsync("ws-b", "current", "head", ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]
@@ -97,29 +97,29 @@ public sealed class SqliteStateStoreTests : IDisposable
   {
     TransitionRecord record = new("tr-1", "coding", "done", "work",
         ["Write-Output ok"], "pending", DateTimeOffset.UtcNow);
-    _ = await _store.InsertTransitionAsync("ws", record);
+    _ = await _store.InsertTransitionAsync("ws", record, ct: TestContext.Current.CancellationToken);
 
-    IReadOnlyList<TransitionRecord> pending = await _store.GetTransitionsAsync("ws", []);
-    IReadOnlyList<TransitionRecord> byId = await _store.GetTransitionsAsync("ws", ["tr-1"]);
+    IReadOnlyList<TransitionRecord> pending = await _store.GetTransitionsAsync("ws", [], ct: TestContext.Current.CancellationToken);
+    IReadOnlyList<TransitionRecord> byId = await _store.GetTransitionsAsync("ws", ["tr-1"], ct: TestContext.Current.CancellationToken);
 
     _ = Assert.Single(pending);
     _ = Assert.Single(byId);
     Assert.Equal(["Write-Output ok"], byId[0].Evidence);
 
-    await _store.SetTransitionStatusAsync("ws", "tr-1", "certified");
+    await _store.SetTransitionStatusAsync("ws", "tr-1", "certified", ct: TestContext.Current.CancellationToken);
 
-    Assert.Empty(await _store.GetTransitionsAsync("ws", []));
-    Assert.Equal("certified", (await _store.GetTransitionsAsync("ws", ["tr-1"]))[0].Status);
+    Assert.Empty(await _store.GetTransitionsAsync("ws", [], ct: TestContext.Current.CancellationToken));
+    Assert.Equal("certified", (await _store.GetTransitionsAsync("ws", ["tr-1"], ct: TestContext.Current.CancellationToken))[0].Status);
   }
 
   [Fact]
   public async Task Events_Append_NewestFirst_LimitRespected()
   {
-    await _store.AppendEventAsync("ws", "a", "{}");
-    await _store.AppendEventAsync("ws", "b", "{}");
-    await _store.AppendEventAsync("ws", "c", "{}");
+    await _store.AppendEventAsync("ws", "a", "{}", ct: TestContext.Current.CancellationToken);
+    await _store.AppendEventAsync("ws", "b", "{}", ct: TestContext.Current.CancellationToken);
+    await _store.AppendEventAsync("ws", "c", "{}", ct: TestContext.Current.CancellationToken);
 
-    IReadOnlyList<StateEvent> events = await _store.GetEventsAsync("ws", 2);
+    IReadOnlyList<StateEvent> events = await _store.GetEventsAsync("ws", 2, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(2, events.Count);
     Assert.Equal("c", events[0].Kind);

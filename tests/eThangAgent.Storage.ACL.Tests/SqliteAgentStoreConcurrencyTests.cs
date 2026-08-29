@@ -43,7 +43,7 @@ public sealed class SqliteAgentStoreConcurrencyTests : IDisposable
     AgentRecord shared = AgentRecord.Spawned(
         AgentId.NewId(), null, 1, "provider/model", "shared", "shared task",
         new DateTimeOffset(2026, 8, 21, 9, 0, 0, TimeSpan.Zero));
-    Assert.True((await _store.SaveAsync(shared)).IsSuccess);
+    Assert.True((await _store.SaveAsync(shared, ct: TestContext.Current.CancellationToken)).IsSuccess);
 
     Message[] messages = [.. Enumerable.Range(0, 10)
         .Select(i => new Message(Role.User, $"message {i}",
@@ -56,10 +56,10 @@ public sealed class SqliteAgentStoreConcurrencyTests : IDisposable
 
     foreach (AgentRecord? record in records)
     {
-      Assert.Equal(record, (await _store.GetAsync(record.Id)).Value);
+      Assert.Equal(record, (await _store.GetAsync(record.Id, ct: TestContext.Current.CancellationToken)).Value);
     }
 
-    Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(shared.Id);
+    Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(shared.Id, ct: TestContext.Current.CancellationToken);
     Assert.True(transcript.IsSuccess);
     Assert.Equal(10, transcript.Value.Count);
     Assert.Equal(

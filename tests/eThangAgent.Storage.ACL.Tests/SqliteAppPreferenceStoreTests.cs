@@ -31,53 +31,53 @@ public sealed class SqliteAppPreferenceStoreTests : IDisposable
 
   [Fact]
   public async Task GetAsync_UnsetKey_ReturnsNull()
-      => Assert.Null(await _store.GetAsync("active_provider"));
+      => Assert.Null(await _store.GetAsync("active_provider", ct: TestContext.Current.CancellationToken));
 
   [Fact]
   public async Task SetAsync_ThenGetAsync_RoundTrips()
   {
-    Assert.True(await _store.SetAsync("active_provider", "zai"));
-    Assert.Equal("zai", await _store.GetAsync("active_provider"));
+    Assert.True(await _store.SetAsync("active_provider", "zai", ct: TestContext.Current.CancellationToken));
+    Assert.Equal("zai", await _store.GetAsync("active_provider", ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]
   public async Task SetAsync_Twice_Overwrites()
   {
-    _ = await _store.SetAsync("active_provider", "zai");
-    Assert.True(await _store.SetAsync("active_provider", "openrouter"));
-    Assert.Equal("openrouter", await _store.GetAsync("active_provider"));
+    _ = await _store.SetAsync("active_provider", "zai", ct: TestContext.Current.CancellationToken);
+    Assert.True(await _store.SetAsync("active_provider", "openrouter", ct: TestContext.Current.CancellationToken));
+    Assert.Equal("openrouter", await _store.GetAsync("active_provider", ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]
   public async Task GetSet_WithBlankKeyOrValue_IsRejected()
   {
-    _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.GetAsync(" "));
-    _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.SetAsync("", "v"));
-    _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.SetAsync("k", " "));
-    _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.DeleteAsync(" "));
+    _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.GetAsync(" ", ct: TestContext.Current.CancellationToken));
+    _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.SetAsync("", "v", ct: TestContext.Current.CancellationToken));
+    _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.SetAsync("k", " ", ct: TestContext.Current.CancellationToken));
+    _ = await Assert.ThrowsAsync<ArgumentException>(() => _store.DeleteAsync(" ", ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]
   public async Task DeleteAsync_Removes_The_Preference_And_Reports_It()
   {
-    _ = await _store.SetAsync("active_provider", "zai");
+    _ = await _store.SetAsync("active_provider", "zai", ct: TestContext.Current.CancellationToken);
 
-    Assert.True(await _store.DeleteAsync("active_provider"));
-    Assert.Null(await _store.GetAsync("active_provider"));
+    Assert.True(await _store.DeleteAsync("active_provider", ct: TestContext.Current.CancellationToken));
+    Assert.Null(await _store.GetAsync("active_provider", ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]
   public async Task DeleteAsync_AbsentKey_ReturnsFalse()
-      => Assert.False(await _store.DeleteAsync("never-set"));
+      => Assert.False(await _store.DeleteAsync("never-set", ct: TestContext.Current.CancellationToken));
 
   [Fact]
   public async Task DeleteAsync_ThenSetAsync_Restores_The_Preference()
   {
-    _ = await _store.SetAsync("active_provider", "zai");
-    _ = await _store.DeleteAsync("active_provider");
+    _ = await _store.SetAsync("active_provider", "zai", ct: TestContext.Current.CancellationToken);
+    _ = await _store.DeleteAsync("active_provider", ct: TestContext.Current.CancellationToken);
 
-    Assert.True(await _store.SetAsync("active_provider", "openrouter"));
-    Assert.Equal("openrouter", await _store.GetAsync("active_provider"));
+    Assert.True(await _store.SetAsync("active_provider", "openrouter", ct: TestContext.Current.CancellationToken));
+    Assert.Equal("openrouter", await _store.GetAsync("active_provider", ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]

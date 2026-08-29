@@ -30,7 +30,7 @@ public class SystemPromptTests
     Message msg = new(Role.User, "hi", DateTimeOffset.UtcNow);
     Result<ModelResponse> result = await provider.SendAsync(
         ModelConfig.Create("m", null, 100, 0.5f).Value!,
-        new ModelRequest([msg], SystemPrompt: "you are exec-guide"));
+        new ModelRequest([msg], SystemPrompt: "you are exec-guide"), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Contains("\"role\":\"system\"", capturedBody, StringComparison.Ordinal);
@@ -60,7 +60,7 @@ public class SystemPromptTests
 
     _ = await provider.SendAsync(
         ModelConfig.Create("m", null, 100, 0.5f).Value!,
-        new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]));
+        new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]), TestContext.Current.CancellationToken);
 
     Assert.DoesNotContain("\"role\":\"system\"", capturedBody, StringComparison.Ordinal);
   }

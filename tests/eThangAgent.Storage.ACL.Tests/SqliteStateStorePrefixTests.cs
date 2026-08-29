@@ -34,30 +34,30 @@ public sealed class SqliteStateStorePrefixTests : IDisposable
   [Fact]
   public async Task DeletePrefix_RemovesExactAndDottedChildren_Only()
   {
-    _ = await _store.SetKeyCasAsync("ws1", "sdd.alpha", "ledger", "one", null);
-    _ = await _store.SetKeyCasAsync("ws1", "sdd.alphabeta", "ledger", "two", null);
-    _ = await _store.SetKeyCasAsync("ws1", "sdd.other", "ledger", "three", null);
-    _ = await _store.SetKeyCasAsync("ws2", "sdd.alpha", "ledger", "other-ws", null);
+    _ = await _store.SetKeyCasAsync("ws1", "sdd.alpha", "ledger", "one", null, ct: TestContext.Current.CancellationToken);
+    _ = await _store.SetKeyCasAsync("ws1", "sdd.alphabeta", "ledger", "two", null, ct: TestContext.Current.CancellationToken);
+    _ = await _store.SetKeyCasAsync("ws1", "sdd.other", "ledger", "three", null, ct: TestContext.Current.CancellationToken);
+    _ = await _store.SetKeyCasAsync("ws2", "sdd.alpha", "ledger", "other-ws", null, ct: TestContext.Current.CancellationToken);
 
-    int removed = await _store.DeleteNamespacePrefixAsync("ws1", "sdd.alpha");
+    int removed = await _store.DeleteNamespacePrefixAsync("ws1", "sdd.alpha", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(1, removed); // dotted boundary: alphabeta survives
-    Assert.Null(await _store.GetKeyAsync("ws1", "sdd.alpha", "ledger"));
-    Assert.NotNull(await _store.GetKeyAsync("ws1", "sdd.alphabeta", "ledger"));
-    Assert.NotNull(await _store.GetKeyAsync("ws1", "sdd.other", "ledger"));
-    Assert.NotNull(await _store.GetKeyAsync("ws2", "sdd.alpha", "ledger"));
+    Assert.Null(await _store.GetKeyAsync("ws1", "sdd.alpha", "ledger", ct: TestContext.Current.CancellationToken));
+    Assert.NotNull(await _store.GetKeyAsync("ws1", "sdd.alphabeta", "ledger", ct: TestContext.Current.CancellationToken));
+    Assert.NotNull(await _store.GetKeyAsync("ws1", "sdd.other", "ledger", ct: TestContext.Current.CancellationToken));
+    Assert.NotNull(await _store.GetKeyAsync("ws2", "sdd.alpha", "ledger", ct: TestContext.Current.CancellationToken));
   }
 
   [Fact]
   public async Task DeletedKeys_LeaveTheSearchIndex()
   {
-    _ = await _store.SetKeyCasAsync("ws1", "sdd.zed", "report", "xylophone content", null);
-    Result<IReadOnlyList<StateSearchHit>> before = await _store.SearchKeysAsync("ws1", "xylophone", 20);
+    _ = await _store.SetKeyCasAsync("ws1", "sdd.zed", "report", "xylophone content", null, ct: TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<StateSearchHit>> before = await _store.SearchKeysAsync("ws1", "xylophone", 20, ct: TestContext.Current.CancellationToken);
     _ = Assert.Single(before.Value!);
 
-    _ = await _store.DeleteNamespacePrefixAsync("ws1", "sdd.zed");
+    _ = await _store.DeleteNamespacePrefixAsync("ws1", "sdd.zed", ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<StateSearchHit>> after = await _store.SearchKeysAsync("ws1", "xylophone", 20);
+    Result<IReadOnlyList<StateSearchHit>> after = await _store.SearchKeysAsync("ws1", "xylophone", 20, ct: TestContext.Current.CancellationToken);
     Assert.True(after.IsSuccess);
     Assert.Empty(after.Value);
   }

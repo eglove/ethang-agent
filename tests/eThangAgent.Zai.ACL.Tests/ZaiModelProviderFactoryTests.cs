@@ -33,7 +33,7 @@ public class ZaiModelProviderFactoryTests
     IModelProvider provider = factory.Create(ModelConfig.Create("glm-4.5-air", null, 64, 0.5f).Value!);
     _ = await provider.SendAsync(
         ModelConfig.Create("glm-4.5-air", null, 64, 0.5f).Value!,
-        new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]));
+        new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]), TestContext.Current.CancellationToken);
 
     Assert.Equal("Bearer shared-key", captured!.Headers.Authorization?.ToString());
     Assert.Contains("glm-4.5-air", capturedBody, StringComparison.Ordinal);

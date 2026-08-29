@@ -3,6 +3,7 @@
         xmlns:views="using:eThangAgent.Desktop.Views"
         xmlns:vm="using:eThangAgent.Desktop.ViewModels"
         x:Class="eThangAgent.Desktop.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
         Title="eThang Agent" Width="1000" Height="700"
         Closed="OnWindowClosed">
   <Grid ColumnDefinitions="Auto,*">
@@ -51,7 +52,7 @@
         </StackPanel>
         <TabControl x:Name="AgentTabs" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
           <TabControl.ItemTemplate>
-            <DataTemplate>
+            <DataTemplate x:DataType="vm:AgentTabViewModel">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
                 <Button Content="✕" Padding="4,0" Background="Transparent" BorderThickness="0"
@@ -60,7 +61,7 @@
             </DataTemplate>
           </TabControl.ItemTemplate>
           <TabControl.ContentTemplate>
-            <DataTemplate>
+            <DataTemplate x:DataType="vm:AgentTabViewModel">
               <views:AgentView DataContext="{Binding ViewModel}"/>
             </DataTemplate>
           </TabControl.ContentTemplate>

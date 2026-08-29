@@ -33,7 +33,7 @@ public class ZaiWebToolsTests
 
     ToolResult result = await tool.ExecuteAsync(Args(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":5,"query":"dotnet"}"""));
+                             """{"timeoutSeconds":5,"query":"dotnet"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("/paas/v4/web_search", capturedPath);
@@ -64,7 +64,7 @@ public class ZaiWebToolsTests
 
     ToolResult result = await tool.ExecuteAsync(Args(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":5,"query":"dotnet"}"""));
+                             """{"timeoutSeconds":5,"query":"dotnet"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("https://api.z.ai/api/paas/v4/web_search", capturedUrl!.ToString());
@@ -84,7 +84,7 @@ public class ZaiWebToolsTests
 
     ToolResult result = await tool.ExecuteAsync(Args(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":5,"query":"x","count":25,"recency":"oneWeek"}"""));
+                             """{"timeoutSeconds":5,"query":"x","count":25,"recency":"oneWeek"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Contains("\"count\":25", capturedBody, StringComparison.Ordinal);
@@ -100,7 +100,7 @@ public class ZaiWebToolsTests
     FakeHttpMessageHandler handler = new(_ => Task.FromResult(Json(json)));
     ZaiWebSearchTool tool = new(new HttpClient(handler), Config);
 
-    ToolResult result = await tool.ExecuteAsync(Args(/*lang=json,strict*/ """{"timeoutSeconds":5,"query":"x"}"""));
+    ToolResult result = await tool.ExecuteAsync(Args(/*lang=json,strict*/ """{"timeoutSeconds":5,"query":"x"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.Contains("[content truncated]", result.Content, StringComparison.Ordinal);
   }
@@ -116,7 +116,7 @@ public class ZaiWebToolsTests
   {
     ZaiWebSearchTool tool = new(new HttpClient(new FakeHttpMessageHandler(_ => Task.FromResult(Json("{}")))), Config);
 
-    ToolResult result = await tool.ExecuteAsync(Args(json));
+    ToolResult result = await tool.ExecuteAsync(Args(json), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith($"Error [{code}]:", result.Content, StringComparison.Ordinal);
@@ -132,7 +132,7 @@ public class ZaiWebToolsTests
         }));
     ZaiWebSearchTool tool = new(new HttpClient(handler), Config);
 
-    ToolResult result = await tool.ExecuteAsync(Args(/*lang=json,strict*/ """{"timeoutSeconds":5,"query":"x"}"""));
+    ToolResult result = await tool.ExecuteAsync(Args(/*lang=json,strict*/ """{"timeoutSeconds":5,"query":"x"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("HTTP 429", result.Content, StringComparison.Ordinal);
@@ -151,7 +151,7 @@ public class ZaiWebToolsTests
 
     ToolResult result = await tool.ExecuteAsync(Args(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":5,"url":"https://a.example.com/page"}"""));
+                             """{"timeoutSeconds":5,"url":"https://a.example.com/page"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Contains("[web_read 'Example' from https://a.example.com/page]", result.Content, StringComparison.Ordinal);
@@ -165,7 +165,7 @@ public class ZaiWebToolsTests
     FakeHttpMessageHandler handler = new(_ => Task.FromResult(Json(json)));
     ZaiWebReaderTool tool = new(new HttpClient(handler), Config);
 
-    ToolResult result = await tool.ExecuteAsync(Args(/*lang=json,strict*/ """{"timeoutSeconds":5,"url":"https://a.example.com"}"""));
+    ToolResult result = await tool.ExecuteAsync(Args(/*lang=json,strict*/ """{"timeoutSeconds":5,"url":"https://a.example.com"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.Contains("[truncated at 30000 of 30001 characters]", result.Content, StringComparison.Ordinal);
   }
@@ -178,7 +178,7 @@ public class ZaiWebToolsTests
   {
     ZaiWebReaderTool tool = new(new HttpClient(new FakeHttpMessageHandler(_ => Task.FromResult(Json("{}")))), Config);
 
-    ToolResult result = await tool.ExecuteAsync(Args(json));
+    ToolResult result = await tool.ExecuteAsync(Args(json), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith($"Error [{code}]:", result.Content, StringComparison.Ordinal);
@@ -196,7 +196,7 @@ public class ZaiWebToolsTests
 
     ToolResult result = await tool.ExecuteAsync(Args(
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":5,"text":"hello world"}"""));
+                             """{"timeoutSeconds":5,"text":"hello world"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[count_tokens glm-4.6: 7 token(s) total, 7 prompt token(s)]", result.Content);
@@ -210,7 +210,7 @@ public class ZaiWebToolsTests
   {
     ZaiTokenizerTool tool = new(new HttpClient(new FakeHttpMessageHandler(_ => Task.FromResult(Json("{}")))), Config);
 
-    ToolResult result = await tool.ExecuteAsync(Args(json));
+    ToolResult result = await tool.ExecuteAsync(Args(json), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.StartsWith($"Error [{code}]:", result.Content, StringComparison.Ordinal);

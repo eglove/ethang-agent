@@ -30,7 +30,7 @@ public class TurnRunnerThreadingTests
       })(new SendMessageCommand("hi"), CancellationToken.None, null, null);
 
       SynchronizationContext.SetSynchronizationContext(previous);
-      result = await task.WaitAsync(TimeSpan.FromSeconds(10));
+      result = await task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
     }
     finally
     {

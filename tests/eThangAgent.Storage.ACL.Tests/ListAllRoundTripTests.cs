@@ -39,12 +39,12 @@ public sealed class ListAllRoundTripTests : IDisposable
         createdAt: new DateTimeOffset(2026, 8, 21, 8, 0, 0, TimeSpan.Zero));
 
     // Insert newest first; the listing must still come back oldest first.
-    Assert.True((await _store.SaveAsync(late)).IsSuccess);
-    Assert.True((await _store.SaveAsync(early)).IsSuccess);
+    Assert.True((await _store.SaveAsync(late, ct: TestContext.Current.CancellationToken)).IsSuccess);
+    Assert.True((await _store.SaveAsync(early, ct: TestContext.Current.CancellationToken)).IsSuccess);
     Assert.True((await _store.AppendMessageAsync(late.Id,
-        new Message(Role.User, "a turn", DateTimeOffset.UtcNow))).IsSuccess);
+        new Message(Role.User, "a turn", DateTimeOffset.UtcNow), ct: TestContext.Current.CancellationToken)).IsSuccess);
 
-    Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync();
+    Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync(TestContext.Current.CancellationToken);
 
     Assert.True(listed.IsSuccess);
     Assert.Equal([early.Id, late.Id], listed.Value.Select(r => r.Id).ToList());
@@ -56,7 +56,7 @@ public sealed class ListAllRoundTripTests : IDisposable
   [Fact]
   public async Task ListAll_EmptyDatabase_YieldsEmptySuccess()
   {
-    Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync();
+    Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync(TestContext.Current.CancellationToken);
 
     Assert.True(listed.IsSuccess);
     Assert.Empty(listed.Value);

@@ -28,7 +28,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Add","description":"First task."}"""));
+                                 """{"timeoutSeconds":120,"action":"Add","description":"First task."}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo] added #1", result.Content);
@@ -50,7 +50,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Add","description":"Next task"}"""));
+                                 """{"timeoutSeconds":120,"action":"Add","description":"Next task"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo] added #3", result.Content);
@@ -69,18 +69,18 @@ public class TodoToolTests
 
     _ = await tool.ExecuteAsync(new RawToolInput("todo",
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":120,"action":"Add","description":"One"}"""));
+                             """{"timeoutSeconds":120,"action":"Add","description":"One"}"""), ct: TestContext.Current.CancellationToken);
     _ = await tool.ExecuteAsync(new RawToolInput("todo",
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":120,"action":"Add","description":"Two"}"""));
+                             """{"timeoutSeconds":120,"action":"Add","description":"Two"}"""), ct: TestContext.Current.CancellationToken);
     _ = await tool.ExecuteAsync(new RawToolInput("todo",
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":120,"action":"Add","description":"Three"}"""));
-    _ = await tool.ExecuteAsync(new RawToolInput("todo", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"Remove","id":1}"""));
-    _ = await tool.ExecuteAsync(new RawToolInput("todo", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"Remove","id":2}"""));
+                             """{"timeoutSeconds":120,"action":"Add","description":"Three"}"""), ct: TestContext.Current.CancellationToken);
+    _ = await tool.ExecuteAsync(new RawToolInput("todo", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"Remove","id":1}"""), ct: TestContext.Current.CancellationToken);
+    _ = await tool.ExecuteAsync(new RawToolInput("todo", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"Remove","id":2}"""), ct: TestContext.Current.CancellationToken);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Add","description":"Four"}"""));
+                                 """{"timeoutSeconds":120,"action":"Add","description":"Four"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo] added #4", result.Content);
@@ -106,7 +106,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","id":1,"description":"New text"}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","id":1,"description":"New text"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo] updated #1", result.Content);
@@ -123,7 +123,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","id":1,"status":"InProgress"}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","id":1,"status":"InProgress"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo] updated #1", result.Content);
@@ -140,7 +140,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","id":9,"description":"Nope"}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","id":9,"description":"Nope"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("TodoNotFound", result.Content, StringComparison.Ordinal);
@@ -158,7 +158,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Complete","id":1}"""));
+                                 """{"timeoutSeconds":120,"action":"Complete","id":1}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo] completed #1", result.Content);
@@ -175,7 +175,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Complete","id":1}"""));
+                                 """{"timeoutSeconds":120,"action":"Complete","id":1}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo] completed #1", result.Content);
@@ -189,7 +189,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Complete","id":42}"""));
+                                 """{"timeoutSeconds":120,"action":"Complete","id":42}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("TodoNotFound", result.Content, StringComparison.Ordinal);
@@ -208,7 +208,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Remove","id":1}"""));
+                                 """{"timeoutSeconds":120,"action":"Remove","id":1}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo] removed #1", result.Content);
@@ -225,7 +225,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Remove","id":1}"""));
+                                 """{"timeoutSeconds":120,"action":"Remove","id":1}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo] removed #1", result.Content);
@@ -240,7 +240,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Remove","id":7}"""));
+                                 """{"timeoutSeconds":120,"action":"Remove","id":7}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("TodoNotFound", result.Content, StringComparison.Ordinal);
@@ -258,7 +258,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Clear"}"""));
+                                 """{"timeoutSeconds":120,"action":"Clear"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -274,7 +274,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Clear","confirm":false}"""));
+                                 """{"timeoutSeconds":120,"action":"Clear","confirm":false}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -290,7 +290,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Clear","confirm":"true"}"""));
+                                 """{"timeoutSeconds":120,"action":"Clear","confirm":"true"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -306,7 +306,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Clear","confirm":true}"""));
+                                 """{"timeoutSeconds":120,"action":"Clear","confirm":true}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo] cleared", result.Content);
@@ -324,7 +324,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"List"}"""));
+                                 """{"timeoutSeconds":120,"action":"List"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal(
@@ -342,7 +342,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"List"}"""));
+                                 """{"timeoutSeconds":120,"action":"List"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo: empty]", result.Content);
@@ -355,7 +355,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"List"}"""));
+                                 """{"timeoutSeconds":120,"action":"List"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("[todo: empty]", result.Content);
@@ -375,7 +375,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Add","description":"Raced"}"""));
+                                 """{"timeoutSeconds":120,"action":"Add","description":"Raced"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("VersionConflict", result.Content, StringComparison.Ordinal);
@@ -391,7 +391,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Add","description":"X"}"""));
+                                 """{"timeoutSeconds":120,"action":"Add","description":"X"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("StorageCorrupt", result.Content, StringComparison.Ordinal);
@@ -406,7 +406,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"List"}"""));
+                                 """{"timeoutSeconds":120,"action":"List"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("StorageCorrupt", result.Content, StringComparison.Ordinal);
@@ -418,7 +418,7 @@ public class TodoToolTests
     (TodoTool? tool, FakeTodoListStore _) = MakeTool(
         storedValue: /*lang=json,strict*/ """[{"id":1,"description":"a","status":"Pending","extra":true}]""");
 
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"List"}"""));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"List"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("StorageCorrupt", result.Content, StringComparison.Ordinal);
@@ -431,7 +431,7 @@ public class TodoToolTests
     (TodoTool? tool, FakeTodoListStore _) = MakeTool(
         storedValue: /*lang=json,strict*/ """[{"id":1,"description":"a","status":"Done"}]""");
 
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"List"}"""));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"List"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("StorageCorrupt", result.Content, StringComparison.Ordinal);
@@ -448,7 +448,7 @@ public class TodoToolTests
   {
     (TodoTool? tool, FakeTodoListStore? state) = MakeTool(storedValue: stored);
 
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"List"}"""));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"List"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("StorageCorrupt", result.Content, StringComparison.Ordinal);
@@ -464,7 +464,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"add","description":"x"}"""));
+                                 """{"timeoutSeconds":120,"action":"add","description":"x"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -485,7 +485,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Add"}"""));
+                                 """{"timeoutSeconds":120,"action":"Add"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("MissingParameter", result.Content, StringComparison.Ordinal);
@@ -501,7 +501,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Add","description":""}"""));
+                                 """{"timeoutSeconds":120,"action":"Add","description":""}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -516,7 +516,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Add","description":"x","status":"Completed"}"""));
+                                 """{"timeoutSeconds":120,"action":"Add","description":"x","status":"Completed"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -532,7 +532,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","description":"x"}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","description":"x"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("MissingParameter", result.Content, StringComparison.Ordinal);
@@ -546,7 +546,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","id":1}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","id":1}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -562,7 +562,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","id":1,"status":"Done"}"""));
+                                 """{"timeoutSeconds":120,"action":"Update","id":1,"status":"Done"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("InvalidParameterValue", result.Content, StringComparison.Ordinal);
@@ -580,7 +580,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"List","filter":"open"}"""));
+                                 """{"timeoutSeconds":120,"action":"List","filter":"open"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
@@ -596,7 +596,7 @@ public class TodoToolTests
   {
     (TodoTool? tool, FakeTodoListStore _) = MakeTool();
 
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", args));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", args), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains(expectedCode, result.Content, StringComparison.Ordinal);
@@ -608,7 +608,7 @@ public class TodoToolTests
   {
     (TodoTool? tool, FakeTodoListStore _) = MakeTool();
 
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", "{\"timeoutSeconds\":120,bad"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", "{\"timeoutSeconds\":120,bad"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("not valid JSON", result.Content, StringComparison.Ordinal);
@@ -619,7 +619,7 @@ public class TodoToolTests
   {
     (TodoTool? tool, FakeTodoListStore _) = MakeTool();
 
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", "[]"));
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo", "[]"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("JSON object", result.Content, StringComparison.Ordinal);
@@ -632,7 +632,7 @@ public class TodoToolTests
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("todo",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"description":"x"}"""));
+                                 """{"timeoutSeconds":120,"description":"x"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("MissingParameter", result.Content, StringComparison.Ordinal);

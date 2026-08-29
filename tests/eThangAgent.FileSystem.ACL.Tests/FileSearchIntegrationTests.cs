@@ -45,7 +45,7 @@ public sealed class FileSearchIntegrationTests : IDisposable
   public async Task LiteralMatch_ReportsPathLineAndText()
   {
     _ = await WriteAsync("src\\a.cs", "alpha\nbeta\ngamma");
-    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "beta", regex: false, glob: null, maxResults: 50, contextLines: 0);
+    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "beta", regex: false, glob: null, maxResults: 50, contextLines: 0, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     SearchMatch m = Assert.Single(r.Value.Matches);
     Assert.EndsWith("a.cs", m.Path, StringComparison.Ordinal);
@@ -57,7 +57,7 @@ public sealed class FileSearchIntegrationTests : IDisposable
   public async Task ContextLines_IncludesNeighbors()
   {
     _ = await WriteAsync("b.txt", "one\ntwo\nthree\nfour");
-    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "two", regex: false, glob: null, maxResults: 50, contextLines: 1);
+    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "two", regex: false, glob: null, maxResults: 50, contextLines: 1, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     SearchMatch m = Assert.Single(r.Value.Matches);
     Assert.Equal(3, m.Lines.Count);
@@ -69,7 +69,7 @@ public sealed class FileSearchIntegrationTests : IDisposable
   public async Task RegexMode_MatchesPattern()
   {
     _ = await WriteAsync("c.txt", "foo123\nbar\nfoo456");
-    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "foo\\d+", regex: true, glob: null, maxResults: 50, contextLines: 0);
+    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "foo\\d+", regex: true, glob: null, maxResults: 50, contextLines: 0, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     Assert.Equal(2, r.Value.Matches.Count);
   }
@@ -77,7 +77,7 @@ public sealed class FileSearchIntegrationTests : IDisposable
   [Fact]
   public async Task InvalidRegex_Fails_InvalidPattern()
   {
-    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "foo(", regex: true, glob: null, maxResults: 50, contextLines: 0);
+    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "foo(", regex: true, glob: null, maxResults: 50, contextLines: 0, ct: TestContext.Current.CancellationToken);
     Assert.False(r.IsSuccess);
     Assert.Equal("InvalidPattern", r.Error.Code);
   }
@@ -87,7 +87,7 @@ public sealed class FileSearchIntegrationTests : IDisposable
   {
     _ = await WriteAsync(".git\\tracked.txt", "secret-token");
     _ = await WriteAsync("real.txt", "secret-token");
-    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "secret-token", regex: false, glob: null, maxResults: 50, contextLines: 0);
+    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "secret-token", regex: false, glob: null, maxResults: 50, contextLines: 0, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     SearchMatch m = Assert.Single(r.Value.Matches);
     Assert.EndsWith("real.txt", m.Path, StringComparison.Ordinal);
@@ -97,7 +97,7 @@ public sealed class FileSearchIntegrationTests : IDisposable
   public async Task BinaryFiles_Skipped()
   {
     _ = await WriteAsync("bin.dat", "x\0y"); // NUL byte
-    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "x", regex: false, glob: null, maxResults: 50, contextLines: 0);
+    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "x", regex: false, glob: null, maxResults: 50, contextLines: 0, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     Assert.Empty(r.Value.Matches);
   }
@@ -107,7 +107,7 @@ public sealed class FileSearchIntegrationTests : IDisposable
   {
     _ = await WriteAsync("keep.cs", "needle");
     _ = await WriteAsync("skip.md", "needle");
-    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "needle", regex: false, glob: "*.cs", maxResults: 50, contextLines: 0);
+    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "needle", regex: false, glob: "*.cs", maxResults: 50, contextLines: 0, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     SearchMatch m = Assert.Single(r.Value.Matches);
     Assert.EndsWith("keep.cs", m.Path, StringComparison.Ordinal);
@@ -121,7 +121,7 @@ public sealed class FileSearchIntegrationTests : IDisposable
       _ = await WriteAsync($"f{i}.txt", "hit");
     }
 
-    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "hit", regex: false, glob: null, maxResults: 3, contextLines: 0);
+    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "hit", regex: false, glob: null, maxResults: 3, contextLines: 0, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     Assert.Equal(3, r.Value.Matches.Count);
     Assert.True(r.Value.Truncated);
@@ -131,7 +131,7 @@ public sealed class FileSearchIntegrationTests : IDisposable
   public async Task NoMatches_ReportsFilesScanned()
   {
     _ = await WriteAsync("z.txt", "nothing relevant");
-    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "absent-token", regex: false, glob: null, maxResults: 50, contextLines: 0);
+    Result<FileSearch> r = await _access.SearchFilesAsync(_root, "absent-token", regex: false, glob: null, maxResults: 50, contextLines: 0, ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     Assert.Empty(r.Value.Matches);
     Assert.False(r.Value.Truncated);
@@ -141,7 +141,7 @@ public sealed class FileSearchIntegrationTests : IDisposable
   [Fact]
   public async Task MissingRoot_Fails_RootNotFound()
   {
-    Result<FileSearch> r = await _access.SearchFilesAsync(Path.Combine(_root, "ghost"), "x", regex: false, glob: null, maxResults: 50, contextLines: 0);
+    Result<FileSearch> r = await _access.SearchFilesAsync(Path.Combine(_root, "ghost"), "x", regex: false, glob: null, maxResults: 50, contextLines: 0, ct: TestContext.Current.CancellationToken);
     Assert.False(r.IsSuccess);
     Assert.Equal("RootNotFound", r.Error.Code);
   }

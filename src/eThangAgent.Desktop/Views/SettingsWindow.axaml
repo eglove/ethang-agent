@@ -11,11 +11,11 @@
 
     <TextBlock Text="OpenRouter" FontWeight="Bold"/>
     <TextBox Text="{Binding OpenRouterKey}" PasswordChar="{Binding KeyPasswordChar}"
-             Watermark="No OpenRouter API key configured"/>
+             PlaceholderText="No OpenRouter API key configured"/>
 
     <TextBlock Text="z.ai" FontWeight="Bold" Margin="0,8,0,0"/>
     <TextBox Text="{Binding ZaiKey}" PasswordChar="{Binding KeyPasswordChar}"
-             Watermark="No z.ai API key configured"/>
+             PlaceholderText="No z.ai API key configured"/>
 
     <TextBlock Text="z.ai endpoint" FontWeight="Bold" Margin="0,8,0,0"/>
     <ComboBox ItemsSource="{Binding EndpointModes}" SelectedItem="{Binding SelectedEndpointMode}">

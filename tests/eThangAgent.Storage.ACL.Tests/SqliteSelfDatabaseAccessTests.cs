@@ -35,7 +35,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   [Fact]
   public async Task Describe_ListsMigratedTables_AndHidesInternalOnes()
   {
-    Result<SelfDatabaseSchema> schema = await _access.DescribeAsync(false);
+    Result<SelfDatabaseSchema> schema = await _access.DescribeAsync(false, ct: TestContext.Current.CancellationToken);
 
     Assert.True(schema.IsSuccess);
     SelfDatabaseSchema s = schema.Value;
@@ -58,7 +58,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   [Fact]
   public async Task Describe_ReportsSchemaVersion()
   {
-    Result<SelfDatabaseSchema> schema = await _access.DescribeAsync(false);
+    Result<SelfDatabaseSchema> schema = await _access.DescribeAsync(false, ct: TestContext.Current.CancellationToken);
 
     Assert.True(schema.IsSuccess);
     // Bump alongside the next AppDatabase migration.
@@ -68,7 +68,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   [Fact]
   public async Task Describe_ColumnsCarryTypePkNotNullAndIndexes()
   {
-    Result<SelfDatabaseSchema> schema = await _access.DescribeAsync(false);
+    Result<SelfDatabaseSchema> schema = await _access.DescribeAsync(false, ct: TestContext.Current.CancellationToken);
 
     Assert.True(schema.IsSuccess);
     SchemaObject stateKeys = Assert.Single(schema.Value.Objects, o => o.Name == "state_keys");
@@ -97,7 +97,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   {
     await InsertPreferencesAsync(3);
 
-    Result<SelfDatabaseSchema> schema = await _access.DescribeAsync(true);
+    Result<SelfDatabaseSchema> schema = await _access.DescribeAsync(true, ct: TestContext.Current.CancellationToken);
 
     Assert.True(schema.IsSuccess);
     SchemaObject preferences = Assert.Single(schema.Value.Objects, o => o.Name == "app_preferences");
@@ -109,7 +109,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   {
     await InsertPreferencesAsync(3);
 
-    Result<SelfDatabaseSchema> schema = await _access.DescribeAsync(false);
+    Result<SelfDatabaseSchema> schema = await _access.DescribeAsync(false, ct: TestContext.Current.CancellationToken);
 
     Assert.True(schema.IsSuccess);
     SchemaObject preferences = Assert.Single(schema.Value.Objects, o => o.Name == "app_preferences");
@@ -122,7 +122,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   public async Task Query_ReturnsColumnsAndRows()
   {
     Result<SelfQueryResult> result = await _access.QueryAsync(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'agents' ORDER BY name", 10);
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'agents' ORDER BY name", 10, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(["name"], result.Value.Columns);
@@ -137,9 +137,9 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
     await InsertPreferencesAsync(5);
 
     Result<SelfQueryResult> capped = await _access.QueryAsync(
-        "SELECT key FROM app_preferences ORDER BY key", 3);
+        "SELECT key FROM app_preferences ORDER BY key", 3, ct: TestContext.Current.CancellationToken);
     Result<SelfQueryResult> exact = await _access.QueryAsync(
-        "SELECT key FROM app_preferences ORDER BY key", 5);
+        "SELECT key FROM app_preferences ORDER BY key", 5, ct: TestContext.Current.CancellationToken);
 
     Assert.True(capped.IsSuccess);
     Assert.Equal(3, capped.Value.Rows.Count);
@@ -152,7 +152,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   [Fact]
   public async Task Query_WritesFail_OnTheReadOnlyConnection()
   {
-    Result<SelfQueryResult> result = await _access.QueryAsync("CREATE TABLE hack (id INTEGER)", 10);
+    Result<SelfQueryResult> result = await _access.QueryAsync("CREATE TABLE hack (id INTEGER)", 10, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("QueryFailed", result.Error.Code);
@@ -164,7 +164,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   {
     Result<SelfQueryResult> result = await _access.QueryAsync(
         "WITH d AS (SELECT 'k' AS key) INSERT INTO app_preferences (key, value, updated_at) " +
-        "SELECT key, 'v', 't' FROM d", 10);
+        "SELECT key, 'v', 't' FROM d", 10, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("QueryFailed", result.Error.Code);
@@ -175,7 +175,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   public async Task Query_CarriesNullsBlobsAndText_ThroughTypedCells()
   {
     Result<SelfQueryResult> result = await _access.QueryAsync(
-        "SELECT NULL AS n, randomblob(4) AS b, 'a|b' AS pipe, char(10) AS nl, 42 AS num", 10);
+        "SELECT NULL AS n, randomblob(4) AS b, 'a|b' AS pipe, char(10) AS nl, 42 AS num", 10, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     IReadOnlyList<SelfQueryCell> row = result.Value.Rows[0];
@@ -190,7 +190,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   [Fact]
   public async Task Query_UnknownTable_FailsWithQueryFailed()
   {
-    Result<SelfQueryResult> result = await _access.QueryAsync("SELECT * FROM nope", 10);
+    Result<SelfQueryResult> result = await _access.QueryAsync("SELECT * FROM nope", 10, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("QueryFailed", result.Error.Code);

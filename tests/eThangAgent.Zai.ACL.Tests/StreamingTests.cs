@@ -33,7 +33,7 @@ public class StreamingTests
     ZaiModelProvider provider = new(http, Config);
     List<string> deltas = [];
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add);
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(["Hel", "lo w", "orld"], deltas);
@@ -57,7 +57,7 @@ public class StreamingTests
     List<string> contentDeltas = [];
 
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]),
-        contentDeltas.Add, reasoningDeltas.Add);
+        contentDeltas.Add, reasoningDeltas.Add, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(["thin", "king"], reasoningDeltas);
@@ -78,7 +78,7 @@ public class StreamingTests
     using HttpClient http = new(handler);
     ZaiModelProvider provider = new(http, Config);
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.Content);
@@ -105,7 +105,7 @@ public class StreamingTests
     ZaiModelProvider provider = new(http, Config);
     List<string> deltas = [];
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add);
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal("plain", result.Value.Content);
@@ -122,7 +122,7 @@ public class StreamingTests
     using HttpClient http = new(handler);
     ZaiModelProvider provider = new(http, Config);
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("RateLimited", result.Error.Code);
@@ -136,7 +136,7 @@ public class StreamingTests
     using HttpClient http = new(handler);
     ZaiModelProvider provider = new(http, Config);
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("ProviderError", result.Error.Code);
@@ -153,7 +153,7 @@ public class StreamingTests
     using HttpClient http = new(handler);
     ZaiModelProvider provider = new(http, Config);
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("ProviderError", result.Error.Code);
@@ -174,7 +174,7 @@ public class StreamingTests
     using HttpClient http = new(handler);
     ZaiModelProvider provider = new(http, Config);
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(expected, result.Value.FinishReason);
@@ -188,7 +188,7 @@ public class StreamingTests
     using HttpClient http = new(handler);
     ZaiModelProvider provider = new(http, Config);
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(FinishReason.Stop, result.Value.FinishReason);
@@ -203,7 +203,7 @@ public class StreamingTests
     using HttpClient http = new(handler);
     ZaiModelProvider provider = new(http, Config);
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(FinishReason.Unknown, result.Value.FinishReason);
@@ -218,7 +218,7 @@ public class StreamingTests
     using HttpClient http = new(handler);
     ZaiModelProvider provider = new(http, Config);
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), _ => { });
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), _ => { }, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Equal(FinishReason.ContentFilter, result.Value.FinishReason);
@@ -235,7 +235,7 @@ public class StreamingTests
     ZaiModelProvider provider = new(http, Config);
     List<string> deltas = [];
 
-    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add);
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("StreamInterrupted", result.Error.Code);

@@ -33,7 +33,7 @@ public class ScriptToolsBindingTests
     // Source-level call exactly as a script writes it — the Roslyn binder must
     // apply the parameter's default.
     ExecRunResult run = await MakeEngine().ExecuteAsync(new ExecProgram(
-        "return Tools.git_status(new { timeoutSeconds = 30 });"));
+        "return Tools.git_status(new { timeoutSeconds = 30 });"), ct: TestContext.Current.CancellationToken);
     Assert.Equal(ExecRunStatus.Completed, run.Status);
     Assert.Empty(run.ErrorLines);
     Assert.Equal("ok", run.Output.Trim());
@@ -61,9 +61,9 @@ public class ScriptToolsBindingTests
   {
     CSharpScriptExecEngine engine = MakeEngine();
     ExecRunResult bare = await engine.ExecuteAsync(new ExecProgram(
-        "return Tools.git_status(new { timeoutSeconds = 30 });"));
+        "return Tools.git_status(new { timeoutSeconds = 30 });"), ct: TestContext.Current.CancellationToken);
     ExecRunResult generic = await engine.ExecuteAsync(new ExecProgram(
-        "return Tools.Invoke(\"git_status\", new { timeoutSeconds = 30 });"));
+        "return Tools.Invoke(\"git_status\", new { timeoutSeconds = 30 });"), ct: TestContext.Current.CancellationToken);
     Assert.Equal(bare.Output.Trim(), generic.Output.Trim());
     Assert.Equal("ok", generic.Output.Trim());
   }

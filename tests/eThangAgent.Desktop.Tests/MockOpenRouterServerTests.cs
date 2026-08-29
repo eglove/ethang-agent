@@ -45,7 +45,7 @@ public class MockOpenRouterServerTests
     HttpResponseMessage response = await PostAsync(mock, requestBody);
 
     Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
-    string error = await response.Content.ReadAsStringAsync();
+    string error = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
     Assert.Contains("{{child_id}}", error, StringComparison.Ordinal);
   }
 

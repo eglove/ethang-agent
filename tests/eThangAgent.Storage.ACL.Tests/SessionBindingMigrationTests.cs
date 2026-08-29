@@ -88,9 +88,9 @@ public sealed class SessionBindingMigrationTests : IDisposable
     SqliteAgentStore store = new(new AppDatabase(_dbPath));
 
     AgentId rootId = AgentId.NewId();
-    _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, @"C:\workspaces\demo", "openrouter"));
+    _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, @"C:\workspaces\demo", "openrouter"), ct: TestContext.Current.CancellationToken);
 
-    AgentRecord record = (await store.GetAsync(rootId)).Value!;
+    AgentRecord record = (await store.GetAsync(rootId, ct: TestContext.Current.CancellationToken)).Value!;
     Assert.Equal(@"C:\workspaces\demo", record.WorkspaceId);
     Assert.Equal("openrouter", record.Provider);
   }

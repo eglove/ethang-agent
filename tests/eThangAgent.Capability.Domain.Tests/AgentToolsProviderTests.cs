@@ -29,7 +29,7 @@ public class AgentToolsProviderTests
   {
     CapabilityInvocationResult result = await Create().InvokeAsync("read",
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":120,"path":"x.txt","startLine":1,"endLine":2}""");
+                             """{"timeoutSeconds":120,"path":"x.txt","startLine":1,"endLine":2}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Contains("[read x.txt lines 1-2 of 2 total]", result.Content, StringComparison.Ordinal);
@@ -44,7 +44,7 @@ public class AgentToolsProviderTests
 
     CapabilityInvocationResult result = await provider.InvokeAsync("read",
                              /*lang=json,strict*/
-                             """{"timeoutSeconds":120,"path":"missing.txt","startLine":1,"endLine":5}""");
+                             """{"timeoutSeconds":120,"path":"missing.txt","startLine":1,"endLine":5}""", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("Error [FileNotFound]:", result.Content, StringComparison.Ordinal);
@@ -53,7 +53,7 @@ public class AgentToolsProviderTests
   [Fact]
   public async Task InvokeAsync_UnknownAction_ReturnsError()
   {
-    CapabilityInvocationResult result = await Create().InvokeAsync("nope", "{}");
+    CapabilityInvocationResult result = await Create().InvokeAsync("nope", "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("Error [UnknownAction]: Unknown action: nope", result.Content, StringComparison.Ordinal);

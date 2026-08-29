@@ -54,12 +54,12 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
   {
     SkillDefinition skill = MakeSkill("refactoring");
 
-    Result<SkillDefinition> created = await _store.CreateAsync(skill);
+    Result<SkillDefinition> created = await _store.CreateAsync(skill, ct: TestContext.Current.CancellationToken);
 
     Assert.True(created.IsSuccess);
     Assert.Equal(skill, created.Value);
 
-    Result<SkillDefinition?> fetched = await _store.GetAsync("refactoring");
+    Result<SkillDefinition?> fetched = await _store.GetAsync("refactoring", ct: TestContext.Current.CancellationToken);
 
     Assert.True(fetched.IsSuccess);
     SkillDefinition? stored = fetched.Value;
@@ -77,21 +77,21 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
   [Fact]
   public async Task Create_DuplicateName_FailsWithSkillExists()
   {
-    Assert.True((await _store.CreateAsync(MakeSkill("dupe"))).IsSuccess);
+    Assert.True((await _store.CreateAsync(MakeSkill("dupe"), ct: TestContext.Current.CancellationToken)).IsSuccess);
 
-    Result<SkillDefinition> again = await _store.CreateAsync(MakeSkill("dupe"));
+    Result<SkillDefinition> again = await _store.CreateAsync(MakeSkill("dupe"), ct: TestContext.Current.CancellationToken);
 
     Assert.False(again.IsSuccess);
     Assert.Equal("SkillExists", again.Error.Code);
     // The original definition is untouched by the rejected create.
-    Result<SkillDefinition?> fetched = await _store.GetAsync("dupe");
+    Result<SkillDefinition?> fetched = await _store.GetAsync("dupe", ct: TestContext.Current.CancellationToken);
     Assert.Equal(1, fetched.Value!.Version);
   }
 
   [Fact]
   public async Task Get_UnknownName_SucceedsWithNullValue()
   {
-    Result<SkillDefinition?> result = await _store.GetAsync("missing");
+    Result<SkillDefinition?> result = await _store.GetAsync("missing", ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value);
@@ -101,7 +101,7 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
   public async Task Update_WritesNewCurrent_AndHistoryRowAtEachVersion()
   {
     SkillDefinition v1 = MakeSkill("x");
-    _ = await _store.CreateAsync(v1);
+    _ = await _store.CreateAsync(v1, ct: TestContext.Current.CancellationToken);
     SkillDefinition v2 = v1 with
     {
       Description = "Updated description.",
@@ -110,12 +110,12 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
       UpdatedAt = Timestamp.AddHours(1),
     };
 
-    Result<SkillDefinition> updated = await _store.UpdateAsync(v2);
+    Result<SkillDefinition> updated = await _store.UpdateAsync(v2, ct: TestContext.Current.CancellationToken);
 
     Assert.True(updated.IsSuccess);
     Assert.Equal(v2, updated.Value);
 
-    Result<SkillDefinition?> fetched = await _store.GetAsync("x");
+    Result<SkillDefinition?> fetched = await _store.GetAsync("x", ct: TestContext.Current.CancellationToken);
     Assert.True(fetched.IsSuccess);
     Assert.Equal(2, fetched.Value.Version);
     Assert.Equal("Updated body.", fetched.Value.Body);
@@ -125,17 +125,17 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "SELECT version, body, created_at FROM skill_versions WHERE name='x' ORDER BY version;";
 #pragma warning disable CA2007 // await using cannot carry ConfigureAwait (disposition type)
-    await using SqliteDataReader reader = await command.ExecuteReaderAsync();
+    await using SqliteDataReader reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
 #pragma warning restore CA2007
-    Assert.True(await reader.ReadAsync().ConfigureAwait(true));
+    Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken).ConfigureAwait(true));
     Assert.Equal(1, reader.GetInt64(0));
     Assert.Equal(v1.Body, reader.GetString(1));
     Assert.Equal(Timestamp, DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture));
-    Assert.True(await reader.ReadAsync().ConfigureAwait(true));
+    Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken).ConfigureAwait(true));
     Assert.Equal(2, reader.GetInt64(0));
     Assert.Equal(v2.Body, reader.GetString(1));
     Assert.Equal(Timestamp.AddHours(1), DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture));
-    Assert.False(await reader.ReadAsync().ConfigureAwait(true));
+    Assert.False(await reader.ReadAsync(TestContext.Current.CancellationToken).ConfigureAwait(true));
 
     Assert.Equal(2L, Scalar("SELECT COUNT(*) FROM skill_versions WHERE name='x';"));
   }
@@ -143,11 +143,11 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
   [Fact]
   public async Task Update_UnknownName_FailsWithSkillNotFound_AndWritesNothing()
   {
-    Result<SkillDefinition> result = await _store.UpdateAsync(MakeSkill("ghost") with { Version = 2 });
+    Result<SkillDefinition> result = await _store.UpdateAsync(MakeSkill("ghost") with { Version = 2 }, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
     Assert.Equal("SkillNotFound", result.Error.Code);
-    Assert.Null((await _store.GetAsync("ghost")).Value);
+    Assert.Null((await _store.GetAsync("ghost", ct: TestContext.Current.CancellationToken)).Value);
     Assert.Equal(0L, Scalar("SELECT COUNT(*) FROM learned_skills;"));
     Assert.Equal(0L, Scalar("SELECT COUNT(*) FROM skill_versions;"));
   }
@@ -155,21 +155,21 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
   [Fact]
   public async Task Delete_RemovesCurrentAndHistory_UnknownAndRepeatedDeletesFail()
   {
-    _ = await _store.CreateAsync(MakeSkill("doomed"));
+    _ = await _store.CreateAsync(MakeSkill("doomed"), ct: TestContext.Current.CancellationToken);
 
-    Result<bool> deleted = await _store.DeleteAsync("doomed");
+    Result<bool> deleted = await _store.DeleteAsync("doomed", ct: TestContext.Current.CancellationToken);
 
     Assert.True(deleted.IsSuccess);
     Assert.True(deleted.Value);
     Assert.Equal(0L, Scalar("SELECT COUNT(*) FROM learned_skills WHERE name='doomed';"));
     Assert.Equal(0L, Scalar("SELECT COUNT(*) FROM skill_versions WHERE name='doomed';"));
-    Assert.Null((await _store.GetAsync("doomed")).Value);
+    Assert.Null((await _store.GetAsync("doomed", ct: TestContext.Current.CancellationToken)).Value);
 
-    Result<bool> neverExisted = await _store.DeleteAsync("never-existed");
+    Result<bool> neverExisted = await _store.DeleteAsync("never-existed", ct: TestContext.Current.CancellationToken);
     Assert.False(neverExisted.IsSuccess);
     Assert.Equal("SkillNotFound", neverExisted.Error.Code);
 
-    Result<bool> secondDelete = await _store.DeleteAsync("doomed");
+    Result<bool> secondDelete = await _store.DeleteAsync("doomed", ct: TestContext.Current.CancellationToken);
     Assert.False(secondDelete.IsSuccess);
     Assert.Equal("SkillNotFound", secondDelete.Error.Code);
   }
@@ -177,15 +177,15 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
   [Fact]
   public async Task List_ReturnsSkillsSortedByName_AndEmptyStoreSucceedsWithEmptyList()
   {
-    Result<IReadOnlyList<SkillDefinition>> empty = await _store.ListAsync();
+    Result<IReadOnlyList<SkillDefinition>> empty = await _store.ListAsync(TestContext.Current.CancellationToken);
     Assert.True(empty.IsSuccess);
     Assert.Empty(empty.Value);
 
-    _ = await _store.CreateAsync(MakeSkill("zeta"));
-    _ = await _store.CreateAsync(MakeSkill("alpha"));
-    _ = await _store.CreateAsync(MakeSkill("mid"));
+    _ = await _store.CreateAsync(MakeSkill("zeta"), ct: TestContext.Current.CancellationToken);
+    _ = await _store.CreateAsync(MakeSkill("alpha"), ct: TestContext.Current.CancellationToken);
+    _ = await _store.CreateAsync(MakeSkill("mid"), ct: TestContext.Current.CancellationToken);
 
-    Result<IReadOnlyList<SkillDefinition>> listed = await _store.ListAsync();
+    Result<IReadOnlyList<SkillDefinition>> listed = await _store.ListAsync(TestContext.Current.CancellationToken);
 
     Assert.True(listed.IsSuccess);
     Assert.Equal(["alpha", "mid", "zeta"], listed.Value.Select(s => s.Name).ToList());
@@ -195,10 +195,10 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
   [Fact]
   public async Task AppendUsage_IncrementsCount_AndRowsSurviveSkillDeletion()
   {
-    _ = await _store.CreateAsync(MakeSkill("tdd"));
+    _ = await _store.CreateAsync(MakeSkill("tdd"), ct: TestContext.Current.CancellationToken);
 
-    Result<int> first = await _store.AppendUsageAsync("tdd", Timestamp);
-    Result<int> second = await _store.AppendUsageAsync("tdd", Timestamp.AddMinutes(5));
+    Result<int> first = await _store.AppendUsageAsync("tdd", Timestamp, ct: TestContext.Current.CancellationToken);
+    Result<int> second = await _store.AppendUsageAsync("tdd", Timestamp.AddMinutes(5), ct: TestContext.Current.CancellationToken);
 
     Assert.True(first.IsSuccess);
     Assert.Equal(1, first.Value);
@@ -209,15 +209,15 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "SELECT viewed_at FROM skill_usage WHERE skill_name='tdd' ORDER BY id;";
 #pragma warning disable CA2007 // await using cannot carry ConfigureAwait (disposition type)
-    await using SqliteDataReader reader = await command.ExecuteReaderAsync();
+    await using SqliteDataReader reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
 #pragma warning restore CA2007
-    Assert.True(await reader.ReadAsync().ConfigureAwait(true));
+    Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken).ConfigureAwait(true));
     Assert.Equal(Timestamp, DateTimeOffset.Parse(reader.GetString(0), CultureInfo.InvariantCulture));
-    Assert.True(await reader.ReadAsync().ConfigureAwait(true));
+    Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken).ConfigureAwait(true));
     Assert.Equal(Timestamp.AddMinutes(5), DateTimeOffset.Parse(reader.GetString(0), CultureInfo.InvariantCulture));
-    Assert.False(await reader.ReadAsync().ConfigureAwait(true));
+    Assert.False(await reader.ReadAsync(TestContext.Current.CancellationToken).ConfigureAwait(true));
 
-    Result<bool> deleted = await _store.DeleteAsync("tdd");
+    Result<bool> deleted = await _store.DeleteAsync("tdd", ct: TestContext.Current.CancellationToken);
     Assert.True(deleted.IsSuccess);
     Assert.Equal(2L, Scalar("SELECT COUNT(*) FROM skill_usage WHERE skill_name='tdd';"));
   }
@@ -228,18 +228,18 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
     Assert.Equal(3L, Scalar(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('learned_skills','skill_versions','skill_usage');"));
 
-    Exception exception = Record.Exception(() => new AppDatabase(_dbPath));
+    Exception? exception = Record.Exception(() => new AppDatabase(_dbPath));
     Assert.Null(exception);
   }
 
   [Fact]
   public async Task ReopenedDatabase_ServesPreviouslyStoredSkills()
   {
-    _ = await _store.CreateAsync(MakeSkill("durable"));
+    _ = await _store.CreateAsync(MakeSkill("durable"), ct: TestContext.Current.CancellationToken);
 
     SqliteLearnedSkillStore reopenedStore = new(new AppDatabase(_dbPath));
 
-    Result<SkillDefinition?> fetched = await reopenedStore.GetAsync("durable");
+    Result<SkillDefinition?> fetched = await reopenedStore.GetAsync("durable", ct: TestContext.Current.CancellationToken);
     Assert.True(fetched.IsSuccess);
     Assert.Equal(MakeSkill("durable"), fetched.Value);
   }

@@ -17,7 +17,7 @@ public class WriteToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"content":"x","overwrite":true}"""));
+                                 """{"timeoutSeconds":120,"content":"x","overwrite":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("path", result.Content, StringComparison.Ordinal);
   }
@@ -27,7 +27,7 @@ public class WriteToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","overwrite":true}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","overwrite":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("content", result.Content, StringComparison.Ordinal);
   }
@@ -37,7 +37,7 @@ public class WriteToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","content":"x"}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","content":"x"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("overwrite", result.Content, StringComparison.Ordinal);
   }
@@ -49,7 +49,7 @@ public class WriteToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":"yes"}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":"yes"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("overwrite", result.Content, StringComparison.Ordinal);
     Assert.Contains("boolean", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -60,7 +60,7 @@ public class WriteToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","content":42,"overwrite":true}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","content":42,"overwrite":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("content", result.Content, StringComparison.Ordinal);
     Assert.Contains("string", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -71,7 +71,7 @@ public class WriteToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":true,"encoding":"utf16"}"""));
+                                 """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":true,"encoding":"utf16"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("encoding", result.Content, StringComparison.Ordinal);
@@ -84,7 +84,7 @@ public class WriteToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"..\\evil.txt","content":"x","overwrite":false}"""));
+                                 """{"timeoutSeconds":120,"path":"..\\evil.txt","content":"x","overwrite":false}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("PathOutsideWorkspace", result.Content, StringComparison.Ordinal);
   }
@@ -97,7 +97,7 @@ public class WriteToolTests
     ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 42)))
             .ExecuteAsync(new RawToolInput("write",
                                      /*lang=json,strict*/
-                                     """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":false}"""));
+                                     """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":false}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal($"[write {Resolved}] created, 42 bytes", result.Content);
   }
@@ -108,7 +108,7 @@ public class WriteToolTests
     ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(false, 7)))
             .ExecuteAsync(new RawToolInput("write",
                                      /*lang=json,strict*/
-                                     """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":true}"""));
+                                     """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal($"[write {Resolved}] overwritten, 7 bytes", result.Content);
   }
@@ -119,7 +119,7 @@ public class WriteToolTests
     ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 0)))
             .ExecuteAsync(new RawToolInput("write",
                                      /*lang=json,strict*/
-                                     """{"timeoutSeconds":120,"path":"empty.txt","content":"","overwrite":false}"""));
+                                     """{"timeoutSeconds":120,"path":"empty.txt","content":"","overwrite":false}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Contains("created, 0 bytes", result.Content, StringComparison.Ordinal);
   }
@@ -133,7 +133,7 @@ public class WriteToolTests
                 new DomainError("FileExists", "File already exists: a.txt")))
             .ExecuteAsync(new RawToolInput("write",
                                      /*lang=json,strict*/
-                                     """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":false}"""));
+                                     """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":false}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Error [FileExists]", result.Content, StringComparison.Ordinal);
   }

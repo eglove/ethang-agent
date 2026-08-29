@@ -37,7 +37,7 @@ public class DbSchemaToolTests
   public async Task UnknownParameter_Rejected()
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("db_schema",
-                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"counts":true}"""));
+                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"counts":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("counts", result.Content, StringComparison.Ordinal);
@@ -47,7 +47,7 @@ public class DbSchemaToolTests
   public async Task IncludeCountsAsString_Rejected()
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("db_schema",
-                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"includeCounts":"yes"}"""));
+                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"includeCounts":"yes"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("boolean", result.Content, StringComparison.Ordinal);
   }
@@ -58,7 +58,7 @@ public class DbSchemaToolTests
   public async Task IncludeCountsOmitted_PassesFalse()
   {
     FakeSelfDatabaseAccess access = new() { SchemaOutcome = Result.Success(SampleSchema(false)) };
-    _ = await new DbSchemaTool(access).ExecuteAsync(new RawToolInput("db_schema", Args));
+    _ = await new DbSchemaTool(access).ExecuteAsync(new RawToolInput("db_schema", Args), ct: TestContext.Current.CancellationToken);
     Assert.False(access.DescribeIncludeCounts);
   }
 
@@ -67,7 +67,7 @@ public class DbSchemaToolTests
   {
     FakeSelfDatabaseAccess access = new() { SchemaOutcome = Result.Success(SampleSchema(true)) };
     _ = await new DbSchemaTool(access).ExecuteAsync(new RawToolInput("db_schema",
-        /*lang=json,strict*/ """{"timeoutSeconds":120,"includeCounts":true}"""));
+        /*lang=json,strict*/ """{"timeoutSeconds":120,"includeCounts":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(access.DescribeIncludeCounts);
   }
 
@@ -77,7 +77,7 @@ public class DbSchemaToolTests
   public async Task Success_RendersHeaderObjectsColumnsAndIndexes()
   {
     ToolResult result = await MakeTool(Result.Success(SampleSchema(withCounts: false)))
-        .ExecuteAsync(new RawToolInput("db_schema", Args));
+        .ExecuteAsync(new RawToolInput("db_schema", Args), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal(
         string.Join(Environment.NewLine,
@@ -96,7 +96,7 @@ public class DbSchemaToolTests
   {
     ToolResult result = await MakeTool(Result.Success(SampleSchema(withCounts: true)))
         .ExecuteAsync(new RawToolInput("db_schema",
-            /*lang=json,strict*/ """{"timeoutSeconds":120,"includeCounts":true}"""));
+            /*lang=json,strict*/ """{"timeoutSeconds":120,"includeCounts":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.Contains("table state_keys (41 rows)", result.Content, StringComparison.Ordinal);
     Assert.Contains("view my_view (0 rows)", result.Content, StringComparison.Ordinal);
   }
@@ -108,7 +108,7 @@ public class DbSchemaToolTests
   {
     ToolResult result = await MakeTool(Result.Failure<SelfDatabaseSchema>(
             new DomainError("QueryFailed", "SQLite Error 14: 'unable to open database file'.")))
-        .ExecuteAsync(new RawToolInput("db_schema", Args));
+        .ExecuteAsync(new RawToolInput("db_schema", Args), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Error [QueryFailed]", result.Content, StringComparison.Ordinal);
     Assert.Contains("unable to open database file", result.Content, StringComparison.Ordinal);

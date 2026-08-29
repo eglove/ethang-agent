@@ -56,7 +56,7 @@ public class AgentSessionFactoryResumeTests
       DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-resume-ws");
       try
       {
-        Result<AgentSession> created = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, new StubChannel());
+        Result<AgentSession> created = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, new StubChannel(), ct: TestContext.Current.CancellationToken);
         Assert.True(created.IsSuccess);
         AgentId rootId = created.Value.RootId;
 
@@ -65,19 +65,19 @@ public class AgentSessionFactoryResumeTests
         SqliteAgentStore store = new(new AppDatabase(db));
         DateTimeOffset at = DateTimeOffset.UtcNow;
         Assert.True((await store.AppendMessageAsync(rootId,
-            new Message(Role.User, "first question", at))).IsSuccess);
+            new Message(Role.User, "first question", at), ct: TestContext.Current.CancellationToken)).IsSuccess);
         Assert.True((await store.AppendMessageAsync(rootId,
-            new Message(Role.Assistant, "", at, [new ToolCall("call-1", "read", "{}")]))).IsSuccess);
+            new Message(Role.Assistant, "", at, [new ToolCall("call-1", "read", "{}")]), ct: TestContext.Current.CancellationToken)).IsSuccess);
         Assert.True((await store.AppendMessageAsync(rootId,
-            new Message(Role.Tool, "file content", at, ToolCallId: "call-1"))).IsSuccess);
+            new Message(Role.Tool, "file content", at, ToolCallId: "call-1"), ct: TestContext.Current.CancellationToken)).IsSuccess);
         Assert.True((await store.AppendMessageAsync(rootId,
-            new Message(Role.Assistant, "final answer", at))).IsSuccess);
+            new Message(Role.Assistant, "final answer", at), ct: TestContext.Current.CancellationToken)).IsSuccess);
 
         // Close the tab: the container is torn down and the row marked Completed.
         await created.Value.Lifecycle.CompleteAsync(rootId, _ => Assert.Fail("no complete errors expected"));
         await created.Value.Services.DisposeAsync();
 
-        Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new StubChannel());
+        Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new StubChannel(), ct: TestContext.Current.CancellationToken);
 
         Assert.True(resumed.IsSuccess);
         AgentSession session = resumed.Value;
@@ -102,7 +102,7 @@ public class AgentSessionFactoryResumeTests
         Assert.Equal(rootId, session.Services.GetRequiredService<RootSessionIdentity>().Id);
 
         // A Completed row returns to Running.
-        AgentRecord record = (await store.GetAsync(rootId)).Value!;
+        AgentRecord record = (await store.GetAsync(rootId, ct: TestContext.Current.CancellationToken)).Value!;
         Assert.Equal(AgentStatus.Running, record.Status);
         Assert.Null(record.CompletedAt);
       }
@@ -123,7 +123,7 @@ public class AgentSessionFactoryResumeTests
     (AgentSessionFactory factory, string db) = CreateFactory();
     try
     {
-      Result<AgentSession> resumed = await factory.ResumeAsync(AgentId.NewId(), new StubChannel());
+      Result<AgentSession> resumed = await factory.ResumeAsync(AgentId.NewId(), new StubChannel(), ct: TestContext.Current.CancellationToken);
       Assert.False(resumed.IsSuccess);
       Assert.Equal("NotFound", resumed.Error.Code);
     }
@@ -142,9 +142,9 @@ public class AgentSessionFactoryResumeTests
       SqliteAgentStore store = new(new AppDatabase(db));
       AgentId childId = AgentId.NewId();
       _ = await store.SaveAsync(AgentRecord.Spawned(childId, AgentId.NewId(), depth: 1,
-          modelUsed: "mock/model", label: "child", taskPrompt: "task", createdAt: DateTimeOffset.UtcNow));
+          modelUsed: "mock/model", label: "child", taskPrompt: "task", createdAt: DateTimeOffset.UtcNow), ct: TestContext.Current.CancellationToken);
 
-      Result<AgentSession> resumed = await factory.ResumeAsync(childId, new StubChannel());
+      Result<AgentSession> resumed = await factory.ResumeAsync(childId, new StubChannel(), ct: TestContext.Current.CancellationToken);
       Assert.False(resumed.IsSuccess);
       Assert.Equal("NotResumable", resumed.Error.Code);
     }
@@ -164,9 +164,9 @@ public class AgentSessionFactoryResumeTests
       SqliteAgentStore store = new(new AppDatabase(db));
       AgentId legacyId = AgentId.NewId();
       _ = await store.SaveAsync(new AgentRecord(legacyId, null, 0, AgentStatus.Completed,
-          null, "unassigned", "root", "conversation root", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null));
+          null, "unassigned", "root", "conversation root", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null), ct: TestContext.Current.CancellationToken);
 
-      Result<AgentSession> resumed = await factory.ResumeAsync(legacyId, new StubChannel());
+      Result<AgentSession> resumed = await factory.ResumeAsync(legacyId, new StubChannel(), ct: TestContext.Current.CancellationToken);
       Assert.False(resumed.IsSuccess);
       Assert.Equal("NotResumable", resumed.Error.Code);
       Assert.Contains("workspace", resumed.Error.Message, StringComparison.OrdinalIgnoreCase);
@@ -188,9 +188,9 @@ public class AgentSessionFactoryResumeTests
       AgentId rootId = AgentId.NewId();
       string workspace = Directory.CreateDirectory(
           Path.Combine(Path.GetTempPath(), $"ethang-resume-z-{Guid.NewGuid():N}")).FullName;
-      _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, workspace, Providers.Zai));
+      _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, workspace, Providers.Zai), ct: TestContext.Current.CancellationToken);
 
-      Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new StubChannel());
+      Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new StubChannel(), ct: TestContext.Current.CancellationToken);
       Assert.False(resumed.IsSuccess);
       Assert.Equal("ProviderNotConfigured", resumed.Error.Code);
     }
@@ -209,9 +209,9 @@ public class AgentSessionFactoryResumeTests
       SqliteAgentStore store = new(new AppDatabase(db));
       AgentId rootId = AgentId.NewId();
       string gone = Path.Combine(Path.GetTempPath(), $"ethang-gone-{Guid.NewGuid():N}");
-      _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, gone, Providers.OpenRouter));
+      _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, gone, Providers.OpenRouter), ct: TestContext.Current.CancellationToken);
 
-      Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new StubChannel());
+      Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new StubChannel(), ct: TestContext.Current.CancellationToken);
       Assert.False(resumed.IsSuccess);
       Assert.Equal("WorkspaceNotFound", resumed.Error.Code);
     }
@@ -227,7 +227,7 @@ public class AgentSessionFactoryResumeTests
     (AgentSessionFactory factory, string db) = CreateFactory();
     try
     {
-      Result<AgentSession> resumed = await factory.ResumeAsync(AgentId.NewId(), null!);
+      Result<AgentSession> resumed = await factory.ResumeAsync(AgentId.NewId(), null!, ct: TestContext.Current.CancellationToken);
       Assert.False(resumed.IsSuccess);
       Assert.Equal("InvalidChannel", resumed.Error.Code);
     }

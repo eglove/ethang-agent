@@ -45,7 +45,7 @@ public class RootAgentResolverTests
     AgentId rootId = await SeedRootAsync(store);
     RootAgentResolver resolver = new(selector: null, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "any task");
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "any task", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(FallbackModel, config.ModelId);
     Assert.Null(notice);
@@ -59,7 +59,7 @@ public class RootAgentResolverTests
     FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
     RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "write a C# function");
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "write a C# function", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("anthropic/claude-3.5-sonnet", config.ModelId);
     Assert.NotNull(notice);
@@ -77,7 +77,7 @@ public class RootAgentResolverTests
     FailingModelSelector selector = new();
     RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "task");
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(FallbackModel, config.ModelId);
     Assert.NotNull(notice);
@@ -98,7 +98,7 @@ public class RootAgentResolverTests
     Conversation conversation = new();
     conversation.AddUserMessage("first turn");
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(conversation, "second turn");
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(conversation, "second turn", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(FallbackModel, config.ModelId);
     Assert.Null(notice);
@@ -120,7 +120,7 @@ public class RootAgentResolverTests
       conversation.AddUserMessage($"turn {i}");
     }
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(conversation, "eleventh turn");
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(conversation, "eleventh turn", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("google/gemini-2.0-flash-001", config.ModelId);
     Assert.NotNull(notice);
@@ -133,11 +133,11 @@ public class RootAgentResolverTests
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     // Pre-persist the model so persistence is a no-op (ModelUsed already matches).
-    _ = await store.UpdateAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, "C:/workspaces/demo", "openrouter") with { ModelUsed = "anthropic/claude-3.5-sonnet" }).ConfigureAwait(true);
+    _ = await store.UpdateAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, "C:/workspaces/demo", "openrouter") with { ModelUsed = "anthropic/claude-3.5-sonnet" }, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
     FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
     RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "task");
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("anthropic/claude-3.5-sonnet", config.ModelId);
     Assert.Null(notice); // no change → no notice
@@ -147,7 +147,7 @@ public class RootAgentResolverTests
   public async Task ResolveAsync_NullConversation_Throws()
   {
     RootAgentResolver resolver = new(selector: null, store: null, identity: null, FallbackModel, 2048, 0.7f);
-    _ = await Assert.ThrowsAsync<ArgumentNullException>(() => resolver.ResolveAsync(null!, "task"));
+    _ = await Assert.ThrowsAsync<ArgumentNullException>(() => resolver.ResolveAsync(null!, "task", ct: TestContext.Current.CancellationToken));
   }
   [Fact]
   public async Task FirstTurn_SelectionCarriesProviderIntoConfig()
@@ -156,7 +156,7 @@ public class RootAgentResolverTests
     AgentId rootId = await SeedRootAsync(store);
     FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet", "Anthropic"));
     RootAgentResolver resolver = new(selector, store, Identity(rootId), FallbackModel, 2048, 0.7f);
-    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "write a C# function");
+    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "write a C# function", ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("anthropic/claude-3.5-sonnet", config.ModelId);
     Assert.Equal("Anthropic", config.Provider);

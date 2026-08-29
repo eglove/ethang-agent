@@ -20,7 +20,7 @@ public class EmbeddedSkillCatalogTests
   [Fact]
   public async Task Lists_AllFifteenSkills_WithMetadata()
   {
-    Result<IReadOnlyList<SkillDefinition>> r = await _catalog.ListAsync();
+    Result<IReadOnlyList<SkillDefinition>> r = await _catalog.ListAsync(TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     string[] names = [.. r.Value.Select(s => s.Name).OrderBy(n => n)];
     Assert.Equal(ExpectedNames, names);
@@ -35,7 +35,7 @@ public class EmbeddedSkillCatalogTests
   [Fact]
   public async Task Get_ReturnsVerbatimBody_MarkersIntact()
   {
-    Result<SkillDefinition> r = await _catalog.GetAsync("brainstorming");
+    Result<SkillDefinition> r = await _catalog.GetAsync("brainstorming", ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     Assert.Contains("HARD-GATE", r.Value.Body, StringComparison.Ordinal);          // verbatim upstream marker
     Assert.StartsWith("# Brainstorming", r.Value.Body, StringComparison.Ordinal);   // body preserved verbatim after frontmatter split
@@ -44,7 +44,7 @@ public class EmbeddedSkillCatalogTests
   [Fact]
   public async Task Get_UnknownName_Fails()
   {
-    Result<SkillDefinition> r = await _catalog.GetAsync("not-a-skill");
+    Result<SkillDefinition> r = await _catalog.GetAsync("not-a-skill", ct: TestContext.Current.CancellationToken);
     Assert.False(r.IsSuccess);
     Assert.Equal("SkillNotFound", r.Error.Code);
   }
@@ -52,9 +52,9 @@ public class EmbeddedSkillCatalogTests
   [Fact]
   public async Task MappingReference_IsListed_AndViewable()
   {
-    Result<IReadOnlyList<SkillDefinition>> list = await _catalog.ListAsync();
+    Result<IReadOnlyList<SkillDefinition>> list = await _catalog.ListAsync(TestContext.Current.CancellationToken);
     Assert.Contains(list.Value!, s => s.Name == "ethang-tools-mapping");
-    Result<SkillDefinition> get = await _catalog.GetAsync("ethang-tools-mapping");
+    Result<SkillDefinition> get = await _catalog.GetAsync("ethang-tools-mapping", ct: TestContext.Current.CancellationToken);
     Assert.True(get.IsSuccess);
     Assert.Contains("skill_view", get.Value.Body, StringComparison.Ordinal);
     // Spec-required binding (SP3): skills that say "commit work" must bind to

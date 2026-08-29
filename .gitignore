@@ -299,3 +299,6 @@ dist/
 
 # Agent session state (ZCode harness)
 .zcode/
+
+# Microsoft.Testing.Platform hang dumps + diagnostic logs
+TestResults/

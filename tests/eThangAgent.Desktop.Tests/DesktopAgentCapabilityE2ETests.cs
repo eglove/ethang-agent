@@ -150,7 +150,7 @@ public class DesktopAgentCapabilityE2ETests
     // Bounded like every other settle gate: a stuck turn must fail the test,
     // not hold the runner hostage (the only unbounded await left in the suite).
     await host.Vm.RunTurnAsync("delegate a subtask and fetch its result")
-        .WaitAsync(TimeSpan.FromSeconds(120));
+        .WaitAsync(TimeSpan.FromSeconds(120), TestContext.Current.CancellationToken);
 
     List<string> parentBodies = [.. host.Mock.RequestBodies.Where(body => MockOpenRouterServer.TryGetRequestModel(body) == E2E.SessionModel)];
     Assert.True(parentBodies.Count >= 4,

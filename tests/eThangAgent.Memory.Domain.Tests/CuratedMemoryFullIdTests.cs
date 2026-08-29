@@ -35,7 +35,7 @@ public class CuratedMemoryFullIdTests
     Harness h = new();
     h.Store._rows[KnownId] = Row(KnownId);
 
-    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}");
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Contains("id=" + KnownId.ToString() + " ", result.Content, StringComparison.Ordinal);
@@ -48,7 +48,7 @@ public class CuratedMemoryFullIdTests
     Harness h = new();
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
-        "{" + Q("content") + ":" + Q("c") + "," + Q("category") + ":" + Q("insight") + "," + Q("scope") + ":" + Q("workspace") + "}");
+        "{" + Q("content") + ":" + Q("c") + "," + Q("category") + ":" + Q("insight") + "," + Q("scope") + ":" + Q("workspace") + "}", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError, "add failed: " + result.Content);
     string ack = result.Content.Split('\n')[0];
@@ -63,7 +63,7 @@ public class CuratedMemoryFullIdTests
     h.Store._rows[KnownId] = Row(KnownId);
 
     string json = "{" + Q("id") + ":" + Q(KnownId.ToString()) + "," + Q("confirm") + ":true}";
-    CapabilityInvocationResult result = await h.Provider().InvokeAsync("remove", json);
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("remove", json, ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Contains("removed " + KnownId.ToString(), result.Content, StringComparison.Ordinal);
