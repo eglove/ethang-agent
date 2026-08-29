@@ -9,7 +9,7 @@ Skills name actions; this harness binds them to real tools:
 
 | Action (as named by skills) | Binding |
 | --- | --- |
-| Read a file | `read` (optional startLine/endLine for line ranges) |
+| Read a file | `read` (startLine/endLine required, max 1000-line range) |
 | Write / edit files | `write` / `edit` |
 | Search files | `search_files` |
 | Run commands, tests, or git plumbing | `exec` — C# scripting through the exec engine (Roslyn); never shell scripts |
