@@ -3,7 +3,7 @@
         xmlns:vm="using:eThangAgent.Desktop.ViewModels"
         x:Class="eThangAgent.Desktop.Views.NewAgentWindow"
         x:DataType="vm:NewAgentViewModel"
-        Title="Open Agent" Width="480" SizeToContent="Height"
+        Title="Open Workspace" Width="480" SizeToContent="Height"
         CanResize="False" WindowStartupLocation="CenterOwner">
   <StackPanel Margin="24" Spacing="12">
 

@@ -65,9 +65,9 @@ internal sealed record MainViewModelOptions
   public SessionCatalogQueryHandler? SessionCatalog { get; init; }
 }
 
-/// <summary>Shell-level state for the main window: the left menu bar (Open Agent,
+/// <summary>Shell-level state for the main window: the left menu bar (Open Workspace,
 ///     Sessions, the per-tab Model and Effort entries, and the bottom-anchored Settings
-///     entry) and the open agent tabs. 'Open Agent' shows the new-agent dialog (provider
+///     entry) and the open agent tabs. 'Open Workspace' shows the new-agent dialog (provider
 ///     dropdown plus workspace picker); each tab owns an <see cref="AgentSessionViewModel"/>
 ///     bound to its own isolated <see cref="AgentSession"/> created through the injected
 ///     provider-aware session-factory hook. 'Sessions' lists every persisted root session
@@ -144,7 +144,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     visibility (every provider has both pickers).</summary>
   public bool HasSelectedTab => SelectedTab is not null;
 
-  /// <summary>True when at least one provider has a configured API key; gates Open Agent.</summary>
+  /// <summary>True when at least one provider has a configured API key; gates Open Workspace.</summary>
   public bool HasConfiguredProvider => AvailableProviders.Count > 0;
 
   /// <summary>Keys currently configured — the settings dialog's prefill (null when

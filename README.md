@@ -8,7 +8,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 
 - One Avalonia desktop frontend over a shared host-agnostic core (`eThangAgent.Composition`) — streamed responses with reasoning/tool activity, clarify prompts answered in-place, sub-agent spawning, durable session persistence
 - Conversational coding loop against [OpenRouter](https://openrouter.ai/) or [z.ai](https://z.ai/) GLM models — each agent tab is wired for exactly one provider for its lifetime
-- Desktop shell opens on a main window with a left-hand menu bar; **Open Agent** opens a dialog with an AI-provider dropdown (the providers whose API keys are configured) and a **Choose Workspace** folder picker. The opened tab is bound to that provider until closed (the status bar shows it), the same directory may be open under both providers, and the choice is remembered in the app database so the dialog pre-selects it next time. Each workspace roots path resolution, `exec` scripts' `Workspace`, and curated-memory scoping, and an `AGENTS.md` found at that root is injected verbatim into the system prompt as read
+- Desktop shell opens on a main window with a left-hand menu bar; **Open Workspace** opens a dialog with an AI-provider dropdown (the providers whose API keys are configured) and a **Choose Workspace** folder picker. The opened tab is bound to that provider until closed (the status bar shows it), the same directory may be open under both providers, and the choice is remembered in the app database so the dialog pre-selects it next time. Each workspace roots path resolution, `exec` scripts' `Workspace`, and curated-memory scoping, and an `AGENTS.md` found at that root is injected verbatim into the system prompt as read
 - Live response streaming — assistant text renders as it arrives,
   including interstitial reasoning between tool calls (SSE; falls back transparently when a
   provider endpoint does not stream)
@@ -70,7 +70,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   reopens that session on its original provider and workspace and replays the full
   persisted transcript — including tool calls and results — so the conversation continues
   where it stopped, with prior history carried into the next turn. Opening a workspace
-  through **Open Agent** always starts a NEW session; resume is a deliberate pick from
+  through **Open Workspace** always starts a NEW session; resume is a deliberate pick from
   the menu, never automatic per directory. A workspace can hold many sessions, and
   resuming one never merges another session's history into it
 - `todo` tool — durable workspace task list with compare-and-swap writes
@@ -96,7 +96,7 @@ dotnet run --project src/eThangAgent.Desktop # Avalonia desktop app
 
 3. Add an API key: click **⚙ Settings** at the bottom of the left menu and paste your [OpenRouter](https://openrouter.ai/keys) and/or z.ai key. Keys are stored DPAPI-encrypted in the app database (only your Windows user can read them back) and apply to newly opened agents. For z.ai, also pick the endpoint next to the key field: a **GLM Coding Plan** key works only with **Coding plan (subscription)** (the default, hitting `https://api.z.ai/api/coding/paas/v4`), while a pay-as-you-go API key requires **General API** — a coding-plan key against the general endpoint is rejected as rate-limited.
 
-The window opens directly on the shell: no workspace and no pre-configured key are required up front. Click **Open Agent**, pick a directory, and that agent's chat opens as a tab; repeat to work with several workspaces side by side.
+The window opens directly on the shell: no workspace and no pre-configured key are required up front. Click **Open Workspace**, pick a directory, and that agent's chat opens as a tab; repeat to work with several workspaces side by side.
 
 ## Usage
 

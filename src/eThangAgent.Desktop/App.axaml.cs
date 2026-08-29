@@ -22,7 +22,7 @@ internal class App : Application
       // Startup is now two phases: config load + key recovery + session-factory
       // construction on a background thread (no Avalonia controls), then shell-window
       // construction on the UI thread. No workspace is requested at startup — agents
-      // open per tab via 'Open Agent', and no API key is required until then.
+      // open per tab via 'Open Workspace', and no API key is required until then.
       // Infrastructure failures surface as an error dialog and a non-zero exit
       // inside DesktopHost.
       _ = Task.Run(async () =>

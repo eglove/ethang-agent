@@ -29,7 +29,7 @@ internal sealed record DesktopBootstrap(
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads configuration (provider API keys come from the app database, DPAPI-
 ///     protected — never from environment variables) and shows the shell immediately;
-///     each 'Open Agent' pick builds an isolated <see cref="AgentSession"/> whose directory
+///     each 'Open Workspace' pick builds an isolated <see cref="AgentSession"/> whose directory
 ///     roots path resolution, workspace identity, and — when an AGENTS.md exists there — a
 ///     verbatim system-prompt injection announcing it as read. Startup infrastructure
 ///     failures surface as an error dialog followed by exit code 1; a missing key is NOT

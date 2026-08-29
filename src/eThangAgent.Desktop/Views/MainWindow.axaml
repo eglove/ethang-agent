@@ -14,7 +14,7 @@
       <DockPanel LastChildFill="False">
         <TextBlock DockPanel.Dock="Top" Text="eThang Agent" FontWeight="Bold" FontSize="16"
                    Margin="12,14,12,10"/>
-        <Button x:Name="OpenAgentButton" DockPanel.Dock="Top" Content="Open Agent"
+        <Button x:Name="OpenAgentButton" DockPanel.Dock="Top" Content="Open Workspace"
                 HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
                 Command="{Binding OpenAgentCommand}"/>
         <Button x:Name="SessionsButton" DockPanel.Dock="Top" Content="Sessions"
@@ -43,7 +43,7 @@
         <StackPanel x:Name="EmptyState" VerticalAlignment="Center" Spacing="10"
                     IsVisible="{Binding !HasTabs}">
           <TextBlock
-              Text="No agent is open.&#x0a;'Open Agent' chooses the directory the agent works from."
+              Text="No agent is open.&#x0a;'Open Workspace' chooses the directory the agent works from."
               TextWrapping="Wrap" TextAlignment="Center" Opacity="0.65" FontSize="15"/>
           <TextBlock
               Text="No API key configured yet — click ⚙ Settings to add one."
