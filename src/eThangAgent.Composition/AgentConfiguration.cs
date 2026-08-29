@@ -43,12 +43,14 @@ public static class AgentConfiguration
   ///     configuration is never coerced.</summary>
   private static ZaiEndpointMode BindEndpointMode(string? variableValue)
   {
-    return string.IsNullOrEmpty(variableValue)
-        ? ZaiEndpointMode.CodingPlan
-        : variableValue.TryParseConfigValue(out ZaiEndpointMode mode)
-            ? mode
-            : throw new InvalidOperationException(
-                "ZAI_ENDPOINT_MODE must be 'coding' or 'general', got '" + variableValue + "'.");
+    return variableValue switch
+    {
+      null or "" => ZaiEndpointMode.CodingPlan,
+      _ => variableValue.TryParseConfigValue(out ZaiEndpointMode mode)
+          ? mode
+          : throw new InvalidOperationException(
+              "ZAI_ENDPOINT_MODE must be 'coding' or 'general', got '" + variableValue + "'."),
+    };
   }
 
   private static Uri BindBaseUrl(string variableName, string? baseUrlEnv, string defaultUrl)
