@@ -25,7 +25,8 @@ public class ZaiWebToolsTests
     FakeHttpMessageHandler handler = new(async req =>
     {
       capturedPath = req.RequestUri!.AbsolutePath;
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return Json(/*lang=json,strict*/ """{"search_result":[{"title":"T1","content":"C1","link":"https://a","media":"wiki","publish_date":"2026-01-01"}]}""");
     });
     ZaiWebSearchTool tool = new(new HttpClient(handler), Config);
@@ -75,7 +76,8 @@ public class ZaiWebToolsTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return Json(/*lang=json,strict*/ """{"search_result":[]}""");
     });
     ZaiWebSearchTool tool = new(new HttpClient(handler), Config);

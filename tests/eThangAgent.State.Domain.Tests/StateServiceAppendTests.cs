@@ -18,7 +18,7 @@ public class StateServiceAppendTests
     Result<StateKeyValue> r = await Service().AppendAsync("sdd.x/ledger", "line two", expectedVersion: 3);
 
     Assert.True(r.IsSuccess);
-    Assert.Equal(4, r.Value!.Version);
+    Assert.Equal(4, r.Value.Version);
     Assert.Equal("line one\nline two", r.Value.Value);
   }
 
@@ -27,7 +27,7 @@ public class StateServiceAppendTests
   {
     Result<StateKeyValue> r = await Service().AppendAsync("sdd.y/ledger", "first line", null);
     Assert.True(r.IsSuccess);
-    Assert.Equal(1, r.Value!.Version);
+    Assert.Equal(1, r.Value.Version);
     Assert.Equal("first line", r.Value.Value);
   }
 
@@ -37,7 +37,7 @@ public class StateServiceAppendTests
     _store.Conflict = true;
     Result<StateKeyValue> r = await Service().AppendAsync("sdd.x/ledger", "line", expectedVersion: 9);
     Assert.False(r.IsSuccess);
-    Assert.Equal("VersionConflict", r.Error!.Code);
+    Assert.Equal("VersionConflict", r.Error.Code);
   }
 
   [Theory]
@@ -48,7 +48,7 @@ public class StateServiceAppendTests
   {
     Result<StateKeyValue> r = await Service().AppendAsync("sdd.x/ledger", text, null);
     Assert.False(r.IsSuccess);
-    Assert.Equal("InvalidText", r.Error!.Code);
+    Assert.Equal("InvalidText", r.Error.Code);
   }
 
   [Fact]
@@ -79,7 +79,6 @@ public class StateServiceAppendTests
   private sealed class FakeAppendStore : IStateStore
   {
     public Dictionary<string, StateKeyValue> Keys { get; } = [];
-    public StateKeyValue? Existing { get; set; }
     public bool Conflict { get; set; }
 
     public Task<StateKeyValue?> GetKeyAsync(string workspaceId, string ns, string name, CancellationToken ct = default)
@@ -128,7 +127,7 @@ public class StateServiceAppendTests
     public Task<TransitionRecord> InsertTransitionAsync(string workspaceId, TransitionRecord transition, CancellationToken ct = default)
         => Task.FromResult(transition);
 
-    public Task<IReadOnlyList<TransitionRecord>> GetTransitionsAsync(string workspaceId, IReadOnlyList<string> ids, CancellationToken ct = default)
+    public Task<IReadOnlyList<TransitionRecord>> GetTransitionsAsync(string workspaceId, IReadOnlyList<string> transitionIds, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<TransitionRecord>>([]);
 
     public Task SetTransitionStatusAsync(string workspaceId, string transitionId, string status, CancellationToken ct = default)

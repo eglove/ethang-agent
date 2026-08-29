@@ -25,13 +25,13 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
   {
     GC.SuppressFinalize(this);
     // Named decision (CA1031): temp-db cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1031, S108 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
-#pragma warning restore CA1031
+#pragma warning restore CA1031, S108
   }
 
   private static SkillDefinition MakeSkill(string name)
@@ -82,7 +82,7 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
     Result<SkillDefinition> again = await _store.CreateAsync(MakeSkill("dupe"));
 
     Assert.False(again.IsSuccess);
-    Assert.Equal("SkillExists", again.Error!.Code);
+    Assert.Equal("SkillExists", again.Error.Code);
     // The original definition is untouched by the rejected create.
     Result<SkillDefinition?> fetched = await _store.GetAsync("dupe");
     Assert.Equal(1, fetched.Value!.Version);
@@ -117,7 +117,7 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
 
     Result<SkillDefinition?> fetched = await _store.GetAsync("x");
     Assert.True(fetched.IsSuccess);
-    Assert.Equal(2, fetched.Value!.Version);
+    Assert.Equal(2, fetched.Value.Version);
     Assert.Equal("Updated body.", fetched.Value.Body);
 
     // History rows carry each version's authoring time, not the skill's original creation time.
@@ -146,7 +146,7 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
     Result<SkillDefinition> result = await _store.UpdateAsync(MakeSkill("ghost") with { Version = 2 });
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("SkillNotFound", result.Error!.Code);
+    Assert.Equal("SkillNotFound", result.Error.Code);
     Assert.Null((await _store.GetAsync("ghost")).Value);
     Assert.Equal(0L, Scalar("SELECT COUNT(*) FROM learned_skills;"));
     Assert.Equal(0L, Scalar("SELECT COUNT(*) FROM skill_versions;"));
@@ -167,11 +167,11 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
 
     Result<bool> neverExisted = await _store.DeleteAsync("never-existed");
     Assert.False(neverExisted.IsSuccess);
-    Assert.Equal("SkillNotFound", neverExisted.Error!.Code);
+    Assert.Equal("SkillNotFound", neverExisted.Error.Code);
 
     Result<bool> secondDelete = await _store.DeleteAsync("doomed");
     Assert.False(secondDelete.IsSuccess);
-    Assert.Equal("SkillNotFound", secondDelete.Error!.Code);
+    Assert.Equal("SkillNotFound", secondDelete.Error.Code);
   }
 
   [Fact]
@@ -179,7 +179,7 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
   {
     Result<IReadOnlyList<SkillDefinition>> empty = await _store.ListAsync();
     Assert.True(empty.IsSuccess);
-    Assert.Empty(empty.Value!);
+    Assert.Empty(empty.Value);
 
     _ = await _store.CreateAsync(MakeSkill("zeta"));
     _ = await _store.CreateAsync(MakeSkill("alpha"));
@@ -188,8 +188,8 @@ public sealed class SqliteLearnedSkillStoreTests : IDisposable
     Result<IReadOnlyList<SkillDefinition>> listed = await _store.ListAsync();
 
     Assert.True(listed.IsSuccess);
-    Assert.Equal(["alpha", "mid", "zeta"], listed.Value!.Select(s => s.Name).ToList());
-    Assert.All(listed.Value!, s => Assert.Equal(SkillSource.Learned, s.Source));
+    Assert.Equal(["alpha", "mid", "zeta"], listed.Value.Select(s => s.Name).ToList());
+    Assert.All(listed.Value, s => Assert.Equal(SkillSource.Learned, s.Source));
   }
 
   [Fact]

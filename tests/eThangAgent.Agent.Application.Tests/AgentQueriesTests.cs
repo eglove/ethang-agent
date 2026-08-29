@@ -60,7 +60,7 @@ public class AgentQueriesTests
     Result<string> result = await queries.GetResult(id);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("NotComplete", result.Error!.Code);
+    Assert.Equal("NotComplete", result.Error.Code);
     Assert.Equal(RuntimeErrors.NotComplete(id.Value),
         $"Error [{result.Error.Code}]: {result.Error.Message}");
   }
@@ -90,7 +90,7 @@ public class AgentQueriesTests
     Result<string> result = await queries.GetResult(id);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("NotFound", result.Error!.Code);
+    Assert.Equal("NotFound", result.Error.Code);
     Assert.Equal(RuntimeErrors.NotFound(id.Value),
         $"Error [{result.Error.Code}]: {result.Error.Message}");
   }
@@ -141,7 +141,7 @@ public class AgentQueriesTests
     Result<string> result = await queries.GetResult(id);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("NotFound", result.Error!.Code);
+    Assert.Equal("NotFound", result.Error.Code);
     Assert.Equal($"Agent {id} was not found.", result.Error.Message);
   }
 }

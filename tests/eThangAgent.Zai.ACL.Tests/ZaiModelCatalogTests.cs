@@ -13,8 +13,8 @@ public class ZaiModelCatalogTests
     Result<IReadOnlyList<ModelProviderEntry>> result = await catalog.GetAsync();
 
     Assert.True(result.IsSuccess);
-    Assert.NotEmpty(result.Value!);
-    Assert.Contains(result.Value!, e => e.ModelId == "glm-5.3");
+    Assert.NotEmpty(result.Value);
+    Assert.Contains(result.Value, e => e.ModelId == "glm-5.3");
   }
 
   [Fact]

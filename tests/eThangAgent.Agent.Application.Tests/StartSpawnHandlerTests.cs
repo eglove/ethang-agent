@@ -68,7 +68,7 @@ public class StartSpawnHandlerTests
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest(""));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidSpawnRequest", result.Error!.Code);
+    Assert.Equal("InvalidSpawnRequest", result.Error.Code);
     Assert.Equal("TaskPrompt must be a non-empty string.", result.Error.Message);
     Assert.Equal(0, store.TotalWrites);
     Assert.Empty(runtime.Started);
@@ -84,7 +84,7 @@ public class StartSpawnHandlerTests
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task", Model: "   "));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidSpawnRequest", result.Error!.Code);
+    Assert.Equal("InvalidSpawnRequest", result.Error.Code);
     Assert.Equal("Model must be a non-empty provider model reference when supplied.", result.Error.Message);
     Assert.Equal(0, store.TotalWrites);
     Assert.Empty(runtime.Started);
@@ -100,7 +100,7 @@ public class StartSpawnHandlerTests
     Result<AgentId> result = await handler.Execute(Parent(depth: 3), new SpawnRequest("task"));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("DepthExceeded", result.Error!.Code);
+    Assert.Equal("DepthExceeded", result.Error.Code);
     Assert.Equal("agent depth 3 is at the limit (3); children cannot spawn further", result.Error.Message);
     Assert.Equal(0, store.TotalWrites);
     Assert.Empty(runtime.Started);

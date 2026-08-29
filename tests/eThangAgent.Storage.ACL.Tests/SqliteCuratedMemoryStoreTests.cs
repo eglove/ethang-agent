@@ -25,13 +25,13 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   {
     GC.SuppressFinalize(this);
     // Named decision (CA1031): temp-db cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1031, S108 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
-#pragma warning restore CA1031
+#pragma warning restore CA1031, S108
   }
 
   private static CuratedMemory MakeMemory(
@@ -374,7 +374,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     Result<CuratedMemory> result = await _store.UpdateAsync(stale);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal(CuratedMemoryErrors.VersionConflict, result.Error!.Code);
+    Assert.Equal(CuratedMemoryErrors.VersionConflict, result.Error.Code);
     Assert.Contains("2", result.Error.Message, StringComparison.Ordinal);
 
     // The conflicting write changed nothing.
@@ -391,7 +391,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     Result<CuratedMemory> result = await _store.UpdateAsync(ghost);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal(CuratedMemoryErrors.MemoryNotFound, result.Error!.Code);
+    Assert.Equal(CuratedMemoryErrors.MemoryNotFound, result.Error.Code);
   }
 
   [Fact]
@@ -472,7 +472,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     AssertSuccess(all);
     Assert.Equal(5, all.Value!.Count);
     // Limit keeps the newest-updated prefix of the unbounded ordering.
-    Assert.Equal(all.Value!.Take(3).Select(m => m.Id), limited.Value!.Select(m => m.Id));
+    Assert.Equal(all.Value.Take(3).Select(m => m.Id), limited.Value.Select(m => m.Id));
   }
 
   [Fact]
@@ -489,7 +489,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     Assert.Equal(memory, added.Value);
     AssertSuccess(fetched);
     Assert.NotNull(fetched.Value);
-    Assert.Equal(CuratedMemorySpecifications.MaxContentChars, fetched.Value!.Content.Length);
+    Assert.Equal(CuratedMemorySpecifications.MaxContentChars, fetched.Value.Content.Length);
     Assert.Equal(body, fetched.Value.Content);
 
     Result<IReadOnlyList<CuratedMemory>> searched = await _store.SearchAsync("ws-1", "zebrafin", null, null, 10);
@@ -510,7 +510,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     Result<CuratedMemory?> fetched = await reopenedStore.GetAsync(first.Id);
     AssertSuccess(fetched);
     Assert.NotNull(fetched.Value);
-    AssertSameFields(first, fetched.Value!);
+    AssertSameFields(first, fetched.Value);
 
     Result<IReadOnlyList<CuratedMemory>> searched = await reopenedStore.SearchAsync("ws-1", "durable indexing", null, null, 10);
     AssertSuccess(searched);

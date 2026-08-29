@@ -39,8 +39,8 @@ public sealed class FileWriteIntegrationTests : IDisposable
     string path = Path.Combine(_root, "new.txt");
     Result<FileWriteOutcome> r = await _access.WriteFileAsync(path, "hello", overwrite: false);
     Assert.True(r.IsSuccess);
-    Assert.True(r.Value!.Created);
-    Assert.Equal("hello", File.ReadAllText(path));
+    Assert.True(r.Value.Created);
+    Assert.Equal("hello", await File.ReadAllTextAsync(path));
   }
 
   [Fact]
@@ -50,8 +50,8 @@ public sealed class FileWriteIntegrationTests : IDisposable
     _ = await _access.WriteFileAsync(path, "first", overwrite: false);
     Result<FileWriteOutcome> r = await _access.WriteFileAsync(path, "second", overwrite: false);
     Assert.False(r.IsSuccess);
-    Assert.Equal("FileExists", r.Error!.Code);
-    Assert.Equal("first", File.ReadAllText(path)); // unchanged
+    Assert.Equal("FileExists", r.Error.Code);
+    Assert.Equal("first", await File.ReadAllTextAsync(path)); // unchanged
   }
 
   [Fact]
@@ -61,8 +61,8 @@ public sealed class FileWriteIntegrationTests : IDisposable
     _ = await _access.WriteFileAsync(path, "old", overwrite: false);
     Result<FileWriteOutcome> r = await _access.WriteFileAsync(path, "brand new content", overwrite: true);
     Assert.True(r.IsSuccess);
-    Assert.False(r.Value!.Created);
-    Assert.Equal("brand new content", File.ReadAllText(path));
+    Assert.False(r.Value.Created);
+    Assert.Equal("brand new content", await File.ReadAllTextAsync(path));
   }
 
   [Fact]
@@ -71,8 +71,8 @@ public sealed class FileWriteIntegrationTests : IDisposable
     string path = Path.Combine(_root, "bytes.txt");
     Result<FileWriteOutcome> r = await _access.WriteFileAsync(path, "\u00e9", overwrite: false); // \u00e9 = 2 UTF-8 bytes
     Assert.True(r.IsSuccess);
-    Assert.Equal(2L, r.Value!.BytesWritten);
-    byte[] raw = File.ReadAllBytes(path);
+    Assert.Equal(2L, r.Value.BytesWritten);
+    byte[] raw = await File.ReadAllBytesAsync(path);
     Assert.NotEqual(0xEF, raw[0]); // no BOM
   }
 
@@ -82,6 +82,6 @@ public sealed class FileWriteIntegrationTests : IDisposable
     string path = Path.Combine(_root, "no", "such", "dir", "f.txt");
     Result<FileWriteOutcome> r = await _access.WriteFileAsync(path, "x", overwrite: false);
     Assert.False(r.IsSuccess);
-    Assert.Equal("DirectoryNotFound", r.Error!.Code);
+    Assert.Equal("DirectoryNotFound", r.Error.Code);
   }
 }

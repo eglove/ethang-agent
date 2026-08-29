@@ -37,7 +37,7 @@ public class StreamingTests
 
     Assert.True(result.IsSuccess);
     Assert.Equal(["Hel", "lo w", "orld"], deltas);
-    Assert.Equal("Hello world", result.Value!.Content);
+    Assert.Equal("Hello world", result.Value.Content);
     Assert.Empty(result.Value.ToolCalls);
   }
 
@@ -62,7 +62,7 @@ public class StreamingTests
     Assert.True(result.IsSuccess);
     Assert.Equal(["thin", "king"], reasoningDeltas);
     Assert.Equal(["answer"], contentDeltas);
-    Assert.Equal("answer", result.Value!.Content);
+    Assert.Equal("answer", result.Value.Content);
   }
 
   [Fact]
@@ -81,7 +81,7 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
 
     Assert.True(result.IsSuccess);
-    Assert.Null(result.Value!.Content);
+    Assert.Null(result.Value.Content);
     Assert.Equal(2, result.Value.ToolCalls.Count);
     Assert.Equal("a1", result.Value.ToolCalls[0].Id);
     Assert.Equal("read", result.Value.ToolCalls[0].Name);
@@ -97,7 +97,8 @@ public class StreamingTests
     string? captured = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      captured = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      captured = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonBody(/*lang=json,strict*/ """{"choices":[{"message":{"content":"plain"}}]}""");
     });
     using HttpClient http = new(handler);
@@ -107,7 +108,7 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add);
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("plain", result.Value!.Content);
+    Assert.Equal("plain", result.Value.Content);
     Assert.Empty(deltas);
     Assert.NotNull(captured);
     Assert.Contains("\"stream\":true", captured, StringComparison.Ordinal);
@@ -124,7 +125,7 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("RateLimited", result.Error!.Code);
+    Assert.Equal("RateLimited", result.Error.Code);
   }
 
   [Fact]
@@ -138,7 +139,7 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderError", result.Error!.Code);
+    Assert.Equal("ProviderError", result.Error.Code);
     Assert.Contains("Invalid provider stream", result.Error.Message, StringComparison.Ordinal);
   }
 
@@ -155,7 +156,7 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderError", result.Error!.Code);
+    Assert.Equal("ProviderError", result.Error.Code);
     Assert.Contains("Malformed provider stream", result.Error.Message, StringComparison.Ordinal);
   }
 
@@ -176,7 +177,7 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
 
     Assert.True(result.IsSuccess);
-    Assert.Equal(expected, result.Value!.FinishReason);
+    Assert.Equal(expected, result.Value.FinishReason);
   }
 
   [Fact]
@@ -190,7 +191,7 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
 
     Assert.True(result.IsSuccess);
-    Assert.Equal(FinishReason.Stop, result.Value!.FinishReason);
+    Assert.Equal(FinishReason.Stop, result.Value.FinishReason);
   }
 
   [Fact]
@@ -205,7 +206,7 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]));
 
     Assert.True(result.IsSuccess);
-    Assert.Equal(FinishReason.Unknown, result.Value!.FinishReason);
+    Assert.Equal(FinishReason.Unknown, result.Value.FinishReason);
   }
 
   [Fact]
@@ -220,7 +221,7 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), _ => { });
 
     Assert.True(result.IsSuccess);
-    Assert.Equal(FinishReason.ContentFilter, result.Value!.FinishReason);
+    Assert.Equal(FinishReason.ContentFilter, result.Value.FinishReason);
   }
 
   [Fact]
@@ -237,6 +238,6 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("StreamInterrupted", result.Error!.Code);
+    Assert.Equal("StreamInterrupted", result.Error.Code);
   }
 }

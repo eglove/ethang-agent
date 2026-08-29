@@ -37,13 +37,13 @@ public sealed class DirectFileSystemAccessTests : IDisposable
   {
     string path = Path.Combine(_tempDir, "test.txt");
     _ = Directory.CreateDirectory(_tempDir);
-    File.WriteAllText(path, "line1\nline2\nline3\nline4\nline5");
+    await File.WriteAllTextAsync(path, "line1\nline2\nline3\nline4\nline5");
     DirectFileSystemAccess access = new();
 
     Result<FileRead> r = await access.ReadLinesAsync(path, 2, 4);
 
     Assert.True(r.IsSuccess);
-    Assert.Equal(["line2", "line3", "line4"], r.Value!.Lines);
+    Assert.Equal(["line2", "line3", "line4"], r.Value.Lines);
     Assert.Equal(4, r.Value.LastLineRead);
     Assert.Equal(5, r.Value.TotalLines);
   }
@@ -55,7 +55,7 @@ public sealed class DirectFileSystemAccessTests : IDisposable
     Result<FileRead> r = await access.ReadLinesAsync(Path.Combine(_tempDir, "nope.txt"), 1, 5);
 
     Assert.False(r.IsSuccess);
-    Assert.Equal("FileNotFound", r.Error!.Code);
+    Assert.Equal("FileNotFound", r.Error.Code);
   }
 
   [Fact]
@@ -68,9 +68,9 @@ public sealed class DirectFileSystemAccessTests : IDisposable
     Result<FileWriteOutcome> r = await access.WriteFileAsync(path, "hello world", overwrite: false);
 
     Assert.True(r.IsSuccess);
-    Assert.True(r.Value!.Created);
+    Assert.True(r.Value.Created);
     Assert.Equal(11L, r.Value.BytesWritten);
-    Assert.Equal("hello world", File.ReadAllText(path));
+    Assert.Equal("hello world", await File.ReadAllTextAsync(path));
   }
 
   [Fact]
@@ -78,13 +78,13 @@ public sealed class DirectFileSystemAccessTests : IDisposable
   {
     string path = Path.Combine(_tempDir, "exists.txt");
     _ = Directory.CreateDirectory(_tempDir);
-    File.WriteAllText(path, "old");
+    await File.WriteAllTextAsync(path, "old");
     DirectFileSystemAccess access = new();
 
     Result<FileWriteOutcome> r = await access.WriteFileAsync(path, "new", overwrite: false);
 
     Assert.False(r.IsSuccess);
-    Assert.Equal("FileExists", r.Error!.Code);
+    Assert.Equal("FileExists", r.Error.Code);
   }
 
   [Fact]
@@ -92,14 +92,14 @@ public sealed class DirectFileSystemAccessTests : IDisposable
   {
     string path = Path.Combine(_tempDir, "replace.txt");
     _ = Directory.CreateDirectory(_tempDir);
-    File.WriteAllText(path, "a X b X c");
+    await File.WriteAllTextAsync(path, "a X b X c");
     DirectFileSystemAccess access = new();
 
     Result<ReplaceOutcome> r = await access.ReplaceInFileAsync(path, "X", "Y", occurrences: null);
 
     Assert.True(r.IsSuccess);
-    Assert.Equal(2, r.Value!.Replaced);
-    Assert.Equal("a Y b Y c", File.ReadAllText(path));
+    Assert.Equal(2, r.Value.Replaced);
+    Assert.Equal("a Y b Y c", await File.ReadAllTextAsync(path));
   }
 
   [Fact]
@@ -107,13 +107,13 @@ public sealed class DirectFileSystemAccessTests : IDisposable
   {
     string path = Path.Combine(_tempDir, "noanchor.txt");
     _ = Directory.CreateDirectory(_tempDir);
-    File.WriteAllText(path, "hello");
+    await File.WriteAllTextAsync(path, "hello");
     DirectFileSystemAccess access = new();
 
     Result<ReplaceOutcome> r = await access.ReplaceInFileAsync(path, "XYZ", "Z", occurrences: null);
 
     Assert.False(r.IsSuccess);
-    Assert.Equal("AnchorNotFound", r.Error!.Code);
+    Assert.Equal("AnchorNotFound", r.Error.Code);
   }
 
   [Fact]
@@ -121,13 +121,13 @@ public sealed class DirectFileSystemAccessTests : IDisposable
   {
     string path = Path.Combine(_tempDir, "search.txt");
     _ = Directory.CreateDirectory(_tempDir);
-    File.WriteAllText(path, "alpha\nbeta\ngamma");
+    await File.WriteAllTextAsync(path, "alpha\nbeta\ngamma");
     DirectFileSystemAccess access = new();
 
     Result<FileSearch> r = await access.SearchFilesAsync(_tempDir, "beta", regex: false, glob: null, maxResults: 10, contextLines: 0);
 
     Assert.True(r.IsSuccess);
-    _ = Assert.Single(r.Value!.Matches);
+    _ = Assert.Single(r.Value.Matches);
     Assert.Equal("beta", r.Value.Matches[0].Lines[0]);
     Assert.Equal(2, r.Value.Matches[0].LineNumber);
   }

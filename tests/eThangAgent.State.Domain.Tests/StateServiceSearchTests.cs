@@ -17,8 +17,8 @@ public class StateServiceSearchTests
     Assert.True(r.IsSuccess);
     Assert.Equal("ledger", _store.LastQuery);
     Assert.Equal(5, _store.LastLimit);
-    _ = Assert.Single(r.Value!);
-    Assert.Equal("plans/p1", $"{r.Value![0].Ns}/{r.Value![0].Name}");
+    _ = Assert.Single(r.Value);
+    Assert.Equal("plans/p1", $"{r.Value[0].Ns}/{r.Value[0].Name}");
   }
 
   [Fact]
@@ -51,7 +51,7 @@ public class StateServiceSearchTests
     _store.Failure = new DomainError("InvalidQuery", "fts5: syntax error near \"(\"");
     Result<IReadOnlyList<StateSearchHit>> r = await Service().SearchAsync("AND (", 20);
     Assert.False(r.IsSuccess);
-    Assert.Equal("InvalidQuery", r.Error!.Code);
+    Assert.Equal("InvalidQuery", r.Error.Code);
   }
 
   private sealed class FakeSearchStore : IStateStore
@@ -91,7 +91,7 @@ public class StateServiceSearchTests
     public Task<TransitionRecord> InsertTransitionAsync(string workspaceId, TransitionRecord transition, CancellationToken ct = default)
         => Task.FromResult(transition);
 
-    public Task<IReadOnlyList<TransitionRecord>> GetTransitionsAsync(string workspaceId, IReadOnlyList<string> ids, CancellationToken ct = default)
+    public Task<IReadOnlyList<TransitionRecord>> GetTransitionsAsync(string workspaceId, IReadOnlyList<string> transitionIds, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<TransitionRecord>>([]);
 
     public Task SetTransitionStatusAsync(string workspaceId, string transitionId, string status, CancellationToken ct = default)

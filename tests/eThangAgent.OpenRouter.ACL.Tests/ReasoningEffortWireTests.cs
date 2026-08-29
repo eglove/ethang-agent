@@ -34,7 +34,8 @@ public class ReasoningEffortWireTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return Ok();
     });
     using HttpClient http = new(handler);
@@ -54,7 +55,8 @@ public class ReasoningEffortWireTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return Ok();
     });
     using HttpClient http = new(handler);

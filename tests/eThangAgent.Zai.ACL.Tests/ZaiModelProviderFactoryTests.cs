@@ -18,7 +18,8 @@ public class ZaiModelProviderFactoryTests
     FakeHttpMessageHandler handler = new(async req =>
     {
       captured = req;
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return new HttpResponseMessage(HttpStatusCode.OK)
       {
         Content = new StringContent(

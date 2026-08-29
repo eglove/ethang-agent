@@ -48,26 +48,22 @@ public class ScriptThreadingTests
     TaskCompletionSource leaked = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     Task<T> task;
-    try
+    // Install inside the worker body: every await the work captures from here on
+    // would post back to this context if any leaked through.
+    task = Task.Run(() =>
     {
-      // Install inside the worker body: every await the work captures from here on
-      // would post back to this context if any leaked through.
-      task = Task.Run(() =>
+      SynchronizationContext? previous = SynchronizationContext.Current;
+      SynchronizationContext.SetSynchronizationContext(
+                new NonPumpingContext(() => leaked.TrySetResult()));
+      try
       {
-        SynchronizationContext? previous = SynchronizationContext.Current;
-        SynchronizationContext.SetSynchronizationContext(
-                  new NonPumpingContext(() => leaked.TrySetResult()));
-        try
-        {
-          return work();
-        }
-        finally
-        {
-          SynchronizationContext.SetSynchronizationContext(previous);
-        }
-      });
-    }
-    finally { }
+        return work();
+      }
+      finally
+      {
+        SynchronizationContext.SetSynchronizationContext(previous);
+      }
+    });
 
     Task completed = await Task.WhenAny(task, leaked.Task,
         Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);

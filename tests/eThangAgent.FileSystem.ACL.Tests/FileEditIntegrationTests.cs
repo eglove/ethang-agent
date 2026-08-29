@@ -46,9 +46,9 @@ public sealed class FileEditIntegrationTests : IDisposable
     string p = await WriteAsync("a.txt", "one\ntwo\nthree");
     Result<ReplaceOutcome> r = await _access.ReplaceInFileAsync(p, "two", "TWO", occurrences: 1);
     Assert.True(r.IsSuccess);
-    Assert.Equal(1, r.Value!.Replaced);
+    Assert.Equal(1, r.Value.Replaced);
     Assert.Equal(3, r.Value.NewLineCount);
-    Assert.Equal("one\nTWO\nthree", File.ReadAllText(p));
+    Assert.Equal("one\nTWO\nthree", await File.ReadAllTextAsync(p));
   }
 
   [Fact]
@@ -57,8 +57,8 @@ public sealed class FileEditIntegrationTests : IDisposable
     string p = await WriteAsync("b.txt", "x-x-x");
     Result<ReplaceOutcome> r = await _access.ReplaceInFileAsync(p, "x", "y", occurrences: null);
     Assert.True(r.IsSuccess);
-    Assert.Equal(3, r.Value!.Replaced);
-    Assert.Equal("y-y-y", File.ReadAllText(p));
+    Assert.Equal(3, r.Value.Replaced);
+    Assert.Equal("y-y-y", await File.ReadAllTextAsync(p));
   }
 
   [Fact]
@@ -67,7 +67,7 @@ public sealed class FileEditIntegrationTests : IDisposable
     string p = await WriteAsync("c.txt", "only-one");
     Result<ReplaceOutcome> r = await _access.ReplaceInFileAsync(p, "one", "1", occurrences: 2);
     Assert.False(r.IsSuccess);
-    Assert.Equal("OccurrenceMismatch", r.Error!.Code);
+    Assert.Equal("OccurrenceMismatch", r.Error.Code);
     Assert.Contains("1", r.Error.Message, StringComparison.Ordinal); // actual count
   }
 
@@ -77,7 +77,7 @@ public sealed class FileEditIntegrationTests : IDisposable
     string p = await WriteAsync("d.txt", "nothing here");
     Result<ReplaceOutcome> r = await _access.ReplaceInFileAsync(p, "absent", "z", occurrences: 1);
     Assert.False(r.IsSuccess);
-    Assert.Equal("AnchorNotFound", r.Error!.Code);
+    Assert.Equal("AnchorNotFound", r.Error.Code);
   }
 
   [Fact]
@@ -87,7 +87,7 @@ public sealed class FileEditIntegrationTests : IDisposable
     await File.WriteAllBytesAsync(p, [0x01, 0x00, 0x02, 0x03]);
     Result<ReplaceOutcome> r = await _access.ReplaceInFileAsync(p, "a", "b", occurrences: 1);
     Assert.False(r.IsSuccess);
-    Assert.Equal("BinaryFile", r.Error!.Code);
+    Assert.Equal("BinaryFile", r.Error.Code);
   }
 
   [Fact]
@@ -96,7 +96,7 @@ public sealed class FileEditIntegrationTests : IDisposable
     Result<ReplaceOutcome> r = await _access.ReplaceInFileAsync(
         Path.Combine(_root, "ghost.txt"), "a", "b", occurrences: 1);
     Assert.False(r.IsSuccess);
-    Assert.Equal("FileNotFound", r.Error!.Code);
+    Assert.Equal("FileNotFound", r.Error.Code);
   }
 
   [Fact]
@@ -105,6 +105,6 @@ public sealed class FileEditIntegrationTests : IDisposable
     string p = await WriteAsync("e.txt", "a\nb");
     Result<ReplaceOutcome> r = await _access.ReplaceInFileAsync(p, "b", "b1\nb2\nb3", occurrences: 1);
     Assert.True(r.IsSuccess);
-    Assert.Equal(4, r.Value!.NewLineCount);
+    Assert.Equal(4, r.Value.NewLineCount);
   }
 }

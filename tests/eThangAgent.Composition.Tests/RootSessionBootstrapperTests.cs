@@ -49,7 +49,7 @@ public class RootSessionBootstrapperTests
     Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", "openrouter");
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("PersistFailed", result.Error!.Code);
+    Assert.Equal("PersistFailed", result.Error.Code);
     Assert.Empty(store.Saved);
   }
 

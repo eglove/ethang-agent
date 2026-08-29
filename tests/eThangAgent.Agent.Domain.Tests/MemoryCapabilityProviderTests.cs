@@ -86,7 +86,7 @@ public class MemoryCapabilityProviderTests
   {
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider();
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("recall", "{}");
+    CapabilityInvocationResult result = await provider.InvokeAsync("recall", "{}", AnyToken);
 
     Assert.False(result.IsError);
     Assert.Equal("--- memory: 0 hits, page 1/1 ---", result.Content);
@@ -101,7 +101,7 @@ public class MemoryCapabilityProviderTests
     string content = "alpha\rbravo\ncharlie " + new string('z', 118);
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider(Result.Success(PageOf(new RecallHit(session, 4, "tool", content, DateTimeOffset.UtcNow))));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("recall", "{}");
+    CapabilityInvocationResult result = await provider.InvokeAsync("recall", "{}", AnyToken);
 
     Assert.False(result.IsError);
     Assert.Equal(
@@ -137,7 +137,7 @@ public class MemoryCapabilityProviderTests
   {
     (MemoryCapabilityProvider? provider, FakeRecallQuery? recall, FakeSessionsQuery _) = MakeProvider();
 
-    _ = await provider.InvokeAsync("recall", "{}");
+    _ = await provider.InvokeAsync("recall", "{}", AnyToken);
 
     Assert.Equal(1, recall._calls);
     Assert.Equal((null, "literal", "global", "active", null, 1, 25), recall._lastArgs);
@@ -148,7 +148,7 @@ public class MemoryCapabilityProviderTests
   {
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery? sessions) = MakeProvider();
 
-    _ = await provider.InvokeAsync("sessions", "{}");
+    _ = await provider.InvokeAsync("sessions", "{}", AnyToken);
 
     Assert.Equal(1, sessions._calls);
     Assert.Equal(("global", "active", 50), sessions._lastArgs);
@@ -159,7 +159,7 @@ public class MemoryCapabilityProviderTests
   {
     (MemoryCapabilityProvider? provider, FakeRecallQuery? recall, FakeSessionsQuery _) = MakeProvider();
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("recall", /*lang=json,strict*/ """{"bogus":1}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("recall", /*lang=json,strict*/ """{"bogus":1}""", AnyToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [InvalidArgument]: unknown argument 'bogus'.", result.Content);
@@ -171,7 +171,7 @@ public class MemoryCapabilityProviderTests
   {
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery? sessions) = MakeProvider();
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("sessions", /*lang=json,strict*/ """{"since":"yesterday"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("sessions", /*lang=json,strict*/ """{"since":"yesterday"}""", AnyToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [InvalidArgument]: unknown argument 'since'.", result.Content);
@@ -183,7 +183,7 @@ public class MemoryCapabilityProviderTests
   {
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider();
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("recall", /*lang=json,strict*/ """{"pageSize":"5"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("recall", /*lang=json,strict*/ """{"pageSize":"5"}""", AnyToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [InvalidArgument]: argument 'pageSize' must be a number.", result.Content);
@@ -194,7 +194,7 @@ public class MemoryCapabilityProviderTests
   {
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider();
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("recall", /*lang=json,strict*/ """{"query":7}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("recall", /*lang=json,strict*/ """{"query":7}""", AnyToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [InvalidArgument]: argument 'query' must be a string.", result.Content);
@@ -205,7 +205,7 @@ public class MemoryCapabilityProviderTests
   {
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider();
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("sessions", /*lang=json,strict*/ """{"limit":"50"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("sessions", /*lang=json,strict*/ """{"limit":"50"}""", AnyToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [InvalidArgument]: argument 'limit' must be a number.", result.Content);
@@ -216,7 +216,7 @@ public class MemoryCapabilityProviderTests
   {
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider();
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("recall", "[1]");
+    CapabilityInvocationResult result = await provider.InvokeAsync("recall", "[1]", AnyToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [InvalidArgument]: arguments must be a JSON object.", result.Content);
@@ -229,7 +229,7 @@ public class MemoryCapabilityProviderTests
         "InvalidScope",
         "Unknown scope 'session:nope'. Valid scopes: global | session:<agentId>.")));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("recall", /*lang=json,strict*/ """{"scope":"session:nope"}""");
+    CapabilityInvocationResult result = await provider.InvokeAsync("recall", /*lang=json,strict*/ """{"scope":"session:nope"}""", AnyToken);
 
     Assert.True(result.IsError);
     Assert.Equal(
@@ -243,7 +243,7 @@ public class MemoryCapabilityProviderTests
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider(sessionsReply: Result.Failure<IReadOnlyList<SessionSummary>>(
         new DomainError("StorageUnavailable", "database locked.")));
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("sessions", "{}");
+    CapabilityInvocationResult result = await provider.InvokeAsync("sessions", "{}", AnyToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [StorageUnavailable]: database locked.", result.Content);
@@ -254,7 +254,7 @@ public class MemoryCapabilityProviderTests
   {
     (MemoryCapabilityProvider? provider, FakeRecallQuery _, FakeSessionsQuery _) = MakeProvider();
 
-    CapabilityInvocationResult result = await provider.InvokeAsync("forget", "{}");
+    CapabilityInvocationResult result = await provider.InvokeAsync("forget", "{}", AnyToken);
 
     Assert.True(result.IsError);
     Assert.Equal("Error [UnknownAction]: Unknown action: forget.", result.Content);

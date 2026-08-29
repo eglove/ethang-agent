@@ -52,7 +52,7 @@ public class ToolContractAdvertisementTests
                                  /*lang=json,strict*/
                                  "{\"question\":\"q\",\"options\":\"a\",\"allowFreeText\":true}");
     Assert.False(parsed.IsSuccess);
-    Assert.Equal("InvalidParameterType", parsed.Error!.Code);
+    Assert.Equal("InvalidParameterType", parsed.Error.Code);
   }
 
 
@@ -186,7 +186,7 @@ internal sealed class StubClarifyChannel : IClarifyChannel
 
 internal sealed class StubCommitAccess : IGitCommitAccess
 {
-  public Task<Result<GitCommitOutcome>> CommitAsync(string root, string message, CancellationToken ct = default) =>
+  public Task<Result<GitCommitOutcome>> CommitAsync(string repoPath, string message, CancellationToken ct = default) =>
       Task.FromResult(Result.Failure<GitCommitOutcome>(new DomainError("Unused", "not exercised")));
 }
 

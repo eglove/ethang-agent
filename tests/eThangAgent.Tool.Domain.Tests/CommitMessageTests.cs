@@ -82,7 +82,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("Conventional", type: "feat", scope: "tools",
             emojiKey: null, description: "add write tool", body: null);
     Assert.True(r.IsSuccess);
-    Assert.Equal("feat(tools): add write tool", r.Value!.Subject);
+    Assert.Equal("feat(tools): add write tool", r.Value.Subject);
     Assert.Equal("feat(tools): add write tool\n", r.Value.Rendered);
   }
 
@@ -94,7 +94,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("Conventional", type: "feat", scope: scope,
             emojiKey: null, description: "add write tool", body: null);
     Assert.True(r.IsSuccess);
-    Assert.Equal("feat: add write tool", r.Value!.Subject);
+    Assert.Equal("feat: add write tool", r.Value.Subject);
     Assert.Equal("feat: add write tool\n", r.Value.Rendered);
   }
 
@@ -122,7 +122,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("Conventional", type: "chore", scope: scope,
             emojiKey: null, description: "tidy up", body: null);
     Assert.True(r.IsSuccess);
-    Assert.Equal($"chore({scope}): tidy up", r.Value!.Subject);
+    Assert.Equal($"chore({scope}): tidy up", r.Value.Subject);
   }
 
   // ── Rule 3: Gitmoji ──
@@ -148,7 +148,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("Gitmoji", type: null, scope: null, emojiKey: key,
             description: "add write tool", body: null);
     Assert.False(r.IsSuccess);
-    Assert.Equal(expected.Error!.Code, ErrorOf(r).Code);
+    Assert.Equal(expected.Error.Code, ErrorOf(r).Code);
     Assert.Equal(expected.Error.Message, ErrorOf(r).Message);
   }
 
@@ -158,7 +158,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("Gitmoji", type: null, scope: null, emojiKey: ":sparkles:",
             description: "Introduce new features", body: null);
     Assert.True(r.IsSuccess);
-    Assert.Equal("\u2728 Introduce new features", r.Value!.Subject);
+    Assert.Equal("\u2728 Introduce new features", r.Value.Subject);
     Assert.Equal("\u2728 Introduce new features\n", r.Value.Rendered);
   }
 
@@ -247,7 +247,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("None", type: null, scope: null, emojiKey: null,
             description: "plain note", body: null);
     Assert.True(r.IsSuccess);
-    Assert.Equal("plain note", r.Value!.Subject);
+    Assert.Equal("plain note", r.Value.Subject);
     Assert.Equal("plain note\n", r.Value.Rendered);
   }
 
@@ -301,7 +301,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("None", type: null, scope: null, emojiKey: null,
             description: atLimit, body: null);
     Assert.True(r.IsSuccess);
-    Assert.Equal(atLimit, r.Value!.Subject);
+    Assert.Equal(atLimit, r.Value.Subject);
   }
 
   [Fact]
@@ -310,7 +310,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("Conventional", type: "fix", scope: null, emojiKey: null,
             description: "  pad both ends  ", body: null);
     Assert.True(r.IsSuccess);
-    Assert.Equal("fix: pad both ends", r.Value!.Subject);
+    Assert.Equal("fix: pad both ends", r.Value.Subject);
     Assert.Equal("fix: pad both ends\n", r.Value.Rendered);
   }
 
@@ -322,7 +322,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("Conventional", type: "feat", scope: "tools", emojiKey: null,
             description: "add write tool", body: "wrap-up notes");
     Assert.True(r.IsSuccess);
-    Assert.Equal("feat(tools): add write tool", r.Value!.Subject);
+    Assert.Equal("feat(tools): add write tool", r.Value.Subject);
     Assert.Equal("feat(tools): add write tool\n\nwrap-up notes\n", r.Value.Rendered);
   }
 
@@ -332,7 +332,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("None", type: null, scope: null, emojiKey: null,
             description: "plain note", body: "line one\nline two");
     Assert.True(r.IsSuccess);
-    Assert.Equal("plain note\n\nline one\nline two\n", r.Value!.Rendered);
+    Assert.Equal("plain note\n\nline one\nline two\n", r.Value.Rendered);
   }
 
   [Theory]
@@ -346,7 +346,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("None", type: null, scope: null, emojiKey: null,
             description: "plain note", body: body);
     Assert.True(r.IsSuccess);
-    Assert.Equal("plain note\n\nwrap-up notes\n", r.Value!.Rendered);
+    Assert.Equal("plain note\n\nwrap-up notes\n", r.Value.Rendered);
   }
 
   [Fact]
@@ -355,7 +355,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("None", type: null, scope: null, emojiKey: null,
             description: "plain note", body: "\n\n");
     Assert.True(r.IsSuccess);
-    Assert.Equal("plain note\n", r.Value!.Rendered);
+    Assert.Equal("plain note\n", r.Value.Rendered);
   }
 
   [Theory]
@@ -366,7 +366,7 @@ public class CommitMessageTests
     Result<CommitMessage> r = CommitMessage.Create("None", type: null, scope: null, emojiKey: null,
             description: "plain note", body: body);
     Assert.True(r.IsSuccess);
-    Assert.Equal("plain note\n", r.Value!.Rendered);
+    Assert.Equal("plain note\n", r.Value.Rendered);
   }
 
   // ── Rule order: each numbered rule is checked in brief order ──

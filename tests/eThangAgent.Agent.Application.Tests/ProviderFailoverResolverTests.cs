@@ -39,16 +39,16 @@ public class ProviderFailoverResolverTests
     public Task<IReadOnlySet<string>> GetActiveExclusionsAsync(CancellationToken ct = default)
         => Task.FromResult<IReadOnlySet<string>>(new HashSet<string>(Exclusions));
 
-    public Task<bool> AddExclusionAsync(string key, TimeSpan ttl, CancellationToken ct = default)
+    public Task<bool> AddExclusionAsync(string modelProviderKey, TimeSpan ttl, CancellationToken ct = default)
     {
-      _ = Exclusions.Add(key);
-      Added.Add((key, ttl));
+      _ = Exclusions.Add(modelProviderKey);
+      Added.Add((modelProviderKey, ttl));
       return Task.FromResult(true);
     }
 
-    public Task<bool> RemoveExclusionAsync(string key, CancellationToken ct = default)
+    public Task<bool> RemoveExclusionAsync(string modelProviderKey, CancellationToken ct = default)
     {
-      _ = Exclusions.Remove(key);
+      _ = Exclusions.Remove(modelProviderKey);
       return Task.FromResult(true);
     }
   }

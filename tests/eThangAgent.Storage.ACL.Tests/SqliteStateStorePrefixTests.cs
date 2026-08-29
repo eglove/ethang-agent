@@ -22,13 +22,13 @@ public sealed class SqliteStateStorePrefixTests : IDisposable
   {
     GC.SuppressFinalize(this);
     // Named decision (CA1031): temp-db cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1031, S108 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
-#pragma warning restore CA1031
+#pragma warning restore CA1031, S108
   }
 
   [Fact]
@@ -59,6 +59,6 @@ public sealed class SqliteStateStorePrefixTests : IDisposable
 
     Result<IReadOnlyList<StateSearchHit>> after = await _store.SearchKeysAsync("ws1", "xylophone", 20);
     Assert.True(after.IsSuccess);
-    Assert.Empty(after.Value!);
+    Assert.Empty(after.Value);
   }
 }

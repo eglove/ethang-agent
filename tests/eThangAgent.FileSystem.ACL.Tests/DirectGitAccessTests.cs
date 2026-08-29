@@ -68,34 +68,34 @@ public sealed class DirectGitAccessTests : IDisposable
     Result<GitStatus> r = await access.GetStatusAsync(_repoDir);
 
     Assert.True(r.IsSuccess);
-    Assert.Empty(r.Value!.Staged);
-    Assert.Empty(r.Value!.Unstaged);
-    Assert.Empty(r.Value!.Untracked);
+    Assert.Empty(r.Value.Staged);
+    Assert.Empty(r.Value.Unstaged);
+    Assert.Empty(r.Value.Untracked);
   }
 
   [Fact]
   public async Task GetStatusAsync_WithUntrackedFile_ReturnsEntry()
   {
-    File.WriteAllText(Path.Combine(_repoDir, "test.txt"), "hello");
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "test.txt"), "hello");
     DirectGitAccess access = new();
 
     Result<GitStatus> r = await access.GetStatusAsync(_repoDir);
 
     Assert.True(r.IsSuccess);
-    Assert.NotEmpty(r.Value!.Untracked);
+    Assert.NotEmpty(r.Value.Untracked);
   }
 
   [Fact]
   public async Task CommitAsync_WithStagedChange_ReturnsHash()
   {
-    File.WriteAllText(Path.Combine(_repoDir, "staged.txt"), "content");
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "staged.txt"), "content");
     RunGit("add", "staged.txt");
     DirectGitAccess access = new();
 
     Result<GitCommitOutcome> r = await access.CommitAsync(_repoDir, "feat: test commit");
 
     Assert.True(r.IsSuccess);
-    Assert.NotEmpty(r.Value!.Hash);
+    Assert.NotEmpty(r.Value.Hash);
     Assert.Equal("feat: test commit", r.Value.Message);
   }
 
@@ -107,6 +107,6 @@ public sealed class DirectGitAccessTests : IDisposable
     Result<GitDiff> r = await access.GetDiffAsync(_repoDir, "Unstaged", path: null);
 
     Assert.True(r.IsSuccess);
-    Assert.Equal(0, r.Value!.Stats.Files);
+    Assert.Equal(0, r.Value.Stats.Files);
   }
 }

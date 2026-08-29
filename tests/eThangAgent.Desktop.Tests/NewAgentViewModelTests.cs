@@ -66,7 +66,7 @@ public class NewAgentViewModelTests
     vm.OpenCommand.Execute(null);
 
     Assert.NotNull(captured);
-    Assert.Equal("zai", captured!.ProviderId);
+    Assert.Equal("zai", captured.ProviderId);
     Assert.Equal(@"C:\work\demo", captured.WorkspaceRoot);
   }
 

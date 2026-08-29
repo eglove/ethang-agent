@@ -44,7 +44,7 @@ public class SessionResumeE2ETests
     AgentSessionFactory factory = host.CreateResumeFactory();
     Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new ResumeStubChannel());
     Assert.True(resumed.IsSuccess);
-    AgentSession session = resumed.Value!;
+    AgentSession session = resumed.Value;
 
     // The conversation hydrates losslessly from the persisted transcript.
     Assert.Equal(rootId, session.RootId);

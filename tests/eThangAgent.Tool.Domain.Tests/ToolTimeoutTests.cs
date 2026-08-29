@@ -34,7 +34,7 @@ public class ToolTimeoutTests
   {
     Result<TimeSpan> r = Parse("{}");
     Assert.False(r.IsSuccess);
-    Assert.Equal("MissingParameter", r.Error!.Code);
+    Assert.Equal("MissingParameter", r.Error.Code);
     Assert.Contains("timeoutSeconds", r.Error.Message, StringComparison.Ordinal);
   }
 
@@ -48,7 +48,7 @@ public class ToolTimeoutTests
   {
     Result<TimeSpan> r = Parse(json);
     Assert.False(r.IsSuccess);
-    Assert.Equal(expectedCode, r.Error!.Code);
+    Assert.Equal(expectedCode, r.Error.Code);
   }
 
   [Fact]
@@ -56,7 +56,7 @@ public class ToolTimeoutTests
   {
     Result<TimeSpan> r = Parse("{bad");
     Assert.False(r.IsSuccess);
-    Assert.Equal("InvalidJsonArguments", r.Error!.Code);
+    Assert.Equal("InvalidJsonArguments", r.Error.Code);
   }
 
   [Fact]
@@ -64,7 +64,7 @@ public class ToolTimeoutTests
   {
     Result<TimeSpan> r = Parse("[1]");
     Assert.False(r.IsSuccess);
-    Assert.Equal("InvalidJsonArguments", r.Error!.Code);
+    Assert.Equal("InvalidJsonArguments", r.Error.Code);
   }
 
   [Fact]

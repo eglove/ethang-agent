@@ -61,7 +61,7 @@ public class CSharpScriptExecEngineTests
     Result<IReadOnlyList<ExecParseError>> errors = await engine.ValidateAsync(new ExecProgram("this is not valid csharp ??!!"));
 
     Assert.True(errors.IsSuccess);
-    Assert.NotEmpty(errors.Value!);
+    Assert.NotEmpty(errors.Value);
   }
 
   [Fact]

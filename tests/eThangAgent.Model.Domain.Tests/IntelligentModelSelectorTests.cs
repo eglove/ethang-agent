@@ -78,7 +78,7 @@ public class IntelligentModelSelectorTests
     Result<ModelSelectionResult> result = await selector.SelectAsync("write a C# function");
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("anthropic/claude-3.5-sonnet", result.Value!.ModelId);
+    Assert.Equal("anthropic/claude-3.5-sonnet", result.Value.ModelId);
     Assert.Equal("Anthropic", result.Value.ProviderName);
     Assert.True(result.Value.Category.RequiresToolUse);
     Assert.Equal(4, result.Value.Category.Complexity);
@@ -111,7 +111,7 @@ public class IntelligentModelSelectorTests
     Result<ModelSelectionResult> result = await selector.SelectAsync("task");
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("CategorizationFailed", result.Error!.Code);
+    Assert.Equal("CategorizationFailed", result.Error.Code);
   }
 
   [Fact]
@@ -124,7 +124,7 @@ public class IntelligentModelSelectorTests
     Result<ModelSelectionResult> result = await selector.SelectAsync("task");
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("SelectionFailed", result.Error!.Code);
+    Assert.Equal("SelectionFailed", result.Error.Code);
   }
 
   [Fact]
@@ -138,7 +138,7 @@ public class IntelligentModelSelectorTests
     Result<ModelSelectionResult> result = await selector.SelectAsync("task");
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ModelNotFound", result.Error!.Code);
+    Assert.Equal("ModelNotFound", result.Error.Code);
   }
 
   [Fact]
@@ -151,7 +151,7 @@ public class IntelligentModelSelectorTests
     Result<ModelSelectionResult> result = await selector.SelectAsync("task");
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("CatalogEmpty", result.Error!.Code);
+    Assert.Equal("CatalogEmpty", result.Error.Code);
   }
 
   [Fact]
@@ -164,7 +164,7 @@ public class IntelligentModelSelectorTests
     Result<ModelSelectionResult> result = await selector.SelectAsync("task");
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("CatalogUnavailable", result.Error!.Code);
+    Assert.Equal("CatalogUnavailable", result.Error.Code);
   }
 
   [Fact]
@@ -216,7 +216,7 @@ public class IntelligentModelSelectorTests
     Result<ModelSelectionResult> result = await selector.SelectAsync("task", excluded);
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("anthropic/claude-3.5-sonnet", result.Value!.ModelId);
+    Assert.Equal("anthropic/claude-3.5-sonnet", result.Value.ModelId);
     Assert.Equal("OpenRouter", result.Value.ProviderName);
   }
 
@@ -231,6 +231,6 @@ public class IntelligentModelSelectorTests
     Result<ModelSelectionResult> result = await selector.SelectAsync("task", excluded);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("NoMatchingModels", result.Error!.Code);
+    Assert.Equal("NoMatchingModels", result.Error.Code);
   }
 }

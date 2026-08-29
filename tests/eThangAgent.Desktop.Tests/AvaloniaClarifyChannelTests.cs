@@ -17,8 +17,8 @@ public class AvaloniaClarifyChannelTests
     Result<string> result = await channel.AskAsync(new ClarifyQuestion("Which?", ["a", "b"], true));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("PresenterUnavailable", result.Error!.Code);
-    Assert.Contains("directly in chat", result.Error!.Message, StringComparison.Ordinal);
+    Assert.Equal("PresenterUnavailable", result.Error.Code);
+    Assert.Contains("directly in chat", result.Error.Message, StringComparison.Ordinal);
   }
 
   [Fact]

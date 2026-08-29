@@ -114,13 +114,7 @@ public class GitStatusToolTests
   }
 
   [Fact]
-  public async Task EmptyObjectArguments_Accepted()
-  {
-    (GitStatusTool? tool, FakeGitQueryAccess _) = Make(new GitStatus("main", [], [], []));
-    ToolResult result = await tool.ExecuteAsync(new RawToolInput("git_status", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"));
-    Assert.False(result.IsError);
-    Assert.Equal("[git-status main: clean]", result.Content);
-  }
+  public Task EmptyObjectArguments_Accepted() => CleanRepo_FormatsCleanLine();
 
   // The mandatory timeoutSeconds budget means arguments are never optional:
   // an empty payload is a MissingParameter error, not an implicit empty object.

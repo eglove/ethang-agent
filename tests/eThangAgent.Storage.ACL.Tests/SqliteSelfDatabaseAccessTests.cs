@@ -21,13 +21,13 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
   {
     GC.SuppressFinalize(this);
     // Named decision (CA1031): temp-db cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1031, S108 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
-#pragma warning restore CA1031
+#pragma warning restore CA1031, S108
   }
 
   // ---- Describe (db_schema) ----
@@ -155,7 +155,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
     Result<SelfQueryResult> result = await _access.QueryAsync("CREATE TABLE hack (id INTEGER)", 10);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("QueryFailed", result.Error!.Code);
+    Assert.Equal("QueryFailed", result.Error.Code);
     Assert.Contains("readonly", result.Error.Message, StringComparison.OrdinalIgnoreCase);
   }
 
@@ -167,7 +167,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
         "SELECT key, 'v', 't' FROM d", 10);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("QueryFailed", result.Error!.Code);
+    Assert.Equal("QueryFailed", result.Error.Code);
     Assert.Contains("readonly", result.Error.Message, StringComparison.OrdinalIgnoreCase);
   }
 
@@ -193,7 +193,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
     Result<SelfQueryResult> result = await _access.QueryAsync("SELECT * FROM nope", 10);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("QueryFailed", result.Error!.Code);
+    Assert.Equal("QueryFailed", result.Error.Code);
     Assert.Contains("no such table", result.Error.Message, StringComparison.Ordinal);
   }
 

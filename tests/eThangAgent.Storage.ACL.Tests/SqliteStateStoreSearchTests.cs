@@ -22,13 +22,13 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
   {
     GC.SuppressFinalize(this);
     // Named decision (CA1031): temp-db cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1031, S108 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
-#pragma warning restore CA1031
+#pragma warning restore CA1031, S108
   }
 
   [Fact]
@@ -37,7 +37,7 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
     _ = await _store.SetKeyCasAsync("ws1", "plans", "alpha", "rewrite the SDD ledger flow", null);
     Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "ledger", 20);
     Assert.True(r.IsSuccess);
-    StateSearchHit hit = Assert.Single(r.Value!);
+    StateSearchHit hit = Assert.Single(r.Value);
     Assert.Equal("plans", hit.Ns);
     Assert.Equal("alpha", hit.Name);
     Assert.Contains("ledger", hit.Snippet, StringComparison.Ordinal);
@@ -49,7 +49,7 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
     _ = await _store.SetKeyCasAsync("ws1", "specs", "2026-08-24-native-skills-db-planning", "body text here", null);
     Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "native* AND skills*", 20);
     Assert.True(r.IsSuccess);
-    _ = Assert.Single(r.Value!);
+    _ = Assert.Single(r.Value);
   }
 
   [Fact]
@@ -59,7 +59,7 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
     _ = await _store.SetKeyCasAsync("ws2", "notes", "theirs", "xylophone collection", null);
     Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "xylophone", 20);
     Assert.True(r.IsSuccess);
-    StateSearchHit hit = Assert.Single(r.Value!);
+    StateSearchHit hit = Assert.Single(r.Value);
     Assert.Equal("mine", hit.Name);
   }
 
@@ -69,7 +69,7 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
     _ = await _store.SetKeyCasAsync("ws1", "notes", "a", "content", null);
     Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "AND (", 20);
     Assert.False(r.IsSuccess);
-    Assert.Equal("InvalidQuery", r.Error!.Code);
+    Assert.Equal("InvalidQuery", r.Error.Code);
   }
 
   [Fact]
@@ -82,6 +82,6 @@ public sealed class SqliteStateStoreSearchTests : IDisposable
 
     Result<IReadOnlyList<StateSearchHit>> r = await _store.SearchKeysAsync("ws1", "shared", 3);
     Assert.True(r.IsSuccess);
-    Assert.Equal(3, r.Value!.Count);
+    Assert.Equal(3, r.Value.Count);
   }
 }

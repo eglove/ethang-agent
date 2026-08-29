@@ -15,7 +15,8 @@ public class SystemPromptTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return new HttpResponseMessage(HttpStatusCode.OK)
       {
         Content = new StringContent(/*lang=json,strict*/ """{"choices":[{"message":{"content":"ok"}}]}""",
@@ -45,7 +46,8 @@ public class SystemPromptTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return new HttpResponseMessage(HttpStatusCode.OK)
       {
         Content = new StringContent(/*lang=json,strict*/ """{"choices":[{"message":{"content":"ok"}}]}""",

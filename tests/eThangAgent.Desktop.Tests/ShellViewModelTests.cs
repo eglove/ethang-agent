@@ -136,7 +136,7 @@ public class ShellViewModelTests
     _ = Assert.Single(vm.Tabs);
     Assert.Equal(vm.Tabs[0], vm.SelectedTab);
     Assert.True(vm.HasTabs);
-    Assert.Equal("alpha", opened.Value!.Title);
+    Assert.Equal("alpha", opened.Value.Title);
   }
 
   [Fact]
@@ -223,7 +223,7 @@ public class ShellViewModelTests
     Result<AgentTabViewModel> opened = await vm.OpenAgentAsync(@"C:\work\gamma", "openrouter");
 
     Assert.False(opened.IsSuccess);
-    Assert.Equal("NoFactory", opened.Error!.Code);
+    Assert.Equal("NoFactory", opened.Error.Code);
     Assert.Empty(vm.Tabs);
   }
 

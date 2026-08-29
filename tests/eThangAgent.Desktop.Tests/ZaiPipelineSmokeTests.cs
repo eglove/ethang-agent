@@ -95,7 +95,7 @@ public class ZaiPipelineSmokeTests
       Assert.All(server.ChatRequestPaths, p => Assert.Equal(chatPath, p));
       Assert.NotNull(server.LastChatRequestBody);
       Assert.Contains("glm-5.3", server.LastChatRequestBody, StringComparison.Ordinal);
-      using JsonDocument doc = JsonDocument.Parse(server.LastChatRequestBody!);
+      using JsonDocument doc = JsonDocument.Parse(server.LastChatRequestBody);
       Assert.False(doc.RootElement.TryGetProperty("provider", out _));
 
       // Capability-tool gating on the wire: the capability APIs exist only on the

@@ -113,7 +113,7 @@ public class SessionsQueryHandlerTests
     Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", 500);
 
     Assert.True(result.IsSuccess);
-    IReadOnlyList<SessionSummary> summaries = result.Value!;
+    IReadOnlyList<SessionSummary> summaries = result.Value;
     Assert.Equal([orphanId, childId, rootId], summaries.Select(s => s.Id).ToList());
 
     SessionSummary root = summaries[2];
@@ -145,7 +145,7 @@ public class SessionsQueryHandlerTests
     Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "all", 2);
 
     Assert.True(result.IsSuccess);
-    IReadOnlyList<SessionSummary> summaries = result.Value!;
+    IReadOnlyList<SessionSummary> summaries = result.Value;
     Assert.Equal(2, summaries.Count);
     // The two newest sessions are the failed orphan and the running child.
     Assert.Equal("orphan", summaries[0].Label);
@@ -158,6 +158,6 @@ public class SessionsQueryHandlerTests
     Result<IReadOnlyList<SessionSummary>> result = await _handler.Execute(null, "active", 50);
 
     Assert.True(result.IsSuccess);
-    Assert.Empty(result.Value!);
+    Assert.Empty(result.Value);
   }
 }

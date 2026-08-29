@@ -16,7 +16,8 @@ public class ToolSchemaWireFormatTests
     string? body = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      body = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      body = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return new HttpResponseMessage(HttpStatusCode.OK)
       {
         Content = new StringContent(

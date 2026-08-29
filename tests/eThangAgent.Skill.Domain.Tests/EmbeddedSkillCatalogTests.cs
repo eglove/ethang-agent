@@ -22,9 +22,9 @@ public class EmbeddedSkillCatalogTests
   {
     Result<IReadOnlyList<SkillDefinition>> r = await _catalog.ListAsync();
     Assert.True(r.IsSuccess);
-    string[] names = [.. r.Value!.Select(s => s.Name).OrderBy(n => n)];
+    string[] names = [.. r.Value.Select(s => s.Name).OrderBy(n => n)];
     Assert.Equal(ExpectedNames, names);
-    Assert.All(r.Value!, s =>
+    Assert.All(r.Value, s =>
     {
       Assert.Equal(SkillSource.BuiltIn, s.Source);
       Assert.Equal(1, s.Version);
@@ -37,7 +37,7 @@ public class EmbeddedSkillCatalogTests
   {
     Result<SkillDefinition> r = await _catalog.GetAsync("brainstorming");
     Assert.True(r.IsSuccess);
-    Assert.Contains("HARD-GATE", r.Value!.Body, StringComparison.Ordinal);          // verbatim upstream marker
+    Assert.Contains("HARD-GATE", r.Value.Body, StringComparison.Ordinal);          // verbatim upstream marker
     Assert.StartsWith("# Brainstorming", r.Value.Body, StringComparison.Ordinal);   // body preserved verbatim after frontmatter split
   }
 
@@ -46,7 +46,7 @@ public class EmbeddedSkillCatalogTests
   {
     Result<SkillDefinition> r = await _catalog.GetAsync("not-a-skill");
     Assert.False(r.IsSuccess);
-    Assert.Equal("SkillNotFound", r.Error!.Code);
+    Assert.Equal("SkillNotFound", r.Error.Code);
   }
 
   [Fact]
@@ -56,9 +56,9 @@ public class EmbeddedSkillCatalogTests
     Assert.Contains(list.Value!, s => s.Name == "ethang-tools-mapping");
     Result<SkillDefinition> get = await _catalog.GetAsync("ethang-tools-mapping");
     Assert.True(get.IsSuccess);
-    Assert.Contains("skill_view", get.Value!.Body, StringComparison.Ordinal);
+    Assert.Contains("skill_view", get.Value.Body, StringComparison.Ordinal);
     // Spec-required binding (SP3): skills that say "commit work" must bind to
     // the git_commit tool — never to raw shell commits.
-    Assert.Contains("git_commit", get.Value!.Body, StringComparison.Ordinal);
+    Assert.Contains("git_commit", get.Value.Body, StringComparison.Ordinal);
   }
 }

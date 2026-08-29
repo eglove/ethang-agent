@@ -20,13 +20,13 @@ public sealed class ListAllRoundTripTests : IDisposable
   {
     GC.SuppressFinalize(this);
     // Named decision (CA1031): temp-db cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1031, S108 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
-#pragma warning restore CA1031
+#pragma warning restore CA1031, S108
   }
 
   [Fact]
@@ -47,10 +47,10 @@ public sealed class ListAllRoundTripTests : IDisposable
     Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync();
 
     Assert.True(listed.IsSuccess);
-    Assert.Equal([early.Id, late.Id], listed.Value!.Select(r => r.Id).ToList());
-    Assert.Equal("early child", listed.Value![0].Label);
-    Assert.Equal("root", listed.Value![1].Label);
-    Assert.Equal(2, listed.Value!.Count);
+    Assert.Equal([early.Id, late.Id], listed.Value.Select(r => r.Id).ToList());
+    Assert.Equal("early child", listed.Value[0].Label);
+    Assert.Equal("root", listed.Value[1].Label);
+    Assert.Equal(2, listed.Value.Count);
   }
 
   [Fact]
@@ -59,6 +59,6 @@ public sealed class ListAllRoundTripTests : IDisposable
     Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync();
 
     Assert.True(listed.IsSuccess);
-    Assert.Empty(listed.Value!);
+    Assert.Empty(listed.Value);
   }
 }

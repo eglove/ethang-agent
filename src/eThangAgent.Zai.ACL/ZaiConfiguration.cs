@@ -7,7 +7,11 @@ namespace eThangAgent.Zai.ACL;
 ///     URL to point tests at a local mock server.</summary>
 public sealed record ZaiConfiguration(string ApiKey, Uri BaseUrl)
 {
+  // S1075: a provider API root is exactly the kind of constant that belongs in code —
+  // it is the anchored default that per-host configuration may override.
+#pragma warning disable S1075
   public const string DefaultBaseUrl = "https://api.z.ai/api";
+#pragma warning restore S1075
 
   /// <summary>Transient-failure retry policy. Defaults to four attempts with exponential backoff.</summary>
   public RetryPolicy Retry { get; init; } = RetryPolicy.Default;

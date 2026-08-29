@@ -20,7 +20,7 @@ public class MarkdownDocumentParserTests
   {
     Result<MarkdownDocument> parsed = Parse(TextDoc);
     Assert.True(parsed.IsSuccess);
-    TextBlock block = Assert.IsType<TextBlock>(Assert.Single(parsed.Value!.Blocks));
+    TextBlock block = Assert.IsType<TextBlock>(Assert.Single(parsed.Value.Blocks));
     Assert.Equal("Hi", block.Text);
   }
 
@@ -44,7 +44,7 @@ public class MarkdownDocumentParserTests
         """;
     Result<MarkdownDocument> parsed = Parse(json);
     Assert.True(parsed.IsSuccess, parsed.Error?.Message);
-    IReadOnlyList<MarkdownBlock?> blocks = parsed.Value!.Blocks;
+    IReadOnlyList<MarkdownBlock?> blocks = parsed.Value.Blocks;
     Assert.Equal(11, blocks.Count);
     Assert.Null(blocks[^1]); // trailing null entry preserved for renderer to skip
     _ = Assert.IsType<HeaderBlock>(blocks[0]);
@@ -72,7 +72,7 @@ public class MarkdownDocumentParserTests
     string json = /*lang=json,strict*/ """{"frontmatter":{"title":"T","weight":80,"ok":true,"name":"x"},"blocks":[]}""";
     Result<MarkdownDocument> parsed = Parse(json);
     Assert.True(parsed.IsSuccess, parsed.Error?.Message);
-    IReadOnlyDictionary<string, object> fm = parsed.Value!.FrontMatter!;
+    IReadOnlyDictionary<string, object> fm = parsed.Value.FrontMatter!;
     Assert.Equal(80.0, (double)fm["weight"]);
     Assert.True((bool)fm["ok"]);
     Assert.Equal("T", fm["title"]);
@@ -85,7 +85,7 @@ public class MarkdownDocumentParserTests
   {
     Result<MarkdownDocument> parsed = Parse(/*lang=json,strict*/ """{"blocks":[{"type":"marquee","text":"x"}]}""");
     Assert.False(parsed.IsSuccess);
-    Assert.Equal("UnknownParameter", parsed.Error!.Code);
+    Assert.Equal("UnknownParameter", parsed.Error.Code);
     Assert.Contains("marquee", parsed.Error.Message, StringComparison.Ordinal);
   }
 

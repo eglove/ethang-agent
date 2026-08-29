@@ -9,7 +9,7 @@ public class ModelConfigTests
   {
     Result<ModelConfig> result = ModelConfig.Create("gpt-4o", null, 1024, 0.7f);
     Assert.True(result.IsSuccess);
-    ModelConfig config = result.Value!;
+    ModelConfig config = result.Value;
     Assert.Equal("gpt-4o", config.ModelId);
     Assert.Equal(1024, config.MaxTokens);
     Assert.Equal(0.7f, config.Temperature);
@@ -20,7 +20,7 @@ public class ModelConfigTests
   {
     Result<ModelConfig> result = ModelConfig.Create("  ", null, 100, 0.5f);
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidModel", result.Error!.Code);
+    Assert.Equal("InvalidModel", result.Error.Code);
   }
 
   [Fact]
@@ -28,7 +28,7 @@ public class ModelConfigTests
   {
     Result<ModelConfig> result = ModelConfig.Create("model", null, 0, 0.5f);
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidModel", result.Error!.Code);
+    Assert.Equal("InvalidModel", result.Error.Code);
   }
 
   [Fact]
@@ -36,7 +36,7 @@ public class ModelConfigTests
   {
     Result<ModelConfig> result = ModelConfig.Create("model", null, -1, 0.5f);
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidModel", result.Error!.Code);
+    Assert.Equal("InvalidModel", result.Error.Code);
   }
 
   [Fact]
@@ -44,7 +44,7 @@ public class ModelConfigTests
   {
     Result<ModelConfig> result = ModelConfig.Create("model", null, 100, -0.1f);
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidModel", result.Error!.Code);
+    Assert.Equal("InvalidModel", result.Error.Code);
   }
 
   [Fact]
@@ -52,7 +52,7 @@ public class ModelConfigTests
   {
     Result<ModelConfig> result = ModelConfig.Create("model", null, 100, 2.1f);
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidModel", result.Error!.Code);
+    Assert.Equal("InvalidModel", result.Error.Code);
   }
 
   [Fact]
@@ -67,7 +67,7 @@ public class ModelConfigTests
   {
     Result<ModelConfig> result = ModelConfig.Create("gpt-4o", "OpenAI", 1024, 0.7f);
     Assert.True(result.IsSuccess);
-    Assert.Equal("OpenAI", result.Value!.Provider);
+    Assert.Equal("OpenAI", result.Value.Provider);
   }
 
   [Fact]
@@ -75,6 +75,6 @@ public class ModelConfigTests
   {
     Result<ModelConfig> result = ModelConfig.Create("gpt-4o", null, 1024, 0.7f);
     Assert.True(result.IsSuccess);
-    Assert.Null(result.Value!.Provider);
+    Assert.Null(result.Value.Provider);
   }
 }

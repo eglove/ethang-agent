@@ -71,7 +71,7 @@ internal static class E2E
       string workspaceRoot = Directory.GetCurrentDirectory();
       RootId = (await RootSessionBootstrapper.PersistRootAsync(
           _services.GetRequiredService<IAgentStore>(), workspaceRoot,
-          Providers.OpenRouter).ConfigureAwait(false)).Value!;
+          Providers.OpenRouter).ConfigureAwait(false)).Value;
       SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
       RootSessionLifecycle lifecycle = _services.GetRequiredService<RootSessionLifecycle>();
       Conversation conversation = _services.GetRequiredService<Conversation>();
@@ -79,13 +79,13 @@ internal static class E2E
       // The E2E host drives one agent through the same shell surface production
       // uses: a MainViewModel whose single tab wraps the composed session.
       AgentSession session = new(
-          _services!, RootId, conversation, handler, lifecycle,
+          _services, RootId, conversation, handler, lifecycle,
           ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f).Value!,
           WorkspaceRoot: workspaceRoot,
           ProviderName: Providers.OpenRouter,
           ClarifyChannel: new NeverClarifyChannel(),
-          Inbox: _services!.GetRequiredService<IAgentInbox>(),
-          ChildRuntime: _services!.GetRequiredService<IAgentRuntime>());
+          Inbox: _services.GetRequiredService<IAgentInbox>(),
+          ChildRuntime: _services.GetRequiredService<IAgentRuntime>());
       // No live Avalonia session exists in headless tests, so the production sink
       // (ApplyUiStreamEventOnUIThreadAsync) posts onto Dispatcher.UIThread, where queued
       // operations never execute (shut-down unit-test dispatcher) — wedging every turn

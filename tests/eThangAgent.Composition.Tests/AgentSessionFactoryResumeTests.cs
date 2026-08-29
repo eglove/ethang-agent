@@ -58,7 +58,7 @@ public class AgentSessionFactoryResumeTests
       {
         Result<AgentSession> created = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, new StubChannel());
         Assert.True(created.IsSuccess);
-        AgentId rootId = created.Value!.RootId;
+        AgentId rootId = created.Value.RootId;
 
         // Simulate a turn's slice through the store directly — the lifecycle's
         // contract is covered in RootSessionLifecycleTests.
@@ -80,7 +80,7 @@ public class AgentSessionFactoryResumeTests
         Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new StubChannel());
 
         Assert.True(resumed.IsSuccess);
-        AgentSession session = resumed.Value!;
+        AgentSession session = resumed.Value;
         Assert.Equal(rootId, session.RootId);
         Assert.Equal(dir.FullName, session.WorkspaceRoot);
         // The session resumes on its ORIGINAL provider.
@@ -125,7 +125,7 @@ public class AgentSessionFactoryResumeTests
     {
       Result<AgentSession> resumed = await factory.ResumeAsync(AgentId.NewId(), new StubChannel());
       Assert.False(resumed.IsSuccess);
-      Assert.Equal("NotFound", resumed.Error!.Code);
+      Assert.Equal("NotFound", resumed.Error.Code);
     }
     finally
     {
@@ -146,7 +146,7 @@ public class AgentSessionFactoryResumeTests
 
       Result<AgentSession> resumed = await factory.ResumeAsync(childId, new StubChannel());
       Assert.False(resumed.IsSuccess);
-      Assert.Equal("NotResumable", resumed.Error!.Code);
+      Assert.Equal("NotResumable", resumed.Error.Code);
     }
     finally
     {
@@ -168,7 +168,7 @@ public class AgentSessionFactoryResumeTests
 
       Result<AgentSession> resumed = await factory.ResumeAsync(legacyId, new StubChannel());
       Assert.False(resumed.IsSuccess);
-      Assert.Equal("NotResumable", resumed.Error!.Code);
+      Assert.Equal("NotResumable", resumed.Error.Code);
       Assert.Contains("workspace", resumed.Error.Message, StringComparison.OrdinalIgnoreCase);
     }
     finally
@@ -192,7 +192,7 @@ public class AgentSessionFactoryResumeTests
 
       Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new StubChannel());
       Assert.False(resumed.IsSuccess);
-      Assert.Equal("ProviderNotConfigured", resumed.Error!.Code);
+      Assert.Equal("ProviderNotConfigured", resumed.Error.Code);
     }
     finally
     {
@@ -213,7 +213,7 @@ public class AgentSessionFactoryResumeTests
 
       Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new StubChannel());
       Assert.False(resumed.IsSuccess);
-      Assert.Equal("WorkspaceNotFound", resumed.Error!.Code);
+      Assert.Equal("WorkspaceNotFound", resumed.Error.Code);
     }
     finally
     {
@@ -229,7 +229,7 @@ public class AgentSessionFactoryResumeTests
     {
       Result<AgentSession> resumed = await factory.ResumeAsync(AgentId.NewId(), null!);
       Assert.False(resumed.IsSuccess);
-      Assert.Equal("InvalidChannel", resumed.Error!.Code);
+      Assert.Equal("InvalidChannel", resumed.Error.Code);
     }
     finally
     {

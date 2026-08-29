@@ -29,7 +29,7 @@ public class SettingsViewModelTests
     vm.SaveCommand.Execute(null);
 
     Assert.NotNull(saved);
-    Assert.Equal("sk-or-v1-abc", saved!.OpenRouterApiKey);
+    Assert.Equal("sk-or-v1-abc", saved.OpenRouterApiKey);
     Assert.Equal("zai-key", saved.ZaiApiKey);
   }
 
@@ -44,7 +44,7 @@ public class SettingsViewModelTests
     vm.SaveCommand.Execute(null);
 
     Assert.NotNull(saved);
-    Assert.Equal("sk-or-v1-abc", saved!.OpenRouterApiKey);
+    Assert.Equal("sk-or-v1-abc", saved.OpenRouterApiKey);
     Assert.Null(saved.ZaiApiKey);
   }
 
@@ -97,7 +97,7 @@ public class SettingsViewModelTests
     vm.SaveCommand.Execute(null);
 
     Assert.NotNull(saved);
-    Assert.Equal(ZaiEndpointMode.GeneralApi, saved!.ZaiEndpointMode);
+    Assert.Equal(ZaiEndpointMode.GeneralApi, saved.ZaiEndpointMode);
   }
 
   [Fact]

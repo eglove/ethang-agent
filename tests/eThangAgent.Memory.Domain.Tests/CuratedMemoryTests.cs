@@ -128,7 +128,7 @@ public class CuratedMemoryTests
     Result<MemoryCategory> result = CuratedMemorySpecifications.ParseCategory(raw);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidCategory", result.Error!.Code);
+    Assert.Equal("InvalidCategory", result.Error.Code);
     Assert.Contains("convention", result.Error.Message, StringComparison.Ordinal);
     Assert.Contains("preference", result.Error.Message, StringComparison.Ordinal);
     Assert.Contains("insight", result.Error.Message, StringComparison.Ordinal);
@@ -157,7 +157,7 @@ public class CuratedMemoryTests
     Result<MemoryScope> result = CuratedMemorySpecifications.ParseScope(raw);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidScope", result.Error!.Code);
+    Assert.Equal("InvalidScope", result.Error.Code);
     Assert.Contains("workspace", result.Error.Message, StringComparison.Ordinal);
     Assert.Contains("global", result.Error.Message, StringComparison.Ordinal);
   }

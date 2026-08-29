@@ -10,7 +10,9 @@ public sealed record SearchOk(SearchResult Result) : SearchOutcome;
 public sealed record SearchFail(string DomainError) : SearchOutcome;
 
 /// <summary>Success carries the paged result; failure carries the rendered typed error line.</summary>
+#pragma warning disable S2094 // Deliberate empty base: outcome variants are data, not behaviour.
 public abstract record SearchOutcome;
+#pragma warning restore S2094
 
 /// <summary>One ordered page of matches over the whole (unpaged) match set.</summary>
 public sealed record SearchResult(IReadOnlyList<Hit> Hits, int TotalMatched, int Page, int Pages);

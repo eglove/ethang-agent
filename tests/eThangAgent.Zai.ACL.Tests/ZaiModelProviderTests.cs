@@ -30,7 +30,7 @@ public class ZaiModelProviderTests
     Result<ModelResponse> result = await provider.SendAsync(config, new ModelRequest([UserMsg("hi")]));
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("Hello back", result.Value!.Content);
+    Assert.Equal("Hello back", result.Value.Content);
     Assert.Empty(result.Value.ToolCalls);
   }
 
@@ -42,7 +42,8 @@ public class ZaiModelProviderTests
     FakeHttpMessageHandler handler = new(async req =>
     {
       captured = req;
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonResponse(HttpStatusCode.OK,
                                    /*lang=json,strict*/
                                    """{"choices":[{"message":{"content":"ok"}}]}""");
@@ -57,7 +58,7 @@ public class ZaiModelProviderTests
     Assert.True(result.IsSuccess);
     Assert.Equal("Bearer test-key", captured!.Headers.Authorization?.ToString());
     // CodingPlan is the default mode: chat goes through the coding endpoint.
-    Assert.Equal("https://zai.test/coding/paas/v4/chat/completions", captured!.RequestUri!.ToString());
+    Assert.Equal("https://zai.test/coding/paas/v4/chat/completions", captured.RequestUri!.ToString());
     Assert.Contains("glm-5.3", capturedBody, StringComparison.Ordinal);
   }
 
@@ -144,7 +145,8 @@ public class ZaiModelProviderTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonResponse(HttpStatusCode.OK,
                                    /*lang=json,strict*/
                                    """{"choices":[{"message":{"content":"ok"}}]}""");
@@ -169,7 +171,8 @@ public class ZaiModelProviderTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonResponse(HttpStatusCode.OK,
                                    /*lang=json,strict*/
                                    """{"choices":[{"message":{"content":"ok"}}]}""");
@@ -191,7 +194,8 @@ public class ZaiModelProviderTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonResponse(HttpStatusCode.OK,
                                    /*lang=json,strict*/
                                    """{"choices":[{"message":{"content":"ok"}}]}""");
@@ -232,7 +236,7 @@ public class ZaiModelProviderTests
         new ModelRequest([UserMsg("hi")]));
 
     Assert.True(result.IsSuccess);
-    Assert.Null(result.Value!.Content);
+    Assert.Null(result.Value.Content);
     _ = Assert.Single(result.Value.ToolCalls);
     Assert.Equal("call_1", result.Value.ToolCalls[0].Id);
     Assert.Equal("read", result.Value.ToolCalls[0].Name);
@@ -245,7 +249,8 @@ public class ZaiModelProviderTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonResponse(HttpStatusCode.OK,
                                    /*lang=json,strict*/
                                    """{"choices":[{"message":{"content":"final"}}]}""");
@@ -287,7 +292,7 @@ public class ZaiModelProviderTests
         new ModelRequest([UserMsg("hi")]));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderError", result.Error!.Code);
+    Assert.Equal("ProviderError", result.Error.Code);
   }
 
   [Fact]
@@ -303,7 +308,7 @@ public class ZaiModelProviderTests
         new ModelRequest([UserMsg("hi")]));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("RateLimited", result.Error!.Code);
+    Assert.Equal("RateLimited", result.Error.Code);
   }
 
   [Fact]
@@ -319,7 +324,7 @@ public class ZaiModelProviderTests
         new ModelRequest([UserMsg("hi")]));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderTimeout", result.Error!.Code);
+    Assert.Equal("ProviderTimeout", result.Error.Code);
   }
 
   [Theory]
@@ -339,7 +344,7 @@ public class ZaiModelProviderTests
         new ModelRequest([UserMsg("hi")]));
 
     Assert.True(result.IsSuccess);
-    Assert.Equal(expected, result.Value!.FinishReason);
+    Assert.Equal(expected, result.Value.FinishReason);
   }
 
   private static HttpResponseMessage JsonResponse(HttpStatusCode code, string json) =>

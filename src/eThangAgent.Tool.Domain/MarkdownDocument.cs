@@ -3,7 +3,9 @@ namespace eThangAgent.ToolDomain;
 /// <summary>Base type for one block of a structured markdown document. Abstract record
 /// rather than an empty interface (CA1040): blocks are data, and the base carries no
 /// members of its own.</summary>
+#pragma warning disable S2094 // Deliberate empty base — blocks are data, see doc comment.
 public abstract record MarkdownBlock;
+#pragma warning restore S2094
 
 /// <summary>GFM alert variants rendered as > [!TYPE] blockquotes.</summary>
 public enum AlertType { Caution, Important, Note, Tip, Warning }

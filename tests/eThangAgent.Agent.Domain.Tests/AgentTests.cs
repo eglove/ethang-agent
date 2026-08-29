@@ -199,7 +199,7 @@ public class AgentTests
     public ModelRequest? LastRequest { get; private set; }
 
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
-        CancellationToken ct)
+        CancellationToken ct = default)
     {
       LastRequest = request;
       return Task.FromResult(Result.Success(new ModelResponse("ok", [])));
@@ -210,7 +210,7 @@ public class AgentTests
   {
     private readonly Queue<Result<ModelResponse>> _responses = new(responses);
 
-    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct)
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)
         => Task.FromResult(_responses.Count > 0 ? _responses.Dequeue()
             : Result.Success(new ModelResponse("fin", [])));
   }

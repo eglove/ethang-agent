@@ -82,8 +82,8 @@ public class ClarifyTests
     vm.Cancel();
     Result<string> settled = await vm.Completion.ConfigureAwait(true);
     Assert.False(settled.IsSuccess);
-    Assert.Equal("Cancelled", settled.Error!.Code);
-    Assert.Equal("Cancelled by the user.", settled.Error!.Message);
+    Assert.Equal("Cancelled", settled.Error.Code);
+    Assert.Equal("Cancelled by the user.", settled.Error.Message);
   }
 
   // ── Channel ───────────────────────────────────────────────────────────────
@@ -125,8 +125,8 @@ public class ClarifyTests
 
     Result<string> result = await ask.ConfigureAwait(true);
     Assert.False(result.IsSuccess);
-    Assert.Equal("Cancelled", result.Error!.Code);
-    Assert.Equal("Cancelled by the user.", result.Error!.Message);
+    Assert.Equal("Cancelled", result.Error.Code);
+    Assert.Equal("Cancelled by the user.", result.Error.Message);
   }
 
   [Fact]
@@ -198,13 +198,13 @@ public class ClarifyTests
                   new ClarifyQuestion("Which approach?", ["first", "second"], true)).ConfigureAwait(true);
           return answer.IsSuccess
                   ? Result.Success("turn done")
-                  : Result.Failure<string>(answer.Error!);
+                  : Result.Failure<string>(answer.Error);
         },
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "OpenRouter",
         "m", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo" });
     Task turn = vm.SubmitAsync("ask me"); // model asks a clarify question mid-turn
-    ClarifyViewModel clarify = await questionGate.Task.ConfigureAwait(true);
+    _ = await questionGate.Task.ConfigureAwait(true); // sync on the clarify question surfacing
     Assert.NotNull(vm.Clarify);
 
     await vm.SubmitAsync("my free answer"); // routed to clarify, not a new turn

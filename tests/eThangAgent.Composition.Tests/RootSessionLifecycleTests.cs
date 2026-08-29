@@ -25,7 +25,7 @@ internal sealed class FakeAgentStore : IAgentStore
   public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
       => Task.FromResult(_getOutcome.IsSuccess
           ? Result.Success(_current!)
-          : Result.Failure<AgentRecord>(_getOutcome.Error!));
+          : Result.Failure<AgentRecord>(_getOutcome.Error));
 
   public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
   {

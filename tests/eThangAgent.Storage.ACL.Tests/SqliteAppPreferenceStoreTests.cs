@@ -20,13 +20,13 @@ public sealed class SqliteAppPreferenceStoreTests : IDisposable
   public void Dispose()
   {
     GC.SuppressFinalize(this);
-#pragma warning disable CA1031
+#pragma warning disable CA1031, S108
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
-#pragma warning restore CA1031
+#pragma warning restore CA1031, S108
   }
 
   [Fact]

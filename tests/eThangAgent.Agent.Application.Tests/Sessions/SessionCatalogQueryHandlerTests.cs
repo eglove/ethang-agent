@@ -32,7 +32,7 @@ public class SessionCatalogQueryHandlerTests
     Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync();
 
     Assert.True(listed.IsSuccess);
-    Assert.Equal([newer.Id, older.Id], listed.Value!.Select(e => e.Id).ToList());
+    Assert.Equal([newer.Id, older.Id], listed.Value.Select(e => e.Id).ToList());
     Assert.Equal("C:/ws/b", listed.Value[0].WorkspaceId);
     Assert.Equal("zai", listed.Value[0].Provider);
     Assert.Equal(AgentStatus.Running, listed.Value[0].Status);
@@ -52,7 +52,7 @@ public class SessionCatalogQueryHandlerTests
     Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync();
 
     Assert.True(listed.IsSuccess);
-    _ = Assert.Single(listed.Value!);
+    _ = Assert.Single(listed.Value);
     Assert.Equal("C:/ws/a", listed.Value[0].WorkspaceId);
   }
 
@@ -64,6 +64,6 @@ public class SessionCatalogQueryHandlerTests
     Result<IReadOnlyList<SessionCatalogEntry>> listed = await _handler.ListAsync();
 
     Assert.False(listed.IsSuccess);
-    Assert.Equal("DbDown", listed.Error!.Code);
+    Assert.Equal("DbDown", listed.Error.Code);
   }
 }

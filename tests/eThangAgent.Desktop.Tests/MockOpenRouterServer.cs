@@ -34,7 +34,7 @@ internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/ch
     BaseUrl = new Uri($"http://127.0.0.1:{port}/");
     _listener.Prefixes.Add(BaseUrl.AbsoluteUri);
     _listener.Start();
-    _ = Task.Run(LoopAsync);
+    _ = Task.Run(LoopAsync, _cts.Token);
   }
 
   public MockOpenRouterServer Returns(string responseJson)
@@ -149,15 +149,20 @@ internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/ch
   ///     {{child_id}} substitution before the body is served.</summary>
   private string NextScriptedBody(string requestBody)
   {
-    string body;
     string? model = TryGetRequestModel(requestBody);
-    body = model is not null
+    string body = model is not null
         && _modelScripts.TryGetValue(model, out Queue<string>? scripted)
         && scripted.Count > 0
-      ? scripted.Dequeue()
-      : _scriptedResponses.Count > 0 ? _scriptedResponses.Dequeue() : /*lang=json,strict*/ """{"choices":[{"message":{"content":"pineapple"}}]}""";
-
+        ? scripted.Dequeue()
+        : NextDefaultScriptedBody();
     return SubstituteChildId(body, requestBody);
+  }
+
+  private string NextDefaultScriptedBody()
+  {
+    return _scriptedResponses.Count > 0
+        ? _scriptedResponses.Dequeue()
+        : /*lang=json,strict*/ """{"choices":[{"message":{"content":"pineapple"}}]}""";
   }
 
   /// <summary>Replaces every {{child_id}} occurrence in a scripted response with the most
@@ -167,8 +172,13 @@ internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/ch
   private static string SubstituteChildId(string scriptedBody, string requestBody)
   {
     return !scriptedBody.Contains(ChildIdPlaceholder, StringComparison.Ordinal)
-      ? scriptedBody
-      : TryGetMostRecentAgentId(requestBody) is { } childId
+        ? scriptedBody
+        : Substitute(scriptedBody, requestBody);
+  }
+
+  private static string Substitute(string scriptedBody, string requestBody)
+  {
+    return TryGetMostRecentAgentId(requestBody) is { } childId
         ? scriptedBody.Replace(ChildIdPlaceholder, childId.ToString("D"), StringComparison.Ordinal)
         : throw new InvalidOperationException(
             $"Scripted response contains '{ChildIdPlaceholder}' but no tool message " +
@@ -200,12 +210,12 @@ internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/ch
         ctx.Response.StatusCode = 200;
         ctx.Response.ContentType = "application/json";
         ctx.Response.ContentLength64 = bytes.Length;
-        await ctx.Response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
+        await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
       }
-      else if (ctx.Request.Url!.AbsolutePath == _chatPath)
+      else if (ctx.Request.Url.AbsolutePath == _chatPath)
       {
         using StreamReader reader = new(ctx.Request.InputStream);
-        string requestBody = await reader.ReadToEndAsync().ConfigureAwait(false);
+        string requestBody = await reader.ReadToEndAsync(_cts.Token).ConfigureAwait(false);
         LastChatRequestBody = requestBody;
         _requestBodies.Add(requestBody);
         _chatRequestPaths.Add(ctx.Request.Url.AbsolutePath);
@@ -220,13 +230,13 @@ internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/ch
             // multi-chunk streams exercises real client-side chunk assembly.
             ctx.Response.ContentType = "text/event-stream";
             byte[] bytes = Encoding.UTF8.GetBytes(ToSse(scriptedBody));
-            await ctx.Response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
+            await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
           }
           else
           {
             ctx.Response.ContentType = "application/json";
             byte[] bytes = Encoding.UTF8.GetBytes(scriptedBody);
-            await ctx.Response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
+            await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
           }
         }
         catch (InvalidOperationException ex)
@@ -234,7 +244,7 @@ internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/ch
           byte[] bytes = Encoding.UTF8.GetBytes(ex.Message);
           ctx.Response.StatusCode = 500;
           ctx.Response.ContentType = "text/plain";
-          await ctx.Response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
+          await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
         }
       }
       else

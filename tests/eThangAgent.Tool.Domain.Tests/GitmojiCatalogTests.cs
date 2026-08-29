@@ -21,7 +21,7 @@ public class GitmojiCatalogTests
   {
     Result<Gitmoji> result = GitmojiCatalog.Lookup("tada");
     Assert.False(result.IsSuccess);
-    Assert.Equal("UnknownEmojiKey", result.Error!.Code);
+    Assert.Equal("UnknownEmojiKey", result.Error.Code);
     Assert.Contains(":name:", result.Error.Message, StringComparison.Ordinal);
   }
 
@@ -30,10 +30,10 @@ public class GitmojiCatalogTests
   {
     Result<Gitmoji> result = GitmojiCatalog.Lookup(":definitely_not_a_gitmoji:");
     Assert.False(result.IsSuccess);
-    Assert.Equal("UnknownEmojiKey", result.Error!.Code);
+    Assert.Equal("UnknownEmojiKey", result.Error.Code);
     // First three keys of the embedded table, in file order.
     Assert.Multiple(
-        () => Assert.Contains(":tada:", result.Error!.Message, StringComparison.Ordinal),
+        () => Assert.Contains(":tada:", result.Error.Message, StringComparison.Ordinal),
         () => Assert.Contains(":art:", result.Error.Message, StringComparison.Ordinal),
         () => Assert.Contains(":sparkles:", result.Error.Message, StringComparison.Ordinal),
         () => Assert.Contains("66", result.Error.Message, StringComparison.Ordinal));
@@ -44,7 +44,7 @@ public class GitmojiCatalogTests
   {
     Result<Gitmoji> result = GitmojiCatalog.Lookup(":TADA:");
     Assert.False(result.IsSuccess);
-    Assert.Equal("UnknownEmojiKey", result.Error!.Code);
+    Assert.Equal("UnknownEmojiKey", result.Error.Code);
   }
 
   [Fact]

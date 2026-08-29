@@ -55,7 +55,7 @@ public class ShellResumeTests
     Result<AgentTabViewModel> result = await vm.ResumeSessionAsync(SessionId);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ResumeUnavailable", result.Error!.Code);
+    Assert.Equal("ResumeUnavailable", result.Error.Code);
     Assert.Empty(vm.Tabs);
   }
 

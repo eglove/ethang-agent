@@ -9,7 +9,7 @@ public class AgentConfigurationTests
   {
     // Keys live in each host's credential store (the Desktop's settings modal),
     // never in configuration: hosts overlay them via AgentSettings.WithApiKeys.
-    AgentSettings s = Load(env: [("OPENROUTER_API_KEY", "sk-or-test"), ("ZAI_API_KEY", "zai-test-key")]);
+    AgentSettings s = Load(("OPENROUTER_API_KEY", "sk-or-test"), ("ZAI_API_KEY", "zai-test-key"));
     Assert.Null(s.OpenRouter.ApiKey);
     Assert.Null(s.Zai.ApiKey);
     Assert.False(s.HasOpenRouter);
@@ -19,36 +19,36 @@ public class AgentConfigurationTests
   [Fact]
   public void Base_Url_Defaults_To_OpenRouter()
   {
-    AgentSettings s = Load(env: []);
+    AgentSettings s = Load();
     Assert.Equal(new Uri("https://openrouter.ai"), s.OpenRouter.BaseUrl);
   }
 
   [Fact]
   public void Zai_Base_Url_Defaults_To_Platform_Root()
   {
-    AgentSettings s = Load(env: []);
+    AgentSettings s = Load();
     Assert.Equal(new Uri("https://api.z.ai/api"), s.Zai.BaseUrl);
   }
 
   [Fact]
   public void Zai_Endpoint_Mode_Defaults_To_Coding_Plan()
   {
-    AgentSettings s = Load(env: []);
+    AgentSettings s = Load();
     Assert.Equal(ZaiEndpointMode.CodingPlan, s.Zai.EndpointMode);
   }
 
   [Fact]
   public void Zai_Endpoint_Mode_Empty_String_Defaults_To_Coding_Plan()
   {
-    AgentSettings s = Load(env: [("ZAI_ENDPOINT_MODE", "")]);
+    AgentSettings s = Load(env: ("ZAI_ENDPOINT_MODE", ""));
     Assert.Equal(ZaiEndpointMode.CodingPlan, s.Zai.EndpointMode);
   }
 
   [Fact]
   public void Zai_Endpoint_Mode_Tokens_Are_Honored()
   {
-    Assert.Equal(ZaiEndpointMode.CodingPlan, Load(env: [("ZAI_ENDPOINT_MODE", "coding")]).Zai.EndpointMode);
-    Assert.Equal(ZaiEndpointMode.GeneralApi, Load(env: [("ZAI_ENDPOINT_MODE", "general")]).Zai.EndpointMode);
+    Assert.Equal(ZaiEndpointMode.CodingPlan, Load(env: ("ZAI_ENDPOINT_MODE", "coding")).Zai.EndpointMode);
+    Assert.Equal(ZaiEndpointMode.GeneralApi, Load(env: ("ZAI_ENDPOINT_MODE", "general")).Zai.EndpointMode);
   }
 
   [Theory]
@@ -57,7 +57,7 @@ public class AgentConfigurationTests
   [InlineData("subscription")]
   public void Invalid_Zai_Endpoint_Mode_Throws_InvalidOperationException(string value)
   {
-    Exception ex = Record.Exception(() => Load(env: [("ZAI_ENDPOINT_MODE", value)]));
+    Exception ex = Record.Exception(() => Load(env: ("ZAI_ENDPOINT_MODE", value)));
     InvalidOperationException invalid = Assert.IsType<InvalidOperationException>(ex);
     Assert.Contains("ZAI_ENDPOINT_MODE", invalid.Message, StringComparison.Ordinal);
   }
@@ -66,7 +66,7 @@ public class AgentConfigurationTests
   public void Base_Url_Overrides_Are_Honored()
   {
     const string loopback = "http://localhost:5599"; // devskim: ignore DS162092 - loopback override is the behavior under test
-    AgentSettings s = Load(env: [("OPENROUTER_BASE_URL", loopback)]);
+    AgentSettings s = Load(env: ("OPENROUTER_BASE_URL", loopback));
     Assert.Equal(new Uri(loopback), s.OpenRouter.BaseUrl);
   }
 
@@ -74,21 +74,21 @@ public class AgentConfigurationTests
   public void Zai_Base_Url_Override_Is_Honored()
   {
     const string loopback = "http://localhost:5598"; // devskim: ignore DS162092 - loopback override is the behavior under test
-    AgentSettings s = Load(env: [("ZAI_BASE_URL", loopback)]);
+    AgentSettings s = Load(env: ("ZAI_BASE_URL", loopback));
     Assert.Equal(new Uri(loopback), s.Zai.BaseUrl);
   }
 
   [Fact]
   public void Invalid_Base_Url_Throws_InvalidOperationException()
   {
-    Exception ex = Record.Exception(() => Load(env: [("OPENROUTER_BASE_URL", "not-a-url")]));
+    Exception ex = Record.Exception(() => Load(env: ("OPENROUTER_BASE_URL", "not-a-url")));
     _ = Assert.IsType<InvalidOperationException>(ex);
   }
 
   [Fact]
   public void Invalid_Zai_Base_Url_Throws_InvalidOperationException()
   {
-    Exception ex = Record.Exception(() => Load(env: [("ZAI_BASE_URL", "not-a-url")]));
+    Exception ex = Record.Exception(() => Load(env: ("ZAI_BASE_URL", "not-a-url")));
     InvalidOperationException invalid = Assert.IsType<InvalidOperationException>(ex);
     Assert.Contains("ZAI_BASE_URL", invalid.Message, StringComparison.Ordinal);
   }
@@ -96,7 +96,7 @@ public class AgentConfigurationTests
   [Fact]
   public void Invalid_SubAgent_Configuration_Throws()
   {
-    Exception ex = Record.Exception(() => Load(env: [("SubAgent__MaxConcurrentAgents", "0")]));
+    Exception ex = Record.Exception(() => Load(env: ("SubAgent__MaxConcurrentAgents", "0")));
     _ = Assert.IsType<InvalidOperationException>(ex);
   }
 

@@ -39,7 +39,7 @@ public class UnrootedPathResolverTests
   {
     Result<string> result = _resolver.Resolve(path);
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidPath", result.Error!.Code);
+    Assert.Equal("InvalidPath", result.Error.Code);
   }
 
   [Fact]
@@ -47,6 +47,6 @@ public class UnrootedPathResolverTests
   {
     Result<string> result = _resolver.Resolve("C:\\bad\\|<>\"");
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidPath", result.Error!.Code);
+    Assert.Equal("InvalidPath", result.Error.Code);
   }
 }

@@ -19,7 +19,8 @@ public class OpenRouterModelProviderFactoryTests
     FakeHttpMessageHandler handler = new(async req =>
     {
       captured = req;
-      body = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      body = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return new HttpResponseMessage(HttpStatusCode.OK)
       {
         Content = new StringContent(

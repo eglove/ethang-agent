@@ -102,7 +102,7 @@ public class SubAgentSpawnerTests
     Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(outcome.ChildId);
 
     Assert.True(transcript.IsSuccess);
-    Assert.Equal(2, transcript.Value!.Count);
+    Assert.Equal(2, transcript.Value.Count);
     Assert.Equal(Role.User, transcript.Value[0].Role);
     Assert.Equal("do things", transcript.Value[0].Content);
     Assert.Equal(Role.Assistant, transcript.Value[1].Role);
@@ -126,7 +126,7 @@ public class SubAgentSpawnerTests
     ModelRequest request = provider.RequestsSeen[0]; // first of two turns: tool call, then final report
     Assert.Equal("guide text", request.SystemPrompt);
     Assert.NotNull(request.Tools);
-    Assert.Contains(request.Tools!, t => t.Name == "read_file");
+    Assert.Contains(request.Tools, t => t.Name == "read_file");
     Assert.Equal(Role.User, request.Messages[0].Role);
     Assert.Equal("read it", request.Messages[0].Content);
 
@@ -135,7 +135,7 @@ public class SubAgentSpawnerTests
     AgentId outcomeChildId = store.Updated.Single().Id;
     Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(outcomeChildId);
     Assert.True(transcript.IsSuccess);
-    Assert.Equal(4, transcript.Value!.Count);
+    Assert.Equal(4, transcript.Value.Count);
     Assert.Equal("file content", transcript.Value[2].Content); // tool result fed back
   }
 

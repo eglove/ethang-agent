@@ -649,7 +649,6 @@ public class TodoToolTests
     public FakeTodoListStore() { }
     public FakeTodoListStore(string key, string value, int version) => _keys[key] = (value, version);
 
-    public Result<string>? GetResultOverride { get; set; }
     public Result<int>? WriteResultOverride { get; set; }
 
     public List<string> GetCalls { get; } = [];
@@ -658,12 +657,9 @@ public class TodoToolTests
     public Task<Result<string>> GetValueAsync(string key, CancellationToken ct = default)
     {
       GetCalls.Add(key);
-      Result<string>? getOverride = GetResultOverride;
-      return getOverride is not null
-        ? Task.FromResult(getOverride)
-        : Task.FromResult(_keys.TryGetValue(key, out (string Value, int Version) kv)
-                ? Result.Success(kv.Value)
-                : Result.Failure<string>(new DomainError("KeyNotFound", $"'{key}' does not exist.")));
+      return Task.FromResult(_keys.TryGetValue(key, out (string Value, int Version) kv)
+        ? Result.Success(kv.Value)
+        : Result.Failure<string>(new DomainError("KeyNotFound", $"'{key}' does not exist.")));
     }
 
     public Task<Result<int>> WriteValueAsync(string key, string value,

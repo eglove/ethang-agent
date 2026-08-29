@@ -113,7 +113,7 @@ public class InProcessAgentRuntimeTests
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public CancellationToken ObservedToken { get; private set; }
-    public Task FirstCall => _firstCall.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    public Task FirstCall => _firstCall.Task.WaitAsync(TimeSpan.FromSeconds(10), ObservedToken);
 
     public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
     {

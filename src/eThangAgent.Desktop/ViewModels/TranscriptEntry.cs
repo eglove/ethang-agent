@@ -5,7 +5,9 @@ namespace eThangAgent.Desktop.ViewModels;
 // nested-type syntax. Positional records give init-only properties, enabling
 // non-destructive mutation with `with` when a block is extended.
 
+#pragma warning disable S2094 // Deliberate empty base: entry variants are data for DataTemplates.
 internal abstract record TranscriptEntry;
+#pragma warning restore S2094
 
 internal sealed record UserMessageEntry(string Text) : TranscriptEntry;
 

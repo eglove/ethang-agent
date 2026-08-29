@@ -114,10 +114,12 @@ public sealed class AppDatabase
   private static void SetVersion(SqliteConnection connection, int version)
   {
     using SqliteCommand command = connection.CreateCommand();
-    // Named decision (CA2100): value is a constant integer from our own migration table,
-    // never user input.
+    // Named decision (CA2100, S2077): value is a constant integer from our own migration
+    // table, never user input. PRAGMA does not accept parameters, hence the interpolation.
 #pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+#pragma warning disable S2077 // Use a parameterized query instead of string formatting
     command.CommandText = $"PRAGMA user_version = {version};";
+#pragma warning restore S2077 // Use a parameterized query instead of string formatting
 #pragma warning restore CA2100 // Review SQL query for security vulnerabilities
     _ = command.ExecuteNonQuery();
   }

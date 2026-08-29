@@ -10,7 +10,7 @@ public class ExecProgramTests
   {
     Result<ExecProgram> result = ExecProgram.Create(null, ExecOptions.Default);
     Assert.False(result.IsSuccess);
-    Assert.Equal("ExecProgramRequired", result.Error!.Code);
+    Assert.Equal("ExecProgramRequired", result.Error.Code);
   }
 
   [Fact]
@@ -18,7 +18,7 @@ public class ExecProgramTests
   {
     Result<ExecProgram> result = ExecProgram.Create("", ExecOptions.Default);
     Assert.False(result.IsSuccess);
-    Assert.Equal("ExecProgramRequired", result.Error!.Code);
+    Assert.Equal("ExecProgramRequired", result.Error.Code);
   }
 
   [Fact]
@@ -27,8 +27,8 @@ public class ExecProgramTests
     ExecOptions options = new() { MaxProgramChars = 10 };
     Result<ExecProgram> result = ExecProgram.Create("12345678901", options);
     Assert.False(result.IsSuccess);
-    Assert.Equal("ExecProgramTooLarge", result.Error!.Code);
-    Assert.Contains("11 characters", result.Error!.Message, StringComparison.Ordinal);
+    Assert.Equal("ExecProgramTooLarge", result.Error.Code);
+    Assert.Contains("11 characters", result.Error.Message, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -37,6 +37,6 @@ public class ExecProgramTests
     ExecOptions options = new() { MaxProgramChars = 10 };
     Result<ExecProgram> result = ExecProgram.Create("1234567890", options);
     Assert.True(result.IsSuccess);
-    Assert.Equal("1234567890", result.Value!.Text);
+    Assert.Equal("1234567890", result.Value.Text);
   }
 }

@@ -64,7 +64,7 @@ public class CapabilityRegistryTests
     Result<ResolvedCapability> result = registry.Resolve("read");
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("agent", result.Value!.ProviderId);
+    Assert.Equal("agent", result.Value.ProviderId);
     Assert.Equal("read", result.Value.Action.Name);
   }
 
@@ -76,7 +76,7 @@ public class CapabilityRegistryTests
     Result<ResolvedCapability> result = registry.Resolve("agent.read");
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("read", result.Value!.Action.Name);
+    Assert.Equal("read", result.Value.Action.Name);
   }
 
   [Fact]
@@ -87,7 +87,7 @@ public class CapabilityRegistryTests
     Result<ResolvedCapability> result = registry.Resolve("nope");
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("UnknownAction", result.Error!.Code);
+    Assert.Equal("UnknownAction", result.Error.Code);
     Assert.Contains("grep, read", result.Error.Message, StringComparison.Ordinal);
   }
 

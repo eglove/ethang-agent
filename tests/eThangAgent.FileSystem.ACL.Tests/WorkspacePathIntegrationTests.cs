@@ -36,15 +36,15 @@ public sealed class WorkspacePathIntegrationTests : IDisposable
   {
     (WorkspacePathResolver? resolver, DirectFileSystemAccess? files) = Make();
     _ = Directory.CreateDirectory(Path.Combine(_root, "src"));
-    File.WriteAllText(Path.Combine(_root, "src", "code.cs"), "class Marker { }");
+    await File.WriteAllTextAsync(Path.Combine(_root, "src", "code.cs"), "class Marker { }");
 
     Result<string> resolved = resolver.Resolve(".");
     Assert.True(resolved.IsSuccess, $"root '.' rejected: {resolved.Error?.Message}");
 
-    Result<FileSearch> hits = await files.SearchFilesAsync(resolved.Value!, "Marker", regex: false,
+    Result<FileSearch> hits = await files.SearchFilesAsync(resolved.Value, "Marker", regex: false,
         glob: "*.cs", maxResults: 10, contextLines: 0);
     Assert.True(hits.IsSuccess, $"search failed: {hits.Error?.Message}");
-    Assert.Contains(hits.Value!.Matches, m => m.Path.Contains("code.cs", StringComparison.Ordinal));
+    Assert.Contains(hits.Value.Matches, m => m.Path.Contains("code.cs", StringComparison.Ordinal));
   }
 
   [Fact]
@@ -56,14 +56,14 @@ public sealed class WorkspacePathIntegrationTests : IDisposable
     Result<string> docPath = resolver.Resolve(Path.Combine("docs", "note.md"));
     Assert.True(docPath.IsSuccess, $"docs/note.md rejected: {docPath.Error?.Message}");
 
-    Result<FileWriteOutcome> written = await files.WriteFileAsync(docPath.Value!, "hello", overwrite: false);
+    Result<FileWriteOutcome> written = await files.WriteFileAsync(docPath.Value, "hello", overwrite: false);
     Assert.True(written.IsSuccess, $"write failed: {written.Error?.Message}");
 
-    Result<ReplaceOutcome> edited = await files.ReplaceInFileAsync(docPath.Value!, "hello", "hello again",
+    Result<ReplaceOutcome> edited = await files.ReplaceInFileAsync(docPath.Value, "hello", "hello again",
         occurrences: 1);
     Assert.True(edited.IsSuccess, $"edit failed: {edited.Error?.Message}");
 
-    Assert.Contains("hello again", await File.ReadAllTextAsync(docPath.Value!), StringComparison.Ordinal);
+    Assert.Contains("hello again", await File.ReadAllTextAsync(docPath.Value), StringComparison.Ordinal);
   }
 
   [Fact]
@@ -74,6 +74,6 @@ public sealed class WorkspacePathIntegrationTests : IDisposable
         "definitely-outside.txt");
     Result<string> r = resolver.Resolve(external);
     Assert.False(r.IsSuccess);
-    Assert.Equal("PathOutsideWorkspace", r.Error!.Code);
+    Assert.Equal("PathOutsideWorkspace", r.Error.Code);
   }
 }

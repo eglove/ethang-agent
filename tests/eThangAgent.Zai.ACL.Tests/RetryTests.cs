@@ -26,14 +26,13 @@ public class RetryTests
     public Func<int, HttpResponseMessage> Respond { get; set; } =
         _ => new HttpResponseMessage(HttpStatusCode.OK);
     public Func<int, Task<HttpResponseMessage>>? RespondAsync { get; set; }
-    public Exception? Throw { get; set; }
 
     public HttpClient Client()
     {
       FakeHttpMessageHandler handler = new(_ =>
       {
         _calls++;
-        return Throw is not null ? throw Throw : RespondAsync is not null ? RespondAsync(_calls) : Task.FromResult(Respond(_calls));
+        return RespondAsync is not null ? RespondAsync(_calls) : Task.FromResult(Respond(_calls));
       });
       HttpClient client = new(handler);
       return client;
@@ -129,7 +128,7 @@ public class RetryTests
 
     Assert.False(result.IsSuccess);
     Assert.Equal(3, rec._calls);
-    Assert.Equal("ProviderError", result.Error!.Code);
+    Assert.Equal("ProviderError", result.Error.Code);
   }
 
   [Fact]
@@ -252,7 +251,7 @@ public class RetryTests
       return n;
     }
 
-    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) =>
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(ReadCore(buffer.Span));
 
     private int ReadCore(Span<byte> target)

@@ -51,9 +51,11 @@ internal sealed class BlockingProvider : IModelProvider
     {
       await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
     }
+#pragma warning disable S108 // Deliberate swallow: the wait ends through ct; the Result below reports it.
     catch (OperationCanceledException)
     {
     }
+#pragma warning restore S108
 
     return Result.Failure<ModelResponse>(new DomainError("Cancelled", "provider call was cancelled."));
   }

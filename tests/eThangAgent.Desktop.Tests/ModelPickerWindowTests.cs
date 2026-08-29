@@ -75,12 +75,12 @@ public class ModelPickerWindowTests
     Control row = list.ContainerFromIndex(1)!;
     ClickOn(window, row);
 
-    Assert.Equal("deepseek/deepseek-v4-flash", vm.SelectedRow!.ModelId);
+    Assert.Equal("deepseek/deepseek-v4-flash", vm.SelectedRow.ModelId);
 
     Button select = window.GetControl<Button>("SelectButton");
     ClickOn(window, select);
 
     Assert.NotNull(received);
-    Assert.Equal("deepseek/deepseek-v4-flash", received!.ModelId);
+    Assert.Equal("deepseek/deepseek-v4-flash", received.ModelId);
   }
 }

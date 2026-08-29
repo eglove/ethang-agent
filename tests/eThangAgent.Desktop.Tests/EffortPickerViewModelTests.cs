@@ -61,7 +61,7 @@ public class EffortPickerViewModelTests
     vm.ConfirmCommand.Execute(null);
 
     Assert.NotNull(received); // default is a real choice, not a cancel
-    Assert.Null(received!.Level);
+    Assert.Null(received.Level);
   }
 
   [Fact]

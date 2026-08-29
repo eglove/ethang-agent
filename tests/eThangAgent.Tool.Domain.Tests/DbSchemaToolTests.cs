@@ -81,15 +81,13 @@ public class DbSchemaToolTests
     Assert.False(result.IsError);
     Assert.Equal(
         string.Join(Environment.NewLine,
-        [
             "[db_schema] schema version 8, 1 table(s), 2 index(es), 1 view(s)",
             "table state_keys",
             "  workspace_id TEXT PK NOT NULL",
             "  value TEXT NOT NULL DEFAULT 'x'",
             "  index ix_one (value)",
             "  unique index sqlite_autoindex_state_keys_1 (workspace_id)",
-            "view my_view",
-        ]),
+                        "view my_view"),
         result.Content);
   }
 

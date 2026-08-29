@@ -54,7 +54,7 @@ public class SearchServiceTests
     Result<SessionScope> result = SessionScope.Parse($"session:{Guid.NewGuid():N}");
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidScope", result.Error!.Code);
+    Assert.Equal("InvalidScope", result.Error.Code);
   }
 
   [Fact]

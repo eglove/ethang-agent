@@ -125,13 +125,13 @@ public class ExecToolTests
     public List<ExecParseError> ParseErrors { get; } = [];
     public string Output { get; set; } = "hi";
 
-    public Task<Result<IReadOnlyList<ExecParseError>>> ValidateAsync(ExecProgram program, CancellationToken ct)
+    public Task<Result<IReadOnlyList<ExecParseError>>> ValidateAsync(ExecProgram program, CancellationToken ct = default)
     {
       ValidateCalls.Add(program.Text);
       return Task.FromResult(Result.Success<IReadOnlyList<ExecParseError>>([.. ParseErrors]));
     }
 
-    public Task<ExecRunResult> ExecuteAsync(ExecProgram program, CancellationToken ct)
+    public Task<ExecRunResult> ExecuteAsync(ExecProgram program, CancellationToken ct = default)
     {
       ExecuteCalls.Add(program.Text);
       return Task.FromResult(ExecRunResult.Completed(Output));
@@ -144,7 +144,7 @@ public class ExecToolTests
 
     public string Written { get; private set; } = "";
 
-    public Task<string> WriteAsync(string content, CancellationToken ct)
+    public Task<string> WriteAsync(string content, CancellationToken ct = default)
     {
       Written = content;
       return Task.FromResult(_path);
@@ -154,7 +154,7 @@ public class ExecToolTests
   private sealed class RecordingActivitySink : IExecActivitySink
   {
     public List<ExecActivity> Records { get; } = [];
-    public Task RecordAsync(ExecActivity activity, CancellationToken ct)
+    public Task RecordAsync(ExecActivity activity, CancellationToken ct = default)
     {
       Records.Add(activity);
       return Task.CompletedTask;

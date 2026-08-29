@@ -101,7 +101,8 @@ public class ZaiWorkspaceToolsTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return Json(/*lang=json,strict*/ """{"md_results":"# Hello","data_info":{"num_pages":2}}""");
     });
     StubFiles files = new() { BytesToServe = [9, 9, 9] };

@@ -12,6 +12,20 @@ indent_size = 2
 # configured below is an ERROR. Nothing is off; nothing is downgraded.
 dotnet_analyzer_diagnostic.severity = error
 
+# --- Sonar rules (SonarAnalyzer.CSharp, referenced in Directory.Build.props) --
+# Mirrors the SonarQube Cloud 'Sonar way' profile at build time: findings
+# surface on dotnet build, not only after push. The entry below is the only
+# named deviation; every other Sonar rule rides the escalation above.
+
+# INFO on SonarCloud. Its case-insensitive marker match flags the product's
+# own name: every doc-comment mention of the "todo" tool is a finding.
+dotnet_diagnostic.S1135.severity = none
+
+# MINOR on SonarCloud. Its commented-out-code heuristic misfires on prose
+# comments that end in a semicolon or contain the word "code" (e.g. the
+# test projects' deliberate-suppression note).
+dotnet_diagnostic.S125.severity = none
+
 # --- C# language/style preferences -------------------------------------------
 # Each entry states the preferred style; violations are errors via the global
 # escalation above (no per-rule severity suffixes anywhere in this file).

@@ -55,7 +55,7 @@ public sealed class WorkspacePathResolverTests : IDisposable
   {
     Result<string> r = MakeResolver().Resolve("..\\outside.txt");
     Assert.False(r.IsSuccess);
-    Assert.Equal("PathOutsideWorkspace", r.Error!.Code);
+    Assert.Equal("PathOutsideWorkspace", r.Error.Code);
     Assert.Contains(_root, r.Error.Message, StringComparison.Ordinal);
   }
 
@@ -67,7 +67,7 @@ public sealed class WorkspacePathResolverTests : IDisposable
     string sibling = _root.TrimEnd('\\') + "x\\file.txt";
     Result<string> r = MakeResolver().Resolve(sibling);
     Assert.False(r.IsSuccess);
-    Assert.Equal("PathOutsideWorkspace", r.Error!.Code);
+    Assert.Equal("PathOutsideWorkspace", r.Error.Code);
   }
 
   [Fact]
@@ -85,7 +85,7 @@ public sealed class WorkspacePathResolverTests : IDisposable
   {
     Result<string> r = MakeResolver().Resolve(path);
     Assert.False(r.IsSuccess);
-    Assert.Equal("InvalidPath", r.Error!.Code);
+    Assert.Equal("InvalidPath", r.Error.Code);
   }
 
   // ── Trailing-separator normalization (regression: folder-picker roots carry a
@@ -110,12 +110,7 @@ public sealed class WorkspacePathResolverTests : IDisposable
   }
 
   [Fact]
-  public void RootWithoutTrailingSeparator_RootItself_Accepted()
-  {
-    Result<string> r = MakeResolver().Resolve(_root);
-    Assert.True(r.IsSuccess);
-    Assert.Equal(Path.GetFullPath(_root), r.Value);
-  }
+  public void RootWithoutTrailingSeparator_RootItself_Accepted() => RootItself_Accepted();
 
   [Fact]
   public void DriveLetterCaseDifference_InsideRoot_Accepted()
@@ -142,6 +137,6 @@ public sealed class WorkspacePathResolverTests : IDisposable
     Result<string> r = new WorkspacePathResolver(_root + Path.DirectorySeparatorChar)
             .Resolve(".." + Path.DirectorySeparatorChar + "outside.txt");
     Assert.False(r.IsSuccess);
-    Assert.Equal("PathOutsideWorkspace", r.Error!.Code);
+    Assert.Equal("PathOutsideWorkspace", r.Error.Code);
   }
 }

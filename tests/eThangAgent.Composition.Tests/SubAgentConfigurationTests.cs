@@ -68,13 +68,7 @@ public class SubAgentConfigurationTests
   [InlineData("abc")]
   [InlineData("3.5")]
   [InlineData("")]
-  public void Bind_UnparseableTimeout_IsStartupError(string seconds)
-  {
-    InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, seconds, "2"));
-
-    Assert.Contains("SubAgent:ChildTimeoutSeconds", error.Message, StringComparison.Ordinal);
-  }
+  public void Bind_UnparseableTimeout_IsStartupError(string seconds) => Bind_NonPositiveTimeout_IsStartupError(seconds);
 
   [Fact]
   public void Bind_MissingMaxConcurrentAgents_IsStartupError()

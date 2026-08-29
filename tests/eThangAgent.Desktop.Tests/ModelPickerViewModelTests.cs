@@ -156,7 +156,7 @@ public class ModelPickerViewModelTests
     vm.ConfirmCommand.Execute(null);
 
     Assert.NotNull(received);
-    Assert.Equal("alpha/model", received!.ModelId);
+    Assert.Equal("alpha/model", received.ModelId);
   }
 
   [Fact]
@@ -170,7 +170,7 @@ public class ModelPickerViewModelTests
     vm.ConfirmCommand.Execute(null);
 
     Assert.NotNull(received);
-    Assert.Null(received!.ModelId);
+    Assert.Null(received.ModelId);
   }
 
   [Fact]

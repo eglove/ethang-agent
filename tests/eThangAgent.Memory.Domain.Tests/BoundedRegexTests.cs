@@ -22,7 +22,7 @@ public class BoundedRegexTests
     Result<IReadOnlyList<int>> result = BoundedRegex.Execute("needle", null!);
 
     Assert.True(result.IsSuccess);
-    Assert.Empty(result.Value!);
+    Assert.Empty(result.Value);
   }
 
   [Fact]
@@ -31,7 +31,7 @@ public class BoundedRegexTests
     Result<IReadOnlyList<int>> result = BoundedRegex.Execute("needle", []);
 
     Assert.True(result.IsSuccess);
-    Assert.Empty(result.Value!);
+    Assert.Empty(result.Value);
   }
 
   [Fact]
@@ -88,7 +88,7 @@ public class BoundedRegexTests
     Result<IReadOnlyList<int>> result = BoundedRegex.Execute("needle", [haystack]);
 
     Assert.True(result.IsSuccess);
-    Assert.Empty(result.Value!);
+    Assert.Empty(result.Value);
   }
 
   [Fact]

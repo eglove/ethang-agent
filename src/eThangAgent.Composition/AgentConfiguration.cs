@@ -28,8 +28,10 @@ public static class AgentConfiguration
     return new AgentSettings(
         new OpenRouterSettings(
             null,
+#pragma warning disable S1075 // Anchored provider default; per-host config (the env variable) overrides it.
             BindBaseUrl("OPENROUTER_BASE_URL",
                 Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL"), "https://openrouter.ai")),
+#pragma warning restore S1075
         new ZaiSettings(
             null,
             BindBaseUrl("ZAI_BASE_URL",

@@ -30,7 +30,7 @@ public class OpenRouterModelProviderTests
     Result<ModelResponse> result = await provider.SendAsync(config, new ModelRequest([UserMsg("hi")]));
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("Hello back", result.Value!.Content);
+    Assert.Equal("Hello back", result.Value.Content);
     Assert.Empty(result.Value.ToolCalls);
   }
 
@@ -42,7 +42,8 @@ public class OpenRouterModelProviderTests
     FakeHttpMessageHandler handler = new(async req =>
     {
       captured = req;
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonResponse(HttpStatusCode.OK,
                                    /*lang=json,strict*/
                                    """{"choices":[{"message":{"content":"ok"}}]}""");
@@ -56,7 +57,7 @@ public class OpenRouterModelProviderTests
 
     Assert.True(result.IsSuccess);
     Assert.Equal("Bearer test-key", captured!.Headers.Authorization?.ToString());
-    Assert.Equal("https://openrouter.test/api/v1/chat/completions", captured!.RequestUri!.ToString());
+    Assert.Equal("https://openrouter.test/api/v1/chat/completions", captured.RequestUri!.ToString());
     Assert.Contains("openai/gpt-4o-mini", capturedBody, StringComparison.Ordinal);
   }
 
@@ -90,7 +91,8 @@ public class OpenRouterModelProviderTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonResponse(HttpStatusCode.OK,
                                    /*lang=json,strict*/
                                    """{"choices":[{"message":{"content":"ok"}}]}""");
@@ -131,7 +133,7 @@ public class OpenRouterModelProviderTests
         new ModelRequest([UserMsg("hi")]));
 
     Assert.True(result.IsSuccess);
-    Assert.Null(result.Value!.Content);
+    Assert.Null(result.Value.Content);
     _ = Assert.Single(result.Value.ToolCalls);
     Assert.Equal("call_1", result.Value.ToolCalls[0].Id);
     Assert.Equal("read", result.Value.ToolCalls[0].Name);
@@ -144,7 +146,8 @@ public class OpenRouterModelProviderTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonResponse(HttpStatusCode.OK,
                                    /*lang=json,strict*/
                                    """{"choices":[{"message":{"content":"final"}}]}""");
@@ -186,7 +189,7 @@ public class OpenRouterModelProviderTests
         new ModelRequest([UserMsg("hi")]));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderError", result.Error!.Code);
+    Assert.Equal("ProviderError", result.Error.Code);
   }
 
   [Fact]
@@ -202,7 +205,7 @@ public class OpenRouterModelProviderTests
         new ModelRequest([UserMsg("hi")]));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("RateLimited", result.Error!.Code);
+    Assert.Equal("RateLimited", result.Error.Code);
   }
 
   [Fact]
@@ -218,7 +221,7 @@ public class OpenRouterModelProviderTests
         new ModelRequest([UserMsg("hi")]));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("ProviderTimeout", result.Error!.Code);
+    Assert.Equal("ProviderTimeout", result.Error.Code);
   }
 
   private static HttpResponseMessage JsonResponse(HttpStatusCode code, string json) =>
@@ -229,7 +232,8 @@ public class OpenRouterModelProviderTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonResponse(HttpStatusCode.OK,
                            /*lang=json,strict*/
                            """{"choices":[{"message":{"content":"ok"}}]}""");
@@ -252,7 +256,8 @@ public class OpenRouterModelProviderTests
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
-      capturedBody = await req.Content!.ReadAsStringAsync().ConfigureAwait(false);
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return JsonResponse(HttpStatusCode.OK,
                            /*lang=json,strict*/
                            """{"choices":[{"message":{"content":"ok"}}]}""");

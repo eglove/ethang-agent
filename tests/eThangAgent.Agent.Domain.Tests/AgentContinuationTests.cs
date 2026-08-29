@@ -46,7 +46,7 @@ public class AgentContinuationTests
     Result<string> result = await agent.SendMessage("hi", default);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("MaxOutputContinuations", result.Error!.Code);
+    Assert.Equal("MaxOutputContinuations", result.Error.Code);
     Assert.Equal(3, alwaysTruncated.Calls); // initial + 2 continuations
   }
 

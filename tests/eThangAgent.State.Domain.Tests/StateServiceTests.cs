@@ -17,7 +17,7 @@ public class StateServiceTests
     Result<StateKeyValue> result = await Create(store).SetAsync("current/head", "other", 5);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("VersionConflict", result.Error!.Code);
+    Assert.Equal("VersionConflict", result.Error.Code);
     Assert.Contains("current version is 1", result.Error.Message, StringComparison.Ordinal);
   }
 
@@ -26,7 +26,7 @@ public class StateServiceTests
   {
     Result<string> result = await Create().GetAsync("current/head");
     Assert.False(result.IsSuccess);
-    Assert.Equal("KeyNotFound", result.Error!.Code);
+    Assert.Equal("KeyNotFound", result.Error.Code);
   }
 
   [Fact]
@@ -35,7 +35,7 @@ public class StateServiceTests
     Result<StateKeyValue> result = await Create().SetAsync("todo/list", "[]", null);
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("todo", result.Value!.Ns);
+    Assert.Equal("todo", result.Value.Ns);
     Assert.Equal(1, result.Value.Version);
   }
 
@@ -165,7 +165,7 @@ public class StateServiceTests
     Result<IReadOnlyList<string>> result = await service.HistoryAsync(20);
 
     Assert.True(result.IsSuccess);
-    _ = Assert.Single(result.Value!);
+    _ = Assert.Single(result.Value);
   }
 
   private sealed class StubWorkspace : IWorkspaceContext

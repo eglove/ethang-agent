@@ -20,4 +20,11 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Sonar rules (SXXXX) at build time, mirroring the SonarQube Cloud scan —
+         a finding must surface on `dotnet build`, not only after push. Rule
+         severities are pinned in .editorconfig. -->
+    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.33.0.1635" PrivateAssets="all" />
+  </ItemGroup>
 </Project>

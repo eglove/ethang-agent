@@ -32,10 +32,10 @@ public class WorkspaceRootAcceptanceTests
       Result<string> resolved = resolver.Resolve(".");
       Assert.True(resolved.IsSuccess, $"resolve('.') failed: {resolved.Error?.Message}");
 
-      Result<FileSearch> hits = await files.SearchFilesAsync(resolved.Value!, "Acceptance", regex: false,
+      Result<FileSearch> hits = await files.SearchFilesAsync(resolved.Value, "Acceptance", regex: false,
           glob: "*.cs", maxResults: 5, contextLines: 0);
       Assert.True(hits.IsSuccess);
-      Assert.NotEmpty(hits.Value!.Matches);
+      Assert.NotEmpty(hits.Value.Matches);
     }
     finally
     {
@@ -43,7 +43,9 @@ public class WorkspaceRootAcceptanceTests
       {
         root.Delete(recursive: true);
       }
+#pragma warning disable S108 // Best-effort cleanup — nothing to do on failure.
       catch { }
+#pragma warning restore S108
     }
   }
 }

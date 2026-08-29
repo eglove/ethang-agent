@@ -105,13 +105,11 @@ public class DbQueryToolTests
     Assert.False(result.IsError);
     Assert.Equal(
         string.Join(Environment.NewLine,
-        [
             "[db_query] 2 row(s) shown, 2 column(s)",
             "name | type",
             "-----+-----",
             "state_keys | table",
-            "agents | table",
-        ]),
+                        "agents | table"),
         result.Content);
   }
 
@@ -133,11 +131,9 @@ public class DbQueryToolTests
     ToolResult result = await MakeTool(Result.Success(outcome)).ExecuteAsync(new RawToolInput("db_query", Args));
     Assert.Equal(
         string.Join(Environment.NewLine,
-        [
             "[db_query] 0 row(s) shown, 2 column(s)",
             "a | b",
-            "-----+-----",
-        ]),
+                        "-----+-----"),
         result.Content);
   }
 

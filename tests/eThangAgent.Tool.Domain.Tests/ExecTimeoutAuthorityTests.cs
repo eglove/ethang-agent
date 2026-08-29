@@ -44,7 +44,7 @@ public class ExecTimeoutAuthorityTests
 
   private sealed class StubOutputStore : IExecOutputStore
   {
-    public Task<string> WriteAsync(string output, CancellationToken ct = default)
+    public Task<string> WriteAsync(string content, CancellationToken ct = default)
         => Task.FromResult("");
   }
 }

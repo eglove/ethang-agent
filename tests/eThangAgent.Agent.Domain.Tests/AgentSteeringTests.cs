@@ -147,7 +147,7 @@ public class AgentSteeringTests
     Result<string> result = await agent.SendMessage("go", ct: cts.Token);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal(Agent.TurnCancelledCode, result.Error!.Code);
+    Assert.Equal(Agent.TurnCancelledCode, result.Error.Code);
     // Every unanswered tool call received the synthetic interrupted result.
     List<Message> trailing = [.. agent.Conversation.Messages.TakeLast(3)];
     List<Message> toolResults = [.. trailing.Where(m => m.Role == Role.Tool)];

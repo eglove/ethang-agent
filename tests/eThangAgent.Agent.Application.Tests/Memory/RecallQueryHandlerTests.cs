@@ -179,7 +179,7 @@ public class RecallQueryHandlerTests
     Result<RecallPage> result = await _handler.Execute(new RecallRequest(null, "literal", null, "all", null, 1, 25));
 
     Assert.True(result.IsSuccess);
-    RecallPage page = result.Value!;
+    RecallPage page = result.Value;
     Assert.Equal(3, page.TotalMatched);
     Assert.Equal(1, page.Pages);
     Assert.Equal(
@@ -200,7 +200,7 @@ public class RecallQueryHandlerTests
     Result<RecallPage> result = await _handler.Execute(new RecallRequest("alpha beta", "literal", null, "all", null, 1, 25));
 
     Assert.True(result.IsSuccess);
-    RecallPage page = result.Value!;
+    RecallPage page = result.Value;
     Assert.Equal(1, page.TotalMatched);
     RecallHit hit = Assert.Single(page.Hits);
     Assert.Equal(rootId, hit.Session);
@@ -223,7 +223,7 @@ public class RecallQueryHandlerTests
     Result<RecallPage> result = await _handler.Execute(new RecallRequest("a.c", "literal", null, "active", null, 1, 25));
 
     Assert.True(result.IsSuccess);
-    RecallHit hit = Assert.Single(result.Value!.Hits);
+    RecallHit hit = Assert.Single(result.Value.Hits);
     Assert.Equal("the price is a.c literally", hit.Content);
   }
 
@@ -232,12 +232,12 @@ public class RecallQueryHandlerTests
   [Fact]
   public async Task Execute_RegexMode_MatchesThroughBoundedRegex_CaseInsensitively()
   {
-    (AgentId rootId, AgentId orphanId) = await SeedBranchedCorpusAsync();
+    (_, _) = await SeedBranchedCorpusAsync();
 
     Result<RecallPage> result = await _handler.Execute(new RecallRequest(@"^alpha \w+", "regex", null, "all", null, 1, 25));
 
     Assert.True(result.IsSuccess);
-    RecallPage page = result.Value!;
+    RecallPage page = result.Value;
     // Anchored pattern: only the root's user turn begins with "alpha";
     // "orphan alpha line" starts with "orphan".
     Assert.Equal(1, page.TotalMatched);
@@ -285,8 +285,8 @@ public class RecallQueryHandlerTests
 
     Assert.True(active.IsSuccess);
     Assert.True(all.IsSuccess);
-    Assert.Equal(2, active.Value!.TotalMatched);   // root's two turns only
-    Assert.Equal(3, all.Value!.TotalMatched);      // plus the orphan's turn
+    Assert.Equal(2, active.Value.TotalMatched);   // root's two turns only
+    Assert.Equal(3, all.Value.TotalMatched);      // plus the orphan's turn
     Assert.Contains(all.Value.Hits, h => h.Content == "orphan alpha line");
     Assert.All(active.Value.Hits, h => Assert.NotEqual("orphan alpha line", h.Content));
   }
@@ -301,7 +301,7 @@ public class RecallQueryHandlerTests
     Result<RecallPage> result = await _handler.Execute(new RecallRequest(null, "literal", $"session:{rootId}", "all", null, 1, 25));
 
     Assert.True(result.IsSuccess);
-    RecallPage page = result.Value!;
+    RecallPage page = result.Value;
     Assert.Equal(2, page.TotalMatched);
     Assert.All(page.Hits, h => Assert.Equal(rootId, h.Session));
     // Newest-first: the later turn (higher seq) leads.
@@ -316,7 +316,7 @@ public class RecallQueryHandlerTests
     Result<RecallPage> result = await _handler.Execute(new RecallRequest(null, "literal", $"session:{unknown}", "active", null, 1, 25));
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("NotFound", result.Error!.Code);
+    Assert.Equal("NotFound", result.Error.Code);
     Assert.Contains(unknown.ToString(), result.Error.Message, StringComparison.Ordinal);
   }
 
@@ -336,7 +336,7 @@ public class RecallQueryHandlerTests
     Result<RecallPage> result = await _handler.Execute(new RecallRequest(null, "literal", null, "active", null, 2, 2));
 
     Assert.True(result.IsSuccess);
-    RecallPage page = result.Value!;
+    RecallPage page = result.Value;
     Assert.Equal(5, page.TotalMatched);
     Assert.Equal(2, page.Page);
     Assert.Equal(3, page.Pages);
@@ -354,7 +354,7 @@ public class RecallQueryHandlerTests
     Result<RecallPage> result = await _handler.Execute(new RecallRequest("alpha", "literal", null, "all", "assistant", 1, 25));
 
     Assert.True(result.IsSuccess);
-    RecallHit hit = Assert.Single(result.Value!.Hits);
+    RecallHit hit = Assert.Single(result.Value.Hits);
     Assert.Equal("beta follow-up with alpha context", hit.Content);
   }
 
@@ -366,7 +366,7 @@ public class RecallQueryHandlerTests
     Result<RecallPage> result = await _handler.Execute(new RecallRequest(null, "literal", null, "active", null, 1, 25));
 
     Assert.True(result.IsSuccess);
-    RecallPage page = result.Value!;
+    RecallPage page = result.Value;
     Assert.Empty(page.Hits);
     Assert.Equal(0, page.TotalMatched);
     Assert.Equal(1, page.Page);

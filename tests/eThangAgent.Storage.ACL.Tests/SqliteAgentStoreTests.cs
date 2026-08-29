@@ -17,13 +17,13 @@ public sealed class SqliteAgentStoreTests : IDisposable
   {
     GC.SuppressFinalize(this);
     // Named decision (CA1031): temp-db cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1031, S108 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
-#pragma warning restore CA1031
+#pragma warning restore CA1031, S108
   }
 
   private static AgentRecord FullyPopulatedRecord(AgentId? id = null, AgentId? parentId = null) => new(
@@ -97,7 +97,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
     Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(id);
 
     Assert.True(transcript.IsSuccess);
-    Assert.Equal(3, transcript.Value!.Count);
+    Assert.Equal(3, transcript.Value.Count);
 
     Assert.Equal(first.Role, transcript.Value[0].Role);
     Assert.Equal(first.Content, transcript.Value[0].Content);
@@ -154,7 +154,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
 
     Assert.True(children.IsSuccess);
     Assert.Equal([oldest.Id, middle.Id, newest.Id],
-        [.. children.Value!.Select(c => c.Id)]);
+        [.. children.Value.Select(c => c.Id)]);
   }
 
   [Fact]
@@ -179,7 +179,7 @@ public sealed class SqliteAgentStoreTests : IDisposable
     Result<IReadOnlyList<AgentDomainEvent>> events = await _store.GetEventsAsync(id);
 
     Assert.True(events.IsSuccess);
-    Assert.Equal(3, events.Value!.Count);
+    Assert.Equal(3, events.Value.Count);
     Assert.Equal(spawned, events.Value[0]);
     Assert.Equal(completed, events.Value[1]);
     Assert.Equal(failed, events.Value[2]);

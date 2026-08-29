@@ -111,7 +111,7 @@ public class StateCapabilityProviderTests
     Assert.False(result.IsError);
     Assert.Equal("tr-abc", result.Content);
     Assert.NotNull(service.LastEvidence);
-    Assert.Equal("Write-Output ok", service.LastEvidence![0]);
+    Assert.Equal("Write-Output ok", service.LastEvidence[0]);
   }
 
   [Fact]
@@ -345,7 +345,7 @@ public class StateCapabilityProviderTests
       return Task.FromResult(SearchResult);
     }
 
-    public Task<Result<string>> TransitionAsync(string from, string to, string summary,
+    public Task<Result<string>> TransitionAsync(string from, string toState, string summary,
         IReadOnlyList<string> evidence, CancellationToken ct = default)
     {
       LastEvidence = evidence;

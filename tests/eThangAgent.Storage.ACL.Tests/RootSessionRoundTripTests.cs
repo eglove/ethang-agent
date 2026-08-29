@@ -20,13 +20,13 @@ public sealed class RootSessionRoundTripTests : IDisposable
   {
     GC.SuppressFinalize(this);
     // Named decision (CA1031): temp-db cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1031, S108 // Do not catch general exception types
     try
     {
       File.Delete(_dbPath);
     }
     catch { }
-#pragma warning restore CA1031
+#pragma warning restore CA1031, S108
   }
 
   [Fact]
@@ -73,7 +73,7 @@ public sealed class RootSessionRoundTripTests : IDisposable
     Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(rootId);
 
     Assert.True(transcript.IsSuccess);
-    Assert.Equal(2, transcript.Value!.Count);
+    Assert.Equal(2, transcript.Value.Count);
 
     Assert.Equal(user.Role, transcript.Value[0].Role);
     Assert.Equal(user.Content, transcript.Value[0].Content);

@@ -119,13 +119,13 @@ public class DesktopE2ETests
     Assert.Contains("alpha line", host.Mock.RequestBodies[1], StringComparison.Ordinal);
 
     // Named decision (CA1031): temp-file cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1031, S108 // Do not catch general exception types
     try
     {
       File.Delete(tempFile);
     }
     catch { }
-#pragma warning restore CA1031
+#pragma warning restore CA1031, S108
   }
 
   [Fact]

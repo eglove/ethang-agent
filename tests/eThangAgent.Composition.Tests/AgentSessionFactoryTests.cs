@@ -7,7 +7,7 @@ using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 // Best-effort temp-file cleanup in finally blocks is deliberate (CA1031).
-#pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1031, S108 // Do not catch general exception types
 
 namespace eThangAgent.Composition.Tests;
 
@@ -54,7 +54,7 @@ public class AgentSessionFactoryTests
         Assert.True(b.IsSuccess);
 
         // Distinct roots, identities, resolvers, conversations — nothing shared.
-        Assert.NotEqual(a.Value!.RootId, b.Value!.RootId);
+        Assert.NotEqual(a.Value.RootId, b.Value.RootId);
         Assert.NotSame(a.Value.Conversation, b.Value.Conversation);
         Assert.Equal(dirA.FullName, a.Value.WorkspaceRoot);
         Assert.Equal(dirB.FullName, b.Value.WorkspaceRoot);
@@ -104,7 +104,7 @@ public class AgentSessionFactoryTests
       Result<AgentSession> result = await factory.CreateAsync(missing, Providers.OpenRouter, new StubChannel());
 
       Assert.False(result.IsSuccess);
-      Assert.Equal("WorkspaceNotFound", result.Error!.Code);
+      Assert.Equal("WorkspaceNotFound", result.Error.Code);
     }
     finally
     {
@@ -129,7 +129,7 @@ public class AgentSessionFactoryTests
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, "anthropic", new StubChannel());
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("UnknownProvider", result.Error!.Code);
+        Assert.Equal("UnknownProvider", result.Error.Code);
         Assert.Contains("anthropic", result.Error.Message, StringComparison.Ordinal);
       }
       finally
@@ -162,7 +162,7 @@ public class AgentSessionFactoryTests
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel());
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("ProviderNotConfigured", result.Error!.Code);
+        Assert.Equal("ProviderNotConfigured", result.Error.Code);
         Assert.Contains("z.ai", result.Error.Message, StringComparison.Ordinal);
       }
       finally
@@ -198,7 +198,7 @@ public class AgentSessionFactoryTests
         AgentSessionFactory rebound = factory.WithSettings(Settings(zaiKey: "zai-test-key"));
         Result<AgentSession> opened = await rebound.CreateAsync(dir.FullName, Providers.Zai, new StubChannel());
         Assert.True(opened.IsSuccess);
-        Assert.Equal(Providers.Zai, opened.Value!.ProviderName);
+        Assert.Equal(Providers.Zai, opened.Value.ProviderName);
 
         // The original factory keeps refusing — rebind is a new instance, not a mutation.
         Assert.False((await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel())).IsSuccess);
@@ -250,7 +250,7 @@ public class AgentSessionFactoryTests
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.Zai, new StubChannel());
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(Providers.Zai, result.Value!.ProviderName);
+        Assert.Equal(Providers.Zai, result.Value.ProviderName);
         _ = Assert.IsType<ZaiModelCatalog>(result.Value.Services.GetRequiredService<IModelCatalog>());
         _ = Assert.IsType<ZaiModelProvider>(result.Value.Services.GetRequiredService<IModelProvider>());
       }

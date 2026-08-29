@@ -10,7 +10,7 @@ public class StateKeyTests
   {
     Result<(string Ns, string Name)> result = StateKey.Parse("current/head");
     Assert.True(result.IsSuccess);
-    Assert.Equal(("current", "head"), result.Value!);
+    Assert.Equal(("current", "head"), result.Value);
   }
 
   [Theory]
@@ -24,6 +24,6 @@ public class StateKeyTests
   {
     Result<(string Ns, string Name)> result = StateKey.Parse(key);
     Assert.False(result.IsSuccess);
-    Assert.Equal("InvalidKey", result.Error!.Code);
+    Assert.Equal("InvalidKey", result.Error.Code);
   }
 }

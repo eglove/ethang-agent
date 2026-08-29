@@ -42,7 +42,7 @@ public class SendMessageCommandHandlerTests
   {
     private readonly Result<ModelResponse> _result = result;
 
-    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct)
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)
         => Task.FromResult(_result);
   }
 }

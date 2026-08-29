@@ -12,7 +12,7 @@ public class SkillMarkdownTests
   {
     Result<ParsedSkill> r = SkillMarkdown.Parse(Doc);
     Assert.True(r.IsSuccess);
-    Assert.Equal("test-skill", r.Value!.Name);
+    Assert.Equal("test-skill", r.Value.Name);
     Assert.Equal("Does things.", r.Value.Description);
     Assert.Equal("# Body here\n\nLine two", r.Value.Body);
   }
@@ -22,7 +22,7 @@ public class SkillMarkdownTests
   {
     Result<ParsedSkill> r = SkillMarkdown.Parse(Doc.Replace("\n", "\r\n", StringComparison.Ordinal));
     Assert.True(r.IsSuccess);
-    Assert.Equal("test-skill", r.Value!.Name);
+    Assert.Equal("test-skill", r.Value.Name);
   }
 
   [Fact]
@@ -30,7 +30,7 @@ public class SkillMarkdownTests
   {
     Result<ParsedSkill> r = SkillMarkdown.Parse("name: x\n---\nbody");
     Assert.False(r.IsSuccess);
-    Assert.Equal("MissingFrontmatter", r.Error!.Code);
+    Assert.Equal("MissingFrontmatter", r.Error.Code);
   }
 
   [Theory]
@@ -40,7 +40,7 @@ public class SkillMarkdownTests
   {
     Result<ParsedSkill> r = SkillMarkdown.Parse(doc);
     Assert.False(r.IsSuccess);
-    Assert.Equal("MissingKey", r.Error!.Code);
+    Assert.Equal("MissingKey", r.Error.Code);
   }
 
   [Fact]
@@ -48,7 +48,7 @@ public class SkillMarkdownTests
   {
     Result<ParsedSkill> r = SkillMarkdown.Parse("---\nname: n\ndescription:\n---\nb");
     Assert.False(r.IsSuccess);
-    Assert.Equal("EmptyDescription", r.Error!.Code);
+    Assert.Equal("EmptyDescription", r.Error.Code);
   }
 
   [Fact]
@@ -57,7 +57,7 @@ public class SkillMarkdownTests
     string doc = "---\nname: n\ndescription: d\nversion: 9\nsomething-else: x\n---\nB";
     Result<ParsedSkill> r = SkillMarkdown.Parse(doc);
     Assert.True(r.IsSuccess);
-    Assert.Equal("B", r.Value!.Body);
+    Assert.Equal("B", r.Value.Body);
   }
 
   [Fact]
@@ -65,6 +65,6 @@ public class SkillMarkdownTests
   {
     Result<ParsedSkill> r = SkillMarkdown.Parse("---\nname: n\ndescription: d\nno fence");
     Assert.False(r.IsSuccess);
-    Assert.Equal("MissingFrontmatter", r.Error!.Code);
+    Assert.Equal("MissingFrontmatter", r.Error.Code);
   }
 }
