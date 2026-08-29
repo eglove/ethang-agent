@@ -7,11 +7,11 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
 {
   private const string PathName = "path";
   private const string OldName = "old";
-  private const string NewName = "new";
+  private const string NewName = "replacement";
   private const string AllName = "all";
   private const string OccurrencesName = "occurrences";
   private const string RequirementText =
-      "This tool requires path, old, and new, plus exactly one of 'all' or 'occurrences'.";
+      "This tool requires path, old, and replacement, plus exactly one of 'all' or 'occurrences'.";
 
   private static readonly string[] AllowedNames =
       [PathName, OldName, NewName, AllName, OccurrencesName, ToolTimeout.ParameterName];
@@ -25,6 +25,15 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
     }
 
     JsonElement json = baseParse.Value;
+
+    // The JSON parameter was renamed from 'new' (a C# keyword that breaks scripted calls)
+    // to 'replacement'. Name the fix instead of a generic unknown-parameter error.
+    if (json.TryGetProperty("new", out _))
+    {
+      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "'new' is not accepted; the parameter is named 'replacement'."));
+    }
+
     DomainError? unknown = ToolArguments.RejectUnknownParameters(json, AllowedNames);
     if (unknown is not null)
     {
@@ -47,7 +56,7 @@ public sealed record EditToolInput(string Path, string Old, string New, bool All
       return Fail(old.Error);
     }
 
-    // 'new' may be empty: deletion is explicit intent.
+    // 'replacement' may be empty: deletion is explicit intent.
     Result<string> @new = ToolArguments.RequireString(json, NewName, RequirementText);
     if (!@new.IsSuccess)
     {

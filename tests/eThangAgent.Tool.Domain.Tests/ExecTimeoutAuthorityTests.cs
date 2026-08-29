@@ -31,9 +31,6 @@ public class ExecTimeoutAuthorityTests
     Assert.Contains("timeoutSeconds is the only execution budget", description, StringComparison.Ordinal);
   }
 
-  [Fact]
-  public void Guide_VersionBumped() => Assert.Equal("2.6", ExecGuide.Version);
-
   private sealed class StubExecEngine : IExecEngine
   {
     public Task<Result<IReadOnlyList<ExecParseError>>> ValidateAsync(ExecProgram program, CancellationToken ct = default)

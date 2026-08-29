@@ -9,10 +9,10 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
 
   public ToolDefinition Definition { get; } = new(
       "edit",
-      "Edit a text file by exact literal replacement. timeoutSeconds, path, old, and new are mandatory; then provide " +
+      "Edit a text file by exact literal replacement. timeoutSeconds, path, old, and replacement are mandatory; then provide " +
       "exactly one of all (boolean true — replace every occurrence) or occurrences (integer ≥ 1 — expected " +
       "match count; the call fails if the actual count differs, naming both numbers). old must appear verbatim — " +
-      "no regex, no whitespace normalization. An empty new deletes the matched text. The file is never created. " +
+      "no regex, no whitespace normalization. An empty replacement deletes the matched text. (The JSON parameter formerly named 'new' is not accepted.) The file is never created. " +
       "Binary files are refused. Output is a single annotation line: `[edit <path>] replaced N occurrence(s), " +
       "file now M lines`. Errors begin with `Error [Code]:` and are safe to retry with corrected arguments.",
       [
@@ -21,14 +21,14 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
                 "File path, workspace-relative or absolute-inside-workspace."),
             new ToolParameter("old", ToolParameterType.Text,
                 "Exact text to replace (literal, case-sensitive)."),
-            new ToolParameter("new", ToolParameterType.Text,
+            new ToolParameter("replacement", ToolParameterType.Text,
                 "Replacement text. May be empty to delete."),
             new ToolParameter("all", ToolParameterType.Flag,
                 "true to replace every occurrence (mutually exclusive with occurrences)."),
             new ToolParameter("occurrences", ToolParameterType.WholeNumber,
                 "Expected number of replacements (mutually exclusive with all). Minimum: 1", Minimum: 1),
       ],
-      ["timeoutSeconds", "path", "old", "new"]);
+      ["timeoutSeconds", "path", "old", "replacement"]);
 
   public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
   {

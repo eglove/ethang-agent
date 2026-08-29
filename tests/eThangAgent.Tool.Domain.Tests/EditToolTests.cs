@@ -10,7 +10,7 @@ public class EditToolTests
   private static EditTool MakeTool(Result<ReplaceOutcome> outcome) =>
       new(new WorkspacePathResolver(Root), new FakeFileEditAccess(outcome));
 
-  private const string Args = /*lang=json,strict*/ """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","occurrences":1}""";
+  private const string Args = /*lang=json,strict*/ """{"timeoutSeconds":120,"path":"a.txt","old":"x","replacement":"y","occurrences":1}""";
 
   // ---- Missing parameters ----
 
@@ -19,7 +19,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"old":"x","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"old":"x","replacement":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("path", result.Content, StringComparison.Ordinal);
   }
@@ -29,19 +29,38 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"path":"a.txt","replacement":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("old", result.Content, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task MissingNew_ReturnsError()
+  public async Task MissingReplacement_ReturnsError()
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"path":"a.txt","old":"x","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
-    Assert.Contains("new", result.Content, StringComparison.Ordinal);
+    Assert.Contains("replacement", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task LegacyNewParameter_IsRejectedAndNamesReplacement()
+  {
+    ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
+    Assert.True(result.IsError);
+    Assert.Contains("'new'", result.Content, StringComparison.Ordinal);
+    Assert.Contains("replacement", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Replacement_IsRequired_NewIsNotAdvertised()
+  {
+    ToolDefinition definition = MakeTool(null!).Definition;
+    Assert.Contains("replacement", definition.RequiredParameters);
+    Assert.DoesNotContain("new", definition.RequiredParameters);
   }
 
   // ---- Selector rules ----
@@ -51,7 +70,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y"}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","replacement":"y"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("exactly one", result.Content, StringComparison.Ordinal);
   }
@@ -61,7 +80,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":true,"occurrences":2}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","replacement":"y","all":true,"occurrences":2}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("exactly one", result.Content, StringComparison.Ordinal);
   }
@@ -71,7 +90,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":false}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","replacement":"y","all":false}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("exactly one", result.Content, StringComparison.Ordinal);
   }
@@ -81,7 +100,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","occurrences":0}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","replacement":"y","occurrences":0}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("occurrences", result.Content, StringComparison.Ordinal);
     Assert.Contains("\u2265 1", result.Content, StringComparison.Ordinal);
@@ -94,7 +113,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","occurrences":"1"}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","replacement":"y","occurrences":"1"}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("occurrences", result.Content, StringComparison.Ordinal);
     Assert.Contains("integer", result.Content, StringComparison.OrdinalIgnoreCase);
@@ -105,7 +124,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"","replacement":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("old", result.Content, StringComparison.Ordinal);
   }
@@ -115,7 +134,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 "{\"timeoutSeconds\":120,\"path\":\"a.txt\",\"old\":\"x\",\"new\":\"y\",\"all\":true,\"regex\":true}"), ct: TestContext.Current.CancellationToken);
+                                 "{\"timeoutSeconds\":120,\"path\":\"a.txt\",\"old\":\"x\",\"replacement\":\"y\",\"all\":true,\"regex\":true}"), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("Unknown parameter", result.Content, StringComparison.Ordinal);
     Assert.Contains("regex", result.Content, StringComparison.Ordinal);
@@ -128,7 +147,7 @@ public class EditToolTests
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"..\\evil.txt","old":"x","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"path":"..\\evil.txt","old":"x","replacement":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("PathOutsideWorkspace", result.Content, StringComparison.Ordinal);
   }
@@ -141,7 +160,7 @@ public class EditToolTests
     ToolResult result = await MakeTool(Result.Success<ReplaceOutcome>(new(3, 5)))
             .ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","new":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"path":"a.txt","old":"x","replacement":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal($"[edit {Resolved}] replaced 3 occurrence(s), file now 5 lines", result.Content);
   }
@@ -149,10 +168,12 @@ public class EditToolTests
   [Fact]
   public async Task SingleOccurrence_SingularWording()
   {
-    ToolResult result = await MakeTool(Result.Success<ReplaceOutcome>(new(1, 2)))
+    FakeFileEditAccess fake = new(Result.Success<ReplaceOutcome>(new(1, 2)));
+    ToolResult result = await new EditTool(new WorkspacePathResolver(Root), fake)
             .ExecuteAsync(new RawToolInput("edit", Args), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal($"[edit {Resolved}] replaced 1 occurrence, file now 2 lines", result.Content);
+    Assert.Equal("y", fake.LastNewText);
   }
 
   // ---- Backend errors surface verbatim ----
@@ -171,8 +192,13 @@ public class EditToolTests
 
   private sealed class FakeFileEditAccess(Result<ReplaceOutcome> outcome) : IFileEditAccess
   {
+    public string? LastNewText { get; private set; }
+
     public Task<Result<ReplaceOutcome>> ReplaceInFileAsync(
         string path, string oldText, string newText, int? occurrences, CancellationToken ct = default)
-        => Task.FromResult(outcome);
+    {
+      LastNewText = newText;
+      return Task.FromResult(outcome);
+    }
   }
 }

@@ -133,6 +133,8 @@ public class ToolContractAdvertisementTests
     EditTool tool = new(new UnrootedPathResolver(), new StubEditAccess());
     Assert.DoesNotContain("all", tool.Definition.RequiredParameters);
     Assert.DoesNotContain("occurrences", tool.Definition.RequiredParameters);
+    Assert.Contains("replacement", tool.Definition.RequiredParameters);
+    Assert.DoesNotContain("new", tool.Definition.RequiredParameters);
   }
 
   // ── todo ─────────────────────────────────────────────────────────────────
