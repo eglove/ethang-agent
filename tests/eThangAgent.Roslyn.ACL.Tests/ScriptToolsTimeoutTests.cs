@@ -4,9 +4,11 @@ namespace eThangAgent.Roslyn.ACL.Tests;
 
 /// <summary>Universal tool-call budget: ScriptTools REQUIRES timeoutSeconds on every
 /// capability invocation, validates it, and strips it before the provider sees the
-/// arguments — so providers never reject it as unknown. Enforcement follows the action's
-/// TimeoutPolicy: HarnessEnforced actions are cancelled on elapsed budgets; SelfManaged
-/// actions (the ITool-backed agent tools, incl. deliberately unbounded clarify) never are.</summary>
+/// arguments — so providers never reject it as unknown. Pre-dispatch contract
+/// violations throw ScriptToolException (see ScriptToolsContractTests). The validated
+/// budget bounds EVERY nested action, SelfManaged or not — a hung nested call must
+/// not hang the script; on the wire, SelfManaged tools still bound themselves.
+/// </summary>
 public class ScriptToolsTimeoutTests
 {
   private sealed class CapturingProvider : ICapabilityProvider
@@ -35,23 +37,23 @@ public class ScriptToolsTimeoutTests
   }
 
   [Fact]
-  public void MissingTimeout_FailsWithMissingParameter()
+  public void MissingTimeout_ThrowsLoudly()
   {
     (ScriptTools? tools, CapturingProvider _) = Make();
-    string result = tools.Invoke("do", new { x = "y" });
-    Assert.Contains("Error [MissingParameter]:", result, StringComparison.Ordinal);
-    Assert.Contains("timeoutSeconds", result, StringComparison.Ordinal);
+    Exception ex = Assert.Throws<ScriptToolException>(() => tools.Invoke("do", new { x = "y" }));
+    Assert.Contains("Error [MissingParameter]:", ex.Message, StringComparison.Ordinal);
+    Assert.Contains("timeoutSeconds", ex.Message, StringComparison.Ordinal);
   }
 
   [Theory]
   [InlineData(0)]
   [InlineData(-5)]
   [InlineData(3601)]
-  public void OutOfRangeTimeout_Fails(int seconds)
+  public void OutOfRangeTimeout_ThrowsLoudly(int seconds)
   {
     (ScriptTools? tools, CapturingProvider _) = Make();
-    string result = tools.Invoke("do", new { x = "y", timeoutSeconds = seconds });
-    Assert.Contains("Error [InvalidParameterValue]:", result, StringComparison.Ordinal);
+    Exception ex = Assert.Throws<ScriptToolException>(() => tools.Invoke("do", new { x = "y", timeoutSeconds = seconds }));
+    Assert.Contains("Error [InvalidParameterValue]:", ex.Message, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -78,25 +80,26 @@ public class ScriptToolsTimeoutTests
   }
 
   [Fact]
-  public void StringArguments_Form_EnforcesTimeoutToo()
+  public void StringArguments_Form_ThrowsLoudly()
   {
     (ScriptTools? tools, CapturingProvider _) = Make();
-    string result = tools.Invoke("do", /*lang=json,strict*/ """{"x":"y"}""");
-    Assert.Contains("Error [MissingParameter]:", result, StringComparison.Ordinal);
+    Exception ex = Assert.Throws<ScriptToolException>(() => tools.Invoke("do", /*lang=json,strict*/ """{"x":"y"}"""));
+    Assert.Contains("Error [MissingParameter]:", ex.Message, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task SelfManagedAction_BeyondBudget_StillCompletes_NoToolTimeout()
+  public async Task SelfManagedAction_BoundedByNestedBudget()
   {
     DelayingProvider selfManaged = new(TimeoutPolicy.SelfManaged);
     ScriptGlobals globals = new(
         CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
 
-    // Budget elapses while the action runs — a HarnessEnforced action dies here;
-    // a SelfManaged action (clarify waiting on the human) completes regardless.
+    // The stated nested budget bounds EVERY action: a hung nested call must not hang
+    // the script. SelfManaged's remaining meaning is contract-level (the tool
+    // re-validates its own envelope on the wire), not an exemption from the budget.
     string result = await Task.Run(() => globals.Tools.Invoke("waiter", new { timeoutSeconds = 1 })).ConfigureAwait(true);
 
-    Assert.Equal("late-but-done", result);
+    Assert.StartsWith("Error [ToolTimeout]", result, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -106,8 +109,8 @@ public class ScriptToolsTimeoutTests
     ScriptGlobals globals = new(
         CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath());
 
-    string missing = globals.Tools.Invoke("waiter", new { });
-    Assert.Contains("Error [MissingParameter]:", missing, StringComparison.Ordinal);
+    Exception ex = Assert.Throws<ScriptToolException>(() => globals.Tools.Invoke("waiter", new { }));
+    Assert.Contains("Error [MissingParameter]:", ex.Message, StringComparison.Ordinal);
   }
 
   /// <summary>Completes after 1.2s — beyond any 1-second budget.</summary>

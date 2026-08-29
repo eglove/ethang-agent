@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.4";
+  public const string Version = "2.5";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -30,14 +30,23 @@ public static class ExecGuide
 
     ### Calling tools
 
+    ### Calling tools
     Tools are methods on the `Tools` object taking one anonymous object argument:
 
-        Tools.read(new { path = "src/App.cs", startLine = 1, endLine = 50 });
-        Tools.search_files(new { pattern = "search-term", regex = false, rootPath = ".", maxResults = 20, contextLines = 2 });
+        Tools.read(new { timeoutSeconds = 30, path = "src/App.cs", startLine = 1, endLine = 50 });
+        Tools.search_files(new { timeoutSeconds = 30, pattern = "search-term", mode = "Literal", maxResults = 20, contextLines = 2 });
 
     The generic form behaves identically:
 
-        Tools.Invoke("read", new { path = "src/App.cs", startLine = 1, endLine = 50 });
+        Tools.Invoke("read", new { timeoutSeconds = 30, path = "src/App.cs", startLine = 1, endLine = 50 });
+
+    ONLY `Tools.List()` and `Tools.Describe(...)` are exempt — local meta-methods that
+    never dispatch. Every other nested call without `timeoutSeconds` THROWS
+    `ScriptToolException` immediately (surfaced as `Error [ScriptError]` alongside any
+    Output() evidence) instead of returning an error string a batch script may ignore:
+
+        Tools.Invoke("state.set", new { key = "k" });        // throws: MissingParameter
+        Tools.Invoke("state.set", new { timeoutSeconds = 30, key = "k", value = "v" });   // ok
 
     Discover tools instead of guessing:
 
@@ -46,13 +55,18 @@ public static class ExecGuide
 
     Durable state (claims, evidence, certification):
 
-        Tools.Invoke("state.set", new { key = "current/head", value = "done" });
-        Tools.Invoke("state.transition", new { from = "coding", to = "done",
+        Tools.Invoke("state.set", new { timeoutSeconds = 30, key = "current/head", value = "done" });
+        Tools.Invoke("state.transition", new { timeoutSeconds = 30, from = "coding", to = "done",
             summary = "work", evidence = new[] { "dotnet build" } });
-        Tools.Invoke("state.verify", new { });
+        Tools.Invoke("state.verify", new { timeoutSeconds = 30 });
+
+    Errors AFTER dispatch — tool-level failures and elapsed budgets — still return as
+    `Error [Code]:` strings you must read and branch on. In a batch, verify each result:
+
+        var r = Tools.Invoke("todo", new { timeoutSeconds = 30, action = "Add", description = "x" });
+        if (!r.Contains("[todo] added", StringComparison.Ordinal)) return "batch failed at: " + r;
 
     ### Running external commands
-
     Shell() runs an external command line spawned directly with native .NET process
     APIs — no shell intermediary — and returns exit code, stdout, and stderr. Every
     argument after the exe is one token of a single native command line; the joined line
@@ -85,7 +99,7 @@ public static class ExecGuide
     agent.spawn is non-blocking: it returns immediately with `id=<guid> status=running`
     and the child runs in the background. Never wait for a child inside the spawn call.
 
-        Tools.Invoke("agent.spawn", new {
+        Tools.Invoke("agent.spawn", new { timeoutSeconds = 30,
             taskPrompt = "Summarize the auth module",
             label = "research" })   // omit model: children inherit the configured default
         → id=3fa85f64-591c-4a0e-b3d8-0266a14e5a11 status=running
@@ -98,11 +112,11 @@ public static class ExecGuide
 
     Poll each child's progress between turns:
 
-        Tools.Invoke("agent.status", new { id = "<guid>" })   → id=<guid> status=running|completed|failed
+        Tools.Invoke("agent.status", new { timeoutSeconds = 30, id = "<guid>" })   → id=<guid> status=running|completed|failed
 
     When a child is done, fetch its final report:
 
-        Tools.Invoke("agent.result", new { id = "<guid>" })
+        Tools.Invoke("agent.result", new { timeoutSeconds = 60, id = "<guid>" })
 
     - `Error [NotComplete]` means the child is still running — try again later.
     - `Error [NotFound]` means the id is wrong.
@@ -115,12 +129,12 @@ public static class ExecGuide
     Run memory.sessions when resuming work or before duplicating effort —
     it lists what conversations exist:
 
-        Tools.Invoke("memory.sessions", new { })
+        Tools.Invoke("memory.sessions", new { timeoutSeconds = 30 })
         → session=<guid> label=root depth=0 entries=42 status=running tier=hot
 
     memory.recall searches transcripts for earlier decisions, errors, and context:
 
-        Tools.Invoke("memory.recall", new { query = "deploy rollback", scope = "global" })
+        Tools.Invoke("memory.recall", new { timeoutSeconds = 30, query = "deploy rollback", scope = "global" })
 
     - Literal mode is the default — tokens ANDed: every whitespace-separated token must
       appear in a hit.
@@ -137,7 +151,7 @@ public static class ExecGuide
 
     Tool failures return error text: `Error [Code]: message`. Wrap risky calls in try/catch:
 
-        try { Tools.read(new { path = "missing.txt", startLine = 1, endLine = 5 }); }
+        try { Tools.read(new { timeoutSeconds = 15, path = "missing.txt", startLine = 1, endLine = 5 }); }
         catch (Exception ex) { Output("fallback: " + ex.Message); }
 
     Thrown exceptions mark the whole result as an error with exec error [ScriptError] lines.

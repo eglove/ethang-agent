@@ -221,7 +221,8 @@ public sealed class ScriptGlobals
 public sealed record ShellResult(int ExitCode, string Stdout, string Stderr);
 
 /// <summary>Tool-calling surface exposed to C# scripts as Tools.read(...) etc.
-/// Each registered action becomes a public method. The generic Invoke() is always
+/// Executing scripts call these directly; the full action set (including names like
+/// "state.set" that are not identifiers) is reachable through <see cref="Invoke"/>.
 /// available for actions whose names aren't valid C# identifiers.</summary>
 // Named decision (CA1707): convenience methods deliberately mirror the wire tool names
 // (search_files, git_status, ...) — they are the model-facing script API, so underscores
@@ -231,8 +232,6 @@ public sealed class ScriptTools
 {
   private readonly ICapabilityRegistry _registry;
 
-  // Per-tool convenience methods — generated once at construction
-  private readonly Dictionary<string, Func<object?, string>> _methods = [];
 
   public ScriptTools(ICapabilityRegistry registry, ScriptGlobals globals)
   {
@@ -240,28 +239,27 @@ public sealed class ScriptTools
     ArgumentNullException.ThrowIfNull(globals);
     _registry = registry;
 
-    foreach (string name in registry.Providers
-        .SelectMany(p => p.Actions)
-        .Select(a => a.Name)
-        .Where(IsValidIdentifier))
-    {
-      _methods[name] = args => InvokeCore(name, args);
-    }
   }
 
   /// <summary>Invoke a tool by name and return the raw tool result text.
   ///     Every invocation MUST carry timeoutSeconds (whole seconds, 1..3600): it is
   ///     validated here and STRIPPED from the arguments before dispatch so providers
-  ///     never see a harness-reserved key. Enforcement follows the action's TimeoutPolicy:
-  ///     HarnessEnforced actions are cancelled when the budget elapses (Error [ToolTimeout]);
-  ///     SelfManaged actions apply their own declared budget internally (clarify waits on
-  ///     the human without any bound), so the harness validates but never cancels on them.</summary>
+  ///     never see a harness-reserved key. Pre-dispatch contract violations — missing
+  ///     or invalid budget, unknown action, malformed arguments — THROW
+  ///     <see cref="ScriptToolException"/> instead of returning an error string: batch
+  ///     scripts routinely discard result strings, and an in-band error buried among
+  ///     successes silently loses work. The exec engine surfaces the throw as
+  ///     Error [ScriptError] alongside whatever Output() evidence was already collected.
+  ///     Post-dispatch outcomes stay in-band: tool-level errors (the tool's own
+  ///     Error [Code]: text) and elapsed budgets (Error [ToolTimeout], enforced by the
+  ///     harness for EVERY action — TimeoutPolicy no longer exempts nested calls; on
+  ///     the wire SelfManaged still means the tool validates its own envelope).</summary>
   public string Invoke(string name, object? args)
   {
     Result<ResolvedCapability> resolved = _registry.Resolve(name);
     if (!resolved.IsSuccess)
     {
-      return $"Error [UnknownAction]: {resolved.Error.Message}";
+      throw new ScriptToolException($"Error [UnknownAction]: {resolved.Error.Message}");
     }
 
     string json = args switch
@@ -279,17 +277,17 @@ public sealed class ScriptTools
     }
     catch (JsonException ex)
     {
-      return $"Error [InvalidJsonArguments]: Arguments are not valid JSON: {ex.Message}";
+      throw new ScriptToolException($"Error [InvalidJsonArguments]: Arguments are not valid JSON: {ex.Message}");
     }
     if (document.ValueKind != JsonValueKind.Object)
     {
-      return "Error [InvalidJsonArguments]: Arguments must be a JSON object.";
+      throw new ScriptToolException("Error [InvalidJsonArguments]: Arguments must be a JSON object.");
     }
 
     Result<TimeSpan> budget = ToolTimeout.Parse(document);
     if (!budget.IsSuccess)
     {
-      return $"Error [{budget.Error.Code}]: {budget.Error.Message}";
+      throw new ScriptToolException($"Error [{budget.Error.Code}]: {budget.Error.Message}");
     }
 
     // Tools whose contract declares timeoutSeconds (ITool-backed actions) re-validate
@@ -310,14 +308,28 @@ public sealed class ScriptTools
       scheduled = Task.Run(async () =>
       {
         using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
-        // SelfManaged actions own their budget; an infinite CancelAfter never fires,
-        // and caller cancellation is not threaded here by design (see Invoke docs).
-        cts.CancelAfter(resolved.Value.Action.Timeout == TimeoutPolicy.SelfManaged
-                  ? Timeout.InfiniteTimeSpan
-                  : budget.Value);
+        // The stated budget bounds EVERY nested action, SelfManaged or not: a hung
+        // nested call must not hang the script. Cooperative cancellation (cts) stops
+        // tools that honor the token; the hard deadline below guarantees the bound
+        // even for a provider that ignores it — in-process work cannot be killed, so
+        // that invocation is abandoned and its result discarded.
+        cts.CancelAfter(budget.Value);
+        Task<CapabilityInvocationResult> call = _registry.InvokeAsync(resolved.Value, stripped, cts.Token);
+        TaskCompletionSource deadline = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using System.Threading.Timer timer = new(
+            static state => ((TaskCompletionSource)state!).TrySetResult(),
+            deadline, budget.Value, Timeout.InfiniteTimeSpan);
+        Task winner = await Task.WhenAny(call, deadline.Task).ConfigureAwait(false);
+        if (winner != call)
+        {
+          // Observe and drop the abandoned call's eventual fault so it cannot surface
+          // as an unobserved task exception later in the process lifetime.
+          _ = call.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+          return new CapabilityInvocationResult(ToolTimeout.TimedOut(name, budget.Value).Content, true);
+        }
         try
         {
-          return await _registry.InvokeAsync(resolved.Value, stripped, cts.Token).ConfigureAwait(false);
+          return await call.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -329,7 +341,6 @@ public sealed class ScriptTools
     CapabilityInvocationResult result = scheduled.GetAwaiter().GetResult();
     return result.Content;
   }
-
   /// <summary>Serializes the argument object minus the harness-reserved timeoutSeconds key.</summary>
   private static string StripTimeout(JsonElement document)
   {
@@ -383,12 +394,5 @@ public sealed class ScriptTools
 
     return sb.ToString();
   }
-
-  private string InvokeCore(string name, object? args) => Invoke(name, args);
-
-  private static bool IsValidIdentifier(string name)
-      => !string.IsNullOrEmpty(name) && (char.IsLetter(name[0]) || name[0] == '_')
-          && name.All(c => char.IsLetterOrDigit(c) || c == '_');
 }
-
 #pragma warning restore CA1707 // Identifiers should not contain underscores

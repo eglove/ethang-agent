@@ -8,7 +8,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.4", ExecGuide.Version);
+    Assert.Equal("2.5", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -19,7 +19,7 @@ public class ExecGuideTests
     Assert.Contains("Delegating subtasks", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("depth limit 3", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("Tools.Invoke(\"state.set\", new {", ExecGuide.Text, StringComparison.Ordinal);
-    Assert.Contains("Tools.Invoke(\"state.verify\", new { })", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("Tools.Invoke(\"state.verify\", new { timeoutSeconds = 30 })", ExecGuide.Text, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -34,10 +34,10 @@ public class ExecGuideTests
     Assert.Contains("continue useful work", section, StringComparison.Ordinal);
     Assert.Contains("fan out siblings", section, StringComparison.Ordinal);
     // (3) poll agent.status between turns.
-    Assert.Contains("Tools.Invoke(\"agent.status\", new { id = \"<guid>\" })", section, StringComparison.Ordinal);
+    Assert.Contains("Tools.Invoke(\"agent.status\", new { timeoutSeconds = 30, id = \"<guid>\" })", section, StringComparison.Ordinal);
     Assert.Contains("between turns", section, StringComparison.Ordinal);
     // (4) fetch agent.result — NotComplete = later, NotFound = wrong id.
-    Assert.Contains("Tools.Invoke(\"agent.result\", new { id = \"<guid>\" })", section, StringComparison.Ordinal);
+    Assert.Contains("Tools.Invoke(\"agent.result\", new { timeoutSeconds = 60, id = \"<guid>\" })", section, StringComparison.Ordinal);
     Assert.Contains("`Error [NotComplete]`", section, StringComparison.Ordinal);
     Assert.Contains("try again later", section, StringComparison.Ordinal);
     Assert.Contains("`Error [NotFound]`", section, StringComparison.Ordinal);
@@ -72,7 +72,7 @@ public class ExecGuideTests
     Assert.True(recallStart > delegationEnd, "recall section must come after the delegation section");
 
     // (1) memory.sessions lists what conversations exist — run it when resuming work.
-    Assert.Contains("Tools.Invoke(\"memory.sessions\", new { })", section, StringComparison.Ordinal);
+    Assert.Contains("Tools.Invoke(\"memory.sessions\", new { timeoutSeconds = 30 })", section, StringComparison.Ordinal);
     Assert.Contains("lists what conversations exist", section, StringComparison.Ordinal)
         ;
     Assert.Contains("resuming work", section, StringComparison.Ordinal);
