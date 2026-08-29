@@ -29,6 +29,12 @@
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="17.12.*" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Testing.Extensions.HangDump" Version="1.9.*" PrivateAssets="all" />
     <PackageReference Include="xunit.v3" Version="3.2.*" />
+    <!-- xunit.analyzers is pinned explicitly: xunit.v3 3.2.x pulls it transitively
+         (>= 1.27.0), so the rules already ran via the repo-wide error escalation —
+         the pin exists to take 2.0.0's rule set now, ahead of the xunit.v3 4.x
+         bump (which requires >= 2.0.0, so this pin introduces no version conflict).
+         Analyzer-only: never a runtime dependency. -->
+    <PackageReference Include="xunit.analyzers" Version="2.0.0" PrivateAssets="all" />
   </ItemGroup>
 
   <!-- Test assemblies use the xUnit Method_Scenario_Expected naming convention,
