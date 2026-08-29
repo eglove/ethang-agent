@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
@@ -8,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.5", ExecGuide.Version);
+    Assert.Equal("2.6", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -114,6 +115,23 @@ public class ExecGuideTests
     Assert.Equal(markers.OrderBy(m => m), markers);
   }
 
+  [Fact]
+  public void Guide_CarriesHelperAndReservedWordRules()
+  {
+    Assert.Contains("Only these script-level helpers exist", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("there is no `Head`", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("`new` is a reserved word", ExecGuide.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Guide_Headings_AppearExactlyOnce()
+  {
+    foreach (string heading in new[] { "### Calling tools", "### Rules", "### Errors", "### Writing output", "### Delegating subtasks" })
+    {
+      int count = Regex.Count(ExecGuide.Text, "^" + Regex.Escape(heading) + "\\s*$", RegexOptions.Multiline);
+      Assert.True(count == 1, $"'{heading}' appears {count} times, expected exactly once.");
+    }
+  }
   private static string RecallSection()
   {
     int start = ExecGuide.Text.IndexOf("### Recalling earlier work", StringComparison.Ordinal);

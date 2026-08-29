@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.5";
+  public const string Version = "2.6";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -30,7 +30,6 @@ public static class ExecGuide
 
     ### Calling tools
 
-    ### Calling tools
     Tools are methods on the `Tools` object taking one anonymous object argument:
 
         Tools.read(new { timeoutSeconds = 30, path = "src/App.cs", startLine = 1, endLine = 50 });
@@ -179,6 +178,11 @@ public static class ExecGuide
         Output(Tail(r.Stdout, 2000));   // last 2000 chars, never throws on short input
 
     r.Stdout[^300..] throws on outputs shorter than 300 chars; Tail does not.
+    - Only these script-level helpers exist: `Output`, `Tail`, `Shell`, `Workspace`, `Tools`.
+      Never assume others (there is no `Head`) — an undocumented helper is a compile error.
+    - `new` is a reserved word: never use it as a variable, parameter, or tool-argument name
+      (e.g. call it `updated` or `replacement`); the script fails to parse, not at runtime.
+
     ### Rules
 
     - Return value is the output. null/void produces empty output.

@@ -32,7 +32,7 @@ public class ExecTimeoutAuthorityTests
   }
 
   [Fact]
-  public void Guide_VersionBumped() => Assert.Equal("2.5", ExecGuide.Version);
+  public void Guide_VersionBumped() => Assert.Equal("2.6", ExecGuide.Version);
 
   private sealed class StubExecEngine : IExecEngine
   {
