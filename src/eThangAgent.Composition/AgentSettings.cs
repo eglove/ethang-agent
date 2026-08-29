@@ -1,4 +1,5 @@
 using eThangAgent.AgentDomain;
+using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Composition;
 
@@ -14,11 +15,17 @@ public sealed record OpenRouterSettings(string? ApiKey, Uri BaseUrl)
 }
 
 /// <summary>z.ai credentials. ApiKey may be null — same rule as
-///     <see cref="OpenRouterSettings"/>. BaseUrl defaults to the platform API root.</summary>
-public sealed record ZaiSettings(string? ApiKey, Uri BaseUrl)
+///     <see cref="OpenRouterSettings"/>. BaseUrl defaults to the platform API root.
+///     EndpointMode selects the GLM Coding Plan endpoint (default) or the general
+///     pay-as-you-go endpoint; coding-plan keys only work on the coding path.</summary>
+public sealed record ZaiSettings(string? ApiKey, Uri BaseUrl,
+    ZaiEndpointMode EndpointMode = ZaiEndpointMode.CodingPlan)
 {
   /// <summary>App-preference key the Desktop stores the (protected) z.ai key under.</summary>
   public const string PreferenceKey = "zai_api_key";
+
+  /// <summary>App-preference key the Desktop stores the endpoint mode under (not a secret).</summary>
+  public const string EndpointModePreferenceKey = "zai_endpoint_mode";
 }
 
 /// <summary>Everything a host needs before building the core. Provider keys are
@@ -46,5 +53,13 @@ public sealed record AgentSettings(
   {
     OpenRouter = OpenRouter with { ApiKey = openRouterApiKey },
     Zai = Zai with { ApiKey = zaiApiKey },
+  };
+
+  /// <summary>Returns the same settings with the z.ai endpoint mode overlaid. Hosts whose
+  ///     durable preference store remembers the mode (the Desktop) use this to lift it onto
+  ///     the loaded settings.</summary>
+  public AgentSettings WithZaiEndpointMode(ZaiEndpointMode endpointMode) => this with
+  {
+    Zai = Zai with { EndpointMode = endpointMode },
   };
 }

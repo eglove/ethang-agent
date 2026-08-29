@@ -1,3 +1,5 @@
+using eThangAgent.Zai.ACL;
+
 namespace eThangAgent.Composition.Tests;
 
 public class AgentConfigurationTests
@@ -26,6 +28,38 @@ public class AgentConfigurationTests
   {
     AgentSettings s = Load(env: []);
     Assert.Equal(new Uri("https://api.z.ai/api"), s.Zai.BaseUrl);
+  }
+
+  [Fact]
+  public void Zai_Endpoint_Mode_Defaults_To_Coding_Plan()
+  {
+    AgentSettings s = Load(env: []);
+    Assert.Equal(ZaiEndpointMode.CodingPlan, s.Zai.EndpointMode);
+  }
+
+  [Fact]
+  public void Zai_Endpoint_Mode_Empty_String_Defaults_To_Coding_Plan()
+  {
+    AgentSettings s = Load(env: [("ZAI_ENDPOINT_MODE", "")]);
+    Assert.Equal(ZaiEndpointMode.CodingPlan, s.Zai.EndpointMode);
+  }
+
+  [Fact]
+  public void Zai_Endpoint_Mode_Tokens_Are_Honored()
+  {
+    Assert.Equal(ZaiEndpointMode.CodingPlan, Load(env: [("ZAI_ENDPOINT_MODE", "coding")]).Zai.EndpointMode);
+    Assert.Equal(ZaiEndpointMode.GeneralApi, Load(env: [("ZAI_ENDPOINT_MODE", "general")]).Zai.EndpointMode);
+  }
+
+  [Theory]
+  [InlineData("Coding")]
+  [InlineData("coding ")]
+  [InlineData("subscription")]
+  public void Invalid_Zai_Endpoint_Mode_Throws_InvalidOperationException(string value)
+  {
+    Exception ex = Record.Exception(() => Load(env: [("ZAI_ENDPOINT_MODE", value)]));
+    InvalidOperationException invalid = Assert.IsType<InvalidOperationException>(ex);
+    Assert.Contains("ZAI_ENDPOINT_MODE", invalid.Message, StringComparison.Ordinal);
   }
 
   [Fact]

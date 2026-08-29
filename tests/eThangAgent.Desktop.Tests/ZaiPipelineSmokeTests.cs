@@ -8,6 +8,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
+using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -15,26 +16,31 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>
 /// z.ai end-to-end: the same real-composition pipeline as the OpenRouter smoke test,
 /// wired exclusively for the z.ai provider against a local mock serving z.ai's chat
-/// path. Proves the full per-session provider wiring — catalog, provider, shell
-/// surface — without any OpenRouter transport involved.
+/// path — the coding endpoint (default CodingPlan mode) and the general endpoint
+/// (GeneralApi mode). Proves the full per-session provider wiring — catalog, provider,
+/// shell surface, endpoint mode, capability-tool gating — without any OpenRouter
+/// transport involved.
 /// </summary>
 [Collection("Desktop E2E")]
 public class ZaiPipelineSmokeTests
 {
-  [Fact]
-  public async Task ZaiSession_Through_MockProvider_Renders_Streamed_Transcript()
+  [Theory]
+  [InlineData(ZaiEndpointMode.CodingPlan, "/coding/paas/v4/chat/completions", false)]
+  [InlineData(ZaiEndpointMode.GeneralApi, "/paas/v4/chat/completions", true)]
+  public async Task ZaiSession_Through_MockProvider_Renders_Streamed_Transcript(
+      ZaiEndpointMode endpointMode, string chatPath, bool capabilityToolsExpected)
   {
     string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-zai-e2e-{Guid.NewGuid():N}.db");
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
     try
     {
-      using MockOpenRouterServer server = new("/paas/v4/chat/completions");
+      using MockOpenRouterServer server = new(chatPath);
       server.Start();
       _ = server.Returns(/*lang=json,strict*/ """{"choices":[{"message":{"content":"hello from z.ai"}}]}""");
 
       AgentSettings settings = new(
           new OpenRouterSettings(null, new Uri("https://openrouter.test")),
-          new ZaiSettings("zai-test-key", server.BaseUrl),
+          new ZaiSettings("zai-test-key", server.BaseUrl, endpointMode),
           new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1));
 
       using ServiceProvider services = new ServiceCollection()
@@ -83,14 +89,25 @@ public class ZaiPipelineSmokeTests
       Assert.Equal("hello from z.ai", string.Join("", assistant.Select(a => a.Text)));
       Assert.Equal("z.ai", vm.Status.Provider);
 
-      // The wire conversation: z.ai's chat path, the GLM model id, and never an
+      // The wire conversation: the mode's chat path, the GLM model id, and never an
       // OpenRouter upstream provider routing pin.
       Assert.NotEmpty(server.ChatRequestPaths);
-      Assert.All(server.ChatRequestPaths, p => Assert.Equal("/paas/v4/chat/completions", p));
+      Assert.All(server.ChatRequestPaths, p => Assert.Equal(chatPath, p));
       Assert.NotNull(server.LastChatRequestBody);
       Assert.Contains("glm-5.3", server.LastChatRequestBody, StringComparison.Ordinal);
       using JsonDocument doc = JsonDocument.Parse(server.LastChatRequestBody!);
       Assert.False(doc.RootElement.TryGetProperty("provider", out _));
+
+      // Capability-tool gating on the wire: the capability APIs exist only on the
+      // general endpoint, so CodingPlan sessions never advertise web_search.
+      if (capabilityToolsExpected)
+      {
+        Assert.Contains("web_search", server.LastChatRequestBody, StringComparison.Ordinal);
+      }
+      else
+      {
+        Assert.DoesNotContain("web_search", server.LastChatRequestBody, StringComparison.Ordinal);
+      }
     }
     finally
     {

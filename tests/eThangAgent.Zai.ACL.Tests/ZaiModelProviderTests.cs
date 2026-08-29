@@ -56,8 +56,32 @@ public class ZaiModelProviderTests
 
     Assert.True(result.IsSuccess);
     Assert.Equal("Bearer test-key", captured!.Headers.Authorization?.ToString());
-    Assert.Equal("https://zai.test/paas/v4/chat/completions", captured!.RequestUri!.ToString());
+    // CodingPlan is the default mode: chat goes through the coding endpoint.
+    Assert.Equal("https://zai.test/coding/paas/v4/chat/completions", captured!.RequestUri!.ToString());
     Assert.Contains("glm-5.3", capturedBody, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task SendAsync_InGeneralApiMode_UsesTheGeneralEndpoint()
+  {
+    HttpRequestMessage? captured = null;
+    FakeHttpMessageHandler handler = new(req =>
+    {
+      captured = req;
+      return Task.FromResult(JsonResponse(HttpStatusCode.OK,
+                                       /*lang=json,strict*/
+                                       """{"choices":[{"message":{"content":"ok"}}]}"""));
+    });
+    using HttpClient http = new(handler);
+    ZaiConfiguration config = new("test-key", BaseUrl) { EndpointMode = ZaiEndpointMode.GeneralApi };
+    ZaiModelProvider provider = new(http, config);
+
+    Result<ModelResponse> result = await provider.SendAsync(
+        ModelConfig.Create("glm-5.3", null, 128, 0.7f).Value!,
+        new ModelRequest([UserMsg("hi")]));
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("https://zai.test/paas/v4/chat/completions", captured!.RequestUri!.ToString());
   }
 
   [Fact]
@@ -68,6 +92,32 @@ public class ZaiModelProviderTests
     // absolute and REPLACES the base path, posting to https://api.z.ai/paas/… — which
     // 404s. Endpoints must append to the base path instead.
     ZaiConfiguration config = new("test-key", new Uri(ZaiConfiguration.DefaultBaseUrl));
+    HttpRequestMessage? captured = null;
+    FakeHttpMessageHandler handler = new(req =>
+    {
+      captured = req;
+      return Task.FromResult(JsonResponse(HttpStatusCode.OK,
+                                       /*lang=json,strict*/
+                                       """{"choices":[{"message":{"content":"ok"}}]}"""));
+    });
+    using HttpClient http = new(handler);
+    ZaiModelProvider provider = new(http, config);
+
+    _ = await provider.SendAsync(
+        ModelConfig.Create("glm-5.3-flash", null, 128, 0.7f).Value!,
+        new ModelRequest([UserMsg("hi")]));
+
+    // Default CodingPlan mode: the coding segment is appended after the base path.
+    Assert.Equal("https://api.z.ai/api/coding/paas/v4/chat/completions", captured!.RequestUri!.ToString());
+  }
+
+  [Fact]
+  public async Task SendAsync_GeneralApiMode_WithApiRootBase_KeepsTheBasePathSegment()
+  {
+    ZaiConfiguration config = new("test-key", new Uri(ZaiConfiguration.DefaultBaseUrl))
+    {
+      EndpointMode = ZaiEndpointMode.GeneralApi
+    };
     HttpRequestMessage? captured = null;
     FakeHttpMessageHandler handler = new(req =>
     {

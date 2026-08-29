@@ -33,8 +33,22 @@ public static class AgentConfiguration
         new ZaiSettings(
             null,
             BindBaseUrl("ZAI_BASE_URL",
-                Environment.GetEnvironmentVariable("ZAI_BASE_URL"), ZaiConfiguration.DefaultBaseUrl)),
+                Environment.GetEnvironmentVariable("ZAI_BASE_URL"), ZaiConfiguration.DefaultBaseUrl),
+            BindEndpointMode(Environment.GetEnvironmentVariable("ZAI_ENDPOINT_MODE"))),
         subAgents);
+  }
+
+  /// <summary>Parses the endpoint-mode variable: exactly <c>coding</c> or <c>general</c>.
+  ///     Absent or empty → CodingPlan, the GLM Coding Plan default. Any other value throws —
+  ///     configuration is never coerced.</summary>
+  private static ZaiEndpointMode BindEndpointMode(string? variableValue)
+  {
+    return string.IsNullOrEmpty(variableValue)
+        ? ZaiEndpointMode.CodingPlan
+        : variableValue.TryParseConfigValue(out ZaiEndpointMode mode)
+            ? mode
+            : throw new InvalidOperationException(
+                "ZAI_ENDPOINT_MODE must be 'coding' or 'general', got '" + variableValue + "'.");
   }
 
   private static Uri BindBaseUrl(string variableName, string? baseUrlEnv, string defaultUrl)

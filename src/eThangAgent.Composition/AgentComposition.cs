@@ -312,7 +312,10 @@ public static class AgentComposition
             })
             .Services
         : services
-            .AddSingleton(new ZaiConfiguration(apiKey, settings.Zai.BaseUrl))
+            .AddSingleton(new ZaiConfiguration(apiKey, settings.Zai.BaseUrl)
+            {
+              EndpointMode = settings.Zai.EndpointMode
+            })
             .AddHttpClient("Zai", client => { client.Timeout = TimeSpan.FromSeconds(120); })
             .Services
             .AddHttpClient<IModelProvider, ZaiModelProvider>(client =>
@@ -346,8 +349,10 @@ public static class AgentComposition
   private static readonly string[] HumanFacingActions = ["clarify"];
 
   /// <summary>The z.ai capability-API tools, bound only when the session is wired for
-  ///     z.ai — web search, page reading, token counting, image generation, document
-  ///     OCR, and audio transcription all reach the platform through one shared client.</summary>
+  ///     z.ai in GeneralApi endpoint mode — web search, page reading, token counting,
+  ///     image generation, document OCR, and audio transcription all reach the platform
+  ///     through one shared client. The capability APIs exist only on the general
+  ///     pay-as-you-go endpoint, so CodingPlan sessions carry none of them.</summary>
   private static IEnumerable<AgentToolBinding> ZaiToolBindings(IServiceProvider sp, string providerName)
   {
     if (providerName != Providers.Zai)
@@ -356,6 +361,11 @@ public static class AgentComposition
     }
 
     ZaiConfiguration config = sp.GetRequiredService<ZaiConfiguration>();
+    if (config.EndpointMode != ZaiEndpointMode.GeneralApi)
+    {
+      yield break;
+    }
+
     HttpClient http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("Zai");
     yield return new AgentToolBinding(
         new ZaiWebSearchTool(http, config),

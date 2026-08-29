@@ -11,6 +11,7 @@ using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.ViewModels;
@@ -151,6 +152,11 @@ internal sealed partial class MainViewModel : ObservableObject
   public string? ConfiguredOpenRouterKey => _settings?.OpenRouter.ApiKey;
 
   public string? ConfiguredZaiKey => _settings?.Zai.ApiKey;
+
+  /// <summary>The z.ai endpoint mode the settings modal prefills; CodingPlan when no
+  ///     settings snapshot exists.</summary>
+  public ZaiEndpointMode ConfiguredZaiEndpointMode =>
+      _settings?.Zai.EndpointMode ?? ZaiEndpointMode.CodingPlan;
 
   public IRelayCommand OpenAgentCommand { get; }
 
@@ -334,13 +340,14 @@ internal sealed partial class MainViewModel : ObservableObject
   }
 
   /// <summary>Applies a settings-modal result: persists the keys (protected) or deletes
-  ///     the cleared ones, rebuilds the session factory so future opens use the new
-  ///     keys, and refreshes the provider surface. Already-open tabs keep the
-  ///     credentials they were created with. The update carries FULL field state, not a
-  ///     delta; values are normalized defensively here (trimmed, blank → cleared) — the
-  ///     stricter no-internal-whitespace rule is the modal's boundary. A no-op for hosts
-  ///     that compose sessions themselves (no settings snapshot). Persistence is best
-  ///     effort — the same named decision as the provider preference.</summary>
+  ///     the cleared ones plus the z.ai endpoint mode, rebuilds the session factory so
+  ///     future opens use the new settings, and refreshes the provider surface.
+  ///     Already-open tabs keep the wiring they were created with. The update carries
+  ///     FULL field state, not a delta; values are normalized defensively here (trimmed,
+  ///     blank → cleared) — the stricter no-internal-whitespace rule is the modal's
+  ///     boundary. A no-op for hosts that compose sessions themselves (no settings
+  ///     snapshot). Persistence is best effort — the same named decision as the provider
+  ///     preference.</summary>
   public async Task ApplySettingsAsync(SettingsUpdate update)
   {
     ArgumentNullException.ThrowIfNull(update);
@@ -354,8 +361,12 @@ internal sealed partial class MainViewModel : ObservableObject
 
     await PersistApiKeyAsync(OpenRouterSettings.PreferenceKey, openRouterKey);
     await PersistApiKeyAsync(ZaiSettings.PreferenceKey, zaiKey);
+    await PersistPreferenceAsync(ZaiSettings.EndpointModePreferenceKey,
+        update.ZaiEndpointMode.ToConfigValue());
 
-    _settings = _settings.WithApiKeys(openRouterKey, zaiKey);
+    _settings = _settings
+        .WithApiKeys(openRouterKey, zaiKey)
+        .WithZaiEndpointMode(update.ZaiEndpointMode);
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
 
     AvailableProviders = ProvidersFrom(_settings);
@@ -403,6 +414,31 @@ internal sealed partial class MainViewModel : ObservableObject
     catch (Exception ex)
     {
       await Console.Error.WriteLineAsync($"api key preference write failed for '{preferenceKey}': {ex.Message}");
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Writes one plaintext preference (never a secret — secrets go through the
+  ///     key protector). Best effort, same named decision as the key preferences.</summary>
+  private async Task PersistPreferenceAsync(string preferenceKey, string value)
+  {
+    if (_preferences is null)
+    {
+      return; // test seam: nothing is remembered
+    }
+
+    // Named decision (CA1031): preference persistence must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      if (!await _preferences.SetAsync(preferenceKey, value))
+      {
+        await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}'");
+      }
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}': {ex.Message}");
     }
 #pragma warning restore CA1031
   }

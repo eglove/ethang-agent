@@ -8,6 +8,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop;
 
@@ -49,9 +50,11 @@ internal static class DesktopHost
     IAppPreferenceStore preferences = new SqliteAppPreferenceStore(database);
     IApiKeyProtector protector = new DpapiKeyProtector();
 
-    settings = settings.WithApiKeys(
-        await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey),
-        await LoadKeyAsync(preferences, protector, ZaiSettings.PreferenceKey));
+    settings = settings
+        .WithApiKeys(
+            await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey),
+            await LoadKeyAsync(preferences, protector, ZaiSettings.PreferenceKey))
+        .WithZaiEndpointMode(await LoadEndpointModeAsync(preferences));
 
     // The Sessions dialog reads the shared store directly — it must work with zero
     // tabs open, i.e. outside any per-session container.
@@ -83,6 +86,27 @@ internal static class DesktopHost
       await Console.Error.WriteLineAsync($"stored '{preferenceKey}' could not be decrypted; treating as unconfigured");
     }
     return key;
+  }
+
+  /// <summary>Recovers the stored z.ai endpoint mode: absent stays at the CodingPlan
+  ///     default; a stored value that no longer parses (corrupted or foreign row) reads
+  ///     as absent with a stderr note, never a crash.</summary>
+  private static async Task<ZaiEndpointMode> LoadEndpointModeAsync(IAppPreferenceStore preferences)
+  {
+    string? stored = await preferences.GetAsync(ZaiSettings.EndpointModePreferenceKey);
+    if (stored is null)
+    {
+      return ZaiEndpointMode.CodingPlan;
+    }
+
+    if (stored.TryParseConfigValue(out ZaiEndpointMode mode))
+    {
+      return mode;
+    }
+
+    await Console.Error.WriteLineAsync(
+        $"stored '{ZaiSettings.EndpointModePreferenceKey}' value '{stored}' is not a valid endpoint mode; using the coding-plan default");
+    return ZaiEndpointMode.CodingPlan;
   }
 
   /// <summary>The provider the new-agent dialog pre-selects: the persisted choice when it

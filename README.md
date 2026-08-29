@@ -52,7 +52,8 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   versioned knowledge base, with turn-boundary nudges prompting curation
 - Skill subsystem: 15 embedded development-methodology skills, session-start bootstrap injection, and `skill_list` / `skill_view` / `skill_manage` tools
 - `clarify` tool — structured clarifying questions with numbered options
-- z.ai capability tools (available only on z.ai tabs): `web_search` — live web search with
+- z.ai capability tools (available only on z.ai tabs in the **General API** endpoint
+  mode — the capability endpoints do not exist on the coding endpoint): `web_search` — live web search with
   bounded snippets; `web_read` — fetch one page as markdown; `count_tokens` — GLM tokenizer;
   `generate_image` — GLM-Image saved into the workspace as a PNG; `ocr_document` — GLM-OCR
   transcription of workspace PDFs/images; `transcribe_audio` — GLM-ASR transcription of
@@ -92,7 +93,7 @@ dotnet build
 dotnet run --project src/eThangAgent.Desktop # Avalonia desktop app
 ```
 
-3. Add an API key: click **⚙ Settings** at the bottom of the left menu and paste your [OpenRouter](https://openrouter.ai/keys) and/or z.ai key. Keys are stored DPAPI-encrypted in the app database (only your Windows user can read them back) and apply to newly opened agents.
+3. Add an API key: click **⚙ Settings** at the bottom of the left menu and paste your [OpenRouter](https://openrouter.ai/keys) and/or z.ai key. Keys are stored DPAPI-encrypted in the app database (only your Windows user can read them back) and apply to newly opened agents. For z.ai, also pick the endpoint next to the key field: a **GLM Coding Plan** key works only with **Coding plan (subscription)** (the default, hitting `https://api.z.ai/api/coding/paas/v4`), while a pay-as-you-go API key requires **General API** — a coding-plan key against the general endpoint is rejected as rate-limited.
 
 The window opens directly on the shell: no workspace and no pre-configured key are required up front. Click **Open Agent**, pick a directory, and that agent's chat opens as a tab; repeat to work with several workspaces side by side.
 
@@ -104,12 +105,14 @@ The window opens directly on the shell: no workspace and no pre-configured key a
 | ------- | ----- | ----- |
 | OpenRouter API key | **⚙ Settings → API Keys** | DPAPI-encrypted in the app database. Providers without a key are not offered in the Open-Agent dialog. |
 | z.ai API key | **⚙ Settings → API Keys** | Same storage and rules. Leave a field blank to remove that key. |
+| z.ai endpoint mode | **⚙ Settings → z.ai endpoint** | `Coding plan (subscription)` (default) chats through `https://api.z.ai/api/coding/paas/v4`; `General API (pay-as-you-go)` through `https://api.z.ai/api/paas/v4` and is the only mode with the z.ai capability tools. Stored in the app database; applies to newly opened agents. |
 | `OPENROUTER_BASE_URL` | environment variable | Optional; defaults to `https://openrouter.ai`. Useful for pointing tests at a mock server. |
-| `ZAI_BASE_URL` | environment variable | Optional; defaults to `https://api.z.ai/api`. Also for tests. |
+| `ZAI_BASE_URL` | environment variable | Optional; defaults to `https://api.z.ai/api` — the root both z.ai endpoint modes hang off. Also for tests. |
+| `ZAI_ENDPOINT_MODE` | environment variable | Optional; `coding` (default) or `general`. A stored Settings choice wins over it. Any other value aborts startup. |
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. |
 | Sub-agent settings (`DefaultModel`, `ChildTimeoutSeconds`, `MaxConcurrentAgents`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. |
 
-Saved keys apply to newly opened agents; already-open tabs keep the credentials they were created with.
+Saved keys apply to newly opened agents; already-open tabs keep the credentials they were created with. The same applies to the z.ai endpoint mode.
 
 The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. The model is chosen per tab through the **Model** entry in the left menu (visible whenever a tab is open), and the choice applies from the next turn to the root agent and children alike. It is remembered per workspace + provider and restored when the same directory reopens; picking **Auto** again returns the session to automatic resolution. Reasoning effort works the same way through the **Effort** entry, with **Model default** returning the session to the provider's own behavior.
 

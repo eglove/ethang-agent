@@ -3,6 +3,7 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
+using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -262,13 +263,16 @@ public class ShellViewModelTests
     MainViewModel vm = CreateSettingsShell(Settings(), preferences, new FakeKeyProtector());
     Assert.False(vm.HasConfiguredProvider);
 
-    await vm.ApplySettingsAsync(new SettingsUpdate("  sk-or-v1-abc  ", " zai-key "));
+    await vm.ApplySettingsAsync(new SettingsUpdate("  sk-or-v1-abc  ", " zai-key ",
+        ZaiEndpointMode.CodingPlan));
 
-    // Keys land trimmed and PROTECTED — never plaintext; nothing to delete.
+    // Keys land trimmed and PROTECTED — never plaintext; the mode lands plaintext
+    // (it is not a secret); nothing to delete.
     Assert.Equal(
         [
             (OpenRouterSettings.PreferenceKey, "protected:sk-or-v1-abc"),
             (ZaiSettings.PreferenceKey, "protected:zai-key"),
+            (ZaiSettings.EndpointModePreferenceKey, "coding"),
         ],
         preferences.Writes);
     Assert.Empty(preferences.Deletions);
@@ -277,6 +281,7 @@ public class ShellViewModelTests
     Assert.True(vm.HasConfiguredProvider);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
     Assert.Equal("zai-key", vm.ConfiguredZaiKey);
+    Assert.Equal(ZaiEndpointMode.CodingPlan, vm.ConfiguredZaiEndpointMode);
   }
 
   [Fact]
@@ -288,10 +293,10 @@ public class ShellViewModelTests
         preferredProviderId: Providers.OpenRouter);
     Assert.Equal(["openrouter"], vm.AvailableProviders.Select(p => p.Id));
 
-    await vm.ApplySettingsAsync(new SettingsUpdate(null, null));
+    await vm.ApplySettingsAsync(new SettingsUpdate(null, null, ZaiEndpointMode.CodingPlan));
 
     Assert.Equal([OpenRouterSettings.PreferenceKey, ZaiSettings.PreferenceKey], preferences.Deletions);
-    Assert.Empty(preferences.Writes);
+    Assert.Equal([(ZaiSettings.EndpointModePreferenceKey, "coding")], preferences.Writes);
     Assert.Empty(vm.AvailableProviders);
     Assert.False(vm.HasConfiguredProvider);
     // Nothing configured to preselect — the stored preference survives untouched.
@@ -307,7 +312,7 @@ public class ShellViewModelTests
         preferredProviderId: Providers.Zai);
     Assert.Equal("zai", vm.PreferredProviderId);
 
-    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", "")); // z.ai key cleared
+    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", "", ZaiEndpointMode.CodingPlan)); // z.ai key cleared
 
     Assert.Equal(["openrouter"], vm.AvailableProviders.Select(p => p.Id));
     Assert.Equal("openrouter", vm.PreferredProviderId);
@@ -319,14 +324,32 @@ public class ShellViewModelTests
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateSettingsShell(Settings(), preferences, protector: null);
 
-    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", null));
+    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", null, ZaiEndpointMode.CodingPlan));
 
     // Strict boundary: no protector means no durable key, ever. The in-memory
     // surface still reflects the edit — only persistence is skipped. (The z.ai
-    // delete no-ops — the key was never stored.)
-    Assert.Empty(preferences.Writes);
+    // delete no-ops — the key was never stored.) The plaintext mode preference
+    // still lands: it is not a secret and needs no protector.
+    Assert.Equal([(ZaiSettings.EndpointModePreferenceKey, "coding")], preferences.Writes);
     Assert.Equal([ZaiSettings.PreferenceKey], preferences.Deletions);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
+  }
+
+  [Fact]
+  public async Task ApplySettings_Persists_And_Applies_Zai_Endpoint_Mode()
+  {
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateSettingsShell(Settings(zai: "zai-key"), preferences, new FakeKeyProtector());
+
+    await vm.ApplySettingsAsync(new SettingsUpdate(null, "zai-key", ZaiEndpointMode.GeneralApi));
+
+    Assert.Equal(
+        [
+            (ZaiSettings.PreferenceKey, "protected:zai-key"),
+            (ZaiSettings.EndpointModePreferenceKey, "general"),
+        ],
+        preferences.Writes);
+    Assert.Equal(ZaiEndpointMode.GeneralApi, vm.ConfiguredZaiEndpointMode);
   }
 
   [Fact]

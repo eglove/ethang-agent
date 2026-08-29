@@ -89,12 +89,13 @@ internal partial class MainWindow : Window
     }
   }
 
-  /// <summary>Shows the settings modal prefilled with the current keys. A cancelled
-  ///     dialog is a no-op; a confirmed one applies the keys (persist + factory rebind)
-  ///     on the shell.</summary>
+  /// <summary>Shows the settings modal prefilled with the current keys and z.ai
+  ///     endpoint mode. A cancelled dialog is a no-op; a confirmed one applies the
+  ///     settings (persist + factory rebind) on the shell.</summary>
   private async Task ShowSettingsDialogAsync()
   {
-    SettingsWindow dialog = new(_vm!.ConfiguredOpenRouterKey, _vm.ConfiguredZaiKey);
+    SettingsWindow dialog = new(_vm!.ConfiguredOpenRouterKey, _vm.ConfiguredZaiKey,
+        _vm.ConfiguredZaiEndpointMode);
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {
