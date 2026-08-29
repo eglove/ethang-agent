@@ -8,12 +8,10 @@ using eThangAgent.SharedKernel;
 #pragma warning disable CA2000 // HttpClient owns the handler; provider lifetime bounds it
 namespace eThangAgent.OpenRouter.ACL.Tests;
 
-public class TimestampStampingWireTests
+public class MessageContentPassthroughWireTests
 {
-  private const string StampPrefix = "[2026-01-15 08:30:05Z] ";
-
   [Fact]
-  public async Task SendAsync_EveryMessageRole_IsSentWithTheUtcStampPrefix()
+  public async Task SendAsync_MessageContent_ReachesTheWireUnmodified()
   {
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
@@ -29,14 +27,14 @@ public class TimestampStampingWireTests
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http,
         new OpenRouterConfiguration("test-key", new Uri("https://openrouter.test")));
-    DateTimeOffset stamp = new(2026, 1, 15, 8, 30, 5, TimeSpan.Zero);
+    DateTimeOffset sentAt = new(2026, 1, 15, 8, 30, 5, TimeSpan.Zero);
     Message[] messages =
     [
-      new(Role.System, "sys notice", stamp),
-      new(Role.User, "hello", stamp),
-      new(Role.Assistant, "", stamp,
+      new(Role.System, "sys notice", sentAt),
+      new(Role.User, "hello", sentAt),
+      new(Role.Assistant, "", sentAt,
           [new ToolCall("call-1", "read", "{\"path\":\"a.txt\"}")]),
-      new(Role.Tool, "file contents", stamp, ToolCallId: "call-1"),
+      new(Role.Tool, "file contents", sentAt, ToolCallId: "call-1"),
     ];
     ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f).Value!;
 
@@ -53,14 +51,14 @@ public class TimestampStampingWireTests
     {
       byRole[m.GetProperty("role").GetString()!] = m.GetProperty("content").GetString()!;
     }
-    Assert.Equal(StampPrefix + "hello", byRole["user"]);
-    Assert.Equal(StampPrefix + "sys notice", byRole["system"]);
-    Assert.Equal(StampPrefix + "file contents", byRole["tool"]);
-    Assert.Equal(StampPrefix, byRole["assistant"]);
+    Assert.Equal("hello", byRole["user"]);
+    Assert.Equal("sys notice", byRole["system"]);
+    Assert.Equal("file contents", byRole["tool"]);
+    Assert.Equal("", byRole["assistant"]);
   }
 
   [Fact]
-  public async Task SendAsync_PerRequestSystemPrompt_IsNotStampedWhileSystemMessagesAre()
+  public async Task SendAsync_PerRequestSystemPrompt_IsSentAlongsideSystemMessages()
   {
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
@@ -95,7 +93,7 @@ public class TimestampStampingWireTests
       }
     }
     Assert.Equal(2, systemContents.Count);
-    Assert.Contains(systemContents, c => c == "[2026-01-15 08:30:05Z] sys notice");
+    Assert.Contains(systemContents, c => c == "sys notice");
     Assert.Contains(systemContents, c => c == "you are exec-guide");
   }
 }

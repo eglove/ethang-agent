@@ -543,12 +543,12 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
 
   private static object TranslateMessage(Message m) => m.Role switch
   {
-    Role.System => new { role = "system", content = MessageTimestamp.Stamp(m) },
-    Role.User => new { role = "user", content = MessageTimestamp.Stamp(m) },
+    Role.System => new { role = "system", content = m.Content },
+    Role.User => new { role = "user", content = m.Content },
     Role.Assistant when m.ToolCalls is { Count: > 0 } => new
     {
       role = "assistant",
-      content = MessageTimestamp.Stamp(m),
+      content = m.Content,
       tool_calls = m.ToolCalls.Select(t => new
       {
         id = t.Id,
@@ -556,8 +556,8 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
         function = new { name = t.Name, arguments = t.Arguments }
       }).ToArray()
     },
-    Role.Assistant => new { role = "assistant", content = MessageTimestamp.Stamp(m) },
-    Role.Tool => new { role = "tool", content = MessageTimestamp.Stamp(m), tool_call_id = m.ToolCallId },
+    Role.Assistant => new { role = "assistant", content = m.Content },
+    Role.Tool => new { role = "tool", content = m.Content, tool_call_id = m.ToolCallId },
     _ => throw new ArgumentOutOfRangeException(nameof(m), m.Role, "Unknown role.")
   };
 
