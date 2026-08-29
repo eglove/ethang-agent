@@ -64,7 +64,59 @@ internal partial class AgentView : UserControl
 
     // Tunnel so Enter is seen before TextBox class handling consumes it.
     InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);
+
+    // When a clarify question surfaces, move keyboard focus into the clarify panel so
+    // arrow keys + Enter work immediately (free-text questions land in the text box).
+    vm.PropertyChanged += (_, e) =>
+    {
+      if (e.PropertyName == nameof(AgentSessionViewModel.Clarify))
+      {
+        Dispatcher.UIThread.Post(FocusClarifyPanel);
+      }
+    };
   }
+
+  private void FocusClarifyPanel()
+  {
+    if (Vm?.Clarify is null)
+    {
+      return;
+    }
+
+    _ = (ClarifyInput.IsVisible ? ClarifyInput : (Control)ClarifyArea).Focus();
+  }
+
+  /// <summary>Arrow keys move the option highlight; Enter chooses the selection.
+  /// Bubbles nothing — the panel owns these keys while a question is pending.</summary>
+  private void OnClarifyAreaKeyDown(object? sender, KeyEventArgs e)
+  {
+    ClarifyViewModel? clarify = Vm?.Clarify;
+    if (clarify is null)
+    {
+      return;
+    }
+
+    if (e.Key == Key.Up)
+    {
+      clarify.MoveSelection(-1);
+      e.Handled = true;
+    }
+    else if (e.Key == Key.Down)
+    {
+      clarify.MoveSelection(1);
+      e.Handled = true;
+    }
+    else if (e.Key == Key.Enter && (!clarify.AllowFreeText || !ClarifyInput.IsVisible))
+    {
+      // Free-text Enter falls through to its own KeyDown handler; option questions
+      // answer from the keyboard selection.
+      clarify.ChooseSelected();
+      _ = Vm!.WaitForTurnAsync();
+      e.Handled = true;
+    }
+  }
+
+
 
   private void OnInputKeyDownTunnel(object? sender, KeyEventArgs e)
   {
@@ -94,10 +146,9 @@ internal partial class AgentView : UserControl
       return;
     }
 
-    if (sender is Button { DataContext: string option })
+    if (sender is Button { DataContext: ClarifyOptionRow row })
     {
-      int index = pending.Options.ToList().IndexOf(option);
-      pending.ChooseOption(index + 1); // 1-based display index
+      pending.ChooseOption(row.Index); // 1-based display index
     }
     await vm.WaitForTurnAsync();
   }

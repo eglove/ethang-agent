@@ -10,12 +10,14 @@ namespace eThangAgent.AgentDomain;
 ///     streams.</param>
 /// <param name="OnIterationEnd">Fires once after each provider response so observers can
 ///     separate iterations.</param>
-/// <param name="OnToolCall">Invoked with (name, raw arguments) before each tool runs.</param>
+/// <param name="OnToolCall">Invoked with (name, raw arguments, 1-based position in the
+///     current provider response's tool batch, batch size) before each tool runs. A lone
+///     call reports (name, args, 1, 1).</param>
 /// <param name="OnToolResult">Invoked with (name, summarized result) after each tool
 ///     runs.</param>
 public sealed record TurnCallbacks(
     Action<string>? OnContentDelta = null,
     Action<string>? OnReasoningDelta = null,
     Action? OnIterationEnd = null,
-    Action<string, string>? OnToolCall = null,
+    Action<string, string, int, int>? OnToolCall = null,
     Action<string, string>? OnToolResult = null);

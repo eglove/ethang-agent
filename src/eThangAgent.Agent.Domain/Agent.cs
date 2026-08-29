@@ -142,10 +142,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private async Task ExecuteToolCallsAsync(IReadOnlyList<ToolCallRequest> calls,
       TurnCallbacks? callbacks, CancellationToken ct)
   {
-    foreach (ToolCallRequest call in calls)
+    for (int i = 0; i < calls.Count; i++)
     {
+      ToolCallRequest call = calls[i];
       LastTurnToolCalls++;
-      callbacks?.OnToolCall?.Invoke(call.Name, call.Arguments);
+      callbacks?.OnToolCall?.Invoke(call.Name, call.Arguments, i + 1, calls.Count);
       ITool? tool = _tools.Find(call.Name);
       ToolResult toolResult = tool is null
           ? new ToolResult($"Error [UnknownTool]: Unknown tool: {call.Name}.", true)

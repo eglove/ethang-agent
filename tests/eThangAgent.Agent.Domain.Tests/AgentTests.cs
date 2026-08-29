@@ -206,6 +206,45 @@ public class AgentTests
     }
   }
 
+  [Fact]
+  public async Task ToolCallbacks_ReportBatchPosition_OnToolCall()
+  {
+    // Two tool calls in one provider response: the second iteration answers plain text.
+    ScriptedModelProvider provider = new(
+        Result.Success(new ModelResponse(null,
+            [new ToolCallRequest("c1", "t1", "{}"), new ToolCallRequest("c2", "t2", "{}")])),
+        Result.Success(new ModelResponse("done", [])));
+    Agent agent = new(provider, new Conversation(), DefaultConfig,
+        new ToolRegistry([new FakeTool("t1", "r1"), new FakeTool("t2", "r2")]));
+
+    List<(string Name, int Index, int Count)> calls = [];
+    TurnCallbacks callbacks = new(OnToolCall: (name, _, index, count) => calls.Add((name, index, count)));
+
+    _ = await agent.SendMessage("Hi", callbacks: callbacks, ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal(2, calls.Count);
+    Assert.Equal(("t1", 1, 2), calls[0]);
+    Assert.Equal(("t2", 2, 2), calls[1]);
+  }
+
+  [Fact]
+  public async Task ToolCallbacks_SingleCallBatch_CountsOne()
+  {
+    ScriptedModelProvider provider = new(
+        Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "t1", "{}")])),
+        Result.Success(new ModelResponse("done", [])));
+    Agent agent = new(provider, new Conversation(), DefaultConfig,
+        new ToolRegistry([new FakeTool("t1", "r1")]));
+
+    List<(int Index, int Count)> calls = [];
+    TurnCallbacks callbacks = new(OnToolCall: (_, _, index, count) => calls.Add((index, count)));
+
+    _ = await agent.SendMessage("Hi", callbacks: callbacks, ct: TestContext.Current.CancellationToken);
+
+    _ = Assert.Single(calls);
+    Assert.Equal((1, 1), calls[0]);
+  }
+
   private sealed class ScriptedModelProvider(params Result<ModelResponse>[] responses) : IModelProvider
   {
     private readonly Queue<Result<ModelResponse>> _responses = new(responses);

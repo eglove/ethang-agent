@@ -134,6 +134,17 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>
+  /// Records the running turn's tool-batch position, reported synchronously by the
+  /// <c>OnToolCall</c> callback before each tool executes. Kept on the view-model so a
+  /// clarify question presented by the tool that follows can display its position
+  /// ("Q 2/3") — the callback and the presentation share the agent loop's call
+  /// stack, so the stamp is deterministic, never racy with the stream pump.
+  /// </summary>
+  public void RecordToolBatch(string name, int index, int count) => _toolBatch = (name, index, count);
+
+  private (string Name, int Index, int Count)? _toolBatch;
+
+  /// <summary>
   /// Presents a clarify question by building (and surfacing) its view-model through the
   /// injected present hook, publishing it as <see cref="Clarify"/>. Returns the view-model
   /// whose one-shot completion the channel awaits.
@@ -141,6 +152,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   public async Task<ClarifyViewModel> PresentClarifyAsync(ClarifyQuestion question)
   {
     ClarifyViewModel vm = await _presentClarify(question);
+    if (_toolBatch is { } batch && batch.Count > 1)
+    {
+      vm.ProgressLabel = $"Q {batch.Index}/{batch.Count}";
+    }
+
     // The panel must close whenever the question settles through ANY path —
     // routed input, option buttons, free-text submit, or cancel — not just the
     // routed-input path that clears it below. Settlement raises the view-model's
@@ -278,7 +294,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
               },
               OnReasoningDelta: bridge.OnReasoningDelta,
               OnIterationEnd: bridge.OnIterationEnd,
-              OnToolCall: bridge.OnToolCall,
+              OnToolCall: (name, args, index, count) =>
+              {
+                RecordToolBatch(name, index, count);
+                bridge.OnToolCall(name, args);
+              },
               OnToolResult: bridge.OnToolResult),
           onNotice: notice =>
           {

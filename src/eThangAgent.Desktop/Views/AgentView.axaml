@@ -3,6 +3,13 @@
              xmlns:vm="using:eThangAgent.Desktop.ViewModels"
              x:Class="eThangAgent.Desktop.Views.AgentView"
              x:DataType="vm:AgentSessionViewModel">
+  <UserControl.Styles>
+    <!-- Keyboard highlight for the clarify option the arrow keys rest on. -->
+    <Style Selector="Button.selected">
+      <Setter Property="BorderBrush" Value="#4C8CFF"/>
+      <Setter Property="BorderThickness" Value="2"/>
+    </Style>
+  </UserControl.Styles>
   <DockPanel>
     <!-- Status bar: phase, provider, model id, reasoning effort. -->
     <Border DockPanel.Dock="Bottom" Background="#22000000">
@@ -18,16 +25,29 @@
     <!-- Input area OR clarify mode. -->
     <DockPanel DockPanel.Dock="Bottom">
       <!-- Clarify mode: replaces the input row while a question is pending. -->
-      <StackPanel x:Name="ClarifyArea" DockPanel.Dock="Bottom"
+      <StackPanel x:Name="ClarifyArea" DockPanel.Dock="Bottom" Focusable="True"
+                  KeyDown="OnClarifyAreaKeyDown"
                   IsVisible="{Binding Clarify, Converter={x:Static ObjectConverters.IsNotNull}}">
-        <TextBlock Text="{Binding Clarify.Question}" TextWrapping="Wrap" Margin="8,4"/>
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,4">
+          <TextBlock Text="{Binding Clarify.Question}" TextWrapping="Wrap" MaxWidth="640"/>
+          <TextBlock Text="{Binding Clarify.ProgressLabel}" Foreground="Gray"
+                     IsVisible="{Binding Clarify.ProgressLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+        </StackPanel>
         <TextBlock Text="{Binding Clarify.ValidationMessage}" Foreground="OrangeRed" Margin="8,0"
                    TextWrapping="Wrap"
                    IsVisible="{Binding Clarify.ValidationMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-        <ItemsControl ItemsSource="{Binding Clarify.Options}" Margin="8,2">
+        <ItemsControl ItemsSource="{Binding Clarify.OptionRows}" Margin="8,2">
           <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="x:String">
-              <Button Content="{Binding}" Click="OnClarifyOption" Margin="2"/>
+            <DataTemplate x:DataType="vm:ClarifyOptionRow">
+              <Button Classes.selected="{Binding IsSelected}" Click="OnClarifyOption" Margin="2"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,4">
+                <Grid ColumnDefinitions="Auto,*">
+                  <TextBlock Grid.Column="0" Margin="0,0,6,0">
+                    <Run Text="{Binding Index, Mode=OneWay}"/><Run Text="."/>
+                  </TextBlock>
+                  <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap"/>
+                </Grid>
+              </Button>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>

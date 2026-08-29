@@ -86,6 +86,60 @@ public class ClarifyTests
     Assert.Equal("Cancelled by the user.", settled.Error.Message);
   }
 
+  // ── Keyboard selection state machine (arrow-key + Enter navigation) ──────────
+
+  [Fact]
+  public void SelectedIndex_Defaults_To_First_Option()
+  {
+    ClarifyViewModel vm = new(Sample(freeText: false));
+    Assert.Equal(1, vm.SelectedIndex);
+  }
+
+  [Fact]
+  public void MoveSelection_Moves_And_Clamps_Within_Options()
+  {
+    ClarifyViewModel vm = new(Sample(freeText: false));
+    vm.MoveSelection(1); // down to the last option
+    Assert.Equal(2, vm.SelectedIndex);
+    vm.MoveSelection(1); // already at the end — clamped, no wrap-around
+    Assert.Equal(2, vm.SelectedIndex);
+    vm.MoveSelection(-5); // clamped at the first option
+    Assert.Equal(1, vm.SelectedIndex);
+  }
+
+  [Fact]
+  public void MoveSelection_Updates_OptionRow_Highlight()
+  {
+    ClarifyViewModel vm = new(Sample(freeText: false));
+    vm.MoveSelection(1);
+    IReadOnlyList<ClarifyOptionRow> rows = vm.OptionRows;
+    Assert.Equal(2, rows.Count);
+    Assert.False(rows[0].IsSelected);
+    Assert.True(rows[1].IsSelected);
+  }
+
+  [Fact]
+  public async Task ChooseSelected_Settles_With_Selected_Index()
+  {
+    ClarifyViewModel vm = new(Sample(freeText: false));
+    vm.MoveSelection(1);
+    vm.ChooseSelected();
+    Result<string> answer = await vm.Completion.ConfigureAwait(true);
+    Assert.True(answer.IsSuccess);
+    Assert.Equal("2", answer.Value);
+  }
+
+  [Fact]
+  public void Keyboard_Selection_With_No_Options_Stays_Inert()
+  {
+    ClarifyViewModel vm = new(new ClarifyQuestion("What?", [], true));
+    Assert.Equal(0, vm.SelectedIndex);
+    vm.MoveSelection(1); // nothing to select
+    Assert.Equal(0, vm.SelectedIndex);
+    vm.ChooseSelected(); // stays pending — free text is the only answer path
+    Assert.False(vm.Completion.IsCompleted);
+  }
+
   // ── Channel ───────────────────────────────────────────────────────────────
 
   [Fact]
@@ -218,6 +272,40 @@ public class ClarifyTests
     // Turn resolved successfully — surfaced as a final-text notice (no deltas streamed).
     Assert.Contains(vm.Transcript.Entries.OfType<NoticeEntry>(),
         n => n.Text.Contains("turn done", StringComparison.Ordinal));
+  }
+
+  // ── Multi-question progress label (batch position stamped at presentation) ─────
+
+  [Fact]
+  public async Task PresentClarifyAsync_Labels_Progress_From_ToolBatch()
+  {
+    AgentSessionViewModel vm = new(
+        (_, _, _, _) => Task.FromResult(Result.Success("unused")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter",
+        "m", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo" });
+
+    vm.RecordToolBatch("clarify", 2, 3); // the loop reports the 2nd of 3 tool calls
+    _ = await vm.PresentClarifyAsync(Sample());
+
+    Assert.NotNull(vm.Clarify);
+    Assert.Equal("Q 2/3", vm.Clarify.ProgressLabel);
+  }
+
+  [Fact]
+  public async Task PresentClarifyAsync_SingleCallBatch_HasEmptyLabel()
+  {
+    AgentSessionViewModel vm = new(
+        (_, _, _, _) => Task.FromResult(Result.Success("unused")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter",
+        "m", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo" });
+
+    vm.RecordToolBatch("read", 1, 1); // a lone tool call — Q 1/1 is noise
+    _ = await vm.PresentClarifyAsync(Sample());
+
+    Assert.NotNull(vm.Clarify);
+    Assert.Equal("", vm.Clarify.ProgressLabel);
   }
 
   // ── Panel lifecycle: every settlement path must close the pending question ──
