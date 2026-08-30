@@ -39,10 +39,10 @@ internal sealed class TranscriptViewModel
     Entries.Add(new ToolCallEntry(name, arguments));
   }
 
-  public void AddToolResult(string name, string summary)
+  public void AddToolResult(string name, string summary, string fullContent, bool isError)
   {
     CloseOpen();
-    Entries.Add(new ToolResultEntry(name, summary));
+    Entries.Add(new ToolResultEntry(name, summary, fullContent, isError));
   }
 
   public void AddNotice(string text)
@@ -78,7 +78,7 @@ internal sealed class TranscriptViewModel
           RestoreAssistant(callNames, message);
           break;
         case Role.Tool:
-          RestoreToolResult(callNames, message);
+          Entries.Add(RestoredToolResult(callNames, message));
           break;
         case Role.System:
           AddNotice(message.Content);
@@ -99,7 +99,7 @@ internal sealed class TranscriptViewModel
     CloseOpen();
     if (message.Content.Length > 0)
     {
-      Entries.Add(new AssistantTextEntry(message.Content));
+      Entries.Add(new AssistantTextEntry(message.Content, IsOpen: false));
     }
 
     if (message.ToolCalls is { Count: > 0 } calls)
@@ -112,15 +112,15 @@ internal sealed class TranscriptViewModel
     }
   }
 
-  /// <summary>Restores one tool result, naming it from the preceding assistant batch by
-  ///     tool-call id ("tool" when unresolvable).</summary>
-  private void RestoreToolResult(Dictionary<string, string> callNames, Message message)
+  /// <summary>Builds the entry for one restored tool result, named from the preceding
+  ///     assistant batch by tool-call id ("tool" when unresolvable). Transcripts
+  ///     persist no error flag, so restored results render as non-errors.</summary>
+  private static ToolResultEntry RestoredToolResult(Dictionary<string, string> callNames, Message message)
   {
-    AddToolResult(
-        message.ToolCallId is not null && callNames.TryGetValue(message.ToolCallId, out string? name)
-            ? name
-            : "tool",
-        message.Content);
+    string name = message.ToolCallId is not null && callNames.TryGetValue(message.ToolCallId, out string? resolved)
+        ? resolved
+        : "tool";
+    return new ToolResultEntry(name, "ok", message.Content, IsError: false);
   }
 
   public void AppendAssistantDelta(string text)
@@ -134,12 +134,12 @@ internal sealed class TranscriptViewModel
     if (_openIndex >= 0 && Entries[_openIndex] is AssistantTextEntry open)
     {
       // Replace notification drives re-render.
-      Entries[_openIndex] = open with { Text = open.Text + text };
+      Entries[_openIndex] = open with { Text = open.Text + text, IsOpen = true };
       return;
     }
 
     CloseOpen();
-    Entries.Add(new AssistantTextEntry(text));
+    Entries.Add(new AssistantTextEntry(text, IsOpen: true));
     _openIndex = Entries.Count - 1;
   }
 
@@ -168,6 +168,11 @@ internal sealed class TranscriptViewModel
 
   private void CloseOpen()
   {
+    if (_openIndex >= 0 && Entries[_openIndex] is AssistantTextEntry open)
+    {
+      Entries[_openIndex] = open with { IsOpen = false }; // markdown rendering begins
+    }
+
     _openIndex = -1;
     _openReasoning = null;
   }

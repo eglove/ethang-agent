@@ -423,7 +423,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         Transcript.AddToolCall(tc.Name, tc.Arguments);
         break;
       case UiStreamEvent.ToolResultEvent tr:
-        Transcript.AddToolResult(tr.Name, tr.Summary);
+        Transcript.AddToolResult(tr.Name, tr.Summary, tr.FullContent, tr.IsError);
         break;
       case UiStreamEvent.Notice n:
         // Notices arrive through the bridge (turn thread) and apply here on the sink's

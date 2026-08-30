@@ -15,8 +15,8 @@ namespace eThangAgent.AgentDomain;
 /// <param name="OnToolCall">Invoked with (name, raw arguments, 1-based position in the
 ///     current provider response's tool batch, batch size) before each tool runs. A lone
 ///     call reports (name, args, 1, 1).</param>
-/// <param name="OnToolResult">Invoked with (name, summarized result) after each tool
-///     runs.</param>
+/// <param name="OnToolResult">Invoked with (name, summarized result, full result content, error flag)
+///     after each tool runs. The full content is exactly what entered the conversation as the tool message.</param>
 /// <param name="OnContextUpdate">Invoked after each provider response (and after any
 ///     compaction) with the current context snapshot. May fire on arbitrary threads;
 ///     observers must marshal to their own context.</param>
@@ -27,6 +27,6 @@ public sealed record TurnCallbacks(
     Action<string>? OnReasoningDelta = null,
     Action? OnIterationEnd = null,
     Action<string, string, int, int>? OnToolCall = null,
-    Action<string, string>? OnToolResult = null,
+    Action<string, string, string, bool>? OnToolResult = null,
     Action<ContextSnapshot>? OnContextUpdate = null,
     Action<CompactionOutcome>? OnCompacted = null);

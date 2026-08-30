@@ -1,3 +1,5 @@
+using Avalonia.Media;
+
 namespace eThangAgent.Desktop.ViewModels;
 
 // Controller Ruling R4: entry variants are top-level records in this namespace
@@ -11,12 +13,20 @@ internal abstract record TranscriptEntry;
 
 internal sealed record UserMessageEntry(string Text) : TranscriptEntry;
 
-internal sealed record AssistantTextEntry(string Text) : TranscriptEntry;
+internal sealed record AssistantTextEntry(string Text, bool IsOpen) : TranscriptEntry;
 
 internal sealed record ReasoningEntry(string Text) : TranscriptEntry;
 
-internal sealed record ToolCallEntry(string Name, string Arguments) : TranscriptEntry;
+internal sealed record ToolCallEntry(string Name, string Arguments) : TranscriptEntry
+{
+  public string Preview => ToolArgsFormatter.Preview(Arguments);
 
-internal sealed record ToolResultEntry(string Name, string Summary) : TranscriptEntry;
+  public string ArgumentsFormatted => ToolArgsFormatter.Indent(Arguments);
+}
+
+internal sealed record ToolResultEntry(string Name, string Summary, string FullContent, bool IsError) : TranscriptEntry
+{
+  public IBrush SummaryBrush => IsError ? Brushes.IndianRed : Brushes.Gray;
+}
 
 internal sealed record NoticeEntry(string Text) : TranscriptEntry;

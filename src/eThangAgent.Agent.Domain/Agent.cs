@@ -267,7 +267,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
           : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
       Conversation.AddToolResult(call.Id, toolResult.Content);
       string summary = SummarizeToolResult(toolResult);
-      callbacks?.OnToolResult?.Invoke(call.Name, summary);
+      callbacks?.OnToolResult?.Invoke(call.Name, summary, toolResult.Content, toolResult.IsError);
     }
   }
 

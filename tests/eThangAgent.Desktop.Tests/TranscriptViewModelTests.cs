@@ -48,7 +48,7 @@ public class TranscriptViewModelTests
     TranscriptViewModel vm = new();
     vm.AppendAssistantDelta("partial");
     vm.AddToolCall("read", /*lang=json,strict*/ "{\"path\":\"a.cs\"}");
-    vm.AddToolResult("read", "12 lines");
+    vm.AddToolResult("read", "12 lines", "1: first\n2: second", false);
     vm.AppendAssistantDelta("done");
     Assert.Equal(4, vm.Entries.Count);
     _ = Assert.IsType<ToolCallEntry>(vm.Entries[1]);
@@ -160,10 +160,12 @@ public class TranscriptViewModelTests
     ToolCallEntry call = Assert.IsType<ToolCallEntry>(vm.Entries[1]);
     Assert.Equal("read", call.Name);
     Assert.Equal(/*lang=json,strict*/ "{\"path\":\"a.cs\"}", call.Arguments);
-    // The tool name resolves from the PRECEDING call batch by tool-call id.
+    // The tool name resolves from the PRECEDING call batch by tool-call id; the
+    // persisted content rides as the expandable FullContent, never as the summary.
     ToolResultEntry result = Assert.IsType<ToolResultEntry>(vm.Entries[2]);
     Assert.Equal("read", result.Name);
-    Assert.Equal("file content", result.Summary);
+    Assert.Equal("file content", result.FullContent);
+    Assert.False(result.IsError);
     Assert.Equal("final answer", Assert.IsType<AssistantTextEntry>(vm.Entries[3]).Text);
     // System messages (nudges, continuation prompts) render as notices.
     Assert.Equal("nudge line", Assert.IsType<NoticeEntry>(vm.Entries[4]).Text);

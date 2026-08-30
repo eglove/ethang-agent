@@ -27,7 +27,7 @@ internal sealed class StreamBridge(Func<UiStreamEvent, Task> sink)
   public Action<string> OnReasoningDelta => text => _channel.Writer.TryWrite(new UiStreamEvent.Reasoning(text));
   public Action OnIterationEnd => () => _channel.Writer.TryWrite(new UiStreamEvent.IterationEnd());
   public Action<string, string> OnToolCall => (name, args) => _channel.Writer.TryWrite(new UiStreamEvent.ToolCallEvent(name, args));
-  public Action<string, string> OnToolResult => (name, summary) => _channel.Writer.TryWrite(new UiStreamEvent.ToolResultEvent(name, summary));
+  public Action<string, string, string, bool> OnToolResult => (name, summary, fullContent, isError) => _channel.Writer.TryWrite(new UiStreamEvent.ToolResultEvent(name, summary, fullContent, isError));
   public Action<string> OnNotice => text => _channel.Writer.TryWrite(new UiStreamEvent.Notice(text));
 
   public void Start()
