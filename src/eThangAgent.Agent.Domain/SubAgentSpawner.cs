@@ -19,8 +19,7 @@ public sealed record AgentRunOutcome(
 ///     agent's conversation loop to completion and persists its terminal state and transcript.
 ///     Validation, depth enforcement, model resolution, and the initial Running save belong to the
 ///     spawn command (<c>StartSpawnHandler</c>), which hands the persisted record here.</summary>
-public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore store, IToolRegistry tools,
-    ISystemPromptProvider systemPrompt, SubAgentOptions options, SessionModelPreferences? preferences = null,
+public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPreferences? preferences = null,
     IContextWindowSource? windowSource = null, IContextCompactor? contextCompactor = null)
     : IAgentRunner
 {
@@ -42,11 +41,11 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
   ///     so even an accidentally attached monitor never trips compaction.</summary>
   public const int ChildLegacyWindowFallback = int.MaxValue;
 
-  private readonly IModelProviderFactory _factory = factory ?? throw new ArgumentNullException(nameof(factory));
-  private readonly IAgentStore _store = store ?? throw new ArgumentNullException(nameof(store));
-  private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
-  private readonly ISystemPromptProvider _systemPrompt = systemPrompt ?? throw new ArgumentNullException(nameof(systemPrompt));
-  private readonly SubAgentOptions _options = options ?? throw new ArgumentNullException(nameof(options));
+  private readonly IModelProviderFactory _factory = services.Factory ?? throw new ArgumentNullException(nameof(services), "Factory must not be null.");
+  private readonly IAgentStore _store = services.Store ?? throw new ArgumentNullException(nameof(services), "Store must not be null.");
+  private readonly IToolRegistry _tools = services.Tools ?? throw new ArgumentNullException(nameof(services), "Tools must not be null.");
+  private readonly ISystemPromptProvider _systemPrompt = services.SystemPrompt ?? throw new ArgumentNullException(nameof(services), "SystemPrompt must not be null.");
+  private readonly SubAgentOptions _options = services.Options ?? throw new ArgumentNullException(nameof(services), "Options must not be null.");
   private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IContextWindowSource? _windowSource = windowSource;
   private readonly IContextCompactor? _contextCompactor = contextCompactor;

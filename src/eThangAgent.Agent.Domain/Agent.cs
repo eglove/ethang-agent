@@ -89,27 +89,9 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       {
         ct.ThrowIfCancellationRequested();
         DrainInbox(inbox);
-        if (_contextCompactor is not null && !compactionFailed && _contextMonitor is { } monitor)
+        if (!compactionFailed)
         {
-          double? utilization = monitor.Status.UtilizationPercent;
-          if (utilization >= _compactionThreshold)
-          {
-            Result<CompactionOutcome> compacted =
-                await _contextCompactor.CompactAsync(Conversation, Config, ct).ConfigureAwait(false);
-            if (compacted.IsSuccess)
-            {
-              callbacks?.OnCompacted?.Invoke(compacted.Value);
-              ReportUsageFromMonitor(callbacks);
-            }
-            else
-            {
-              // Graceful degradation: a System notice tells the model why nothing
-              // changed; a turn-local flag keeps a broken compactor from spamming.
-              compactionFailed = true;
-              Conversation.AddSystemMessage(
-                $"[Context compaction failed: {compacted.Error.Code} {compacted.Error.Message}; continuing without compaction.]");
-            }
-          }
+          compactionFailed = await TryCompactIfNeededAsync(callbacks, ct).ConfigureAwait(false);
         }
 
         // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
@@ -130,29 +112,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         ReportUsage(request, response, callbacks);
         if (response.ToolCalls.Count == 0)
         {
-          string content = response.Content ?? "";
-
-          // A length-truncated answer is not a final answer. Keep the partial
-          // message in history, nudge the model to continue where it stopped,
-          // and loop — bounded so a pathological model cannot spin forever.
-          // (Named decision: auto-continuation is leniency with a visible cap,
-          // never a silent retry.)
-          if (response.FinishReason is FinishReason.Length)
+          if (FinishWithoutToolCalls(response, ref autoContinuations) is { } outcome)
           {
-            if (autoContinuations >= _maxAutoContinuations)
-            {
-              return Result.Failure<string>(new DomainError("MaxOutputContinuations",
-                  $"Output limit reached {_maxAutoContinuations + 1} times without a complete answer."));
-            }
-
-            autoContinuations++;
-            Conversation.AddAssistantMessage(content);
-            Conversation.AddSystemMessage(ContinuationPrompt);
-            continue;
+            return outcome;
           }
 
-          Conversation.AddAssistantMessage(content);
-          return Result.Success(content);
+          continue;
         }
 
         Conversation.AddAssistantMessage(response.Content ?? "",
@@ -165,6 +130,67 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       RepairInterruptedToolCalls();
       return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
     }
+  }
+
+  /// <summary>Compaction phase of an iteration: when a compactor and monitor are wired
+  ///     and utilization sits at or above the threshold, runs the compactor. Success
+  ///     fires <see cref="TurnCallbacks.OnCompacted"/> and re-fires the context snapshot;
+  ///     failure appends a System notice telling the model why nothing changed and
+  ///     returns true so a broken compactor stops being retried this turn.</summary>
+  private async Task<bool> TryCompactIfNeededAsync(TurnCallbacks? callbacks, CancellationToken ct)
+  {
+    if (_contextCompactor is null || _contextMonitor is not { } monitor)
+    {
+      return false;
+    }
+
+    // Null utilization (nothing reported yet) never compacts — lifted >= semantics:
+    // the original guard read utilization >= threshold, under which null falls through.
+    if (monitor.Status.UtilizationPercent is not { } utilization || utilization < _compactionThreshold)
+    {
+      return false;
+    }
+
+    Result<CompactionOutcome> compacted =
+        await _contextCompactor.CompactAsync(Conversation, Config, ct).ConfigureAwait(false);
+    if (compacted.IsSuccess)
+    {
+      callbacks?.OnCompacted?.Invoke(compacted.Value);
+      ReportUsageFromMonitor(callbacks);
+      return false;
+    }
+
+    // Graceful degradation: a System notice tells the model why nothing changed;
+    // the turn-local flag (this return value) keeps a broken compactor from spamming.
+    Conversation.AddSystemMessage(
+        $"[Context compaction failed: {compacted.Error.Code} {compacted.Error.Message}; continuing without compaction.]");
+    return true;
+  }
+
+  /// <summary>Final-response policy for an iteration whose answer carries no tool calls.
+  ///     A length-truncated answer is not final: the partial message stays in history,
+  ///     the model is nudged to continue (bounded — a pathological model cannot spin
+  ///     forever; leniency with a visible cap, never a silent retry), and null is
+  ///     returned so the loop continues. A complete answer is appended and returned.</summary>
+  private Result<string>? FinishWithoutToolCalls(ModelResponse response, ref int autoContinuations)
+  {
+    string content = response.Content ?? "";
+    if (response.FinishReason is not FinishReason.Length)
+    {
+      Conversation.AddAssistantMessage(content);
+      return Result.Success(content);
+    }
+
+    if (autoContinuations >= _maxAutoContinuations)
+    {
+      return Result.Failure<string>(new DomainError("MaxOutputContinuations",
+          $"Output limit reached {_maxAutoContinuations + 1} times without a complete answer."));
+    }
+
+    autoContinuations++;
+    Conversation.AddAssistantMessage(content);
+    Conversation.AddSystemMessage(ContinuationPrompt);
+    return null;
   }
 
   /// <summary>Re-fires the context snapshot after a compaction shrank the conversation:
@@ -199,14 +225,30 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       }
     }
 
-    long toolChars = request.Tools is null
-        ? 0
-        : request.Tools.Sum(t => t.Name.Length + t.Description.Length
-            + t.Parameters.Sum(p => p.Name.Length + p.Description.Length)
-            + t.RequiredParameters.Sum(rp => rp.Length));
+    long toolChars = request.Tools is null ? 0 : request.Tools.Sum(ToolDefinitionChars);
     _contextMonitor.OnRequestUsage(usage,
         new ContextComposition(systemPromptChars, messageChars, toolChars));
     callbacks?.OnContextUpdate?.Invoke(new ContextSnapshot(_contextMonitor.Status, _contextMonitor.Breakdown));
+  }
+
+  /// <summary>Advertised-contract size of one tool definition, in characters. A named
+  ///     method rather than lambdas: implicit lambda parameter types here force the
+  ///     compiler into 100+ bindings per call site (CS9236) while the explicit-typed
+  ///     form trips the simplify-lambda style rule (IDE0350) — loops satisfy both.</summary>
+  private static long ToolDefinitionChars(ToolDefinition tool)
+  {
+    long length = tool.Name.Length + tool.Description.Length;
+    foreach (ToolParameter parameter in tool.Parameters)
+    {
+      length += parameter.Name.Length + parameter.Description.Length;
+    }
+
+    foreach (string required in tool.RequiredParameters)
+    {
+      length += required.Length;
+    }
+
+    return length;
   }
 
   /// <summary>Runs each requested tool call in order, appending its result to the

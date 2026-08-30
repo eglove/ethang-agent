@@ -12,25 +12,20 @@ namespace eThangAgent.Agent.Application;
 ///     selector (z.ai picks its model through the host's model picker instead) resolve the
 ///     fallback on every path — there is nothing to re-select from.</summary>
 public sealed class ProviderFailoverResolver(
-    IModelSelector? selector,
+    RootModelContext context,
     IProviderExclusionStore exclusions,
-    RootSessionIdentity? identity,
-    IAgentStore? store,
-    string fallbackModelId,
-    int maxTokens,
-    float temperature,
-    IContextWindowSource? windowSource = null)
+    IModelSelector? selector = null)
 {
   public static readonly TimeSpan DefaultExclusionTtl = TimeSpan.FromMinutes(10);
 
   private readonly IModelSelector? _selector = selector;
   private readonly IProviderExclusionStore _exclusions = exclusions ?? throw new ArgumentNullException(nameof(exclusions));
-  private readonly RootSessionIdentity? _identity = identity;
-  private readonly IAgentStore? _store = store;
-  private readonly string _fallbackModelId = fallbackModelId ?? throw new ArgumentNullException(nameof(fallbackModelId));
-  private readonly int _maxTokens = maxTokens;
-  private readonly float _temperature = temperature;
-  private readonly IContextWindowSource? _windowSource = windowSource;
+  private readonly RootSessionIdentity? _identity = context.Identity;
+  private readonly IAgentStore? _store = context.Store;
+  private readonly string _fallbackModelId = context.FallbackModelId ?? throw new ArgumentNullException(nameof(context), "FallbackModelId must not be null.");
+  private readonly int _maxTokens = context.MaxTokens;
+  private readonly float _temperature = context.Temperature;
+  private readonly IContextWindowSource? _windowSource = context.WindowSource;
 
   public async Task<(ModelConfig Config, string? Notice)> ResolveAsync(
       Conversation conversation, string prompt, CancellationToken ct = default)

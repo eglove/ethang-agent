@@ -12,6 +12,12 @@ public class SessionModelPreferencesTests
       new TaskCategory(["coding"], 3, false, false, null, null),
       new ModelFilter(null, null, null, null, null, null, null, null, null, null, null), "reason");
 
+  /// <summary>Session context for the resolver tests; only the preferred-model test
+  ///     wires persistence.</summary>
+  private static RootModelContext Ctx(FakeAgentStore? store, AgentId? rootId, string fallbackModel) =>
+      new(store, rootId is null ? null : new RootSessionIdentity() { Id = rootId.Value },
+          fallbackModel, 2048, 0.7f, new FixedWindowSource());
+
   private sealed class FakeModelSelector(ModelSelectionResult result) : IModelSelector
   {
     public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, IReadOnlySet<string>? excludedKeys = null, CancellationToken ct = default)
@@ -22,9 +28,8 @@ public class SessionModelPreferencesTests
   public async Task RootResolver_SelectionPath_AppliesPreferredEffort()
   {
     SessionModelPreferences preferences = new() { ReasoningEffort = ReasoningEffort.Low };
-    RootAgentResolver resolver = new(
-        new FakeModelSelector(Selection("anthropic/claude-3.5-sonnet")), store: null, identity: null,
-        "openrouter/auto", 2048, 0.7f, preferences, new FixedWindowSource());
+    RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"),
+        new FakeModelSelector(Selection("anthropic/claude-3.5-sonnet")), preferences);
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
 
@@ -34,9 +39,7 @@ public class SessionModelPreferencesTests
   [Fact]
   public async Task RootResolver_NoPreference_LeavesEffortUnset()
   {
-    RootAgentResolver resolver = new(
-        selector: null, store: null, identity: null,
-        "openrouter/auto", 2048, 0.7f, preferences: null, windowSource: new FixedWindowSource());
+    RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"), selector: null);
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
 
@@ -47,9 +50,7 @@ public class SessionModelPreferencesTests
   public async Task RootResolver_PreferenceChange_BetweenTurns_IsPickedUp()
   {
     SessionModelPreferences preferences = new();
-    RootAgentResolver resolver = new(
-        selector: null, store: null, identity: null,
-        "openrouter/auto", 2048, 0.7f, preferences, new FixedWindowSource());
+    RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"), selector: null, preferences: preferences);
     Conversation conversation = new();
 
     (ModelConfig first, _) = await resolver.ResolveAsync(conversation, "turn one", ct: TestContext.Current.CancellationToken);
@@ -64,9 +65,8 @@ public class SessionModelPreferencesTests
   public async Task RootResolver_PreferredModel_BeatsSelection()
   {
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
-    RootAgentResolver resolver = new(
-        new FakeModelSelector(Selection("anthropic/claude-3.5-sonnet")), store: null, identity: null,
-        "glm-5.3-flash", 2048, 0.7f, preferences, new FixedWindowSource());
+    RootAgentResolver resolver = new(Ctx(null, null, "glm-5.3-flash"),
+        new FakeModelSelector(Selection("anthropic/claude-3.5-sonnet")), preferences);
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
 
@@ -77,9 +77,7 @@ public class SessionModelPreferencesTests
   public async Task RootResolver_PreferredModel_CarriesPreferredEffort()
   {
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3", ReasoningEffort = ReasoningEffort.High };
-    RootAgentResolver resolver = new(
-        selector: null, store: null, identity: null,
-        "glm-5.3-flash", 2048, 0.7f, preferences, new FixedWindowSource());
+    RootAgentResolver resolver = new(Ctx(null, null, "glm-5.3-flash"), selector: null, preferences: preferences);
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
 
@@ -94,9 +92,7 @@ public class SessionModelPreferencesTests
     AgentId rootId = AgentId.NewId();
     _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, "C:/workspaces/demo", "openrouter"), ct: TestContext.Current.CancellationToken);
     SessionModelPreferences preferences = new();
-    RootAgentResolver resolver = new(
-        selector: null, store, new RootSessionIdentity() { Id = rootId },
-        "glm-5.3-flash", 2048, 0.7f, preferences, new FixedWindowSource());
+    RootAgentResolver resolver = new(Ctx(store, rootId, "glm-5.3-flash"), selector: null, preferences: preferences);
     Conversation conversation = new();
 
     (ModelConfig first, string? firstNotice) = await resolver.ResolveAsync(conversation, "turn one", ct: TestContext.Current.CancellationToken);
@@ -118,9 +114,7 @@ public class SessionModelPreferencesTests
   public async Task RootResolver_ModelChoiceMutated_BetweenTurns_IsPickedUp()
   {
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3-flash" };
-    RootAgentResolver resolver = new(
-        selector: null, store: null, identity: null,
-        "glm-5.3-flash", 2048, 0.7f, preferences, new FixedWindowSource());
+    RootAgentResolver resolver = new(Ctx(null, null, "glm-5.3-flash"), selector: null, preferences: preferences);
     Conversation conversation = new();
 
     (ModelConfig first, _) = await resolver.ResolveAsync(conversation, "turn one", ct: TestContext.Current.CancellationToken);

@@ -40,15 +40,31 @@ public class Conversation(IEnumerable<Message>? seed = null)
           "Compaction cannot empty the conversation."));
     }
 
+    if (ValidateReplacement(updated) is { } error)
+    {
+      return Result.Failure<bool>(error);
+    }
+
+    _messages.Clear();
+    _messages.AddRange(updated);
+    return Result.Success(true);
+  }
+
+  /// <summary>Checks the tool-call/result pairing protocol over a candidate replacement:
+  ///     every tool result answers an earlier assistant tool call, and every assistant
+  ///     tool call receives a later tool result. Null when the replacement is valid,
+  ///     otherwise the first violated invariant.</summary>
+  private static DomainError? ValidateReplacement(IReadOnlyList<Message> updated)
+  {
     for (int i = 0; i < updated.Count; i++)
     {
       Message message = updated[i];
       if (message.Role is Role.Tool && (string.IsNullOrEmpty(message.ToolCallId) ||
           !updated.Take(i).Any(m => m.Role is Role.Assistant && m.ToolCalls?.Any(c => c.Id == message.ToolCallId) == true)))
       {
-        return Result.Failure<bool>(new DomainError("DanglingToolResult",
+        return new DomainError("DanglingToolResult",
             $"Tool result at position {i} has no earlier matching assistant tool call" +
-            (message.ToolCallId is null ? "." : $": {message.ToolCallId}.")));
+            (message.ToolCallId is null ? "." : $": {message.ToolCallId}."));
       }
 
       if (message.Role is Role.Assistant && message.ToolCalls is { Count: > 0 } calls)
@@ -57,14 +73,12 @@ public class Conversation(IEnumerable<Message>? seed = null)
             !updated.Skip(i + 1).Any(m => m.Role is Role.Tool && m.ToolCallId == call.Id));
         if (unanswered is not null)
         {
-          return Result.Failure<bool>(new DomainError("UnansweredToolCall",
-              $"Assistant tool call {unanswered.Id} at position {i} has no later tool result."));
+          return new DomainError("UnansweredToolCall",
+              $"Assistant tool call {unanswered.Id} at position {i} has no later tool result.");
         }
       }
     }
 
-    _messages.Clear();
-    _messages.AddRange(updated);
-    return Result.Success(true);
+    return null;
   }
 }

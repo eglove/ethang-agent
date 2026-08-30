@@ -182,11 +182,12 @@ public static class AgentComposition
 
     wired = wired
         .AddSingleton(sp => new SubAgentSpawner(
-            sp.GetRequiredService<IModelProviderFactory>(),
-            sp.GetRequiredService<IAgentStore>(),
-            sp.GetRequiredService<IToolRegistry>(),
-            sp.GetRequiredService<ISystemPromptProvider>(),
-            sp.GetRequiredService<SubAgentOptions>(),
+            new SubAgentServices(
+                sp.GetRequiredService<IModelProviderFactory>(),
+                sp.GetRequiredService<IAgentStore>(),
+                sp.GetRequiredService<IToolRegistry>(),
+                sp.GetRequiredService<ISystemPromptProvider>(),
+                sp.GetRequiredService<SubAgentOptions>()),
             sp.GetRequiredService<SessionModelPreferences>(),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<DefaultContextCompactor>()))
@@ -282,23 +283,25 @@ public static class AgentComposition
             sp.GetRequiredService<ISystemPromptProvider>(),
             contextCompactor: sp.GetRequiredService<DefaultContextCompactor>()))
         .AddSingleton(sp => new RootAgentResolver(
+            new RootModelContext(
+                sp.GetRequiredService<IAgentStore>(),
+                sp.GetRequiredService<RootSessionIdentity>(),
+                Providers.FallbackModelId(providerName),
+                defaultModel.MaxTokens,
+                defaultModel.Temperature,
+                sp.GetRequiredService<IContextWindowSource>()),
             sp.GetService<IModelSelector>(),
-            sp.GetRequiredService<IAgentStore>(),
-            sp.GetRequiredService<RootSessionIdentity>(),
-            Providers.FallbackModelId(providerName),
-            defaultModel.MaxTokens,
-            defaultModel.Temperature,
-            sp.GetRequiredService<SessionModelPreferences>(),
-            sp.GetRequiredService<IContextWindowSource>()))
+            sp.GetRequiredService<SessionModelPreferences>()))
         .AddSingleton(sp => new ProviderFailoverResolver(
-            sp.GetService<IModelSelector>(),
+            new RootModelContext(
+                sp.GetRequiredService<IAgentStore>(),
+                sp.GetRequiredService<RootSessionIdentity>(),
+                Providers.FallbackModelId(providerName),
+                defaultModel.MaxTokens,
+                defaultModel.Temperature,
+                sp.GetRequiredService<IContextWindowSource>()),
             sp.GetRequiredService<IProviderExclusionStore>(),
-            sp.GetRequiredService<RootSessionIdentity>(),
-            sp.GetRequiredService<IAgentStore>(),
-            Providers.FallbackModelId(providerName),
-            defaultModel.MaxTokens,
-            defaultModel.Temperature,
-            sp.GetRequiredService<IContextWindowSource>()))
+            sp.GetService<IModelSelector>()))
         .AddSingleton(sp => new SendMessageCommandHandler(
             agent: null,
             sp.GetRequiredService<Conversation>(),

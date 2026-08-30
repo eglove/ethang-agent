@@ -57,13 +57,17 @@ public class ProviderFailoverResolverTests
       new TaskCategory(["coding"], 3, false, false, null, null),
       new ModelFilter(null, null, null, null, null, null, null, null, null, null, null), "reason");
 
+  /// <summary>Session context shared by the failover tests (no persistence wired).</summary>
+  private static RootModelContext Ctx(FakeAgentStore? store, AgentId? rootId) =>
+      new(store, rootId is null ? null : new RootSessionIdentity() { Id = rootId },
+          FallbackModel, 2048, 0.7f, new FixedWindowSource());
+
   [Fact]
   public async Task ReSelectExcluding_RecordsExclusion_AndReSelects()
   {
     FakeModelSelector selector = new(Selection("new-model", "NewProvider"));
     FakeExclusionStore exclusions = new();
-    ProviderFailoverResolver resolver = new(selector, exclusions,
-        identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f, windowSource: new FixedWindowSource());
+    ProviderFailoverResolver resolver = new(Ctx(null, null), exclusions, selector);
 
     (ModelConfig? config, string? notice) = await resolver.ReSelectExcludingAsync(
         "failed-model", "FailedProvider", "task prompt", ct: TestContext.Current.CancellationToken);
@@ -81,8 +85,7 @@ public class ProviderFailoverResolverTests
   {
     FakeModelSelector selector = new(); // returns failure (empty queue)
     FakeExclusionStore exclusions = new();
-    ProviderFailoverResolver resolver = new(selector, exclusions,
-        identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f, windowSource: new FixedWindowSource());
+    ProviderFailoverResolver resolver = new(Ctx(null, null), exclusions, selector);
 
     (ModelConfig? config, string? notice) = await resolver.ReSelectExcludingAsync(
         "failed-model", "FailedProvider", "task prompt", ct: TestContext.Current.CancellationToken);
@@ -98,8 +101,7 @@ public class ProviderFailoverResolverTests
     FakeModelSelector selector = new(Selection("new-model", "NewProvider"));
     FakeExclusionStore exclusions = new();
     _ = exclusions.Exclusions.Add("prior:model");
-    ProviderFailoverResolver resolver = new(selector, exclusions,
-        identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f, windowSource: new FixedWindowSource());
+    ProviderFailoverResolver resolver = new(Ctx(null, null), exclusions, selector);
 
     _ = await resolver.ReSelectExcludingAsync("failed", "Failed", "task", ct: TestContext.Current.CancellationToken);
 

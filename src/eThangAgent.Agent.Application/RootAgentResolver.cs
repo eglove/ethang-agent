@@ -11,32 +11,27 @@ namespace eThangAgent.Agent.Application;
 ///     <see cref="IModelSelector"/> pipeline runs on the turn's prompt at the first turn
 ///     and every <see cref="Recadence"/> user messages thereafter; on success the root
 ///     <see cref="AgentRecord.ModelUsed"/> is updated. Selection failures fall back to
-///     the host-injected <paramref name="fallbackModelId"/> and are surfaced via the
+///     the context's <see cref="RootModelContext.FallbackModelId"/> and are surfaced via the
 ///     notice string so the user sees that selection failed. Mirrors
 ///     <c>StartSpawnHandler.ResolveModelAsync</c> for the root path, which previously ran
 ///     once at startup with a canned prompt.</summary>
 public sealed class RootAgentResolver(
+    RootModelContext context,
     IModelSelector? selector,
-    IAgentStore? store,
-    RootSessionIdentity? identity,
-    string fallbackModelId,
-    int maxTokens,
-    float temperature,
-    SessionModelPreferences? preferences = null,
-    IContextWindowSource? windowSource = null)
+    SessionModelPreferences? preferences = null)
 {
   /// <summary>Reclassify every this many user messages. Turn 1 is the first classification;
   ///     turn <c>Recadence + 1</c> the second, and so on.</summary>
   public const int Recadence = 10;
 
   private readonly IModelSelector? _selector = selector;
-  private readonly IAgentStore? _store = store;
-  private readonly RootSessionIdentity? _identity = identity;
-  private readonly string _fallbackModelId = fallbackModelId ?? throw new ArgumentNullException(nameof(fallbackModelId));
-  private readonly int _maxTokens = maxTokens;
-  private readonly float _temperature = temperature;
+  private readonly IAgentStore? _store = context.Store;
+  private readonly RootSessionIdentity? _identity = context.Identity;
+  private readonly string _fallbackModelId = context.FallbackModelId ?? throw new ArgumentNullException(nameof(context), "FallbackModelId must not be null.");
+  private readonly int _maxTokens = context.MaxTokens;
+  private readonly float _temperature = context.Temperature;
   private readonly SessionModelPreferences? _preferences = preferences;
-  private readonly IContextWindowSource? _windowSource = windowSource;
+  private readonly IContextWindowSource? _windowSource = context.WindowSource;
 
   /// <summary>True when the caller may skip selection entirely — no selector is wired.
   ///     Exposed for diagnostics and tests.</summary>

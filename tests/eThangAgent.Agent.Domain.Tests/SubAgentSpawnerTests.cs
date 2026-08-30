@@ -18,12 +18,12 @@ public class SubAgentSpawnerTests
       FakeAgentStore store,
       SubAgentOptions? options = null,
       IToolRegistry? tools = null)
-      => new(
+      => new(new SubAgentServices(
           new FakeModelProviderFactory(provider),
           store,
           tools ?? new ToolRegistry([]),
           new StaticPromptProvider("guide text"),
-          options ?? new SubAgentOptions(DefaultModel: "default/sub-model"));
+              options ?? new SubAgentOptions(DefaultModel: "default/sub-model")));
 
   // --- depth passes through (the guard itself is covered by StartSpawnHandlerTests) ---
 
@@ -49,8 +49,8 @@ public class SubAgentSpawnerTests
   {
     FakeModelProviderFactory factory = new(new FakeProvider());
     FakeAgentStore store = new();
-    SubAgentSpawner spawner = new(factory, store, new ToolRegistry([]),
-        new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "unused/default"));
+    SubAgentSpawner spawner = new(new SubAgentServices(factory, store, new ToolRegistry([]),
+            new StaticPromptProvider("guide text"), new SubAgentOptions(DefaultModel: "unused/default")));
 
     _ = await spawner.RunAsync(Child(depth: 0, model: "explicit/model"), CancellationToken.None);
 
