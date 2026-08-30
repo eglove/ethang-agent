@@ -8,7 +8,7 @@ public class AgentToolsProviderTests
 {
   private static AgentToolsProvider Create() =>
       new("agent",
-          [new AgentToolBinding(new ReadTool(new FakeFileSystemAccess()), "Read lines from a text file.")]);
+          [new AgentToolBinding(new ReadTool(new UnrootedPathResolver(), new FakeFileSystemAccess()), "Read lines from a text file.")]);
 
   [Fact]
   public void Actions_MappedFromToolDefinitions()
@@ -32,7 +32,8 @@ public class AgentToolsProviderTests
                              """{"timeoutSeconds":120,"path":"x.txt","startLine":1,"endLine":2}""", ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
-    Assert.Contains("[read x.txt lines 1-2 of 2 total]", result.Content, StringComparison.Ordinal);
+    // The annotation names the resolved (full) path under the unrooted resolver.
+    Assert.Contains($"[read {Path.GetFullPath("x.txt")} lines 1-2 of 2 total]", result.Content, StringComparison.Ordinal);
     Assert.Contains("alpha", result.Content, StringComparison.Ordinal);
   }
 
@@ -40,7 +41,7 @@ public class AgentToolsProviderTests
   public async Task InvokeAsync_ToolError_CarriesIsErrorAndGutter()
   {
     AgentToolsProvider provider = new("agent",
-        [new AgentToolBinding(new ReadTool(new FailingFileSystemAccess()), "Read lines.")]);
+        [new AgentToolBinding(new ReadTool(new UnrootedPathResolver(), new FailingFileSystemAccess()), "Read lines.")]);
 
     CapabilityInvocationResult result = await provider.InvokeAsync("read",
                              /*lang=json,strict*/

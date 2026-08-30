@@ -4,8 +4,9 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class ReadTool(IFileSystemAccess files) : ITool
+public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files) : ITool
 {
+  private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileSystemAccess _files = files ?? throw new ArgumentNullException(nameof(files));
 
   public ToolDefinition Definition { get; } = new(
@@ -13,7 +14,8 @@ public sealed class ReadTool(IFileSystemAccess files) : ITool
       "Read a range of lines from a text file. timeoutSeconds, path, startLine, and endLine are all mandatory; line numbers are 1-based and inclusive. Output begins with an annotation line in [brackets] — it is metadata, not file content. Each content line is prefixed with its line number and →; the number and arrow are never part of the file. Never reproduce line numbers or arrows when creating or editing files. Cite line numbers as shown when referencing locations. If endLine exceeds the file length it is clamped and a [warning] is appended. Maximum range: 1000 lines per call.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
-            new ToolParameter("path", ToolParameterType.Text, "Path to the file to read."),
+            new ToolParameter("path", ToolParameterType.Text,
+                "File path, workspace-relative or absolute-inside-workspace."),
             new ToolParameter("startLine", ToolParameterType.WholeNumber, "First line to read (1-based, inclusive).", Minimum: 1),
             new ToolParameter("endLine", ToolParameterType.WholeNumber, "Last line to read (1-based, inclusive).", Minimum: 1),
       ]);
@@ -29,16 +31,22 @@ public sealed class ReadTool(IFileSystemAccess files) : ITool
 
     ReadToolInput args = parsed.Value;
 
+    Result<string> resolved = _resolver.Resolve(args.Path);
+    if (!resolved.IsSuccess)
+    {
+      return Task.FromResult(Err(resolved.Error));
+    }
+
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
       ? Task.FromResult(Err(budget.Error))
       : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
-        ReadAsync(args, token), ct);
+        ReadAsync(args, resolved.Value, token), ct);
   }
 
-  private async Task<ToolResult> ReadAsync(ReadToolInput args, CancellationToken ct)
+  private async Task<ToolResult> ReadAsync(ReadToolInput args, string path, CancellationToken ct)
   {
-    Result<FileRead> read = await _files.ReadLinesAsync(args.Path, args.StartLine, args.EndLine, ct).ConfigureAwait(false);
+    Result<FileRead> read = await _files.ReadLinesAsync(path, args.StartLine, args.EndLine, ct).ConfigureAwait(false);
     if (!read.IsSuccess)
     {
       return Err(read.Error);
@@ -55,7 +63,7 @@ public sealed class ReadTool(IFileSystemAccess files) : ITool
     int last = clamped ? file.TotalLines : args.EndLine;
     int width = last.ToString(CultureInfo.InvariantCulture).Length;
     StringBuilder sb = new();
-    _ = sb.AppendLine(CultureInfo.InvariantCulture, $"[read {args.Path} lines {args.StartLine}-{last} of {file.TotalLines} total]");
+    _ = sb.AppendLine(CultureInfo.InvariantCulture, $"[read {path} lines {args.StartLine}-{last} of {file.TotalLines} total]");
     foreach ((string? text, int i) in file.Lines.Select((t, i) => (t, i)))
     {
       _ = sb.AppendLine(CultureInfo.InvariantCulture, $"{(args.StartLine + i).ToString(CultureInfo.InvariantCulture).PadLeft(width)}→ {text}");

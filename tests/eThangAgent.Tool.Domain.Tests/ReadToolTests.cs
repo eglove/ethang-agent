@@ -4,11 +4,11 @@ namespace eThangAgent.ToolDomain.Tests;
 
 public class ReadToolTests
 {
-  private static ReadTool MakeTool(Result<FileRead> readResult) =>
-      new(new FakeFileSystemAccess(readResult));
+  private static ReadTool MakeTool(Result<FileRead> readResult, IPathResolver? resolver = null) =>
+      new(resolver ?? new UnrootedPathResolver(), new FakeFileSystemAccess(readResult));
 
-  private static ReadTool MakeTool(FileRead success) =>
-      new(new FakeFileSystemAccess(Result.Success(success)));
+  private static ReadTool MakeTool(FileRead success, IPathResolver? resolver = null) =>
+      new(resolver ?? new UnrootedPathResolver(), new FakeFileSystemAccess(Result.Success(success)));
 
   // ---- JSON parsing ----
 
@@ -170,7 +170,8 @@ public class ReadToolTests
                                  """{"timeoutSeconds":120,"path":"doc.txt","startLine":1,"endLine":3}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
-    Assert.StartsWith("[read doc.txt lines 1-3 of 5 total]", result.Content, StringComparison.Ordinal);
+    // The annotation names the RESOLVED path (siblings edit/write do the same).
+    Assert.StartsWith($"[read {Path.GetFullPath("doc.txt")} lines 1-3 of 5 total]", result.Content, StringComparison.Ordinal);
     Assert.Contains("1→ alpha", result.Content, StringComparison.Ordinal);
     Assert.Contains("2→ beta", result.Content, StringComparison.Ordinal);
     Assert.Contains("3→ gamma", result.Content, StringComparison.Ordinal);
@@ -204,7 +205,7 @@ public class ReadToolTests
                                  """{"timeoutSeconds":120,"path":"small.txt","startLine":1,"endLine":100}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
-    Assert.StartsWith("[read small.txt lines 1-3 of 3 total]", result.Content, StringComparison.Ordinal);
+    Assert.StartsWith($"[read {Path.GetFullPath("small.txt")} lines 1-3 of 3 total]", result.Content, StringComparison.Ordinal);
     Assert.EndsWith("clamped", result.Content, StringComparison.Ordinal);
     Assert.Contains("[warning]", result.Content, StringComparison.Ordinal);
     Assert.Contains("100", result.Content, StringComparison.Ordinal);  // the requested endLine in warning
@@ -264,7 +265,7 @@ public class ReadToolTests
   [Fact]
   public void Definition_HasCorrectNameAndThreeParams()
   {
-    ReadTool tool = new(new FakeFileSystemAccess(null!));
+    ReadTool tool = new(new StubResolver(), new FakeFileSystemAccess(null!));
 
     Assert.Equal("read", tool.Definition.Name);
     Assert.Equal(4, tool.Definition.Parameters.Count);
@@ -274,7 +275,74 @@ public class ReadToolTests
     Assert.Contains(tool.Definition.Parameters, p => p.Name == "endLine" && p.Minimum == 1);
   }
 
+  // ---- Path resolution ----
+
+  [Fact]
+  public async Task RelativePath_ResolvedThroughPathResolver_BeforeFileAccess()
+  {
+    StubResolver resolver = new();
+    CapturingFileSystemAccess files = new(Result.Success(new FileRead(["alpha"], 1, 1)));
+    ReadTool tool = new(resolver, files);
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("read",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"path":"doc.txt","startLine":1,"endLine":1}"""), ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal("doc.txt", resolver.Requested);   // the raw model-supplied path reached the resolver
+    Assert.Equal("C:\\ws\\resolved.doc.txt", files.ReceivedPath);  // the resolver output reached the file access
+    Assert.StartsWith("[read C:\\ws\\resolved.doc.txt lines 1-1 of 1 total]", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task PathOutsideWorkspace_ResolverFailure_SurfacesAsError()
+  {
+    ReadTool tool = MakeTool(Result.Failure<FileRead>(new DomainError("FileNotFound", "unreachable")),
+        new ThrowingResolver());
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("read",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"path":"..\\escape.txt","startLine":1,"endLine":1}"""), ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Contains("PathOutsideWorkspace", result.Content, StringComparison.Ordinal);
+    Assert.Contains("outside the workspace", result.Content, StringComparison.Ordinal);
+  }
+
   // ---- Helpers ----
+
+  private sealed class CapturingFileSystemAccess(Result<FileRead> result) : IFileSystemAccess
+  {
+    private readonly Result<FileRead> _result = result;
+
+    public string? ReceivedPath { get; private set; }
+
+    public Task<Result<byte[]>> ReadBytesAsync(string path, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine, CancellationToken ct = default)
+    {
+      ReceivedPath = path;
+      return Task.FromResult(_result);
+    }
+  }
+
+  private sealed class StubResolver : IPathResolver
+  {
+    public string? Requested { get; private set; }
+    public string Returned { get; private set; } = "C:\\ws\\resolved.doc.txt";
+
+    public Result<string> Resolve(string path)
+    {
+      Requested = path;
+      return Result.Success(Returned);
+    }
+  }
+
+  private sealed class ThrowingResolver : IPathResolver
+  {
+    public Result<string> Resolve(string path) => Result.Failure<string>(
+        new DomainError("PathOutsideWorkspace",
+            "'..\\escape.txt' resolves to 'C:\\elsewhere\\escape.txt', which is outside the workspace 'C:\\ws'. Use a path inside the workspace."));
+  }
 
   private sealed class FakeFileSystemAccess(Result<FileRead> result) : IFileSystemAccess
   {

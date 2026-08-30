@@ -64,7 +64,8 @@ public static class AgentComposition
         .AddSingleton(sp => new AgentToolsProvider("agent",
         [
             new AgentToolBinding(
-                    new ReadTool(sp.GetRequiredService<IFileSystemAccess>()),
+                    new ReadTool(sp.GetRequiredService<IPathResolver>(),
+                        sp.GetRequiredService<IFileSystemAccess>()),
                     "Read lines from a text file."),
                 new AgentToolBinding(
                     new WriteTool(sp.GetRequiredService<IPathResolver>(),
