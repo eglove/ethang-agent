@@ -267,10 +267,21 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
           : CapabilityInvocationResult.Ok($"[prune {ReqString(args, Prefix)}] {result.Value} key(s) removed");
   }
 
+  /// <summary>A list result renders as its elements (one per line) — never the C#
+  ///     ToString of the collection object, which would leak
+  ///     '&lt;&gt;z__ReadOnlyList`1[...]' to the model (seen via state.list).</summary>
   private static CapabilityInvocationResult ToResult<T>(Result<T> result)
-        => result.IsSuccess
-            ? CapabilityInvocationResult.Ok(result.Value.ToString() ?? "")
-            : Gutter(result.Error);
+      => !result.IsSuccess
+          ? Gutter(result.Error)
+          : Render(result.Value);
+
+  private static CapabilityInvocationResult Render<T>(T value)
+      => value switch
+      {
+        null => CapabilityInvocationResult.Ok(""),
+        System.Collections.Generic.IEnumerable<string> lines => CapabilityInvocationResult.Ok(string.Join("\n", lines)),
+        _ => CapabilityInvocationResult.Ok(value.ToString() ?? ""),
+      };
 
   private static CapabilityInvocationResult Gutter(DomainError error)
       => CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");
