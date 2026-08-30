@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
+using eThangAgent.Provider.Wire;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
@@ -278,8 +278,8 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
   }
 
   /// <summary>Maps the OpenAI-compatible usage object (prompt_tokens / completion_tokens /
-  ///     prompt_tokens_details.cached_tokens) into TokenUsage; null when absent. Duplicated
-  ///     deliberately from the OpenRouter ACL — ACLs share no code by design.</summary>
+  ///     prompt_tokens_details.cached_tokens) into TokenUsage; null when absent. Serves the
+  ///     non-streaming JSON fallback path; streaming parses through the shared wire core.</summary>
   private static TokenUsage? ParseUsage(JsonElement parent)
   {
     if (!parent.TryGetProperty("usage", out JsonElement u) || u.ValueKind != JsonValueKind.Object)
@@ -328,234 +328,14 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       };
   }
 
-  /// <summary>Consumes an SSE body: "data: {json}" frames carrying delta objects, ":"-prefixed
-  ///     keep-alive comments, and the "data: [DONE]" terminator. Content and reasoning
-  ///     fragments stream straight through; tool-call fragments accumulate per index until
-  ///     the stream ends.</summary>
-  private static async Task<Result<ModelResponse>> ReadSseStreamAsync(HttpResponseMessage response,
+  /// <summary>Streams the response body through the shared OpenAI-compatible stream
+  ///     core, supplying z.ai's vocabulary (see <see cref="ZaiStreamVocabulary.Instance"/>).</summary>
+  private static Task<Result<ModelResponse>> ReadSseStreamAsync(HttpResponseMessage response,
       Action<string>? onContentDelta,
       Action<string>? onReasoningDelta,
       CancellationToken ct)
-  {
-    StringBuilder content = new();
-    Dictionary<int, StreamedToolCall> toolCalls = [];
-    FinishReason finishReason = FinishReason.Stop;
-    TokenUsage? usage = null;
-    bool sawDone = false;
-    try
-    {
-      using Stream stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-      using StreamReader reader = new(stream);
-      while (await reader.ReadLineAsync(ct).ConfigureAwait(false) is { } line)
-      {
-        if (line.Length == 0 || line.StartsWith(':'))
-        {
-          continue; // event separator or keep-alive comment
-        }
-
-        if (!line.StartsWith("data:", StringComparison.Ordinal))
-        {
-          continue; // only data frames carry payload
-        }
-
-        string payload = line["data:".Length..].Trim();
-        if (payload == "[DONE]")
-        {
-          sawDone = true;
-          break;
-        }
-
-        using JsonDocument doc = JsonDocument.Parse(payload);
-        if (ApplyChunk(doc.RootElement, content, toolCalls, onContentDelta, onReasoningDelta, out TokenUsage? frameUsage)
-            is { } chunkReason)
-        {
-          finishReason = chunkReason;
-        }
-
-        if (frameUsage is not null)
-        {
-          usage = frameUsage; // last usage frame wins
-        }
-      }
-
-      // A stream that ends without [DONE] was cut off (connection drop, proxy kill),
-      // not completed. Failing loudly beats returning a silently truncated response;
-      // non-retryable because deltas already streamed to the observer.
-      if (!sawDone)
-      {
-        return Result.Failure<ModelResponse>(new DomainError("StreamInterrupted",
-            "Provider stream ended without its [DONE] terminator."));
-      }
-
-      // Assembled inside the guard: strict fragment validation (missing id/name) is a
-      // provider-stream failure delivered as a Result, never an escaped exception.
-      return Result.Success(new ModelResponse(
-          content.Length > 0 ? content.ToString() : null,
-          [.. toolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value.ToRequest())],
-          finishReason,
-          usage));
-    }
-    catch (JsonException ex)
-    {
-      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
-          $"Invalid provider stream: {ex.Message}"));
-    }
-    catch (InvalidOperationException ex)
-    {
-      return Result.Failure<ModelResponse>(new DomainError(ProviderError,
-          $"Malformed provider stream: {ex.Message}"));
-    }
-  }
-
-  /// <summary>Applies one SSE chunk and returns the chunk's finish_reason when it
-  ///     carries one, else null (delta/usage frames). Writes the chunk's usage object,
-  ///     when it carries one, to <paramref name="usage"/> — the final usage frame wins.</summary>
-  private static FinishReason? ApplyChunk(JsonElement chunk, StringBuilder content,
-      Dictionary<int, StreamedToolCall> toolCalls,
-      Action<string>? onContentDelta,
-      Action<string>? onReasoningDelta,
-      out TokenUsage? usage)
-  {
-    usage = ParseUsage(chunk);
-    if (!chunk.TryGetProperty("choices", out JsonElement choices)
-        || choices.ValueKind != JsonValueKind.Array
-        || choices.GetArrayLength() == 0)
-    {
-      return null; // usage-only or heartbeat frames carry no choices
-    }
-
-    JsonElement choice = choices[0];
-    if (!choice.TryGetProperty("delta", out JsonElement delta))
-    {
-      return null;
-    }
-
-    ApplyContentDelta(delta, content, onContentDelta);
-    ApplyReasoningContent(delta, onReasoningDelta);
-    ApplyToolCallFragments(delta, toolCalls);
-    FinishReason? reason = ParseChunkFinishReason(choice);
-    return reason;
-  }
-
-  /// <summary>Streams one content fragment: appended to the assembled response and
-  ///     forwarded to the observer. Structural no-op frames carry no information and
-  ///     emit nothing.</summary>
-  private static void ApplyContentDelta(JsonElement delta, StringBuilder content, Action<string>? onContentDelta)
-  {
-    if (delta.TryGetProperty("content", out JsonElement contentDelta)
-        && contentDelta.ValueKind == JsonValueKind.String)
-    {
-      string text = contentDelta.GetString()!;
-      if (text.Length > 0)
-      {
-        _ = content.Append(text);
-        onContentDelta?.Invoke(text);
-      }
-    }
-  }
-
-  /// <summary>Streams one reasoning fragment. GLM reasoning flows through
-  ///     <c>reasoning_content</c> (z.ai's documented field).</summary>
-  private static void ApplyReasoningContent(JsonElement delta, Action<string>? onReasoningDelta)
-  {
-    if (delta.TryGetProperty("reasoning_content", out JsonElement reasoning)
-        && reasoning.ValueKind == JsonValueKind.String)
-    {
-      string text = reasoning.GetString()!;
-      if (text.Length > 0)
-      {
-        onReasoningDelta?.Invoke(text);
-      }
-    }
-  }
-
-  private static void ApplyToolCallFragments(JsonElement delta, Dictionary<int, StreamedToolCall> toolCalls)
-  {
-    if (delta.TryGetProperty(ToolCalls, out JsonElement calls)
-        && calls.ValueKind == JsonValueKind.Array)
-    {
-      foreach (JsonElement call in calls.EnumerateArray())
-      {
-        ApplyToolCallFragment(call, toolCalls);
-      }
-    }
-  }
-
-  /// <summary>Assembles one tool-call fragment: addressed by index, created on first
-  ///     sight, with id/name/argument text merged into it.</summary>
-  private static void ApplyToolCallFragment(JsonElement call, Dictionary<int, StreamedToolCall> toolCalls)
-  {
-    int index = call.TryGetProperty("index", out JsonElement idx)
-        && idx.ValueKind == JsonValueKind.Number
-            ? idx.GetInt32()
-            : toolCalls.Count;
-    if (!toolCalls.TryGetValue(index, out StreamedToolCall? fragment))
-    {
-      toolCalls[index] = fragment = new StreamedToolCall();
-    }
-
-    if (call.TryGetProperty("id", out JsonElement id) && id.ValueKind == JsonValueKind.String)
-    {
-      fragment.Id = id.GetString();
-    }
-
-    ApplyFunctionFragment(call, fragment);
-  }
-
-  private static void ApplyFunctionFragment(JsonElement call, StreamedToolCall fragment)
-  {
-    if (!call.TryGetProperty(Function, out JsonElement function))
-    {
-      return;
-    }
-
-    if (function.TryGetProperty("name", out JsonElement name) && name.ValueKind == JsonValueKind.String)
-    {
-      fragment.Name = name.GetString();
-    }
-
-    if (function.TryGetProperty("arguments", out JsonElement arguments)
-        && arguments.ValueKind == JsonValueKind.String)
-    {
-      fragment.AppendArguments(arguments.GetString()!);
-    }
-  }
-
-  /// <summary>Per-chunk translation of z.ai's finish_reason vocabulary. Missing on a
-  ///     delta frame → null, so it never overwrites an already-seen reason.</summary>
-  private static FinishReason? ParseChunkFinishReason(JsonElement choice)
-  {
-    return !choice.TryGetProperty("finish_reason", out JsonElement reason)
-        || reason.ValueKind != JsonValueKind.String
-      ? null
-      : reason.GetString() switch
-      {
-        "stop" => FinishReason.Stop,
-        "length" => FinishReason.Length,
-        ToolCalls => FinishReason.ToolCalls,
-        "sensitive" => FinishReason.ContentFilter,
-        "model_context_window_exceeded" => FinishReason.Length,
-        _ => FinishReason.Unknown,
-      };
-  }
-
-  /// <summary>Accumulates one streamed tool call: id/name arrive on the first fragment,
-  ///     argument text concatenates across every fragment for that index.</summary>
-  private sealed class StreamedToolCall
-  {
-    public string? Id { get; set; }
-    public string? Name { get; set; }
-
-    private readonly StringBuilder _arguments = new();
-
-    public void AppendArguments(string fragment) => _arguments.Append(fragment);
-
-    public ToolCallRequest ToRequest() => new(
-        Id ?? throw new InvalidOperationException("Streamed tool call carried no id."),
-        Name ?? throw new InvalidOperationException(
-            $"Streamed tool call '{Id}' carried no function name."),
-        _arguments.ToString());
-  }
+    => OpenAiCompatStreamCore.ReadSseStreamAsync(response, ZaiStreamVocabulary.Instance,
+        onContentDelta, onReasoningDelta, ct);
 
   /// <summary>One provider attempt's verdict plus what a retry decision needs: whether the
   ///     failure was transient and any server-provided Retry-After hint.</summary>

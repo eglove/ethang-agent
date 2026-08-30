@@ -16,6 +16,7 @@
   <Project Path="src/eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
   <Project Path="src/eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />
   <Project Path="src/eThangAgent.Zai.ACL/eThangAgent.Zai.ACL.csproj" />
+  <Project Path="src/eThangAgent.Provider.Wire/eThangAgent.Provider.Wire.csproj" />
   <Project Path="src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
   <Project Path="src/eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
   <Project Path="src/eThangAgent.FileSystem.ACL/eThangAgent.FileSystem.ACL.csproj" />
