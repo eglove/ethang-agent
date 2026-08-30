@@ -77,11 +77,14 @@ public sealed class FileWriteIntegrationTests : IDisposable
   }
 
   [Fact]
-  public async Task MissingParentDirectory_Fails_DirectoryNotFound()
+  public async Task MissingParentDirectory_Fails_DirectoryNotFound_NamingTheMissingDirectory()
   {
-    string path = Path.Combine(_root, "no", "such", "dir", "f.txt");
+    string missing = Path.Combine(_root, "no", "such", "dir");
+    string path = Path.Combine(missing, "f.txt");
     Result<FileWriteOutcome> r = await _access.WriteFileAsync(path, "x", overwrite: false, ct: TestContext.Current.CancellationToken);
     Assert.False(r.IsSuccess);
     Assert.Equal("DirectoryNotFound", r.Error.Code);
+    Assert.Contains(missing, r.Error.Message, StringComparison.Ordinal);
+    Assert.Contains("Create it first", r.Error.Message, StringComparison.Ordinal);
   }
 }

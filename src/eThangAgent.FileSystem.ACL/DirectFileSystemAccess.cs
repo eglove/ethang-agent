@@ -66,7 +66,8 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     if (!Directory.Exists(dir))
     {
       return Task.FromResult(Result.Failure<FileWriteOutcome>(
-          new DomainError("DirectoryNotFound", $"Parent directory does not exist: {dir}.")));
+          new DomainError("DirectoryNotFound",
+              $"Parent directory does not exist: '{dir}'. Create it first (e.g. Directory.CreateDirectory), then retry the write.")));
     }
 
     bool created = !File.Exists(path);
@@ -90,7 +91,8 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     if (!Directory.Exists(dir))
     {
       return Task.FromResult(Result.Failure<FileWriteOutcome>(
-          new DomainError("DirectoryNotFound", $"Parent directory does not exist: {dir}.")));
+          new DomainError("DirectoryNotFound",
+              $"Parent directory does not exist: '{dir}'. Create it first (e.g. Directory.CreateDirectory), then retry the write.")));
     }
 
     bool created = !File.Exists(path);
