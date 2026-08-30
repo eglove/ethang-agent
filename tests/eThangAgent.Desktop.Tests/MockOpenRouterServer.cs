@@ -313,6 +313,13 @@ internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/ch
       }
       Chunk(sse, new { choices = new[] { new { delta = new { tool_calls = deltas.ToArray() } } } });
     }
+    // A scripted top-level "usage" object rides the wire as the OpenAI-compatible
+    // final usage-only frame — lets E2E tests drive context accounting for real.
+    if (doc.RootElement.TryGetProperty("usage", out JsonElement usage) && usage.ValueKind == JsonValueKind.Object)
+    {
+      Chunk(sse, new { choices = Array.Empty<object>(), usage = JsonSerializer.Deserialize<JsonElement>(usage.GetRawText()) });
+    }
+
     _ = sse.Append("data: [DONE]\n\n");
     return sse.ToString();
   }
