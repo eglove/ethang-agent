@@ -4,13 +4,13 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.Composition;
-using CommitStyle = eThangAgent.ToolDomain.CommitStyle;
-using CommitStylePreference = eThangAgent.ToolDomain.CommitStylePreference;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.Zai.ACL;
+using CommitStyle = eThangAgent.ToolDomain.CommitStyle;
+using CommitStylePreference = eThangAgent.ToolDomain.CommitStylePreference;
 
 namespace eThangAgent.Desktop;
 

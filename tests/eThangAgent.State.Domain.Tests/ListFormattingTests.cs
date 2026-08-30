@@ -33,39 +33,39 @@ public class ListFormattingTests
     Assert.DoesNotContain("ReadOnlyList", r.Content, StringComparison.Ordinal);
   }
 
-  private sealed class ListFakeService(System.Collections.Generic.IReadOnlyList<string> keys) : IStateService
+  private sealed class ListFakeService(IReadOnlyList<string> keys) : IStateService
   {
-    public Task<Result<string>> GetAsync(string key, System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(Result.Success("v"));
+    public Task<Result<string>> GetAsync(string key, CancellationToken ct = default)
+        => Task.FromResult(Result.Success("v"));
 
-    public Task<Result<StateKeyValue>> SetAsync(string key, string value, int? expectedVersion, System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(Result.Success(new StateKeyValue("ns", "name", value, 1)));
+    public Task<Result<StateKeyValue>> SetAsync(string key, string value, int? expectedVersion, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new StateKeyValue("ns", "name", value, 1)));
 
-    public Task<Result<StateKeyValue>> AppendAsync(string key, string text, int? expectedVersion, System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(Result.Success(new StateKeyValue("ns", "name", text, 1)));
+    public Task<Result<StateKeyValue>> AppendAsync(string key, string text, int? expectedVersion, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new StateKeyValue("ns", "name", text, 1)));
 
-    public Task<Result<string>> DeleteAsync(string key, int? expectedVersion, System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(Result.Success("deleted"));
+    public Task<Result<string>> DeleteAsync(string key, int? expectedVersion, CancellationToken ct = default)
+        => Task.FromResult(Result.Success("deleted"));
 
-    public Task<Result<System.Collections.Generic.IReadOnlyList<string>>> ListAsync(string? ns, System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(Result.Success<System.Collections.Generic.IReadOnlyList<string>>(keys));
+    public Task<Result<IReadOnlyList<string>>> ListAsync(string? ns, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(keys));
 
-    public Task<Result<int>> DeletePrefixAsync(string nsPrefix, System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(Result.Success(0));
+    public Task<Result<int>> DeletePrefixAsync(string nsPrefix, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(0));
 
-    public Task<Result<System.Collections.Generic.IReadOnlyList<StateSearchHit>>> SearchAsync(string query, int limit, System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(Result.Success<System.Collections.Generic.IReadOnlyList<StateSearchHit>>([]));
+    public Task<Result<IReadOnlyList<StateSearchHit>>> SearchAsync(string query, int limit, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<StateSearchHit>>([]));
 
-    public Task<Result<string>> TransitionAsync(string from, string toState, string summary, System.Collections.Generic.IReadOnlyList<string> evidence, System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(Result.Success("tr-1"));
+    public Task<Result<string>> TransitionAsync(string from, string toState, string summary, IReadOnlyList<string> evidence, CancellationToken ct = default)
+        => Task.FromResult(Result.Success("tr-1"));
 
-    public Task<CertificationReport> VerifyAsync(System.Collections.Generic.IReadOnlyList<string>? ids, System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(new CertificationReport(true, false, [], []));
+    public Task<CertificationReport> VerifyAsync(IReadOnlyList<string>? ids, CancellationToken ct = default)
+        => Task.FromResult(new CertificationReport(true, false, [], []));
 
-    public Task<CertificationReport> CheckGoalAsync(System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(new CertificationReport(true, false, [], []));
+    public Task<CertificationReport> CheckGoalAsync(CancellationToken ct = default)
+        => Task.FromResult(new CertificationReport(true, false, [], []));
 
-    public Task<Result<System.Collections.Generic.IReadOnlyList<string>>> HistoryAsync(int limit, System.Threading.CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(Result.Success<System.Collections.Generic.IReadOnlyList<string>>([]));
+    public Task<Result<IReadOnlyList<string>>> HistoryAsync(int limit, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<string>>([]));
   }
 }

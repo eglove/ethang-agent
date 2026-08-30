@@ -50,7 +50,7 @@ public class CompactionWiringTests
     Assert.Equal("expensive", resolved.ModelId);
   }
 
-  private sealed class FakePreferences : eThangAgent.Storage.ACL.IAppPreferenceStore
+  private sealed class FakePreferences : Storage.ACL.IAppPreferenceStore
   {
     public Dictionary<string, string> Store { get; } = new(StringComparer.Ordinal);
 

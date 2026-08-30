@@ -20,7 +20,7 @@ public class MessageContentPassthroughWireTests
       capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return new HttpResponseMessage(HttpStatusCode.OK)
       {
-        Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}",
+        Content = new StringContent(/*lang=json,strict*/ "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}",
                   Encoding.UTF8, "application/json")
       };
     });
@@ -33,7 +33,7 @@ public class MessageContentPassthroughWireTests
       new(Role.System, "sys notice", sentAt),
       new(Role.User, "hello", sentAt),
       new(Role.Assistant, "", sentAt,
-          [new ToolCall("call-1", "read", "{\"path\":\"a.txt\"}")]),
+          [new ToolCall("call-1", "read", /*lang=json,strict*/ "{\"path\":\"a.txt\"}")]),
       new(Role.Tool, "file contents", sentAt, ToolCallId: "call-1"),
     ];
     ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!;
@@ -67,7 +67,7 @@ public class MessageContentPassthroughWireTests
       capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
       return new HttpResponseMessage(HttpStatusCode.OK)
       {
-        Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}",
+        Content = new StringContent(/*lang=json,strict*/ "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}",
                   Encoding.UTF8, "application/json")
       };
     });

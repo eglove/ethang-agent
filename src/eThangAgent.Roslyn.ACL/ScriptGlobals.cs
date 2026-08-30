@@ -316,7 +316,7 @@ public sealed class ScriptTools
         cts.CancelAfter(budget.Value);
         Task<CapabilityInvocationResult> call = _registry.InvokeAsync(resolved.Value, stripped, cts.Token);
         TaskCompletionSource deadline = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        using System.Threading.Timer timer = new(
+        using Timer timer = new(
             static state => ((TaskCompletionSource)state!).TrySetResult(),
             deadline, budget.Value, Timeout.InfiniteTimeSpan);
         Task winner = await Task.WhenAny(call, deadline.Task).ConfigureAwait(false);

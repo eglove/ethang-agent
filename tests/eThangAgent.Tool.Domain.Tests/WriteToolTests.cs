@@ -181,7 +181,7 @@ public class WriteToolTests
   public async Task Lines_AndContent_NeitherGiven_Rejected()
   {
     ToolResult result = await MakeTool(null!).ExecuteAsync(new RawToolInput("write",
-                                 """{"timeoutSeconds":120,"path":"a.txt","overwrite":false}"""), ct: TestContext.Current.CancellationToken);
+                                 /*lang=json,strict*/ """{"timeoutSeconds":120,"path":"a.txt","overwrite":false}"""), ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("exactly one", result.Content, StringComparison.Ordinal);
   }

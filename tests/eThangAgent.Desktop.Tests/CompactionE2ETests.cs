@@ -40,7 +40,7 @@ public class CompactionE2ETests
     await host.Vm.RunTurnAsync("and again").WaitAsync(
         TimeSpan.FromSeconds(120), TestContext.Current.CancellationToken);
 
-    System.Collections.Generic.IReadOnlyList<string> bodies = host.Mock.RequestBodies;
+    IReadOnlyList<string> bodies = host.Mock.RequestBodies;
     bool failNotice = bodies.Any(b => b.Contains("Context compaction failed", StringComparison.Ordinal));
     Assert.True(failNotice || bodies.Count >= 6,
         $"no failure notice and only {bodies.Count} calls — trigger never fired");

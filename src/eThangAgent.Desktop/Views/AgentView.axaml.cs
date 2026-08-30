@@ -68,7 +68,7 @@ internal partial class AgentView : UserControl
     // Tunnel so Esc is seen no matter which control inside the view holds focus
     // (input box, transcript, clarify panel): while a turn runs it stops it, exactly
     // like the Stop button. Idle Esc falls through — no notice, no interruption.
-    this.AddHandler(KeyDownEvent, OnViewKeyDownTunnel, RoutingStrategies.Tunnel);
+    AddHandler(KeyDownEvent, OnViewKeyDownTunnel, RoutingStrategies.Tunnel);
 
     // When a clarify question surfaces, move keyboard focus into the clarify panel so
     // arrow keys + Enter work immediately (free-text questions land in the text box).

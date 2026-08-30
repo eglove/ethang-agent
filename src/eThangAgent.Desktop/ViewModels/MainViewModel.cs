@@ -324,7 +324,7 @@ internal sealed partial class MainViewModel : ObservableObject
     string? preferred = _compactionWorkspaceKey is null || _preferences is null
         ? null
         : _preferences.GetAsync(CompactionModelResolver.PreferenceKey(PreferredProviderId, _compactionWorkspaceKey)).GetAwaiter().GetResult();
-    return Task.FromResult<CompactionModelOption?>(preferred is null ? null : new CompactionModelOption(preferred, preferred));
+    return Task.FromResult(preferred is null ? null : new CompactionModelOption(preferred, preferred));
   }
 
   /// <summary>Menu-bar entry point: raises the model-picker request. The view shows the

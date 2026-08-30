@@ -1,7 +1,6 @@
 using eThangAgent.AgentDomain;
-using eThangAgent.SharedKernel;
-
 using eThangAgent.ConversationDomain;
+using eThangAgent.SharedKernel;
 namespace eThangAgent.AgentInfrastructure.Tests;
 
 /// <summary>Unit tests for the in-process actor runtime: immediate start, terminal persistence,
@@ -67,13 +66,13 @@ public class InProcessAgentRuntimeTests
     public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
         => throw new NotSupportedException("not exercised by runtime tests");
 
-    public Task<Result<string>> AppendMessageAsync(AgentId id, ConversationDomain.Message message,
+    public Task<Result<string>> AppendMessageAsync(AgentId id, Message message,
         CancellationToken ct = default) => throw new NotSupportedException("not exercised by runtime tests");
 
     public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
           => Task.FromResult(Result.Success(id.ToString()));
 
-    public Task<Result<IReadOnlyList<ConversationDomain.Message>>> GetTranscriptAsync(
+    public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(
       AgentId id, CancellationToken ct = default) => throw new NotSupportedException("not exercised by runtime tests");
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId,

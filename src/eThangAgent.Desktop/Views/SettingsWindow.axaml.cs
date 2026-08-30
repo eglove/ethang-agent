@@ -18,8 +18,8 @@ internal partial class SettingsWindow : Window
 
   public SettingsWindow(string? openRouterKey, string? zaiKey,
       ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle,
-      IReadOnlyList<ViewModels.CompactionModelOption>? compactionModels = null,
-      ViewModels.CompactionModelOption? selectedCompactionModel = null) : this()
+      IReadOnlyList<CompactionModelOption>? compactionModels = null,
+      CompactionModelOption? selectedCompactionModel = null) : this()
   {
     _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle,
         compactionModels, selectedCompactionModel);

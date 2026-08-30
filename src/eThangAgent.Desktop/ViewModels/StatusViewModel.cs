@@ -1,6 +1,6 @@
 using System.ComponentModel;
-using eThangAgent.ModelDomain;
 using Avalonia.Threading;
+using eThangAgent.ModelDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
 

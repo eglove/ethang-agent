@@ -279,7 +279,7 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
       => value switch
       {
         null => CapabilityInvocationResult.Ok(""),
-        System.Collections.Generic.IEnumerable<string> lines => CapabilityInvocationResult.Ok(string.Join("\n", lines)),
+        IEnumerable<string> lines => CapabilityInvocationResult.Ok(string.Join("\n", lines)),
         _ => CapabilityInvocationResult.Ok(value.ToString() ?? ""),
       };
 
