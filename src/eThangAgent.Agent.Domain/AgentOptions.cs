@@ -20,4 +20,11 @@ public sealed record AgentOptions
   /// <summary>Receives per-provider-call usage for context accounting. Null (legacy
   ///     wiring) means the loop runs without accounting: no reports, no updates.</summary>
   public IContextMonitor? ContextMonitor { get; init; }
+
+  /// <summary>Runs compaction at the utilization threshold. Null means the trigger
+  ///     never fires.</summary>
+  public IContextCompactor? ContextCompactor { get; init; }
+
+  /// <summary>Utilization percent that trips the compactor. Must lie in (0, 100].</summary>
+  public double CompactionThreshold { get; init; } = Agent.DefaultCompactionThreshold;
 }

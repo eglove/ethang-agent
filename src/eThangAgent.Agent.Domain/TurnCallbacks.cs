@@ -20,10 +20,13 @@ namespace eThangAgent.AgentDomain;
 /// <param name="OnContextUpdate">Invoked after each provider response (and after any
 ///     compaction) with the current context snapshot. May fire on arbitrary threads;
 ///     observers must marshal to their own context.</param>
+/// <param name="OnCompacted">Invoked after a successful automatic compaction with what
+///     the compactor did.</param>
 public sealed record TurnCallbacks(
     Action<string>? OnContentDelta = null,
     Action<string>? OnReasoningDelta = null,
     Action? OnIterationEnd = null,
     Action<string, string, int, int>? OnToolCall = null,
     Action<string, string>? OnToolResult = null,
-    Action<ContextSnapshot>? OnContextUpdate = null);
+    Action<ContextSnapshot>? OnContextUpdate = null,
+    Action<CompactionOutcome>? OnCompacted = null);

@@ -12,6 +12,9 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     <see cref="FinishReason.Length"/>.</summary>
   public const int DefaultMaxAutoContinuations = 8;
 
+  /// <summary>Default utilization percent that trips the compactor.</summary>
+  public const double DefaultCompactionThreshold = 80.0;
+
   /// <summary>Appended as a System message after a length-truncated assistant response.
   ///     Verbatim contract: the model must resume exactly where it stopped.</summary>
   public const string ContinuationPrompt =
@@ -29,6 +32,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
   private readonly ISystemPromptProvider? _systemPrompt = options?.SystemPrompt;
   private readonly IContextMonitor? _contextMonitor = options?.ContextMonitor;
+  private readonly IContextCompactor? _contextCompactor = options?.ContextCompactor;
+  private readonly double _compactionThreshold = options?.CompactionThreshold ?? DefaultCompactionThreshold;
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
 
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
@@ -79,10 +84,33 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // tool calls. Termination is the model's job — but cancellation is checked
       // every round, because nothing else in the loop is obliged to observe ct
       // (fakes, cached providers, and instant tools may never see it).
+      bool compactionFailed = false;
       while (true)
       {
         ct.ThrowIfCancellationRequested();
         DrainInbox(inbox);
+        if (_contextCompactor is not null && !compactionFailed && _contextMonitor is { } monitor)
+        {
+          double? utilization = monitor.Status.UtilizationPercent;
+          if (utilization >= _compactionThreshold)
+          {
+            Result<CompactionOutcome> compacted =
+                await _contextCompactor.CompactAsync(Conversation, Config, ct).ConfigureAwait(false);
+            if (compacted.IsSuccess)
+            {
+              callbacks?.OnCompacted?.Invoke(compacted.Value);
+              ReportUsageFromMonitor(callbacks);
+            }
+            else
+            {
+              // Graceful degradation: a System notice tells the model why nothing
+              // changed; a turn-local flag keeps a broken compactor from spamming.
+              compactionFailed = true;
+              Conversation.AddSystemMessage(
+                $"[Context compaction failed: {compacted.Error.Code} {compacted.Error.Message}; continuing without compaction.]");
+            }
+          }
+        }
 
         // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
         // list, so handing it out directly would let every consumer of this request
@@ -136,6 +164,16 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     {
       RepairInterruptedToolCalls();
       return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
+    }
+  }
+
+  /// <summary>Re-fires the context snapshot after a compaction shrank the conversation:
+  ///     utilization dropped, so the next threshold decision reads fresh state.</summary>
+  private void ReportUsageFromMonitor(TurnCallbacks? callbacks)
+  {
+    if (_contextMonitor is { } monitor)
+    {
+      callbacks?.OnContextUpdate?.Invoke(new ContextSnapshot(monitor.Status, monitor.Breakdown));
     }
   }
 
