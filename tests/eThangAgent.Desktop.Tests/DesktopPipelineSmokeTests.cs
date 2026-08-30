@@ -1,3 +1,4 @@
+using Avalonia.Headless.XUnit;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
@@ -17,7 +18,7 @@ namespace eThangAgent.Desktop.Tests;
 /// </summary>
 public class DesktopPipelineSmokeTests
 {
-  [Fact]
+  [AvaloniaFact]
   public async Task Real_Core_Through_Mock_Provider_Renders_Streamed_Transcript()
   {
     using MockOpenRouterServer server = new();
@@ -59,11 +60,11 @@ public class DesktopPipelineSmokeTests
         ClarifyChannel: new StubClarifyChannel(),
         Inbox: services.GetRequiredService<IAgentInbox>(),
         ChildRuntime: services.GetRequiredService<IAgentRuntime>());
-    MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session);
+    MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session).ConfigureAwait(true);
     AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
 
-    await vm.SubmitAsync("say hi");
-    await vm.WaitForTurnAsync();
+    await vm.SubmitAsync("say hi").ConfigureAwait(true);
+    await vm.WaitForTurnAsync().ConfigureAwait(true);
 
     List<AssistantTextEntry> assistant = [.. vm.Transcript.Entries.OfType<AssistantTextEntry>()];
     Assert.NotEmpty(assistant);
