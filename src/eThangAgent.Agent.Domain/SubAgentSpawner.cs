@@ -68,8 +68,8 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
     // Children inherit the session's runtime preferences (the effort picker): the
     // effort choice is a property of the conversation, not of the root agent. A wired
     // window source must know the child's model — accounting cannot run blind. With no
-    // source wired (legacy wiring, tests) the config carries a zero window and the
-    // child simply runs without accounting.
+    // source wired (legacy wiring, tests) the config carries the unbounded legacy
+    // sentinel and the child simply runs without accounting.
     int? window = _windowSource is null
         ? ChildLegacyWindowFallback
         : await _windowSource.WindowForAsync(child.ModelUsed, null, ct).ConfigureAwait(false)
