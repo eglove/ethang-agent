@@ -16,4 +16,8 @@ public sealed record AgentOptions
   public int Depth { get; init; }
 
   public int MaxAutoContinuations { get; init; } = Agent.DefaultMaxAutoContinuations;
+
+  /// <summary>Receives per-provider-call usage for context accounting. Null (legacy
+  ///     wiring) means the loop runs without accounting: no reports, no updates.</summary>
+  public IContextMonitor? ContextMonitor { get; init; }
 }

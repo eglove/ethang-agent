@@ -28,6 +28,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IModelProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
   private readonly ISystemPromptProvider? _systemPrompt = options?.SystemPrompt;
+  private readonly IContextMonitor? _contextMonitor = options?.ContextMonitor;
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
 
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
@@ -98,6 +99,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         callbacks?.OnIterationEnd?.Invoke();
 
         ModelResponse response = result.Value;
+        ReportUsage(request, response, callbacks);
         if (response.ToolCalls.Count == 0)
         {
           string content = response.Content ?? "";
@@ -135,6 +137,38 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       RepairInterruptedToolCalls();
       return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
     }
+  }
+
+  /// <summary>Forwards the provider-scored usage of a completed call to the context
+  ///     monitor together with the request's composition (character sizes of its three
+  ///     cost buckets). Monitor absent (legacy wiring) or usage unreported → no-op: the
+  ///     loop's decisions never read usage directly, only the monitor's status.</summary>
+  private void ReportUsage(ModelRequest request, ModelResponse response, TurnCallbacks? callbacks)
+  {
+    if (_contextMonitor is null || response.Usage is not { } usage)
+    {
+      return;
+    }
+
+    int systemPromptChars = request.SystemPrompt?.Length ?? 0;
+    long messageChars = 0;
+    foreach (Message message in request.Messages)
+    {
+      messageChars += message.Content.Length;
+      if (message.ToolCalls is { Count: > 0 } calls)
+      {
+        messageChars += calls.Sum(call => call.Arguments.Length + call.Name.Length);
+      }
+    }
+
+    long toolChars = request.Tools is null
+        ? 0
+        : request.Tools.Sum(t => t.Name.Length + t.Description.Length
+            + t.Parameters.Sum(p => p.Name.Length + p.Description.Length)
+            + t.RequiredParameters.Sum(rp => rp.Length));
+    _contextMonitor.OnRequestUsage(usage,
+        new ContextComposition(systemPromptChars, messageChars, toolChars));
+    callbacks?.OnContextUpdate?.Invoke(new ContextSnapshot(_contextMonitor.Status, _contextMonitor.Breakdown));
   }
 
   /// <summary>Runs each requested tool call in order, appending its result to the

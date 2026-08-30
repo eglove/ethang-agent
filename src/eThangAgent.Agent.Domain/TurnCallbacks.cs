@@ -1,3 +1,5 @@
+using eThangAgent.ModelDomain;
+
 namespace eThangAgent.AgentDomain;
 
 /// <summary>Optional per-turn stream callbacks. All members are null when the caller
@@ -15,9 +17,13 @@ namespace eThangAgent.AgentDomain;
 ///     call reports (name, args, 1, 1).</param>
 /// <param name="OnToolResult">Invoked with (name, summarized result) after each tool
 ///     runs.</param>
+/// <param name="OnContextUpdate">Invoked after each provider response (and after any
+///     compaction) with the current context snapshot. May fire on arbitrary threads;
+///     observers must marshal to their own context.</param>
 public sealed record TurnCallbacks(
     Action<string>? OnContentDelta = null,
     Action<string>? OnReasoningDelta = null,
     Action? OnIterationEnd = null,
     Action<string, string, int, int>? OnToolCall = null,
-    Action<string, string>? OnToolResult = null);
+    Action<string, string>? OnToolResult = null,
+    Action<ContextSnapshot>? OnContextUpdate = null);
