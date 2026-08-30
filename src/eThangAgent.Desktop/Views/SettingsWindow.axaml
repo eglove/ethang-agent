@@ -5,62 +5,76 @@
         x:DataType="vm:SettingsViewModel"
         Title="Settings" Width="480" SizeToContent="Height"
         CanResize="False" WindowStartupLocation="CenterOwner">
-  <StackPanel Margin="24" Spacing="12">
-
-    <TextBlock Text="API Keys" FontWeight="Bold" FontSize="14"/>
-
-    <TextBlock Text="OpenRouter" FontWeight="Bold"/>
-    <TextBox Text="{Binding OpenRouterKey}" PasswordChar="{Binding KeyPasswordChar}"
-             PlaceholderText="No OpenRouter API key configured"/>
-
-    <TextBlock Text="z.ai" FontWeight="Bold" Margin="0,8,0,0"/>
-    <TextBox Text="{Binding ZaiKey}" PasswordChar="{Binding KeyPasswordChar}"
-             PlaceholderText="No z.ai API key configured"/>
-
-    <TextBlock Text="z.ai endpoint" FontWeight="Bold" Margin="0,8,0,0"/>
-    <ComboBox ItemsSource="{Binding EndpointModes}" SelectedItem="{Binding SelectedEndpointMode}">
-      <ComboBox.ItemTemplate>
-        <DataTemplate>
-          <TextBlock Text="{Binding Display}"/>
-        </DataTemplate>
-      </ComboBox.ItemTemplate>
-    </ComboBox>
-    <TextBlock Text="Coding plan (subscription) keys work only on the coding endpoint — against the general endpoint they are rejected as rate-limited. The z.ai capability tools (web search, reader, tokenizer, image, OCR, transcription) exist only on the general endpoint."
-               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
-
-    <TextBlock Text="Commit style" FontWeight="Bold" Margin="0,8,0,0"/>
-    <ComboBox ItemsSource="{Binding CommitStyles}" SelectedItem="{Binding SelectedCommitStyle}">
-      <ComboBox.ItemTemplate>
-        <DataTemplate>
-          <TextBlock Text="{Binding Display}"/>
-        </DataTemplate>
-      </ComboBox.ItemTemplate>
-    </ComboBox>
-    <TextBlock Text="Applies to newly opened agents and to the next commit in open ones. Conventional uses type/scope, Gitmoji an emoji key, Plain a bare description."
-               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
-
-    <TextBlock Text="Compaction model" FontWeight="Bold" Margin="0,8,0,0"/>
-    <ComboBox ItemsSource="{Binding CompactionModels}" SelectedItem="{Binding SelectedCompactionModel}">
-      <ComboBox.ItemTemplate>
-        <DataTemplate>
-          <TextBlock Text="{Binding Display}"/>
-        </DataTemplate>
-      </ComboBox.ItemTemplate>
-    </ComboBox>
-    <TextBlock Text="Writes the handoff summary when a conversation is auto-compacted at 80% context. Automatic picks the cheapest capable model at compaction time; applies from the next compaction."
-               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
-
-    <CheckBox Content="Show keys" IsChecked="{Binding KeysVisible}" Margin="0,4,0,0"/>
-
-    <TextBlock Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave a field blank to remove that key."
-               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
-
-    <TextBlock Text="{Binding ValidationError}" Foreground="OrangeRed" TextWrapping="Wrap"
-               FontSize="12" IsVisible="{Binding ValidationError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-
-    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
-      <Button Content="Cancel" Click="OnCancel"/>
-      <Button Content="Save" Command="{Binding SaveCommand}"/>
+  <DockPanel>
+    <!-- Shared footer: validation error plus Save/Cancel, outside the tabs so it
+         applies to whichever category is showing. -->
+    <StackPanel DockPanel.Dock="Bottom" Margin="24,0,24,20" Spacing="8">
+      <TextBlock x:Name="ValidationErrorText" Text="{Binding ValidationError}"
+                 Foreground="OrangeRed" TextWrapping="Wrap" FontSize="12"
+                 IsVisible="{Binding ValidationError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+        <Button x:Name="CancelButton" Content="Cancel" Click="OnCancel"/>
+        <Button x:Name="SaveButton" Content="Save" Command="{Binding SaveCommand}"/>
+      </StackPanel>
     </StackPanel>
-  </StackPanel>
+
+    <TabControl x:Name="SettingsTabs" Margin="24,16,24,8">
+      <TabItem Header="API Keys">
+        <StackPanel Spacing="10">
+          <TextBlock Text="OpenRouter" FontWeight="Bold"/>
+          <TextBox x:Name="OpenRouterKeyBox" Text="{Binding OpenRouterKey}"
+                   PasswordChar="{Binding KeyPasswordChar}"
+                   PlaceholderText="No OpenRouter API key configured"/>
+          <TextBlock Text="z.ai" FontWeight="Bold" Margin="0,6,0,0"/>
+          <TextBox x:Name="ZaiKeyBox" Text="{Binding ZaiKey}" PasswordChar="{Binding KeyPasswordChar}"
+                   PlaceholderText="No z.ai API key configured"/>
+          <CheckBox x:Name="ShowKeysCheck" Content="Show keys" IsChecked="{Binding KeysVisible}" Margin="0,4,0,0"/>
+          <TextBlock
+              Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave a field blank to remove that key."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+        </StackPanel>
+      </TabItem>
+      <TabItem Header="Models">
+        <StackPanel Spacing="10">
+          <TextBlock Text="z.ai endpoint" FontWeight="Bold"/>
+          <ComboBox x:Name="ZaiEndpointBox" ItemsSource="{Binding EndpointModes}" SelectedItem="{Binding SelectedEndpointMode}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Display}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBlock
+              Text="Coding plan (subscription) keys work only on the coding endpoint — against the general endpoint they are rejected as rate-limited. The z.ai capability tools (web search, reader, tokenizer, image, OCR, transcription) exist only on the general endpoint."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+          <TextBlock Text="Compaction model" FontWeight="Bold" Margin="0,6,0,0"/>
+          <ComboBox x:Name="CompactionModelBox" ItemsSource="{Binding CompactionModels}" SelectedItem="{Binding SelectedCompactionModel}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Display}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBlock
+              Text="Writes the handoff summary when a conversation is auto-compacted at 80% context. Automatic picks the cheapest capable model at compaction time; applies from the next compaction."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+        </StackPanel>
+      </TabItem>
+      <TabItem Header="Git">
+        <StackPanel Spacing="10">
+          <TextBlock Text="Commit style" FontWeight="Bold"/>
+          <ComboBox x:Name="CommitStyleBox" ItemsSource="{Binding CommitStyles}" SelectedItem="{Binding SelectedCommitStyle}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Display}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBlock
+              Text="Applies to newly opened agents and to the next commit in open ones. Conventional uses type/scope, Gitmoji an emoji key, Plain a bare description."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+        </StackPanel>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
 </Window>

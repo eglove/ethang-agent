@@ -6,10 +6,12 @@ using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Views;
 
-/// <summary>The settings modal: the API Keys section with one masked field per
-///     provider and the z.ai endpoint selector. Confirming closes the dialog with the
-///     validated <see cref="SettingsUpdate"/>; cancelling closes it with null. The view
-///     only owns window mechanics — validation and state live in the view-model.</summary>
+/// <summary>The settings modal: three categorized tabs - API Keys (one masked field
+///     per provider), Models (z.ai endpoint, compaction model), Git (commit style) -
+///     with a shared validation-error + Save/Cancel footer outside the tabs.
+///     Confirming closes the dialog with the validated <see cref="SettingsUpdate"/>;
+///     cancelling closes it with null. The view only owns window mechanics —
+///     validation and state live in the view-model.</summary>
 internal partial class SettingsWindow : Window
 {
   private readonly SettingsViewModel? _vm;

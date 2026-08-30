@@ -15,7 +15,7 @@ internal sealed record UserMessageEntry(string Text) : TranscriptEntry;
 
 internal sealed record AssistantTextEntry(string Text, bool IsOpen) : TranscriptEntry;
 
-internal sealed record ReasoningEntry(string Text) : TranscriptEntry;
+internal sealed record ReasoningEntry(string Text, bool IsOpen) : TranscriptEntry;
 
 internal sealed record ToolCallEntry(string Name, string Arguments) : TranscriptEntry
 {

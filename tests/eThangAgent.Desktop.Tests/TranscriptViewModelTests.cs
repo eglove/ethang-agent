@@ -201,4 +201,41 @@ public class TranscriptViewModelTests
     vm.Restore([]);
     Assert.Empty(vm.Entries);
   }
+
+  // ---- reasoning blocks carry IsOpen (live markdown rendering flag) ----
+
+  [Fact]
+  public void Reasoning_Entry_Is_Open_While_Streaming_And_Closed_On_Iteration_End()
+  {
+    TranscriptViewModel vm = new();
+    vm.AppendReasoning("think");
+    vm.AppendReasoning("ing");
+    ReasoningEntry open = Assert.IsType<ReasoningEntry>(vm.Entries[^1]);
+    Assert.True(open.IsOpen, "streaming reasoning block must be open");
+
+    vm.EndIteration();
+    ReasoningEntry closed = Assert.IsType<ReasoningEntry>(vm.Entries[^1]);
+    Assert.False(closed.IsOpen, "iteration end must close the reasoning block");
+  }
+
+  [Fact]
+  public void Reasoning_Entry_Closes_On_The_Next_Non_Stream_Event()
+  {
+    TranscriptViewModel vm = new();
+    vm.AppendReasoning("thinking");
+    vm.AddToolCall("read", /*lang=json,strict*/ "{}");
+    Assert.False(Assert.IsType<ReasoningEntry>(vm.Entries[0]).IsOpen);
+  }
+
+  [Fact]
+  public void New_Reasoning_Block_After_Close_Opens_Fresh()
+  {
+    TranscriptViewModel vm = new();
+    vm.AppendReasoning("first");
+    vm.EndIteration();
+    vm.AppendReasoning("second");
+    ReasoningEntry fresh = Assert.IsType<ReasoningEntry>(vm.Entries[1]);
+    Assert.True(fresh.IsOpen);
+    Assert.False(Assert.IsType<ReasoningEntry>(vm.Entries[0]).IsOpen);
+  }
 }

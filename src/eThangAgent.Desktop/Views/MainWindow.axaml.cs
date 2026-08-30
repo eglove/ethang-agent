@@ -10,8 +10,9 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.Views;
 
-/// <summary>The main window shell: left menu bar plus a tab host with one tab per
-///     open agent. 'Open Workspace' shows the new-agent dialog (provider dropdown plus
+/// <summary>The main window shell: a thin left icon rail (labels are hover
+///     tooltips) plus a tab host with one tab per open agent. 'Open Workspace' shows
+///     the new-agent dialog (provider dropdown plus
 ///     workspace picker); the chosen pair opens as a new tab wired exclusively for
 ///     that provider. Opening another directory (or the same directory under the
 ///     other provider) opens another tab — each backed by its own isolated session

@@ -23,11 +23,9 @@
         <TextBlock Text="{Binding Status.Provider}"/>
         <TextBlock Text="{Binding Status.ModelId}"/>
         <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>
-        <TextBlock x:Name="SessionIdText" Text="{Binding SessionIdShort}" Opacity="0.7"
-                   ToolTip.Tip="{Binding SessionIdFull}"/>
-        <Button x:Name="CopySessionId" Content="⧉" Padding="4,0"
+        <Button x:Name="SessionIdButton" Content="Sess. Id ⧉" Padding="6,0"
                 Click="OnCopySessionId" VerticalAlignment="Center"
-                ToolTip.Tip="Copy session id"/>
+                ToolTip.Tip="{Binding SessionIdFull}"/>
       </StackPanel>
     </Border>
 
@@ -93,7 +91,7 @@
             <md:AssistantMarkdownBlock MarkdownText="{Binding Text}" IsOpen="{Binding IsOpen}" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
           <DataTemplate DataType="vm:ReasoningEntry">
-            <SelectableTextBlock Text="{Binding Text}" FontStyle="Italic" Opacity="0.7" Margin="8,2" TextWrapping="Wrap"/>
+            <md:ReasoningMarkdownBlock MarkdownText="{Binding Text}" IsOpen="{Binding IsOpen}" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
           <DataTemplate DataType="vm:ToolCallEntry">
             <Expander Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">

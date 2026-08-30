@@ -8,36 +8,38 @@
         Closed="OnWindowClosed">
   <Grid ColumnDefinitions="Auto,*">
 
-    <!-- Left-hand side menu bar: stacked entries at the top, settings anchored at the
-         bottom. No fill child: every button is docked explicitly. -->
-    <Border Grid.Column="0" Background="#FF1B1B2F" Width="190">
+    <!-- Left-hand icon rail: one icon per entry, the label lives in the hover
+         tooltip; settings anchored at the bottom. No fill child: every button is
+         docked explicitly. -->
+    <Border Grid.Column="0" x:Name="SideMenu" Background="#FF1B1B2F" Width="48">
       <DockPanel LastChildFill="False">
-        <TextBlock DockPanel.Dock="Top" Text="eThang Agent" FontWeight="Bold" FontSize="16"
-                   Margin="12,14,12,10"/>
-        <Button x:Name="OpenAgentButton" DockPanel.Dock="Top" Content="Open Workspace"
-                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
-                Command="{Binding OpenAgentCommand}"/>
-        <Button x:Name="SessionsButton" DockPanel.Dock="Top" Content="Sessions"
-                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
-                Command="{Binding OpenSessionsCommand}"
-                ToolTip.Tip="Resume a previous session"/>
-        <Button x:Name="ModelButton" DockPanel.Dock="Top" Content="Model"
-                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
-                Command="{Binding ChooseModelCommand}"
+        <Button x:Name="OpenAgentMenuItem" DockPanel.Dock="Top" Content="📂"
+                Width="40" Height="34" Padding="0" HorizontalAlignment="Center"
+                Margin="0,8,0,2" Command="{Binding OpenAgentCommand}"
+                ToolTip.Tip="Open Workspace"/>
+        <Button x:Name="SessionsMenuItem" DockPanel.Dock="Top" Content="💬"
+                Width="40" Height="34" Padding="0" HorizontalAlignment="Center"
+                Margin="0,2" Command="{Binding OpenSessionsCommand}"
+                ToolTip.Tip="Sessions — resume a previous session"/>
+        <Button x:Name="ModelMenuItem" DockPanel.Dock="Top" Content="🧠"
+                Width="40" Height="34" Padding="0" HorizontalAlignment="Center"
+                Margin="0,2" Command="{Binding ChooseModelCommand}"
                 IsVisible="{Binding HasSelectedTab}"
-                ToolTip.Tip="Choose the model for the selected agent"/>
-        <Button x:Name="EffortButton" DockPanel.Dock="Top" Content="Effort"
-                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
-                Command="{Binding ChooseEffortCommand}"
+                ToolTip.Tip="Model — choose the model for the selected agent"/>
+        <Button x:Name="EffortMenuItem" DockPanel.Dock="Top" Content="🎚"
+                Width="40" Height="34" Padding="0" HorizontalAlignment="Center"
+                Margin="0,2" Command="{Binding ChooseEffortCommand}"
                 IsVisible="{Binding HasSelectedTab}"
-                ToolTip.Tip="Choose the reasoning effort for the selected agent"/>
-        <Button x:Name="SettingsButton" DockPanel.Dock="Bottom" Content="⚙ Settings"
-                HorizontalAlignment="Stretch" Margin="8,4" Padding="10,6"
-                Command="{Binding OpenSettingsCommand}"/>
+                ToolTip.Tip="Effort — reasoning effort for the selected agent"/>
+        <Button x:Name="SettingsMenuItem" DockPanel.Dock="Bottom" Content="⚙"
+                Width="40" Height="34" Padding="0" HorizontalAlignment="Center"
+                Margin="0,2,0,8" Command="{Binding OpenSettingsCommand}"
+                ToolTip.Tip="Settings"/>
       </DockPanel>
     </Border>
 
-    <!-- Tab host: one tab per open agent, each hosting its own AgentView. -->
+    <!-- Tab host: one tab per open agent, each hosting its own AgentView. Tab
+         headers render compact (small font, tight padding). -->
     <Grid Grid.Column="1">
       <Panel>
         <StackPanel x:Name="EmptyState" VerticalAlignment="Center" Spacing="10"
@@ -46,16 +48,28 @@
               Text="No agent is open.&#x0a;'Open Workspace' chooses the directory the agent works from."
               TextWrapping="Wrap" TextAlignment="Center" Opacity="0.65" FontSize="15"/>
           <TextBlock
-              Text="No API key configured yet — click ⚙ Settings to add one."
+              Text="No API key configured yet — open ⚙ Settings to add one."
               TextWrapping="Wrap" TextAlignment="Center" Opacity="0.85" FontSize="14"
               IsVisible="{Binding !HasConfiguredProvider}"/>
         </StackPanel>
-        <TabControl x:Name="AgentTabs" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
+        <TabControl x:Name="AgentTabs" Classes="compact-tabs"
+                    ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
+          <TabControl.Styles>
+            <Style Selector="TabControl.compact-tabs TabItem">
+              <Setter Property="FontSize" Value="11"/>
+              <Setter Property="Padding" Value="8,3"/>
+              <Setter Property="MinHeight" Value="28"/>
+            </Style>
+            <Style Selector="TabControl.compact-tabs TabItem > StackPanel > Button">
+              <Setter Property="FontSize" Value="10"/>
+              <Setter Property="Padding" Value="3,0"/>
+            </Style>
+          </TabControl.Styles>
           <TabControl.ItemTemplate>
             <DataTemplate x:DataType="vm:AgentTabViewModel">
-              <StackPanel Orientation="Horizontal" Spacing="8">
+              <StackPanel Orientation="Horizontal" Spacing="6">
                 <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
-                <Button Content="✕" Padding="4,0" Background="Transparent" BorderThickness="0"
+                <Button Content="✕" Padding="3,0" Background="Transparent" BorderThickness="0"
                         Click="OnCloseTab" ToolTip.Tip="{Binding Subtitle}"/>
               </StackPanel>
             </DataTemplate>

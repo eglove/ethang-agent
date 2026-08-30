@@ -132,13 +132,27 @@ internal partial class AgentView : UserControl
   private void OnEntriesChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
   {
     AgentSessionViewModel? vm = _wiredVm;
-    if (vm is null || e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+    if (vm is null)
     {
       return;
     }
 
-    bool isUserEntry = e.NewItems is { Count: > 0 } added && added[0] is UserMessageEntry;
-    if (!vm.Transcript.Scroll.ShouldAutoScroll(isUserEntry))
+    // Appends ADD entries; streamed deltas REPLACE the tail record while its block is
+    // open. Both keep the tail in view while stuck - a stream must scroll as it
+    // grows, not snap when the block closes. User-voice appends never scroll.
+    if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+    {
+      if (e.NewItems is { Count: > 0 } added && added[0] is UserMessageEntry)
+      {
+        return;
+      }
+    }
+    else if (e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Replace)
+    {
+      return;
+    }
+
+    if (!vm.Transcript.Scroll.ShouldAutoScroll(isUserEntry: false))
     {
       return;
     }
@@ -147,10 +161,6 @@ internal partial class AgentView : UserControl
     Dispatcher.UIThread.Post(FlushQueuedScrollToEnd, DispatcherPriority.Loaded);
   }
 
-  /// <summary>Performs one queued auto-scroll after layout settles; coalesces the
-  ///     burst of entries that can arrive inside one dispatcher turn.</summary>
-
-  /// <summary>Feeds scroll geometry into the sticky controller.</summary>
   /// <summary>Performs one queued auto-scroll after layout settles; coalesces the
   ///     burst of entries that can arrive inside one dispatcher turn.</summary>
   private void FlushQueuedScrollToEnd()
@@ -272,8 +282,8 @@ internal partial class AgentView : UserControl
       }
 
       await Avalonia.Input.Platform.ClipboardExtensions.SetTextAsync(clipboard, vm.SessionId.ToString());
-      button.Content = "✓";
-      Dispatcher.UIThread.Post(() => button.Content = "⧉", DispatcherPriority.Background);
+      button.Content = SessionIdStatusLabel.Success;
+      Dispatcher.UIThread.Post(() => button.Content = SessionIdStatusLabel.Default, DispatcherPriority.Background);
     }
 #pragma warning disable CA1031 // Named decision: clipboard copy is best effort; a missing platform clipboard must not crash the shell.
     catch

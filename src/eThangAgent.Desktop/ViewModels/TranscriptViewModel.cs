@@ -154,7 +154,7 @@ internal sealed class TranscriptViewModel
     if (_openIndex >= 0 && Entries[_openIndex] is ReasoningEntry open && _openReasoning is not null)
     {
       _openReasoning.Append(text);
-      Entries[_openIndex] = open with { Text = _openReasoning.Text };
+      Entries[_openIndex] = open with { Text = _openReasoning.Text, IsOpen = true };
       return;
     }
 
@@ -162,7 +162,7 @@ internal sealed class TranscriptViewModel
     StreamedTextNormalizer normalizer = new();
     normalizer.Append(text);
     _openReasoning = normalizer;
-    Entries.Add(new ReasoningEntry(normalizer.Text));
+    Entries.Add(new ReasoningEntry(normalizer.Text, IsOpen: true));
     _openIndex = Entries.Count - 1;
   }
 
@@ -171,6 +171,10 @@ internal sealed class TranscriptViewModel
     if (_openIndex >= 0 && Entries[_openIndex] is AssistantTextEntry open)
     {
       Entries[_openIndex] = open with { IsOpen = false }; // markdown rendering begins
+    }
+    else if (_openIndex >= 0 && Entries[_openIndex] is ReasoningEntry reasoning)
+    {
+      Entries[_openIndex] = reasoning with { IsOpen = false }; // final markdown render
     }
 
     _openIndex = -1;
