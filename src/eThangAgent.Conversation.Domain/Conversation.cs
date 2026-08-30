@@ -58,27 +58,59 @@ public class Conversation(IEnumerable<Message>? seed = null)
   {
     for (int i = 0; i < updated.Count; i++)
     {
-      Message message = updated[i];
-      if (message.Role is Role.Tool && (string.IsNullOrEmpty(message.ToolCallId) ||
-          !updated.Take(i).Any(m => m.Role is Role.Assistant && m.ToolCalls?.Any(c => c.Id == message.ToolCallId) == true)))
+      if (ValidateToolResult(updated, i) is { } resultError)
       {
-        return new DomainError("DanglingToolResult",
-            $"Tool result at position {i} has no earlier matching assistant tool call" +
-            (message.ToolCallId is null ? "." : $": {message.ToolCallId}."));
+        return resultError;
       }
 
-      if (message.Role is Role.Assistant && message.ToolCalls is { Count: > 0 } calls)
+      if (ValidateToolCalls(updated, i) is { } callsError)
       {
-        ToolCall? unanswered = calls.FirstOrDefault(call =>
-            !updated.Skip(i + 1).Any(m => m.Role is Role.Tool && m.ToolCallId == call.Id));
-        if (unanswered is not null)
-        {
-          return new DomainError("UnansweredToolCall",
-              $"Assistant tool call {unanswered.Id} at position {i} has no later tool result.");
-        }
+        return callsError;
       }
     }
 
     return null;
+  }
+
+  /// <summary>Checks the tool result at <paramref name="index"/>: it must carry a tool
+  ///     call id answered by an earlier assistant message. Null when valid.</summary>
+  private static DomainError? ValidateToolResult(IReadOnlyList<Message> updated, int index)
+  {
+    Message message = updated[index];
+    if (message.Role is not Role.Tool)
+    {
+      return null;
+    }
+
+    if (string.IsNullOrEmpty(message.ToolCallId))
+    {
+      return new DomainError("DanglingToolResult",
+          $"Tool result at position {index} has no earlier matching assistant tool call.");
+    }
+
+    bool answered = updated.Take(index).Any(m =>
+        m.Role is Role.Assistant && m.ToolCalls?.Any(c => c.Id == message.ToolCallId) == true);
+    return answered
+        ? null
+        : new DomainError("DanglingToolResult",
+            $"Tool result at position {index} has no earlier matching assistant tool call: {message.ToolCallId}.");
+  }
+
+  /// <summary>Checks every tool call of the assistant message at <paramref name="index"/>:
+  ///     each must receive a later tool result. Null when all are answered.</summary>
+  private static DomainError? ValidateToolCalls(IReadOnlyList<Message> updated, int index)
+  {
+    Message message = updated[index];
+    if (message.Role is not Role.Assistant || message.ToolCalls is not { Count: > 0 } calls)
+    {
+      return null;
+    }
+
+    ToolCall? unanswered = calls.FirstOrDefault(call =>
+        !updated.Skip(index + 1).Any(m => m.Role is Role.Tool && m.ToolCallId == call.Id));
+    return unanswered is null
+        ? null
+        : new DomainError("UnansweredToolCall",
+            $"Assistant tool call {unanswered.Id} at position {index} has no later tool result.");
   }
 }
