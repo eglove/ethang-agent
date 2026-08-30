@@ -174,6 +174,8 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     if (stream)
     {
       bodyDict["stream"] = true;
+      // Ask the wire to send the final usage frame: accounting needs token counts.
+      bodyDict["stream_options"] = new { include_usage = true };
     }
 
     if (!string.IsNullOrWhiteSpace(config.Provider))
@@ -270,7 +272,38 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
 
     return Result.Success(
-        new ModelResponse(content, toolCalls, ParseFinishReason(choices[0])));
+        new ModelResponse(content, toolCalls, ParseFinishReason(choices[0]), ParseUsage(body)));
+  }
+
+  /// <summary>Maps the OpenAI-compatible usage object (prompt_tokens / completion_tokens /
+  ///     prompt_tokens_details.cached_tokens) into TokenUsage; null when absent.</summary>
+  private static TokenUsage? ParseUsage(JsonElement parent)
+  {
+    if (!parent.TryGetProperty("usage", out JsonElement u) || u.ValueKind != JsonValueKind.Object)
+    {
+      return null;
+    }
+
+    if (!TryGetInt(u, "prompt_tokens", out int prompt) || !TryGetInt(u, "completion_tokens", out int completion))
+    {
+      return null;
+    }
+
+    int? cached = null;
+    if (u.TryGetProperty("prompt_tokens_details", out JsonElement details)
+        && details.ValueKind == JsonValueKind.Object
+        && TryGetInt(details, "cached_tokens", out int cachedValue))
+    {
+      cached = cachedValue;
+    }
+
+    return new TokenUsage(prompt, completion, cached);
+  }
+
+  private static bool TryGetInt(JsonElement parent, string name, out int value)
+  {
+    value = 0;
+    return parent.TryGetProperty(name, out JsonElement el) && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out value);
   }
 
   /// <summary>Translates OpenRouter's finish_reason vocabulary into the provider-neutral
@@ -301,6 +334,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     StringBuilder content = new();
     Dictionary<int, StreamedToolCall> toolCalls = [];
     FinishReason finishReason = FinishReason.Stop;
+    TokenUsage? usage = null;
     bool sawDone = false;
     try
     {
@@ -326,10 +360,15 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
         }
 
         using JsonDocument doc = JsonDocument.Parse(payload);
-        if (ApplyChunk(doc.RootElement, content, toolCalls, onContentDelta, onReasoningDelta)
+        if (ApplyChunk(doc.RootElement, content, toolCalls, onContentDelta, onReasoningDelta, out TokenUsage? frameUsage)
             is { } chunkReason)
         {
           finishReason = chunkReason;
+        }
+
+        if (frameUsage is not null)
+        {
+          usage = frameUsage; // last usage frame wins
         }
       }
 
@@ -347,7 +386,8 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       return Result.Success(new ModelResponse(
           content.Length > 0 ? content.ToString() : null,
           [.. toolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value.ToRequest())],
-          finishReason));
+          finishReason,
+          usage));
     }
     catch (JsonException ex)
     {
@@ -362,12 +402,15 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   }
 
   /// <summary>Applies one SSE chunk and returns the chunk's finish_reason when it
-  ///     carries one, else null (delta/usage frames).</summary>
+  ///     carries one, else null (delta/usage frames). Writes the chunk's usage object,
+  ///     when it carries one, to <paramref name="usage"/> — the final usage frame wins.</summary>
   private static FinishReason? ApplyChunk(JsonElement chunk, StringBuilder content,
       Dictionary<int, StreamedToolCall> toolCalls,
       Action<string>? onContentDelta,
-      Action<string>? onReasoningDelta)
+      Action<string>? onReasoningDelta,
+      out TokenUsage? usage)
   {
+    usage = ParseUsage(chunk);
     if (!chunk.TryGetProperty("choices", out JsonElement choices)
         || choices.ValueKind != JsonValueKind.Array
         || choices.GetArrayLength() == 0)
