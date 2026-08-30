@@ -17,9 +17,12 @@ internal partial class SettingsWindow : Window
   public SettingsWindow() => InitializeComponent();
 
   public SettingsWindow(string? openRouterKey, string? zaiKey,
-      ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle) : this()
+      ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle,
+      IReadOnlyList<ViewModels.CompactionModelOption>? compactionModels = null,
+      ViewModels.CompactionModelOption? selectedCompactionModel = null) : this()
   {
-    _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle);
+    _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle,
+        compactionModels, selectedCompactionModel);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);
   }

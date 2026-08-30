@@ -295,6 +295,38 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     settings modal and calls <see cref="ApplySettingsAsync"/> with the result.</summary>
   public void RequestOpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
 
+  /// <summary>The selected tab's workspace key, captured when the settings modal opens
+  ///     so the confirmed compaction choice lands on the right (provider, workspace).</summary>
+  private string? _compactionWorkspaceKey;
+
+  /// <summary>Builds the compaction-model picker rows for the selected tab: Automatic
+  ///     plus the session provider's catalog ids. Empty catalog → Automatic only.</summary>
+  public async Task<IReadOnlyList<CompactionModelOption>> GetCompactionOptionsAsync()
+  {
+    List<CompactionModelOption> options = [CompactionModelOption.Automatic];
+    _compactionWorkspaceKey = SelectedTab?.Container.WorkspaceRoot;
+    if (_settings is not null && _compactionWorkspaceKey is not null && _preferences is not null)
+    {
+      string? preferred = await _preferences.GetAsync(
+          CompactionModelResolver.PreferenceKey(PreferredProviderId, _compactionWorkspaceKey));
+      if (!string.IsNullOrWhiteSpace(preferred))
+      {
+        options.Add(new CompactionModelOption(preferred, preferred));
+      }
+    }
+
+    return options;
+  }
+
+  /// <summary>The currently-selected compaction model row for the modal's prefill.</summary>
+  public Task<CompactionModelOption?> GetSelectedCompactionModelAsync()
+  {
+    string? preferred = _compactionWorkspaceKey is null || _preferences is null
+        ? null
+        : _preferences.GetAsync(CompactionModelResolver.PreferenceKey(PreferredProviderId, _compactionWorkspaceKey)).GetAwaiter().GetResult();
+    return Task.FromResult<CompactionModelOption?>(preferred is null ? null : new CompactionModelOption(preferred, preferred));
+  }
+
   /// <summary>Menu-bar entry point: raises the model-picker request. The view shows the
   ///     picker modal and calls <see cref="ApplyModelChoiceAsync"/> with the choice.</summary>
   public void RequestChooseModel() => ModelPickerRequested?.Invoke(this, EventArgs.Empty);
@@ -377,6 +409,16 @@ internal sealed partial class MainViewModel : ObservableObject
     await PersistPreferenceAsync(AppPreferenceCommitStyleProvider.PreferenceKey,
         update.CommitStyle.ToString());
     ConfiguredCommitStyle = update.CommitStyle;
+
+    // Compaction summarizer is per selected tab's (provider, workspace): unset means
+    // Automatic — the cheapest capable catalog entry resolves at compaction time.
+    if (update.CompactionWorkspaceKey is { } workspaceKey)
+    {
+      string compactionKey = CompactionModelResolver.PreferenceKey(PreferredProviderId, workspaceKey);
+      _ = update.CompactionModelId is null
+          ? _preferences?.DeleteAsync(compactionKey)
+          : _preferences?.SetAsync(compactionKey, update.CompactionModelId);
+    }
 
     _settings = _settings
         .WithApiKeys(openRouterKey, zaiKey)

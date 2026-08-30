@@ -30,8 +30,16 @@ internal sealed record ZaiEndpointModeOption(ZaiEndpointMode Mode, string Displa
 ///     stops being configured.
 ///     (A cancelled dialog closes with no result at all, so unchanged-vs-cleared never
 ///     collides.)</summary>
+/// <summary>One choosable compaction summarizer: the Automatic row (persisted as
+///     unset — cheapest capable resolves at compaction time) or a concrete model id.</summary>
+internal sealed record CompactionModelOption(string? ModelId, string Display)
+{
+  internal static readonly CompactionModelOption Automatic = new(null, "Automatic (cheapest capable)");
+}
+
 internal sealed record SettingsUpdate(string? OpenRouterApiKey, string? ZaiApiKey,
-    ZaiEndpointMode ZaiEndpointMode, CommitStyle CommitStyle);
+    ZaiEndpointMode ZaiEndpointMode, CommitStyle CommitStyle,
+    string? CompactionModelId = null, string? CompactionWorkspaceKey = null);
 
 /// <summary>View-model behind the settings modal: the API-key fields for the two
 ///     providers, a reveal toggle, the z.ai endpoint mode, and their shared validation.
@@ -49,6 +57,13 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>The three commit styles, in display order.</summary>
   public IReadOnlyList<CommitStyleOption> CommitStyles { get; } =
       [CommitStyleOption.Conventional, CommitStyleOption.Gitmoji, CommitStyleOption.None];
+
+  /// <summary>The compaction summarizer choices: Automatic plus the session provider's
+  ///     catalog model ids.</summary>
+  public IReadOnlyList<CompactionModelOption> CompactionModels { get; }
+
+  [ObservableProperty]
+  public partial CompactionModelOption SelectedCompactionModel { get; set; }
 
   /// <summary>The two endpoint modes, in display order.</summary>
   public IReadOnlyList<ZaiEndpointModeOption> EndpointModes { get; } =
@@ -85,7 +100,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
   public string? ValidationError => Validate(OpenRouterKey) ?? Validate(ZaiKey);
 
   public SettingsViewModel(string? openRouterKey, string? zaiKey,
-      ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle = CommitStyle.Conventional)
+      ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle = CommitStyle.Conventional,
+      IReadOnlyList<CompactionModelOption>? compactionModels = null,
+      CompactionModelOption? selectedCompactionModel = null)
   {
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
@@ -98,12 +115,15 @@ internal sealed partial class SettingsViewModel : ObservableObject
           {
             SaveRequested?.Invoke(this, new SettingsUpdate(
                 Normalize(OpenRouterKey), Normalize(ZaiKey), SelectedEndpointMode.Mode,
-                SelectedCommitStyle.Style));
+                SelectedCommitStyle.Style,
+                SelectedCompactionModel.ModelId, null));
           }
         },
         () => CanSave);
+    CompactionModels = compactionModels ?? [CompactionModelOption.Automatic];
     OpenRouterKey = openRouterKey ?? string.Empty;
     ZaiKey = zaiKey ?? string.Empty;
+    SelectedCompactionModel = selectedCompactionModel ?? CompactionModelOption.Automatic;
     SelectedEndpointMode = zaiEndpointMode == ZaiEndpointMode.GeneralApi
         ? ZaiEndpointModeOption.GeneralApi
         : ZaiEndpointModeOption.CodingPlan;

@@ -39,6 +39,17 @@
     <TextBlock Text="Applies to newly opened agents and to the next commit in open ones. Conventional uses type/scope, Gitmoji an emoji key, Plain a bare description."
                Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
 
+    <TextBlock Text="Compaction model" FontWeight="Bold" Margin="0,8,0,0"/>
+    <ComboBox ItemsSource="{Binding CompactionModels}" SelectedItem="{Binding SelectedCompactionModel}">
+      <ComboBox.ItemTemplate>
+        <DataTemplate>
+          <TextBlock Text="{Binding Display}"/>
+        </DataTemplate>
+      </ComboBox.ItemTemplate>
+    </ComboBox>
+    <TextBlock Text="Writes the handoff summary when a conversation is auto-compacted at 80% context. Automatic picks the cheapest capable model at compaction time; applies from the next compaction."
+               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
     <CheckBox Content="Show keys" IsChecked="{Binding KeysVisible}" Margin="0,4,0,0"/>
 
     <TextBlock Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave a field blank to remove that key."
