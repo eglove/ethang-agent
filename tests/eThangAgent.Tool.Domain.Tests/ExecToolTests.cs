@@ -61,6 +61,25 @@ public class ExecToolTests
   }
 
   [Fact]
+  public async Task Parse_Failure_On_Raw_String_Program_Includes_Hint()
+  {
+    FakeExecEngine engine = new();
+    engine.ParseErrors.Add(new ExecParseError(2, 71, "Unterminated raw string literal."));
+    ExecTool tool = CreateTool(engine);
+    string json = System.Text.Json.JsonSerializer.Serialize(new
+    {
+      timeoutSeconds = 120,
+      program = "var s = \"\"\"broken",
+    });
+
+    ToolResult result = await tool.ExecuteAsync(
+        new RawToolInput("exec", json), ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Contains("hint (line 1)", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task ParseErrors_ShortCircuit_BeforeExecution()
   {
     FakeExecEngine engine = new();

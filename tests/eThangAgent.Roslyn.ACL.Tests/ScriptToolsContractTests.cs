@@ -95,6 +95,56 @@ public class ScriptToolsContractTests
     Assert.StartsWith("Error [ToolTimeout]", result, StringComparison.Ordinal);
   }
 
+  // --- Argument-shape contract errors throw loudly (research 2026-08-30):
+  //     codes knowable from the arguments alone have no legitimate continue-path;
+  //     buried among successes they silently lose work (corpus: 53 + 25 occurrences).
+
+  [Theory]
+  [InlineData("InvalidParameterValue")]
+  [InlineData("MissingParameter")]
+  public void ContractErrorCodes_Throw_Loudly(string code)
+  {
+    ScriptGlobals globals = new(CapabilityRegistry.Create([new CodedErrorProvider(code)]), ".", Path.GetTempPath());
+    Exception ex = Assert.Throws<ScriptToolException>(() => globals.Tools.Invoke("boom", new { timeoutSeconds = 30 }));
+    Assert.Contains($"Error [{code}]", ex.Message, StringComparison.Ordinal);
+  }
+
+  [Theory]
+  [InlineData("AnchorNotFound")]
+  [InlineData("DirectoryNotFound")]
+  [InlineData("FileNotFound")]
+  [InlineData("PathOutsideWorkspace")]
+  [InlineData("ToolError")]
+  public void EnvironmentalOutcomes_StayInBand(string code)
+  {
+    ScriptGlobals globals = new(CapabilityRegistry.Create([new CodedErrorProvider(code)]), ".", Path.GetTempPath());
+    string result = globals.Tools.Invoke("boom", new { timeoutSeconds = 30 });
+    Assert.StartsWith($"Error [{code}]", result, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Require_Throws_On_Error_Result()
+  {
+    Exception ex = Assert.Throws<ScriptToolException>(() => ScriptTools.Require("Error [AnchorNotFound]: nope"));
+    Assert.Contains("Error [AnchorNotFound]", ex.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Require_Returns_The_Result_On_Success() =>
+      Assert.Equal("[edit a.cs] replaced 1 occurrence", ScriptTools.Require("[edit a.cs] replaced 1 occurrence"));
+
+  private sealed class CodedErrorProvider(string code) : ICapabilityProvider
+  {
+    public string Id => "coded";
+    public IReadOnlyList<ActionDescriptor> Actions { get; } =
+    [
+        new ActionDescriptor("boom", "Fails with a fixed code.", "Test stub.", []),
+    ];
+    public Task<CapabilityInvocationResult> InvokeAsync(string actionName,
+        string jsonArguments, CancellationToken ct = default) =>
+        Task.FromResult(CapabilityInvocationResult.Fail($"Error [{code}]: boom failed"));
+  }
+
   private sealed class SlowProvider : ICapabilityProvider
   {
     public string Id => "slowp";

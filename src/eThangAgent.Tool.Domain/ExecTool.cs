@@ -61,7 +61,8 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutpu
 
     if (parse.Value.Count > 0)
     {
-      return ExecResultFormatter.ParseErrors(parse.Value, _options.MaxParseErrors);
+      IReadOnlyList<string> hints = ExecParseHints.Analyze(exec.Text);
+      return ExecResultFormatter.ParseErrors(parse.Value, _options.MaxParseErrors, hints);
     }
 
     long started = Stopwatch.GetTimestamp();

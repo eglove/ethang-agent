@@ -339,8 +339,41 @@ public sealed class ScriptTools
     }
 
     CapabilityInvocationResult result = scheduled.GetAwaiter().GetResult();
+    if (result.IsError && IsContractError(result.Content))
+    {
+      // Argument-shape violations have no legitimate continue-path: the script cannot
+      // branch its way out of a malformed call, so an in-band error here is exactly the
+      // buried-failure hazard the pre-dispatch throws already prevent.
+      throw new ScriptToolException(result.Content);
+    }
+
     return result.Content;
   }
+  /// <summary>Codes that identify an argument-shape contract violation: knowable from
+  ///     the arguments alone, before any state changed. These throw from Invoke;
+  ///     environmental outcomes (FileNotFound, AnchorNotFound, budgets, ...) stay in-band.</summary>
+  private static readonly HashSet<string> ContractErrorCodes = new(StringComparer.Ordinal)
+  {
+    "InvalidParameterValue",
+    "MissingParameter",
+  };
+
+  /// <summary>True when the in-band error result carries one of the codes that mark an
+  ///     argument-shape contract violation rather than an environmental outcome.</summary>
+  private static bool IsContractError(string resultContent) =>
+      ContractErrorCodes.Any(code => resultContent.StartsWith($"Error [{code}]", StringComparison.Ordinal));
+
+  /// <summary>Throws when <paramref name="result"/> is an in-band error result
+  ///     (starts with "Error ["); otherwise returns it unchanged. The batch-script
+  ///     escape hatch for environmental errors that must not be swallowed.</summary>
+  public static string Require(string result)
+  {
+    ArgumentNullException.ThrowIfNull(result);
+    return result.StartsWith("Error [", StringComparison.Ordinal)
+        ? throw new ScriptToolException(result)
+        : result;
+  }
+
   /// <summary>Serializes the argument object minus the harness-reserved timeoutSeconds key.</summary>
   private static string StripTimeout(JsonElement document)
   {

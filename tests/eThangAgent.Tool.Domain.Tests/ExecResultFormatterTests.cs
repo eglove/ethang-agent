@@ -100,6 +100,18 @@ public class ExecResultFormatterTests
   }
 
   [Fact]
+  public void ParseErrors_With_Hints_Renders_Hints_Above_Diagnostics()
+  {
+    List<ExecParseError> errors = [new(1, 1, "'; expected")];
+    ToolResult result = ExecResultFormatter.ParseErrors(errors, 10, ["hint one", "hint two"]);
+
+    Assert.True(result.IsError);
+    Assert.True(result.Content.IndexOf("hint one", StringComparison.Ordinal)
+        < result.Content.IndexOf("line 1, col 1", StringComparison.Ordinal));
+    Assert.Contains("hint two", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void ParseErrors_BoundedToMax_WithHiddenCount()
   {
     List<ExecParseError> errors = [.. Enumerable.Range(1, 15).Select(i => new ExecParseError(i, 1, $"error {i}"))];

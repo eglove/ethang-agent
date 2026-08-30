@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.6";
+  public const string Version = "2.7";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -59,11 +59,17 @@ public static class ExecGuide
             summary = "work", evidence = new[] { "dotnet build" } });
         Tools.Invoke("state.verify", new { timeoutSeconds = 30 });
 
-    Errors AFTER dispatch — tool-level failures and elapsed budgets — still return as
-    `Error [Code]:` strings you must read and branch on. In a batch, verify each result:
+    Argument-shape contract errors — InvalidParameterValue and MissingParameter — THROW
+    `ScriptToolException` even after dispatch: a malformed call has no legitimate continue-path.
+    Environmental errors — FileNotFound, AnchorNotFound, PathOutsideWorkspace, tool-level
+    failures, elapsed budgets (ToolTimeout) — still return as `Error [Code]:` strings you read
+    and branch on. Parse failures additionally carry `hint (line N):` lines above the raw
+    diagnostics when the program shows a known raw-string mistake (4+ consecutive quotes, opening
+    delimiter with same-line content, closing delimiter not starting its own line). In a batch
+    that must not continue past a failure, wrap with Tools.Require:
 
-        var r = Tools.Invoke("todo", new { timeoutSeconds = 30, action = "Add", description = "x" });
-        if (!r.Contains("[todo] added", StringComparison.Ordinal)) return "batch failed at: " + r;
+        var r = Tools.Require(Tools.Invoke("todo", new { timeoutSeconds = 30, action = "Add", description = "x" }));
+        // Require throws on any 'Error [' result; without it, branch on r yourself.
 
     ### Running external commands
     Shell() runs an external command line spawned directly with native .NET process

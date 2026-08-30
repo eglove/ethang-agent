@@ -47,10 +47,19 @@ public static class ExecResultFormatter
     return new ToolResult(sb.ToString(), run.ErrorLines.Count > 0);
   }
 
-  public static ToolResult ParseErrors(IReadOnlyList<ExecParseError> errors, int maxParseErrors)
+  public static ToolResult ParseErrors(IReadOnlyList<ExecParseError> errors, int maxParseErrors,
+      IReadOnlyList<string>? hints = null)
   {
     ArgumentNullException.ThrowIfNull(errors);
     StringBuilder sb = new("exec error [ExecParseError]: program failed validation.");
+    if (hints is { Count: > 0 })
+    {
+      foreach (string hint in hints)
+      {
+        _ = sb.Append(CultureInfo.InvariantCulture, $"\n{hint}");
+      }
+    }
+
     foreach (ExecParseError? e in errors.Take(maxParseErrors))
     {
       _ = sb.Append(CultureInfo.InvariantCulture, $"\nline {e.Line}, col {e.Column}: {e.Message}");
