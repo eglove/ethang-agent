@@ -65,6 +65,11 @@ internal partial class AgentView : UserControl
     // Tunnel so Enter is seen before TextBox class handling consumes it.
     InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);
 
+    // Tunnel so Esc is seen no matter which control inside the view holds focus
+    // (input box, transcript, clarify panel): while a turn runs it stops it, exactly
+    // like the Stop button. Idle Esc falls through — no notice, no interruption.
+    this.AddHandler(KeyDownEvent, OnViewKeyDownTunnel, RoutingStrategies.Tunnel);
+
     // When a clarify question surfaces, move keyboard focus into the clarify panel so
     // arrow keys + Enter work immediately (free-text questions land in the text box).
     vm.PropertyChanged += (_, e) =>
@@ -117,6 +122,20 @@ internal partial class AgentView : UserControl
   }
 
 
+
+  /// <summary>Esc stops the active turn — same path as the Stop button — whenever any
+  /// control inside this view holds keyboard focus.</summary>
+  private void OnViewKeyDownTunnel(object? sender, KeyEventArgs e)
+  {
+    AgentSessionViewModel? vm = Vm;
+    if (e.Key != Key.Escape || vm is null || !vm.IsBusy)
+    {
+      return;
+    }
+
+    e.Handled = true;
+    vm.RequestStop();
+  }
 
   private void OnInputKeyDownTunnel(object? sender, KeyEventArgs e)
   {

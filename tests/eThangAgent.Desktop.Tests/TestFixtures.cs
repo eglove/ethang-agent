@@ -81,4 +81,43 @@ runner,
     vmRef = vm;
     return vm;
   }
+
+  /// <summary>Runner that parks on its cancellation token until released or cancelled,
+  /// then returns a TurnCancelled failure (the domain contract for interruption).
+  /// Shared by tests that need a genuinely busy turn.</summary>
+  internal sealed class ParkingRunner
+  {
+    private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public CancellationToken ObservedToken { get; private set; }
+
+    public Task Started => _started.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+
+    public void Release() => _release.TrySetResult();
+
+    // IDE0060: parameters required to match the TurnRunner delegate shape; values ignored.
+#pragma warning disable IDE0060, S1172 // Delegate-shape parameters are unused by design.
+    public async Task<Result<string>> RunAsync(SendMessageCommand _command, CancellationToken ct,
+        TurnCallbacks? __ = null, Action<string>? ___ = null)
+    {
+      ObservedToken = ct;
+      _ = _started.TrySetResult();
+      Task finished = await Task.WhenAny(_release.Task, Task.Delay(Timeout.InfiniteTimeSpan, ct)).ConfigureAwait(true);
+      if (finished == _release.Task)
+      {
+        return Result.Success("done");
+      }
+
+      try
+      {
+        await finished.ConfigureAwait(true);
+      }
+#pragma warning disable S108 // Deliberate: stop cancelled the turn; the Result below reports it.
+      catch (OperationCanceledException) { }
+#pragma warning restore S108
+      return Result.Failure<string>(new DomainError("TurnCancelled", "interrupted."));
+    }
+#pragma warning restore IDE0060, S1172 // Delegate-shape parameters are unused by design.
+  }
 }
