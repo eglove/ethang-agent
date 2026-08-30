@@ -5,11 +5,15 @@
              x:Class="eThangAgent.Desktop.Views.AgentView"
              x:DataType="vm:AgentSessionViewModel">
   <UserControl.Styles>
-    <!-- Exec/tool card content must sit flush with the message column: Fluent's
-         ExpanderContent border binds its padding to the Expander's own Padding
-         (default 16), which insets expanded content ~17 DIP past the column. -->
-    <Style Selector="Expander.tool-card">
-      <Setter Property="Padding" Value="0"/>
+    <!-- Header label inset must mirror the chevron's right inset: stretch the
+         header, then left-align the presenter's content (Fluent centers it) and
+         carry the symmetric inset in the header padding itself. -->
+    <Style Selector="Expander.tool-card /template/ ToggleButton#ExpanderHeader">
+      <Setter Property="Padding" Value="8,8,8,8"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
+    <Style Selector="Expander.tool-card /template/ ToggleButton#ExpanderHeader ContentPresenter">
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
     </Style>
 
     <!-- Keyboard highlight for the clarify option the arrow keys rest on. -->
