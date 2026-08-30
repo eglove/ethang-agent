@@ -65,9 +65,8 @@ jobs:
 
       # Always run (not cache-gated): coverage collection depends on it.
       # 'update' installs when missing, so this is idempotent.
-      # Coverage comes from the MTP CodeCoverage extension switches on the
-      # dotnet test command line below (dotnet-coverage wrapping cannot reach
-      # the MTP test executable chain, so the standalone tool is not used).
+      - name: Install dotnet-coverage
+        run: dotnet tool update --global dotnet-coverage
 
       - name: Build and analyze
         env:
@@ -83,12 +82,17 @@ jobs:
           ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"eglove_ethang-agent" /o:"eglove" /d:sonar.cs.vscoveragexml.reportsPaths="${{ github.workspace }}/coverage-vs/merged.coveragexml"
           dotnet build eThangAgent.slnx -c Release --nologo
           $buildExit = $LASTEXITCODE
-          # Circuit breaker + coverage: a hung test produces a dump + log under
-          # TestResults/ instead of freezing the runner until the next push cancels
-          # it (runs 32923889217, 32918551633). xunit.v3 runs on Microsoft.Testing
-          # .Platform (global.json test runner); hang protection and coverage both
-          # ride MTP extension switches after the argument separator.
-          dotnet test --solution eThangAgent.slnx -c Release --no-build -- --hangdump --hangdump-timeout 5m --hangdump-type mini --coverage --coverage-output "${{ github.workspace }}\coverage-vs\merged.coveragexml" --coverage-output-format xml
+          # Circuit breaker: a hung test produces a dump + log under TestResults/
+          # instead of freezing the runner until the next push cancels it (runs
+          # 32923889217, 32918551633) - the MTP --hangdump switches ride after the
+          # argument separator and work under wrapping. Coverage collection wraps
+          # the WHOLE dotnet test invocation: a solution run fans out to one test
+          # executable per test project (18), and the per-process MTP --coverage
+          # switch makes every project write the same output file - last writer
+          # wins, so Sonar imported a single project's modules and master coverage
+          # collapsed 88% -> 11.5% (analyses of 2026-08-29). Wrapping merges all
+          # modules into the one VS-XML report Sonar imports.
+          dotnet-coverage collect "dotnet test --solution eThangAgent.slnx -c Release --no-build -- --hangdump --hangdump-timeout 5m --hangdump-type mini" -f xml -o "${{ github.workspace }}\coverage-vs\merged.coveragexml"
           $testExit = $LASTEXITCODE
           ${{ runner.temp }}\scanner\dotnet-sonarscanner end
           $endExit = $LASTEXITCODE
