@@ -275,6 +275,29 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
   private async Task ExecuteTurnAsync(string input)
   {
+    try
+    {
+      await ExecuteTurnCoreAsync(input);
+    }
+    // A faulting turn must surface, never vanish: the view fire-and-forgets the turn
+    // task (an unobserved exception is invisible), so the fault is delivered to the
+    // transcript instead — the user sees it, and so does any diagnostic session.
+#pragma warning disable CA1031 // Named decision: the turn loop is a fault boundary.
+    catch (Exception ex)
+    {
+      Transcript.AddNotice($"Error [TurnFault]: {ex}");
+    }
+#pragma warning restore CA1031
+    finally
+    {
+      _turnCts = null;
+      Status.Phase = TurnPhase.Ready;
+      IsBusy = false;
+    }
+  }
+
+  private async Task ExecuteTurnCoreAsync(string input)
+  {
     MessageCount++;
     Transcript.AddUser(input);
     Status.Phase = TurnPhase.Thinking;
@@ -289,11 +312,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     int messageCountBefore = _conversation.Messages.Count;
     bool sawStream = false;
     bool compactedThisTurn = false;
-    Result<string> result;
-
-    try
-    {
-      result = await _runner(
+    Result<string> result = await _runner(
           new SendMessageCommand(input),
           cts.Token,
           new TurnCallbacks(
@@ -312,65 +331,44 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
                 bridge.OnToolCall(name, args);
               },
               OnToolResult: bridge.OnToolResult),
-          onNotice: notice =>
-          {
-            // Selection (and reselection) notices surface in the transcript so the user
-            // sees which model was chosen and when selection fell back. The notice text
-            // carries the resolved model id; refresh the status bar to match.
-            Transcript.AddNotice(notice);
-            if (_statusModelUpdater is not null)
-            {
-              string? resolved = TryExtractModelId(notice);
-              if (resolved is not null)
-              {
-                _statusModelUpdater(resolved);
-              }
-            }
-          });
+          onNotice: bridge.OnNotice);
 
-      // Close the channel so the pump can drain all buffered events.
-      bridge.MarkTurnComplete();
+    // Close the channel so the pump can drain all buffered events.
+    bridge.MarkTurnComplete();
 
-      try
-      {
-        await bridge.DrainUntilIdleAsync();
-      }
-      // Named decision (CA1031): a sink fault must surface as an error notice —
-      // the turn loop keeps running and the VM never crashes.
+    try
+    {
+      await bridge.DrainUntilIdleAsync();
+    }
+    // Named decision (CA1031): a sink fault must surface as an error notice —
+    // the turn loop keeps running and the VM never crashes.
 #pragma warning disable CA1031 // Do not catch general exception types
-      catch (Exception ex)
-      {
-        // Sink fault — surface as an error notice rather than crashing the VM.
-        Transcript.AddNotice($"Error [StreamFault]: {ex.Message}");
-        return;
-      }
+    catch (Exception ex)
+    {
+      // Sink fault — surface as an error notice rather than crashing the VM.
+      Transcript.AddNotice($"Error [StreamFault]: {ex.Message}");
+      return;
+    }
 #pragma warning restore CA1031
 
-      // A compacted turn shrank the conversation mid-turn: the slice contract would
-      // double-count, so the transcript is replaced wholesale instead.
-      if (compactedThisTurn)
-      {
-        await _lifecycle.ReplaceTranscriptAsync(_rootId, _conversation, ReportPersistenceError);
-      }
-      else
-      {
-        await _lifecycle.AppendExchangeAsync(
-            _rootId, _conversation, messageCountBefore, result, ReportPersistenceError);
-      }
-
-      // Non-streaming fallback: if no deltas were delivered, show the final text as a notice.
-      if (!result.IsSuccess || !sawStream)
-      {
-        Transcript.AddNotice(result.IsSuccess
-            ? result.Value
-            : $"Error [{result.Error.Code}]: {result.Error.Message}");
-      }
-    }
-    finally
+    // A compacted turn shrank the conversation mid-turn: the slice contract would
+    // double-count, so the transcript is replaced wholesale instead.
+    if (compactedThisTurn)
     {
-      _turnCts = null;
-      Status.Phase = TurnPhase.Ready;
-      IsBusy = false;
+      await _lifecycle.ReplaceTranscriptAsync(_rootId, _conversation, ReportPersistenceError);
+    }
+    else
+    {
+      await _lifecycle.AppendExchangeAsync(
+          _rootId, _conversation, messageCountBefore, result, ReportPersistenceError);
+    }
+
+    // Non-streaming fallback: if no deltas were delivered, show the final text as a notice.
+    if (!result.IsSuccess || !sawStream)
+    {
+      Transcript.AddNotice(result.IsSuccess
+          ? result.Value
+          : $"Error [{result.Error.Code}]: {result.Error.Message}");
     }
   }
 
@@ -426,6 +424,16 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         break;
       case UiStreamEvent.ToolResultEvent tr:
         Transcript.AddToolResult(tr.Name, tr.Summary);
+        break;
+      case UiStreamEvent.Notice n:
+        // Notices arrive through the bridge (turn thread) and apply here on the sink's
+        // thread — the UI thread in production — so the transcript mutation honors the
+        // UI-thread-only contract, exactly like every other turn-voice event.
+        Transcript.AddNotice(n.Text);
+        if (_statusModelUpdater is not null && TryExtractModelId(n.Text) is { } resolved)
+        {
+          _statusModelUpdater(resolved);
+        }
         break;
       default:
         break;

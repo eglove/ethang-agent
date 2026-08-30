@@ -59,13 +59,19 @@ internal static class TestFixtures
   ///     the UI thread (production shape — for headless window tests); otherwise events
   ///     apply on the pump thread (deterministic for plain unit tests).</summary>
   internal static AgentSessionViewModel CreateViewModel(bool marshalToUIThread = false)
-  {
-    static Task<Result<string>> runner(SendMessageCommand command, CancellationToken ct, TurnCallbacks? callbacks, Action<string>? onNotice = null)
-    {
-      callbacks?.OnContentDelta?.Invoke("ack");
-      return Task.FromResult(Result.Success("ack"));
-    }
+      => CreateViewModel(
+          static (command, ct, callbacks, onNotice) =>
+          {
+            callbacks?.OnContentDelta?.Invoke("ack");
+            return Task.FromResult(Result.Success("ack"));
+          },
+          marshalToUIThread);
 
+  /// <summary>Builds an AgentSessionViewModel around a custom turn runner. The VM wraps
+  ///     every runner in DesktopHost.OffUiThread, so the runner body executes on a worker
+  ///     thread — the production shape for callbacks that raise notices mid-turn.</summary>
+  internal static AgentSessionViewModel CreateViewModel(TurnRunner runner, bool marshalToUIThread = false)
+  {
     AgentSessionViewModel? vmRef = null;
     Func<UiStreamEvent, Task> sink = marshalToUIThread
         ? (e => vmRef!.ApplyUiStreamEventOnUIThreadAsync(e))

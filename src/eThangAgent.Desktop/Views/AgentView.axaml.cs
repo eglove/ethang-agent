@@ -52,6 +52,10 @@ internal partial class AgentView : UserControl
       _wiredVm = null;
     }
 
+    // The timer belongs to the wiring, not the view: stop the old one so a re-wire
+    // cannot leave a spinner ticking for a detached VM forever.
+    _statusTimer?.Stop();
+
     _restorePending = false;
     AgentSessionViewModel? vm = Vm;
     if (vm is null)
@@ -119,10 +123,15 @@ internal partial class AgentView : UserControl
   /// <summary>Sticky auto-scroll: entries arriving while the user rests at the
   ///     bottom (and the entry is not user-voice) scroll the tail into view. The
   ///     actual scroll defers to LayoutUpdated - extent is stale inside
-  ///     CollectionChanged - and runs once per queued request.</summary>
+  ///     CollectionChanged - and runs once per queued request.
+  ///     <para>Thread contract: the turn pipeline can add entries from its own thread,
+  ///     so this handler runs on EITHER thread. It must therefore touch only the
+  ///     captured <see cref="_wiredVm"/> field (a plain reference) and dispatcher-safe
+  ///     calls — reading the DataContext property would throw cross-thread (its
+  ///     getter goes through Avalonia's VerifyAccess).</para></summary>
   private void OnEntriesChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
   {
-    AgentSessionViewModel? vm = Vm;
+    AgentSessionViewModel? vm = _wiredVm;
     if (vm is null || e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Add)
     {
       return;

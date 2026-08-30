@@ -4,8 +4,10 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
+using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
+using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -93,5 +95,63 @@ public class AgentViewTests
     AgentView view = (AgentView)window.Content;
     _ = view.GetControl<TextBox>("InputBox").Focus();
     return vm;
+  }
+
+  /// <summary>Regression (sticky-scroll wiring): the turn pipeline raises notices on the
+  ///     worker thread (model selection fires mid-resolver). With a real AgentView
+  ///     subscribed to Entries.CollectionChanged, an inline transcript mutation from that
+  ///     thread used to run the view's handler cross-thread — its first statement read
+  ///     DataContext, Avalonia threw VerifyAccess, and the whole turn died silently
+  ///     (the view fire-and-forgets the turn task). Notices must ride the stream bridge
+  ///     to the sink — production's sink marshals onto the UI thread — so the transcript
+  ///     is never mutated inline on the turn thread.</summary>
+  [AvaloniaFact]
+  public async Task Turn_Notice_Raised_On_The_Worker_Thread_Lands_On_The_Ui_Thread()
+  {
+    bool sinkSawNotice = false;
+    AgentSessionViewModel? vmRef = null;
+    Task Sink(UiStreamEvent evt)
+    {
+      if (evt is UiStreamEvent.Notice)
+      {
+        sinkSawNotice = true;
+      }
+
+      return vmRef!.ApplyUiStreamEventAsync(evt);
+    }
+    AgentSessionViewModel vm = new(
+        static (command, ct, callbacks, onNotice) =>
+        {
+          // The VM wraps this runner in DesktopHost.OffUiThread: this body runs on a
+          // worker thread, exactly like production's resolver notices.
+          onNotice?.Invoke("Model selected: test/model");
+          callbacks?.OnContentDelta?.Invoke("ack");
+          return Task.FromResult(Result.Success("ack"));
+        },
+        new RecordingLifecycle(new TestFixtures.StubStore()),
+        AgentId.NewId(),
+        new Conversation(),
+        "OpenRouter", "test/model",
+        new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", UiStreamSink = Sink });
+    vmRef = vm;
+
+    // DataContext AFTER Show(): the production view is templated inside a shown window,
+    // so its wiring (CollectionChanged subscription) must tolerate the dispatcher-bound
+    // lifecycle this order produces.
+    AgentView view = new();
+    Window window = new() { Content = view };
+    window.Show();
+    view.DataContext = vm;
+
+    Task turnTask = vm.SubmitAsync("hello");
+    await turnTask.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(true);
+
+    Assert.False(vm.IsBusy);
+    Assert.Contains(vm.Transcript.Entries,
+        e => e is NoticeEntry n && n.Text.Contains("Model selected: test/model", StringComparison.Ordinal));
+    Assert.DoesNotContain(vm.Transcript.Entries, e => e is NoticeEntry n
+        && n.Text.Contains("TurnFault", StringComparison.Ordinal));
+    Assert.True(sinkSawNotice,
+        "turn notices must ride the stream bridge to the sink (which marshals onto the UI thread), never mutate the transcript inline on the turn thread");
   }
 }
