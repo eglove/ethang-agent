@@ -77,4 +77,17 @@ public class ToolTimeoutTests
     Assert.Contains("45s", result.Content, StringComparison.Ordinal);
     Assert.Contains("timeoutSeconds", result.Content, StringComparison.Ordinal);
   }
+
+  [Fact]
+  public void TimedOut_Attributes_The_Budget_To_The_Caller()
+  {
+    // The budget is the CALLER's own timeoutSeconds parameter. Without attribution
+    // the message reads like a tool-internal cap, and the caller misattributes the
+    // failure (observed in production: a controller retrospected a tool defect that
+    // was actually its own 60s parameter choice).
+    ToolResult result = ToolTimeout.TimedOut("clarify", TimeSpan.FromSeconds(60));
+
+    Assert.Contains("you set via timeoutSeconds", result.Content, StringComparison.Ordinal);
+    Assert.Contains("60s", result.Content, StringComparison.Ordinal);
+  }
 }
