@@ -5,6 +5,13 @@
              x:Class="eThangAgent.Desktop.Views.AgentView"
              x:DataType="vm:AgentSessionViewModel">
   <UserControl.Styles>
+    <!-- Exec/tool card content must sit flush with the message column: Fluent's
+         ExpanderContent border binds its padding to the Expander's own Padding
+         (default 16), which insets expanded content ~17 DIP past the column. -->
+    <Style Selector="Expander.tool-card">
+      <Setter Property="Padding" Value="0"/>
+    </Style>
+
     <!-- Keyboard highlight for the clarify option the arrow keys rest on. -->
     <Style Selector="Button.selected">
       <Setter Property="BorderBrush" Value="#4C8CFF"/>
@@ -94,7 +101,7 @@
             <md:ReasoningMarkdownBlock MarkdownText="{Binding Text}" IsOpen="{Binding IsOpen}" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
           <DataTemplate DataType="vm:ToolCallEntry">
-            <Expander Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+            <Expander Classes="tool-card" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
               <Expander.Header>
                 <TextBlock TextWrapping="Wrap" MaxWidth="620">
                   <Run Text="⚙ "/><Run Text="{Binding Name, Mode=OneWay}"/>
@@ -106,7 +113,7 @@
             </Expander>
           </DataTemplate>
           <DataTemplate DataType="vm:ToolResultEntry">
-            <Expander Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+            <Expander Classes="tool-card" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
               <Expander.Header>
                 <TextBlock TextWrapping="Wrap" MaxWidth="620">
                   <Run Text="↳ "/><Run Text="{Binding Name, Mode=OneWay}"/><Run Text=" "/>
