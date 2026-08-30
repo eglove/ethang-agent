@@ -20,6 +20,11 @@
         <TextBlock Text="{Binding Status.Provider}"/>
         <TextBlock Text="{Binding Status.ModelId}"/>
         <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>
+        <TextBlock x:Name="SessionIdText" Text="{Binding SessionIdShort}" Opacity="0.7"
+                   ToolTip.Tip="{Binding SessionIdFull}"/>
+        <Button x:Name="CopySessionId" Content="⧉" Padding="4,0"
+                Click="OnCopySessionId" VerticalAlignment="Center"
+                ToolTip.Tip="Copy session id"/>
       </StackPanel>
     </Border>
 
@@ -73,8 +78,9 @@
       </StackPanel>
     </DockPanel>
 
-    <!-- Transcript: one implicit template per entry type. -->
-    <ScrollViewer x:Name="TranscriptScroll">
+    <!-- Transcript: one implicit template per entry type. ScrollChanged feeds the
+         sticky auto-scroll controller (see AgentView code-behind). -->
+    <ScrollViewer x:Name="TranscriptScroll" ScrollChanged="OnTranscriptScrollChanged">
       <ItemsControl x:Name="TranscriptList" ItemsSource="{Binding Transcript.Entries}" Margin="4,8">
         <ItemsControl.DataTemplates>
           <DataTemplate DataType="vm:UserMessageEntry">

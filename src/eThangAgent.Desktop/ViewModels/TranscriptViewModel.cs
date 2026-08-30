@@ -22,6 +22,11 @@ internal sealed class TranscriptViewModel
 
   public ObservableCollection<TranscriptEntry> Entries { get; } = [];
 
+  /// <summary>Sticky auto-scroll state for this transcript. Lives on the
+  ///     view-model (not the view) so a rebuilt AgentView - the tab switch path -
+  ///     inherits the sticky state and last reading offset.</summary>
+  public TranscriptScrollController Scroll { get; } = new();
+
   public void AddUser(string text)
   {
     CloseOpen();

@@ -80,6 +80,15 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>The workspace directory this agent works from (tab subtitle).</summary>
   public string WorkspaceRoot { get; }
 
+  /// <summary>The persisted root session id (status-bar display, copy support).</summary>
+  public Guid SessionId => _rootId.Value;
+
+  /// <summary>The session id's first 8 hex characters (the compact status-bar form).</summary>
+  public string SessionIdShort => SessionId.ToString()[..8];
+
+  /// <summary>The full session id as a string (tooltip / clipboard form).</summary>
+  public string SessionIdFull => SessionId.ToString();
+
   /// <summary>Tab caption: the workspace directory's name.</summary>
   public string Title => Path.GetFileName(WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar));
 
