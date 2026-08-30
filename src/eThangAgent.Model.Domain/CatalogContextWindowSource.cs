@@ -4,7 +4,8 @@ namespace eThangAgent.ModelDomain;
 
 /// <summary>Read-only lookup of a model's context-window size from the provider
 /// catalog: the first entry matching the model id where the provider name is null
-/// or equal; null when the model is unknown.</summary>
+/// or equal. Null means "no authoritative window" — the model is unknown to the
+/// catalog OR the catalog fetch failed; callers take their fallback path either way.</summary>
 public interface IContextWindowSource
 {
   Task<int?> WindowForAsync(string modelId, string? providerName, CancellationToken ct = default);
