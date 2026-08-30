@@ -25,7 +25,7 @@ public class ModelPickerWindowTests
           AgenticScore: null, LatencyMs: null, ThroughputTokensPerSec: null, Description: null),
   ];
 
-  private static (ModelPickerWindow Window, ModelPickerViewModel Vm, ListBox List) ShowPicker()
+  private static async Task<(ModelPickerWindow Window, ModelPickerViewModel Vm, ListBox List)> ShowPicker()
   {
     ModelPickerWindow window = new(
         _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(Entries)),
@@ -33,9 +33,26 @@ public class ModelPickerWindowTests
     window.Show();
     ModelPickerViewModel vm = (ModelPickerViewModel)window.DataContext!;
     ListBox list = window.GetControl<ListBox>("ModelList");
-    // Pump the dispatcher until the Opened-triggered catalog load (instant fake) lands.
-    Dispatcher.UIThread.RunJobs();
-    Assert.False(vm.IsLoading);
+    // Pump the dispatcher until the Opened-triggered catalog load settles. The load
+    // hops to the thread pool and its completion posts back to the UI thread, so a
+    // single RunJobs() can drain BEFORE the completion post lands (observed on CI:
+    // the assert then fired early AND the undelivered continuation wedged the
+    // headless session at teardown, idling the host until the 30m job timeout).
+    // Delay between pumps so the completion post can arrive; the hard deadline
+    // turns a never-settling load into a fast, stateful failure, never a hung job.
+    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+    while (vm.IsLoading && DateTimeOffset.UtcNow < deadline)
+    {
+      await Task.Delay(10).ConfigureAwait(true);
+      Dispatcher.UIThread.RunJobs();
+    }
+
+    if (vm.IsLoading)
+    {
+      throw new InvalidOperationException("picker catalog load did not settle within 10s");
+    }
+
+    Assert.Null(vm.LoadError); // a failed load leaves the list empty; surface why
     Assert.Equal(2, list.ItemCount); // auto row + the one model
     return (window, vm, list);
   }
@@ -53,9 +70,9 @@ public class ModelPickerWindowTests
   }
 
   [AvaloniaFact]
-  public void Selecting_Row_On_The_List_Writes_Back_To_The_View_Model()
+  public async Task Selecting_Row_On_The_List_Writes_Back_To_The_View_Model()
   {
-    (ModelPickerWindow window, ModelPickerViewModel vm, ListBox list) = ShowPicker();
+    (ModelPickerWindow window, ModelPickerViewModel vm, ListBox list) = await ShowPicker().ConfigureAwait(true);
     ModelPickerRow target = vm.FilteredRows.First(r => r.ModelId == "deepseek/deepseek-v4-flash");
 
     list.SelectedItem = target; // what a row click must ultimately produce
@@ -65,10 +82,10 @@ public class ModelPickerWindowTests
   }
 
   [AvaloniaFact]
-  public void Clicking_A_Row_Then_Select_Confirms_That_Row_Not_The_PreSelected_Auto()
+  public async Task Clicking_A_Row_Then_Select_Confirms_That_Row_Not_The_PreSelected_Auto()
   {
     ModelChoice? received = null;
-    (ModelPickerWindow window, ModelPickerViewModel vm, ListBox list) = ShowPicker();
+    (ModelPickerWindow window, ModelPickerViewModel vm, ListBox list) = await ShowPicker().ConfigureAwait(true);
     vm.ConfirmRequested += (_, choice) => received = choice;
     Assert.Null(vm.SelectedRow!.ModelId); // pre-selected auto row, as in production
 
