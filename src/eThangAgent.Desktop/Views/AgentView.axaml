@@ -12,12 +12,14 @@
     </Style>
   </UserControl.Styles>
   <DockPanel>
-    <!-- Status bar: phase, provider, model id, reasoning effort. -->
+    <!-- Status bar: phase first, then context, the running tool's elapsed,
+         provider, model id, reasoning effort. -->
     <Border DockPanel.Dock="Bottom" Background="#22000000">
-      <StackPanel Orientation="Horizontal" Spacing="12" Margin="8,4">
+      <StackPanel x:Name="StatusBar" Orientation="Horizontal" Spacing="12" Margin="8,4">
         <TextBlock x:Name="SpinnerText" Text="{Binding Status.Spinner}"/>
-        <TextBlock Text="{Binding Status.ContextDisplay}" ToolTip.Tip="{Binding Status.ContextBreakdownText}"/>
-        <TextBlock Text="{Binding Status.PhaseLabel}"/>
+        <TextBlock x:Name="PhaseText" Text="{Binding Status.PhaseLabel}"/>
+        <TextBlock x:Name="ContextText" Text="{Binding Status.ContextDisplay}" ToolTip.Tip="{Binding Status.ContextBreakdownText}"/>
+        <TextBlock x:Name="ToolText" Text="{Binding Status.ToolDisplay}"/>
         <TextBlock Text="{Binding Status.Provider}"/>
         <TextBlock Text="{Binding Status.ModelId}"/>
         <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>
