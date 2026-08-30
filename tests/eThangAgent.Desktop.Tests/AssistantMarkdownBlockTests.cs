@@ -6,6 +6,29 @@ namespace eThangAgent.Desktop.Tests;
 
 public class AssistantMarkdownBlockTests
 {
+  // Regression: the block must render from property changes alone - the UI binds
+  // MarkdownText/IsOpen and never calls Render. (Tests below that call Render()
+  // directly verify content, not the production trigger.)
+
+  [Fact]
+  public void MarkdownText_Change_Renders_Plain_Text_Without_Explicit_Render()
+  {
+    AssistantMarkdownBlock block = new() { MarkdownText = "streaming plain" };
+    Run run = Assert.IsType<Run>(Assert.Single(block.Inlines!));
+    Assert.Equal("streaming plain", run.Text);
+  }
+
+  [Fact]
+  public void IsOpen_False_Change_Replaces_Plain_Run_With_Markdown()
+  {
+    AssistantMarkdownBlock block = new() { MarkdownText = "done **bold**" };
+    _ = Assert.IsType<Run>(Assert.Single(block.Inlines!)); // plain Run while open - no parse
+    block.IsOpen = false;
+    Run bold = Assert.IsType<Run>(Assert.Single(block.Inlines!.OfType<Run>(), r => r.FontWeight == FontWeight.Bold));
+    Assert.Equal("bold", bold.Text);
+    Assert.DoesNotContain(block.Inlines!, i => i is Run { Text: "done **bold**" });
+  }
+
   [Fact]
   public void Open_Block_Renders_Plain_Text_While_Streaming()
   {

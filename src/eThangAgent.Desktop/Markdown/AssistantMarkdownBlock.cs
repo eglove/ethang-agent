@@ -7,8 +7,10 @@ namespace eThangAgent.Desktop.Markdown;
 /// <summary>Transcript block for assistant text: renders plain while open (streaming,
 ///     no per-token re-parse), markdown once closed. Owns MarkdownText/IsOpen styled
 ///     properties; the inherited Text stays unused so it cannot fight Inlines.
-///     Rendering happens in <see cref="Render"/> - called by data templates when the
-///     entry settles - rather than on property-change callbacks.</summary>
+///     Rendering runs in <see cref="Render"/> whenever MarkdownText or IsOpen changes:
+///     streaming deltas replace the entry record, so the re-pushed binding drives each
+///     re-render - the open path is a single plain Run, and the markdown parser runs
+///     only on close.</summary>
 internal class AssistantMarkdownBlock : SelectableTextBlock
 {
   public static readonly StyledProperty<string> MarkdownTextProperty =
@@ -27,6 +29,17 @@ internal class AssistantMarkdownBlock : SelectableTextBlock
   {
     get => GetValue(IsOpenProperty);
     set => SetValue(IsOpenProperty, value);
+  }
+
+  // Self-rendering: nothing outside this class may call Render (the shipped bug was
+  // a control that waited for a caller that never came - invisible assistant text).
+  protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+  {
+    base.OnPropertyChanged(change);
+    if (change.Property == MarkdownTextProperty || change.Property == IsOpenProperty)
+    {
+      Render();
+    }
   }
 
   /// <summary>Rebuilds the inline content from the current MarkdownText/IsOpen state.
