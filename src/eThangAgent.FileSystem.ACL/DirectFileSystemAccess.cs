@@ -119,12 +119,19 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
           new DomainError("BinaryFile", $"File appears to be binary (NUL byte found): {path}.")));
     }
 
+    // Matching tolerates line-ending differences: an anchor written with LF must
+    // match CRLF content and vice versa (files arrive under many conventions). The
+    // match runs on normalized views; the splice maps matches back to original
+    // offsets so the untouched parts of the file keep their exact bytes.
+    string matchText = NormalizeNewlines(text);
+    string matchAnchor = NormalizeNewlines(oldText);
+
     int count = 0;
-    int idx = text.IndexOf(oldText, StringComparison.Ordinal);
+    int idx = matchText.IndexOf(matchAnchor, StringComparison.Ordinal);
     while (idx >= 0)
     {
       count++;
-      idx = text.IndexOf(oldText, idx + oldText.Length, StringComparison.Ordinal);
+      idx = matchText.IndexOf(matchAnchor, idx + matchAnchor.Length, StringComparison.Ordinal);
     }
 
     if (count == 0)
@@ -140,22 +147,59 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
           new DomainError("OccurrenceMismatch", $"Anchor occurs {count} time(s) but {occurrences} replacement(s) were requested.")));
     }
 
+    // Normalized and original offsets line up only when no CR was stripped; build
+    // a normalized-offset -> original-offset map for the general case.
+    int[] map = BuildOffsetMap(text, matchText);
     StringBuilder sb = new();
-    int pos = 0;
+    int matchPos = 0;
+    int originalPos = 0;
     int done = 0;
     while (done < target)
     {
-      idx = text.IndexOf(oldText, pos, StringComparison.Ordinal);
-      _ = sb.Append(text.AsSpan(pos, idx - pos));
+      int normalizedIdx = matchText.IndexOf(matchAnchor, matchPos, StringComparison.Ordinal);
+      int originalStart = map[normalizedIdx];
+      int originalEnd = map[normalizedIdx + matchAnchor.Length];
+      _ = sb.Append(text.AsSpan(originalPos, originalStart - originalPos));
       _ = sb.Append(newText);
-      pos = idx + oldText.Length;
+      originalPos = originalEnd;
+      matchPos = normalizedIdx + matchAnchor.Length;
       done++;
     }
-    _ = sb.Append(text.AsSpan(pos));
+
+    _ = sb.Append(text.AsSpan(originalPos));
     string result = sb.ToString();
     File.WriteAllText(path, result, new UTF8Encoding(false));
     int lineCount = result.Length == 0 ? 0 : 1 + result.Count(c => c == '\n');
     return Task.FromResult(Result.Success(new ReplaceOutcome(done, lineCount)));
+  }
+
+  /// <summary>Normalizes CRLF and bare CR to LF for tolerant anchor matching.</summary>
+  private static string NormalizeNewlines(string text)
+      => text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal);
+
+  /// <summary>Maps every offset in the normalized text back to the corresponding
+  ///     offset in the original (map.Length == normalized.Length + 1, so the end
+  ///     offset of the last character is addressable). Only CRLF/CR-to-LF collapses
+  ///     shifts offsets; every other character maps 1:1.</summary>
+  private static int[] BuildOffsetMap(string original, string normalized)
+  {
+    int[] map = new int[normalized.Length + 1];
+    int originalIdx = 0;
+    for (int i = 0; i < normalized.Length; i++)
+    {
+      map[i] = originalIdx;
+      if (normalized[i] == '\n' && originalIdx < original.Length && original[originalIdx] == '\r')
+      {
+        originalIdx += originalIdx + 1 < original.Length && original[originalIdx + 1] == '\n' ? 2 : 1;
+      }
+      else
+      {
+        originalIdx++;
+      }
+    }
+
+    map[normalized.Length] = originalIdx;
+    return map;
   }
 
   public Task<Result<FileSearch>> SearchFilesAsync(

@@ -117,6 +117,54 @@ public sealed class DirectFileSystemAccessTests : IDisposable
   }
 
   [Fact]
+  public async Task ReplaceInFileAsync_LfAnchor_MatchesCrlfContent()
+  {
+    // Regression: anchors fail with AnchorNotFound purely because the file uses CRLF
+    // and the anchor LF (observed against files written under other conventions).
+    string path = Path.Combine(_tempDir, "crlf.txt");
+    _ = Directory.CreateDirectory(_tempDir);
+    await File.WriteAllTextAsync(path, "alpha\r\nbeta\r\ngamma", TestContext.Current.CancellationToken);
+    DirectFileSystemAccess access = new();
+
+    Result<ReplaceOutcome> r = await access.ReplaceInFileAsync(path, "alpha\nbeta", "ALPHA\nBETA", occurrences: 1, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    string after = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
+    Assert.Contains("ALPHA", after, StringComparison.Ordinal);
+    Assert.Contains("BETA", after, StringComparison.Ordinal);
+    Assert.Equal(3, r.Value.NewLineCount); // three lines preserved
+  }
+
+  [Fact]
+  public async Task ReplaceInFileAsync_CrlfAnchor_MatchesLfContent()
+  {
+    string path = Path.Combine(_tempDir, "lf.txt");
+    _ = Directory.CreateDirectory(_tempDir);
+    await File.WriteAllTextAsync(path, "alpha\nbeta", TestContext.Current.CancellationToken);
+    DirectFileSystemAccess access = new();
+
+    Result<ReplaceOutcome> r = await access.ReplaceInFileAsync(path, "alpha\r\nbeta", "REPLACED", occurrences: 1, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal("REPLACED", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task ReplaceInFileAsync_GenuinelyMissingAnchor_StillFails()
+  {
+    // Tolerance must not weaken the not-found contract: no anchor means an error.
+    string path = Path.Combine(_tempDir, "missing.txt");
+    _ = Directory.CreateDirectory(_tempDir);
+    await File.WriteAllTextAsync(path, "alpha\r\nbeta", TestContext.Current.CancellationToken);
+    DirectFileSystemAccess access = new();
+
+    Result<ReplaceOutcome> r = await access.ReplaceInFileAsync(path, "nothing here\nat all", "X", occurrences: 1, ct: TestContext.Current.CancellationToken);
+
+    Assert.False(r.IsSuccess);
+    Assert.Equal("AnchorNotFound", r.Error.Code);
+  }
+
+  [Fact]
   public async Task SearchFilesAsync_LiteralMatch_FindsLines()
   {
     string path = Path.Combine(_tempDir, "search.txt");
