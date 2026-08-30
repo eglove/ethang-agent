@@ -139,6 +139,18 @@ public static class AgentComposition
             sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<ISelfDatabaseAccess, SqliteSelfDatabaseAccess>()
         .AddSingleton<IContextWindowSource, SessionContextWindowSource>()
+        .AddSingleton(sp =>
+        {
+          // Summarizer model resolved per compaction (never pinned at startup).
+          CompactionModelResolver summarizer = new(
+              sp.GetRequiredService<IAppPreferenceStore>(),
+              sp.GetRequiredService<IModelCatalog>(),
+              providerName,
+              sp.GetRequiredService<IWorkspaceContext>().WorkspaceId);
+          return new DefaultContextCompactor(
+              sp.GetRequiredService<IModelProviderFactory>(),
+              () => summarizer.ResolveAsync(SubAgentSpawner.ChildMaxTokens, SubAgentSpawner.ChildTemperature).GetAwaiter().GetResult());
+        })
         .AddSingleton<ICommitStyleProvider, AppPreferenceCommitStyleProvider>()
         .AddSingleton<IStateStore, SqliteStateStore>()
         .AddSingleton<IAgentStore, SqliteAgentStore>()
@@ -176,7 +188,8 @@ public static class AgentComposition
             sp.GetRequiredService<ISystemPromptProvider>(),
             sp.GetRequiredService<SubAgentOptions>(),
             sp.GetRequiredService<SessionModelPreferences>(),
-            sp.GetRequiredService<IContextWindowSource>()))
+            sp.GetRequiredService<IContextWindowSource>(),
+            sp.GetRequiredService<DefaultContextCompactor>()))
         .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
             sp.GetRequiredService<SubAgentSpawner>(),
             sp.GetRequiredService<IAgentStore>(),
@@ -266,7 +279,8 @@ public static class AgentComposition
             sp.GetRequiredService<IModelProvider>(),
             sp.GetRequiredService<Conversation>(),
             sp.GetRequiredService<IToolRegistry>(),
-            sp.GetRequiredService<ISystemPromptProvider>()))
+            sp.GetRequiredService<ISystemPromptProvider>(),
+            contextCompactor: sp.GetRequiredService<DefaultContextCompactor>()))
         .AddSingleton(sp => new RootAgentResolver(
             sp.GetService<IModelSelector>(),
             sp.GetRequiredService<IAgentStore>(),

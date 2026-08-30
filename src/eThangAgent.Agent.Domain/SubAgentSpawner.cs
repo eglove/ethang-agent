@@ -21,7 +21,7 @@ public sealed record AgentRunOutcome(
 ///     spawn command (<c>StartSpawnHandler</c>), which hands the persisted record here.</summary>
 public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore store, IToolRegistry tools,
     ISystemPromptProvider systemPrompt, SubAgentOptions options, SessionModelPreferences? preferences = null,
-    IContextWindowSource? windowSource = null)
+    IContextWindowSource? windowSource = null, IContextCompactor? contextCompactor = null)
     : IAgentRunner
 {
   /// <summary>Model-facing annotation appended when a child report exceeds the 50 KB storage guideline.</summary>
@@ -49,6 +49,7 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
   private readonly SubAgentOptions _options = options ?? throw new ArgumentNullException(nameof(options));
   private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IContextWindowSource? _windowSource = windowSource;
+  private readonly IContextCompactor? _contextCompactor = contextCompactor;
 
   private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
 
@@ -79,12 +80,15 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
     ModelConfig config = ModelConfig.Create(
         child.ModelUsed, null, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort).Value!;
 
+    // Each child gets its own accountant: two children must never share totals.
     Agent agent = new(_factory.Create(config), new Conversation(), config, _tools,
         new AgentOptions
         {
           SystemPrompt = _systemPrompt,
           Id = child.Id,
           Depth = child.Depth,
+          ContextMonitor = new ContextAccountant(window.Value),
+          ContextCompactor = _contextCompactor,
         });
 
     using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);

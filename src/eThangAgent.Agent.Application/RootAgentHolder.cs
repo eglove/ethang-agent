@@ -20,17 +20,23 @@ public sealed class RootAgentHolder(
     Conversation conversation,
     IToolRegistry tools,
     ISystemPromptProvider? systemPrompt = null,
-    int? maxAutoContinuations = null)
+    int? maxAutoContinuations = null,
+    IContextCompactor? contextCompactor = null)
 {
   private readonly IModelProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
   private readonly Conversation _conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
+  private readonly IContextCompactor? _contextCompactor = contextCompactor;
 
   /// <summary>The model currently serving the root, or null before the first turn resolves it.</summary>
   public ModelConfig? CurrentConfig { get; private set; }
 
   /// <summary>The current root agent, or null before the first turn builds it.</summary>
   public Ag? Current { get; private set; }
+
+  /// <summary>The accountant backing the current agent — context status for display
+  ///     between turns. Null before the first build.</summary>
+  public ContextAccountant? Accountant { get; private set; }
 
   /// <summary>Builds (or rebuilds) the root agent with <paramref name="config"/>. The shared
   ///     conversation and dependencies are reused, so a rebuild preserves all message history
@@ -44,11 +50,16 @@ public sealed class RootAgentHolder(
     }
 
     CurrentConfig = config;
+    // One accountant per window: a rebuild with a different model (hence window)
+    // restarts accounting — mixing windows in one accumulator would lie about totals.
+    Accountant = new ContextAccountant(config.ContextWindow);
     Current = new Ag(_provider, _conversation, config, _tools,
         new AgentOptions
         {
           SystemPrompt = systemPrompt,
           MaxAutoContinuations = maxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,
+          ContextMonitor = Accountant,
+          ContextCompactor = _contextCompactor,
         });
     return Current;
   }
