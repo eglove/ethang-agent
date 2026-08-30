@@ -7,7 +7,9 @@ namespace eThangAgent.ModelDomain;
 /// <param name="Content">Assistant text, or null when the model returned only tool calls.</param>
 /// <param name="ToolCalls">Tool calls requested by the model; empty for a plain answer.</param>
 /// <param name="FinishReason">Why the response ended.</param>
+/// <param name="Usage">Provider-reported token usage, or null when the provider reported none.</param>
 public sealed record ModelResponse(
     string? Content,
     IReadOnlyList<ToolCallRequest> ToolCalls,
-    FinishReason FinishReason = FinishReason.Stop);
+    FinishReason FinishReason = FinishReason.Stop,
+    TokenUsage? Usage = null);
