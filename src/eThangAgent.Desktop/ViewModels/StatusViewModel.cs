@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using eThangAgent.ModelDomain;
 using Avalonia.Threading;
 
 namespace eThangAgent.Desktop.ViewModels;
@@ -81,6 +82,72 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
 
   /// <summary>Current spinner frame; empty whenever the turn phase is Ready.</summary>
   public string Spinner => Phase == TurnPhase.Ready ? "" : Frames[_frame];
+
+  /// <summary>CTX statusline text, e.g. "CTX 148.2K/1M, 15%". "" until the first
+  ///     context update; unknown window shows session totals only.</summary>
+  public string ContextDisplay
+  {
+    get;
+    private set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(ContextDisplay));
+    }
+  } = "";
+
+  /// <summary>Hover breakdown line, or "" when no breakdown estimate exists.</summary>
+  public string ContextBreakdownText
+  {
+    get;
+    private set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(ContextBreakdownText));
+    }
+  } = "";
+
+  /// <summary>Applies a new context snapshot (null clears the display). Any thread.</summary>
+  public void SetContext(ContextSnapshot? snapshot)
+  {
+    if (snapshot is null)
+    {
+      ContextDisplay = "";
+      ContextBreakdownText = "";
+      return;
+    }
+
+    ContextStatus status = snapshot.Status;
+    string totals = FormatTokens(status.LastInputTokens ?? (int)status.TotalInputTokens);
+    ContextDisplay = status.ContextWindow is { } window
+        ? $"CTX {totals}/{FormatTokens(window)}, {status.UtilizationPercent:0}%"
+        : $"CTX {totals} total";
+
+    ContextBreakdownText = snapshot.Breakdown is not { } breakdown
+        ? ""
+        : $"System ~{FormatTokens(breakdown.SystemPromptTokens ?? 0)} · Messages ~{FormatTokens(breakdown.MessageTokens ?? 0)} · Tools ~{FormatTokens(breakdown.ToolTokens ?? 0)}";
+  }
+
+  /// <summary>Formats token counts: raw below 1000, one-decimal K below a million,
+  ///     and M above that (exactly one million renders as "1M").</summary>
+  private static string FormatTokens(int tokens)
+  {
+    return tokens switch
+    {
+      >= 1_000_000 => tokens == 1_000_000 ? "1M" : $"{tokens / 1_000_000.0:0.#}M",
+      >= 1000 => $"{tokens / 1000.0:0.#}K",
+      _ => tokens.ToString(System.Globalization.CultureInfo.InvariantCulture),
+    };
+  }
 
   /// <summary>Human-readable phase label: Ready / Thinking… / Streaming…</summary>
   public string PhaseLabel => Phase switch

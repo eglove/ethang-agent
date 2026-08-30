@@ -279,6 +279,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     int messageCountBefore = _conversation.Messages.Count;
     bool sawStream = false;
+    bool compactedThisTurn = false;
     Result<string> result;
 
     try
@@ -294,6 +295,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
               },
               OnReasoningDelta: bridge.OnReasoningDelta,
               OnIterationEnd: bridge.OnIterationEnd,
+              OnContextUpdate: snapshot => Status.SetContext(snapshot),
+              OnCompacted: _ => compactedThisTurn = true,
               OnToolCall: (name, args, index, count) =>
               {
                 RecordToolBatch(name, index, count);
@@ -334,8 +337,17 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       }
 #pragma warning restore CA1031
 
-      await _lifecycle.AppendExchangeAsync(
-          _rootId, _conversation, messageCountBefore, result, ReportPersistenceError);
+      // A compacted turn shrank the conversation mid-turn: the slice contract would
+      // double-count, so the transcript is replaced wholesale instead.
+      if (compactedThisTurn)
+      {
+        await _lifecycle.ReplaceTranscriptAsync(_rootId, _conversation, ReportPersistenceError);
+      }
+      else
+      {
+        await _lifecycle.AppendExchangeAsync(
+            _rootId, _conversation, messageCountBefore, result, ReportPersistenceError);
+      }
 
       // Non-streaming fallback: if no deltas were delivered, show the final text as a notice.
       if (!result.IsSuccess || !sawStream)
