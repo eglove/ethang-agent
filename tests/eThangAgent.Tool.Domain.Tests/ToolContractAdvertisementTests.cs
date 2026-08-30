@@ -152,6 +152,25 @@ public class ToolContractAdvertisementTests
     Assert.DoesNotContain("new", tool.Definition.RequiredParameters);
   }
 
+  // ── write ─────────────────────────────────────────────────────────────────
+
+  [Fact]
+  public void Write_ContentAndLines_AreOptionalButExclusive_WithContentRequiredByDefault()
+  {
+    WriteTool tool = new(new UnrootedPathResolver(), new StubWriteAccess());
+    Assert.DoesNotContain("content", tool.Definition.RequiredParameters);
+    Assert.DoesNotContain("lines", tool.Definition.RequiredParameters);
+    Assert.DoesNotContain("overwrite", tool.Definition.RequiredParameters);
+  }
+
+  [Fact]
+  public void Write_Lines_IsAdvertisedAsATextArrayOfStrings()
+  {
+    WriteTool tool = new(new UnrootedPathResolver(), new StubWriteAccess());
+    ToolParameter p = Param(tool, "lines");
+    Assert.Equal(ToolParameterType.TextArray, p.Type);
+  }
+
   // ── todo ─────────────────────────────────────────────────────────────────
 
   [Fact]
@@ -248,6 +267,17 @@ internal sealed class StubEditAccess : IFileEditAccess
   public Task<Result<ReplaceOutcome>> ReplaceInFileAsync(string path, string oldText,
       string newText, int? occurrences, CancellationToken ct = default) =>
       Task.FromResult(Result.Failure<ReplaceOutcome>(new DomainError("Unused", "not exercised")));
+}
+
+
+internal sealed class StubWriteAccess : IFileWriteAccess
+{
+  public Task<Result<FileWriteOutcome>> WriteFileAsync(string path, string content,
+      bool overwrite, CancellationToken ct = default) =>
+      Task.FromResult(Result.Failure<FileWriteOutcome>(new DomainError("Unused", "not exercised")));
+  public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(string path, byte[] bytes,
+      bool overwrite, CancellationToken ct = default) =>
+      Task.FromResult(Result.Failure<FileWriteOutcome>(new DomainError("Unused", "not exercised")));
 }
 
 internal sealed class StubTodoStore : ITodoListStore
