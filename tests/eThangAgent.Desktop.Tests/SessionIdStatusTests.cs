@@ -33,7 +33,7 @@ public class SessionIdStatusTests
     Assert.Equal(vm.SessionIdShort, idText.Text);
     Assert.Equal(vm.SessionIdFull, ToolTip.GetTip(idText) as string);
     Button copy = view.GetControl<Button>("CopySessionId");
-    Avalonia.Input.Platform.IClipboard? clip = TopLevel.GetTopLevel(view)?.Clipboard;
+    IClipboard? clip = TopLevel.GetTopLevel(view)?.Clipboard;
     Assert.NotNull(clip);
     // Raise the Button's own Click routed event - the exact event a real click
     // raises - so the view's handler wiring is exercised end to end.
