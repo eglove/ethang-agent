@@ -22,7 +22,7 @@ public class ToolArgsFormatterTests
   [Fact]
   public void Display_Preview_Is_Single_Line_Truncated()
   {
-    string preview = ToolArgsFormatter.Preview("{\"a\":1}", maxChars: 8);
+    string preview = ToolArgsFormatter.Preview(/*lang=json,strict*/ "{\"a\":1}", maxChars: 8);
     Assert.True(preview.Length <= 9);
     Assert.DoesNotContain('\n', preview);
   }

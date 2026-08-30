@@ -41,7 +41,7 @@ public class ToolCardAlignmentTests
     AgentView view = (AgentView)window.Content;
 
     vm.Transcript.AddUser("user line");
-    vm.Transcript.AddToolCall("read", "{\"path\":\"a.cs\"}");
+    vm.Transcript.AddToolCall("read", /*lang=json,strict*/ "{\"path\":\"a.cs\"}");
     Dispatcher.UIThread.RunJobs();
 
     (double cardX, double textX) = Layout(view);
@@ -58,7 +58,7 @@ public class ToolCardAlignmentTests
     window.Show();
     AgentView view = (AgentView)window.Content;
 
-    vm.Transcript.AddToolCall("read", "{\"path\":\"a.cs\"}");
+    vm.Transcript.AddToolCall("read", /*lang=json,strict*/ "{\"path\":\"a.cs\"}");
     vm.Transcript.AddToolResult("read", "ok", "content", false);
     Dispatcher.UIThread.RunJobs();
 
@@ -84,7 +84,7 @@ public class ToolCardAlignmentTests
     Avalonia.Controls.Primitives.ToggleButton header = card.GetVisualDescendants()
         .OfType<Avalonia.Controls.Primitives.ToggleButton>().First();
     TextBlock label = header.GetVisualDescendants().OfType<TextBlock>().First();
-    Avalonia.Controls.Border chevron = header.GetVisualDescendants().OfType<Avalonia.Controls.Border>()
+    Border chevron = header.GetVisualDescendants().OfType<Border>()
         .First(b => b.Name == "ExpandCollapseChevronBorder");
     double labelInset = RootX(label) - RootX(card);
     double chevronInset = RootX(card) + card.Bounds.Width - (RootX(chevron) + chevron.Bounds.Width);

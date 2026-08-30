@@ -1,3 +1,4 @@
+using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
 
 namespace eThangAgent.Desktop.Tests;
@@ -19,11 +20,11 @@ public class ToolResultTranscriptTests
   public void Restore_ToolResult_Carries_Persisted_Content_As_FullContent()
   {
     TranscriptViewModel vm = new();
-    List<eThangAgent.ConversationDomain.Message> messages =
+    List<Message> messages =
     [
-      new(eThangAgent.ConversationDomain.Role.Assistant, "", DateTimeOffset.UtcNow,
-          [new eThangAgent.ConversationDomain.ToolCall("call_1", "read", "{}")]),
-      new(eThangAgent.ConversationDomain.Role.Tool, "file contents here", DateTimeOffset.UtcNow,
+      new(Role.Assistant, "", DateTimeOffset.UtcNow,
+          [new ToolCall("call_1", "read", "{}")]),
+      new(Role.Tool, "file contents here", DateTimeOffset.UtcNow,
           ToolCallId: "call_1"),
     ];
 
