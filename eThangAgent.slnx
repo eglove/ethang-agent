@@ -7,11 +7,13 @@
     <Project Path="src/eThangAgent.Agent.Infrastructure/eThangAgent.Agent.Infrastructure.csproj" />
     <Project Path="src/eThangAgent.Memory.Domain/eThangAgent.Memory.Domain.csproj" />
     <Project Path="src/eThangAgent.Skill.Domain/eThangAgent.Skill.Domain.csproj" />
+    <Project Path="src/eThangAgent.Web.ACL/eThangAgent.Web.ACL.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/eThangAgent.Agent.Infrastructure.Tests/eThangAgent.Agent.Infrastructure.Tests.csproj" />
     <Project Path="tests/eThangAgent.Memory.Domain.Tests/eThangAgent.Memory.Domain.Tests.csproj" />
     <Project Path="tests/eThangAgent.Skill.Domain.Tests/eThangAgent.Skill.Domain.Tests.csproj" />
+    <Project Path="tests/eThangAgent.Web.ACL.Tests/eThangAgent.Web.ACL.Tests.csproj" />
   </Folder>
   <Project Path="src/eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
   <Project Path="src/eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />

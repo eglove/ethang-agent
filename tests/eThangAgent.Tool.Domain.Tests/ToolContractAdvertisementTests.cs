@@ -236,6 +236,31 @@ public class ToolContractAdvertisementTests
     Assert.Contains("sqlite_*", description, StringComparison.Ordinal);
     Assert.Contains("db_query", description, StringComparison.Ordinal);
   }
+
+  // ── web_fetch ────────────────────────────────────────────────────────────
+
+  [Fact]
+  public void WebFetch_UrlAndTimeout_AreRequired()
+  {
+    WebFetchTool tool = new(new StubWebAccessForAdvertisement(), new StubHtmlToMarkdown());
+    Assert.Equal(["url", "timeoutSeconds"], tool.Definition.RequiredParameters);
+  }
+
+  [Fact]
+  public void WebFetch_Description_StatesAnnotationContract()
+  {
+    WebFetchTool tool = new(new StubWebAccessForAdvertisement(), new StubHtmlToMarkdown());
+    Assert.Contains("[web-fetch", tool.Definition.Description, StringComparison.Ordinal);
+    Assert.Contains("verbatim", tool.Definition.Description, StringComparison.Ordinal);
+    Assert.Contains("Error [Code]:", tool.Definition.Description, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void WebFetch_UrlParameter_IsText()
+  {
+    ToolParameter p = Param(new WebFetchTool(new StubWebAccessForAdvertisement(), new StubHtmlToMarkdown()), "url");
+    Assert.Equal(ToolParameterType.Text, p.Type);
+  }
 }
 
 // ── stubs (fakes only — a Tool.Domain test never knows HTTP or OpenRouter exist) ──
@@ -286,4 +311,11 @@ internal sealed class StubTodoStore : ITodoListStore
       Task.FromResult(Result.Failure<string>(new DomainError("KeyNotFound", "empty")));
   public Task<Result<int>> WriteValueAsync(string key, string value, int? expectedVersion, CancellationToken ct = default) =>
       Task.FromResult(Result.Success(1));
+}
+
+/// <summary>Advertisement tests never fetch; the seam stays untouched.</summary>
+internal sealed class StubWebAccessForAdvertisement : IWebAccess
+{
+  public Task<Result<WebResource>> FetchAsync(Uri url, CancellationToken ct = default) =>
+      Task.FromResult(Result.Failure<WebResource>(new DomainError("Unused", "never called")));
 }

@@ -54,6 +54,11 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - `git_commit` tool — validated commits of the current index in the user's chosen style
   (Conventional, Gitmoji, or plain — a host setting, resolved live per commit; never a model parameter),
   with an optional `files` array of workspace-relative paths to stage first (relative-only: no drives, no `..`, no `.`)
+- `web_fetch` tool — fetch a web page or resource over HTTP(S) and return readable text:
+  HTML pages are converted to markdown (headings, links with absolute URLs, lists, tables,
+  fenced code); other textual responses (plain text, JSON, XML) pass through verbatim; binary
+  responses are rejected. Redirects are followed and the output's first line always annotates
+  the final URL, status, content type, and size
 - Curated memory loop — `memories.search/add/update/remove` over a categorized, full-text,
   versioned knowledge base, with turn-boundary nudges prompting curation
 - Skill subsystem: 18 embedded skills (development methodology plus per-style commit guidance),

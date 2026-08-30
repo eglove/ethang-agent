@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Web.ACL/eThangAgent.Web.ACL.csproj" />
+  </ItemGroup>
+</Project>

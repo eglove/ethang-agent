@@ -6,6 +6,7 @@ using eThangAgent.AgentInfrastructure;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.FileSystem.ACL;
+using eThangAgent.Web.ACL;
 using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
@@ -61,6 +62,8 @@ public static class AgentComposition
         .AddSingleton(ExecOptions.Default)
         .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
         .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
+        .AddSingleton<IWebAccess, HttpWebAccess>()
+        .AddSingleton<IHtmlToMarkdown, HtmlAgilityMarkdownConverter>()
         .AddSingleton(sp => new AgentToolsProvider("agent",
         [
             new AgentToolBinding(
@@ -121,6 +124,10 @@ public static class AgentComposition
                         sp.GetRequiredService<IGitCommitAccess>(),
                         sp.GetRequiredService<ICommitStyleProvider>()),
                     "Commit the current index with a validated conventional or gitmoji message."),
+                new AgentToolBinding(
+                    new WebFetchTool(sp.GetRequiredService<IWebAccess>(),
+                        sp.GetRequiredService<IHtmlToMarkdown>()),
+                    "Fetch a web page or resource over HTTP(S) and return readable text (HTML converted to markdown; other text verbatim)."),
                 // Pure graph math, no external access: safe for sub-agents too.
                 new AgentToolBinding(
                     new CycleCheckTool(),
