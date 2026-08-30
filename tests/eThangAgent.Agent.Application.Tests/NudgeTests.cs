@@ -137,7 +137,7 @@ public class NudgeTests
         Result.Success(new ModelResponse("done", [])));
     Conversation conversation = new();
     Ag agent = new(provider, conversation,
-        ModelConfig.Create("m", null, 100, 0.5f).Value!,
+        ModelConfig.Create("m", null, 100, 0.5f, 8192).Value!,
         new ToolRegistry([new StubTool("t", "ok")]));
     CountingPolicy policy = new(null);
     SendMessageCommandHandler handler = new(agent, conversation, policy, () => 7);
@@ -169,7 +169,7 @@ public class NudgeTests
   {
     ScriptedProvider provider = new(Result.Success(new ModelResponse("ok", [])));
     Ag agent = new(provider, new Conversation(),
-        ModelConfig.Create("m", null, 100, 0.5f).Value!, new ToolRegistry([]));
+        ModelConfig.Create("m", null, 100, 0.5f, 8192).Value!, new ToolRegistry([]));
     SendMessageCommandHandler handler = new(agent);
 
     Result<string> result = await handler.Handle(new SendMessageCommand("hello"), ct: TestContext.Current.CancellationToken);
@@ -183,7 +183,7 @@ public class NudgeTests
   {
     Conversation conversation = new();
     Ag agent = new(provider, conversation,
-        ModelConfig.Create("m", null, 100, 0.5f).Value!, new ToolRegistry([]));
+        ModelConfig.Create("m", null, 100, 0.5f, 8192).Value!, new ToolRegistry([]));
     return (agent, conversation);
   }
 

@@ -42,7 +42,7 @@ public class ReasoningEffortWireTests
     OpenRouterModelProvider provider = new(http, Config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, effort).Value!,
+        ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096, effort).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     using JsonDocument doc = JsonDocument.Parse(capturedBody!);
@@ -63,7 +63,7 @@ public class ReasoningEffortWireTests
     OpenRouterModelProvider provider = new(http, Config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("openai/gpt-5", null, 64, 0.7f).Value!,
+        ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     using JsonDocument doc = JsonDocument.Parse(capturedBody!);

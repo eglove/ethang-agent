@@ -213,7 +213,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     // (intelligent selection, or the user's model picker choice restored from the
     // per-workspace preference).
     ModelConfig defaultModel = ModelConfig.Create(
-        Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f).Value!;
+        Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f,
+        // Bootstrap-only: the routing/fallback placeholder serves until the first turn
+        // resolves the real model; the curated floor covers its accounting meanwhile.
+        Providers.RoutingContextWindow).Value!;
 
     return new ServiceCollection()
         .AddEThangAgentCore(_settings, providerName, defaultModel,

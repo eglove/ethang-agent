@@ -12,7 +12,7 @@ namespace eThangAgent.OpenRouter.ACL.Tests;
 public class RetryTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");
-  private static ModelConfig Model => ModelConfig.Create("m", null, 256, 0.7f).Value!;
+  private static ModelConfig Model => ModelConfig.Create("m", null, 256, 0.7f, 4096).Value!;
 
   private static OpenRouterConfiguration Config(RetryPolicy? policy = null) =>
       new("test-key", BaseUrl) { Retry = policy ?? new RetryPolicy(4) };

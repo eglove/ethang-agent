@@ -63,7 +63,7 @@ public class ProviderFailoverResolverTests
     FakeModelSelector selector = new(Selection("new-model", "NewProvider"));
     FakeExclusionStore exclusions = new();
     ProviderFailoverResolver resolver = new(selector, exclusions,
-        identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f);
+        identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f, windowSource: new FixedWindowSource());
 
     (ModelConfig? config, string? notice) = await resolver.ReSelectExcludingAsync(
         "failed-model", "FailedProvider", "task prompt", ct: TestContext.Current.CancellationToken);
@@ -82,7 +82,7 @@ public class ProviderFailoverResolverTests
     FakeModelSelector selector = new(); // returns failure (empty queue)
     FakeExclusionStore exclusions = new();
     ProviderFailoverResolver resolver = new(selector, exclusions,
-        identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f);
+        identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f, windowSource: new FixedWindowSource());
 
     (ModelConfig? config, string? notice) = await resolver.ReSelectExcludingAsync(
         "failed-model", "FailedProvider", "task prompt", ct: TestContext.Current.CancellationToken);
@@ -99,7 +99,7 @@ public class ProviderFailoverResolverTests
     FakeExclusionStore exclusions = new();
     _ = exclusions.Exclusions.Add("prior:model");
     ProviderFailoverResolver resolver = new(selector, exclusions,
-        identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f);
+        identity: null, store: null, fallbackModelId: FallbackModel, maxTokens: 2048, temperature: 0.7f, windowSource: new FixedWindowSource());
 
     _ = await resolver.ReSelectExcludingAsync("failed", "Failed", "task", ct: TestContext.Current.CancellationToken);
 

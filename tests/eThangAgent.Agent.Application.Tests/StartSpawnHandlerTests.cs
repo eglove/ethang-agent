@@ -31,7 +31,7 @@ public class StartSpawnHandlerTests
     FakeAgentStore store = new(callLog);
     FakeAgentRuntime runtime = new(callLog);
     SubAgentOptions options = new(DefaultModel: "fallback-model");
-    StartSpawnHandler handler = new(store, runtime, options, new SpawnOptions(FallbackModel));
+    StartSpawnHandler handler = new(store, runtime, options, new SpawnOptions(FallbackModel), windowSource: new FixedWindowSource());
     AgentRecord parent = Parent(depth: 1);
 
     Result<AgentId> result = await handler.Execute(parent, new SpawnRequest("do the thing", Model: "explicit-model", Label: "lbl"), ct: TestContext.Current.CancellationToken);
@@ -63,7 +63,7 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel), windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest(""), ct: TestContext.Current.CancellationToken);
 
@@ -79,7 +79,7 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel), windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task", Model: "   "), ct: TestContext.Current.CancellationToken);
 
@@ -95,7 +95,7 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m", MaxDepth: 3), new SpawnOptions(FallbackModel));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m", MaxDepth: 3), new SpawnOptions(FallbackModel), windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(depth: 3), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
@@ -111,7 +111,7 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel), windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
@@ -126,7 +126,7 @@ public class StartSpawnHandlerTests
   {
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "fallback-model"), new SpawnOptions(FallbackModel));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "fallback-model"), new SpawnOptions(FallbackModel), windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
@@ -142,7 +142,7 @@ public class StartSpawnHandlerTests
     DomainError capError = new("ConcurrencyCapReached", "runtime at capacity");
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new() { StartOutcome = Result.Failure<AgentId>(capError) };
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel), windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
@@ -159,7 +159,7 @@ public class StartSpawnHandlerTests
     DomainError saveError = new("StorageDown", "agent store unavailable.");
     FakeAgentStore store = new() { SaveFailure = saveError };
     FakeAgentRuntime runtime = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "m"), new SpawnOptions(FallbackModel), windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
@@ -177,7 +177,7 @@ public class StartSpawnHandlerTests
         new TaskCategory(["coding"], 4, false, true, null, null),
         new ModelFilter(null, null, null, null, true, null, null, null, null, null, null), "best");
     FakeModelSelector selector = new(selection);
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel), selector);
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel), selector, windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"), ct: TestContext.Current.CancellationToken);
 
@@ -192,7 +192,7 @@ public class StartSpawnHandlerTests
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
     FailingModelSelector selector = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel), selector);
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel), selector, windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"), ct: TestContext.Current.CancellationToken);
 
@@ -207,7 +207,7 @@ public class StartSpawnHandlerTests
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "glm-5.3-flash"), new SpawnOptions(FallbackModel, preferences));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "glm-5.3-flash"), new SpawnOptions(FallbackModel, preferences), windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task"), ct: TestContext.Current.CancellationToken);
 
@@ -222,7 +222,7 @@ public class StartSpawnHandlerTests
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "glm-5.3-flash"), new SpawnOptions(FallbackModel, preferences));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: "glm-5.3-flash"), new SpawnOptions(FallbackModel, preferences), windowSource: new FixedWindowSource());
 
     Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("task", Model: "spawn-specific"), ct: TestContext.Current.CancellationToken);
 
@@ -237,7 +237,7 @@ public class StartSpawnHandlerTests
     FakeAgentStore store = new();
     FakeAgentRuntime runtime = new();
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3-flash" };
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel, preferences));
+    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel, preferences), windowSource: new FixedWindowSource());
 
     _ = await handler.Execute(Parent(), new SpawnRequest("first"), ct: TestContext.Current.CancellationToken);
     preferences.ModelId = "glm-5.3";

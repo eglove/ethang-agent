@@ -24,7 +24,7 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new() { ReasoningEffort = ReasoningEffort.Low };
     RootAgentResolver resolver = new(
         new FakeModelSelector(Selection("anthropic/claude-3.5-sonnet")), store: null, identity: null,
-        "openrouter/auto", 2048, 0.7f, preferences);
+        "openrouter/auto", 2048, 0.7f, preferences, new FixedWindowSource());
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
 
@@ -36,7 +36,7 @@ public class SessionModelPreferencesTests
   {
     RootAgentResolver resolver = new(
         selector: null, store: null, identity: null,
-        "openrouter/auto", 2048, 0.7f);
+        "openrouter/auto", 2048, 0.7f, preferences: null, windowSource: new FixedWindowSource());
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
 
@@ -49,7 +49,7 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new();
     RootAgentResolver resolver = new(
         selector: null, store: null, identity: null,
-        "openrouter/auto", 2048, 0.7f, preferences);
+        "openrouter/auto", 2048, 0.7f, preferences, new FixedWindowSource());
     Conversation conversation = new();
 
     (ModelConfig first, _) = await resolver.ResolveAsync(conversation, "turn one", ct: TestContext.Current.CancellationToken);
@@ -66,7 +66,7 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
     RootAgentResolver resolver = new(
         new FakeModelSelector(Selection("anthropic/claude-3.5-sonnet")), store: null, identity: null,
-        "glm-5.3-flash", 2048, 0.7f, preferences);
+        "glm-5.3-flash", 2048, 0.7f, preferences, new FixedWindowSource());
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
 
@@ -79,7 +79,7 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3", ReasoningEffort = ReasoningEffort.High };
     RootAgentResolver resolver = new(
         selector: null, store: null, identity: null,
-        "glm-5.3-flash", 2048, 0.7f, preferences);
+        "glm-5.3-flash", 2048, 0.7f, preferences, new FixedWindowSource());
 
     (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
 
@@ -96,7 +96,7 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new();
     RootAgentResolver resolver = new(
         selector: null, store, new RootSessionIdentity() { Id = rootId },
-        "glm-5.3-flash", 2048, 0.7f, preferences);
+        "glm-5.3-flash", 2048, 0.7f, preferences, new FixedWindowSource());
     Conversation conversation = new();
 
     (ModelConfig first, string? firstNotice) = await resolver.ResolveAsync(conversation, "turn one", ct: TestContext.Current.CancellationToken);
@@ -120,7 +120,7 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3-flash" };
     RootAgentResolver resolver = new(
         selector: null, store: null, identity: null,
-        "glm-5.3-flash", 2048, 0.7f, preferences);
+        "glm-5.3-flash", 2048, 0.7f, preferences, new FixedWindowSource());
     Conversation conversation = new();
 
     (ModelConfig first, _) = await resolver.ResolveAsync(conversation, "turn one", ct: TestContext.Current.CancellationToken);

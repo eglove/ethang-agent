@@ -138,6 +138,7 @@ public static class AgentComposition
         .AddSingleton<IAppPreferenceStore>(sp => new SqliteAppPreferenceStore(
             sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<ISelfDatabaseAccess, SqliteSelfDatabaseAccess>()
+        .AddSingleton<IContextWindowSource, SessionContextWindowSource>()
         .AddSingleton<ICommitStyleProvider, AppPreferenceCommitStyleProvider>()
         .AddSingleton<IStateStore, SqliteStateStore>()
         .AddSingleton<IAgentStore, SqliteAgentStore>()
@@ -162,7 +163,9 @@ public static class AgentComposition
       wired = wired.AddSingleton<IModelSelector>(sp => new IntelligentModelSelector(
           sp.GetRequiredService<IModelProvider>(),
           sp.GetRequiredService<IModelCatalog>(),
-          ModelConfig.Create(Providers.SelectorModelId(providerName), null, 2048, 0f).Value!));
+          ModelConfig.Create(Providers.SelectorModelId(providerName), null, 2048, 0f,
+              // Bootstrap-only selector pseudo-model; its own calls are tiny and fixed.
+              Providers.RoutingContextWindow).Value!));
     }
 
     wired = wired
@@ -172,7 +175,8 @@ public static class AgentComposition
             sp.GetRequiredService<IToolRegistry>(),
             sp.GetRequiredService<ISystemPromptProvider>(),
             sp.GetRequiredService<SubAgentOptions>(),
-            sp.GetRequiredService<SessionModelPreferences>()))
+            sp.GetRequiredService<SessionModelPreferences>(),
+            sp.GetRequiredService<IContextWindowSource>()))
         .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
             sp.GetRequiredService<SubAgentSpawner>(),
             sp.GetRequiredService<IAgentStore>(),
@@ -184,7 +188,8 @@ public static class AgentComposition
             new SpawnOptions(
                 Providers.FallbackModelId(providerName),
                 sp.GetRequiredService<SessionModelPreferences>()),
-            sp.GetService<IModelSelector>()))
+            sp.GetService<IModelSelector>(),
+            sp.GetRequiredService<IContextWindowSource>()))
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
@@ -269,7 +274,8 @@ public static class AgentComposition
             Providers.FallbackModelId(providerName),
             defaultModel.MaxTokens,
             defaultModel.Temperature,
-            sp.GetRequiredService<SessionModelPreferences>()))
+            sp.GetRequiredService<SessionModelPreferences>(),
+            sp.GetRequiredService<IContextWindowSource>()))
         .AddSingleton(sp => new ProviderFailoverResolver(
             sp.GetService<IModelSelector>(),
             sp.GetRequiredService<IProviderExclusionStore>(),
@@ -277,7 +283,8 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentStore>(),
             Providers.FallbackModelId(providerName),
             defaultModel.MaxTokens,
-            defaultModel.Temperature))
+            defaultModel.Temperature,
+            sp.GetRequiredService<IContextWindowSource>()))
         .AddSingleton(sp => new SendMessageCommandHandler(
             agent: null,
             sp.GetRequiredService<Conversation>(),

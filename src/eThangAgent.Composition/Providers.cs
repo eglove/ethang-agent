@@ -39,4 +39,11 @@ public static class Providers
 
   /// <summary>Model id for the selection pipeline's own categorize/decide calls.</summary>
   public static string SelectorModelId(string providerName) => FallbackModelId(providerName);
+
+  /// <summary>The OpenRouter server-side routing pseudo-model id; it has no catalog row.</summary>
+  public const string RoutingModelId = "openrouter/auto";
+
+  /// <summary>Curated operational context window for the routing pseudo-model: a
+  ///     conservative floor (the smallest common upstream window), never a guessed exact.</summary>
+  public const int RoutingContextWindow = 128_000;
 }

@@ -25,7 +25,7 @@ public class ZaiModelProviderTests
                                  """{"choices":[{"message":{"content":"Hello back"}}]}""")));
     using HttpClient http = new(handler);
     ZaiModelProvider provider = new(http, Config);
-    ModelConfig config = ModelConfig.Create("glm-5.3", null, 256, 0.7f).Value!;
+    ModelConfig config = ModelConfig.Create("glm-5.3", null, 256, 0.7f, 1_000_000).Value!;
 
     Result<ModelResponse> result = await provider.SendAsync(config, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
@@ -52,7 +52,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 128, 0.7f).Value!,
+        ModelConfig.Create("glm-5.3", null, 128, 0.7f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
@@ -78,7 +78,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 128, 0.7f).Value!,
+        ModelConfig.Create("glm-5.3", null, 128, 0.7f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
@@ -105,7 +105,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3-flash", null, 128, 0.7f).Value!,
+        ModelConfig.Create("glm-5.3-flash", null, 128, 0.7f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     // Default CodingPlan mode: the coding segment is appended after the base path.
@@ -131,7 +131,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3-flash", null, 128, 0.7f).Value!,
+        ModelConfig.Create("glm-5.3-flash", null, 128, 0.7f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.Equal("https://api.z.ai/api/paas/v4/chat/completions", captured!.RequestUri!.ToString());
@@ -155,7 +155,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, Config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 128, 0.7f).Value!,
+        ModelConfig.Create("glm-5.3", null, 128, 0.7f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     using JsonDocument doc = JsonDocument.Parse(capturedBody!);
@@ -181,7 +181,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, Config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", "SomeUpstream", 128, 0.7f).Value!,
+        ModelConfig.Create("glm-5.3", "SomeUpstream", 128, 0.7f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     using JsonDocument doc = JsonDocument.Parse(capturedBody!);
@@ -213,7 +213,7 @@ public class ZaiModelProviderTests
         ];
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 100, 0.5f).Value!,
+        ModelConfig.Create("glm-5.3", null, 100, 0.5f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")], tools), TestContext.Current.CancellationToken);
 
     Assert.Contains("\"required\":[\"path\",\"startLine\",\"endLine\"]", capturedBody, StringComparison.Ordinal);
@@ -232,7 +232,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 100, 0.5f).Value!,
+        ModelConfig.Create("glm-5.3", null, 100, 0.5f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
@@ -266,7 +266,7 @@ public class ZaiModelProviderTests
         ];
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 100, 0.5f).Value!,
+        ModelConfig.Create("glm-5.3", null, 100, 0.5f, 1_000_000).Value!,
         new ModelRequest(messages), TestContext.Current.CancellationToken);
 
     Assert.Contains("\"role\":\"tool\"", capturedBody, StringComparison.Ordinal);
@@ -288,7 +288,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 100, 0.5f).Value!,
+        ModelConfig.Create("glm-5.3", null, 100, 0.5f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
@@ -304,7 +304,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 100, 0.5f).Value!,
+        ModelConfig.Create("glm-5.3", null, 100, 0.5f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
@@ -320,7 +320,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 100, 0.5f).Value!,
+        ModelConfig.Create("glm-5.3", null, 100, 0.5f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.False(result.IsSuccess);
@@ -340,7 +340,7 @@ public class ZaiModelProviderTests
     ZaiModelProvider provider = new(http, Config);
 
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 100, 0.5f).Value!,
+        ModelConfig.Create("glm-5.3", null, 100, 0.5f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);

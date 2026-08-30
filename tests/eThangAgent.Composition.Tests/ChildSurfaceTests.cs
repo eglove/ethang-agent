@@ -21,7 +21,7 @@ public class ChildSurfaceTests
         new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("test/model", null, 512, 0.5f).Value!,
+            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(new SilentClarifyChannel(),
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
         .BuildServiceProvider();

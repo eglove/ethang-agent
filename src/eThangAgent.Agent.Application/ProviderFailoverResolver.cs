@@ -18,7 +18,8 @@ public sealed class ProviderFailoverResolver(
     IAgentStore? store,
     string fallbackModelId,
     int maxTokens,
-    float temperature)
+    float temperature,
+    IContextWindowSource? windowSource = null)
 {
   public static readonly TimeSpan DefaultExclusionTtl = TimeSpan.FromMinutes(10);
 
@@ -29,6 +30,7 @@ public sealed class ProviderFailoverResolver(
   private readonly string _fallbackModelId = fallbackModelId ?? throw new ArgumentNullException(nameof(fallbackModelId));
   private readonly int _maxTokens = maxTokens;
   private readonly float _temperature = temperature;
+  private readonly IContextWindowSource? _windowSource = windowSource;
 
   public async Task<(ModelConfig Config, string? Notice)> ResolveAsync(
       Conversation conversation, string prompt, CancellationToken ct = default)
@@ -37,14 +39,14 @@ public sealed class ProviderFailoverResolver(
 
     if (_selector is null)
     {
-      return (Make(_fallbackModelId, null), null);
+      return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false), null);
     }
 
     IReadOnlySet<string> excluded = await _exclusions.GetActiveExclusionsAsync(ct).ConfigureAwait(false);
     Result<ModelSelectionResult> selection = await _selector.SelectAsync(prompt, excluded, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)
     {
-      return (Make(_fallbackModelId, null),
+      return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false),
           $"Model selection failed: {selection.Error.Message}; using {_fallbackModelId}.");
     }
 
@@ -53,7 +55,7 @@ public sealed class ProviderFailoverResolver(
 
     string? persistNotice = await TryPersistModelAsync(modelId, ct).ConfigureAwait(false);
     string? notice = persistNotice is null ? null : $"Model selected: {persistNotice}";
-    return (Make(modelId, providerName), notice);
+    return (await MakeAsync(modelId, providerName, ct).ConfigureAwait(false), notice);
   }
 
   public async Task<(ModelConfig Config, string? Notice)> ReSelectExcludingAsync(
@@ -70,14 +72,14 @@ public sealed class ProviderFailoverResolver(
     // retry turn.
     if (_selector is null)
     {
-      return (Make(_fallbackModelId, null),
+      return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false),
           $"Model {failedModelId} via {failedProviderName} failed; using {_fallbackModelId}.");
     }
 
     Result<ModelSelectionResult> selection = await _selector.SelectAsync(taskPrompt, excluded, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)
     {
-      return (Make(_fallbackModelId, null),
+      return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false),
           $"Model {failedModelId} via {failedProviderName} failed; all alternatives exhausted, using {_fallbackModelId}.");
     }
 
@@ -86,13 +88,34 @@ public sealed class ProviderFailoverResolver(
     _ = await TryPersistModelAsync(modelId, ct).ConfigureAwait(false);
 
     string notice = $"Model {failedModelId} via {failedProviderName} failed; falling back to {modelId} via {providerName}.";
-    return (Make(modelId, providerName), notice);
+    return (await MakeAsync(modelId, providerName, ct).ConfigureAwait(false), notice);
   }
 
-  private ModelConfig Make(string modelId, string? providerName)
+  private async Task<ModelConfig> MakeAsync(string modelId, string? providerName, CancellationToken ct)
   {
-    Result<ModelConfig> created = ModelConfig.Create(modelId, providerName, _maxTokens, _temperature);
-    return created.IsSuccess ? created.Value : Make(_fallbackModelId, null);
+    int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(modelId, providerName, ct).ConfigureAwait(false);
+    if (window is { } resolved)
+    {
+      Result<ModelConfig> created = ModelConfig.Create(modelId, providerName, _maxTokens, _temperature, resolved);
+      if (created.IsSuccess)
+      {
+        return created.Value;
+      }
+    }
+
+    // Unknown window (or invalid create): the fallback serves instead — the same
+    // failure-notice chain that a failed selection takes.
+    return await MakeFallbackAsync(ct).ConfigureAwait(false);
+  }
+
+  private async Task<ModelConfig> MakeFallbackAsync(CancellationToken ct)
+  {
+    int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(_fallbackModelId, null, ct).ConfigureAwait(false);
+    return window is { } resolved
+        ? ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature, resolved).Value!
+        : throw new InvalidOperationException(
+            $"Fallback model '{_fallbackModelId}' has no catalog context window; the resolver cannot serve any turn. "
+            + "This is a composition wiring fault: the fallback must be a model the catalog (or a curated constant) knows.");
   }
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)

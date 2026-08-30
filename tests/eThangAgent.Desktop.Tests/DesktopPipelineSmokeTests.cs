@@ -33,7 +33,7 @@ public class DesktopPipelineSmokeTests
 
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("mock/model", null, 256, 0.2f).Value!,
+            ModelConfig.Create("mock/model", null, 256, 0.2f, 8192).Value!,
             new AgentHostOptions(
                 new StubClarifyChannel(),
                 new FixedWorkspaceContext("app"),
@@ -53,7 +53,7 @@ public class DesktopPipelineSmokeTests
     // uses: a MainViewModel whose single tab wraps the composed session.
     AgentSession session = new(
         services, AgentId.NewId(), conversation, handler, lifecycle,
-        ModelConfig.Create("mock/model", null, 256, 0.2f).Value!,
+        ModelConfig.Create("mock/model", null, 256, 0.2f, 8192).Value!,
         WorkspaceRoot: Directory.GetCurrentDirectory(),
         ProviderName: Providers.OpenRouter,
         ClarifyChannel: new StubClarifyChannel(),

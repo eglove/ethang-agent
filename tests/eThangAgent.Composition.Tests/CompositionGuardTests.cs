@@ -28,7 +28,7 @@ public class CompositionGuardTests
     AgentSettings settings = Settings();
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("root/model", null, 512, 0.5f).Value!,
+            ModelConfig.Create("root/model", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(new StubClarifyChannel(),
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
         .BuildServiceProvider();
@@ -59,7 +59,7 @@ public class CompositionGuardTests
     AgentSettings settings = Settings();
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("test/model", null, 512, 0.5f).Value!, host)
+            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!, host)
         .BuildServiceProvider();
 
     object?[] resolutions =
@@ -108,7 +108,7 @@ public class CompositionGuardTests
     AgentSettings settings = Settings(zaiKey: "zai-test-key");
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.Zai,
-            ModelConfig.Create("glm-5.3", null, 512, 0.5f).Value!,
+            ModelConfig.Create("glm-5.3", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(new StubClarifyChannel(),
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
         .BuildServiceProvider();
@@ -128,7 +128,7 @@ public class CompositionGuardTests
     static ServiceProvider BuildFor(string provider) =>
         new ServiceCollection()
             .AddEThangAgentCore(Settings(zaiKey: "zai-test-key"), provider,
-                ModelConfig.Create("m", null, 512, 0.5f).Value!,
+                ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
                 new AgentHostOptions(new StubClarifyChannel(),
                     new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
             .BuildServiceProvider();
@@ -148,7 +148,7 @@ public class CompositionGuardTests
     AgentSettings settings = Settings(openRouterKey: null);
     Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("m", null, 512, 0.5f).Value!,
+            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(new StubClarifyChannel(),
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver())));
 
@@ -162,7 +162,7 @@ public class CompositionGuardTests
     AgentSettings settings = Settings();
     Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(settings, "anthropic",
-            ModelConfig.Create("m", null, 512, 0.5f).Value!,
+            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(new StubClarifyChannel(),
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver())));
 
@@ -179,7 +179,7 @@ public class CompositionGuardTests
     static ServiceProvider BuildFor(string provider, ZaiEndpointMode mode) =>
         new ServiceCollection()
             .AddEThangAgentCore(Settings(zaiKey: "zai-test-key", zaiEndpointMode: mode), provider,
-                ModelConfig.Create("m", null, 512, 0.5f).Value!,
+                ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
                 new AgentHostOptions(new StubClarifyChannel(),
                     new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
             .BuildServiceProvider();

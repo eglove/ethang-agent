@@ -45,6 +45,9 @@ internal static class E2E
     public async Task<HostHarness> StartAsync()
     {
       Mock.Start();
+      // Catalog the two mock models so the session's window source resolves them;
+      // a spawn of a model with no window fails by design (strict correctness).
+      _ = Mock.ReturnsCatalog(/*lang=json,strict*/ """{ "data": [ { "id": "mock/sub-model", "pricing": { "prompt": "0.000001", "completion": "0.000002" }, "context_length": 32768, "top_provider": { "max_completion_tokens": 8192 }, "architecture": { "modality": "text->text" } } ] }""");
       DatabasePath = Path.Combine(Path.GetTempPath(), $"ethang-e2e-{Guid.NewGuid():N}.db");
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", DatabasePath);
 
@@ -52,7 +55,7 @@ internal static class E2E
 
       _services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.OpenRouter,
-              ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f).Value!,
+              ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,
               new AgentHostOptions(
                   new NeverClarifyChannel(),
                   new FixedWorkspaceContext("app"),
@@ -80,7 +83,7 @@ internal static class E2E
       // uses: a MainViewModel whose single tab wraps the composed session.
       AgentSession session = new(
           _services, RootId, conversation, handler, lifecycle,
-          ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f).Value!,
+          ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,
           WorkspaceRoot: workspaceRoot,
           ProviderName: Providers.OpenRouter,
           ClarifyChannel: new NeverClarifyChannel(),

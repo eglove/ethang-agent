@@ -36,7 +36,7 @@ public class MessageContentPassthroughWireTests
           [new ToolCall("call-1", "read", "{\"path\":\"a.txt\"}")]),
       new(Role.Tool, "file contents", sentAt, ToolCallId: "call-1"),
     ];
-    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f).Value!;
+    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!;
 
     Result<ModelResponse> result = await provider.SendAsync(
         config, new ModelRequest(messages, SystemPrompt: "you are exec-guide"),
@@ -75,7 +75,7 @@ public class MessageContentPassthroughWireTests
     OpenRouterModelProvider provider = new(http,
         new OpenRouterConfiguration("test-key", new Uri("https://openrouter.test")));
     Message[] messages = [new(Role.System, "sys notice", new DateTimeOffset(2026, 1, 15, 8, 30, 5, TimeSpan.Zero))];
-    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f).Value!;
+    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!;
 
     _ = await provider.SendAsync(config,
         new ModelRequest(messages, SystemPrompt: "you are exec-guide"),

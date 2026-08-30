@@ -8,7 +8,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f).Value!;
+      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
 
   [Fact]
   public void Agent_DefaultConstruction_GeneratesDistinctRootIds()

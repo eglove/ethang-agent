@@ -22,7 +22,8 @@ public sealed class RootAgentResolver(
     string fallbackModelId,
     int maxTokens,
     float temperature,
-    SessionModelPreferences? preferences = null)
+    SessionModelPreferences? preferences = null,
+    IContextWindowSource? windowSource = null)
 {
   /// <summary>Reclassify every this many user messages. Turn 1 is the first classification;
   ///     turn <c>Recadence + 1</c> the second, and so on.</summary>
@@ -35,6 +36,7 @@ public sealed class RootAgentResolver(
   private readonly int _maxTokens = maxTokens;
   private readonly float _temperature = temperature;
   private readonly SessionModelPreferences? _preferences = preferences;
+  private readonly IContextWindowSource? _windowSource = windowSource;
 
   /// <summary>True when the caller may skip selection entirely — no selector is wired.
   ///     Exposed for diagnostics and tests.</summary>
@@ -54,14 +56,14 @@ public sealed class RootAgentResolver(
     if (_preferences?.ModelId is { } preferred)
     {
       string? preferredNotice = await TryPersistModelAsync(preferred, ct).ConfigureAwait(false);
-      return (Make(preferred),
+      return (await MakeAsync(preferred, null, ct).ConfigureAwait(false),
           preferredNotice is null ? null : $"Model selected: {preferredNotice}");
     }
 
     // 1. No selector wired: use the fallback for every turn.
     if (_selector is null)
     {
-      return (Make(_fallbackModelId, null), null);
+      return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false), null);
     }
 
     // 2. Decide whether this turn is on the reclassification cadence.
@@ -70,14 +72,14 @@ public sealed class RootAgentResolver(
     {
       // Off-cadence turns serve the fallback (OpenRouter's openrouter/auto routes
       // server-side); reclassification only runs on the cadence boundaries below.
-      return (Make(_fallbackModelId, null), null);
+      return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false), null);
     }
 
     // 3. Run selection on the actual prompt.
     Result<ModelSelectionResult> selection = await _selector.SelectAsync(prompt, excludedKeys: null, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)
     {
-      return (Make(_fallbackModelId, null),
+      return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false),
           $"Model selection failed: {selection.Error.Message}; using {_fallbackModelId}.");
     }
 
@@ -94,7 +96,7 @@ public sealed class RootAgentResolver(
     string? notice = persistNotice is null
         ? null
         : $"Model selected: {persistNotice}";
-    return (Make(modelId, providerName), notice);
+    return (await MakeAsync(modelId, providerName, ct).ConfigureAwait(false), notice);
   }
 
   private static int CountUserMessages(Conversation conversation) =>
@@ -107,11 +109,33 @@ public sealed class RootAgentResolver(
   private static bool IsCadenceBoundary(int priorUserMessages)
       => priorUserMessages % Recadence == 0;
 
-  private ModelConfig Make(string modelId, string? providerName = null)
+  private async Task<ModelConfig> MakeAsync(string modelId, string? providerName, CancellationToken ct)
   {
-    Result<ModelConfig> created = ModelConfig.Create(
-        modelId, providerName, _maxTokens, _temperature, _preferences?.ReasoningEffort);
-    return created.IsSuccess ? created.Value : Make(_fallbackModelId, null);
+    int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(modelId, providerName, ct).ConfigureAwait(false);
+    if (window is { } resolved)
+    {
+      Result<ModelConfig> created = ModelConfig.Create(
+          modelId, providerName, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort);
+      if (created.IsSuccess)
+      {
+        return created.Value;
+      }
+    }
+
+    // Unknown window (or invalid create): the fallback serves instead — the same
+    // failure-notice chain that a failed selection takes.
+    ModelConfig fallback = await MakeFallbackAsync(ct).ConfigureAwait(false);
+    return fallback;
+  }
+
+  private async Task<ModelConfig> MakeFallbackAsync(CancellationToken ct)
+  {
+    int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(_fallbackModelId, null, ct).ConfigureAwait(false);
+    return window is { } resolved
+        ? ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort).Value!
+        : throw new InvalidOperationException(
+            $"Fallback model '{_fallbackModelId}' has no catalog context window; the resolver cannot serve any turn. "
+            + "This is a composition wiring fault: the fallback must be a model the catalog (or a curated constant) knows.");
   }
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)

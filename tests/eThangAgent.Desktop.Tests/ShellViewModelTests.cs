@@ -45,7 +45,7 @@ public class ShellViewModelTests
         new ConversationDomain.Conversation(),
         Handler: null!,
         Lifecycle: new RootSessionLifecycle(new TestFixtures.StubStore()),
-        Model: ModelConfig.Create("test/model", null, 128, 0.1f).Value!,
+        Model: ModelConfig.Create("test/model", null, 128, 0.1f, 8192).Value!,
         WorkspaceRoot: root,
         ProviderName: provider,
         ClarifyChannel: null!,

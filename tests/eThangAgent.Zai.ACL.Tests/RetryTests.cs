@@ -12,7 +12,7 @@ namespace eThangAgent.Zai.ACL.Tests;
 public class RetryTests
 {
   private static readonly Uri BaseUrl = new("https://zai.test");
-  private static ModelConfig Model => ModelConfig.Create("glm-5.3", null, 256, 0.7f).Value!;
+  private static ModelConfig Model => ModelConfig.Create("glm-5.3", null, 256, 0.7f, 1_000_000).Value!;
 
   private static ZaiConfiguration Config(RetryPolicy? policy = null) =>
       new("test-key", BaseUrl) { Retry = policy ?? new RetryPolicy(4) };

@@ -45,7 +45,7 @@ public class ZaiPipelineSmokeTests
 
       using ServiceProvider services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.Zai,
-              ModelConfig.Create("glm-5.3", null, 256, 0.2f).Value!,
+              ModelConfig.Create("glm-5.3", null, 256, 0.2f, 1_000_000).Value!,
               new AgentHostOptions(
                   new StubClarifyChannel(),
                   new FixedWorkspaceContext("app"),
@@ -63,7 +63,7 @@ public class ZaiPipelineSmokeTests
 
       AgentSession session = new(
           services, AgentId.NewId(), conversation, handler, lifecycle,
-          ModelConfig.Create("glm-5.3", null, 256, 0.2f).Value!,
+          ModelConfig.Create("glm-5.3", null, 256, 0.2f, 1_000_000).Value!,
           WorkspaceRoot: Directory.GetCurrentDirectory(),
           ProviderName: Providers.Zai,
           ClarifyChannel: new StubClarifyChannel(),

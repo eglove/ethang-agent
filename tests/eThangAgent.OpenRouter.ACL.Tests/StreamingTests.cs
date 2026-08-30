@@ -10,7 +10,7 @@ public class StreamingTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");
   private static OpenRouterConfiguration Config => new("test-key", BaseUrl);
-  private static ModelConfig Model => ModelConfig.Create("m", null, 256, 0.7f).Value!;
+  private static ModelConfig Model => ModelConfig.Create("m", null, 256, 0.7f, 4096).Value!;
 
   private static HttpResponseMessage Sse(string raw) =>
       new(HttpStatusCode.OK) { Content = new StringContent(raw, Encoding.UTF8, "text/event-stream") };

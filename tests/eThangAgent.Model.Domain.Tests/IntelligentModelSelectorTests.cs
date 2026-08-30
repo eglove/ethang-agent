@@ -58,7 +58,7 @@ public class IntelligentModelSelectorTests
 
   private const string SelectorModelId = "test/selector-model";
 
-  private static readonly ModelConfig SelectorModel = ModelConfig.Create(SelectorModelId, null, 2048, 0f).Value!;
+  private static readonly ModelConfig SelectorModel = ModelConfig.Create(SelectorModelId, null, 2048, 0f, 2048).Value!;
 
   private const string Stage1Json =
                            /*lang=json,strict*/

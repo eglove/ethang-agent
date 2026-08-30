@@ -36,7 +36,7 @@ public class MessageContentPassthroughWireTests
           [new ToolCall("call-1", "read", "{\"path\":\"a.txt\"}")]),
       new(Role.Tool, "file contents", sentAt, ToolCallId: "call-1"),
     ];
-    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f).Value!;
+    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f, 1_000_000).Value!;
 
     Result<ModelResponse> result = await provider.SendAsync(
         config, new ModelRequest(messages, SystemPrompt: "you are exec-guide"),
@@ -75,7 +75,7 @@ public class MessageContentPassthroughWireTests
     ZaiModelProvider provider = new(http,
         new ZaiConfiguration("test-key", new Uri("https://zai.test")));
     Message[] messages = [new(Role.System, "sys notice", new DateTimeOffset(2026, 1, 15, 8, 30, 5, TimeSpan.Zero))];
-    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f).Value!;
+    ModelConfig config = ModelConfig.Create("m", null, 100, 0.5f, 1_000_000).Value!;
 
     _ = await provider.SendAsync(config,
         new ModelRequest(messages, SystemPrompt: "you are exec-guide"),

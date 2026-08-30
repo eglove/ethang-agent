@@ -18,7 +18,7 @@ public class HostPromptProviderCompositionTests
         new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("test/model", null, 512, 0.5f).Value!, host)
+            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!, host)
         .BuildServiceProvider();
   }
 

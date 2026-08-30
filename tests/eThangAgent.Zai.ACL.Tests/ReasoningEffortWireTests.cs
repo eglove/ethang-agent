@@ -43,7 +43,7 @@ public class ReasoningEffortWireTests
     ZaiModelProvider provider = new(new HttpClient(handler), Config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 64, 0.7f, effort).Value!,
+        ModelConfig.Create("glm-5.3", null, 64, 0.7f, 1_000_000, effort).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     using JsonDocument doc = JsonDocument.Parse(capturedBody!);
@@ -63,7 +63,7 @@ public class ReasoningEffortWireTests
     ZaiModelProvider provider = new(new HttpClient(handler), Config);
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("glm-5.3", null, 64, 0.7f).Value!,
+        ModelConfig.Create("glm-5.3", null, 64, 0.7f, 1_000_000).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     using JsonDocument doc = JsonDocument.Parse(capturedBody!);

@@ -12,7 +12,7 @@ namespace eThangAgent.Agent.Application;
 ///     intelligent model selection; the chain falls back to the host-injected
 ///     <see cref="SpawnOptions.FallbackModelId"/> on any selection failure.</summary>
 public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, SubAgentOptions options,
-    SpawnOptions spawn, IModelSelector? modelSelector = null)
+    SpawnOptions spawn, IModelSelector? modelSelector = null, IContextWindowSource? windowSource = null)
     : IAgentSpawnCommand
 {
   private readonly SpawnOptions _spawn = spawn ?? throw new ArgumentNullException(nameof(spawn));
@@ -20,6 +20,7 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
   private readonly IAgentRuntime _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
   private readonly SubAgentOptions _options = options ?? throw new ArgumentNullException(nameof(options));
   private readonly IModelSelector? _modelSelector = modelSelector;
+  private readonly IContextWindowSource? _windowSource = windowSource;
   private readonly string _fallbackModelId = spawn?.FallbackModelId
       ?? throw new ArgumentNullException(nameof(spawn));
 
@@ -43,7 +44,13 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
           $"agent depth {parent.Depth} is at the limit ({_options.MaxDepth}); children cannot spawn further"));
     }
 
-    ModelConfig modelConfig = await ResolveModelAsync(request, ct).ConfigureAwait(false);
+    Result<ModelConfig> resolved = await ResolveModelAsync(request, ct).ConfigureAwait(false);
+    if (!resolved.IsSuccess)
+    {
+      return Result.Failure<AgentId>(resolved.Error);
+    }
+
+    ModelConfig modelConfig = resolved.Value;
 
     AgentRecord record = AgentRecord.Spawned(AgentId.NewId(), parent.Id, parent.Depth + 1, modelConfig.ModelId,
         request.Label, request.TaskPrompt, DateTimeOffset.UtcNow);
@@ -60,39 +67,58 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
         : Result.Failure<AgentId>(started.Error);
   }
 
-  private async Task<ModelConfig> ResolveModelAsync(SpawnRequest request, CancellationToken ct)
+  private async Task<Result<ModelConfig>> ResolveModelAsync(SpawnRequest request, CancellationToken ct)
   {
-    // 1. Explicit per-spawn model always wins.
+    // 1. Explicit per-spawn model always wins. Unknown window → failed spawn: the
+    //    request named this model explicitly, so silently serving another would lie.
     if (!string.IsNullOrWhiteSpace(request.Model))
     {
-      return ModelConfig.Create(request.Model, null, _spawn.MaxTokens, _spawn.Temperature).Value!;
+      return await CreateAsync(request.Model, null, ct).ConfigureAwait(false);
     }
 
     // 2. The session's live model choice (the host's model picker) is session-wide:
     //    children follow it too, ahead of the static configured default.
     if (!string.IsNullOrWhiteSpace(_spawn.Preferences?.ModelId))
     {
-      return ModelConfig.Create(_spawn.Preferences.ModelId, null, _spawn.MaxTokens, _spawn.Temperature).Value!;
+      return await CreateAsync(_spawn.Preferences.ModelId, null, ct).ConfigureAwait(false);
     }
 
     // 3. Configured default model wins.
     if (!string.IsNullOrWhiteSpace(_options.DefaultModel))
     {
-      return ModelConfig.Create(_options.DefaultModel, null, _spawn.MaxTokens, _spawn.Temperature).Value!;
+      return await CreateAsync(_options.DefaultModel, null, ct).ConfigureAwait(false);
     }
 
-    // 4. Intelligent selection when a selector is available.
+    // 4. Intelligent selection when a selector is available; a selection whose model
+    //    has no window falls through to the fallback (same chain as selection failure).
     if (_modelSelector is not null)
     {
       Result<ModelSelectionResult> selection = await _modelSelector.SelectAsync(request.TaskPrompt, excludedKeys: null, ct).ConfigureAwait(false);
       if (selection.IsSuccess)
       {
-        return ModelConfig.Create(selection.Value.ModelId, selection.Value.ProviderName,
-            _spawn.MaxTokens, _spawn.Temperature).Value!;
+        int? selectedWindow = _windowSource is null
+            ? null
+            : await _windowSource.WindowForAsync(selection.Value.ModelId, selection.Value.ProviderName, ct).ConfigureAwait(false);
+        if (selectedWindow is { } selected)
+        {
+          return ModelConfig.Create(selection.Value.ModelId, selection.Value.ProviderName,
+              _spawn.MaxTokens, _spawn.Temperature, selected);
+        }
       }
     }
 
     // 5. Fallback to the host-injected fallback model.
-    return ModelConfig.Create(_fallbackModelId, null, _spawn.MaxTokens, _spawn.Temperature).Value!;
+    return await CreateAsync(_fallbackModelId, null, ct).ConfigureAwait(false);
+  }
+
+  /// <summary>Creates the config for an explicitly chosen model id; a model with no
+  /// catalog window fails the spawn (strict correctness — never guess a window).</summary>
+  private async Task<Result<ModelConfig>> CreateAsync(string modelId, string? providerName, CancellationToken ct)
+  {
+    int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(modelId, providerName, ct).ConfigureAwait(false);
+    return window is { } resolved
+        ? ModelConfig.Create(modelId, providerName, _spawn.MaxTokens, _spawn.Temperature, resolved)
+        : Result.Failure<ModelConfig>(new DomainError("UnknownModelWindow",
+            $"Model '{modelId}' has no catalog context window; the spawn cannot proceed."));
   }
 }

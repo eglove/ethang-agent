@@ -30,9 +30,9 @@ public class ZaiModelProviderFactoryTests
     using HttpClient http = new(handler);
     ZaiModelProviderFactory factory = new(new ZaiConfiguration("shared-key", BaseUrl), http);
 
-    IModelProvider provider = factory.Create(ModelConfig.Create("glm-4.5-air", null, 64, 0.5f).Value!);
+    IModelProvider provider = factory.Create(ModelConfig.Create("glm-4.5-air", null, 64, 0.5f, 1_000_000).Value!);
     _ = await provider.SendAsync(
-        ModelConfig.Create("glm-4.5-air", null, 64, 0.5f).Value!,
+        ModelConfig.Create("glm-4.5-air", null, 64, 0.5f, 1_000_000).Value!,
         new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]), TestContext.Current.CancellationToken);
 
     Assert.Equal("Bearer shared-key", captured!.Headers.Authorization?.ToString());

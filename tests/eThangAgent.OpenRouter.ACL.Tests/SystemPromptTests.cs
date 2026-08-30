@@ -29,7 +29,7 @@ public class SystemPromptTests
 
     Message msg = new(Role.User, "hi", DateTimeOffset.UtcNow);
     Result<ModelResponse> result = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f).Value!,
+        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
         new ModelRequest([msg], SystemPrompt: "you are exec-guide"), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
@@ -59,7 +59,7 @@ public class SystemPromptTests
         new OpenRouterConfiguration("test-key", new Uri("https://openrouter.test")));
 
     _ = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f).Value!,
+        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
         new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]), TestContext.Current.CancellationToken);
 
     Assert.DoesNotContain("\"role\":\"system\"", capturedBody, StringComparison.Ordinal);

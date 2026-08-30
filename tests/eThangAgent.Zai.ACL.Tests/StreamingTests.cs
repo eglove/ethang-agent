@@ -10,7 +10,7 @@ public class StreamingTests
 {
   private static readonly Uri BaseUrl = new("https://zai.test");
   private static ZaiConfiguration Config => new("test-key", BaseUrl);
-  private static ModelConfig Model => ModelConfig.Create("glm-5.3", null, 256, 0.7f).Value!;
+  private static ModelConfig Model => ModelConfig.Create("glm-5.3", null, 256, 0.7f, 1_000_000).Value!;
 
   private static HttpResponseMessage Sse(string raw) =>
       new(HttpStatusCode.OK) { Content = new StringContent(raw, Encoding.UTF8, "text/event-stream") };

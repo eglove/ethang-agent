@@ -20,7 +20,8 @@ public sealed record AgentRunOutcome(
 ///     Validation, depth enforcement, model resolution, and the initial Running save belong to the
 ///     spawn command (<c>StartSpawnHandler</c>), which hands the persisted record here.</summary>
 public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore store, IToolRegistry tools,
-    ISystemPromptProvider systemPrompt, SubAgentOptions options, SessionModelPreferences? preferences = null)
+    ISystemPromptProvider systemPrompt, SubAgentOptions options, SessionModelPreferences? preferences = null,
+    IContextWindowSource? windowSource = null)
     : IAgentRunner
 {
   /// <summary>Model-facing annotation appended when a child report exceeds the 50 KB storage guideline.</summary>
@@ -34,12 +35,20 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
   public const int ChildMaxTokens = 32 * 1024;
   public const float ChildTemperature = 0.7f;
 
+  /// <summary>Window carried when no window source is wired (legacy wiring, tests): the
+  ///     child runs unaccounted. Composition always wires a source, so production children
+  ///     always carry a real catalog window. A positive sentinel, not zero — ModelConfig
+  ///     validation rejects non-positive windows — and utilization against it computes ~0,
+  ///     so even an accidentally attached monitor never trips compaction.</summary>
+  public const int ChildLegacyWindowFallback = int.MaxValue;
+
   private readonly IModelProviderFactory _factory = factory ?? throw new ArgumentNullException(nameof(factory));
   private readonly IAgentStore _store = store ?? throw new ArgumentNullException(nameof(store));
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
   private readonly ISystemPromptProvider _systemPrompt = systemPrompt ?? throw new ArgumentNullException(nameof(systemPrompt));
   private readonly SubAgentOptions _options = options ?? throw new ArgumentNullException(nameof(options));
   private readonly SessionModelPreferences? _preferences = preferences;
+  private readonly IContextWindowSource? _windowSource = windowSource;
 
   private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
 
@@ -57,9 +66,18 @@ public sealed class SubAgentSpawner(IModelProviderFactory factory, IAgentStore s
   {
     ArgumentNullException.ThrowIfNull(child);
     // Children inherit the session's runtime preferences (the effort picker): the
-    // effort choice is a property of the conversation, not of the root agent.
+    // effort choice is a property of the conversation, not of the root agent. A wired
+    // window source must know the child's model — accounting cannot run blind. With no
+    // source wired (legacy wiring, tests) the config carries a zero window and the
+    // child simply runs without accounting.
+    int? window = _windowSource is null
+        ? ChildLegacyWindowFallback
+        : await _windowSource.WindowForAsync(child.ModelUsed, null, ct).ConfigureAwait(false)
+          ?? throw new InvalidOperationException(
+              $"Child model '{child.ModelUsed}' has no catalog context window; the child run cannot proceed. "
+              + "This is a composition wiring fault: every spawnable model must have a known window.");
     ModelConfig config = ModelConfig.Create(
-        child.ModelUsed, null, ChildMaxTokens, ChildTemperature, _preferences?.ReasoningEffort).Value!;
+        child.ModelUsed, null, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort).Value!;
 
     Agent agent = new(_factory.Create(config), new Conversation(), config, _tools,
         new AgentOptions

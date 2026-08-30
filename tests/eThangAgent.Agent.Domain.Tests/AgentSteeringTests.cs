@@ -11,7 +11,7 @@ namespace eThangAgent.AgentDomain.Tests;
 public class AgentSteeringTests
 {
   private static ModelConfig DefaultConfig =>
-      ModelConfig.Create("test-model", null, 100, 0.5f).Value!;
+      ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
 
   /// <summary>Scripted provider capturing every request; falls back to a final plain answer.</summary>
   private sealed class ScriptedProvider(params ModelResponse[] responses) : IModelProvider
