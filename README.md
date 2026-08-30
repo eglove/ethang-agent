@@ -66,6 +66,12 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   Applies from the next turn to the root agent and children alike, on both OpenRouter and
   z.ai tabs (OpenRouter maps the level to what the chosen model supports). The choice is
   remembered per workspace + provider and restored when the same directory reopens
+- **Context accounting + auto-compaction** — the status bar shows a live `CTX 148.2K/1M, 15%`
+  readout (hover for the estimated system-prompt/messages/tools breakdown). Both providers
+  report per-request token usage; when utilization crosses 80% at a turn boundary the oldest
+  conversation is summarized by a compaction model (per-workspace setting under Settings —
+  default: cheapest capable) and replaced by that handoff summary, so long sessions keep
+  going without hitting the window. Compacted sessions persist and resume like any other
 - **Sessions** entry (left menu) — resume a previous conversation: every persisted
   session is listed newest-first with its workspace, provider, start time, and status;
   sessions already open in a tab are greyed out (hover explains why). Confirming a row
