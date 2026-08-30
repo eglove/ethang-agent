@@ -34,6 +34,9 @@ internal sealed class FakeAgentStore : IAgentStore
     return Task.FromResult(_updateOutcome);
   }
 
+  public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(id.ToString()));
+
   public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
   {
     _appended.Add((id, message));
@@ -209,5 +212,19 @@ public class RootSessionLifecycleTests
     await lifecycle.CompleteAsync(RootId, errors.Add);
     _ = Assert.Single(errors);
     Assert.Contains("DbDown", errors[0], StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task ReplaceTranscript_PersistsWholeConversation_DoesNotTouchAppendSeam()
+  {
+    FakeAgentStore store = new();
+    RootSessionLifecycle lifecycle = new(store);
+    Conversation conversation = new();
+    conversation.AddUserMessage("a");
+    conversation.AddAssistantMessage("b");
+
+    await lifecycle.ReplaceTranscriptAsync(RootId, conversation, _ => Assert.Fail("no errors expected"));
+
+    Assert.Empty(store._appended); // the append seam is never consulted by replace
   }
 }

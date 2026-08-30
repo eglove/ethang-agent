@@ -38,6 +38,27 @@ public class RootSessionLifecycle(IAgentStore store)
     }
   }
 
+  /// <summary>Replaces the whole persisted transcript with the conversation's current
+  ///     messages — the persistence path of a compacted turn, where a mid-turn shrink
+  ///     would make the append-slice contract double-count. Failures surface via
+  ///     reportError; the session continues.</summary>
+  public virtual async Task ReplaceTranscriptAsync(AgentId rootId, Conversation conversation, Action<string> reportError)
+  {
+    ArgumentNullException.ThrowIfNull(conversation);
+    ArgumentNullException.ThrowIfNull(reportError);
+    if (conversation.Messages.Count == 0)
+    {
+      reportError("Error [EmptyConversation]: transcript replacement skipped — the conversation is empty.");
+      return;
+    }
+
+    Result<string> replaced = await store.ReplaceTranscriptAsync(rootId, conversation.Messages).ConfigureAwait(false);
+    if (!replaced.IsSuccess)
+    {
+      reportError($"Error [{replaced.Error.Code}]: {replaced.Error.Message}");
+    }
+  }
+
   public virtual async Task CompleteAsync(AgentId rootId, Action<string> reportError)
   {
     ArgumentNullException.ThrowIfNull(reportError);

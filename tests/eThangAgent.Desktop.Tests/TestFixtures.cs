@@ -43,8 +43,11 @@ internal static class TestFixtures
         => Task.FromResult(Result.Failure<AgentRecord>(new DomainError("NotFound", "not found")));
     public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
         => Task.FromResult(Result.Success("appended"));
+    public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+          => Task.FromResult(Result.Success(id.ToString()));
+
     public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
-        => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
+      => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
     public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)

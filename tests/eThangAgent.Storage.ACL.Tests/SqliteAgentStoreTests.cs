@@ -202,4 +202,46 @@ public sealed class SqliteAgentStoreTests : IDisposable
     _ = Assert.Single(transcript.Value!);
     Assert.Equal("hello", transcript.Value![0].Content);
   }
+
+  [Fact]
+  public async Task ReplaceTranscript_ReplacesWholesale_PreservesOrderAndMeta()
+  {
+    AgentId id = AgentId.NewId();
+    _ = await _store.SaveAsync(AgentRecord.Spawned(
+        id, null, 1, "provider/model", null, "task",
+        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero)), ct: TestContext.Current.CancellationToken);
+    _ = await _store.AppendMessageAsync(id, new Message(Role.User, "old", DateTimeOffset.UtcNow), ct: TestContext.Current.CancellationToken);
+
+    List<Message> replacement = [
+      new(Role.System, "summary", DateTimeOffset.UtcNow),
+      new(Role.User, "kept", DateTimeOffset.UtcNow),
+      new(Role.Assistant, "answer", DateTimeOffset.UtcNow),
+    ];
+
+    Result<string> replaced = await _store.ReplaceTranscriptAsync(id, replacement, TestContext.Current.CancellationToken);
+
+    Assert.True(replaced.IsSuccess);
+    Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(id, ct: TestContext.Current.CancellationToken);
+    Assert.Equal(3, transcript.Value!.Count);
+    Assert.Equal("summary", transcript.Value[0].Content);
+    Assert.Equal("kept", transcript.Value[1].Content);
+    Assert.Equal("answer", transcript.Value[2].Content);
+  }
+
+  [Fact]
+  public async Task ReplaceTranscript_EmptyReplacement_Fails_TranscriptUnchanged()
+  {
+    AgentId id = AgentId.NewId();
+    _ = await _store.SaveAsync(AgentRecord.Spawned(
+        id, null, 1, "provider/model", null, "task",
+        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero)), ct: TestContext.Current.CancellationToken);
+    _ = await _store.AppendMessageAsync(id, new Message(Role.User, "kept", DateTimeOffset.UtcNow), ct: TestContext.Current.CancellationToken);
+
+    Result<string> replaced = await _store.ReplaceTranscriptAsync(id, [], TestContext.Current.CancellationToken);
+
+    Assert.False(replaced.IsSuccess);
+    Assert.Equal("EmptyConversation", replaced.Error.Code);
+    Result<IReadOnlyList<Message>> transcript = await _store.GetTranscriptAsync(id, ct: TestContext.Current.CancellationToken);
+    _ = Assert.Single(transcript.Value!);
+  }
 }

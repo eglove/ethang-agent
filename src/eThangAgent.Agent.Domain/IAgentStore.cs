@@ -14,6 +14,11 @@ public interface IAgentStore
 
   Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default);
 
+  /// <summary>Atomically replaces an agent's whole persisted transcript (compaction
+  ///     survival): the previous rows go and the given messages become the transcript.
+  ///     An empty replacement is rejected — the transcript never becomes empty.</summary>
+  Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default);
+
   Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default);
 
   Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default);

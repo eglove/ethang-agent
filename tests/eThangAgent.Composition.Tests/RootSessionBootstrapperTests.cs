@@ -78,8 +78,11 @@ public class RootSessionBootstrapperTests
     public Task<Result<string>> AppendMessageAsync(AgentId id, ConversationDomain.Message message, CancellationToken ct = default) =>
         Task.FromResult(Result.Success("ok"));
 
+    public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<ConversationDomain.Message> messages, CancellationToken ct = default) =>
+            Task.FromResult(Result.Success("ok"));
+
     public Task<Result<IReadOnlyList<ConversationDomain.Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success<IReadOnlyList<ConversationDomain.Message>>([]));
+      Task.FromResult(Result.Success<IReadOnlyList<ConversationDomain.Message>>([]));
 
     public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default) =>
         Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));

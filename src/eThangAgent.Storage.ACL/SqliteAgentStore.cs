@@ -143,6 +143,66 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     }
   }
 
+  /// <inheritdoc cref="IAgentStore.ReplaceTranscriptAsync"/>
+  public async Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(messages);
+    if (messages.Count == 0)
+    {
+      return Result.Failure<string>(new DomainError("EmptyConversation",
+        "The transcript replacement is empty; the transcript never becomes empty."));
+    }
+
+    await _writeGate.WaitAsync(ct).ConfigureAwait(false);
+    try
+    {
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using SqliteConnection connection = _database.Open();
+#pragma warning restore CA2007
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(ct);
+#pragma warning restore CA2007
+
+      if (!await AgentExistsAsync(connection, transaction, id, ct).ConfigureAwait(false))
+      {
+        await transaction.RollbackAsync(ct).ConfigureAwait(false);
+        return Result.Failure<string>(NotFound(id));
+      }
+
+      using SqliteCommand command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText = "DELETE FROM agent_messages WHERE agent_id=@id;";
+      Add(command, "@id", id.ToString());
+      _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+
+      command.CommandText = "INSERT INTO agent_messages (agent_id, seq, role, content, meta_json) "
+          + "VALUES (@id, @seq, @role, @content, @meta);";
+
+
+      for (int seq = 0; seq < messages.Count; seq++)
+      {
+        Message message = messages[seq];
+        command.Parameters.Clear();
+        Add(command, "@id", id.ToString());
+        Add(command, "@seq", seq);
+        Add(command, "@role", message.Role.ToString());
+        Add(command, "@content", message.Content);
+        Add(command, "@meta", JsonSerializer.Serialize(
+            new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId)));
+        _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+      }
+
+      await transaction.CommitAsync(ct).ConfigureAwait(false);
+      return Result.Success(id.ToString());
+    }
+    finally
+    {
+      _ = _writeGate.Release();
+    }
+  }
+
   public async Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
   {
     // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.

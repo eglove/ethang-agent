@@ -58,11 +58,14 @@ internal sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
     return Task.FromResult(Result.Success(id.ToString()));
   }
 
+  public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(id.ToString()));
+
   public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
-      => Task.FromResult(Result.Success<IReadOnlyList<Message>>(
-          _messages.TryGetValue(id.Value, out List<Message>? transcript)
-              ? transcript.ToList()
-              : []));
+    => Task.FromResult(Result.Success<IReadOnlyList<Message>>(
+        _messages.TryGetValue(id.Value, out List<Message>? transcript)
+            ? transcript.ToList()
+            : []));
 
   public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
       => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>(
