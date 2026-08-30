@@ -1,5 +1,8 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
@@ -47,6 +50,44 @@ public class ShellUiPolishTests
     {
       Assert.False(string.IsNullOrWhiteSpace(ToolTip.GetTip(item) as string),
           $"{item.Name} must carry a hover tooltip (the old label)");
+    }
+  }
+
+  [AvaloniaFact]
+  public void Menu_Icons_Are_Centered_And_Scaled_To_Their_Buttons()
+  {
+    MainWindow window = CreateShellWindow();
+    window.Show();
+    Dispatcher.UIThread.RunJobs(); // real geometry: bounds only exist after layout
+
+    foreach (string name in new[] { "OpenAgentMenuItem", "SessionsMenuItem", "ModelMenuItem", "EffortMenuItem", "SettingsMenuItem" })
+    {
+      Button item = window.GetControl<Button>(name);
+      if (!item.IsVisible)
+      {
+        continue; // per-tab entries (model/effort) hide with no tab selected
+      }
+
+      Assert.True(item.FontSize >= 16,
+          $"{name} icon must be scaled up to the button, FontSize={item.FontSize}");
+
+      // Real rendered geometry: the glyph's center must sit on the button's center.
+      // Both centers are taken in the shared transformed (root) space.
+      TransformedBounds? icon = item.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault()?.GetTransformedBounds();
+      TransformedBounds? button = item.GetTransformedBounds();
+      Assert.True(icon.HasValue && button.HasValue, $"{name} must render its icon glyph");
+      // Bounds are local rects; Transform carries the accumulated position. Centers
+      // are compared in shared root space.
+      Point iconCenter = icon.Value.Bounds.Center.Transform(icon.Value.Transform);
+      Point buttonCenter = button.Value.Bounds.Center.Transform(button.Value.Transform);
+      double iconCenterX = iconCenter.X;
+      double iconCenterY = iconCenter.Y;
+      double buttonCenterX = buttonCenter.X;
+      double buttonCenterY = buttonCenter.Y;
+      Assert.True(Math.Abs(iconCenterX - buttonCenterX) <= 2.0,
+          $"{name} icon must be horizontally centered, off by {iconCenterX - buttonCenterX}");
+      Assert.True(Math.Abs(iconCenterY - buttonCenterY) <= 2.0,
+          $"{name} icon must be vertically centered, off by {iconCenterY - buttonCenterY}");
     }
   }
 

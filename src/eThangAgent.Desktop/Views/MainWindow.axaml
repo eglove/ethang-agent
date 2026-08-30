@@ -6,6 +6,14 @@
         x:DataType="vm:MainViewModel"
         Title="eThang Agent" Width="1000" Height="700"
         Closed="OnWindowClosed">
+  <Window.Styles>
+    <!-- Icon glyphs must sit centered in their buttons regardless of template
+         defaults: target the presenter directly. -->
+    <Style Selector="Button.menu-item > ContentPresenter">
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+  </Window.Styles>
   <Grid ColumnDefinitions="Auto,*">
 
     <!-- Left-hand icon rail: one icon per entry, the label lives in the hover
@@ -13,26 +21,31 @@
          docked explicitly. -->
     <Border Grid.Column="0" x:Name="SideMenu" Background="#FF1B1B2F" Width="48">
       <DockPanel LastChildFill="False">
-        <Button x:Name="OpenAgentMenuItem" DockPanel.Dock="Top" Content="📂"
-                Width="40" Height="34" Padding="0" HorizontalAlignment="Center"
+        <Button x:Name="OpenAgentMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="📂"
+                Width="40" Height="34" Padding="0" FontSize="18"
+                HorizontalAlignment="Center"
                 Margin="0,8,0,2" Command="{Binding OpenAgentCommand}"
                 ToolTip.Tip="Open Workspace"/>
-        <Button x:Name="SessionsMenuItem" DockPanel.Dock="Top" Content="💬"
-                Width="40" Height="34" Padding="0" HorizontalAlignment="Center"
+        <Button x:Name="SessionsMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="💬"
+                Width="40" Height="34" Padding="0" FontSize="18"
+                HorizontalAlignment="Center"
                 Margin="0,2" Command="{Binding OpenSessionsCommand}"
                 ToolTip.Tip="Sessions — resume a previous session"/>
-        <Button x:Name="ModelMenuItem" DockPanel.Dock="Top" Content="🧠"
-                Width="40" Height="34" Padding="0" HorizontalAlignment="Center"
+        <Button x:Name="ModelMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="🧠"
+                Width="40" Height="34" Padding="0" FontSize="18"
+                HorizontalAlignment="Center"
                 Margin="0,2" Command="{Binding ChooseModelCommand}"
                 IsVisible="{Binding HasSelectedTab}"
                 ToolTip.Tip="Model — choose the model for the selected agent"/>
-        <Button x:Name="EffortMenuItem" DockPanel.Dock="Top" Content="🎚"
-                Width="40" Height="34" Padding="0" HorizontalAlignment="Center"
+        <Button x:Name="EffortMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="🎚"
+                Width="40" Height="34" Padding="0" FontSize="18"
+                HorizontalAlignment="Center"
                 Margin="0,2" Command="{Binding ChooseEffortCommand}"
                 IsVisible="{Binding HasSelectedTab}"
                 ToolTip.Tip="Effort — reasoning effort for the selected agent"/>
-        <Button x:Name="SettingsMenuItem" DockPanel.Dock="Bottom" Content="⚙"
-                Width="40" Height="34" Padding="0" HorizontalAlignment="Center"
+        <Button x:Name="SettingsMenuItem" Classes="menu-item" DockPanel.Dock="Bottom" Content="⚙"
+                Width="40" Height="34" Padding="0" FontSize="18"
+                HorizontalAlignment="Center"
                 Margin="0,2,0,8" Command="{Binding OpenSettingsCommand}"
                 ToolTip.Tip="Settings"/>
       </DockPanel>
