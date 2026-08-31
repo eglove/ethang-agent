@@ -15,6 +15,12 @@ public interface IAgentRuntime
   ///     outcome; a watchdog same-id retry keeps the original await alive.</summary>
   Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default);
 
+  /// <summary>Push-delivers a steering message into the child's mailbox. Fails NotRunning
+  ///     for unknown/finished ids and MailboxFull when the box is at capacity — the
+  ///     failure flows to the SENDER as a tool result (P3). Delivery to self is rejected
+  ///     at the tool's validation, before this seam.</summary>
+  Result<bool> Deliver(AgentId id, PendingMessage message);
+
   /// <summary>Interrupts active child runs by cancelling the token each run executes under.
   /// With no id, every active run owned by this runtime is interrupted; with an id, only that
   /// run. Unknown ids are a no-op — interruption is best-effort by design.</summary>

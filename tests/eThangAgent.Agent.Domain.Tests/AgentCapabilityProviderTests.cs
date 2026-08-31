@@ -81,6 +81,9 @@ public class AgentCapabilityProviderTests
             ? Result.Success(outcome ?? new AgentRunOutcome(id, AgentStatus.Completed, null, "settled report", "prov/child", 1))
             : Result.Failure<AgentRunOutcome>(error));
 
+    public Result<bool> Deliver(AgentId id, PendingMessage message)
+        => Result.Success(true);
+
     public void Interrupt(AgentId? childId = null) { }
   }
 

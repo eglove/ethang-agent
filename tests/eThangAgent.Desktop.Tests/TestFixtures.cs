@@ -24,6 +24,9 @@ internal static class TestFixtures
       return Task.FromResult(Result.Success(record.Id));
     }
 
+    public Result<bool> Deliver(AgentId id, PendingMessage message)
+        => Result.Success(true);
+
     public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", "not found")));
 

@@ -70,8 +70,11 @@ public class AgentWatchdogTests
       return Task.FromResult(Result.Success(record.Id));
     }
 
+    public Result<bool> Deliver(AgentId id, PendingMessage message)
+      => Result.Success(true);
+
     public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
-    => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", $"agent '{id}' has no live or settled run owned by this runtime.")));
+  => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", $"agent '{id}' has no live or settled run owned by this runtime.")));
 
     public void Interrupt(AgentId? childId = null)
     {

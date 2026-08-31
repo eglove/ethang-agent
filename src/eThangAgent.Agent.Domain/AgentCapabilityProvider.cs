@@ -60,6 +60,15 @@ public sealed class AgentCapabilityProvider(
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
             ]),
+        new("send", "Send a steering message to one of your running child agents mid-run.",
+            """
+            Delivers into the child's mailbox; the child drains it at its next safe point (iteration boundary; never between a tool call and its result). Normal urgency drains at boundaries. Fails to you: NotRunning (unknown/finished child), MailboxFull (child's box at capacity — batch or retry), InvalidMessage (empty text). Content lands in the child's transcript on drain, attributed to you.
+            """,
+            [
+                new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
+                new ActionParameter("text", ActionParameterTypes.StringType, "Steering message for the child. Non-empty."),
+                new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
+            ]),
     ];
 
   public async Task<CapabilityInvocationResult> InvokeAsync(
@@ -71,6 +80,7 @@ public sealed class AgentCapabilityProvider(
       "status" => await Status(jsonArguments, ct).ConfigureAwait(false),
       "result" => await GetResult(jsonArguments, ct).ConfigureAwait(false),
       "wait" => await Wait(jsonArguments, ct).ConfigureAwait(false),
+      "send" => Send(jsonArguments),
       _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
     };
   }
@@ -119,6 +129,80 @@ public sealed class AgentCapabilityProvider(
     return settled.Status is AgentStatus.Completed || !string.IsNullOrEmpty(settled.Report)
         ? CapabilityInvocationResult.Ok(settled.Report)
         : CapabilityInvocationResult.Fail("Error [" + ReasonText(settled.Reason) + "]: the child settled without a usable report.");
+  }
+  /// <summary>agent.send: parent-to-child steering through the runtime's push-delivery.
+  ///     Delivery to self is rejected at validation; unknown/finished targets surface
+  ///     NotRunning; overflow surfaces MailboxFull — every failure has a recipient (A3).</summary>
+  private CapabilityInvocationResult Send(string json)
+  {
+    if (_runtime is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [NotAvailable]: agent.send needs a runtime wired into this session's capability provider.");
+    }
+
+    string? parseError = SendArgs(json, out AgentId? id, out string? text, out MessageUrgency urgency);
+    if (parseError is not null)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
+    }
+
+    AgentRecord parent = _parentContext();
+    if (id!.Value == parent.Id)
+    {
+      return CapabilityInvocationResult.Fail("Error [InvalidActionInput]: an agent cannot send to itself.");
+    }
+
+    Result<bool> delivered = _runtime.Deliver(id.Value,
+        new PendingMessage(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(parent)));
+    return delivered.IsSuccess
+        ? CapabilityInvocationResult.Ok($"delivered to={id.Value} urgency={urgency.ToString().ToUpperInvariant()}")
+        : CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");
+  }
+
+  private static string SenderLabel(AgentRecord record)
+      => string.IsNullOrEmpty(record.Label) ? "parent" : "parent:" + record.Label;
+
+  /// <summary>Strict send-argument parsing: id (Guid D), non-empty text, urgency within
+  ///     the enum range. Anything else returns a validation error naming the member.</summary>
+  private static string? SendArgs(string json, out AgentId? id, out string? text, out MessageUrgency urgency)
+  {
+    id = null;
+    text = null;
+    urgency = MessageUrgency.Normal;
+    JsonDocument doc;
+    try
+    {
+      doc = JsonDocument.Parse(json);
+    }
+    catch (JsonException ex)
+    {
+      return $"arguments must be a JSON object ({ex.Message}).";
+    }
+
+    using (doc)
+    {
+      if (!doc.RootElement.TryGetProperty("id", out JsonElement idElement) || idElement.ValueKind is not JsonValueKind.String
+          || !Guid.TryParseExact(idElement.GetString(), "D", out Guid parsed))
+      {
+        return "'id' must be a GUID string.";
+      }
+
+      id = new AgentId(parsed);
+      if (!doc.RootElement.TryGetProperty("text", out JsonElement textElement)
+          || textElement.ValueKind is not JsonValueKind.String
+          || string.IsNullOrWhiteSpace(textElement.GetString()))
+      {
+        return "'text' must be a non-empty string.";
+      }
+
+      text = textElement.GetString();
+      return doc.RootElement.TryGetProperty("urgency", out JsonElement urgencyElement)
+          && (urgencyElement.ValueKind is not JsonValueKind.String
+              || !Enum.TryParse(urgencyElement.GetString(), ignoreCase: true, out urgency))
+          ? "'urgency' must be one of: normal, attention, urgent."
+          : null;
+    }
   }
   private async Task<CapabilityInvocationResult> Status(string json, CancellationToken ct)
   {

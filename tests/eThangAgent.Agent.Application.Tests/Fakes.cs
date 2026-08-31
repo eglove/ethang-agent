@@ -94,6 +94,9 @@ internal sealed class FakeAgentRuntime(List<string>? callLog = null) : IAgentRun
   }
 
   /// <summary>Interrupts observed by tests; never throws.</summary>
+  public Result<bool> Deliver(AgentId id, PendingMessage message)
+      => Result.Success(true);
+
   public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
     => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", $"agent '{id}' has no live or settled run owned by this runtime.")));
 
