@@ -138,4 +138,67 @@ public class MarkdownParserTests
     _ = Assert.IsType<ListBlock>(doc.Blocks[3]);
     _ = Assert.IsType<ParagraphBlock>(doc.Blocks[4]);
   }
+
+  [Fact]
+  public void Pipe_Table_With_Header_Parses_To_TableBlock()
+  {
+    MarkdownDocument doc = MarkdownParser.Parse("Name | Age\n--- | ---\nAlice | 30\nBob | 25");
+    TableBlock table = Assert.IsType<TableBlock>(Assert.Single(doc.Blocks));
+    Assert.Equal(2, table.Header.Cells.Count);
+    Assert.Equal("Name", Assert.IsType<TextSpan>(Assert.Single(table.Header.Cells[0].Inlines)).Text);
+    Assert.Equal("Age", Assert.IsType<TextSpan>(Assert.Single(table.Header.Cells[1].Inlines)).Text);
+    Assert.Equal(2, table.Rows.Count);
+    Assert.Equal("Alice", Assert.IsType<TextSpan>(Assert.Single(table.Rows[0].Cells[0].Inlines)).Text);
+    Assert.Equal("30", Assert.IsType<TextSpan>(Assert.Single(table.Rows[0].Cells[1].Inlines)).Text);
+    Assert.Equal("Bob", Assert.IsType<TextSpan>(Assert.Single(table.Rows[1].Cells[0].Inlines)).Text);
+    Assert.Equal("25", Assert.IsType<TextSpan>(Assert.Single(table.Rows[1].Cells[1].Inlines)).Text);
+  }
+
+  [Fact]
+  public void Table_Without_Delimiter_Row_Stays_A_Paragraph()
+  {
+    MarkdownDocument doc = MarkdownParser.Parse("a | b\nc | d");
+    ParagraphBlock p = Assert.IsType<ParagraphBlock>(Assert.Single(doc.Blocks));
+    Assert.Contains("|", Assert.IsType<TextSpan>(Assert.Single(p.Inlines)).Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Table_Edge_Pipes_And_Alignment_Colons_Tolerated()
+  {
+    MarkdownDocument doc = MarkdownParser.Parse("| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |");
+    TableBlock table = Assert.IsType<TableBlock>(Assert.Single(doc.Blocks));
+    Assert.Equal(3, table.Header.Cells.Count);
+    TableRow row = Assert.Single(table.Rows);
+    Assert.Equal("a", Assert.IsType<TextSpan>(Assert.Single(row.Cells[0].Inlines)).Text);
+    Assert.Equal("c", Assert.IsType<TextSpan>(Assert.Single(row.Cells[2].Inlines)).Text);
+  }
+
+  [Fact]
+  public void Table_Cells_Parse_Inline_Formats()
+  {
+    MarkdownDocument doc = MarkdownParser.Parse("Cmd | Notes\n--- | ---\n`git` | **fast**");
+    TableBlock table = Assert.IsType<TableBlock>(Assert.Single(doc.Blocks));
+    Assert.Equal("git", Assert.IsType<CodeSpan>(Assert.Single(table.Rows[0].Cells[0].Inlines)).Code);
+    BoldSpan bold = Assert.IsType<BoldSpan>(Assert.Single(table.Rows[0].Cells[1].Inlines));
+    Assert.Equal("fast", Assert.IsType<TextSpan>(Assert.Single(bold.Children)).Text);
+  }
+
+  [Fact]
+  public void Pipe_Inside_CodeSpan_Does_Not_Split_Cell()
+  {
+    MarkdownDocument doc = MarkdownParser.Parse("Expr | Result\n--- | ---\n`a | b` | x");
+    TableBlock table = Assert.IsType<TableBlock>(Assert.Single(doc.Blocks));
+    Assert.Equal("a | b", Assert.IsType<CodeSpan>(Assert.Single(table.Rows[0].Cells[0].Inlines)).Code);
+    Assert.Equal("x", Assert.IsType<TextSpan>(Assert.Single(table.Rows[0].Cells[1].Inlines)).Text);
+  }
+
+  [Fact]
+  public void Table_Sits_Between_Paragraphs_In_Order()
+  {
+    MarkdownDocument doc = MarkdownParser.Parse("before\n\nA | B\n--- | ---\n1 | 2\n\nafter");
+    Assert.Equal(3, doc.Blocks.Count);
+    _ = Assert.IsType<ParagraphBlock>(doc.Blocks[0]);
+    _ = Assert.IsType<TableBlock>(doc.Blocks[1]);
+    _ = Assert.IsType<ParagraphBlock>(doc.Blocks[2]);
+  }
 }

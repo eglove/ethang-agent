@@ -4,8 +4,9 @@ namespace eThangAgent.Desktop.Markdown;
 
 /// <summary>
 /// Parser for the markdown subset rendered in the chat transcript: ATX headings,
-/// fenced code blocks, bullet/ordered lists, paragraphs, and inline bold / italic /
-/// inline-code / links (explicit [text](url) and bare URLs). Anything unrecognized
+/// fenced code blocks, bullet/ordered lists, pipe tables, paragraphs, and inline
+/// bold / italic / inline-code / links (explicit [text](url) and bare URLs). A table
+/// is a line containing a pipe followed by a delimiter row; anything unrecognized
 /// degrades to literal text - malformed input never throws and never loses content.
 /// </summary>
 internal static class MarkdownParser
@@ -42,6 +43,13 @@ internal static class MarkdownParser
       {
         FlushParagraph(paragraph, blocks);
         i = ConsumeList(lines, i, blocks);
+        continue;
+      }
+
+      if (line.Contains('|', StringComparison.Ordinal) && i + 1 < lines.Length && IsDelimiterRow(lines[i + 1]))
+      {
+        FlushParagraph(paragraph, blocks);
+        i = ConsumeTable(lines, i, blocks);
         continue;
       }
 
@@ -152,6 +160,106 @@ internal static class MarkdownParser
 
     int dot = trimmed.IndexOf(". ", StringComparison.Ordinal);
     return trimmed[(dot + 2)..].Trim();
+  }
+
+  /// <summary>Consumes a pipe table starting at its header row; the delimiter row
+  ///     sits at start + 1. Consecutive pipe-bearing lines follow as body rows; the
+  ///     first line without a pipe ends the table.</summary>
+  private static int ConsumeTable(string[] lines, int start, List<Block> blocks)
+  {
+    TableRow header = ParseTableRow(lines[start]);
+    List<TableRow> rows = [];
+    int i = start + 2;
+    while (i < lines.Length && lines[i].Contains('|', StringComparison.Ordinal))
+    {
+      rows.Add(ParseTableRow(lines[i]));
+      i++;
+    }
+
+    blocks.Add(new TableBlock(header, rows));
+    return i;
+  }
+
+  private static TableRow ParseTableRow(string line)
+  {
+    string content = StripEdgePipes(line.Trim());
+    List<TableCell> cells = [.. SplitRow(content).Select(raw => new TableCell(ParseInlines(raw.Trim())))];
+    return new TableRow(cells);
+  }
+
+  /// <summary>Removes one leading and one trailing pipe so interior pipes alone
+  ///     separate cells; edge pipes are optional.</summary>
+  private static string StripEdgePipes(string trimmed)
+  {
+    if (trimmed.StartsWith('|'))
+    {
+      trimmed = trimmed[1..].TrimStart();
+    }
+
+    if (trimmed.EndsWith('|'))
+    {
+      trimmed = trimmed[..^1].TrimEnd();
+    }
+
+    return trimmed;
+  }
+
+  /// <summary>Splits row content on pipes; a pipe inside a code span (backticks)
+  ///     stays literal.</summary>
+  private static List<string> SplitRow(string content)
+  {
+    List<string> cells = [];
+    StringBuilder cell = new();
+    bool inCodeSpan = false;
+    foreach (char c in content)
+    {
+      if (c == '`')
+      {
+        inCodeSpan = !inCodeSpan;
+      }
+
+      if (c == '|' && !inCodeSpan)
+      {
+        cells.Add(cell.ToString());
+        _ = cell.Clear();
+        continue;
+      }
+
+      _ = cell.Append(c);
+    }
+
+    cells.Add(cell.ToString());
+    return cells;
+  }
+
+  /// <summary>A delimiter row is a pipe sequence whose every cell is dashes with
+  ///     optional alignment colons (---, :---, :---:, ---:).</summary>
+  private static bool IsDelimiterRow(string line)
+  {
+    string trimmed = line.Trim();
+    if (!trimmed.Contains('|', StringComparison.Ordinal))
+    {
+      return false;
+    }
+
+    List<string> cells = SplitRow(StripEdgePipes(trimmed));
+    return cells.Count > 0 && cells.All(IsDelimiterCell);
+  }
+
+  private static bool IsDelimiterCell(string cell)
+  {
+    string trimmed = cell.Trim();
+    if (trimmed.StartsWith(':'))
+    {
+      trimmed = trimmed[1..];
+    }
+
+    if (trimmed.EndsWith(':'))
+    {
+      trimmed = trimmed[..^1];
+    }
+
+    return trimmed.Length > 0 && trimmed.All(c => c == '-');
   }
 
   private static void FlushParagraph(List<string> paragraph, List<Block> blocks)

@@ -1,11 +1,13 @@
+using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 
 namespace eThangAgent.Desktop.Markdown;
 
 /// <summary>Renders a <see cref="MarkdownDocument"/> as styled inlines (bold /
-///     monospace / link styling, heading sizes, line breaks). Pure C# over Avalonia
-///     document types - headless-testable; no XAML template logic.</summary>
+///     monospace / link styling, heading sizes, line breaks) plus tables embedded as
+///     Grids through InlineUIContainer. Pure C# over Avalonia document types -
+///     headless-testable; no XAML template logic.</summary>
 internal static class MarkdownInlineRenderer
 {
   private static readonly FontFamily MonoFont = new("Consolas, Courier New");
@@ -47,8 +49,62 @@ internal static class MarkdownInlineRenderer
           EndLine(target);
         }
         break;
+      case TableBlock table:
+        RenderTable(target, table);
+        break;
       default:
         break;
+    }
+  }
+
+  /// <summary>Renders a table as a fresh Grid (new instance per render, so the
+  ///     Inlines.Clear() re-render path never meets a stale parent) embedded through
+  ///     an InlineUIContainer. Rows are Auto-height, columns share width evenly
+  ///     (Star); header cells render bold.</summary>
+  private static void RenderTable(InlineCollection target, TableBlock table)
+  {
+    int columnCount = Math.Max(table.Header.Cells.Count, table.Rows.Count == 0 ? 0 : table.Rows.Max(r => r.Cells.Count));
+    if (columnCount == 0)
+    {
+      return;
+    }
+
+    Grid grid = new();
+    for (int c = 0; c < columnCount; c++)
+    {
+      grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1, GridUnitType.Star)));
+    }
+
+    grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+    for (int r = 0; r < table.Rows.Count; r++)
+    {
+      grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+    }
+
+    AddRow(grid, 0, table.Header.Cells, columnCount, bold: true);
+    for (int r = 0; r < table.Rows.Count; r++)
+    {
+      AddRow(grid, r + 1, table.Rows[r].Cells, columnCount, bold: false);
+    }
+
+    target.Add(new InlineUIContainer { Child = grid });
+    EndLine(target);
+  }
+
+  private static void AddRow(Grid grid, int rowIndex, IReadOnlyList<TableCell> cells, int columnCount, bool bold)
+  {
+    for (int c = 0; c < columnCount; c++)
+    {
+      TextBlock cell = new() { FontWeight = bold ? FontWeight.Bold : FontWeight.Normal };
+      if (c < cells.Count)
+      {
+        cell.Inlines ??= [];
+        RenderInlineRun(cell.Inlines, cells[c].Inlines);
+      }
+
+      Grid.SetRow(cell, rowIndex);
+      Grid.SetColumn(cell, c);
+      grid.Children.Add(cell);
     }
   }
 
