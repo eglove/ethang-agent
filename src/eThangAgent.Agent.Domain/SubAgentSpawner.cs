@@ -198,6 +198,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     AgentFailureReason.MaxIterations => "child agent hit the tool-iteration limit without a final report.",
     AgentFailureReason.Interrupted => "child agent was interrupted by the user before completing.",
     AgentFailureReason.ProviderError => "child agent's model provider failed.",
+    AgentFailureReason.Hung => "child agent was terminated by the watchdog after idle detection and a wrap-up retry.",
     // Unnamed enum values cannot occur.
     _ => "child agent's model provider failed.",
   };

@@ -15,4 +15,7 @@ public enum AgentFailureReason
 
   /// <summary>Cancelled explicitly by the user (distinct from the run's own timeout budget).</summary>
   Interrupted,
+
+  /// <summary>Terminated by the watchdog after idle detection and a wrap-up retry.</summary>
+  Hung,
 }
