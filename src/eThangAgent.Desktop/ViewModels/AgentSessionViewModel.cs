@@ -306,7 +306,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     CancellationTokenSource cts = new();
     _turnCts = cts;
 
-    StreamBridge bridge = new(_streamSink);
+    StreamBridge bridge = new(_streamSink, coalesce: true);
     bridge.Start();
 
     int messageCountBefore = _conversation.Messages.Count;
