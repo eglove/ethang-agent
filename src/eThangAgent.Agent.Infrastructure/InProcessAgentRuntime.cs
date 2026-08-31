@@ -29,9 +29,11 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   private readonly ConcurrentDictionary<AgentId, BoundedAgentMailbox> _mailboxes = [];
   private readonly IMailboxStore? _mailboxStore;
   private readonly IAgentEvents? _events;
+  private readonly ChildSupervisorRegistry? _supervisors;
 
   public InProcessAgentRuntime(IAgentRunner runner, IAgentStore store, int maxConcurrentAgents,
-      IMailboxStore? mailboxStore = null, IAgentEvents? events = null)
+      IMailboxStore? mailboxStore = null, IAgentEvents? events = null,
+      ChildSupervisorRegistry? supervisors = null)
   {
     ArgumentNullException.ThrowIfNull(runner);
     ArgumentNullException.ThrowIfNull(store);
@@ -45,6 +47,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     _store = store;
     _mailboxStore = mailboxStore;
     _events = events;
+    _supervisors = supervisors;
     _slots = new SemaphoreSlim(maxConcurrentAgents, maxConcurrentAgents);
   }
 
@@ -65,6 +68,12 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     BoundedAgentMailbox mailbox = new();
     _mailboxes[record.Id] = mailbox;
     _ = RehydrateAsync(record.Id, mailbox);
+    if (_supervisors is not null)
+    {
+      ChildSupervisor supervisor = new(record.Id, _events ?? NullAgentEvents.Instance, TimeProvider.System, ceilings: null);
+      supervisor.OnStart(record.Attempts);
+      _supervisors.Register(record.Id, supervisor);
+    }
     _ = _settling.AddOrUpdate(record.Id,
         static _ => NewSettleSource(),
         static (_, existing) => existing.Task.IsCompleted ? NewSettleSource() : existing);
@@ -265,6 +274,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   {
     if (_mailboxes.TryRemove(id, out BoundedAgentMailbox? mailbox))
     {
+      _supervisors?.Unregister(id);
       mailbox.Close();
       IReadOnlyList<PendingMessage> remainder = mailbox.Drain();
       if (_mailboxStore is not null && remainder.Count > 0)

@@ -172,6 +172,7 @@ public static class AgentComposition
         .AddSingleton<IAgentInbox, BoundedAgentMailbox>()
         .AddSingleton<IMailboxStore, SqliteMailboxStore>()
         .AddSingleton<IAgentEvents, InProcessAgentEvents>()
+        .AddSingleton<ChildSupervisorRegistry>()
         .AddSingleton<SessionMemoryWriteCounter>()
         .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy())
         ;
@@ -211,7 +212,8 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentStore>(),
             settings.SubAgents.MaxConcurrentAgents,
             sp.GetRequiredService<IMailboxStore>(),
-            sp.GetRequiredService<IAgentEvents>()))
+            sp.GetRequiredService<IAgentEvents>(),
+            sp.GetRequiredService<ChildSupervisorRegistry>()))
         .AddSingleton<IAgentSpawnCommand>(sp => new StartSpawnHandler(
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<IAgentRuntime>(),
