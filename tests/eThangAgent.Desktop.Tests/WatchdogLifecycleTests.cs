@@ -26,7 +26,7 @@ public class WatchdogLifecycleTests
         WorkspaceRoot: root,
         ProviderName: "openrouter",
         ClarifyChannel: null!,
-        Inbox: new AgentInbox(),
+        Inbox: new BoundedAgentMailbox(),
         ChildRuntime: new TestFixtures.StubAgentRuntime(),
         Preferences: null);
   }

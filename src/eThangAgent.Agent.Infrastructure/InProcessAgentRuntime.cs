@@ -24,7 +24,14 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   // retry REUSES the source so existing waiters survive the retry (FR-L3).
   private readonly ConcurrentDictionary<AgentId, TaskCompletionSource<AgentRunOutcome>> _settling = [];
 
-  public InProcessAgentRuntime(IAgentRunner runner, IAgentStore store, int maxConcurrentAgents)
+  // Per-child mailbox registry: Deliver from any sender; Drain by the owner loop at safe
+  // points. Between-turn durability rides IMailboxStore (FR-C5).
+  private readonly ConcurrentDictionary<AgentId, BoundedAgentMailbox> _mailboxes = [];
+  private readonly IMailboxStore? _mailboxStore;
+  private readonly IAgentEvents? _events;
+
+  public InProcessAgentRuntime(IAgentRunner runner, IAgentStore store, int maxConcurrentAgents,
+      IMailboxStore? mailboxStore = null, IAgentEvents? events = null)
   {
     ArgumentNullException.ThrowIfNull(runner);
     ArgumentNullException.ThrowIfNull(store);
@@ -36,6 +43,8 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 
     _runner = runner;
     _store = store;
+    _mailboxStore = mailboxStore;
+    _events = events;
     _slots = new SemaphoreSlim(maxConcurrentAgents, maxConcurrentAgents);
   }
 
@@ -53,6 +62,9 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     CancellationTokenSource cts = new();
 #pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
     _active[record.Id] = cts;
+    BoundedAgentMailbox mailbox = new();
+    _mailboxes[record.Id] = mailbox;
+    _ = RehydrateAsync(record.Id, mailbox);
     _ = _settling.AddOrUpdate(record.Id,
         static _ => NewSettleSource(),
         static (_, existing) => existing.Task.IsCompleted ? NewSettleSource() : existing);
@@ -96,6 +108,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
         CompletedAt = DateTimeOffset.UtcNow,
         FinalReport = outcome.Report,
       }, CancellationToken.None).ConfigureAwait(false);
+      CloseMailbox(record.Id, outcome);
       _ = Settle(record.Id, outcome);
     }
     // Named decision (CA1031): the runtime is an actor boundary - ANY runner fault must
@@ -114,6 +127,8 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
         CompletedAt = DateTimeOffset.UtcNow,
         FinalReport = "Error [ProviderError]: " + ex.Message,
       }, CancellationToken.None).ConfigureAwait(false);
+      CloseMailbox(record.Id, new AgentRunOutcome(record.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
+          "Error [ProviderError]: " + ex.Message, record.ModelUsed, record.Depth));
       _ = Settle(record.Id, new AgentRunOutcome(record.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
           "Error [ProviderError]: " + ex.Message, record.ModelUsed, record.Depth));
     }
@@ -189,6 +204,90 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 
   private static TaskCompletionSource<AgentRunOutcome> NewSettleSource()
       => new(TaskCreationOptions.RunContinuationsAsynchronously);
+  /// <summary>The mailbox for an id, or null when the runtime owns none (never started
+  ///     or already retired). The Agent loop obtains its inbox through the runner's
+  ///     SubAgentServices; senders go through the runtime's Deliver.</summary>
+  internal bool TryGetMailbox(AgentId id, out BoundedAgentMailbox? mailbox)
+      => _mailboxes.TryGetValue(id, out mailbox);
+
+  /// <summary>Push-delivers into a child's mailbox. Fails NotRunning when the runtime
+  ///     owns no live mailbox for the id (FR-C2's NotRunning contract).</summary>
+  public Result<bool> Deliver(AgentId id, PendingMessage message)
+  {
+    ArgumentNullException.ThrowIfNull(message);
+    if (!_mailboxes.TryGetValue(id, out BoundedAgentMailbox? mailbox))
+    {
+      return Result.Failure<bool>(new DomainError(MailboxErrors.NotRunning,
+          $"agent '{id}' is not running; the message was refused."));
+    }
+
+    Result<bool> delivered = mailbox.Deliver(message);
+    if (delivered.IsSuccess && _events is not null)
+    {
+      _events.Publish(new MessageDeliveredEvent(id, DateTimeOffset.UtcNow, "inbound",
+          (int)message.Urgency, System.Text.Encoding.UTF8.GetByteCount(message.Text)));
+    }
+
+    return delivered;
+  }
+
+  /// <summary>Rehydrates persisted undelivered messages at start (FR-C5); fires on a
+  ///     background flow — the loop's first drain races benignly with enqueue.
+  ///     Errors are swallowed by design: rehydration is best-effort recovery, and the
+  ///     messages remain persisted for the next start.</summary>
+  private async Task RehydrateAsync(AgentId id, BoundedAgentMailbox mailbox)
+  {
+    if (_mailboxStore is null)
+    {
+      return;
+    }
+
+    Result<IReadOnlyList<PendingMessage>> loaded = await _mailboxStore.LoadUndeliveredAsync(id).ConfigureAwait(false);
+    if (!loaded.IsSuccess)
+    {
+      return;
+    }
+
+    foreach (PendingMessage message in loaded.Value)
+    {
+      _ = mailbox.Deliver(message);
+    }
+
+    if (loaded.Value.Count > 0)
+    {
+      _ = await _mailboxStore.ClearAsync(id).ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>Closes the delivery side and persists any still-undelivered remainder
+  ///     (FR-C5) — called exactly once per run, before waiters observe settlement.</summary>
+  private void CloseMailbox(AgentId id, AgentRunOutcome outcome)
+  {
+    if (_mailboxes.TryRemove(id, out BoundedAgentMailbox? mailbox))
+    {
+      mailbox.Close();
+      IReadOnlyList<PendingMessage> remainder = mailbox.Drain();
+      if (_mailboxStore is not null && remainder.Count > 0)
+      {
+        _ = PersistRemainderAsync(id, remainder);
+      }
+
+      _events?.Publish(new ChildSettledEvent(id, DateTimeOffset.UtcNow, outcome.Status,
+          outcome.Reason, System.Text.Encoding.UTF8.GetByteCount(outcome.Report)));
+    }
+  }
+
+  private async Task PersistRemainderAsync(AgentId id, IReadOnlyList<PendingMessage> remainder)
+  {
+    if (_mailboxStore is null)
+    {
+      return;
+    }
+
+    // A failed remainder write is survivable (messages were undelivered steering, not
+    // protocol state); the result is intentionally ignored — never crash the settle path.
+    _ = await _mailboxStore.PersistUndeliveredAsync(id, remainder).ConfigureAwait(false);
+  }
   /// <summary>Translates the canonical CapReached string into an <see cref="DomainError"/> without duplicating
   /// its text: "Error [Code]: message" becomes Error(Code, message), so downstream pass-through rendering
   /// reproduces <see cref="RuntimeErrors.CapReached"/> byte-for-byte.</summary>

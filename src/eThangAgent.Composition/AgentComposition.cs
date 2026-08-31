@@ -169,7 +169,8 @@ public static class AgentComposition
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
         .AddSingleton<SqliteCuratedMemoryStore>()
         .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
-        .AddSingleton<IAgentInbox, AgentInbox>()
+        .AddSingleton<IAgentInbox, BoundedAgentMailbox>()
+        .AddSingleton<IMailboxStore, SqliteMailboxStore>()
         .AddSingleton<IAgentEvents, InProcessAgentEvents>()
         .AddSingleton<SessionMemoryWriteCounter>()
         .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy())
@@ -208,7 +209,9 @@ public static class AgentComposition
         .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
             sp.GetRequiredService<SubAgentSpawner>(),
             sp.GetRequiredService<IAgentStore>(),
-            settings.SubAgents.MaxConcurrentAgents))
+            settings.SubAgents.MaxConcurrentAgents,
+            sp.GetRequiredService<IMailboxStore>(),
+            sp.GetRequiredService<IAgentEvents>()))
         .AddSingleton<IAgentSpawnCommand>(sp => new StartSpawnHandler(
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<IAgentRuntime>(),

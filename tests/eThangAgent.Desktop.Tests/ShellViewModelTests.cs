@@ -49,7 +49,7 @@ public class ShellViewModelTests
         WorkspaceRoot: root,
         ProviderName: provider,
         ClarifyChannel: null!,
-        Inbox: new AgentDomain.AgentInbox(),
+        Inbox: new AgentDomain.BoundedAgentMailbox(),
         ChildRuntime: new TestFixtures.StubAgentRuntime(),
         Preferences: preferences);
   }

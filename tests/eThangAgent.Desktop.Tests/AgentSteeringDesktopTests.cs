@@ -12,7 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 public class AgentSteeringDesktopTests
 {
   private static (AgentSessionViewModel Vm, RecordingLifecycle Lifecycle) Build(
-      TurnRunner runner, AgentInbox inbox, TestFixtures.StubAgentRuntime runtime)
+      TurnRunner runner, BoundedAgentMailbox inbox, TestFixtures.StubAgentRuntime runtime)
   {
     RecordingLifecycle lifecycle = new(new StubStore());
     AgentSessionViewModel vm = new(
@@ -30,7 +30,7 @@ public class AgentSteeringDesktopTests
   [Fact]
   public async Task BusySubmit_PostsToInbox_AndEchoesInTranscript()
   {
-    AgentInbox inbox = new();
+    BoundedAgentMailbox inbox = new();
     TestFixtures.ParkingRunner park = new();
     (AgentSessionViewModel? vm, RecordingLifecycle _) = Build(park.RunAsync, inbox, new TestFixtures.StubAgentRuntime());
 
@@ -54,7 +54,7 @@ public class AgentSteeringDesktopTests
   {
     TestFixtures.StubAgentRuntime runtime = new();
     TestFixtures.ParkingRunner park = new();
-    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build(park.RunAsync, new AgentInbox(), runtime);
+    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build(park.RunAsync, new BoundedAgentMailbox(), runtime);
 
     Task turnTask = vm.SubmitAsync("long running work");
     await park.Started.ConfigureAwait(true);
@@ -75,7 +75,7 @@ public class AgentSteeringDesktopTests
   {
     TestFixtures.StubAgentRuntime runtime = new();
     (AgentSessionViewModel? vm, RecordingLifecycle _) = Build((_, _, _, _) => Task.FromResult(Result.Success("ok")),
-        new AgentInbox(), runtime);
+        new BoundedAgentMailbox(), runtime);
 
     await vm.SubmitAsync("quick turn");
     await vm.WaitForTurnAsync();
@@ -110,7 +110,7 @@ public class AgentSteeringDesktopTests
     await vm.WaitForTurnAsync();
   }
 
-  private static List<string> TakeQueued(AgentInbox inbox)
+  private static List<string> TakeQueued(BoundedAgentMailbox inbox)
   {
     List<string> taken = [];
     while (inbox.TryTake(out string? text))

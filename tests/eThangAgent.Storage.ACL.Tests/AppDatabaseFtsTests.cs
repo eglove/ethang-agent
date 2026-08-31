@@ -32,7 +32,7 @@ public sealed class AppDatabaseFtsTests : IDisposable
     using SqliteConnection connection = _database.Open();
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "PRAGMA user_version;";
-    Assert.Equal(10, Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture));
+    Assert.Equal(11, Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture));
   }
 
   [Fact]

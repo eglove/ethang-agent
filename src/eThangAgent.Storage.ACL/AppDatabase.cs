@@ -112,6 +112,11 @@ public sealed class AppDatabase
       ApplyV10(connection);
       SetVersion(connection, 10);
     }
+    if (GetVersion(connection) < 11)
+    {
+      ApplyV11(connection);
+      SetVersion(connection, 11);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -438,5 +443,28 @@ public sealed class AppDatabase
     AddColumnIfMissing(connection,
         "SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name = 'contract';",
         "ALTER TABLE agents ADD COLUMN contract TEXT NULL;");
+  }
+
+  /// <summary>V11 adds mailbox_messages: between-turn durability for undelivered mailbox
+  ///     messages (FR-C5). Delivery is runtime-push only — the table is never polled (A1);
+  ///     it exists so a settled child's unread steering survives to its next start.</summary>
+  private static void ApplyV11(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS mailbox_messages (
+            agent_id   TEXT NOT NULL,
+            seq        INTEGER NOT NULL,
+            sender     TEXT NOT NULL,
+            urgency    INTEGER NOT NULL,
+            text       TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (agent_id, seq)
+        );
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
   }
 }

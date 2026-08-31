@@ -48,7 +48,7 @@ public class AgentSteeringTests
   [Fact]
   public async Task CapturedRequest_IsFrozen_DoesNotMutateAsTurnContinues()
   {
-    AgentInbox inbox = new();
+    BoundedAgentMailbox inbox = new();
     ScriptedProvider provider = new(
         new ModelResponse(null, [new ToolCallRequest("call_1", "steer", "{}")]));
     ActionTool tool = new("steer", () => inbox.Post("later message"));
@@ -68,7 +68,7 @@ public class AgentSteeringTests
   [Fact]
   public async Task SteeringPostedDuringToolRun_LandsInNextRequest_AsUserMessage()
   {
-    AgentInbox inbox = new();
+    BoundedAgentMailbox inbox = new();
     ScriptedProvider provider = new(
         new ModelResponse(null, [new ToolCallRequest("call_1", "steer", "{}")]),
         new ModelResponse("finished", []));
@@ -89,7 +89,7 @@ public class AgentSteeringTests
   [Fact]
   public async Task LeftoverSteering_DrainsAtTurnEntry_BeforeNewUserText()
   {
-    AgentInbox inbox = new();
+    BoundedAgentMailbox inbox = new();
     inbox.Post("queued earlier");
     ScriptedProvider provider = new();
     Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
@@ -111,7 +111,7 @@ public class AgentSteeringTests
   [Fact]
   public async Task SteeringNeverSplits_ToolCallFromItsResults()
   {
-    AgentInbox inbox = new();
+    BoundedAgentMailbox inbox = new();
     ScriptedProvider provider = new(
         new ModelResponse("thinking", [new ToolCallRequest("call_1", "steer", "{}")]));
     ActionTool tool = new("steer", () => inbox.Post("mid-batch"));
