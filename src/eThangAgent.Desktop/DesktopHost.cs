@@ -2,11 +2,15 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
 using Avalonia.Threading;
+using eThangAgent.Agent.Application;
+using eThangAgent.AgentInfrastructure;
 using eThangAgent.Agent.Application.Sessions;
+using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
+using Microsoft.Extensions.DependencyInjection;
 using eThangAgent.Storage.ACL;
 using eThangAgent.Zai.ACL;
 using CommitStyle = eThangAgent.ToolDomain.CommitStyle;
@@ -187,6 +191,18 @@ internal static class DesktopHost
     // model-actionable failure — until that tab's VM installs it. No session
     // delegate is injected: the shell derives it from the factory so saved keys
     // rebind future opens.
+    WatchdogOptions watchdogOptions = WatchdogOptions.Default;
+    WatchdogLoop watchdogLoop = new(watchdogOptions.TickInterval, TimeProvider.System);
+    ProcessMetrics metrics = new();
+    WatchdogPolicy policy = WatchdogPolicyFactory.FromOptions(watchdogOptions);
+
+    WatchdogServices ServicesFor(AgentSession session) => new(
+        session.Services.GetRequiredService<IAgentStore>(),
+        session.ChildRuntime,
+        session.Services.GetRequiredService<IAgentHeartbeat>(),
+        session.Services.GetRequiredService<IWatchdogEventStore>(),
+        policy, metrics, watchdogOptions, TimeProvider.System);
+
     MainViewModel vm = new(
         createSession: null,
         new MainViewModelOptions
@@ -198,8 +214,25 @@ internal static class DesktopHost
           SessionFactory = boot.Sessions,
           ApiKeyProtector = boot.ApiKeys,
           SessionCatalog = boot.Catalog,
+          SessionOpened = session => watchdogLoop.Attach(session.RootId,
+              new AgentWatchdog(session.RootId, ServicesFor(session))),
+          SessionClosed = rootId => watchdogLoop.Detach(rootId),
         });
-    return new MainWindow(vm);
+    MainWindow window = new(vm);
+
+    // Named decision (CA2000): the source's lifetime is the window's lifetime - disposal
+    // races a cancel arriving on the same close event, so ownership transfers to the handler.
+#pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
+    CancellationTokenSource watchdogCts = new();
+#pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
+    _ = Task.Run(() => watchdogLoop.RunAsync(watchdogCts.Token));
+    window.Closed += (_, _) =>
+    {
+      watchdogCts.Cancel();
+      watchdogCts.Dispose();
+    };
+
+    return window;
   }
 
   /// <summary>Shows the startup-error dialog on the UI thread and shuts down with exit code 1

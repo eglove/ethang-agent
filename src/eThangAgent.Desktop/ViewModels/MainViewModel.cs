@@ -31,6 +31,14 @@ internal delegate Task<Result<string>> TurnRunner(
 ///     editing (prebuilt-session hosts own their configuration).</summary>
 internal sealed record MainViewModelOptions
 {
+  /// <summary>Host hook fired when a session tab opens (after Tabs.Add): the watchdog host
+  ///     attaches the session's container-scoped watchdog here. Null: no-op (tests, hosts
+  ///     without a watchdog).</summary>
+  public Action<AgentSession>? SessionOpened { get; init; }
+
+  /// <summary>Host hook fired when a session tab closes, before the container is disposed.</summary>
+  public Action<AgentId>? SessionClosed { get; init; }
+
   /// <summary>Providers the dialog offers when no settings snapshot is injected;
   ///     ignored (derived from the snapshot) otherwise.</summary>
   public IReadOnlyList<ProviderOption>? AvailableProviders { get; init; }
@@ -110,6 +118,11 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Current settings snapshot. Null together with a null factory disables
   ///     settings editing (prebuilt-session hosts own their configuration).</summary>
   private AgentSettings? _settings;
+
+  /// <summary>Optional host hooks for the watchdog host: attach/detach per-session
+  ///     watchdogs as tabs open and close. Null (tests, hosts without one): no-op.</summary>
+  private readonly Action<AgentSession>? _sessionOpened;
+  private readonly Action<AgentId>? _sessionClosed;
 
   /// <summary>Factory rebound via <see cref="AgentSessionFactory.WithSettings"/> when
   ///     saved keys change; the creation delegate always reads the current instance.</summary>
@@ -216,6 +229,8 @@ internal sealed partial class MainViewModel : ObservableObject
     ConfiguredCommitStyle = options?.CommitStyle ?? CommitStyle.Conventional;
     _streamSink = options?.UiStreamSink;
     _settings = options?.Settings;
+    _sessionOpened = options?.SessionOpened;
+    _sessionClosed = options?.SessionClosed;
     _sessionFactory = options?.SessionFactory;
     _keyProtector = options?.ApiKeyProtector;
     _sessionCatalog = options?.SessionCatalog;
@@ -660,6 +675,7 @@ internal sealed partial class MainViewModel : ObservableObject
 
     AgentTabViewModel tab = new(session, sessionVm);
     Tabs.Add(tab);
+    _sessionOpened?.Invoke(session);
     SelectedTab = tab;
 
     await PersistProviderPreferenceAsync(session.ProviderName).ConfigureAwait(false);
@@ -840,6 +856,7 @@ internal sealed partial class MainViewModel : ObservableObject
   public async Task CloseTabAsync(AgentTabViewModel tab)
   {
     ArgumentNullException.ThrowIfNull(tab);
+    _sessionClosed?.Invoke(tab.Container.RootId);
     if (!Tabs.Contains(tab))
     {
       return;
