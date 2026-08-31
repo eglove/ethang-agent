@@ -107,6 +107,11 @@ public sealed class AppDatabase
       ApplyV9(connection);
       SetVersion(connection, 9);
     }
+    if (GetVersion(connection) < 10)
+    {
+      ApplyV10(connection);
+      SetVersion(connection, 10);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -418,5 +423,20 @@ public sealed class AppDatabase
     command.CommandText = sql;
 #pragma warning restore CA2100
     _ = command.ExecuteNonQuery();
+  }
+  /// <summary>V10 gives agent rows runtime-owned facts (FR-L2): the wrap-up attempt count,
+  ///     the running phase, and the serialized spawn contract. Legacy rows read defaults
+  ///     (0 / null / null) through the AddColumnIfMissing defaults.</summary>
+  private static void ApplyV10(SqliteConnection connection)
+  {
+    AddColumnIfMissing(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name = 'attempts';",
+        "ALTER TABLE agents ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;");
+    AddColumnIfMissing(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name = 'phase';",
+        "ALTER TABLE agents ADD COLUMN phase INTEGER NULL;");
+    AddColumnIfMissing(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name = 'contract';",
+        "ALTER TABLE agents ADD COLUMN contract TEXT NULL;");
   }
 }

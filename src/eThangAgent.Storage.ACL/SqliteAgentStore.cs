@@ -41,8 +41,8 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
 #pragma warning restore CA2007
       using SqliteCommand command = connection.CreateCommand();
       command.CommandText = """
-                INSERT INTO agents (id, parent_id, depth, status, failure_reason, model_used, label, task_prompt, created_at, completed_at, final_report, workspace_id, provider)
-                VALUES (@id, @parent, @depth, @status, @failure, @model, @label, @prompt, @created, @completed, @report, @workspace, @provider);
+                INSERT INTO agents (id, parent_id, depth, status, failure_reason, model_used, label, task_prompt, created_at, completed_at, final_report, workspace_id, provider, attempts, phase, contract)
+                VALUES (@id, @parent, @depth, @status, @failure, @model, @label, @prompt, @created, @completed, @report, @workspace, @provider, @attempts, @phase, @contract);
                 """;
       BindRecord(command, record);
       _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
@@ -68,7 +68,8 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
       command.CommandText = """
                 UPDATE agents SET parent_id=@parent, depth=@depth, status=@status, failure_reason=@failure,
                     model_used=@model, label=@label, task_prompt=@prompt, created_at=@created,
-                    completed_at=@completed, final_report=@report, workspace_id=@workspace, provider=@provider
+                    completed_at=@completed, final_report=@report, workspace_id=@workspace, provider=@provider,
+                    attempts=@attempts, phase=@phase, contract=@contract
                 WHERE id=@id;
                 """;
       BindRecord(command, record);
@@ -91,7 +92,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = """
             SELECT id, parent_id, depth, status, failure_reason, model_used, label, task_prompt,
-                   created_at, completed_at, final_report, workspace_id, provider
+                   created_at, completed_at, final_report, workspace_id, provider, attempts, phase, contract
             FROM agents WHERE id=@id;
             """;
     Add(command, "@id", id.ToString());
@@ -241,7 +242,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = """
             SELECT id, parent_id, depth, status, failure_reason, model_used, label, task_prompt,
-                   created_at, completed_at, final_report, workspace_id, provider
+                   created_at, completed_at, final_report, workspace_id, provider, attempts, phase, contract
             FROM agents WHERE parent_id=@parent ORDER BY created_at;
             """;
     Add(command, "@parent", parentId.ToString());
@@ -264,7 +265,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = """
             SELECT id, parent_id, depth, status, failure_reason, model_used, label, task_prompt,
-                   created_at, completed_at, final_report, workspace_id, provider
+                   created_at, completed_at, final_report, workspace_id, provider, attempts, phase, contract
             FROM agents ORDER BY created_at;
             """;
     List<AgentRecord> records = [];
@@ -366,6 +367,9 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     Add(command, "@report", (object?)record.FinalReport ?? DBNull.Value);
     Add(command, "@workspace", (object?)record.WorkspaceId ?? DBNull.Value);
     Add(command, "@provider", (object?)record.Provider ?? DBNull.Value);
+    Add(command, "@attempts", (long)record.Attempts);
+    Add(command, "@phase", (object?)(record.Phase is { } phase ? (long)phase : null) ?? DBNull.Value);
+    Add(command, "@contract", (object?)record.Contract ?? DBNull.Value);
   }
 
   private static AgentRecord ReadRecord(SqliteDataReader reader) => new(
@@ -381,7 +385,10 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
       reader.IsDBNull(9) ? null : DateTimeOffset.Parse(reader.GetString(9), CultureInfo.InvariantCulture),
       reader.IsDBNull(10) ? null : reader.GetString(10),
       reader.IsDBNull(11) ? null : reader.GetString(11),
-      reader.IsDBNull(12) ? null : reader.GetString(12));
+      reader.IsDBNull(12) ? null : reader.GetString(12),
+      reader.GetInt32(13),
+      reader.IsDBNull(14) ? null : (ChildPhase?)reader.GetInt32(14),
+      reader.IsDBNull(15) ? null : reader.GetString(15));
 
   private static DomainError NotFound(AgentId id)
       => new("NotFound", $"agent {id} was not found.");

@@ -37,7 +37,10 @@ public sealed class SqliteAgentStoreTests : IDisposable
       TaskPrompt: "summarize the docs",
       CreatedAt: new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero),
       CompletedAt: new DateTimeOffset(2026, 8, 21, 10, 5, 0, TimeSpan.Zero),
-      FinalReport: "all done");
+      FinalReport: "all done",
+      Attempts: 3,
+      Phase: ChildPhase.ToolExec,
+      Contract: SpawnContract.Encode(new SpawnContract(Budgets: new BudgetCeilings(MaxTokens: 123))));
 
   [Fact]
   public async Task Save_Get_RoundTripsEveryField()
@@ -72,6 +75,42 @@ public sealed class SqliteAgentStoreTests : IDisposable
 
     Assert.True(updated.IsSuccess);
     Assert.Equal(completed, (await _store.GetAsync(running.Id, ct: TestContext.Current.CancellationToken)).Value);
+  }
+
+  [Fact]
+  public async Task LegacyRow_ReadsWithDefaultFacts()
+  {
+    AgentId id = AgentId.NewId();
+    AgentRecord legacy = AgentRecord.Spawned(
+        id, AgentId.NewId(), 1, "provider/model", null, "do work",
+        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero));
+    _ = await _store.SaveAsync(legacy, ct: TestContext.Current.CancellationToken);
+
+    Result<AgentRecord> loadResult = await _store.GetAsync(id, ct: TestContext.Current.CancellationToken);
+    Assert.True(loadResult.IsSuccess);
+    AgentRecord loaded = loadResult.Value;
+    Assert.Equal(0, loaded.Attempts);
+    Assert.Null(loaded.Phase);
+    Assert.Null(loaded.Contract);
+  }
+
+  [Fact]
+  public async Task ContractBearingSpawn_PreservesContract()
+  {
+    AgentId id = AgentId.NewId();
+    SpawnContract contract = new(MaxUrgency: 2, PreemptGrant: true);
+    AgentRecord spawned = AgentRecord.Spawned(
+        id, AgentId.NewId(), 1, "provider/model", null, "do work",
+        new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero), contract);
+    _ = await _store.SaveAsync(spawned, ct: TestContext.Current.CancellationToken);
+
+    Result<AgentRecord> loadResult = await _store.GetAsync(id, ct: TestContext.Current.CancellationToken);
+    Assert.True(loadResult.IsSuccess);
+    AgentRecord loaded = loadResult.Value;
+    string? encoded = SpawnContract.Encode(contract);
+    Assert.NotNull(encoded);
+    Assert.Equal(encoded, loaded.Contract);
+    Assert.Equal(0, loaded.Attempts); // runtime writes attempts at start, not spawn
   }
 
   [Fact]

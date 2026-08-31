@@ -13,10 +13,17 @@ public sealed record AgentRecord(
     DateTimeOffset? CompletedAt,
     string? FinalReport,
     string? WorkspaceId = null,
-    string? Provider = null)
+    string? Provider = null,
+    int Attempts = 0,
+    ChildPhase? Phase = null,
+    string? Contract = null)
 {
-  public static AgentRecord Spawned(AgentId id, AgentId? parentId, int depth, string modelUsed, string? label, string taskPrompt, DateTimeOffset createdAt)
-      => new(id, parentId, depth, AgentStatus.Running, null, modelUsed, label, taskPrompt, createdAt, null, null);
+  /// <summary>Creates a freshly spawned child row. When a spawn contract is supplied it is
+  ///     serialized into the Contract column so resume and audit see the agreement the run
+  ///     started with. Attempts/Phase stay at their defaults: the RUNTIME writes them when it
+  ///     actually starts (or restarts) the run — records are born un-attempted (FR-L2).</summary>
+  public static AgentRecord Spawned(AgentId id, AgentId? parentId, int depth, string modelUsed, string? label, string taskPrompt, DateTimeOffset createdAt, SpawnContract? contract = null)
+      => new(id, parentId, depth, AgentStatus.Running, null, modelUsed, label, taskPrompt, createdAt, null, null, Contract: SpawnContract.Encode(contract));
 
   /// <summary>Creates the persisted root session row: the host REPL conversation itself as an
   ///     ordinary depth-0 agent with no parent, Running from creation, bound to its workspace
