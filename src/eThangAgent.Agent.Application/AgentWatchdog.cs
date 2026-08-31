@@ -66,6 +66,10 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
         services.Heartbeat.Forget(new AgentId(id));
       }
     }
+    catch (OperationCanceledException)
+    {
+      throw; // host shutdown ends the loop; nothing to record
+    }
     // Named decision (CA1031): same fault boundary at tick scope; rate-limited.
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)
@@ -119,8 +123,18 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
       return; // cannot read the ledger; refuse to act on a guess
     }
 
-    WatchdogPolicyDecision decision =
-        services.Policy.Decide(record.ParentId is not null, idleAge, attempts.Value);
+    Result<int> deferred = await services.Events.CountKindForAgentAsync(
+        record.Id, WatchdogEventKind.RetryDeferred, ct).ConfigureAwait(false);
+    if (!deferred.IsSuccess)
+    {
+      return; // cannot read the ledger; refuse to act on a guess
+    }
+
+    // A deferred retry means the previous cancel was never observed: per the spec the
+    // NEXT detection takes the terminal path regardless of the RetrySpawned count.
+    WatchdogPolicyDecision decision = deferred.Value > 0
+        ? WatchdogPolicyDecision.TerminalReport
+        : services.Policy.Decide(record.ParentId is not null, idleAge, attempts.Value);
     if (decision == WatchdogPolicyDecision.RetryWrapUp)
     {
       await RetryWrapUpAsync(record, attempts.Value, idleAge, ct).ConfigureAwait(false);
@@ -167,10 +181,13 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
 
     services.Heartbeat.Forget(record.Id); // fresh run starts with a clean liveness slate
     Result<AgentId> started = await services.Runtime.Start(reset, ct).ConfigureAwait(false);
-    _ = started;
+    if (!started.IsSuccess)
+    {
+      return; // no retry actually began; next tick re-evaluates with the ledger intact
+    }
     await AppendAsync(new WatchdogEvent(Guid.NewGuid(), record.Id,
         WatchdogEventKind.RetrySpawned,
-"wrap-up retry started on the same id", attempts + 1, null,
+        "wrap-up retry started on the same id", attempts + 1, null,
         services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
   }
 

@@ -221,17 +221,22 @@ internal static class DesktopHost
     MainWindow window = new(vm);
 
     // Named decision (CA2000): the source's lifetime is the window's lifetime - disposal
-    // races a cancel arriving on the same close event, so ownership transfers to the handler.
+    // races a cancel arriving on the same close event; RunAsync observes the token only
+    // before the window can close, so a late touch cannot occur.
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
     CancellationTokenSource watchdogCts = new();
 #pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
-    _ = Task.Run(() => watchdogLoop.RunAsync(watchdogCts.Token));
+    _ = Task.Run(() => watchdogLoop.RunAsync(watchdogCts.Token))
+        .ContinueWith(
+            static t => _ = Console.Error.WriteLineAsync("watchdog loop faulted: " + t.Exception),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
     window.Closed += (_, _) =>
     {
       watchdogCts.Cancel();
       watchdogCts.Dispose();
     };
-
     return window;
   }
 

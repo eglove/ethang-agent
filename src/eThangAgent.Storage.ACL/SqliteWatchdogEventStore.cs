@@ -33,6 +33,13 @@ public sealed class SqliteWatchdogEventStore(AppDatabase database) : IWatchdogEv
 
   public async Task<Result<IReadOnlyList<WatchdogEvent>>> ListRecentAsync(int limit, CancellationToken ct = default)
   {
+    if (limit < 0)
+    {
+      // Strict boundary: SQLite would read a negative LIMIT as unbounded.
+      return Result.Failure<IReadOnlyList<WatchdogEvent>>(new DomainError("InvalidLimit",
+          "limit must not be negative."));
+    }
+
 #pragma warning disable CA2007
     await using SqliteConnection connection = _db.Open();
 #pragma warning restore CA2007

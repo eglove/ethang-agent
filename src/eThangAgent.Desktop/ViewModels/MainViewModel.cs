@@ -856,11 +856,14 @@ internal sealed partial class MainViewModel : ObservableObject
   public async Task CloseTabAsync(AgentTabViewModel tab)
   {
     ArgumentNullException.ThrowIfNull(tab);
-    _sessionClosed?.Invoke(tab.Container.RootId);
     if (!Tabs.Contains(tab))
     {
       return;
     }
+
+    // After the guard: a stale double-close must not detach a NEWER watchdog bound to
+    // the same root id (a closed session becomes resumable, so the id can be live again).
+    _sessionClosed?.Invoke(tab.Container.RootId);
 
     // Named decision (CA1031): teardown is best effort — a failing persistence
     // write must not prevent the tab from closing.
