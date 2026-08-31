@@ -125,7 +125,7 @@ public class StreamWindowCoalescerTests
     (StreamWindowCoalescer coalescer, List<UiStreamEvent> received, _) = Create();
 
     await coalescer.ContentDeltaAsync("a");
-    await coalescer.ToolCallAsync("read", "{\"path\":\"x\"}");
+    await coalescer.ToolCallAsync("read", /*lang=json,strict*/ "{\"path\":\"x\"}");
     await coalescer.ToolResultAsync("read", "ok", "full", false);
     await coalescer.NoticeAsync("note");
 
@@ -133,7 +133,7 @@ public class StreamWindowCoalescerTests
     Assert.Equal("a", Assert.IsType<UiStreamEvent.Delta>(received[0]).Text);
     UiStreamEvent.ToolCallEvent call = Assert.IsType<UiStreamEvent.ToolCallEvent>(received[1]);
     Assert.Equal("read", call.Name);
-    Assert.Equal("{\"path\":\"x\"}", call.Arguments);
+    Assert.Equal(/*lang=json,strict*/ "{\"path\":\"x\"}", call.Arguments);
     UiStreamEvent.ToolResultEvent result = Assert.IsType<UiStreamEvent.ToolResultEvent>(received[2]);
     Assert.Equal("full", result.FullContent);
     Assert.Equal("note", Assert.IsType<UiStreamEvent.Notice>(received[3]).Text);

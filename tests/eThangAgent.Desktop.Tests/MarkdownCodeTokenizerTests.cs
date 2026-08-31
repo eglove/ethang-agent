@@ -84,7 +84,7 @@ public class MarkdownCodeTokenizerTests
   [Fact]
   public void Json_Keys_Numbers_Literals()
   {
-    MarkdownCodeToken[] tokens = MarkdownCodeTokenizer.Tokenize("{\"k\": 1.5, \"b\": true}", "json");
+    MarkdownCodeToken[] tokens = MarkdownCodeTokenizer.Tokenize(/*lang=json,strict*/ "{\"k\": 1.5, \"b\": true}", "json");
     Assert.Equal(9, tokens.Length);
     Assert.Equal("{", tokens[0].Text);
     Assert.Equal(MarkdownCodeTokenKind.String, tokens[1].Kind);
