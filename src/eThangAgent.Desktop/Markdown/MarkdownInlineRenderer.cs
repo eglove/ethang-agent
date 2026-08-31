@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
@@ -12,14 +13,31 @@ internal static class MarkdownInlineRenderer
 {
   private static readonly FontFamily MonoFont = new("Consolas, Courier New");
 
+  private const double BlockSpacerHeight = 8;
+  private const double HeadingSpacerHeight = 12;
+  private static readonly IBrush PanelBackground = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x30));
+
   public static void Render(InlineCollection target, MarkdownDocument document)
   {
     ArgumentNullException.ThrowIfNull(target);
     ArgumentNullException.ThrowIfNull(document);
-    foreach (Block block in document.Blocks)
+    for (int i = 0; i < document.Blocks.Count; i++)
     {
-      RenderBlock(target, block);
+      RenderBlock(target, document.Blocks[i]);
+      if (i < document.Blocks.Count - 1)
+      {
+        AddSpacer(target, document.Blocks[i]);
+      }
     }
+  }
+
+  /// <summary>Vertical gap between consecutive blocks: an empty fixed-height Border
+  ///     embedded through InlineUIContainer, so the gap participates in line layout
+  ///     without any per-block control templates. Headings get extra leading.</summary>
+  private static void AddSpacer(InlineCollection target, Block previous)
+  {
+    double height = previous is HeadingBlock ? HeadingSpacerHeight : BlockSpacerHeight;
+    target.Add(new InlineUIContainer { Child = new Border { Height = height } });
   }
 
   private static void RenderBlock(InlineCollection target, Block block)
@@ -35,11 +53,7 @@ internal static class MarkdownInlineRenderer
         EndLine(target);
         break;
       case CodeBlock code:
-        foreach (string codeLine in code.Text.Split('\n'))
-        {
-          target.Add(new Run(codeLine) { FontFamily = MonoFont });
-          EndLine(target);
-        }
+        RenderCode(target, code);
         break;
       case ListBlock list:
         foreach (IReadOnlyList<Inline> item in list.Items)
@@ -61,6 +75,68 @@ internal static class MarkdownInlineRenderer
   ///     Inlines.Clear() re-render path never meets a stale parent) embedded through
   ///     an InlineUIContainer. Rows are Auto-height, columns share width evenly
   ///     (Star); header cells render bold.</summary>
+  /// <summary>Known languages tokenize into a padded, rounded panel of per-line
+  ///     TextBlocks (one Run per token span); unknown or empty languages keep the
+  ///     original plain monospace runs so nothing regresses for unlisted code.</summary>
+  private static void RenderCode(InlineCollection target, CodeBlock code)
+  {
+    MarkdownCodeToken[] tokens = MarkdownCodeTokenizer.Tokenize(code.Text, code.Language);
+    if (tokens.Length == 1 && tokens[0].Kind == MarkdownCodeTokenKind.Default)
+    {
+      foreach (string codeLine in code.Text.Split('\n'))
+      {
+        target.Add(new Run(codeLine) { FontFamily = MonoFont });
+        EndLine(target);
+      }
+
+      return;
+    }
+
+    target.Add(new InlineUIContainer { Child = BuildCodePanel(tokens) });
+    EndLine(target);
+  }
+
+  /// <summary>Splits token spans at newlines into per-line TextBlocks: a span that
+  ///     spans lines (block comment, verbatim string) colors every line it touches.</summary>
+  private static Border BuildCodePanel(MarkdownCodeToken[] tokens)
+  {
+    StackPanel stack = new();
+    TextBlock line = NewCodeLine();
+    foreach (MarkdownCodeToken token in tokens)
+    {
+      string[] segments = token.Text.Split('\n');
+      for (int s = 0; s < segments.Length; s++)
+      {
+        if (s > 0)
+        {
+          stack.Children.Add(line);
+          line = NewCodeLine();
+        }
+
+        if (segments[s].Length > 0)
+        {
+          line.Inlines ??= [];
+          line.Inlines.Add(new Run(segments[s])
+          {
+            FontFamily = MonoFont,
+            Foreground = MarkdownPalette.BrushFor(token.Kind),
+          });
+        }
+      }
+    }
+
+    stack.Children.Add(line);
+    return new Border
+    {
+      Background = PanelBackground,
+      CornerRadius = new CornerRadius(6),
+      Padding = new Thickness(8, 6),
+      Child = stack,
+    };
+  }
+
+  private static TextBlock NewCodeLine() => new() { TextWrapping = TextWrapping.NoWrap };
+
   private static void RenderTable(InlineCollection target, TableBlock table)
   {
     int columnCount = Math.Max(table.Header.Cells.Count, table.Rows.Count == 0 ? 0 : table.Rows.Max(r => r.Cells.Count));
@@ -128,11 +204,7 @@ internal static class MarkdownInlineRenderer
           target.Add(new Run(code.Code) { FontFamily = MonoFont });
           break;
         case LinkSpan link:
-          target.Add(new Run(link.Text)
-          {
-            Foreground = Brushes.DodgerBlue,
-            TextDecorations = TextDecorations.Underline,
-          });
+          target.Add(new InlineUIContainer { Child = new MarkdownLinkBlock(link.Text, link.Url) });
           break;
         default:
           break;
