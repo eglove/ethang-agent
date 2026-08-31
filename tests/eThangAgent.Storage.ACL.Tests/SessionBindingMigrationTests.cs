@@ -73,7 +73,7 @@ public sealed class SessionBindingMigrationTests : IDisposable
     _ = new AppDatabase(_dbPath); // constructor migrates
 
     using SqliteConnection connection = Open();
-    Assert.Equal(8, Version(connection));
+    Assert.Equal(9, Version(connection));
     Assert.Equal(2L, Scalar(connection,
         "SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name IN ('workspace_id', 'provider');"));
     // The legacy row survives with NULL bindings — the catalog skips it, resume

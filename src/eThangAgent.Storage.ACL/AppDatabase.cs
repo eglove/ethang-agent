@@ -102,6 +102,11 @@ public sealed class AppDatabase
       ApplyV8(connection);
       SetVersion(connection, 8);
     }
+    if (GetVersion(connection) < 9)
+    {
+      ApplyV9(connection);
+      SetVersion(connection, 9);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -387,5 +392,31 @@ public sealed class AppDatabase
 #pragma warning restore CA2100
       _ = alter.ExecuteNonQuery();
     }
+  }
+
+  /// <summary>V9 adds watchdog_events: the append-only audit trail of watchdog decisions
+  ///     (hung detections, wrap-up retries, deferrals, terminal reports, RSS breaches,
+  ///     internal errors). Indexed for the two read shapes: per-agent attempt counting and
+  ///     recent-event listing.</summary>
+  private static void ApplyV9(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS watchdog_events (
+            id          TEXT PRIMARY KEY,
+            agent_id    TEXT,
+            kind        TEXT NOT NULL,
+            detail      TEXT NOT NULL,
+            attempt     INTEGER NOT NULL,
+            rss_mb      REAL,
+            created_at  TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_watchdog_events_agent_kind ON watchdog_events (agent_id, kind);
+        CREATE INDEX IF NOT EXISTS ix_watchdog_events_created ON watchdog_events (created_at);
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
   }
 }
