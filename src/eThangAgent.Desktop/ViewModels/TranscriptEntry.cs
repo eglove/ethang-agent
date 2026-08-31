@@ -17,14 +17,17 @@ internal sealed record AssistantTextEntry(string Text, bool IsOpen) : Transcript
 
 internal sealed record ReasoningEntry(string Text, bool IsOpen) : TranscriptEntry;
 
-internal sealed record ToolCallEntry(string Name, string Arguments) : TranscriptEntry
+internal sealed record ToolCallEntry(string Name, string Arguments, string ElapsedDisplay = "") : TranscriptEntry
 {
   public string Preview => ToolArgsFormatter.Preview(Arguments);
 
   public string ArgumentsFormatted => ToolArgsFormatter.Indent(Arguments);
 }
 
-internal sealed record ToolResultEntry(string Name, string Summary, string FullContent, bool IsError) : TranscriptEntry
+// ElapsedDisplay carries the tool card's elapsed-time line (empty when unknown, so
+// restored transcripts render unchanged): the call card counts up while the tool
+// runs, the result card freezes the total; both render it in the card header.
+internal sealed record ToolResultEntry(string Name, string Summary, string FullContent, bool IsError, string ElapsedDisplay = "") : TranscriptEntry
 {
   public IBrush SummaryBrush => IsError ? Brushes.IndianRed : Brushes.Gray;
 }

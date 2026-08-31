@@ -23,14 +23,13 @@
     </Style>
   </UserControl.Styles>
   <DockPanel>
-    <!-- Status bar: phase first, then context, the running tool's elapsed,
-         provider, model id, reasoning effort. -->
+    <!-- Status bar: phase first, then context, provider, model id, reasoning effort.
+         The running tool's elapsed lives in its chat tool cards, not here. -->
     <Border DockPanel.Dock="Bottom" Background="#22000000">
       <StackPanel x:Name="StatusBar" Orientation="Horizontal" Spacing="12" Margin="8,4">
         <TextBlock x:Name="SpinnerText" Text="{Binding Status.Spinner}"/>
         <TextBlock x:Name="PhaseText" Text="{Binding Status.PhaseLabel}"/>
         <TextBlock x:Name="ContextText" Text="{Binding Status.ContextDisplay}" ToolTip.Tip="{Binding Status.ContextBreakdownText}"/>
-        <TextBlock x:Name="ToolText" Text="{Binding Status.ToolDisplay}"/>
         <TextBlock Text="{Binding Status.Provider}"/>
         <TextBlock Text="{Binding Status.ModelId}"/>
         <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>
@@ -107,10 +106,14 @@
           <DataTemplate DataType="vm:ToolCallEntry">
             <Expander Classes="tool-card" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
               <Expander.Header>
-                <TextBlock TextWrapping="Wrap" MaxWidth="620">
-                  <Run Text="⚙ "/><Run Text="{Binding Name, Mode=OneWay}"/>
-                  <Run Foreground="Gray" Text="{Binding Preview, Mode=OneWay}"/>
-                </TextBlock>
+                <DockPanel HorizontalAlignment="Stretch">
+                  <TextBlock DockPanel.Dock="Right" Foreground="Gray" Margin="8,0,0,0"
+                             Text="{Binding ElapsedDisplay, Mode=OneWay}"/>
+                  <TextBlock TextWrapping="Wrap">
+                    <Run Text="⚙ "/><Run Text="{Binding Name, Mode=OneWay}"/>
+                    <Run Foreground="Gray" Text="{Binding Preview, Mode=OneWay}"/>
+                  </TextBlock>
+                </DockPanel>
               </Expander.Header>
               <SelectableTextBlock FontFamily="Consolas, Courier New" TextWrapping="Wrap" FontSize="12"
                                    Text="{Binding ArgumentsFormatted, Mode=OneWay}"/>
@@ -119,11 +122,15 @@
           <DataTemplate DataType="vm:ToolResultEntry">
             <Expander Classes="tool-card" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
               <Expander.Header>
-                <TextBlock TextWrapping="Wrap" MaxWidth="620">
-                  <Run Text="↳ "/><Run Text="{Binding Name, Mode=OneWay}"/><Run Text=" "/>
-                  <Run Text="{Binding Summary, Mode=OneWay}"
-                       Foreground="{Binding SummaryBrush, Mode=OneWay}"/>
-                </TextBlock>
+                <DockPanel HorizontalAlignment="Stretch">
+                  <TextBlock DockPanel.Dock="Right" Foreground="Gray" Margin="8,0,0,0"
+                             Text="{Binding ElapsedDisplay, Mode=OneWay}"/>
+                  <TextBlock TextWrapping="Wrap">
+                    <Run Text="↳ "/><Run Text="{Binding Name, Mode=OneWay}"/><Run Text=" "/>
+                    <Run Text="{Binding Summary, Mode=OneWay}"
+                         Foreground="{Binding SummaryBrush, Mode=OneWay}"/>
+                  </TextBlock>
+                </DockPanel>
               </Expander.Header>
               <SelectableTextBlock FontFamily="Consolas, Courier New" TextWrapping="Wrap" FontSize="12"
                                    Text="{Binding FullContent, Mode=OneWay}"/>

@@ -70,7 +70,11 @@ internal partial class AgentView : UserControl
     // Animated spinner parity with the terminal frame loop (~12 fps): an 80 ms timer
     // runs only while a turn is busy; Phase transitions reset the displayed state.
     _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
-    _statusTimer.Tick += (_, _) => vm.Status.Tick();
+    _statusTimer.Tick += (_, _) =>
+    {
+      vm.Status.Tick();
+      vm.Transcript.TickToolElapsed();
+    };
 
     // Tunnel so Enter is seen before TextBox class handling consumes it.
     InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);

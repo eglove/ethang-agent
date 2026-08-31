@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
@@ -7,11 +8,20 @@ namespace eThangAgent.Desktop.ViewModels;
 /// <summary>
 /// Holds rendered transcript entries and applies stream events with the same
 /// semantics as the terminal DrainStream: deltas extend the open block; iteration end
-/// (or any non-stream event) closes it so the next delta opens a fresh entry. All methods
-/// run on the UI thread — callers marshal (Task 9 bridge).
+/// (or any non-stream event) closes it so the next delta opens a fresh entry. Tool cards
+/// time their tools here: AddToolCall stamps the running call card at zero,
+/// TickToolElapsed advances it, AddToolResult freezes the total onto the result card.
+/// All methods run on the UI thread — callers marshal (Task 9 bridge).
 /// </summary>
-internal sealed class TranscriptViewModel
+internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
 {
+  // Seconds source for the running tool's elapsed timing; injectable so tests
+  // drive it deterministically instead of sleeping.
+  private readonly Func<double>? _injectedClock = secondsClock;
+
+  // The one running tool's timing state (tools execute sequentially, one at a
+  // time); null when no tool is running or a turn ended mid-tool.
+  private (int Index, double StartSeconds)? _runningTool;
 
   // Index of the extendable AssistantTextEntry / ReasoningEntry, else -1.
   private int _openIndex = -1;
@@ -36,13 +46,16 @@ internal sealed class TranscriptViewModel
   public void AddToolCall(string name, string arguments)
   {
     CloseOpen();
-    Entries.Add(new ToolCallEntry(name, arguments));
+    Entries.Add(new ToolCallEntry(name, arguments, ToolElapsed.Format(0)));
+    _runningTool = (Entries.Count - 1, SecondsNow());
   }
 
   public void AddToolResult(string name, string summary, string fullContent, bool isError)
   {
     CloseOpen();
-    Entries.Add(new ToolResultEntry(name, summary, fullContent, isError));
+    double elapsed = _runningTool is { } running ? SecondsNow() - running.StartSeconds : 0;
+    _runningTool = null;
+    Entries.Add(new ToolResultEntry(name, summary, fullContent, isError, ToolElapsed.Format(elapsed, isError)));
   }
 
   public void AddNotice(string text)
@@ -89,6 +102,7 @@ internal sealed class TranscriptViewModel
     }
 
     CloseOpen();
+    _runningTool = null;
   }
 
   /// <summary>Restores one assistant message: its text (when non-empty) followed by one
@@ -165,6 +179,34 @@ internal sealed class TranscriptViewModel
     Entries.Add(new ReasoningEntry(normalizer.Text, IsOpen: true));
     _openIndex = Entries.Count - 1;
   }
+
+  /// <summary>Abandons the running tool's timing at turn end: a call card left
+  ///     running when the turn stops (user stop, error) keeps the zero stamp it
+  ///     displayed while it ran, frozen against later ticks.</summary>
+  public void EndTurn() => _runningTool = null;
+
+  /// <summary>Advances the running tool card's elapsed display by replacing the
+  ///     entry (the same replace-notification the stream blocks use). Driven by
+  ///     the view's 80 ms timer while busy; silent when the formatted display
+  ///     has not changed, so idle time never re-renders the transcript.</summary>
+  public void TickToolElapsed()
+  {
+    if (_runningTool is not { } running)
+    {
+      return;
+    }
+
+    ToolCallEntry open = (ToolCallEntry)Entries[running.Index];
+    string display = ToolElapsed.Format(SecondsNow() - running.StartSeconds);
+    if (display == open.ElapsedDisplay)
+    {
+      return; // same formatted second - no re-render
+    }
+
+    Entries[running.Index] = open with { ElapsedDisplay = display };
+  }
+
+  private double SecondsNow() => _injectedClock is { } clock ? clock() : Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
 
   private void CloseOpen()
   {

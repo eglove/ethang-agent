@@ -83,7 +83,11 @@ public class ToolCardAlignmentTests
     Dispatcher.UIThread.RunJobs();
     Avalonia.Controls.Primitives.ToggleButton header = card.GetVisualDescendants()
         .OfType<Avalonia.Controls.Primitives.ToggleButton>().First();
-    TextBlock label = header.GetVisualDescendants().OfType<TextBlock>().First();
+    // The header's primary label (icon + name + preview; its text lives in Run
+    // inlines, so Text is null) is the header's LEFTMOST TextBlock - the elapsed
+    // display docks right and must not be mistaken for the label.
+    TextBlock label = header.GetVisualDescendants().OfType<TextBlock>()
+        .OrderBy(RootX).First();
     Border chevron = header.GetVisualDescendants().OfType<Border>()
         .First(b => b.Name == "ExpandCollapseChevronBorder");
     double labelInset = RootX(label) - RootX(card);

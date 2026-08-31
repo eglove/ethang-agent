@@ -328,14 +328,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
               OnToolCall: (name, args, index, count) =>
               {
                 RecordToolBatch(name, index, count);
-                Status.BeginTool(name);
                 bridge.OnToolCall(name, args);
               },
               OnToolResult: (name, summary, full, isError) =>
-              {
-                Status.EndTool(isError);
-                bridge.OnToolResult(name, summary, full, isError);
-              }),
+                bridge.OnToolResult(name, summary, full, isError)),
           onNotice: bridge.OnNotice);
 
     // Close the channel so the pump can drain all buffered events.
