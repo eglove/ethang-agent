@@ -13,4 +13,6 @@ public sealed record SubAgentServices(
     IAgentStore Store,
     IToolRegistry Tools,
     ISystemPromptProvider SystemPrompt,
-    SubAgentOptions Options);
+    SubAgentOptions Options,
+    IAgentHeartbeat? Heartbeat = null);
+

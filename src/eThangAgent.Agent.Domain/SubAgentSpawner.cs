@@ -41,6 +41,10 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   ///     so even an accidentally attached monitor never trips compaction.</summary>
   public const int ChildLegacyWindowFallback = int.MaxValue;
 
+  /// <summary>Prefix of the wrap-up prompt a resumed run receives instead of its original
+  ///     task prompt: identifies watchdog restarts in the transcript.</summary>
+  public const string WrapUpNudgeSentinel = "[watchdog] You showed no activity for";
+
   private readonly IModelProviderFactory _factory = services.Factory ?? throw new ArgumentNullException(nameof(services), "Factory must not be null.");
   private readonly IAgentStore _store = services.Store ?? throw new ArgumentNullException(nameof(services), "Store must not be null.");
   private readonly IToolRegistry _tools = services.Tools ?? throw new ArgumentNullException(nameof(services), "Tools must not be null.");
@@ -49,6 +53,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IContextWindowSource? _windowSource = windowSource;
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
+  private readonly IAgentHeartbeat? _heartbeat = services.Heartbeat;
 
   private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
 
@@ -60,8 +65,11 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
 
   /// <summary>Runs the child's conversation loop under its timeout budget and persists the terminal
   ///     outcome — Completed with the truncated report, or Failed with its reason — plus the child
-  ///     transcript. It never saves the initial Running row; that is the spawn command's job. A
-  ///     failing terminal write is an infrastructure fault and throws.</summary>
+  ///     transcript delta. It never saves the initial Running row; that is the spawn command's job.
+  ///     A failing terminal write is an infrastructure fault and throws. Resume contract: an
+  ///     existing persisted transcript hydrates the conversation and the run receives only the
+  ///     watchdog wrap-up nudge instead of the original task prompt; only messages this run adds
+  ///     are appended back (never duplicating the seed).</summary>
   public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(child);
@@ -79,8 +87,22 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     ModelConfig config = ModelConfig.Create(
         child.ModelUsed, null, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort).Value!;
 
+    // Resume hydration: a persisted transcript means this run restarts a previously
+    // interrupted (typically watchdog-retried) child - continue the conversation with
+    // only the wrap-up nudge instead of replaying the original task prompt. Mirrors
+    // the root-session resume hydration in AgentSessionFactory. seed.Count is the
+    // persistence baseline: failure paths persist only what this run adds beyond it.
+    Result<IReadOnlyList<Message>> persisted = await _store.GetTranscriptAsync(child.Id, ct).ConfigureAwait(false);
+    IReadOnlyList<Message> seed = persisted.IsSuccess ? persisted.Value : [];
+    bool resuming = seed.Count > 0;
+    Conversation conversation = new(resuming ? seed : null);
+    string prompt = resuming
+        ? WrapUpNudgeSentinel
+            + " your run was restarted by the watchdog after an idle timeout. Continue from where you stopped and wrap up now with your final report."
+        : child.TaskPrompt;
+
     // Each child gets its own accountant: two children must never share totals.
-    Agent agent = new(_factory.Create(config), new Conversation(), config, _tools,
+    Agent agent = new(_factory.Create(config), conversation, config, _tools,
         new AgentOptions
         {
           SystemPrompt = _systemPrompt,
@@ -88,6 +110,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
           Depth = child.Depth,
           ContextMonitor = new ContextAccountant(window.Value),
           ContextCompactor = _contextCompactor,
+          Heartbeat = _heartbeat,
         });
 
     using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -99,7 +122,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     RunningChildCurrent.Value = child;
     try
     {
-      Result<string> run = await agent.SendMessage(child.TaskPrompt,
+      Result<string> run = await agent.SendMessage(prompt,
           inbox: null, ct: timeoutCts.Token).ConfigureAwait(false);
       if (run.IsSuccess)
       {
@@ -131,10 +154,19 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     finally
     {
       RunningChildCurrent.Value = previousChild;
+      _heartbeat?.Forget(child.Id);
     }
 
     if (failureReason is not null)
     {
+      // Persist the partial transcript delta beyond the hydrated baseline so a later
+      // resume continues from the real frontier - and never re-appends earlier rows.
+      IReadOnlyList<Message> partial = agent.Conversation.Messages;
+      for (int i = seed.Count; i < partial.Count; i++)
+      {
+        _ = await _store.AppendMessageAsync(child.Id, partial[i], ct).ConfigureAwait(false);
+      }
+
       await PersistTerminalAsync(child with
       {
         Status = AgentStatus.Failed,
@@ -151,9 +183,12 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
       finalReport += "\n" + ReportOverflowAnnotation;
     }
 
-    foreach (Message message in agent.Conversation.Messages)
+    // Persist only what this run added: a resumed run's seed already sits in the store,
+    // and re-appending it would duplicate the transcript.
+    IReadOnlyList<Message> added = agent.Conversation.Messages;
+    for (int i = seed.Count; i < added.Count; i++)
     {
-      _ = await _store.AppendMessageAsync(child.Id, message, ct).ConfigureAwait(false);
+      _ = await _store.AppendMessageAsync(child.Id, added[i], ct).ConfigureAwait(false);
     }
 
     await PersistTerminalAsync(child with
