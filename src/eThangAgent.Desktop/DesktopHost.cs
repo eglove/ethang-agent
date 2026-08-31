@@ -3,16 +3,16 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
 using Avalonia.Threading;
 using eThangAgent.Agent.Application;
-using eThangAgent.AgentInfrastructure;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
+using eThangAgent.AgentInfrastructure;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
-using Microsoft.Extensions.DependencyInjection;
 using eThangAgent.Storage.ACL;
 using eThangAgent.Zai.ACL;
+using Microsoft.Extensions.DependencyInjection;
 using CommitStyle = eThangAgent.ToolDomain.CommitStyle;
 using CommitStylePreference = eThangAgent.ToolDomain.CommitStylePreference;
 

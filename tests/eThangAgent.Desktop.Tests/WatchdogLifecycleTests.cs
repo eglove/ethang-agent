@@ -1,9 +1,9 @@
 using eThangAgent.AgentDomain;
-using eThangAgent.SharedKernel;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
+using eThangAgent.SharedKernel;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
