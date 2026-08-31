@@ -33,6 +33,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly ISystemPromptProvider? _systemPrompt = options?.SystemPrompt;
   private readonly IContextMonitor? _contextMonitor = options?.ContextMonitor;
   private readonly IContextCompactor? _contextCompactor = options?.ContextCompactor;
+  private readonly IAgentHeartbeat? _heartbeat = options?.Heartbeat;
   private readonly double _compactionThreshold = options?.CompactionThreshold ?? DefaultCompactionThreshold;
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
 
@@ -80,6 +81,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       int autoContinuations = 0;
       DrainInbox(inbox);
       Conversation.AddUserMessage(text);
+      Beat();
       // No iteration cap by design: the loop runs until the model answers without
       // tool calls. Termination is the model's job — but cancellation is checked
       // every round, because nothing else in the loop is obliged to observe ct
@@ -88,6 +90,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       while (true)
       {
         ct.ThrowIfCancellationRequested();
+        Beat();
         DrainInbox(inbox);
         if (!compactionFailed)
         {
@@ -131,6 +134,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
     }
   }
+
+  /// <summary>Beats the wired heartbeat at a loop safe point, or no-op when none is
+  ///     wired (legacy wiring beats nothing: byte-identical behavior).</summary>
+  private void Beat() => _heartbeat?.Beat(Id);
 
   /// <summary>Compaction phase of an iteration: when a compactor and monitor are wired
   ///     and utilization sits at or above the threshold, runs the compactor. Success
@@ -262,10 +269,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       LastTurnToolCalls++;
       callbacks?.OnToolCall?.Invoke(call.Name, call.Arguments, i + 1, calls.Count);
       ITool? tool = _tools.Find(call.Name);
+      Beat();
       ToolResult toolResult = tool is null
           ? new ToolResult($"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
           : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
       Conversation.AddToolResult(call.Id, toolResult.Content);
+      Beat();
       string summary = SummarizeToolResult(toolResult);
       callbacks?.OnToolResult?.Invoke(call.Name, summary, toolResult.Content, toolResult.IsError);
     }
