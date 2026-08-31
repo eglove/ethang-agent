@@ -115,11 +115,12 @@ public static class ExecGuide
     While children run, continue useful work on your own task, or fan out siblings for parallel
     independent subtasks so they run concurrently.
 
-    Poll each child's progress between turns:
+    Await the outcome when you need it — one wait replaces repeated status polls:
 
-        Tools.Invoke("agent.status", new { timeoutSeconds = 30, id = "<guid>" })   → id=<guid> status=running|completed|failed
+        Tools.Invoke("agent.wait", new { timeoutSeconds = 300, id = "<guid>" })   → the child's outcome (unbounded by design; your stop cancels it)
+        Tools.Invoke("agent.status", new { timeoutSeconds = 30, id = "<guid>" })   → projection for humans/debugging: status=running|completed|failed
 
-    When a child is done, fetch its final report:
+    Poll status between turns only to observe a running child's state — not to discover completion:
 
         Tools.Invoke("agent.result", new { timeoutSeconds = 60, id = "<guid>" })
 

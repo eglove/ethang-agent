@@ -8,13 +8,15 @@ namespace eThangAgent.AgentDomain;
 ///     status and result retrieve their outcomes. Spawn renders only the running line —
 ///     reports arrive exclusively through the queries.</summary>
 public sealed class AgentCapabilityProvider(
-    IAgentSpawnCommand spawnCommand, IAgentQueries queries, Func<AgentRecord> parentContext) : ICapabilityProvider
+    IAgentSpawnCommand spawnCommand, IAgentQueries queries, Func<AgentRecord> parentContext,
+    IAgentRuntime? runtime = null) : ICapabilityProvider
 {
   public const string ProviderId = "agent";
 
   private readonly IAgentSpawnCommand _spawnCommand = spawnCommand ?? throw new ArgumentNullException(nameof(spawnCommand));
   private readonly IAgentQueries _queries = queries ?? throw new ArgumentNullException(nameof(queries));
   private readonly Func<AgentRecord> _parentContext = parentContext ?? throw new ArgumentNullException(nameof(parentContext));
+  private readonly IAgentRuntime? _runtime = runtime;
 
   public string Id => ProviderId;
 
@@ -32,9 +34,9 @@ public sealed class AgentCapabilityProvider(
                 new ActionParameter("model", ActionParameterTypes.StringType, "Optional provider model reference; omit to use the configured default."),
                 new ActionParameter("label", ActionParameterTypes.StringType, "Optional free-text label for humans and logs."),
             ]),
-        new("status", "Check whether a spawned child agent is still running, completed, or failed.",
+        new("status", "Projection of a spawned child agent's current state, for humans and debugging.",
             """
-            Returns the child's current state as one annotation line. Poll between turns while other work continues.
+            Returns the child's current state as one annotation line. This is a projection, not a mechanism: when you need the outcome, use agent.wait (one await) instead of polling status.
             Output contract:
             id=<id> status=running
             id=<id> status=completed
@@ -51,6 +53,13 @@ public sealed class AgentCapabilityProvider(
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
             ]),
+        new("wait", "Wait for a spawned child agent to settle and return its outcome as one result.",
+            """
+            Blocks until the child settles and returns the outcome contract of agent.result (the report, or the failure annotation). Unbounded by design: the watchdog guards the child, and your own stop cancels the wait with 'Error [Cancelled]'. Unknown ids yield 'Error [NotFound]'. Prefer one wait over repeated status polls when you need the outcome.
+            """,
+            [
+                new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
+            ]),
     ];
 
   public async Task<CapabilityInvocationResult> InvokeAsync(
@@ -61,6 +70,7 @@ public sealed class AgentCapabilityProvider(
       "spawn" => await Spawn(jsonArguments, ct).ConfigureAwait(false),
       "status" => await Status(jsonArguments, ct).ConfigureAwait(false),
       "result" => await GetResult(jsonArguments, ct).ConfigureAwait(false),
+      "wait" => await Wait(jsonArguments, ct).ConfigureAwait(false),
       _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
     };
   }
@@ -82,6 +92,34 @@ public sealed class AgentCapabilityProvider(
         : CapabilityInvocationResult.Fail($"Error [{started.Error.Code}]: {started.Error.Message}");
   }
 
+  /// <summary>Await the child's terminal transition and render the outcome contract of
+  ///     agent.result: the report verbatim on success, the partial report (or the failure
+  ///     annotation) on failure. NotFound/Cancelled pass through untouched.</summary>
+  private async Task<CapabilityInvocationResult> Wait(string json, CancellationToken ct)
+  {
+    if (_runtime is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [NotAvailable]: agent.wait needs a runtime wired into this session's capability provider.");
+    }
+
+    Result<AgentId> id = ParseIdArgument(json);
+    if (!id.IsSuccess)
+    {
+      return CapabilityInvocationResult.Fail($"Error [{id.Error.Code}]: {id.Error.Message}");
+    }
+
+    Result<AgentRunOutcome> outcome = await _runtime.WhenSettledAsync(id.Value, ct).ConfigureAwait(false);
+    if (!outcome.IsSuccess)
+    {
+      return CapabilityInvocationResult.Fail($"Error [{outcome.Error.Code}]: {outcome.Error.Message}");
+    }
+
+    AgentRunOutcome settled = outcome.Value;
+    return settled.Status is AgentStatus.Completed || !string.IsNullOrEmpty(settled.Report)
+        ? CapabilityInvocationResult.Ok(settled.Report)
+        : CapabilityInvocationResult.Fail("Error [" + ReasonText(settled.Reason) + "]: the child settled without a usable report.");
+  }
   private async Task<CapabilityInvocationResult> Status(string json, CancellationToken ct)
   {
     Result<AgentId> id = ParseIdArgument(json);

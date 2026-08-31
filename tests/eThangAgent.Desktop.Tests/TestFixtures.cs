@@ -24,6 +24,9 @@ internal static class TestFixtures
       return Task.FromResult(Result.Success(record.Id));
     }
 
+    public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", "not found")));
+
     public void Interrupt(AgentId? childId = null)
     {
       if (childId is null)

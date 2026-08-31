@@ -61,13 +61,27 @@ public class AgentCapabilityProviderTests
       List<(AgentRecord Parent, SpawnRequest Request)> Calls)
       MakeProvider(AgentRecord parent,
           Result<AgentId>? spawnReply = null,
-          Action<FakeQueries>? seed = null)
+          Action<FakeQueries>? seed = null,
+          IAgentRuntime? runtime = null)
   {
     List<(AgentRecord, SpawnRequest)> calls = [];
     FakeSpawnCommand command = new(spawnReply ?? Result.Success(AgentId.NewId()), calls);
     FakeQueries queries = new();
     seed?.Invoke(queries);
-    return (new AgentCapabilityProvider(command, queries, () => parent), command, queries, calls);
+    return (new AgentCapabilityProvider(command, queries, () => parent, runtime), command, queries, calls);
+  }
+
+  private sealed class FakeRuntime(AgentRunOutcome? outcome = null, DomainError? error = null) : IAgentRuntime
+  {
+    public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(record.Id));
+
+    public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
+        => Task.FromResult(error is null
+            ? Result.Success(outcome ?? new AgentRunOutcome(id, AgentStatus.Completed, null, "settled report", "prov/child", 1))
+            : Result.Failure<AgentRunOutcome>(error));
+
+    public void Interrupt(AgentId? childId = null) { }
   }
 
   // --- spawn ---------------------------------------------------------------
@@ -270,6 +284,70 @@ public class AgentCapabilityProviderTests
     Assert.Empty(queries._resultCalls);
   }
 
+  // --- wait ----------------------------------------------------------------
+
+  [Fact]
+  public async Task Wait_CompletedChild_RendersOutcomeReportVerbatim()
+  {
+    AgentRecord child = ChildIn(AgentStatus.Completed, report: "the awaited report");
+    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
+        ParentAtDepth(0), runtime: new FakeRuntime(new AgentRunOutcome(child.Id, AgentStatus.Completed, null, "the awaited report", "prov/child", 1)));
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal("the awaited report", result.Content);
+  }
+
+  [Fact]
+  public async Task Wait_NotFound_PassesThroughUntouched()
+  {
+    AgentId id = AgentId.NewId();
+    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
+        ParentAtDepth(0), runtime: new FakeRuntime(error: new DomainError("NotFound", "no such agent.")));
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Equal("Error [NotFound]: no such agent.", result.Content);
+  }
+
+  [Fact]
+  public async Task Wait_CancelledWait_PassesThroughUntouched()
+  {
+    AgentId id = AgentId.NewId();
+    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
+        ParentAtDepth(0), runtime: new FakeRuntime(error: new DomainError("Cancelled", "the wait was cancelled.")));
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{id}}"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Equal("Error [Cancelled]: the wait was cancelled.", result.Content);
+  }
+
+  [Fact]
+  public async Task Wait_FailedChild_RendersFailureAnnotation()
+  {
+    AgentRecord child = ChildIn(AgentStatus.Failed, AgentFailureReason.Hung);
+    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(
+        ParentAtDepth(0), runtime: new FakeRuntime(new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.Hung, "", "prov/child", 1)));
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{child.Id}}"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Contains("hung", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Wait_MissingRuntime_TypedNotAvailableError()
+  {
+    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("wait", $$"""{"id":"{{AgentId.NewId()}}"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Contains("NotAvailable", result.Content, StringComparison.Ordinal);
+  }
   // --- shared dispatch behavior --------------------------------------------
 
   [Fact]

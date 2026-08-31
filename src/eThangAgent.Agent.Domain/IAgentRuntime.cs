@@ -2,11 +2,18 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.AgentDomain;
 
-/// <summary>Seam for starting persisted children as independent actors. Implemented in infrastructure; faked in tests.</summary>
+/// <summary>Seam for starting persisted children as independent actors, awaiting their
+///     terminal transition, and interrupting runs. Implemented in infrastructure; faked in tests.</summary>
 public interface IAgentRuntime
 {
   /// <summary>Begins background execution of an already-persisted Running record. Fails with CapReached when at capacity.</summary>
   Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default);
+
+  /// <summary>Await the terminal outcome of one child. Unbounded by design (spec D7): the
+  ///     event-driven watchdog guards the child; the user's stop cancels the waiting turn.
+  ///     Unknown ids fail NotFound; an already-settled child completes immediately with its
+  ///     outcome; a watchdog same-id retry keeps the original await alive.</summary>
+  Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default);
 
   /// <summary>Interrupts active child runs by cancelling the token each run executes under.
   /// With no id, every active run owned by this runtime is interrupted; with an id, only that

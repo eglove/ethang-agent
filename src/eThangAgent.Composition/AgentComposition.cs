@@ -229,7 +229,8 @@ public static class AgentComposition
           return new AgentCapabilityProvider(
                   sp.GetRequiredService<IAgentSpawnCommand>(),
                   sp.GetRequiredService<IAgentQueries>(),
-                  () => SubAgentSpawner.RunningChild ?? rootRecord);
+                  () => SubAgentSpawner.RunningChild ?? rootRecord,
+                  sp.GetRequiredService<IAgentRuntime>());
         })
         .AddSingleton(_ => EvidenceOptions.Default)
         .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()

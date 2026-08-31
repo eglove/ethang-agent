@@ -20,6 +20,10 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   private readonly SemaphoreSlim _slots;
   private readonly ConcurrentDictionary<AgentId, CancellationTokenSource> _active = [];
 
+  // One completion source per child id: WhenSettledAsync awaits it; a watchdog same-id
+  // retry REUSES the source so existing waiters survive the retry (FR-L3).
+  private readonly ConcurrentDictionary<AgentId, TaskCompletionSource<AgentRunOutcome>> _settling = [];
+
   public InProcessAgentRuntime(IAgentRunner runner, IAgentStore store, int maxConcurrentAgents)
   {
     ArgumentNullException.ThrowIfNull(runner);
@@ -49,6 +53,9 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     CancellationTokenSource cts = new();
 #pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
     _active[record.Id] = cts;
+    _ = _settling.AddOrUpdate(record.Id,
+        static _ => NewSettleSource(),
+        static (_, existing) => existing.Task.IsCompleted ? NewSettleSource() : existing);
     _ = Task.Run(() => RunToCompletionAsync(record, cts), CancellationToken.None);
     return Task.FromResult(Result.Success(record.Id));
   }
@@ -89,6 +96,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
         CompletedAt = DateTimeOffset.UtcNow,
         FinalReport = outcome.Report,
       }, CancellationToken.None).ConfigureAwait(false);
+      _ = Settle(record.Id, outcome);
     }
     // Named decision (CA1031): the runtime is an actor boundary - ANY runner fault must
     // become a well-formed Failed outcome for agent.result retrieval, never a crash.
@@ -106,6 +114,8 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
         CompletedAt = DateTimeOffset.UtcNow,
         FinalReport = "Error [ProviderError]: " + ex.Message,
       }, CancellationToken.None).ConfigureAwait(false);
+      _ = Settle(record.Id, new AgentRunOutcome(record.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
+          "Error [ProviderError]: " + ex.Message, record.ModelUsed, record.Depth));
     }
     finally
     {
@@ -118,6 +128,67 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     }
   }
 
+  /// <inheritdoc cref="IAgentRuntime.WhenSettledAsync"/>
+  public async Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
+  {
+    if (!_settling.TryGetValue(id, out TaskCompletionSource<AgentRunOutcome>? source))
+    {
+      return Result.Failure<AgentRunOutcome>(
+          new DomainError("NotFound", $"agent '{id}' has no live or settled run owned by this runtime."));
+    }
+
+    Task<AgentRunOutcome> settled = source.Task;
+    try
+    {
+      AgentRunOutcome outcome = ct.CanBeCanceled
+          ? await settled.WaitAsync(ct).ConfigureAwait(false)
+          : await settled.ConfigureAwait(false);
+      return Result.Success(outcome);
+    }
+    catch (OperationCanceledException)
+    {
+      // The WAITER's token fired, not the child: the child's outcome stays available to
+      // other (and later) waiters because the TCS is untouched.
+      return Result.Failure<AgentRunOutcome>(new DomainError("Cancelled", "the wait was cancelled."));
+    }
+  }
+
+  /// <summary>Completes every waiter for one child. Called after the terminal record write
+  ///     so waiters always observe persisted state.</summary>
+  private bool Settle(AgentId id, AgentRunOutcome outcome)
+  {
+    while (true)
+    {
+      if (_settling.TryGetValue(id, out TaskCompletionSource<AgentRunOutcome>? source))
+      {
+        if (source.TrySetResult(outcome))
+        {
+          return true;
+        }
+
+        // Stale completed source from an older run: late waiters must observe the
+        // LATEST outcome, so swap in a fresh already-completed source and retry on
+        // add/update races.
+        TaskCompletionSource<AgentRunOutcome> replacement = NewSettleSource();
+        _ = replacement.TrySetResult(outcome);
+        if (_settling.TryUpdate(id, replacement, source))
+        {
+          return true;
+        }
+      }
+      else
+      {
+        // Settle for an id this runtime never started (defensive): record the outcome
+        // so a late waiter still reads a well-formed result instead of NotFound.
+        TaskCompletionSource<AgentRunOutcome> fresh = NewSettleSource();
+        _ = fresh.TrySetResult(outcome);
+        return _settling.TryAdd(id, fresh);
+      }
+    }
+  }
+
+  private static TaskCompletionSource<AgentRunOutcome> NewSettleSource()
+      => new(TaskCreationOptions.RunContinuationsAsynchronously);
   /// <summary>Translates the canonical CapReached string into an <see cref="DomainError"/> without duplicating
   /// its text: "Error [Code]: message" becomes Error(Code, message), so downstream pass-through rendering
   /// reproduces <see cref="RuntimeErrors.CapReached"/> byte-for-byte.</summary>
