@@ -92,7 +92,7 @@ public sealed class HttpWebAccessTests : IDisposable
         access.FetchAsync(new Uri(server.BaseUrl, SLOW_PATH), cts.Token));
   }
 
-  private static void SlowResponse(HttpListenerContext ctx) => System.Threading.Thread.Sleep(3000);
+  private static void SlowResponse(HttpListenerContext ctx) => Thread.Sleep(3000);
 
   // ---- fixture constants (kept as identifiers to dodge nested-quote noise) ----
   private const string TEXT_HTML = "text/html; charset=utf-8";

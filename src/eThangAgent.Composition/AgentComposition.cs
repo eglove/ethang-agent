@@ -6,7 +6,6 @@ using eThangAgent.AgentInfrastructure;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.FileSystem.ACL;
-using eThangAgent.Web.ACL;
 using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
@@ -15,6 +14,7 @@ using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.Web.ACL;
 using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 

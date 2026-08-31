@@ -53,7 +53,7 @@ public class WebFetchToolTests
   [Fact]
   public async Task JsonResponse_ReturnedVerbatim()
   {
-    ToolResult result = await Call(Make(Serving("application/json", "{\"ok\":true}")));
+    ToolResult result = await Call(Make(Serving("application/json", /*lang=json,strict*/ "{\"ok\":true}")));
     Assert.False(result.IsError);
     Assert.Contains("application/json", result.Content, StringComparison.Ordinal);
     Assert.Contains("\"ok\":true", result.Content, StringComparison.Ordinal);
