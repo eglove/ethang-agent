@@ -161,6 +161,9 @@ public static class AgentComposition
         .AddSingleton<ICommitStyleProvider, AppPreferenceCommitStyleProvider>()
         .AddSingleton<IStateStore, SqliteStateStore>()
         .AddSingleton<IAgentStore, SqliteAgentStore>()
+        .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
+        .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
+            sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
@@ -188,13 +191,15 @@ public static class AgentComposition
     }
 
     wired = wired
+        .AddSingleton(sp => new SubAgentServices(
+            sp.GetRequiredService<IModelProviderFactory>(),
+            sp.GetRequiredService<IAgentStore>(),
+            sp.GetRequiredService<IToolRegistry>(),
+            sp.GetRequiredService<ISystemPromptProvider>(),
+            sp.GetRequiredService<SubAgentOptions>(),
+            sp.GetRequiredService<IAgentHeartbeat>()))
         .AddSingleton(sp => new SubAgentSpawner(
-            new SubAgentServices(
-                sp.GetRequiredService<IModelProviderFactory>(),
-                sp.GetRequiredService<IAgentStore>(),
-                sp.GetRequiredService<IToolRegistry>(),
-                sp.GetRequiredService<ISystemPromptProvider>(),
-                sp.GetRequiredService<SubAgentOptions>()),
+            sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<DefaultContextCompactor>()))
