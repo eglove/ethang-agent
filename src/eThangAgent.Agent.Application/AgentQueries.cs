@@ -48,6 +48,8 @@ public sealed class AgentQueries(IAgentStore store) : IAgentQueries
         "Error [ProviderError]: agent failed without a report.",
     AgentFailureReason.Interrupted =>
         "Error [Interrupted]: the child agent was interrupted by the user before completing.",
+    AgentFailureReason.Hung =>
+        "Error [Hung]: the child agent was terminated by the watchdog after idle detection and a wrap-up retry.",
     _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
   };
 }
