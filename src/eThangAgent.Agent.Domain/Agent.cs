@@ -34,6 +34,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IContextMonitor? _contextMonitor = options?.ContextMonitor;
   private readonly IContextCompactor? _contextCompactor = options?.ContextCompactor;
   private readonly IAgentHeartbeat? _heartbeat = options?.Heartbeat;
+  private readonly IAgentEvents? _events = options?.Events;
   private readonly double _compactionThreshold = options?.CompactionThreshold ?? DefaultCompactionThreshold;
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
 
@@ -137,7 +138,16 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
   /// <summary>Beats the wired heartbeat at a loop safe point, or no-op when none is
   ///     wired (legacy wiring beats nothing: byte-identical behavior).</summary>
-  private void Beat() => _heartbeat?.Beat(Id);
+  private void Beat()
+  {
+    _heartbeat?.Beat(Id);
+    _events?.Publish(new ChildProgressEvent(Id, DateTimeOffset.UtcNow, ChildPhase.ModelCall, "iteration"));
+  }
+
+  /// <summary>Publishes a progress event to the wired event stream, or no-op when none
+  ///     is wired. Labels are short phase tags, never content (D5).</summary>
+  private void PublishProgress(ChildPhase phase, string label)
+      => _events?.Publish(new ChildProgressEvent(Id, DateTimeOffset.UtcNow, phase, label));
 
   /// <summary>Compaction phase of an iteration: when a compactor and monitor are wired
   ///     and utilization sits at or above the threshold, runs the compactor. Success
@@ -269,12 +279,14 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       LastTurnToolCalls++;
       callbacks?.OnToolCall?.Invoke(call.Name, call.Arguments, i + 1, calls.Count);
       ITool? tool = _tools.Find(call.Name);
-      Beat();
+      PublishProgress(ChildPhase.ToolExec, "tool:" + call.Name);
+      _heartbeat?.Beat(Id);
       ToolResult toolResult = tool is null
           ? new ToolResult($"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
           : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
       Conversation.AddToolResult(call.Id, toolResult.Content);
-      Beat();
+      _heartbeat?.Beat(Id);
+      PublishProgress(ChildPhase.Draining, "tool-result");
       string summary = SummarizeToolResult(toolResult);
       callbacks?.OnToolResult?.Invoke(call.Name, summary, toolResult.Content, toolResult.IsError);
     }

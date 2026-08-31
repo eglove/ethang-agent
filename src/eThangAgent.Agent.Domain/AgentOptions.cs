@@ -32,4 +32,8 @@ public sealed record AgentOptions
   ///     boundaries). Null (legacy wiring) means the loop never beats: byte-identical
   ///     legacy behavior.</summary>
   public IAgentHeartbeat? Heartbeat { get; init; }
+
+  /// <summary>Event stream the loop publishes progress to at the same safe points.
+  ///     Null (legacy wiring) publishes nothing: byte-identical legacy behavior.</summary>
+  public IAgentEvents? Events { get; init; }
 }

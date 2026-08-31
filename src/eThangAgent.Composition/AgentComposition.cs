@@ -170,6 +170,7 @@ public static class AgentComposition
         .AddSingleton<SqliteCuratedMemoryStore>()
         .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
         .AddSingleton<IAgentInbox, AgentInbox>()
+        .AddSingleton<IAgentEvents, InProcessAgentEvents>()
         .AddSingleton<SessionMemoryWriteCounter>()
         .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy())
         ;
@@ -197,7 +198,8 @@ public static class AgentComposition
             sp.GetRequiredService<IToolRegistry>(),
             sp.GetRequiredService<ISystemPromptProvider>(),
             sp.GetRequiredService<SubAgentOptions>(),
-            sp.GetRequiredService<IAgentHeartbeat>()))
+            sp.GetRequiredService<IAgentHeartbeat>(),
+            sp.GetRequiredService<IAgentEvents>()))
         .AddSingleton(sp => new SubAgentSpawner(
             sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),

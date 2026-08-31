@@ -54,6 +54,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   private readonly IContextWindowSource? _windowSource = windowSource;
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
   private readonly IAgentHeartbeat? _heartbeat = services.Heartbeat;
+  private readonly IAgentEvents? _events = services.Events;
 
   private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
 
@@ -111,7 +112,9 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
           ContextMonitor = new ContextAccountant(window.Value),
           ContextCompactor = _contextCompactor,
           Heartbeat = _heartbeat,
+          Events = _events,
         });
+    PublishStarted(child);
 
     using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
     timeoutCts.CancelAfter(_options.ChildTimeout);
@@ -173,6 +176,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
         FailureReason = failureReason,
         CompletedAt = DateTimeOffset.UtcNow,
       }, ct).ConfigureAwait(false);
+      PublishSettled(child.Id, AgentStatus.Failed, failureReason, 0);
       return new AgentRunOutcome(child.Id, AgentStatus.Failed, failureReason,
           FailureDetail(failureReason.Value), child.ModelUsed, child.Depth);
     }
@@ -198,10 +202,19 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
       FinalReport = finalReport,
     }, ct).ConfigureAwait(false);
 
+    PublishSettled(child.Id, AgentStatus.Completed, null, Encoding.UTF8.GetByteCount(finalReport));
     return new AgentRunOutcome(child.Id, AgentStatus.Completed, null, finalReport,
         child.ModelUsed, child.Depth);
   }
 
+  /// <summary>Emits ChildStartedEvent when a stream is wired; no-op otherwise (legacy wiring).</summary>
+  private void PublishStarted(AgentRecord child)
+      => _events?.Publish(new ChildStartedEvent(
+          child.Id, DateTimeOffset.UtcNow, child.ParentId, child.ModelUsed, child.Attempts));
+
+  /// <summary>Emits ChildSettledEvent; ReportBytes is a size hint only, never content (D5).</summary>
+  private void PublishSettled(AgentId id, AgentStatus status, AgentFailureReason? reason, int reportBytes)
+      => _events?.Publish(new ChildSettledEvent(id, DateTimeOffset.UtcNow, status, reason, reportBytes));
   private async Task PersistTerminalAsync(AgentRecord terminal, CancellationToken ct)
   {
     Result<string> update = await _store.UpdateAsync(terminal, ct).ConfigureAwait(false);

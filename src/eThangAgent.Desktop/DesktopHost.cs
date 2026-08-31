@@ -201,7 +201,8 @@ internal static class DesktopHost
         session.ChildRuntime,
         session.Services.GetRequiredService<IAgentHeartbeat>(),
         session.Services.GetRequiredService<IWatchdogEventStore>(),
-        policy, metrics, watchdogOptions, TimeProvider.System);
+        policy, metrics, watchdogOptions, TimeProvider.System,
+        session.Services.GetService<IAgentEvents>());
 
     MainViewModel vm = new(
         createSession: null,

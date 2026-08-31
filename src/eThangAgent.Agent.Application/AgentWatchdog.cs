@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 
@@ -10,9 +11,14 @@ namespace eThangAgent.Agent.Application;
 ///     the same tick, observe-only. Heartbeat-presence gate: a Running child with NO beat
 ///     entry is always Watch - the run belongs to another container or has not beaten yet.
 ///     The policy uses one injected TimeProvider for every time read in a tick.</summary>
-public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : IWatchdogTicker
+public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : IWatchdogTicker, IDisposable
 {
   private readonly IAgentStore _store = services.Store;
+
+  /// <summary>Last progress facts per child plus the subscription lease (T1, observe-only).
+  ///     Built through a helper because field initializers cannot reference other fields.
+  ///     The lease disposes with the watchdog, so a closed tab stops observing.</summary>
+  private readonly ProgressFeed _progress = ProgressFeed.Create(services);
   private DateTimeOffset? _rssBreachSince;
   private DateTimeOffset? _lastRssReport;
   private DateTimeOffset? _lastErrorReport;
@@ -287,5 +293,39 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
   {
     Result<string> ignored = await services.Events.AppendAsync(evt, ct).ConfigureAwait(false);
     _ = ignored;
+  }
+
+  /// <summary>Releases the event subscription: a detached watchdog stops observing its
+  ///     container's stream.</summary>
+  public void Dispose() => _progress.Dispose();
+
+  /// <summary>The per-watchdog observation state: facts written by the stream, plus the
+  ///     lease that keeps the subscription alive. Created through <see cref="Create"/>
+  ///     so the initializer stays a simple field initialization.</summary>
+  private sealed class ProgressFeed : IDisposable
+  {
+    internal ConcurrentDictionary<Guid, (ChildPhase Phase, string Label)> Last { get; } = [];
+    private IDisposable? Lease { get; set; }
+
+    private ProgressFeed(WatchdogServices services)
+        => Lease = services.ChildEventStream?.Subscribe(new ProgressObserver(Last));
+
+    internal static ProgressFeed Create(WatchdogServices services) => new(services);
+
+    public void Dispose() => Lease?.Dispose();
+  }
+
+  /// <summary>Stores last-phase facts per child. No logic, no faults; the stream contains
+  ///     any anyway.</summary>
+  private sealed class ProgressObserver(ConcurrentDictionary<Guid, (ChildPhase Phase, string Label)> last)
+      : IAgentEventSubscriber
+  {
+    public void OnEvent(ChildEvent evt)
+    {
+      if (evt is ChildProgressEvent progress)
+      {
+        last[progress.ChildId.Value] = (progress.Phase, progress.Label);
+      }
+    }
   }
 }
