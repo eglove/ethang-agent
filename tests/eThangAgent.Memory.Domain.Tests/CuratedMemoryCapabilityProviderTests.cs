@@ -61,7 +61,7 @@ public class CuratedMemoryCapabilityProviderTests
     CuratedMemoryCapabilityProvider provider = new Harness().Provider();
 
     Assert.Equal("memories", provider.Id);
-    Assert.Equal(["search", "add", "update", "remove"], provider.Actions.Select(a => a.Name));
+    Assert.Equal(["search", "add", "update", "remove", "purge"], provider.Actions.Select(a => a.Name));
   }
 
   // ---- search ----
@@ -436,6 +436,101 @@ public class CuratedMemoryCapabilityProviderTests
     Assert.Equal(0, h.BumpCount);
   }
 
+  // ---- add: search-before-add guard ----
+
+  [Fact]
+  public async Task Add_TokenIdenticalContent_BlockedWithLikelyDuplicate_NamesStoredIdAndVersion()
+  {
+    Harness h = new();
+    CuratedMemory stored = Row(content: "prefer explicit over implicit");
+    h.Store._rows[stored.Id] = stored;
+
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
+        /*lang=json,strict*/ """{"content":"Prefer EXPLICIT over implicit!","category":"insight","scope":"workspace"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [LikelyDuplicate]:", result.Content, StringComparison.Ordinal);
+    Assert.Contains($"id {stored.Id} v{stored.Version}", result.Content, StringComparison.Ordinal);
+    Assert.Contains("similarity 1.00 >= 0.75", result.Content, StringComparison.Ordinal);
+    Assert.Contains("memories.update", result.Content, StringComparison.Ordinal);
+    Assert.Equal(0, h.Store._addCallCount); // the write never reaches the store
+  }
+
+  [Fact]
+  public async Task Add_ExactlyAtThreshold_IsBlocked()
+  {
+    Harness h = new();
+    CuratedMemory stored = Row(content: "alpha beta gamma delta");
+    h.Store._rows[stored.Id] = stored;
+
+    // {alpha,beta,gamma} against {alpha,beta,gamma,delta}: J = 3/4 = 0.75.
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
+        /*lang=json,strict*/ """{"content":"alpha beta gamma","category":"insight","scope":"workspace"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [LikelyDuplicate]:", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Add_BelowThreshold_IsAllowed()
+  {
+    Harness h = new();
+    CuratedMemory stored = Row(content: "alpha beta gamma delta");
+    h.Store._rows[stored.Id] = stored;
+
+    // {alpha,beta,gamma,epsilon} against {alpha,beta,gamma,delta}: J = 3/5 = 0.6.
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
+        /*lang=json,strict*/ """{"content":"alpha beta gamma epsilon","category":"insight","scope":"workspace"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal(1, h.Store._addCallCount);
+  }
+
+  [Fact]
+  public async Task Add_SimilarRowInOtherWorkspace_IsInvisible_DoesNotBlock()
+  {
+    Harness h = new();
+    CuratedMemory foreign = Row(workspaceId: "some-other-ws", content: "prefer explicit over implicit");
+    h.Store._rows[foreign.Id] = foreign;
+
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
+        /*lang=json,strict*/ """{"content":"prefer explicit over implicit","category":"insight","scope":"workspace"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError, result.Content);
+  }
+
+  [Fact]
+  public async Task Add_GlobalRow_DuplicatesBlock_FromAnyWorkspace()
+  {
+    Harness h = new();
+    CuratedMemory globalRow = Row(scope: MemoryScope.Global, workspaceId: "", content: "always run dotnet format before committing");
+    h.Store._rows[globalRow.Id] = globalRow;
+
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
+        /*lang=json,strict*/ """{"content":"always run dotnet format before committing","category":"convention","scope":"workspace"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [LikelyDuplicate]:", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Add_GuardSweepsAllVisibleRows_NotAQueryNarrowedSubset()
+  {
+    // The guard must sweep the visible corpus (recency-ranked), not run the new
+    // content through the FTS query: a superset of an older memory's tokens would
+    // never MATCH it, and the duplicate would slip through.
+    Harness h = new();
+    CuratedMemory stored = Row(content: "alpha beta gamma");
+    h.Store._rows[stored.Id] = stored;
+
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
+        /*lang=json,strict*/ """{"content":"alpha beta gamma delta","category":"insight","scope":"workspace"}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.Null(h.Store._lastSearchQuery); // null query: the sweep sees everything visible
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [LikelyDuplicate]:", result.Content, StringComparison.Ordinal);
+  }
+
   // ---- update ----
 
   [Fact]
@@ -564,6 +659,142 @@ public class CuratedMemoryCapabilityProviderTests
     Assert.StartsWith("Error [MemoryNotFound]:", result.Content, StringComparison.Ordinal);
   }
 
+  // ---- prune ----
+
+  [Fact]
+  public async Task Prune_ConfirmGate_RequiresExactlyBooleanTrue()
+  {
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("purge",
+        /*lang=json,strict*/ """{}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [PurgeNotConfirmed]:", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Prune_DryRunTrue_ReportsCandidatesWithoutDeleting()
+  {
+    Harness h = new();
+    CuratedMemory doomed = Row(content: "stale prune me");
+    h.Store._rows[doomed.Id] = doomed;
+
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("purge",
+        /*lang=json,strict*/ """{"dry_run":true,"confirm":true}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal("[memories] dry run: 1 candidate(s) (0 memory(ies) deleted)\n[id] " + doomed.Id + " :: stale prune me", result.Content);
+    Assert.Empty(h.Store._deleteManyCalls);
+  }
+
+  [Fact]
+  public async Task Prune_HappyPath_DeletesVisibleMatches_ExactOutput()
+  {
+    Harness h = new();
+    CuratedMemory doomed = Row(content: "stale prune me");
+    CuratedMemory kept = Row(content: "fresh keep me");
+    h.Store._rows[doomed.Id] = doomed;
+    h.Store._rows[kept.Id] = kept;
+
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("purge",
+        /*lang=json,strict*/ """{"query":"prune","confirm":true}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal($"[memories] purged 1 memory(ies)\n[id] {doomed.Id} :: stale prune me", result.Content);
+    _ = Assert.Single(h.Store._deleteManyCalls);
+    Assert.Equal([doomed.Id], h.Store._deleteManyCalls[0]);
+    Assert.Equal(0, h.BumpCount); // prune never ticks the nudge write counter
+  }
+
+  [Fact]
+  public async Task Prune_ZeroCandidates_ExactSingleLine()
+  {
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("purge",
+        /*lang=json,strict*/ """{"confirm":true}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal("[memories] purged 0 memory(ies)", result.Content);
+  }
+
+  [Fact]
+  public async Task Prune_StoreFailure_SurfacesTypedError()
+  {
+    Harness h = new();
+    h.Store._rows[KnownId] = Row(id: KnownId);
+    h.Store._deleteManyResultOverride = Result.Failure<int>(new DomainError(CuratedMemoryErrors.StorageError, "disk on fire"));
+
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("purge",
+        /*lang=json,strict*/ """{"confirm":true}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [StorageError]:", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Prune_OverCap_FailsPruneScopeTooBroad()
+  {
+    Harness h = new();
+    for (int i = 0; i < 201; i++)
+    {
+      CuratedMemory row = Row(content: "bulk row " + i);
+      h.Store._rows[row.Id] = row;
+    }
+
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("purge",
+        /*lang=json,strict*/ """{"confirm":true}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [PurgeScopeTooBroad]:", result.Content, StringComparison.Ordinal);
+    Assert.Contains("narrow", result.Content, StringComparison.OrdinalIgnoreCase);
+    Assert.Empty(h.Store._deleteManyCalls); // refusal happens before any delete
+  }
+
+  [Fact]
+  public async Task Prune_ExactlyAtCap_Succeeds()
+  {
+    Harness h = new();
+    List<Guid> doomedIds = [];
+    for (int i = 0; i < 200; i++)
+    {
+      CuratedMemory row = Row(content: "bulk row " + i);
+      h.Store._rows[row.Id] = row;
+      doomedIds.Add(row.Id);
+    }
+
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("purge",
+        /*lang=json,strict*/ """{"confirm":true}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError, result.Content);
+    _ = Assert.Single(h.Store._deleteManyCalls);
+    Assert.Equal(200, h.Store._deleteManyCalls[0].Count);
+  }
+
+  [Fact]
+  public async Task Prune_Visibility_ForeignWorkspaceRowsNeverSelected()
+  {
+    Harness h = new();
+    CuratedMemory foreign = Row(workspaceId: "other-ws", content: "foreign but prunable sounding");
+    CuratedMemory mine = Row(content: "mine and prunable sounding");
+    h.Store._rows[foreign.Id] = foreign;
+    h.Store._rows[mine.Id] = mine;
+
+    CapabilityInvocationResult result = await h.Provider().InvokeAsync("purge",
+        /*lang=json,strict*/ """{"query":"prunable","confirm":true}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal("[memories] purged 1 memory(ies)", result.Content.Split('\n')[0]);
+    Assert.Equal([mine.Id], h.Store._deleteManyCalls[0]);
+  }
+
+  [Fact]
+  public async Task Prune_UnknownParameter_Rejected()
+  {
+    CapabilityInvocationResult result = await new Harness().Provider().InvokeAsync("purge",
+        /*lang=json,strict*/ """{"bogus":1,"confirm":true}""", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [InvalidActionInput]:", result.Content, StringComparison.Ordinal);
+  }
+
   // ---- cross-cutting strictness ----
 
   [Theory]
@@ -613,6 +844,7 @@ public class CuratedMemoryCapabilityProviderTests
   {
     internal Dictionary<Guid, CuratedMemory> _rows = [];
     internal Result<CuratedMemory>? _addResultOverride;
+    internal Result<int>? _deleteManyResultOverride;
 
     internal int _addCallCount;
     internal int _getCallCount;
@@ -622,6 +854,7 @@ public class CuratedMemoryCapabilityProviderTests
     internal IReadOnlyList<string>? _lastSearchTags;
     internal int _lastSearchLimit;
     internal List<Guid> _deletes = [];
+    internal List<IReadOnlyList<Guid>> _deleteManyCalls = [];
 
     public Task<Result<CuratedMemory>> AddAsync(CuratedMemory memory, CancellationToken ct = default)
     {
@@ -696,6 +929,25 @@ public class CuratedMemoryCapabilityProviderTests
     {
       _deletes.Add(id);
       return Task.FromResult(Result.Success(_rows.Remove(id)));
+    }
+    public Task<Result<int>> DeleteManyAsync(IReadOnlyList<Guid> ids, CancellationToken ct = default)
+    {
+      _deleteManyCalls.Add([.. ids]);
+      if (_deleteManyResultOverride is { } overridden)
+      {
+        return Task.FromResult(overridden);
+      }
+
+      int deleted = 0;
+      foreach (Guid id in ids)
+      {
+        if (_rows.Remove(id))
+        {
+          deleted++;
+        }
+      }
+
+      return Task.FromResult(Result.Success(deleted));
     }
   }
 }

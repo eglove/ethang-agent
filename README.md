@@ -59,7 +59,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   fenced code); other textual responses (plain text, JSON, XML) pass through verbatim; binary
   responses are rejected. Redirects are followed and the output's first line always annotates
   the final URL, status, content type, and size
-- Curated memory loop — `memories.search/add/update/remove` over a categorized, full-text,
+- Curated memory loop — `memories.search/add/update/remove/purge` over a categorized, full-text,
   versioned knowledge base, with turn-boundary nudges prompting curation
 - Skill subsystem: 18 embedded skills (development methodology plus per-style commit guidance),
   session-start bootstrap injection, and `skill_list` / `skill_view` / `skill_manage` tools

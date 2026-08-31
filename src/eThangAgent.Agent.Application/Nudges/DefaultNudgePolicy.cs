@@ -12,7 +12,8 @@ public sealed class DefaultNudgePolicy() : INudgePolicy
   public const string ReminderLine =
       "[nudge] This turn involved several tools and nothing has been saved to curated memories yet. " +
       "If any durable convention, preference, insight, failure, or reference emerged, consider " +
-      "memories.add — otherwise continue.";
+      "memories.add (search first - near-duplicate adds are rejected); memories.purge drops entries you no " +
+      "longer trust - otherwise continue.";
 
   public string? Evaluate(NudgeContext context)
   {

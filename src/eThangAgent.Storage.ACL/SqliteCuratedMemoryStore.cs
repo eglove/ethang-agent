@@ -228,6 +228,51 @@ public sealed class SqliteCuratedMemoryStore(AppDatabase database) : ICuratedMem
       return Result.Failure<bool>(new DomainError(CuratedMemoryErrors.StorageError, ex.Message));
     }
   }
+  public async Task<Result<int>> DeleteManyAsync(IReadOnlyList<Guid> ids, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(ids);
+    if (ids.Count == 0)
+    {
+      return Result.Success(0);
+    }
+
+    try
+    {
+      // One transaction spans every delete so the batch is atomic: partial batches
+      // are never observable, whatever fails.
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using SqliteConnection connection = _database.Open();
+#pragma warning restore CA2007
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(ct);
+#pragma warning restore CA2007
+      int deleted = 0;
+      // One parameterized statement per id (bounded by the caller's filter cap);
+      // the command text is a compile-time constant, ids are bound as parameters.
+      using (SqliteCommand command = connection.CreateCommand())
+      {
+        command.Transaction = transaction;
+        command.CommandText = "DELETE FROM curated_memories WHERE id=@id;";
+        SqliteParameter idParameter = command.CreateParameter();
+        idParameter.ParameterName = "@id";
+        _ = command.Parameters.Add(idParameter);
+        foreach (Guid id in ids)
+        {
+          idParameter.Value = id.ToString();
+          deleted += await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+      }
+
+      await transaction.CommitAsync(ct).ConfigureAwait(false);
+      return Result.Success(deleted);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      return Result.Failure<int>(new DomainError(CuratedMemoryErrors.StorageError, ex.Message));
+    }
+  }
 
   private const string SelectColumns = """
         SELECT m.id, m.workspace_id, m.category, m.tags, m.content, m.usage_hint, m.scope, m.provenance, m.version, m.created_at, m.updated_at

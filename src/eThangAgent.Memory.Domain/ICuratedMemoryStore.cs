@@ -38,4 +38,9 @@ public interface ICuratedMemoryStore
   Task<Result<CuratedMemory>> UpdateAsync(CuratedMemory updated, CancellationToken ct = default);
 
   Task<Result<bool>> DeleteAsync(Guid id, CancellationToken ct = default);
+
+  /// <summary>Deletes every given id in one batch (a single statement; FTS stays
+  /// trigger-synced). Missing ids are skipped, not errors; the result counts deleted rows.
+  /// An empty list deletes nothing and succeeds with 0.</summary>
+  Task<Result<int>> DeleteManyAsync(IReadOnlyList<Guid> ids, CancellationToken ct = default);
 }

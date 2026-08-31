@@ -114,5 +114,18 @@ public class CuratedMemoryFullIdTests
 
     public Task<Result<bool>> DeleteAsync(Guid id, CancellationToken ct = default)
         => Task.FromResult(Result.Success(_rows.Remove(id)));
+    public Task<Result<int>> DeleteManyAsync(IReadOnlyList<Guid> ids, CancellationToken ct = default)
+    {
+      int deleted = 0;
+      foreach (Guid id in ids)
+      {
+        if (_rows.Remove(id))
+        {
+          deleted++;
+        }
+      }
+
+      return Task.FromResult(Result.Success(deleted));
+    }
   }
 }

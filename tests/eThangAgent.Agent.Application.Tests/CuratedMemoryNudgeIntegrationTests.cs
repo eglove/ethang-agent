@@ -182,5 +182,7 @@ public class CuratedMemoryNudgeIntegrationTests
 
     public Task<Result<bool>> DeleteAsync(Guid id, CancellationToken ct = default)
         => throw new NotSupportedException("not exercised by nudge integration tests");
+    public Task<Result<int>> DeleteManyAsync(IReadOnlyList<Guid> ids, CancellationToken ct = default)
+        => throw new NotSupportedException("not exercised by nudge integration tests");
   }
 }

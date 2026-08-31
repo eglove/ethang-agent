@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
@@ -26,6 +27,8 @@ public sealed class CuratedMemoryCapabilityProvider(
   private const int DefaultLimit = 20;
   private const int MaxLimit = 100;
   private const int MaxTags = 12;
+  private const double DuplicateThreshold = 0.75;
+  private const int PurgeBatchCap = 200;
   private const string Category = "category";
   private const string Scope = "scope";
   private const string Content = "content";
@@ -81,6 +84,20 @@ public sealed class CuratedMemoryCapabilityProvider(
             + "Output: '[memories] removed <guid>'.",
             [new ActionParameter("id", ActionParameterTypes.StringType, "GUID of the memory to delete."),
              new ActionParameter("confirm", "Boolean", "Must be exactly true; anything else fails RemoveNotConfirmed.")]),
+        new("purge", "Bulk-delete curated memories matching optional filters.",
+            "Requires confirm exactly boolean true (the same gate as remove). Optional filters: query "
+            + "(full-text), category, tags, scope - no filters targets every visible memory. Optional "
+            + "dry_run (boolean, default false) reports candidates without deleting. At most 200 memories "
+            + "can be purged in one call; beyond that the call fails and asks for narrower filters. Output:\n"
+            + "[memories] purged N memory(ies)\n"
+            + "[id] <guid> :: <content <=120 chars>     (one line per deleted memory)\n"
+            + "Dry run: '[memories] dry run: N candidate(s) (0 memory(ies) deleted)' with the same [id] lines.",
+            [new ActionParameter("query", ActionParameterTypes.StringType, "Optional full-text filter."),
+             new ActionParameter(Category, ActionParameterTypes.StringType, "Optional exact-lowercase filter: convention | preference | insight | failure | reference."),
+             new ActionParameter("tags", "String[]", "Optional tag filters; rows must carry all of them."),
+             new ActionParameter(Scope, ActionParameterTypes.StringType, "Optional exact filter: workspace | global."),
+             new ActionParameter("dry_run", "Boolean", "Optional. true reports what would be deleted without deleting."),
+             new ActionParameter("confirm", "Boolean", "Must be exactly true; anything else fails PurgeNotConfirmed.")]),
     ];
 
   public async Task<CapabilityInvocationResult> InvokeAsync(
@@ -94,6 +111,7 @@ public sealed class CuratedMemoryCapabilityProvider(
         "add" => await AddAsync(jsonArguments).ConfigureAwait(false),
         "update" => await UpdateAsync(jsonArguments).ConfigureAwait(false),
         "remove" => await RemoveAsync(jsonArguments).ConfigureAwait(false),
+        "purge" => await PurgeAsync(jsonArguments).ConfigureAwait(false),
         _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
       };
     }
@@ -266,6 +284,12 @@ public sealed class CuratedMemoryCapabilityProvider(
     if (!scope.IsSuccess)
     {
       return Fail(scope.Error);
+    }
+
+    DomainError? duplicate = await FindDuplicateAsync(content).ConfigureAwait(false);
+    if (duplicate is not null)
+    {
+      return Fail(duplicate);
     }
 
     CuratedMemory memory = BuildMemory(category.Value, scope.Value, tags, content, usageHint.Value);
@@ -493,6 +517,36 @@ public sealed class CuratedMemoryCapabilityProvider(
   /// names carry the New prefix so they cannot shadow the JSON-key consts above.</summary>
   private sealed record MemoryDelta(MemoryCategory? NewCategory, IReadOnlyList<string>? Tags, string? NewUsageHint);
 
+  /// <summary>Search-before-add guard: sweeps every visible row (a null query keeps
+  /// the store's full visibility ranking rather than a narrowed MATCH subset) and
+  /// blocks when any stored memory's token set is near-identical (Jaccard at or above
+  /// the threshold) to the proposed content. A failed sweep never blocks the write -
+  /// the add proceeds and the store reports its own error if persistence fails.</summary>
+  private async Task<DomainError?> FindDuplicateAsync(string content)
+  {
+    Result<IReadOnlyList<CuratedMemory>> sweep = await _store.SearchAsync(
+        _workspaceId(), null, null, [], MaxLimit).ConfigureAwait(false);
+    if (!sweep.IsSuccess)
+    {
+      return null;
+    }
+
+    foreach (CuratedMemory memory in sweep.Value)
+    {
+      double similarity = MemorySimilarity.Jaccard(memory.Content, content);
+      if (similarity >= DuplicateThreshold)
+      {
+        return new DomainError("LikelyDuplicate",
+            $"a memory with id {memory.Id} v{memory.Version} already covers this content "
+            + $"(similarity {similarity.ToString("F2", CultureInfo.InvariantCulture)} >= "
+            + $"{DuplicateThreshold.ToString("F2", CultureInfo.InvariantCulture)}). "
+            + "Search first (memories.search), then memories.update the existing entry instead of adding.");
+      }
+    }
+
+    return null;
+  }
+
   private async Task<CapabilityInvocationResult> RemoveAsync(string json)
   {
     Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("id", "confirm"));
@@ -524,6 +578,85 @@ public sealed class CuratedMemoryCapabilityProvider(
     CapabilityInvocationResult removed = CapabilityInvocationResult.Ok($"[memories] removed {id}");
     return removed;
   }
+
+  /// <summary>Bulk delete over the visible corpus. Candidates resolve through the same
+  /// search path as memories.search (visibility rules included); the scope filter
+  /// narrows afterwards exactly as in search. A per-batch cap keeps one call from
+  /// sweeping everything - over the cap is a typed refusal to narrow, never a wipe.</summary>
+  private async Task<CapabilityInvocationResult> PurgeAsync(string json)
+  {
+    Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("query", Category, "tags", Scope, "dry_run", "confirm"));
+
+    if (!args.TryGetValue("confirm", out JsonElement confirm) || confirm.ValueKind != JsonValueKind.True)
+    {
+      return Fail(new DomainError("PurgeNotConfirmed",
+          "'confirm' must be exactly boolean true to purge memories."));
+    }
+
+    IReadOnlyList<string> tagFilters = OptStringArray(args, "tags");
+    if (FirstInvalidTag(tagFilters) is { } invalidTag)
+    {
+      return Fail(invalidTag);
+    }
+
+    Result<MemoryCategory?> category = ParseCategoryFilter(args);
+    if (!category.IsSuccess)
+    {
+      return Fail(category.Error);
+    }
+
+    Result<MemoryScope?> scope = ParseScopeFilter(args);
+    if (!scope.IsSuccess)
+    {
+      return Fail(scope.Error);
+    }
+
+    // One row past the cap is fetched so an over-cap sweep can be refused with a count.
+    Result<IReadOnlyList<CuratedMemory>> candidates = await _store.SearchAsync(
+        _workspaceId(), OptString(args, "query"), category.Value, tagFilters, PurgeBatchCap + 1).ConfigureAwait(false);
+    if (!candidates.IsSuccess)
+    {
+      return Fail(candidates.Error);
+    }
+
+    IReadOnlyList<CuratedMemory> rows = scope.Value is { } wanted
+        ? [.. candidates.Value.Where(m => m.Scope == wanted)]
+        : candidates.Value;
+
+    if (rows.Count > PurgeBatchCap)
+    {
+      return Fail(new DomainError("PurgeScopeTooBroad",
+          $"{rows.Count} memories match; at most {PurgeBatchCap} can be purged in one call. "
+          + "Narrow with query, category, tags, or scope."));
+    }
+
+    bool dryRun = args.TryGetValue("dry_run", out JsonElement dryRunElement)
+        && dryRunElement.ValueKind == JsonValueKind.True;
+    if (dryRun)
+    {
+      List<string> dryLines = [$"[memories] dry run: {rows.Count} candidate(s) (0 memory(ies) deleted)"];
+      dryLines.AddRange(rows.Select(PurgeRowLine));
+      return CapabilityInvocationResult.Ok(string.Join("\n", dryLines));
+    }
+
+    if (rows.Count == 0)
+    {
+      return CapabilityInvocationResult.Ok("[memories] purged 0 memory(ies)");
+    }
+
+    Result<int> deleted = await _store.DeleteManyAsync([.. rows.Select(m => m.Id)]).ConfigureAwait(false);
+    if (!deleted.IsSuccess)
+    {
+      return Fail(deleted.Error);
+    }
+
+    List<string> lines = [$"[memories] purged {deleted.Value} memory(ies)"];
+    lines.AddRange(rows.Select(PurgeRowLine));
+    return CapabilityInvocationResult.Ok(string.Join("\n", lines));
+  }
+
+  private static string PurgeRowLine(CuratedMemory memory)
+      => $"[id] {memory.Id} :: {Truncate(memory.Content, ContentPreviewChars)}";
 
   // ---- shared validation ----
 

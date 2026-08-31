@@ -12,8 +12,13 @@ public class NudgeTests
   private const string ExpectedNudgeLine =
       "[nudge] This turn involved several tools and nothing has been saved to curated memories yet. " +
       "If any durable convention, preference, insight, failure, or reference emerged, consider " +
-      "memories.add — otherwise continue.";
+      "memories.add (search first - near-duplicate adds are rejected); memories.purge drops entries you no " +
+      "longer trust - otherwise continue.";
 
+
+  [Fact]
+  public void ReminderLine_MentionsPruningStaleMemories()
+  => Assert.Contains("memories.purge", DefaultNudgePolicy.ReminderLine, StringComparison.Ordinal);
   // ---- DefaultNudgePolicy ----
 
   [Fact]

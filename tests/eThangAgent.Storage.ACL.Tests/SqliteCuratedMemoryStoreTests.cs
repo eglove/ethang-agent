@@ -420,6 +420,57 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   }
 
   [Fact]
+  public async Task DeleteMany_RemovesAllGivenRows_AndTheirFtsEntries()
+  {
+    CuratedMemory first = MakeMemory(content: "alpha delete-many note");
+    CuratedMemory second = MakeMemory(content: "beta delete-many note");
+    CuratedMemory survivor = MakeMemory(content: "gamma survivor note");
+    _ = await _store.AddAsync(first, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(second, ct: TestContext.Current.CancellationToken);
+    _ = await _store.AddAsync(survivor, ct: TestContext.Current.CancellationToken);
+
+    Result<int> deleted = await _store.DeleteManyAsync(
+        [first.Id, second.Id], ct: TestContext.Current.CancellationToken);
+
+    AssertSuccess(deleted);
+    Assert.Equal(2, deleted.Value);
+    Assert.Null((await _store.GetAsync(first.Id, ct: TestContext.Current.CancellationToken)).Value);
+    Assert.Null((await _store.GetAsync(second.Id, ct: TestContext.Current.CancellationToken)).Value);
+    Assert.NotNull((await _store.GetAsync(survivor.Id, ct: TestContext.Current.CancellationToken)).Value);
+    Assert.Equal(1L, Scalar("SELECT COUNT(*) FROM curated_memories;"));
+    Assert.Equal(1L, Scalar("SELECT COUNT(*) FROM curated_memories_fts;"));
+
+    Result<IReadOnlyList<CuratedMemory>> survivorHits = await _store.SearchAsync("ws-1", "survivor note", null, null, 10, ct: TestContext.Current.CancellationToken);
+    AssertSuccess(survivorHits);
+    _ = Assert.Single(survivorHits.Value!);
+    Result<IReadOnlyList<CuratedMemory>> deletedHits = await _store.SearchAsync("ws-1", "delete-many", null, null, 10, ct: TestContext.Current.CancellationToken);
+    AssertSuccess(deletedHits);
+    Assert.Empty(deletedHits.Value!);
+  }
+
+  [Fact]
+  public async Task DeleteMany_EmptyList_ReturnsZero()
+  {
+    Result<int> deleted = await _store.DeleteManyAsync([], ct: TestContext.Current.CancellationToken);
+
+    AssertSuccess(deleted);
+    Assert.Equal(0, deleted.Value);
+  }
+
+  [Fact]
+  public async Task DeleteMany_UnknownIds_Skipped_CountsOnlyDeleted()
+  {
+    CuratedMemory doomed = MakeMemory(content: "doomed delete-many note");
+    _ = await _store.AddAsync(doomed, ct: TestContext.Current.CancellationToken);
+
+    Result<int> deleted = await _store.DeleteManyAsync(
+        [doomed.Id, Guid.NewGuid()], ct: TestContext.Current.CancellationToken);
+
+    AssertSuccess(deleted);
+    Assert.Equal(1, deleted.Value);
+    Assert.Equal(0L, Scalar("SELECT COUNT(*) FROM curated_memories;"));
+  }
+  [Fact]
   public void Migration_CreatesFtsIndexAndTriggers_CountSucceedsPostInit()
   {
     Exception? exception = Record.Exception(() => Scalar("SELECT COUNT(*) FROM curated_memories_fts;"));
