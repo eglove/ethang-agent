@@ -30,6 +30,8 @@ internal static class TestFixtures
     public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", "not found")));
 
+    public void InterruptSubtree(AgentId rootOfSubtree) => InterruptAllCount++;
+
     public void Interrupt(AgentId? childId = null)
     {
       if (childId is null)

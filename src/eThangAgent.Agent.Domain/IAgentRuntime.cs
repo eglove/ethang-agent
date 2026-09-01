@@ -21,6 +21,11 @@ public interface IAgentRuntime
   ///     at the tool's validation, before this seam.</summary>
   Result<bool> Deliver(AgentId id, PendingMessage message);
 
+  /// <summary>Interrupts an agent and ALL its running descendants (FR-C6): deepest-first
+  ///     cancellation so parents observe children settling before their own repair.
+  ///     Unknown ids are a no-op. The parent-control path for tree teardown.</summary>
+  void InterruptSubtree(AgentId rootOfSubtree);
+
   /// <summary>Interrupts active child runs by cancelling the token each run executes under.
   /// With no id, every active run owned by this runtime is interrupted; with an id, only that
   /// run. Unknown ids are a no-op — interruption is best-effort by design.</summary>

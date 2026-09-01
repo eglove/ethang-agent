@@ -240,6 +240,7 @@ public sealed class AgentCapabilityProvider(
     AgentStatus.Running => $"id={record.Id} status=running",
     AgentStatus.Completed => $"id={record.Id} status=completed",
     AgentStatus.Failed => $"id={record.Id} status=failed reason={ReasonText(record.FailureReason)}",
+    AgentStatus.Interrupted => $"id={record.Id} status=interrupted",
     _ => throw new InvalidOperationException($"Unknown agent status '{record.Status}' for agent '{record.Id}'."),
   };
 
@@ -250,6 +251,7 @@ public sealed class AgentCapabilityProvider(
     AgentFailureReason.ProviderError => "provider-error",
     AgentFailureReason.Interrupted => "interrupted",
     AgentFailureReason.Hung => "hung",
+    AgentFailureReason.BudgetExhausted => "budget-exhausted",
     _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
   };
 

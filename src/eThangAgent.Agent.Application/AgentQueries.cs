@@ -34,6 +34,7 @@ public sealed class AgentQueries(IAgentStore store) : IAgentQueries
           $"No agent exists with id '{id}'.")),
       AgentStatus.Failed when agent.FinalReport is { } partial => Result.Success(partial),
       AgentStatus.Failed => Result.Success(NoReportLine(agent.FailureReason)),
+      AgentStatus.Interrupted => Result.Success(NoReportLine(agent.FailureReason)),
       _ => throw new InvalidOperationException($"Unknown agent status '{agent.Status}' for agent '{id}'."),
     };
   }
@@ -50,6 +51,8 @@ public sealed class AgentQueries(IAgentStore store) : IAgentQueries
         "Error [Interrupted]: the child agent was interrupted by the user before completing.",
     AgentFailureReason.Hung =>
         "Error [Hung]: the child agent was terminated by the watchdog after idle detection and a wrap-up retry.",
+    AgentFailureReason.BudgetExhausted =>
+        "Error [BudgetExhausted]: the child agent reached a budget hard ceiling and was terminated.",
     _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
   };
 }

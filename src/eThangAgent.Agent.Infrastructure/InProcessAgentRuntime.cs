@@ -213,6 +213,65 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 
   private static TaskCompletionSource<AgentRunOutcome> NewSettleSource()
       => new(TaskCreationOptions.RunContinuationsAsynchronously);
+  /// <inheritdoc cref="IAgentRuntime.InterruptSubtree"/>
+  public void InterruptSubtree(AgentId rootOfSubtree)
+  {
+    // Only ids this runtime actively owns can be cancelled; edges come from the store.
+    Dictionary<Guid, Guid?> edges = [];
+    List<AgentId> deepestFirst = [];
+    foreach (AgentId activeId in _active.Keys)
+    {
+      Result<AgentRecord> record = _store.GetAsync(activeId).GetAwaiter().GetResult();
+      if (record.IsSuccess)
+      {
+        edges[activeId.Value] = record.Value.ParentId?.Value;
+      }
+    }
+
+    bool IsDescendantOf(Guid candidate, Guid root)
+    {
+      Guid? cursor = candidate;
+      while (cursor is { } current)
+      {
+        if (current == root)
+        {
+          return true;
+        }
+
+        cursor = edges.GetValueOrDefault(current);
+      }
+
+      return false;
+    }
+
+    foreach (AgentId activeId in _active.Keys)
+    {
+      if (activeId.Value == rootOfSubtree.Value || IsDescendantOf(activeId.Value, rootOfSubtree.Value))
+      {
+        deepestFirst.Add(activeId);
+      }
+    }
+
+    // Depth order: deepest (longest parent chain among active ids) first.
+    deepestFirst.Sort((a, b) => DepthOf(b, edges).CompareTo(DepthOf(a, edges)));
+    foreach (AgentId id in deepestFirst)
+    {
+      Interrupt(id);
+    }
+  }
+
+  private static int DepthOf(AgentId id, Dictionary<Guid, Guid?> edges)
+  {
+    int depth = 0;
+    Guid? cursor = id.Value;
+    while (cursor is { } current && edges.TryGetValue(current, out Guid? parent) && parent is not null)
+    {
+      depth++;
+      cursor = parent;
+    }
+
+    return depth;
+  }
   /// <summary>The mailbox for an id, or null when the runtime owns none (never started
   ///     or already retired). The Agent loop obtains its inbox through the runner's
   ///     SubAgentServices; senders go through the runtime's Deliver.</summary>

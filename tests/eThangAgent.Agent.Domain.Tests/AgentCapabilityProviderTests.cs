@@ -84,6 +84,8 @@ public class AgentCapabilityProviderTests
     public Result<bool> Deliver(AgentId id, PendingMessage message)
         => Result.Success(true);
 
+    public void InterruptSubtree(AgentId rootOfSubtree) { }
+
     public void Interrupt(AgentId? childId = null) { }
   }
 
