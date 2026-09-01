@@ -37,6 +37,7 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
     try
     {
       await SampleRssAsync(ct).ConfigureAwait(false);
+      await SuperviseRegisteredChildrenAsync(ct).ConfigureAwait(false);
       Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync(ct).ConfigureAwait(false);
       if (!listed.IsSuccess)
       {
@@ -107,6 +108,124 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
     return result;
   }
 
+  /// <summary>Event-policy path (T5): iterate THIS session's registered supervisors,
+  ///     raise idle alerts, and let the pure policy decide. Attempts come from the
+  ///     supervisor's owned fact — no ledger counting, no store sweep. A RetryWrapUp
+  ///     interrupt observes settlement through the runtime's WhenSettledAsync (bounded by
+  ///     iteration on the injected clock), replacing the poll loop.</summary>
+  private async Task SuperviseRegisteredChildrenAsync(CancellationToken ct)
+  {
+    if (services.Supervisors is null)
+    {
+      return; // legacy wiring: registry absent — sweep below keeps today's behavior
+    }
+
+    foreach (ChildSupervisor supervisor in services.Supervisors.All)
+    {
+      try
+      {
+        ChildIdleAlertEvent? alert = supervisor.CheckIdle(services.Policy.IdleThreshold);
+        if (alert is null)
+        {
+          continue;
+        }
+
+        await AppendAsync(new WatchdogEvent(Guid.NewGuid(), alert.ChildId,
+            WatchdogEventKind.HungDetected, "idle " + (int)alert.IdleAge.TotalMinutes + "m; phase " + alert.LastPhase,
+            supervisor.Attempts, null, services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
+        services.Runtime.Interrupt(alert.ChildId);
+        AgentRecord settled = await AwaitSettledAsync(alert.ChildId, ct).ConfigureAwait(false);
+        if (settled.Status is AgentStatus.Running)
+        {
+          continue; // cancel unobserved: next tick re-raises while still idle
+        }
+
+        if (settled.Status is AgentStatus.Completed)
+        {
+          continue; // finished while we watched
+        }
+
+        if (supervisor.Attempts >= services.Policy.MaxWrapUpAttempts)
+        {
+          await TerminalAsync(settled, supervisor.Attempts, alert.IdleAge, ct).ConfigureAwait(false);
+        }
+        else
+        {
+          await RetryAsync(settled, supervisor.Attempts + 1, ct).ConfigureAwait(false);
+        }
+      }
+      catch (OperationCanceledException)
+      {
+        throw;
+      }
+      // Named decision (CA1031): one child's supervision failure must never take down
+      // the tick guarding the others.
+#pragma warning disable CA1031 // Do not catch general exception types
+      catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+      {
+        await AppendAsync(new WatchdogEvent(Guid.NewGuid(), supervisor.ChildId,
+            WatchdogEventKind.WatchdogErrored, ex.Message, 0, null,
+            services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
+      }
+    }
+  }
+
+  /// <summary>Bounded settle observation via the runtime's WhenSettledAsync: an AWAIT
+  ///     (not a poll) with a hard iteration bound on the injected clock so a frozen
+  ///     TimeProvider cannot hang the tick. Unknown ids settle as Running (no-op).</summary>
+  private async Task<AgentRecord> AwaitSettledAsync(AgentId id, CancellationToken ct)
+  {
+    Result<AgentRecord> loaded = await services.Store.GetAsync(id, ct).ConfigureAwait(false);
+    if (!loaded.IsSuccess)
+    {
+      // Unknown id: nothing to observe; the caller's guard treats it as not settled.
+      return new AgentRecord(id, null, 0, AgentStatus.Running, null, "unknown", null, "", services.Clock.GetUtcNow(), null, null);
+    }
+
+    AgentRecord record = loaded.Value;
+    if (record.Status is not AgentStatus.Running)
+    {
+      return record;
+    }
+
+    Result<AgentRunOutcome> outcome = await services.Runtime.WhenSettledAsync(id, ct)
+        .WaitAsync(services.Policy.SettleWait, ct).ConfigureAwait(false);
+    if (!outcome.IsSuccess)
+    {
+      return record; // timeout or unknown: still Running from the tick's point of view
+    }
+
+    Result<AgentRecord> settled = await services.Store.GetAsync(id, ct).ConfigureAwait(false);
+    return settled.IsSuccess ? settled.Value : record;
+  }
+  /// <summary>Same-id retry: reset the record, forget the heartbeat slate, start.</summary>
+  private async Task RetryAsync(AgentRecord settled, int nextAttempt, CancellationToken ct)
+  {
+    AgentRecord reset = settled with
+    {
+      Status = AgentStatus.Running,
+      FailureReason = null,
+      CompletedAt = null,
+      FinalReport = null,
+      Attempts = nextAttempt,
+      Phase = ChildPhase.ModelCall,
+    };
+    Result<string> updated = await services.Store.UpdateAsync(reset, ct).ConfigureAwait(false);
+    if (!updated.IsSuccess)
+    {
+      return;
+    }
+
+    services.Heartbeat.Forget(reset.Id);
+    Result<AgentId> started = await services.Runtime.Start(reset, ct).ConfigureAwait(false);
+    if (started.IsSuccess)
+    {
+      await AppendAsync(new WatchdogEvent(Guid.NewGuid(), reset.Id,
+          WatchdogEventKind.RetrySpawned, "wrap-up retry started on the same id", nextAttempt, null,
+          services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
+    }
+  }
   private async Task SweepOneAsync(AgentRecord record, CancellationToken ct)
   {
     if (record.Status is not AgentStatus.Running)

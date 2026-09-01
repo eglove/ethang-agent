@@ -41,7 +41,7 @@ public class ZaiPipelineSmokeTests
       AgentSettings settings = new(
           new OpenRouterSettings(null, new Uri("https://openrouter.test")),
           new ZaiSettings("zai-test-key", server.BaseUrl, endpointMode),
-          new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1));
+          new SubAgentOptions(null, 1));
 
       using ServiceProvider services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.Zai,

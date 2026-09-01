@@ -13,4 +13,5 @@ public sealed record WatchdogServices(
     IProcessMetrics Metrics,
     WatchdogOptions Options,
     TimeProvider Clock,
-    IAgentEvents? ChildEventStream = null);
+    IAgentEvents? ChildEventStream = null,
+    ChildSupervisorRegistry? Supervisors = null);

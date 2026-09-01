@@ -22,7 +22,6 @@ public static class AgentConfiguration
 
     SubAgentOptions subAgents = SubAgentConfiguration.Bind(
         configuration["SubAgent:DefaultModel"],
-        configuration["SubAgent:ChildTimeoutSeconds"],
         configuration["SubAgent:MaxConcurrentAgents"]);
 
     return new AgentSettings(

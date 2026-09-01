@@ -1,14 +1,16 @@
 namespace eThangAgent.AgentDomain;
 
-/// <summary>Budgets and defaults governing child agent runs. Absent DefaultModel means spawns must supply their own model.</summary>
+/// <summary>Budgets and defaults governing child agent runs. Absent DefaultModel means
+///     spawns must supply their own model. There is NO wall-clock child timeout (FR-L4):
+///     cancellation sources are exactly user/parent interrupt, watchdog terminal decision,
+///     and budget hard ceiling — never duration (A4).</summary>
 public sealed class SubAgentOptions
 {
   public string? DefaultModel { get; }
-  public TimeSpan ChildTimeout { get; }
   public int MaxConcurrentAgents { get; }
   public int MaxDepth { get; }
 
-  public SubAgentOptions(string? DefaultModel, TimeSpan? ChildTimeout = null,
+  public SubAgentOptions(string? DefaultModel,
       int MaxConcurrentAgents = 1, int MaxDepth = 3)
   {
     this.DefaultModel = DefaultModel;
@@ -20,21 +22,6 @@ public sealed class SubAgentOptions
     }
 
     this.MaxConcurrentAgents = MaxConcurrentAgents;
-
-    if (ChildTimeout is { } timeout)
-    {
-      if (timeout <= TimeSpan.Zero)
-      {
-        throw new ArgumentOutOfRangeException(nameof(ChildTimeout),
-            "ChildTimeout must be positive.");
-      }
-
-      this.ChildTimeout = timeout;
-    }
-    else
-    {
-      this.ChildTimeout = TimeSpan.FromSeconds(300);
-    }
 
     if (MaxDepth < 1)
     {

@@ -49,7 +49,6 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   private readonly IAgentStore _store = services.Store ?? throw new ArgumentNullException(nameof(services), "Store must not be null.");
   private readonly IToolRegistry _tools = services.Tools ?? throw new ArgumentNullException(nameof(services), "Tools must not be null.");
   private readonly ISystemPromptProvider _systemPrompt = services.SystemPrompt ?? throw new ArgumentNullException(nameof(services), "SystemPrompt must not be null.");
-  private readonly SubAgentOptions _options = services.Options ?? throw new ArgumentNullException(nameof(services), "Options must not be null.");
   private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IContextWindowSource? _windowSource = windowSource;
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
@@ -116,8 +115,6 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
         });
     PublishStarted(child);
 
-    using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-    timeoutCts.CancelAfter(_options.ChildTimeout);
 
     string? report = null;
     AgentFailureReason? failureReason = null;
@@ -126,23 +123,20 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     try
     {
       Result<string> run = await agent.SendMessage(prompt,
-          inbox: null, ct: timeoutCts.Token).ConfigureAwait(false);
+          inbox: null, ct: ct).ConfigureAwait(false);
       if (run.IsSuccess)
       {
         report = run.Value;
       }
-      // The caller's token firing means an explicit interrupt (user stop), which is
-      // distinct from this run's own timeout budget expiring.
       else
       {
-        failureReason = ClassifyRunFailure(ct, timeoutCts.Token);
+        failureReason = ClassifyRunFailure(ct);
       }
     }
     catch (OperationCanceledException)
     {
-      failureReason = ct.IsCancellationRequested
-          ? AgentFailureReason.Interrupted
-          : AgentFailureReason.Timeout;
+      // Only the caller's token can cancel a run now (FR-L4): an explicit interrupt.
+      failureReason = AgentFailureReason.Interrupted;
     }
     // Named decision (CA1031): a child run is an isolation boundary — ANY fault here
     // must become a well-formed terminal outcome, not a crash of the spawning agent.
@@ -229,17 +223,12 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   /// <summary>Guard-style early returns: the caller's token firing is an explicit user
   /// interrupt, this run's own timeout budget expiring is a timeout, anything else is a
   /// provider failure.</summary>
-  private static AgentFailureReason ClassifyRunFailure(CancellationToken callerToken, CancellationToken runToken)
-  {
-    if (callerToken.IsCancellationRequested)
-    {
-      return AgentFailureReason.Interrupted;
-    }
-
-    bool runTimedOut = runToken.IsCancellationRequested;
-    return runTimedOut ? AgentFailureReason.Timeout : AgentFailureReason.ProviderError;
-  }
-
+  /// <summary>The caller's token firing is an explicit interrupt (FR-L4: wall-clock is
+  ///     never a cancellation source); anything else reaching here is a provider fault.</summary>
+  private static AgentFailureReason ClassifyRunFailure(CancellationToken callerToken)
+      => callerToken.IsCancellationRequested
+          ? AgentFailureReason.Interrupted
+          : AgentFailureReason.ProviderError;
   private static string FailureDetail(AgentFailureReason reason) => reason switch
   {
     AgentFailureReason.Timeout => "child agent timed out before completing.",

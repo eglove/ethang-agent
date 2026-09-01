@@ -109,7 +109,7 @@ internal static class E2E
     internal AgentSettings BuildSettings() => new(
         new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
         new ZaiSettings(null, new Uri("https://zai.test")),
-        new SubAgentOptions(null, TimeSpan.FromSeconds(30), 2));
+        new SubAgentOptions(null, 2));
 
     /// <summary>A factory over the SAME temp database and mock server the harness runs
     ///     on — lets tests drive the real <see cref="AgentSessionFactory.ResumeAsync"/>

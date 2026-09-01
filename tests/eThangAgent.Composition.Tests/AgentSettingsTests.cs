@@ -10,7 +10,7 @@ public class AgentSettingsTests
   private static AgentSettings Settings(string? openRouter = null, string? zai = null) => new(
       new OpenRouterSettings(openRouter, new Uri("https://openrouter.test")),
       new ZaiSettings(zai, new Uri("https://zai.test")),
-      new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
+      new SubAgentOptions(null, 2));
 
   [Fact]
   public void Preference_Keys_Name_The_Stored_Api_Key_Slots()

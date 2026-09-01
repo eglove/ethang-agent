@@ -158,24 +158,24 @@ public class SubAgentSpawnerTests
   }
 
   [Fact]
-  public async Task RunAsync_Timeout_ReturnsFailedOutcome_PersistsFailedTimeout()
+  public async Task RunAsync_Interrupted_ReturnsFailedOutcome_PersistsInterrupted()
   {
     FakeAgentStore store = new();
-    SubAgentSpawner spawner = MakeRunner(new BlockingProvider(), store,
-        options: new SubAgentOptions(DefaultModel: "m/sub",
-            ChildTimeout: TimeSpan.FromMilliseconds(50)));
+    SubAgentSpawner spawner = MakeRunner(new BlockingProvider(), store);
+    using CancellationTokenSource cts = new();
 
-    AgentRunOutcome outcome = await spawner.RunAsync(Child(), CancellationToken.None);
+    Task<AgentRunOutcome> run = spawner.RunAsync(Child(), cts.Token);
+    await cts.CancelAsync().ConfigureAwait(true);
+    AgentRunOutcome outcome = await run.ConfigureAwait(true);
 
     Assert.Equal(AgentStatus.Failed, outcome.Status);
-    Assert.Equal(AgentFailureReason.Timeout, outcome.Reason);
+    Assert.Equal(AgentFailureReason.Interrupted, outcome.Reason);
 
     AgentRecord updated = Assert.Single(store.Updated);
     Assert.Equal(AgentStatus.Failed, updated.Status);
-    Assert.Equal(AgentFailureReason.Timeout, updated.FailureReason);
+    Assert.Equal(AgentFailureReason.Interrupted, updated.FailureReason);
     _ = Assert.NotNull(updated.CompletedAt);
   }
-
   [Fact]
   public async Task RunAsync_ProviderThrows_ReturnsFailedOutcome_PersistsProviderError()
   {
@@ -192,25 +192,31 @@ public class SubAgentSpawnerTests
     Assert.Equal(AgentFailureReason.ProviderError, updated.FailureReason);
   }
 
-  // There is no tool-iteration cap anymore: a child that keeps calling tools runs
-  // until its time budget elapses, so a looping model surfaces as Failed(Timeout).
+  // There is no wall-clock budget anymore (FR-L4/A4): a looping child runs until the
+  // watchdog's graduated policy or the user's stop interrupts it. This test pins the
+  // interrupt path against a looping provider.
   [Fact]
-  public async Task RunAsync_LoopingChild_TimesOut_ReturnsFailedOutcome_PersistsFailedTimeout()
+  public async Task RunAsync_LoopingChild_Interrupts_Cleanly()
   {
     FakeAgentStore store = new();
     SubAgentSpawner spawner = MakeRunner(new LoopingProvider(), store,
-        options: new SubAgentOptions(DefaultModel: "default/sub-model",
-            ChildTimeout: TimeSpan.FromMilliseconds(250)),
+        options: new SubAgentOptions(DefaultModel: "default/sub-model"),
         tools: new ToolRegistry([new FakeTool("loop", "again")]));
+    // The looping provider + instant tool make the run an endless SYNCHRONOUS loop that
+    // never yields, so the cancel must come from a timer thread — an inline CancelAsync
+    // after the call would never execute (deadlock vigilance: this test has a reachable
+    // completion path only through ct).
+    using CancellationTokenSource cts = new();
+    cts.CancelAfter(TimeSpan.FromMilliseconds(200));
 
-    AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "loop forever"), CancellationToken.None);
+    AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "loop forever"), cts.Token).ConfigureAwait(true);
 
     Assert.Equal(AgentStatus.Failed, outcome.Status);
-    Assert.Equal(AgentFailureReason.Timeout, outcome.Reason);
+    Assert.Equal(AgentFailureReason.Interrupted, outcome.Reason);
 
     AgentRecord updated = Assert.Single(store.Updated);
     Assert.Equal(AgentStatus.Failed, updated.Status);
-    Assert.Equal(AgentFailureReason.Timeout, updated.FailureReason);
+    Assert.Equal(AgentFailureReason.Interrupted, updated.FailureReason);
   }
 
   // --- terminal persistence fault ---

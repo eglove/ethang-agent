@@ -20,7 +20,7 @@ public class CompositionGuardTests
       ZaiEndpointMode zaiEndpointMode = ZaiEndpointMode.CodingPlan) => new(
       new OpenRouterSettings(openRouterKey, new Uri("https://openrouter.test")),
       new ZaiSettings(zaiKey, new Uri("https://zai.test"), zaiEndpointMode),
-      new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
+      new SubAgentOptions(null, 2));
 
   [Fact]
   public void SubAgentDefaultModel_FallsBackToRootModel_WhenConfigOmitsIt()
@@ -35,8 +35,7 @@ public class CompositionGuardTests
 
     SubAgentOptions options = services.GetRequiredService<SubAgentOptions>();
     Assert.Equal("root/model", options.DefaultModel);
-    Assert.Equal(TimeSpan.FromSeconds(300), options.ChildTimeout); // preserved
-    Assert.Equal(2, options.MaxConcurrentAgents);                  // preserved
+    Assert.Equal(2, options.MaxConcurrentAgents); // preserved
   }
 
   public static TheoryData<string, AgentHostOptions> BothHostShapes => new()

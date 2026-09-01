@@ -16,7 +16,7 @@ public class WebFetchWiringTests
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
         new ZaiSettings(null, new Uri("https://zai.test")),
-        new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
+        new SubAgentOptions(null, 2));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,

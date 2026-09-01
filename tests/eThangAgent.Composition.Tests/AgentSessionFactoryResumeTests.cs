@@ -27,7 +27,7 @@ public class AgentSessionFactoryResumeTests
   private static AgentSettings Settings(string? openRouterKey = "sk-or-test", string? zaiKey = null) => new(
       new OpenRouterSettings(openRouterKey, BaseUrl),
       new ZaiSettings(zaiKey, new Uri("https://zai.test")),
-      new SubAgentOptions(null, TimeSpan.FromSeconds(300), 2));
+      new SubAgentOptions(null, 2));
 
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory(AgentSettings? settings = null)
   {

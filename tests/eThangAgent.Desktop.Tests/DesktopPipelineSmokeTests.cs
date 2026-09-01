@@ -30,7 +30,7 @@ public class DesktopPipelineSmokeTests
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", server.BaseUrl),
         new ZaiSettings(null, new Uri("https://zai.test")),
-        new SubAgentOptions(null, TimeSpan.FromSeconds(30), 1));
+        new SubAgentOptions(null, 1));
 
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,

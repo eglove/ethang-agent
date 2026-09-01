@@ -7,24 +7,17 @@ namespace eThangAgent.Composition;
 ///     <see cref="SubAgentOptions"/>. Keys:
 ///     "SubAgent:DefaultModel" — optional; absent is legal (spawns must then pass a
 ///     model explicitly); present-but-empty is a startup validation error.
-///     "SubAgent:ChildTimeoutSeconds" — defaults to 300 when absent; zero, negative,
-///     or non-integer values are startup validation errors.
 ///     "SubAgent:MaxConcurrentAgents" — required positive integer; absent,
 ///     non-integer, or below-1 values are startup validation errors. Nothing is
-///     silently coerced or clamped.</summary>
+///     silently coerced or clamped. There is deliberately no timeout key (FR-L4/A4):
+///     wall-clock is never a child cancellation source.</summary>
 public static class SubAgentConfiguration
 {
-  public static SubAgentOptions Bind(string? defaultModel, string? childTimeoutSeconds,
-      string? maxConcurrentAgents)
+  public static SubAgentOptions Bind(string? defaultModel, string? maxConcurrentAgents)
   {
     ValidateDefaultModel(defaultModel);
     int maxConcurrent = ParseMaxConcurrentAgents(maxConcurrentAgents);
-    int? childTimeout = ParseChildTimeout(childTimeoutSeconds);
-
-    SubAgentOptions bound = childTimeout is { } seconds
-        ? new SubAgentOptions(defaultModel, TimeSpan.FromSeconds(seconds), maxConcurrent)
-        : new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent);
-    return bound;
+    return new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent);
   }
 
   /// <summary>"SubAgent:DefaultModel" — optional; absent is legal (spawns must then
@@ -42,52 +35,15 @@ public static class SubAgentConfiguration
   ///     non-integer, or below-1 values are startup validation errors.</summary>
   private static int ParseMaxConcurrentAgents(string? maxConcurrentAgents)
   {
-    if (maxConcurrentAgents is null)
+    return maxConcurrentAgents switch
     {
-      throw new InvalidOperationException(
-          "SubAgent:MaxConcurrentAgents is required. Set it to a positive integer.");
-    }
-
-    if (!int.TryParse(maxConcurrentAgents, NumberStyles.Integer,
-            CultureInfo.InvariantCulture, out int maxConcurrent))
-    {
-      throw new InvalidOperationException(
-          $"SubAgent:MaxConcurrentAgents must be a positive integer, got '{maxConcurrentAgents}'.");
-    }
-
-    if (maxConcurrent < 1)
-    {
-      throw new InvalidOperationException(
-          $"SubAgent:MaxConcurrentAgents must be at least 1, got '{maxConcurrentAgents}'.");
-    }
-
-    int bound = maxConcurrent;
-    return bound;
-  }
-
-  /// <summary>"SubAgent:ChildTimeoutSeconds" — defaults to absent (null) when the key
-  ///     is missing; zero, negative, or non-integer values are startup validation errors.</summary>
-  private static int? ParseChildTimeout(string? childTimeoutSeconds)
-  {
-    if (childTimeoutSeconds is null)
-    {
-      return null;
-    }
-
-    if (!int.TryParse(childTimeoutSeconds, NumberStyles.Integer,
-            CultureInfo.InvariantCulture, out int seconds))
-    {
-      throw new InvalidOperationException(
-          $"SubAgent:ChildTimeoutSeconds must be an integer number of seconds, got '{childTimeoutSeconds}'.");
-    }
-
-    if (seconds <= 0)
-    {
-      throw new InvalidOperationException(
-          $"SubAgent:ChildTimeoutSeconds must be positive, got '{seconds}'.");
-    }
-
-    int timeoutSeconds = seconds;
-    return timeoutSeconds;
+      null => throw new InvalidOperationException(
+          "SubAgent:MaxConcurrentAgents is required. Set it to a positive integer."),
+      not null when !int.TryParse(maxConcurrentAgents, NumberStyles.Integer,
+          CultureInfo.InvariantCulture, out int maxConcurrent) || maxConcurrent < 1 =>
+        throw new InvalidOperationException(
+            $"SubAgent:MaxConcurrentAgents must be a positive integer of at least 1, got '{maxConcurrentAgents}'."),
+      _ => int.Parse(maxConcurrentAgents, NumberStyles.Integer, CultureInfo.InvariantCulture),
+    };
   }
 }

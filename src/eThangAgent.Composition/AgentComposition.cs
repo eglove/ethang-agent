@@ -466,7 +466,7 @@ public static class AgentComposition
   ///     value always wins; empty config values are still rejected upstream at bind time.</summary>
   private static SubAgentOptions subAgents(AgentSettings settings, string rootModelId)
       => string.IsNullOrWhiteSpace(settings.SubAgents.DefaultModel)
-          ? new SubAgentOptions(rootModelId, settings.SubAgents.ChildTimeout,
+          ? new SubAgentOptions(rootModelId,
               settings.SubAgents.MaxConcurrentAgents, settings.SubAgents.MaxDepth)
           : settings.SubAgents;
 }
