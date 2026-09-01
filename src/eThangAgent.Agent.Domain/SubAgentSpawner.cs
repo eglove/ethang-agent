@@ -106,7 +106,8 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     // the shared registry passes through unchanged (zero behavior delta).
     IToolRegistry tools = _tools;
     if (child.Contract is { } runContractJson
-        && SpawnContract.Decode(runContractJson).DecodedEffectiveTools is { } effective)
+        && SpawnContract.Decode(runContractJson).DecodedEffectiveTools is { } effective
+        && tools is not FilteredToolRegistry) // never double-wrap (a resumed/retried run)
     {
       IWatchdogEventStore? audit = services.Audit;
       tools = new FilteredToolRegistry(_tools, effective,

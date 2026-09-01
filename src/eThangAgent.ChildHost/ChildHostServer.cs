@@ -12,9 +12,9 @@ namespace eThangAgent.ChildHost;
 ///     own concurrency ceiling (FR-X5). One connection; host exits when the app disconnects
 ///     or the pipe closes — children keep running per survivability (FR-L7/T4) and the
 ///     app re-attaches on restart.</summary>
-public sealed class ChildHostServer(NamedPipeChildTransport transport, string settingsPath, string databasePath)
+public sealed class ChildHostServer(string settingsPath, string databasePath)
 {
-  private volatile NamedPipeChildTransport _transport = transport;
+  private volatile NamedPipeChildTransport? _transport;
   private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _active = [];
   private long _sequence;
 
@@ -29,20 +29,35 @@ public sealed class ChildHostServer(NamedPipeChildTransport transport, string se
   ///     resumes through <see cref="AttachTransport"/>.</summary>
   public async Task ServeAsync()
   {
+    // The caller attaches the transport BEFORE calling ServeAsync; hold it locally so
+    // the serve loop reads one consistent connection even if a new one attaches later.
+    NamedPipeChildTransport transport = _transport
+        ?? throw new InvalidOperationException("AttachTransport must be called before ServeAsync.");
     await SendLiveSetAsync().ConfigureAwait(false);
     while (true)
     {
       TransportEnvelope envelope;
       try
       {
-        envelope = await _transport.ReceiveAsync().ConfigureAwait(false);
+        envelope = await transport.ReceiveAsync().ConfigureAwait(false);
       }
       catch (TransportClosedException)
       {
         return; // app gone: children keep running (survivability)
       }
 
-      await _transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence)).ConfigureAwait(false);
+      // Named decision (CA1031): a failed ACK write IS the disconnect (broken pipe) —
+      // return so the accept loop re-attaches the next connection; children keep running.
+#pragma warning disable CA1031 // Do not catch general exception types
+      try
+      {
+        await transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence)).ConfigureAwait(false);
+      }
+      catch
+      {
+        return;
+      }
+#pragma warning restore CA1031
 
       switch (envelope.Kind)
       {
@@ -72,8 +87,19 @@ public sealed class ChildHostServer(NamedPipeChildTransport transport, string se
 
     CancellationTokenSource cts = new();
     _active[command.RecordId] = cts;
-    await SendLiveSetAsync().ConfigureAwait(false);
     _ = Task.Run(() => RunChildAsync(command, cts));
+    // Named decision (CA1031): a failed live-set broadcast IS the disconnect; the accept
+    // loop re-attaches. The child was already registered and keeps running.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      await SendLiveSetAsync().ConfigureAwait(false);
+    }
+    catch
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031
   }
 
   private async Task RunChildAsync(StartCommand command, CancellationTokenSource cts)
@@ -137,14 +163,23 @@ public sealed class ChildHostServer(NamedPipeChildTransport transport, string se
   ///     Single-connection by design; the old transport is closed first.</summary>
   public void AttachTransport(NamedPipeChildTransport fresh)
   {
-    NamedPipeChildTransport stale = Interlocked.Exchange(ref _transport, fresh);
-    _ = Task.Run(async () => await stale.DisposeAsync().ConfigureAwait(false));
+    NamedPipeChildTransport? stale = Interlocked.Exchange(ref _transport, fresh);
+    if (stale is not null)
+    {
+      _ = Task.Run(async () => await stale.DisposeAsync().ConfigureAwait(false));
+    }
   }
 
   private async Task SendAsync(string kind, string json)
   {
+    NamedPipeChildTransport? transport = _transport;
+    if (transport is null)
+    {
+      return; // no app attached (yet): settles/declares resume on the next attach
+    }
+
     long sequence = Interlocked.Increment(ref _sequence);
-    await _transport.SendAsync(new TransportEnvelope(kind, json, sequence)).ConfigureAwait(false);
+    await transport.SendAsync(new TransportEnvelope(kind, json, sequence)).ConfigureAwait(false);
   }
 }
 

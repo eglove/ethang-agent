@@ -90,7 +90,7 @@ public class FilteredToolRegistryTests
         Result.Success(new ModelResponse("done", [])));
     SubAgentSpawner spawner = new(new SubAgentServices(
         new FakeModelProviderFactory(provider), store,
-        new FilteredToolRegistry(Inner(), Set("read")),
+        Inner(), // plain shared registry — the CONTRACT drives the filter
         new StaticPromptProvider("guide"), new SubAgentOptions(DefaultModel: "m/sub")));
     AgentRecord child = AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", null,
         "use exec", DateTimeOffset.UtcNow,
@@ -103,7 +103,7 @@ public class FilteredToolRegistryTests
         await store.GetTranscriptAsync(child.Id, ct: TestContext.Current.CancellationToken);
     Assert.True(transcript.IsSuccess);
     ConversationDomain.Message toolResult = Assert.Single(
-        transcript.Value, m => m.Role == ConversationDomain.Role.User && m.Content.StartsWith("Error [GrantViolation]", StringComparison.Ordinal));
+        transcript.Value, m => m.Role == ConversationDomain.Role.Tool && m.Content.StartsWith("Error [GrantViolation]", StringComparison.Ordinal));
     Assert.Equal("Error [GrantViolation]: tool 'exec' is not granted to this agent.", toolResult.Content);
   }
 }

@@ -13,6 +13,12 @@ public sealed class AgentCapabilityProvider(
 {
   public const string ProviderId = "agent";
 
+  /// <summary>The action ids this provider exposes, without constructing it — the
+  ///     grant-surface computation needs the names at composition time, where
+  ///     resolving the provider itself would re-enter its singleton (R1).</summary>
+  public static readonly string[] ActionNames =
+      ["spawn", "status", "result", "wait", "send", "route", "escalate"];
+
   private readonly IAgentSpawnCommand _spawnCommand = spawnCommand ?? throw new ArgumentNullException(nameof(spawnCommand));
   private readonly IAgentQueries _queries = queries ?? throw new ArgumentNullException(nameof(queries));
   private readonly Func<AgentRecord> _parentContext = parentContext ?? throw new ArgumentNullException(nameof(parentContext));

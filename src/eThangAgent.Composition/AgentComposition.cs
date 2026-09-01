@@ -250,6 +250,12 @@ public static class AgentComposition
             sp.GetRequiredService<IWorkspaceContext>()))
         .AddSingleton<StateCapabilityProvider>()
         .AddSingleton<MemoryCapabilityProvider>()
+        .AddSingleton(sp => new CuratedMemoryCapabilityProvider(
+            sp.GetRequiredService<ICuratedMemoryStore>(),
+            () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+            () => SubAgentSpawner.RunningChild?.Id.ToString(),
+            sp.GetRequiredService<SessionMemoryWriteCounter>().Increment,
+            () => DateTimeOffset.UtcNow))
         .AddSingleton<ICapabilityRegistry>(sp =>
             CapabilityRegistry.Create(AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())))
         // MUST stay lazy inside this closure: the agent surface reaches back to
@@ -470,11 +476,17 @@ public static class AgentComposition
   ///     registration comment).</summary>
   private static HashSet<string> ChildToolSurface(IServiceProvider sp)
   {
-    Func<ICapabilityRegistry> registry = sp.GetRequiredService<Func<ICapabilityRegistry>>();
-    return registry().Providers
-        .SelectMany(p => p.Actions)
-        .Select(a => a.Name)
-        .ToHashSet(StringComparer.Ordinal);
+    // Deliberately resolves NO capability provider here: the SpawnOptions factory runs
+    // inside AgentCapabilityProvider's own construction, so resolving it (or the
+    // capability registry) would re-enter the singleton in flight. The agent actions
+    // are the provider's fixed set, named literally; everything else is provider-level.
+    AgentToolsProvider childTools = sp.GetRequiredService<AgentToolsProvider>().Except(HumanFacingActions);
+    IEnumerable<string> names = childTools.Actions.Select(a => a.Name)
+        .Concat(AgentCapabilityProvider.ActionNames)
+        .Concat(sp.GetRequiredService<StateCapabilityProvider>().Actions.Select(a => a.Name))
+        .Concat(sp.GetRequiredService<MemoryCapabilityProvider>().Actions.Select(a => a.Name))
+        .Concat(sp.GetRequiredService<CuratedMemoryCapabilityProvider>().Actions.Select(a => a.Name));
+    return [.. names];
   }
 
   /// <summary>The z.ai capability-API tools, bound only when the session is wired for
@@ -531,12 +543,7 @@ public static class AgentComposition
         ]),
         sp.GetRequiredService<StateCapabilityProvider>(),
         sp.GetRequiredService<MemoryCapabilityProvider>(),
-        new CuratedMemoryCapabilityProvider(
-            sp.GetRequiredService<ICuratedMemoryStore>(),
-            () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
-            () => SubAgentSpawner.RunningChild?.Id.ToString(),
-            sp.GetRequiredService<SessionMemoryWriteCounter>().Increment,
-            () => DateTimeOffset.UtcNow),
+        sp.GetRequiredService<CuratedMemoryCapabilityProvider>(),
   ];
 
   /// <summary>Child-agent options with the default-model fallback applied: when

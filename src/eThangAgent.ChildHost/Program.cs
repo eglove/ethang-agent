@@ -17,9 +17,34 @@ string settingsPath = args[1];
 string databasePath = args[2];
 
 Console.Out.WriteLine("host-starting " + pipeName);
-NamedPipeChildTransport transport = await NamedPipeChildTransport.AcceptAppAsync(pipeName);
-Console.Out.WriteLine("app-connected");
 
-ChildHostServer server = new(transport, settingsPath, databasePath);
-await server.ServeAsync();
-return 0;
+// Accept loop (R3.1 re-attach): each app connection is served until it drops, then
+// the host accepts the NEXT connection — children keep running across app restarts,
+// and the fresh app re-attaches on the same pipe. ServeAsync declares the live set on
+// every connection entry, so the re-attaching app learns exact ownership (FR-L8).
+ChildHostServer server = new(settingsPath, databasePath);
+while (true)
+{
+  NamedPipeChildTransport transport;
+  try
+  {
+    transport = await NamedPipeChildTransport.AcceptAppAsync(pipeName);
+  }
+  // Named decision (CA1031): the accept loop is the host's liveness boundary — any
+  // single accept failure (e.g. pipe-name collision during teardown) must not end
+  // the host; it reports and retries.
+#pragma warning disable CA1031 // Do not catch general exception types
+  catch (Exception ex)
+  {
+    Console.Error.WriteLine("accept-failed: " + ex.Message);
+    await Task.Delay(200).ConfigureAwait(false);
+    continue;
+  }
+#pragma warning restore CA1031
+
+  Console.Out.WriteLine("app-connected");
+  server.AttachTransport(transport);
+  await server.ServeAsync();
+  await transport.DisposeAsync().ConfigureAwait(false); // free the pipe name for the next accept
+  Console.Out.WriteLine("app-disconnected");
+}

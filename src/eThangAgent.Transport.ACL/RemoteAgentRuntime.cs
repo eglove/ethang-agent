@@ -126,6 +126,18 @@ public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAge
             _declaredLive = [.. declared.LiveIds];
           }
         }
+        else if (envelope.Kind == "error")
+        {
+          // Host-side fault for one child (e.g. record not found, host ceiling): complete
+          // that child's waiters with a well-formed failure instead of leaving them hung.
+          HostError? fault = JsonSerializer.Deserialize<HostError>(envelope.Json);
+          if (fault is not null && _settling.TryRemove(fault.RecordId, out TaskCompletionSource<AgentRunOutcome>? faulted))
+          {
+            _ = faulted.TrySetResult(new AgentRunOutcome(new AgentId(fault.RecordId),
+                AgentStatus.Failed, AgentFailureReason.ProviderError,
+                "Error [HostFault]: " + fault.Message, "remote", 0));
+          }
+        }
         else if (envelope.Kind == "settle")
         {
           SettleNotice? notice = JsonSerializer.Deserialize<SettleNotice>(envelope.Json);
@@ -196,3 +208,4 @@ public sealed record DeliverCommand(Guid RecordId, string Text, int Urgency, str
 public sealed record InterruptCommand(Guid? RecordId);
 public sealed record SettleNotice(Guid RecordId, string Status, string? Reason, string Report);
 public sealed record DeclareCommand(IReadOnlyCollection<Guid> LiveIds);
+public sealed record HostError(Guid RecordId, string Code, string Message);
