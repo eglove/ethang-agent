@@ -138,7 +138,7 @@ The window opens directly on the shell: no workspace and no pre-configured key a
 | `ZAI_BASE_URL` | environment variable | Optional; defaults to `https://api.z.ai/api` — the root both z.ai endpoint modes hang off. Also for tests. |
 | `ZAI_ENDPOINT_MODE` | environment variable | Optional; `coding` (default) or `general`. A stored Settings choice wins over it. Any other value aborts startup. |
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. |
-| Sub-agent settings (`DefaultModel`, `MaxConcurrentAgents`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. There is deliberately no child-timeout key: wall-clock is never a child cancellation source. |
+| Sub-agent settings (`DefaultModel`, `MaxConcurrentAgents`, `RemoteHost`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. There is deliberately no child-timeout key: wall-clock is never a child cancellation source. `RemoteHost` is `false` by default; `true` runs children in the out-of-process `eThangAgent.ChildHost`, which survives app restarts (the app re-attaches and reconciles running children exactly). |
 
 Saved keys apply to newly opened agents; already-open tabs keep the credentials they were created with. The same applies to the z.ai endpoint mode.
 

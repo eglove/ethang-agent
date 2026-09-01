@@ -14,7 +14,14 @@ public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAge
 {
   private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentRunOutcome>> _settling = [];
   private readonly ConcurrentDictionary<Guid, byte> _owned = [];
+  private Guid[] _declaredLive = [];
   private long _sequence;
+
+  /// <summary>The host's most recently declared live child set (R3.2's exact orphan
+  ///     resolution input). Refreshed by the pump on every declare envelope — the
+  ///     host sends it on connect and after each start/settle — so a snapshot read
+  ///     after re-attach reflects children the host kept running.</summary>
+  public IReadOnlyCollection<Guid> DeclaredLiveChildren => _declaredLive;
 
   /// <summary>Ids this runtime has started remotely (exact ownership for orphan repair).</summary>
   public IReadOnlyCollection<Guid> OwnedChildren
@@ -26,6 +33,17 @@ public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAge
         return [.. _owned.Keys];
       }
     }
+  }
+
+  /// <summary>Re-attach (R3.1): swaps in the transport for the app's NEW connection.
+  ///     The previous pump has ended (its transport closed with the dead connection);
+  ///     the caller starts a fresh receive loop over the new transport. Waiters from
+  ///     before the detach keep their sources — a re-emitted settle completes them.</summary>
+  public void ReplaceTransport(NamedPipeChildTransport fresh)
+  {
+    ArgumentNullException.ThrowIfNull(fresh);
+    NamedPipeChildTransport? stale = Interlocked.Exchange(ref transport, fresh);
+    _ = Task.Run(async () => await stale.DisposeAsync().ConfigureAwait(false)).ConfigureAwait(false);
   }
 
   /// <summary>Starts the host-side receive loop. Call once after connecting; every settle
@@ -100,7 +118,15 @@ public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAge
       while (!ct.IsCancellationRequested)
       {
         TransportEnvelope envelope = await transport.ReceiveAsync(ct).ConfigureAwait(false);
-        if (envelope.Kind == "settle")
+        if (envelope.Kind == "declare")
+        {
+          DeclareCommand? declared = JsonSerializer.Deserialize<DeclareCommand>(envelope.Json);
+          if (declared is not null)
+          {
+            _declaredLive = [.. declared.LiveIds];
+          }
+        }
+        else if (envelope.Kind == "settle")
         {
           SettleNotice? notice = JsonSerializer.Deserialize<SettleNotice>(envelope.Json);
           if (notice is not null && _settling.TryRemove(notice.RecordId, out TaskCompletionSource<AgentRunOutcome>? source))
@@ -169,3 +195,4 @@ public sealed record StartCommand(Guid RecordId, int MaxConcurrent, string Model
 public sealed record DeliverCommand(Guid RecordId, string Text, int Urgency, string Sender);
 public sealed record InterruptCommand(Guid? RecordId);
 public sealed record SettleNotice(Guid RecordId, string Status, string? Reason, string Report);
+public sealed record DeclareCommand(IReadOnlyCollection<Guid> LiveIds);

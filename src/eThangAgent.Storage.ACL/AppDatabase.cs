@@ -18,6 +18,10 @@ public sealed class AppDatabase
   ///     writers at the file level, but not the check-then-apply pair.</summary>
   private static readonly SemaphoreSlim MigrationGate = new(1, 1);
 
+  /// <summary>The resolved database file path (the host scratch/launch contract).
+  ///     Empty when the database is in-memory.</summary>
+  public string DatabasePath { get; }
+
   public AppDatabase(string? databasePath = null)
   {
     string path = databasePath
@@ -27,6 +31,7 @@ public sealed class AppDatabase
             "eThangAgent", "eThangAgent.db");
     _ = Directory.CreateDirectory(Path.GetDirectoryName(path)!);
     SqliteConnectionStringBuilder builder = new() { DataSource = path };
+    DatabasePath = path;
     _connectionString = builder.ToString();
     builder.Mode = SqliteOpenMode.ReadOnly;
     _readOnlyConnectionString = builder.ToString();

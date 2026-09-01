@@ -8,16 +8,34 @@ namespace eThangAgent.Composition;
 ///     "SubAgent:DefaultModel" — optional; absent is legal (spawns must then pass a
 ///     model explicitly); present-but-empty is a startup validation error.
 ///     "SubAgent:MaxConcurrentAgents" — required positive integer; absent,
-///     non-integer, or below-1 values are startup validation errors. Nothing is
+///     non-integer, or below-1 values are startup validation errors.
+///     "SubAgent:RemoteHost" — optional; "true" opts the session into the
+///     out-of-process child host (R3), anything else non-empty is a startup
+///     validation error; default is in-process. Nothing is
 ///     silently coerced or clamped. There is deliberately no timeout key (FR-L4/A4):
 ///     wall-clock is never a child cancellation source.</summary>
 public static class SubAgentConfiguration
 {
-  public static SubAgentOptions Bind(string? defaultModel, string? maxConcurrentAgents)
+  public static SubAgentOptions Bind(string? defaultModel, string? maxConcurrentAgents, string? remoteHost = null)
   {
     ValidateDefaultModel(defaultModel);
     int maxConcurrent = ParseMaxConcurrentAgents(maxConcurrentAgents);
+    _ = ParseRemoteHost(remoteHost); // validation only here; hosts read the flag for runtime wiring
     return new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent);
+  }
+
+  /// <summary>"SubAgent:RemoteHost" — optional; only "true"/"false" (any case)
+  ///     bind; anything else is a startup error. The flag is consumed by hosts that
+  ///     wire the remote runtime; SubAgentOptions stays provider-neutral.</summary>
+  private static bool ParseRemoteHost(string? remoteHost)
+  {
+    return remoteHost switch
+    {
+      null => false,
+      not null when bool.TryParse(remoteHost, out bool parsed) => parsed,
+      _ => throw new InvalidOperationException(
+          $"SubAgent:RemoteHost must be 'true' or 'false', got '{remoteHost}'."),
+    };
   }
 
   /// <summary>"SubAgent:DefaultModel" — optional; absent is legal (spawns must then

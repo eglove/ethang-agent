@@ -38,8 +38,12 @@ public sealed record ZaiSettings(string? ApiKey, Uri BaseUrl,
 public sealed record AgentSettings(
     OpenRouterSettings OpenRouter,
     ZaiSettings Zai,
-    SubAgentOptions SubAgents)
+    SubAgentOptions SubAgents,
+    bool RemoteHost = false)
 {
+  /// <summary>Whether children run in the out-of-process ChildHost (R3, opt-in).
+  ///     Default false: the in-process runtime. Hosts wire RemoteHostSupervisor +
+  ///     RemoteAgentRuntime when this is set.</summary>
   /// <summary>True when an OpenRouter API key (non-blank) is configured.</summary>
   public bool HasOpenRouter => !string.IsNullOrWhiteSpace(OpenRouter.ApiKey);
 

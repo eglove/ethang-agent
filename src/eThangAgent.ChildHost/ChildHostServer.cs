@@ -14,24 +14,35 @@ namespace eThangAgent.ChildHost;
 ///     app re-attaches on restart.</summary>
 public sealed class ChildHostServer(NamedPipeChildTransport transport, string settingsPath, string databasePath)
 {
+  private volatile NamedPipeChildTransport _transport = transport;
   private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _active = [];
   private long _sequence;
 
+  /// <summary>The ids the host currently runs — the exact live set the app's orphan
+  ///     repair consumes (FR-L8). Sent on every (re)connect and after each mutation.</summary>
+  public IReadOnlyCollection<Guid> LiveIds() => [.. _active.Keys];
+
+  /// <summary>Serves the CURRENT app connection. On entry the host declares its live
+  ///     set (R3.1: a re-attaching app learns exactly which Running records the host
+  ///     still owns). When the app goes away children keep running (survivability); a
+  ///     later call with a fresh transport re-attaches them and settle emission
+  ///     resumes through <see cref="AttachTransport"/>.</summary>
   public async Task ServeAsync()
   {
+    await SendLiveSetAsync().ConfigureAwait(false);
     while (true)
     {
       TransportEnvelope envelope;
       try
       {
-        envelope = await transport.ReceiveAsync().ConfigureAwait(false);
+        envelope = await _transport.ReceiveAsync().ConfigureAwait(false);
       }
       catch (TransportClosedException)
       {
         return; // app gone: children keep running (survivability)
       }
 
-      await transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence)).ConfigureAwait(false);
+      await _transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence)).ConfigureAwait(false);
 
       switch (envelope.Kind)
       {
@@ -61,6 +72,7 @@ public sealed class ChildHostServer(NamedPipeChildTransport transport, string se
 
     CancellationTokenSource cts = new();
     _active[command.RecordId] = cts;
+    await SendLiveSetAsync().ConfigureAwait(false);
     _ = Task.Run(() => RunChildAsync(command, cts));
   }
 
@@ -92,6 +104,7 @@ public sealed class ChildHostServer(NamedPipeChildTransport transport, string se
     finally
     {
       _ = _active.TryRemove(command.RecordId, out _);
+      await SendLiveSetAsync().ConfigureAwait(false);
     }
   }
 
@@ -114,10 +127,24 @@ public sealed class ChildHostServer(NamedPipeChildTransport transport, string se
     }
   }
 
+  /// <summary>Declares the host's live child set to the app (R3.2's exact orphan
+  ///     resolution input). Called on connect and after every start/settle mutation.</summary>
+  private async Task SendLiveSetAsync()
+      => await SendAsync("declare", JsonSerializer.Serialize(new DeclareCommand([.. LiveIds()]))).ConfigureAwait(false);
+
+  /// <summary>Re-attach (R3.1): swaps in the app's NEW connection so settles for
+  ///     children that kept running during the app's absence reach it again.
+  ///     Single-connection by design; the old transport is closed first.</summary>
+  public void AttachTransport(NamedPipeChildTransport fresh)
+  {
+    NamedPipeChildTransport stale = Interlocked.Exchange(ref _transport, fresh);
+    _ = Task.Run(async () => await stale.DisposeAsync().ConfigureAwait(false));
+  }
+
   private async Task SendAsync(string kind, string json)
   {
     long sequence = Interlocked.Increment(ref _sequence);
-    await transport.SendAsync(new TransportEnvelope(kind, json, sequence)).ConfigureAwait(false);
+    await _transport.SendAsync(new TransportEnvelope(kind, json, sequence)).ConfigureAwait(false);
   }
 }
 

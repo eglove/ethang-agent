@@ -14,6 +14,7 @@ using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
 using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
@@ -353,6 +354,23 @@ public static class AgentComposition
             sp.GetRequiredService<RootAgentResolver>()))
         .AddSingleton<RootSessionLifecycle>()
         ;
+
+    // Runtime selection (R3.4): in-process by default; RemoteHost = true routes child
+    // starts through the out-of-process ChildHost under RemoteHostSupervisor.
+    if (settings.RemoteHost)
+    {
+      wired = wired
+          .AddSingleton(sp => new RemoteHostSupervisor(
+              sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+              Path.Combine(Path.GetTempPath(), "ethang-agent", sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
+              settings,
+              sp.GetRequiredService<AppDatabase>().DatabasePath,
+              notice => { }))
+          .AddSingleton<IAgentRuntime>(sp => new RemoteAgentRuntime(
+              NamedPipeChildTransport.ConnectToHostAsync(
+                  sp.GetRequiredService<RemoteHostSupervisor>().HostPipeName).GetAwaiter().GetResult()));
+    }
+
     return wired;
   }
 
