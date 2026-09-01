@@ -5,6 +5,7 @@
   <Project Path="src/eThangAgent.Agent.Domain/eThangAgent.Agent.Domain.csproj" />
   <Folder Name="/src/">
     <Project Path="src/eThangAgent.Agent.Infrastructure/eThangAgent.Agent.Infrastructure.csproj" />
+    <Project Path="src/eThangAgent.ChildHost/eThangAgent.ChildHost.csproj" />
     <Project Path="src/eThangAgent.Memory.Domain/eThangAgent.Memory.Domain.csproj" />
     <Project Path="src/eThangAgent.Skill.Domain/eThangAgent.Skill.Domain.csproj" />
     <Project Path="src/eThangAgent.Transport.ACL/eThangAgent.Transport.ACL.csproj" />
