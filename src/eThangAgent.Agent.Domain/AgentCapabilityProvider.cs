@@ -24,7 +24,7 @@ public sealed class AgentCapabilityProvider(
   [
       new("spawn", "Spawn a child agent that runs autonomously in the background and returns immediately.",
             """
-            Starts a child agent on a self-contained task and returns right away — never wait on the spawn call itself. Continue useful work or fan out siblings, then poll status and fetch result. Children may spawn their own children; depth limit is 3.
+            Starts a child agent on a self-contained task and returns right away — never wait on the spawn call itself. Continue useful work or fan out siblings; when you need a child's outcome, use agent.wait (one await) — status is a projection for humans, not a poll target. Children may spawn their own children; depth limit is 3.
             Start failures return canonical error lines: InvalidSpawnRequest, DepthExceeded, MissingModel, ConcurrencyCapReached.
             Output contract:
             id=<id> status=running
@@ -49,7 +49,7 @@ public sealed class AgentCapabilityProvider(
             ]),
         new("result", "Fetch the final report of a spawned child agent.",
             """
-            Returns the child's final report verbatim once it has finished. While it is still running you receive 'Error [NotComplete]' — check status again later. Unknown ids yield 'Error [NotFound]'. A failed child yields its partial report, or an Error [MaxIterations|Timeout|ProviderError] annotation when no report landed.
+            Returns the child's final report verbatim once it has finished. While it is still running you receive 'Error [NotComplete]' — use agent.wait to await the outcome instead of re-polling. Unknown ids yield 'Error [NotFound]'. A failed child yields its partial report, or an Error [MaxIterations|Timeout|ProviderError] annotation when no report landed.
             """,
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),

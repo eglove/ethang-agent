@@ -99,6 +99,10 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - `todo` tool — durable workspace task list with compare-and-swap writes
 - Capability registry exposing agent tools plus spawnable sub-agents, durable workspace state, and memory recall
 - Nested sub-agents with depth limits and concurrency caps
+- Per-child capability grants enforced at dispatch (`tool.allow`/`tool.deny` on `agent.spawn`; violations return `Error [GrantViolation]` and are audited)
+- Steering mid-run: `agent.wait` (one await instead of polling), `agent.send`/`parent.send` push-delivery with bounded persistent mailboxes, urgency with audited preemption, and subtree interrupt
+- Out-of-process children: `eThangAgent.ChildHost` over a named-pipe transport (`eThangAgent.Transport.ACL`) with declared connection-loss failures
+- Structured child results (JSON-schema validated with one repair round), fan-out/fan-in spawn graphs, and a consent-based agent link registry
 - Session persistence, recall, and resume via a versioned, app-owned SQLite database
 
 ## Requirements
@@ -134,7 +138,7 @@ The window opens directly on the shell: no workspace and no pre-configured key a
 | `ZAI_BASE_URL` | environment variable | Optional; defaults to `https://api.z.ai/api` — the root both z.ai endpoint modes hang off. Also for tests. |
 | `ZAI_ENDPOINT_MODE` | environment variable | Optional; `coding` (default) or `general`. A stored Settings choice wins over it. Any other value aborts startup. |
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. |
-| Sub-agent settings (`DefaultModel`, `ChildTimeoutSeconds`, `MaxConcurrentAgents`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. |
+| Sub-agent settings (`DefaultModel`, `MaxConcurrentAgents`) | `appsettings.json` (`SubAgent` section) next to the executable, overridden by `SubAgent__*` environment variables | Invalid values abort startup — configuration is validated strictly, never silently coerced. There is deliberately no child-timeout key: wall-clock is never a child cancellation source. |
 
 Saved keys apply to newly opened agents; already-open tabs keep the credentials they were created with. The same applies to the z.ai endpoint mode.
 

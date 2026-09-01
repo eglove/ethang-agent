@@ -120,11 +120,13 @@ public static class ExecGuide
         Tools.Invoke("agent.wait", new { timeoutSeconds = 300, id = "<guid>" })   → the child's outcome (unbounded by design; your stop cancels it)
         Tools.Invoke("agent.status", new { timeoutSeconds = 30, id = "<guid>" })   → projection for humans/debugging: status=running|completed|failed
 
-    Poll status between turns only to observe a running child's state — not to discover completion:
+    agent.result remains available when you already hold a settled id or need the
+    report without blocking the current call:
 
         Tools.Invoke("agent.result", new { timeoutSeconds = 60, id = "<guid>" })
 
-    - `Error [NotComplete]` means the child is still running — try again later.
+    - `Error [NotComplete]` means the child is still running — prefer one agent.wait
+      over re-polling.
     - `Error [NotFound]` means the id is wrong.
     - `Error [ConcurrencyCapReached]` from agent.spawn means the runtime is at its
       concurrent-agent limit — retrieve pending results before spawning more.
