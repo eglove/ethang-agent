@@ -529,4 +529,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => ApplyStreamEvent(evt)).GetTask();
 
   private void ReportPersistenceError(string message) => Transcript.AddNotice(message);
+
+  /// <summary>Out-of-band supervisory notice (host health, orphan repair) posted by the
+  ///     session container. Caller must be on the UI thread — the shell marshals before
+  ///     invoking — because transcript mutation is UI-thread-only.</summary>
+  public void AddSystemNotice(string message) => Transcript.AddNotice(message);
 }

@@ -16,6 +16,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 {
   private volatile NamedPipeChildTransport? _transport;
   private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _active = [];
+  private readonly ConcurrentDictionary<Guid, BoundedAgentMailbox> _mailboxes = [];
   private long _sequence;
 
   /// <summary>The ids the host currently runs — the exact live set the app's orphan
@@ -64,6 +65,9 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         case "start":
           await HandleStartAsync(envelope).ConfigureAwait(false);
           break;
+        case "deliver":
+          HandleDeliver(envelope);
+          break;
         case "interrupt":
           HandleInterrupt(envelope);
           break;
@@ -87,6 +91,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 
     CancellationTokenSource cts = new();
     _active[command.RecordId] = cts;
+    _mailboxes[command.RecordId] = new BoundedAgentMailbox();
     _ = Task.Run(() => RunChildAsync(command, cts));
     // Named decision (CA1031): a failed live-set broadcast IS the disconnect; the accept
     // loop re-attaches. The child was already registered and keeps running.
@@ -106,7 +111,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   {
     try
     {
-      SessionHost host = SessionHost.Create(settingsPath, databasePath);
+      SessionHost host = SessionHost.Create(settingsPath, databasePath,
+        inboxFor: id => _mailboxes.TryGetValue(id.Value, out BoundedAgentMailbox? mailbox) ? mailbox : null);
       Result<AgentRecord> loaded = await host.Store.GetAsync(new AgentId(command.RecordId), CancellationToken.None).ConfigureAwait(false);
       if (!loaded.IsSuccess)
       {
@@ -130,7 +136,28 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     finally
     {
       _ = _active.TryRemove(command.RecordId, out _);
+      _ = _mailboxes.TryRemove(command.RecordId, out _);
       await SendLiveSetAsync().ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>Delivers a steering envelope into the running child's mailbox (FR-C2).
+  ///     NotRunning (unknown/finished child) and MailboxFull are dropped here: the
+  ///     APP-side runtime already returned those receipts to the sender synchronously —
+  ///     the wire path is the at-least-once replay, and a replay after a settle is
+  ///     stale by definition (A3: no silent drops on the live path).</summary>
+  private void HandleDeliver(TransportEnvelope envelope)
+  {
+    DeliverCommand? command = JsonSerializer.Deserialize<DeliverCommand>(envelope.Json);
+    if (command is null)
+    {
+      return;
+    }
+
+    if (_mailboxes.TryGetValue(command.RecordId, out BoundedAgentMailbox? mailbox))
+    {
+      _ = mailbox.Deliver(new PendingMessage(command.Text, (MessageUrgency)command.Urgency,
+          DateTimeOffset.UtcNow, command.Sender));
     }
   }
 

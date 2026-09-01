@@ -26,8 +26,10 @@ public sealed class SessionHost
   public SubAgentSpawner Spawner { get; }
 
   /// <summary>Builds from the settings JSON the app writes before launching the host, plus
-  ///     the app-owned database path (CLI arg — one host per app, sharing its database).</summary>
-  public static SessionHost Create(string settingsJsonPath, string databasePath)
+  ///     the app-owned database path (CLI arg — one host per app, sharing its database).
+  ///     <paramref name="inboxFor"/> hands each child its steering mailbox (FR-C2): the
+  ///     server owns the registry so 'deliver' envelopes reach the running child.</summary>
+  public static SessionHost Create(string settingsJsonPath, string databasePath, Func<AgentId, IAgentInbox?>? inboxFor = null)
   {
     string json = File.ReadAllText(settingsJsonPath);
     AgentSettings settings = JsonSerializer.Deserialize<AgentSettings>(json, Options)
@@ -49,6 +51,18 @@ public sealed class SessionHost
             new AppDatabase(databasePath),
             null)
         .BuildServiceProvider();
+
+    if (inboxFor is not null)
+    {
+      SubAgentServices childServices = services.GetRequiredService<SubAgentServices>() with
+      {
+        InboxFor = inboxFor,
+      };
+
+      return new SessionHost(
+          services.GetRequiredService<IAgentStore>(),
+          new SubAgentSpawner(childServices));
+    }
 
     return new SessionHost(
         services.GetRequiredService<IAgentStore>(),

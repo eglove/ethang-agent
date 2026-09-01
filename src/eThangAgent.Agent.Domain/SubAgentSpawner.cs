@@ -135,8 +135,12 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     RunningChildCurrent.Value = child;
     try
     {
+      // The child drains its runtime-owned mailbox at safe points (FR-C2): the runtime
+      // hands it over here; messages sent via agent.send land as User messages between
+      // iterations, never between a tool call and its results.
+      IAgentInbox? inbox = services.InboxFor?.Invoke(child.Id);
       Result<string> run = await agent.SendMessage(prompt,
-          inbox: null, ct: ct).ConfigureAwait(false);
+          inbox: inbox, ct: ct).ConfigureAwait(false);
       if (run.IsSuccess)
       {
         report = run.Value;

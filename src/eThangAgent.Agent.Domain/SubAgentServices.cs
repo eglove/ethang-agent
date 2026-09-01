@@ -16,5 +16,6 @@ public sealed record SubAgentServices(
     SubAgentOptions Options,
     IAgentHeartbeat? Heartbeat = null,
     IAgentEvents? Events = null,
-    IWatchdogEventStore? Audit = null);
+    IWatchdogEventStore? Audit = null,
+    Func<AgentId, IAgentInbox?>? InboxFor = null);
 

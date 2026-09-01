@@ -27,6 +27,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   // Per-child mailbox registry: Deliver from any sender; Drain by the owner loop at safe
   // points. Between-turn durability rides IMailboxStore (FR-C5).
   private readonly ConcurrentDictionary<AgentId, BoundedAgentMailbox> _mailboxes = [];
+  private readonly ChildMailboxRegistry? _registry;
 
   // Per-agent preemption grant (D1): whether THIS agent's contract grants Urgent
   // preemption. Consulted by Deliver when the sender is a granted agent.
@@ -44,7 +45,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 
   public InProcessAgentRuntime(IAgentRunner runner, IAgentStore store, int maxConcurrentAgents,
       IMailboxStore? mailboxStore = null, IAgentEvents? events = null,
-      ChildSupervisorRegistry? supervisors = null)
+      ChildSupervisorRegistry? supervisors = null, ChildMailboxRegistry? mailboxes = null)
   {
     ArgumentNullException.ThrowIfNull(runner);
     ArgumentNullException.ThrowIfNull(store);
@@ -59,6 +60,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     _mailboxStore = mailboxStore;
     _events = events;
     _supervisors = supervisors;
+    _registry = mailboxes;
     _slots = new SemaphoreSlim(maxConcurrentAgents, maxConcurrentAgents);
   }
 
@@ -127,6 +129,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     _active[record.Id] = cts;
     BoundedAgentMailbox mailbox = new();
     _mailboxes[record.Id] = mailbox;
+    _registry?.Register(record.Id, mailbox);
     _ = RehydrateAsync(record.Id, mailbox);
     if (_supervisors is not null)
     {
@@ -351,8 +354,10 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   /// <summary>The mailbox for an id, or null when the runtime owns none (never started
   ///     or already retired). The Agent loop obtains its inbox through the runner's
   ///     SubAgentServices; senders go through the runtime's Deliver.</summary>
-  internal bool TryGetMailbox(AgentId id, out BoundedAgentMailbox? mailbox)
-      => _mailboxes.TryGetValue(id, out mailbox);
+  /// <summary>The owning loop's inbox via the shared registry, or null when this
+  ///     runtime owns no live run for the id (never started, settled, or foreign).</summary>
+  public IAgentInbox? InboxFor(AgentId id) => _registry?.InboxFor(id);
+
 
   /// <summary>Push-delivers into a child's mailbox. Fails NotRunning when the runtime
   ///     owns no live mailbox for the id (FR-C2's NotRunning contract).</summary>
@@ -424,6 +429,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   {
     if (_mailboxes.TryRemove(id, out BoundedAgentMailbox? mailbox))
     {
+      _registry?.Unregister(id);
       _supervisors?.Unregister(id);
       mailbox.Close();
       IReadOnlyList<PendingMessage> remainder = mailbox.Drain();

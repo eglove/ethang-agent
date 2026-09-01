@@ -623,6 +623,10 @@ internal sealed partial class MainViewModel : ObservableObject
     // the VM is captured after construction so its own sink marshals its events
     // onto the UI thread. An injected shell-level sink (tests) takes precedence.
     AgentSessionViewModel? sessionVmRef = null;
+    // Out-of-band supervisory notices (host health, orphan repair) marshal onto the UI
+    // thread — transcript mutation is UI-thread-only — and land as regular notices.
+    session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
+        () => sessionVmRef?.AddSystemNotice(message));
     AgentSessionViewModel sessionVm = new(
         // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
         // (CA1068) — adapt the parameter order at the call site.
