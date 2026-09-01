@@ -38,20 +38,33 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       return Result.Failure<AgentId>(new DomainError("InvalidSpawnRequest", violation.Message));
     }
 
-    // Grant validation (D9/A5): privilege cannot grow down the tree. A spawn whose
-    // allow-list names tools outside the parent's effective set fails strictly.
-    if (request.Contract?.CapabilityGrants is { } grants)
+    // Grant validation + resolution (D9/A5, R1): privilege cannot grow down the tree.
+    // The parent's effective set is its OWN persisted resolution when it carries one
+    // (grandchild narrowing chains through it, R1.5); otherwise it is the session's
+    // child tool surface. The child's effective set is resolved once, validated, and
+    // PERSISTED on the contract — the record becomes self-describing, and the remote
+    // ChildHost path (which rebuilds the spawner from settings, without SpawnOptions)
+    // enforces identically.
+    SpawnContract? resolvedContract = request.Contract;
+    if (resolvedContract?.CapabilityGrants is { } grants)
     {
       ToolGrantPolicy grantPolicy = new(grants);
       if (grantPolicy.HasGrants)
       {
-        IReadOnlySet<string> parentEffective = _spawn.ChildToolSurface ?? new HashSet<string>(StringComparer.Ordinal);
+        IReadOnlySet<string> parentEffective = EffectiveSource(parent);
         IReadOnlyList<string> widening = grantPolicy.WideningViolations(parentEffective);
         if (widening.Count > 0)
         {
           return Result.Failure<AgentId>(new DomainError("InvalidSpawnRequest",
               "capability grants widen beyond the parent's effective set: " + string.Join(", ", widening)));
         }
+
+        IReadOnlySet<string> childEffective = grantPolicy.EffectiveTools(parentEffective);
+        resolvedContract = resolvedContract.WithEffectiveTools(childEffective);
+      }
+      else
+      {
+        resolvedContract = resolvedContract.WithEffectiveTools(EffectiveSource(parent));
       }
     }
 
@@ -70,7 +83,7 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     ModelConfig modelConfig = resolved.Value;
 
     AgentRecord record = AgentRecord.Spawned(AgentId.NewId(), parent.Id, parent.Depth + 1, modelConfig.ModelId,
-        request.Label, request.TaskPrompt, DateTimeOffset.UtcNow);
+        request.Label, request.TaskPrompt, DateTimeOffset.UtcNow, resolvedContract);
 
     Result<string> saved = await _store.SaveAsync(record, ct).ConfigureAwait(false);
     if (!saved.IsSuccess)
@@ -83,6 +96,16 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
         ? Result.Success(record.Id)
         : Result.Failure<AgentId>(started.Error);
   }
+
+  /// <summary>The parent's effective tool set, as R1 defines it: the parent's OWN
+  ///     persisted resolution when its contract carries one (grandchild chains narrow
+  ///     from it, R1.5); otherwise the session's child tool surface; otherwise empty
+  ///     (any grant then fails widening — strict, never clamped).</summary>
+  private IReadOnlySet<string> EffectiveSource(AgentRecord parent)
+      => parent.Contract is { } parentContractJson
+          && SpawnContract.Decode(parentContractJson).DecodedEffectiveTools is { } parentResolved
+              ? parentResolved
+              : _spawn.ChildToolSurface ?? new HashSet<string>(StringComparer.Ordinal);
 
   private async Task<Result<ModelConfig>> ResolveModelAsync(SpawnRequest request, CancellationToken ct)
   {

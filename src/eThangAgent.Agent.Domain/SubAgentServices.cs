@@ -15,5 +15,6 @@ public sealed record SubAgentServices(
     ISystemPromptProvider SystemPrompt,
     SubAgentOptions Options,
     IAgentHeartbeat? Heartbeat = null,
-    IAgentEvents? Events = null);
+    IAgentEvents? Events = null,
+    IWatchdogEventStore? Audit = null);
 

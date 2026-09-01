@@ -151,3 +151,22 @@ internal sealed class FakeAgentStore : IAgentStore
       => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>(
           [.. _records.Values.OrderBy(r => r.CreatedAt)]));
 }
+
+/// <summary>In-memory watchdog event store capturing appended rows for assertions.</summary>
+internal sealed class FakeAuditStore : IWatchdogEventStore
+{
+  public System.Collections.ObjectModel.Collection<WatchdogEvent> Events { get; } = [];
+
+  public Task<Result<string>> AppendAsync(WatchdogEvent evt, CancellationToken ct = default)
+  {
+    Events.Add(evt);
+    return Task.FromResult(Result.Success(evt.Id.ToString()));
+  }
+
+  public Task<Result<IReadOnlyList<WatchdogEvent>>> ListRecentAsync(int limit, CancellationToken ct = default)
+      => Task.FromResult(Result.Success<IReadOnlyList<WatchdogEvent>>(
+          [.. Events.OrderByDescending(e => e.CreatedAt).Take(limit)]));
+
+  public Task<Result<int>> CountKindForAgentAsync(AgentId agentId, WatchdogEventKind kind, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(Events.Count(e => e.AgentId == agentId && e.Kind == kind)));
+}

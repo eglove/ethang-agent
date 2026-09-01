@@ -101,8 +101,20 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
             + " your run was restarted by the watchdog after an idle timeout. Continue from where you stopped and wrap up now with your final report."
         : child.TaskPrompt;
 
+    // Dispatch-time grant enforcement (R1): a contract carrying a resolved effective
+    // set runs against the FILTERED view of the session registry; grants absent means
+    // the shared registry passes through unchanged (zero behavior delta).
+    IToolRegistry tools = _tools;
+    if (child.Contract is { } runContractJson
+        && SpawnContract.Decode(runContractJson).DecodedEffectiveTools is { } effective)
+    {
+      IWatchdogEventStore? audit = services.Audit;
+      tools = new FilteredToolRegistry(_tools, effective,
+          onDenial: name => _ = GrantAuditAsync(audit!, child.Id, "tool '" + name + "' denied at dispatch", ct));
+    }
+
     // Each child gets its own accountant: two children must never share totals.
-    Agent agent = new(_factory.Create(config), conversation, config, _tools,
+    Agent agent = new(_factory.Create(config), conversation, config, tools,
         new AgentOptions
         {
           SystemPrompt = _systemPrompt,
@@ -240,6 +252,27 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     PublishSettled(child.Id, AgentStatus.Completed, null, Encoding.UTF8.GetByteCount(finalReport));
     return new AgentRunOutcome(child.Id, AgentStatus.Completed, null, finalReport,
         child.ModelUsed, child.Depth);
+  }
+
+  /// <summary>Best-effort grant audit (R1.4): every enforcement decision lands as a
+  ///     GrantViolation watchdog-event row — a record of decisions, never a state
+  ///     source (P2). A failing write never blocks the run.</summary>
+  private static async Task GrantAuditAsync(IWatchdogEventStore audit, AgentId id, string detail, CancellationToken ct)
+  {
+    // Named decision (CA1031): audit is best-effort by contract — a failed event
+    // write must never take down the child run it observes. The task is discarded
+    // fire-and-forget style; nothing awaits or observes its fault.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      _ = await audit.AppendAsync(new WatchdogEvent(Guid.NewGuid(), id,
+          WatchdogEventKind.GrantViolation, detail, 0, null, DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
+    }
+    catch
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031
   }
 
   /// <summary>Emits ChildStartedEvent when a stream is wired; no-op otherwise (legacy wiring).</summary>

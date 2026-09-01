@@ -8,6 +8,7 @@ public enum WatchdogEventKind
   TerminalReport,
   RssBreached,
   WatchdogErrored,
+  GrantViolation,
 }
 
 /// <summary>One structured watchdog decision or observation. Rows are append-only audit:

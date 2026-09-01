@@ -33,6 +33,7 @@ public sealed class AgentCapabilityProvider(
                 new ActionParameter("taskPrompt", ActionParameterTypes.StringType, "Self-contained task for the child. State exactly what the report must contain."),
                 new ActionParameter("model", ActionParameterTypes.StringType, "Optional provider model reference; omit to use the configured default."),
                 new ActionParameter("label", ActionParameterTypes.StringType, "Optional free-text label for humans and logs."),
+                new ActionParameter("grants", ActionParameterTypes.StringType, "Optional capability grant: {\"tool.allow\": \"read; exec\", \"tool.deny\": \"web_fetch\"} (entries also accept string arrays). A granted child physically holds ONLY these tools plus agent actions; any other dispatch returns Error [GrantViolation] and is audited. Denying or omitting exec leaves the child no path to harness tools — grant exec unless the child needs none."),
             ]),
         new("status", "Projection of a spawned child agent's current state, for humans and debugging.",
             """
@@ -323,7 +324,7 @@ public sealed class AgentCapabilityProvider(
         return (null, "arguments must be a JSON object.");
       }
 
-      HashSet<string> allowed = new(StringComparer.Ordinal) { "taskPrompt", "model", "label" };
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "taskPrompt", "model", "label", "grants" };
       string[] unknown = [.. doc.RootElement.EnumerateObject()
           .Where(p => !allowed.Contains(p.Name))
           .Select(p => p.Name)];

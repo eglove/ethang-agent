@@ -282,7 +282,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       PublishProgress(ChildPhase.ToolExec, "tool:" + call.Name);
       _heartbeat?.Beat(Id);
       ToolResult toolResult = tool is null
-          ? new ToolResult($"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
+          // A registry that owns the grant policy explains the refusal in its own words
+          // (R1.3: GrantViolation, distinguishable from typo); a plain registry renders
+          // the standard UnknownTool line.
+          ? new ToolResult((_tools as FilteredToolRegistry)?.ExplainsRefusal(call.Name)
+              ?? $"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
           : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
       Conversation.AddToolResult(call.Id, toolResult.Content);
       _heartbeat?.Beat(Id);

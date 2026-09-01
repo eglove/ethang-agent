@@ -201,7 +201,8 @@ public static class AgentComposition
             sp.GetRequiredService<ISystemPromptProvider>(),
             sp.GetRequiredService<SubAgentOptions>(),
             sp.GetRequiredService<IAgentHeartbeat>(),
-            sp.GetRequiredService<IAgentEvents>()))
+            sp.GetRequiredService<IAgentEvents>(),
+            sp.GetRequiredService<IWatchdogEventStore>()))
         .AddSingleton(sp => new SubAgentSpawner(
             sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),
@@ -220,7 +221,8 @@ public static class AgentComposition
             sp.GetRequiredService<SubAgentOptions>(),
             new SpawnOptions(
                 Providers.FallbackModelId(providerName),
-                sp.GetRequiredService<SessionModelPreferences>()),
+                sp.GetRequiredService<SessionModelPreferences>(),
+                ChildToolSurface: ChildToolSurface(sp)),
             sp.GetService<IModelSelector>(),
             sp.GetRequiredService<IContextWindowSource>()))
         .AddSingleton<IAgentQueries, AgentQueries>()
@@ -262,7 +264,26 @@ public static class AgentComposition
                   AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())));
           Lazy<ICapabilityRegistry> child = new(() => CapabilityRegistry.Create(
                   AgentSurface(sp, tools.Value)));
-          return () => SubAgentSpawner.RunningChild is null ? root.Value : child.Value;
+
+          // Dispatch-time grant enforcement on the exec path (R1): a running child with
+          // a resolved grant set sees the child surface FILTERED to that set. Resolved
+          // per execution — the ambient RunningChild flips between containers.
+          ICapabilityRegistry ResolveSurface()
+          {
+            AgentRecord? running = SubAgentSpawner.RunningChild;
+            ICapabilityRegistry surface = running is null ? root.Value : child.Value;
+            if (running?.Contract is { } contractJson
+                && SpawnContract.Decode(contractJson).DecodedEffectiveTools is { } effective)
+            {
+              AgentId childId = running.Id;
+              surface = new FilteredCapabilityRegistry(surface, effective,
+                  onDenial: name => AuditGrantDenial(sp, childId, name));
+            }
+
+            return surface;
+          }
+
+          return () => ResolveSurface();
         })
         .AddSingleton<IExecEngine>(sp => new CSharpScriptExecEngine(
             sp.GetRequiredService<Func<ICapabilityRegistry>>(),
@@ -397,6 +418,44 @@ public static class AgentComposition
   /// <summary>Actions only a root agent may invoke: they present UI to the human,
   ///     and a machine-owned child must never block on (or interrupt) the user.</summary>
   private static readonly string[] HumanFacingActions = ["clarify"];
+
+  /// <summary>Best-effort exec-path grant audit (R1.4): a denied dispatch lands as a
+  ///     GrantViolation watchdog row; a failing write never blocks the denial.</summary>
+  private static void AuditGrantDenial(IServiceProvider sp, AgentId childId, string actionName)
+  {
+    _ = Task.Run(async () =>
+    {
+      try
+      {
+        _ = await sp.GetRequiredService<IWatchdogEventStore>().AppendAsync(new WatchdogEvent(
+            Guid.NewGuid(), childId, WatchdogEventKind.GrantViolation,
+            "action '" + actionName + "' denied at exec dispatch", 0, null, DateTimeOffset.UtcNow)).ConfigureAwait(false);
+      }
+      // Named decision (CA1031): audit is best-effort by contract — a failed event
+      // write never blocks the dispatch refusal it records.
+#pragma warning disable CA1031 // Do not catch general exception types
+      catch
+      {
+        // Swallowed deliberately: see the named decision above.
+      }
+#pragma warning restore CA1031
+    });
+  }
+
+  /// <summary>The session's child tool surface (R1): the action ids a default child can
+  ///     dispatch — the loop registry's tools plus every child-surface capability action
+  ///     (agent tools minus human-facing, agent.* actions, state, memory, curated).
+  ///     Built lazily: the surface reaches IExecEngine through the capability closure,
+  ///     so eager construction re-enters the container (see the registry-factory
+  ///     registration comment).</summary>
+  private static HashSet<string> ChildToolSurface(IServiceProvider sp)
+  {
+    Func<ICapabilityRegistry> registry = sp.GetRequiredService<Func<ICapabilityRegistry>>();
+    return registry().Providers
+        .SelectMany(p => p.Actions)
+        .Select(a => a.Name)
+        .ToHashSet(StringComparer.Ordinal);
+  }
 
   /// <summary>The z.ai capability-API tools, bound only when the session is wired for
   ///     z.ai in GeneralApi endpoint mode — web search, page reading, token counting,
