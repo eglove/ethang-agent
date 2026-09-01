@@ -9,7 +9,8 @@ namespace eThangAgent.AgentDomain;
 ///     reports arrive exclusively through the queries.</summary>
 public sealed class AgentCapabilityProvider(
     IAgentSpawnCommand spawnCommand, IAgentQueries queries, Func<AgentRecord> parentContext,
-    IAgentRuntime? runtime = null, AgentLinkRegistry? links = null) : ICapabilityProvider
+    IAgentRuntime? runtime = null, AgentLinkRegistry? links = null,
+    Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? fanout = null) : ICapabilityProvider
 {
   public const string ProviderId = "agent";
 
@@ -17,13 +18,14 @@ public sealed class AgentCapabilityProvider(
   ///     grant-surface computation needs the names at composition time, where
   ///     resolving the provider itself would re-enter its singleton (R1).</summary>
   public static readonly string[] ActionNames =
-      ["spawn", "status", "result", "wait", "send", "route", "escalate"];
+      ["spawn", "status", "result", "wait", "send", "route", "escalate", "fanout"];
 
   private readonly IAgentSpawnCommand _spawnCommand = spawnCommand ?? throw new ArgumentNullException(nameof(spawnCommand));
   private readonly IAgentQueries _queries = queries ?? throw new ArgumentNullException(nameof(queries));
   private readonly Func<AgentRecord> _parentContext = parentContext ?? throw new ArgumentNullException(nameof(parentContext));
   private readonly IAgentRuntime? _runtime = runtime;
   private readonly AgentLinkRegistry? _links = links;
+  private readonly Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? _fanout = fanout;
 
   public string Id => ProviderId;
 
@@ -95,6 +97,14 @@ public sealed class AgentCapabilityProvider(
                 new ActionParameter("hops", ActionParameterTypes.IntegerType, "Optional ancestor hops (default 1, minimum 1)."),
                 new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
             ]),
+        new("fanout", "Spawn several children in one call and wait for ALL of them.",
+            """
+            Fan-out/fan-in: spawns every child described in 'children' (same shape as agent.spawn, one object each), waits for the whole set to settle, and joins. Per-member receipts name each child's id and terminal state; failed STARTS fail the join immediately; settled failures are collected and fail the join at the end. Receipts: <id>=COMPLETED|FAILED(reason).
+            """,
+            [
+                new ActionParameter("label", ActionParameterTypes.StringType, "Optional label prefix for the graph."),
+                new ActionParameter("children", ActionParameterTypes.StringType, "JSON array of child specs: [{\"taskPrompt\":\"...\",\"model\":\"...\",\"label\":\"...\"}] — taskPrompt required per child."),
+            ]),
     ];
 
   public async Task<CapabilityInvocationResult> InvokeAsync(
@@ -109,6 +119,7 @@ public sealed class AgentCapabilityProvider(
       "send" => Send(jsonArguments),
       "route" => Route(jsonArguments),
       "escalate" => await Escalate(jsonArguments, ct).ConfigureAwait(false),
+      "fanout" => await Fanout(jsonArguments, ct).ConfigureAwait(false),
       _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
     };
   }
@@ -364,6 +375,92 @@ public sealed class AgentCapabilityProvider(
     }
 
     return CapabilityInvocationResult.Ok(string.Join("\n", receipts));
+  }
+
+  /// <summary>agent.fanout (D12): fan-out/fan-in over the normal spawn command +
+  ///     WhenSettledAsync. The graph seam is injected (implemented by the application
+  ///     layer's SpawnGraphHandler — the domain cannot see application types).</summary>
+  private async Task<CapabilityInvocationResult> Fanout(string json, CancellationToken ct)
+  {
+    if (_fanout is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [NotAvailable]: agent.fanout needs the graph handler wired into this session's capability provider.");
+    }
+
+    string? parseError = FanoutArgs(json, out string? label, out List<SpawnRequest>? children);
+    _ = label; // label prefixing happens in the composition lambda via SpawnGraphRequest.Label
+    if (parseError is not null)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
+    }
+
+    AgentRecord parent = _parentContext();
+    string result = await _fanout(parent, [.. children!], ct).ConfigureAwait(false);
+    return CapabilityInvocationResult.Ok(result);
+  }
+
+  /// <summary>Strict fanout-argument parsing: non-empty children array of valid specs.</summary>
+  private static string? FanoutArgs(string json, out string? label, out List<SpawnRequest>? children)
+  {
+    label = null;
+    children = null;
+    JsonDocument doc;
+    try
+    {
+      doc = JsonDocument.Parse(json);
+    }
+    catch (JsonException ex)
+    {
+      return $"arguments must be a JSON object ({ex.Message}).";
+    }
+
+    using (doc)
+    {
+      if (doc.RootElement.ValueKind is not JsonValueKind.Object)
+      {
+        return "arguments must be a JSON object.";
+      }
+
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "label", "children" };
+      string[] unknown = [.. doc.RootElement.EnumerateObject().Where(p => !allowed.Contains(p.Name)).Select(p => p.Name)];
+      if (unknown.Length > 0)
+      {
+        return $"unknown parameter(s): {string.Join(", ", unknown)}.";
+      }
+
+      if (!doc.RootElement.TryGetProperty("children", out JsonElement childrenElement) || childrenElement.ValueKind is not JsonValueKind.Array)
+      {
+        return "'children' must be an array of child specs.";
+      }
+
+      label = doc.RootElement.TryGetProperty("label", out JsonElement labelElement) && labelElement.ValueKind is JsonValueKind.String
+          ? labelElement.GetString()
+          : null;
+
+      List<SpawnRequest> parsed = [];
+      int index = 0;
+      foreach (JsonElement child in childrenElement.EnumerateArray())
+      {
+        index++;
+        if (child.ValueKind is not JsonValueKind.Object)
+        {
+          return $"children[{index}] must be an object.";
+        }
+
+        if (!child.TryGetProperty("taskPrompt", out JsonElement promptElement) || promptElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(promptElement.GetString()))
+        {
+          return $"children[{index}].taskPrompt must be a non-empty string.";
+        }
+
+        string? model = child.TryGetProperty("model", out JsonElement modelElement) && modelElement.ValueKind is JsonValueKind.String ? modelElement.GetString() : null;
+        string? childLabel = child.TryGetProperty("label", out JsonElement childLabelElement) && childLabelElement.ValueKind is JsonValueKind.String ? childLabelElement.GetString() : null;
+        parsed.Add(new SpawnRequest(promptElement.GetString()!, model, childLabel));
+      }
+
+      children = parsed;
+      return null;
+    }
   }
 
   /// <summary>Strict route-argument parsing: non-empty name and text, urgency in range.</summary>

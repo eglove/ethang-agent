@@ -121,9 +121,23 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         return;
       }
 
-      AgentRunOutcome outcome = await host.Spawner.RunAsync(loaded.Value, cts.Token).ConfigureAwait(false); // S8949 named: token travels to the run
-      await SendAsync("settle", JsonSerializer.Serialize(new SettleNotice(command.RecordId,
-          outcome.Status.ToString(), outcome.Reason?.ToString(), outcome.Report))).ConfigureAwait(false);
+      // Route through the host's OWN runtime (not the raw spawner): children gain the
+      // host-side supervisors, budget ceilings, and mailbox lifecycle the app-side
+      // container enjoys. Start returns immediately (FR-L1); the settle is awaited.
+      Result<AgentId> started = await host.Runtime.Start(loaded.Value, CancellationToken.None).ConfigureAwait(false);
+      if (!started.IsSuccess)
+      {
+        await SendAsync("error", JsonSerializer.Serialize(new HostError(command.RecordId, started.Error.Code,
+            started.Error.Message))).ConfigureAwait(false);
+        return;
+      }
+
+      Result<AgentRunOutcome> outcome = await host.Runtime.WhenSettledAsync(loaded.Value.Id, cts.Token).ConfigureAwait(false);
+      if (outcome.IsSuccess)
+      {
+        await SendAsync("settle", JsonSerializer.Serialize(new SettleNotice(command.RecordId,
+            outcome.Value.Status.ToString(), outcome.Value.Reason?.ToString(), outcome.Value.Report))).ConfigureAwait(false);
+      }
     }
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)

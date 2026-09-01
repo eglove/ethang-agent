@@ -10,6 +10,7 @@ using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.Roslyn.ACL;
+using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
@@ -234,17 +235,27 @@ public static class AgentComposition
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
         .AddSingleton<AgentLinkRegistry>()
+        .AddSingleton<SpawnGraphHandler>()
         .AddSingleton(sp =>
         {
           AgentRecord rootRecord = AgentRecord.Spawned(AgentId.NewId(), null, 0,
                   sp.GetRequiredService<ModelConfig>().ModelId, null,
                   "root session", DateTimeOffset.UtcNow);
+          SpawnGraphHandler graph = sp.GetRequiredService<SpawnGraphHandler>();
           return new AgentCapabilityProvider(
                   sp.GetRequiredService<IAgentSpawnCommand>(),
                   sp.GetRequiredService<IAgentQueries>(),
                   () => SubAgentSpawner.RunningChild ?? rootRecord,
                   sp.GetRequiredService<IAgentRuntime>(),
-                  sp.GetRequiredService<AgentLinkRegistry>());
+                  sp.GetRequiredService<AgentLinkRegistry>(),
+                  fanout: async (parent, children, ct) =>
+                  {
+                    Result<SpawnGraphOutcome> joined = await graph.ExecuteAsync(parent,
+                        new SpawnGraphRequest(Label: "", Children: children, Join: new JoinPolicy(false)), ct).ConfigureAwait(false);
+                    return joined.IsSuccess
+                        ? joined.Value.Render()
+                        : "Error [" + joined.Error.Code + "]: " + joined.Error.Message;
+                  });
         })
         .AddSingleton(_ => EvidenceOptions.Default)
         .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()

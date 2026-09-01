@@ -16,14 +16,16 @@ namespace eThangAgent.ChildHost;
 ///     clarify channel — human-facing tools never reach sub-agents by contract.</summary>
 public sealed class SessionHost
 {
-  private SessionHost(IAgentStore store, SubAgentSpawner spawner)
+  private SessionHost(IAgentStore store, SubAgentSpawner spawner, IAgentRuntime runtime)
   {
     Store = store;
     Spawner = spawner;
+    Runtime = runtime;
   }
 
   public IAgentStore Store { get; }
   public SubAgentSpawner Spawner { get; }
+  public IAgentRuntime Runtime { get; }
 
   /// <summary>Builds from the settings JSON the app writes before launching the host, plus
   ///     the app-owned database path (CLI arg — one host per app, sharing its database).
@@ -61,12 +63,14 @@ public sealed class SessionHost
 
       return new SessionHost(
           services.GetRequiredService<IAgentStore>(),
-          new SubAgentSpawner(childServices));
+          new SubAgentSpawner(childServices),
+          services.GetRequiredService<IAgentRuntime>());
     }
 
     return new SessionHost(
         services.GetRequiredService<IAgentStore>(),
-        services.GetRequiredService<SubAgentSpawner>());
+        services.GetRequiredService<SubAgentSpawner>(),
+        services.GetRequiredService<IAgentRuntime>());
   }
 
   private static JsonSerializerOptions Options { get; } = new(JsonSerializerDefaults.Web);
