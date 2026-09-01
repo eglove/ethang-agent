@@ -1,0 +1,57 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:eThangAgent.Desktop.ViewModels"
+        x:Class="eThangAgent.Desktop.Views.LinksWindow"
+        x:DataType="vm:LinksViewModel"
+        Title="Links — consented routes to other agents" Width="600" Height="520" MinWidth="440" MinHeight="320"
+        CanResize="True" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="16">
+
+    <TextBlock Grid.Row="0" TextWrapping="Wrap" Opacity="0.75" Margin="0,0,0,8">
+      Links let the selected agent send messages to other agents by name (agent.route).
+      Pick an agent, name the link, then confirm. A restart drops links — re-consent recreates them.
+    </TextBlock>
+
+    <Grid Grid.Row="1" ColumnDefinitions="*,16,*">
+      <StackPanel Grid.Column="0" Spacing="4">
+        <TextBlock Text="Agents" FontWeight="SemiBold" Opacity="0.8"/>
+        <ListBox x:Name="CandidateList" ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}" MinHeight="180">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:CandidateRow">
+              <StackPanel Margin="2,4" ToolTip.Tip="{Binding ToolTip}">
+                <TextBlock FontWeight="SemiBold" Text="{Binding Label}"/>
+                <TextBlock FontSize="12" Opacity="0.6" Text="{Binding Detail}"/>
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </StackPanel>
+      <StackPanel Grid.Column="2" Spacing="4">
+        <TextBlock Text="Live links (newest first)" FontWeight="SemiBold" Opacity="0.8"/>
+        <ListBox x:Name="LinkList" ItemsSource="{Binding Links}" SelectedItem="{Binding SelectedLink}" MinHeight="180">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:LinkRow">
+              <StackPanel Margin="2,4" ToolTip.Tip="{Binding AgentAddress}">
+                <TextBlock FontWeight="SemiBold" Text="{Binding Name}"/>
+                <TextBlock FontSize="12" Opacity="0.6" Text="{Binding Detail}"/>
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </StackPanel>
+    </Grid>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+      <TextBlock Text="Name:" VerticalAlignment="Center"/>
+      <TextBox x:Name="LinkNameBox" Width="220" Text="{Binding LinkName}" PlaceholderText="link name the agent will dial"/>
+      <Button x:Name="LinkButton" Content="Link" Command="{Binding LinkCommand}"/>
+      <Button x:Name="RevokeButton" Content="Revoke" Command="{Binding RevokeCommand}"/>
+      <TextBlock Text="{Binding LinkError}" Foreground="OrangeRed" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="240"
+                 IsVisible="{Binding LinkError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    </StackPanel>
+
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <Button Content="Close" Click="OnClose"/>
+    </StackPanel>
+  </Grid>
+</Window>

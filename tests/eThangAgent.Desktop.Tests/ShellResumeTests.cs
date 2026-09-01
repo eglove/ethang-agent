@@ -47,6 +47,26 @@ public class ShellResumeTests
   }
 
   [Fact]
+  public void OpenLinksCommand_Raises_Dialog_Request()
+  {
+    MainViewModel vm = new(
+        (_, _) => Task.FromResult(Result.Failure<AgentSession>(new DomainError("NoFactory", "unused"))));
+    bool raised = false;
+    vm.LinksRequested += (_, _) => raised = true;
+
+    vm.OpenLinksCommand.Execute(null);
+
+    Assert.True(raised);
+  }
+
+  [Fact]
+  public void OpenLinksCommand_Is_Tab_Gated_Like_Model_And_Effort()
+  {
+    MainViewModel vm = new(
+        (_, _) => Task.FromResult(Result.Failure<AgentSession>(new DomainError("NoFactory", "unused"))));
+    Assert.False(vm.OpenLinksCommand.CanExecute(null));
+  }
+  [Fact]
   public async Task ResumeSessionAsync_Without_Factory_Fails_Structured()
   {
     MainViewModel vm = new(

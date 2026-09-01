@@ -48,6 +48,22 @@ public sealed class AgentLinkRegistry
     }
   }
 
+  /// <summary>The live links, newest first — the consent dialog's list surface. Same
+  ///     visibility as the linker themselves (the host's own UI); <see cref="Resolve"/>
+  ///     stays the only agent-facing path and still reveals nothing beyond the address.</summary>
+  public IReadOnlyList<LinkAddress> Snapshot
+  {
+    get
+    {
+      lock (_gate)
+      {
+        return [.. _links.Values
+            .OrderByDescending(l => l.LinkedAt)
+            .Select(l => new LinkAddress(l.Name, l.Container, l.AgentAddress))];
+      }
+    }
+  }
+
   /// <summary>Resolves a name to an address, or fails NotLinked (the error contract of the
   ///     source spec's Section 12).</summary>
   public Result<LinkAddress> Resolve(string name)

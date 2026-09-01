@@ -66,4 +66,22 @@ public class AgentLinkRegistryTests
     Assert.False(revoked.IsSuccess);
     Assert.Equal("NotFound", revoked.Error.Code);
   }
+
+  [Fact]
+  public void Snapshot_ListsLiveLinks_AndReflectsRevocation()
+  {
+    AgentLinkRegistry registry = new();
+    _ = registry.Link("alpha", "container-a", "00000000-0000-0000-0000-000000000001", consented: true);
+    _ = registry.Link("beta", "container-b", "00000000-0000-0000-0000-000000000002", consented: true);
+
+    IReadOnlyList<LinkAddress> snapshot = registry.Snapshot;
+    Assert.Equal(2, snapshot.Count);
+    // Newest first: the most recently created link leads the dialog's list.
+    Assert.Equal("beta", snapshot[0].Name);
+    Assert.Equal("alpha", snapshot[1].Name);
+
+    _ = registry.Revoke("alpha");
+    LinkAddress remaining = Assert.Single(registry.Snapshot);
+    Assert.Equal("beta", remaining.Name);
+  }
 }

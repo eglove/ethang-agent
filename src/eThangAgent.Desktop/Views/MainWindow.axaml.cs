@@ -42,6 +42,7 @@ internal partial class MainWindow : Window
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
     vm.ModelPickerRequested += async (_, _) => await ShowModelPickerDialogAsync();
     vm.EffortPickerRequested += async (_, _) => await ShowEffortPickerDialogAsync();
+    vm.LinksRequested += async (_, _) => await ShowLinksDialogAsync();
   }
 
   /// <summary>Shows the Sessions dialog (persisted root sessions, already-open ones
@@ -153,7 +154,29 @@ internal partial class MainWindow : Window
 
     await _vm.ApplyEffortChoiceAsync(choice.Level);
   }
+  /// <summary>Shows the Links dialog (consent door, D10) for the selected tab. The
+  ///     dialog links through the tab's OWN registry — the same object the session's
+  ///     capability provider resolves agent.route names through — and lists candidate
+  ///     agents from the tab's store. No tab: structured failure, not silence.
+  /// </summary>
+  private async Task ShowLinksDialogAsync()
+  {
+    if (_vm is not { } vm)
+    {
+      return; // design-time / headless shell without a view-model
+    }
 
+    Func<CancellationToken, Task<Result<IReadOnlyList<AgentRecord>>>>? loader = vm.LinksCatalogLoader;
+    AgentLinkRegistry? registry = vm.SelectedLinksRegistry;
+    if (loader is null || registry is null)
+    {
+      await ShowOpenFailedAsync("Open an agent tab before managing links.");
+      return;
+    }
+
+    LinksWindow dialog = new(loader, registry);
+    await dialog.ShowDialog(this);
+  }
   private async Task ShowOpenFailedAsync(string message)
   {
     Window dialog = new()

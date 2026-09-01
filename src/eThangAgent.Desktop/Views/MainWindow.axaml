@@ -43,6 +43,12 @@
                 Margin="0,2" Command="{Binding ChooseEffortCommand}"
                 IsVisible="{Binding HasSelectedTab}"
                 ToolTip.Tip="Effort — reasoning effort for the selected agent"/>
+        <Button x:Name="LinksMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="🔗"
+                Width="40" Height="34" Padding="0" FontSize="18"
+                HorizontalAlignment="Center"
+                Margin="0,2" Command="{Binding OpenLinksCommand}"
+                IsVisible="{Binding HasSelectedTab}"
+                ToolTip.Tip="Links — consented routes to other agents"/>
         <Button x:Name="SettingsMenuItem" Classes="menu-item" DockPanel.Dock="Bottom" Content="⚙"
                 Width="40" Height="34" Padding="0" FontSize="18"
                 HorizontalAlignment="Center"

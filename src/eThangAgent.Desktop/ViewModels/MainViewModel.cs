@@ -191,6 +191,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public IRelayCommand ChooseEffortCommand { get; }
 
+  public IRelayCommand OpenLinksCommand { get; }
+
   /// <summary>Raised when the shell wants the new-agent dialog shown.</summary>
   public event EventHandler? OpenAgentRequested;
 
@@ -205,6 +207,9 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Raised when the shell wants the selected tab's effort picker shown.</summary>
   public event EventHandler? EffortPickerRequested;
+
+  /// <summary>Raised when the shell wants the selected tab's Links dialog shown.</summary>
+  public event EventHandler? LinksRequested;
 
   /// <param name="createSession">Session-creation hook. Null in production — the shell
   ///     derives it from <paramref name="options"/> so saved keys can rebuild it; hosts
@@ -257,6 +262,9 @@ internal sealed partial class MainViewModel : ObservableObject
         () => HasSelectedTab);
     ChooseEffortCommand = new RelayCommand(
         () => EffortPickerRequested?.Invoke(this, EventArgs.Empty),
+        () => HasSelectedTab);
+    OpenLinksCommand = new RelayCommand(
+        () => LinksRequested?.Invoke(this, EventArgs.Empty),
         () => HasSelectedTab);
 
     AvailableProviders = _settings is not null
@@ -694,6 +702,24 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     shared store (the dialog is then not shown).</summary>
   public Func<CancellationToken, Task<Result<IReadOnlyList<SessionCatalogEntry>>>>? SessionCatalogLoader
       => _sessionCatalog is null ? null : ct => _sessionCatalog.ListAsync(ct);
+
+  /// <summary>The selected tab's link registry — the consent object the Links dialog
+  ///     links through and the SAME object the session's capability provider resolves
+  ///     agent.route names through, so a link created in the dialog is immediately
+  ///     routable. Null when no tab is selected (the menu entry is hidden then).</summary>
+  public AgentLinkRegistry? SelectedLinksRegistry
+      => SelectedTab?.Container.Services.GetService<AgentLinkRegistry>();
+
+  /// <summary>Loads the Links dialog's candidate agents from the selected tab's own
+  ///     store, or null when no tab is selected (the dialog is then not shown).</summary>
+  public Func<CancellationToken, Task<Result<IReadOnlyList<AgentRecord>>>>? LinksCatalogLoader
+  {
+    get
+    {
+      IAgentStore? store = SelectedTab?.Container.Services.GetService<IAgentStore>();
+      return store is null ? null : ct => store.ListAllAsync(ct);
+    }
+  }
 
   /// <summary>The ids of the sessions currently open in tabs — the Sessions dialog
   ///     greys these out, since resuming an open session would fork it.</summary>

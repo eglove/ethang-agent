@@ -62,6 +62,28 @@ internal static class TestFixtures
         => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
   }
 
+  /// <summary>Serves a fixed record list from ListAllAsync — the Links dialog's
+  ///     candidate source is exactly that call over a session's own store.</summary>
+  internal sealed class ListAgentStore(IReadOnlyList<AgentRecord> records) : IAgentStore
+  {
+    public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
+        => Task.FromResult(Result.Success("saved"));
+    public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
+        => Task.FromResult(Result.Success("updated"));
+    public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<AgentRecord>(new DomainError("NotFound", "not found")));
+    public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
+        => Task.FromResult(Result.Success("appended"));
+    public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(id.ToString()));
+    public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+        => Task.FromResult(Result.Success(records));
+  }
+
   /// <summary>Builds an AgentSessionViewModel whose turn runner streams "ack" and succeeds.
   ///     When <paramref name="marshalToUIThread"/> is true the stream sink marshals onto
   ///     the UI thread (production shape — for headless window tests); otherwise events
