@@ -121,7 +121,4 @@ public sealed class ChildHostServer(NamedPipeChildTransport transport, string se
   }
 }
 
-public sealed record StartCommand(Guid RecordId, int MaxConcurrent, string ModelId);
-public sealed record InterruptCommand(Guid? RecordId);
-public sealed record SettleNotice(Guid RecordId, string Status, string? Reason, string Report);
 public sealed record HostError(Guid RecordId, string Code, string Message);
