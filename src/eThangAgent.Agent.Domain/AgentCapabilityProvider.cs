@@ -252,6 +252,7 @@ public sealed class AgentCapabilityProvider(
     AgentFailureReason.Interrupted => "interrupted",
     AgentFailureReason.Hung => "hung",
     AgentFailureReason.BudgetExhausted => "budget-exhausted",
+    AgentFailureReason.InvalidResult => "invalid-result",
     _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
   };
 

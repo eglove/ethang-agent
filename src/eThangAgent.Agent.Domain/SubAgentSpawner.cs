@@ -189,6 +189,47 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
       _ = await _store.AppendMessageAsync(child.Id, added[i], ct).ConfigureAwait(false);
     }
 
+    // Structured results (step 10, approved D3): one bounded repair round; a second
+    // validation failure is Failed(InvalidResult) — invalid results never reach the
+    // parent as success.
+    if (child.Contract is { } contractJson)
+    {
+      SpawnContract contract = SpawnContract.Decode(contractJson);
+      if (contract.ResultSchema is { } schema)
+      {
+        SchemaValidation validation = ResultSchemaValidator.Validate(schema, finalReport);
+        if (!validation.IsValid)
+        {
+          string repairPrompt = "[schema] Your final report did not match the required schema: "
+              + validation.Error + " Re-issue your final report now, conforming exactly.";
+          Result<string> repair = await agent.SendMessage(repairPrompt, ct: ct).ConfigureAwait(false);
+          if (repair.IsSuccess)
+          {
+            string repairedReport = repair.Value;
+            SchemaValidation secondPass = ResultSchemaValidator.Validate(schema, repairedReport);
+            if (secondPass.IsValid)
+            {
+              finalReport = repairedReport;
+              _ = await _store.AppendMessageAsync(child.Id, agent.Conversation.Messages[^1], ct).ConfigureAwait(false);
+            }
+            else
+            {
+              await PersistTerminalAsync(child with
+              {
+                Status = AgentStatus.Failed,
+                FailureReason = AgentFailureReason.InvalidResult,
+                CompletedAt = DateTimeOffset.UtcNow,
+                FinalReport = "Error [InvalidResult]: " + secondPass.Error,
+              }, ct).ConfigureAwait(false);
+              PublishSettled(child.Id, AgentStatus.Failed, AgentFailureReason.InvalidResult,
+                  Encoding.UTF8.GetByteCount(finalReport));
+              return new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.InvalidResult,
+                  "Error [InvalidResult]: " + secondPass.Error, child.ModelUsed, child.Depth);
+            }
+          }
+        }
+      }
+    }
     await PersistTerminalAsync(child with
     {
       Status = AgentStatus.Completed,
@@ -237,6 +278,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     AgentFailureReason.ProviderError => "child agent's model provider failed.",
     AgentFailureReason.Hung => "child agent was terminated by the watchdog after idle detection and a wrap-up retry.",
     AgentFailureReason.BudgetExhausted => "child agent reached a budget hard ceiling and was terminated.",
+    AgentFailureReason.InvalidResult => "child agent's final report failed schema validation after a repair round.",
     // Unnamed enum values cannot occur.
     _ => "child agent's model provider failed.",
   };

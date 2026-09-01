@@ -53,6 +53,8 @@ public sealed class AgentQueries(IAgentStore store) : IAgentQueries
         "Error [Hung]: the child agent was terminated by the watchdog after idle detection and a wrap-up retry.",
     AgentFailureReason.BudgetExhausted =>
         "Error [BudgetExhausted]: the child agent reached a budget hard ceiling and was terminated.",
+    AgentFailureReason.InvalidResult =>
+        "Error [InvalidResult]: the child agent's final report failed schema validation after a repair round.",
     _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
   };
 }

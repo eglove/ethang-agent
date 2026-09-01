@@ -27,4 +27,7 @@ public enum AgentFailureReason
 
   /// <summary>Terminated at a budget hard ceiling (FR-B4/D8: resources, never time).</summary>
   BudgetExhausted,
+
+  /// <summary>Final report failed schema validation after the one repair round (approved D3).</summary>
+  InvalidResult,
 }
