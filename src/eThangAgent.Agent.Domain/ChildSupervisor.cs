@@ -138,6 +138,17 @@ public sealed class ChildSupervisorRegistry
     }
   }
 
+  /// <summary>The supervisor for an id, or null when the registry owns none (never
+  ///     started, settled, or foreign). The event feed resolves through this — the
+  ///     feed must never create facts for a child it does not own.</summary>
+  public ChildSupervisor? Find(AgentId id)
+  {
+    lock (_gate)
+    {
+      return _supervisors.TryGetValue(id.Value, out ChildSupervisor? supervisor) ? supervisor : null;
+    }
+  }
+
   public IReadOnlyList<ChildSupervisor> All
   {
     get

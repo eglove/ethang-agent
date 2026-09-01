@@ -16,13 +16,17 @@ namespace eThangAgent.ChildHost;
 ///     clarify channel — human-facing tools never reach sub-agents by contract.</summary>
 public sealed class SessionHost
 {
-  private SessionHost(IAgentStore store, SubAgentSpawner spawner, IAgentRuntime runtime)
+  private SessionHost(IServiceProvider services, IAgentStore store, SubAgentSpawner spawner, IAgentRuntime runtime)
   {
+    Services = services;
     Store = store;
     Spawner = spawner;
     Runtime = runtime;
   }
 
+  /// <summary>The child container — the host watchdog resolves the same seams the app
+  ///     side does (heartbeat, event store, event stream, supervisor registry) from it.</summary>
+  public IServiceProvider Services { get; }
   public IAgentStore Store { get; }
   public SubAgentSpawner Spawner { get; }
   public IAgentRuntime Runtime { get; }
@@ -62,12 +66,14 @@ public sealed class SessionHost
       };
 
       return new SessionHost(
+          services,
           services.GetRequiredService<IAgentStore>(),
           new SubAgentSpawner(childServices),
           services.GetRequiredService<IAgentRuntime>());
     }
 
     return new SessionHost(
+        services,
         services.GetRequiredService<IAgentStore>(),
         services.GetRequiredService<SubAgentSpawner>(),
         services.GetRequiredService<IAgentRuntime>());

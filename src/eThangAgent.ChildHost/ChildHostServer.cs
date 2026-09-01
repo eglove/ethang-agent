@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Transport.ACL;
@@ -132,6 +133,13 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         return;
       }
 
+      // Host-side idle detection (handoff item 2): the host runs the watchdog over the
+      // child run — facts from the child container's event stream, policy enacted
+      // through the host's own runtime. The app never guesses from absent beats.
+      if (BuildChildWatchdog(host, loaded.Value.Id) is { } watchdog)
+      {
+        watchdog.Start();
+      }
       Result<AgentRunOutcome> outcome = await host.Runtime.WhenSettledAsync(loaded.Value.Id, cts.Token).ConfigureAwait(false);
       if (outcome.IsSuccess)
       {
@@ -153,6 +161,35 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       _ = _mailboxes.TryRemove(command.RecordId, out _);
       await SendLiveSetAsync().ConfigureAwait(false);
     }
+  }
+
+  /// <summary>Builds the host watchdog for one child run from the child container's
+  ///     own seams — the same WatchdogServices shape the app's DesktopHost builds per
+  ///     session, here rooted at the child id so the registry path supervises it.
+  ///     Best-effort: a container missing a seam yields no watchdog (the child still
+  ///     runs; only idle detection is absent), never a failed start.</summary>
+  private static HostChildWatchdog? BuildChildWatchdog(SessionHost host, AgentId childId)
+  {
+    if (host.Services.GetService(typeof(IAgentHeartbeat)) is not IAgentHeartbeat heartbeat
+        || host.Services.GetService(typeof(IWatchdogEventStore)) is not IWatchdogEventStore audit)
+    {
+      return null;
+    }
+
+    IAgentEvents? stream = host.Services.GetService(typeof(IAgentEvents)) as IAgentEvents;
+    ChildSupervisorRegistry? supervisors = host.Services.GetService(typeof(ChildSupervisorRegistry)) as ChildSupervisorRegistry;
+    WatchdogServices services = new(host.Store, host.Runtime, heartbeat, audit,
+        WatchdogPolicyFactory.FromOptions(WatchdogOptions.Default), NoopMetrics.Instance,
+        WatchdogOptions.Default, TimeProvider.System, stream, supervisors);
+    return new HostChildWatchdog(childId, services);
+  }
+
+  /// <summary>RSS sampling is an app-process concern; the host records nothing (observe-
+  ///     only seam stays unused in the child process).</summary>
+  private sealed class NoopMetrics : IProcessMetrics
+  {
+    public static readonly NoopMetrics Instance = new();
+    public long WorkingSetBytes() => 0;
   }
 
   /// <summary>Delivers a steering envelope into the running child's mailbox (FR-C2).

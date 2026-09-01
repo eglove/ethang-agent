@@ -321,4 +321,100 @@ public class AgentWatchdogTests
     Assert.DoesNotContain(otherChild.Id.Value, runtime.Interrupted);
     Assert.DoesNotContain(otherChild.Id.Value, runtime.Started);
   }
+
+  [Fact]
+  public async Task Tick_SupervisedChild_With_Fresh_Progress_Beats_Is_Not_Interrupted()
+  {
+    // The regression this pins: supervisors' idle clocks must be fed by the child
+    // event stream. Before the feed existed, any child alive past the idle threshold
+    // false-positived as hung — the tick interrupted healthy children.
+    AgentRecord root = Root();
+    StubClock clock = new(T0);
+    FakeStore store = new();
+    FakeRuntime runtime = new();
+    FakeHeartbeat heartbeat = new();
+    FakeEvents audit = new();
+    ChildEventStream stream = new();
+    ChildSupervisorRegistry supervisors = new();
+    AgentId childId = new(Guid.NewGuid());
+    ChildSupervisor supervisor = new(childId, stream, clock, ceilings: null);
+    supervisor.OnStart(0);
+    supervisors.Register(childId, supervisor);
+    WatchdogServices services = new(store, runtime, heartbeat, audit,
+        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1),
+        new FakeMetrics(1024L * 1024 * 1024),
+        new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
+        stream, supervisors);
+#pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
+    AgentWatchdog watchdog = new(root.Id, services);
+#pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
+    AgentRecord child = Child(root.Id, T0);
+    store.Records[root.Id.Value] = root;
+    store.Records[childId.Value] = child;
+
+    // The child is alive and working: progress events flow at 10 minutes.
+    clock.Now = T0.AddMinutes(10);
+    stream.Publish(new ChildProgressEvent(childId, clock.Now, ChildPhase.ToolExec, "tool:edit"));
+
+    clock.Now = T0.AddMinutes(16);
+    await watchdog.TickAsync();
+
+    Assert.DoesNotContain(runtime.Interrupted, id => id == childId.Value);
+  }
+
+  [Fact]
+  public async Task Tick_SupervisedChild_Idle_Past_Threshold_Is_Interrupted()
+  {
+    AgentRecord root = Root();
+    StubClock clock = new(T0);
+    FakeStore store = new();
+    FakeRuntime runtime = new();
+    FakeHeartbeat heartbeat = new();
+    FakeEvents audit = new();
+    ChildEventStream stream = new();
+    ChildSupervisorRegistry supervisors = new();
+    AgentId childId = new(Guid.NewGuid());
+    ChildSupervisor supervisor = new(childId, stream, clock, ceilings: null);
+    supervisor.OnStart(0);
+    supervisors.Register(childId, supervisor);
+    WatchdogServices services = new(store, runtime, heartbeat, audit,
+        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1),
+        new FakeMetrics(1024L * 1024 * 1024),
+        new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
+        stream, supervisors);
+#pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
+    AgentWatchdog watchdog = new(root.Id, services);
+#pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
+    store.Records[root.Id.Value] = root;
+    store.Records[childId.Value] = Child(root.Id, T0);
+    runtime.OnInterrupt = id => store.Records[id] = store.Records[id] with { Status = AgentStatus.Failed, FailureReason = AgentFailureReason.Interrupted };
+
+    clock.Now = T0.AddMinutes(20); // no beats ever: idle past the threshold
+    await watchdog.TickAsync();
+
+    Assert.Contains(runtime.Interrupted, id => id == childId.Value);
+  }
+
+  /// <summary>Fake in-memory child event stream (domain seam) — publishes synchronously.
+  /// </summary>
+  internal sealed class ChildEventStream : IAgentEvents
+  {
+    private readonly List<IAgentEventSubscriber> _subscribers = [];
+    public IDisposable Subscribe(IAgentEventSubscriber subscriber)
+    {
+      _subscribers.Add(subscriber);
+      return new StreamLease();
+    }
+    public void Publish(ChildEvent evt)
+    {
+      foreach (IAgentEventSubscriber subscriber in _subscribers.ToArray())
+      {
+        subscriber.OnEvent(evt);
+      }
+    }
+    private sealed class StreamLease : IDisposable
+    {
+      public void Dispose() { }
+    }
+  }
 }
