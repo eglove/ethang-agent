@@ -4,7 +4,10 @@ namespace eThangAgent.AgentDomain;
 /// <summary>Linked-agent registry (step 10, D10/P7): the ONLY route to agents outside the
 ///     local tree. Links are named, explicitly consented, and revocable — isolation by
 ///     default is a permanent property. Cross-container/cross-workspace contact without a
-///     link fails NotLinked at validation.</summary>
+///     link fails NotLinked at validation. R2.3 decision (FINAL for v1): links are
+///     IN-MEMORY per session — session-scoped runtime facts, not durable state; a
+///     restart drops them and re-consent recreates them. <see cref="Resolve"/> reveals
+///     only the address tuple, never the linker's consent state or metadata (R2.4).</summary>
 public sealed class AgentLinkRegistry
 {
   private readonly Lock _gate = new();

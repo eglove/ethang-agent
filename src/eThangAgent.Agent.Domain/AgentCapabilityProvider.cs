@@ -9,7 +9,7 @@ namespace eThangAgent.AgentDomain;
 ///     reports arrive exclusively through the queries.</summary>
 public sealed class AgentCapabilityProvider(
     IAgentSpawnCommand spawnCommand, IAgentQueries queries, Func<AgentRecord> parentContext,
-    IAgentRuntime? runtime = null) : ICapabilityProvider
+    IAgentRuntime? runtime = null, AgentLinkRegistry? links = null) : ICapabilityProvider
 {
   public const string ProviderId = "agent";
 
@@ -17,6 +17,7 @@ public sealed class AgentCapabilityProvider(
   private readonly IAgentQueries _queries = queries ?? throw new ArgumentNullException(nameof(queries));
   private readonly Func<AgentRecord> _parentContext = parentContext ?? throw new ArgumentNullException(nameof(parentContext));
   private readonly IAgentRuntime? _runtime = runtime;
+  private readonly AgentLinkRegistry? _links = links;
 
   public string Id => ProviderId;
 
@@ -70,6 +71,24 @@ public sealed class AgentCapabilityProvider(
                 new ActionParameter("text", ActionParameterTypes.StringType, "Steering message for the child. Non-empty."),
                 new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
             ]),
+        new("route", "Send a message to a linked agent outside your local tree.",
+            """
+            Resolves 'name' through the session's consented link registry and delivers 'text' to that agent's runtime mailbox. Isolation by default: an unlinked name fails Error [NotLinked]. Unknown or finished targets fail Error [NotRunning]; a full mailbox fails Error [MailboxFull]. Receipt: delivered to=<address> link=<name>.
+            """,
+            [
+                new ActionParameter("name", ActionParameterTypes.StringType, "The linked agent's registry name."),
+                new ActionParameter("text", ActionParameterTypes.StringType, "Message text. Non-empty."),
+                new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
+            ]),
+        new("escalate", "Send a message upward: to your parent, or N hops up the agent tree.",
+            """
+            Delivers 'text' to your parent agent (hops=1, the default); hops=N walks N ancestor links. Every hop emits a delivery event and the result lists per-hop receipts: hop=<n> to=<agent-id> delivered|NotRunning|MailboxFull. The walk stops at the tree root with receipt reached=root.
+            """,
+            [
+                new ActionParameter("text", ActionParameterTypes.StringType, "Message text. Non-empty."),
+                new ActionParameter("hops", ActionParameterTypes.IntegerType, "Optional ancestor hops (default 1, minimum 1)."),
+                new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
+            ]),
     ];
 
   public async Task<CapabilityInvocationResult> InvokeAsync(
@@ -82,6 +101,8 @@ public sealed class AgentCapabilityProvider(
       "result" => await GetResult(jsonArguments, ct).ConfigureAwait(false),
       "wait" => await Wait(jsonArguments, ct).ConfigureAwait(false),
       "send" => Send(jsonArguments),
+      "route" => Route(jsonArguments),
+      "escalate" => await Escalate(jsonArguments, ct).ConfigureAwait(false),
       _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
     };
   }
@@ -256,6 +277,192 @@ public sealed class AgentCapabilityProvider(
     AgentFailureReason.InvalidResult => "invalid-result",
     _ => throw new InvalidOperationException($"Unknown agent failure reason '{reason}'."),
   };
+
+  /// <summary>agent.route (R2.1): resolve a consented link by name, then push-deliver
+  ///     to the linked agent's address. The registry reveals only the address (R2.4);
+  ///     unresolved names surface the pinned NotLinked contract.</summary>
+  private CapabilityInvocationResult Route(string json)
+  {
+    if (_runtime is null || _links is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [NotAvailable]: agent.route needs a runtime and a link registry wired into this session's capability provider.");
+    }
+
+    string? parseError = RouteArgs(json, out string? name, out string? text, out MessageUrgency urgency);
+    if (parseError is not null)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
+    }
+
+    Result<LinkAddress> resolved = _links.Resolve(name!);
+    if (!resolved.IsSuccess)
+    {
+      return CapabilityInvocationResult.Fail($"Error [{resolved.Error.Code}]: {resolved.Error.Message}");
+    }
+
+    if (!Guid.TryParseExact(resolved.Value.AgentAddress, "D", out Guid target))
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidLink]: link '{resolved.Value.Name}' does not address an agent id.");
+    }
+
+    AgentRecord sender = _parentContext();
+    Result<bool> delivered = _runtime.Deliver(new AgentId(target),
+        new PendingMessage(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender)));
+    return delivered.IsSuccess
+        ? CapabilityInvocationResult.Ok($"delivered to={resolved.Value.AgentAddress} link={resolved.Value.Name}")
+        : CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");
+  }
+
+  /// <summary>agent.escalate (R2.2): walk up to N ancestor links, one delivery per hop,
+  ///     every hop rendered as a receipt (FR-C7 per-hop visibility). The walk stops
+  ///     early at the root with reached=root.</summary>
+  private async Task<CapabilityInvocationResult> Escalate(string json, CancellationToken ct)
+  {
+    if (_runtime is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [NotAvailable]: agent.escalate needs a runtime wired into this session's capability provider.");
+    }
+
+    string? parseError = EscalateArgs(json, out string? text, out int hops, out MessageUrgency urgency);
+    if (parseError is not null)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
+    }
+
+    AgentRecord sender = _parentContext();
+    List<string> receipts = [];
+    AgentId? current = sender.ParentId;
+    for (int hop = 1; hop <= hops; hop++)
+    {
+      if (current is null)
+      {
+        receipts.Add($"reached=root at hop={hop}");
+        break;
+      }
+
+      Result<AgentRecord> ancestor = await _queries.GetStatus(current.Value, ct).ConfigureAwait(false);
+      if (!ancestor.IsSuccess)
+      {
+        receipts.Add($"hop={hop} to={current.Value} NotRunning");
+        break;
+      }
+
+      Result<bool> delivered = _runtime.Deliver(current.Value,
+          new PendingMessage(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender)));
+      receipts.Add(delivered.IsSuccess
+          ? $"hop={hop} to={current.Value} delivered"
+          : $"hop={hop} to={current.Value} {delivered.Error.Code}");
+      current = ancestor.Value.ParentId;
+    }
+
+    return CapabilityInvocationResult.Ok(string.Join("\n", receipts));
+  }
+
+  /// <summary>Strict route-argument parsing: non-empty name and text, urgency in range.</summary>
+  private static string? RouteArgs(string json, out string? name, out string? text, out MessageUrgency urgency)
+  {
+    name = null;
+    text = null;
+    urgency = MessageUrgency.Normal;
+    JsonDocument doc;
+    try
+    {
+      doc = JsonDocument.Parse(json);
+    }
+    catch (JsonException ex)
+    {
+      return $"arguments must be a JSON object ({ex.Message}).";
+    }
+
+    using (doc)
+    {
+      if (doc.RootElement.ValueKind is not JsonValueKind.Object)
+      {
+        return "arguments must be a JSON object.";
+      }
+
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "name", "text", "urgency" };
+      string[] unknown = [.. doc.RootElement.EnumerateObject().Where(p => !allowed.Contains(p.Name)).Select(p => p.Name)];
+      if (unknown.Length > 0)
+      {
+        return $"unknown parameter(s): {string.Join(", ", unknown)}.";
+      }
+
+      if (!doc.RootElement.TryGetProperty("name", out JsonElement nameElement) || nameElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(nameElement.GetString()))
+      {
+        return "'name' must be a non-empty string.";
+      }
+
+      name = nameElement.GetString();
+      if (!doc.RootElement.TryGetProperty("text", out JsonElement textElement) || textElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(textElement.GetString()))
+      {
+        return "'text' must be a non-empty string.";
+      }
+
+      text = textElement.GetString();
+      return doc.RootElement.TryGetProperty("urgency", out JsonElement urgencyElement)
+          && (urgencyElement.ValueKind is not JsonValueKind.String
+              || !Enum.TryParse(urgencyElement.GetString(), ignoreCase: true, out urgency))
+          ? "'urgency' must be one of: normal, attention, urgent."
+          : null;
+    }
+  }
+
+  /// <summary>Strict escalate-argument parsing: non-empty text, positive hops, urgency in range.</summary>
+  private static string? EscalateArgs(string json, out string? text, out int hops, out MessageUrgency urgency)
+  {
+    text = null;
+    hops = 1;
+    urgency = MessageUrgency.Normal;
+    JsonDocument doc;
+    try
+    {
+      doc = JsonDocument.Parse(json);
+    }
+    catch (JsonException ex)
+    {
+      return $"arguments must be a JSON object ({ex.Message}).";
+    }
+
+    using (doc)
+    {
+      if (doc.RootElement.ValueKind is not JsonValueKind.Object)
+      {
+        return "arguments must be a JSON object.";
+      }
+
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "text", "hops", "urgency" };
+      string[] unknown = [.. doc.RootElement.EnumerateObject().Where(p => !allowed.Contains(p.Name)).Select(p => p.Name)];
+      if (unknown.Length > 0)
+      {
+        return $"unknown parameter(s): {string.Join(", ", unknown)}.";
+      }
+
+      if (!doc.RootElement.TryGetProperty("text", out JsonElement textElement) || textElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(textElement.GetString()))
+      {
+        return "'text' must be a non-empty string.";
+      }
+
+      text = textElement.GetString();
+      if (doc.RootElement.TryGetProperty("hops", out JsonElement hopsElement)
+          && (hopsElement.ValueKind is not JsonValueKind.Number || !hopsElement.TryGetInt32(out int parsed) || parsed < 1))
+      {
+        return "'hops' must be a positive integer.";
+      }
+      else if (doc.RootElement.TryGetProperty("hops", out hopsElement))
+      {
+        hops = hopsElement.GetInt32();
+      }
+
+      return doc.RootElement.TryGetProperty("urgency", out JsonElement urgencyElement)
+          && (urgencyElement.ValueKind is not JsonValueKind.String
+              || !Enum.TryParse(urgencyElement.GetString(), ignoreCase: true, out urgency))
+          ? "'urgency' must be one of: normal, attention, urgent."
+          : null;
+    }
+  }
 
   /// <summary>Ids cross into the domain strictly: a JSON object carrying exactly one "id"
   ///     member whose value is a Guid in "D" format. Anything else is a typed argument

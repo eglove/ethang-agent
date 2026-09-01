@@ -229,6 +229,7 @@ public static class AgentComposition
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
+        .AddSingleton<AgentLinkRegistry>()
         .AddSingleton(sp =>
         {
           AgentRecord rootRecord = AgentRecord.Spawned(AgentId.NewId(), null, 0,
@@ -238,7 +239,8 @@ public static class AgentComposition
                   sp.GetRequiredService<IAgentSpawnCommand>(),
                   sp.GetRequiredService<IAgentQueries>(),
                   () => SubAgentSpawner.RunningChild ?? rootRecord,
-                  sp.GetRequiredService<IAgentRuntime>());
+                  sp.GetRequiredService<IAgentRuntime>(),
+                  sp.GetRequiredService<AgentLinkRegistry>());
         })
         .AddSingleton(_ => EvidenceOptions.Default)
         .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()

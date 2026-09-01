@@ -40,6 +40,25 @@ public class AgentLinkRegistryTests
   }
 
   [Fact]
+  public void Resolve_RevealsNothingBeyondTheAddress_TrustModel_R2_4()
+  {
+    AgentLinkRegistry registry = new();
+    _ = registry.Link("peer", "container-a", "agent-1", consented: true);
+
+    Result<LinkAddress> resolved = registry.Resolve("peer");
+    Assert.True(resolved.IsSuccess);
+    LinkAddress address = resolved.Value;
+    // The linker's records carry consent state and a linked-at timestamp; Resolve
+    // exposes exactly Name, Container, AgentAddress — nothing else (open question 6).
+    Assert.Equal("peer", address.Name);
+    Assert.Equal("container-a", address.Container);
+    Assert.Equal("agent-1", address.AgentAddress);
+    System.Reflection.PropertyInfo[] exposed = typeof(LinkAddress).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+    string[] names = [.. exposed.Select(pr => pr.Name).OrderBy(n => n, StringComparer.Ordinal)];
+    Assert.Equal(["AgentAddress", "Container", "Name"], names);
+  }
+
+  [Fact]
   public void Revoke_UnknownName_FailsNotFound()
   {
     AgentLinkRegistry registry = new();
