@@ -93,7 +93,7 @@ public sealed class NamedPipeChildTransport : IChildTransport, IAsyncDisposable
   {
     ObjectDisposedException.ThrowIf(_closed, this);
     Task<TransportEnvelope> read = _inbox.Reader.ReadAsync(ct).AsTask();
-    Task winner = await System.Threading.Tasks.Task.WhenAny(read, _pump).ConfigureAwait(false);
+    Task winner = await Task.WhenAny(read, _pump).ConfigureAwait(false);
     if (winner != read)
     {
       throw new TransportClosedException("the pipe closed while awaiting a frame.");

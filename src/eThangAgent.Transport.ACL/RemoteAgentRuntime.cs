@@ -105,9 +105,9 @@ public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAge
           SettleNotice? notice = JsonSerializer.Deserialize<SettleNotice>(envelope.Json);
           if (notice is not null && _settling.TryRemove(notice.RecordId, out TaskCompletionSource<AgentRunOutcome>? source))
           {
-            AgentStatus status = Enum.TryParse<AgentStatus>(notice.Status, out AgentStatus parsed)
+            AgentStatus status = Enum.TryParse(notice.Status, out AgentStatus parsed)
                 ? parsed : AgentStatus.Failed;
-            AgentFailureReason? reason = Enum.TryParse<AgentFailureReason>(notice.Reason, out AgentFailureReason reasonParsed)
+            AgentFailureReason? reason = Enum.TryParse(notice.Reason, out AgentFailureReason reasonParsed)
                 ? reasonParsed : null;
             _ = source.TrySetResult(new AgentRunOutcome(new AgentId(notice.RecordId),
                 status, reason, notice.Report, "remote", 0));
@@ -143,7 +143,7 @@ public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAge
 
   private async Task<bool> SendEnvelopeAsync(string kind, string json, AgentId id, CancellationToken ct)
   {
-    long sequence = System.Threading.Interlocked.Increment(ref _sequence);
+    long sequence = Interlocked.Increment(ref _sequence);
     try
     {
       await transport.SendAsync(new TransportEnvelope(kind, json, sequence), ct).ConfigureAwait(false);

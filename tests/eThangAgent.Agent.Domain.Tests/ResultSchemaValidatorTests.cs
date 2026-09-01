@@ -10,8 +10,10 @@ public class ResultSchemaValidatorTests
   public void ValidObject_Passes()
   {
     SchemaValidation result = ResultSchemaValidator.Validate(
-        """{"type":"object","required":["summary"],"properties":{"summary":{"type":"string"}}}""",
-        """{"summary":"all done","detail":"x"}""");
+                             /*lang=json,strict*/
+                             """{"type":"object","required":["summary"],"properties":{"summary":{"type":"string"}}}""",
+                             /*lang=json,strict*/
+                             """{"summary":"all done","detail":"x"}""");
 
     Assert.True(result.IsValid);
     Assert.Null(result.Error);
@@ -22,7 +24,8 @@ public class ResultSchemaValidatorTests
   public void MissingRequired_Fails_WithFeedback()
   {
     SchemaValidation result = ResultSchemaValidator.Validate(
-        """{"type":"object","required":["summary"]}""", """{}""");
+                             /*lang=json,strict*/
+                             """{"type":"object","required":["summary"]}""", """{}""");
 
     Assert.False(result.IsValid);
     Assert.Contains("summary", result.Error, StringComparison.Ordinal);
@@ -32,8 +35,10 @@ public class ResultSchemaValidatorTests
   public void WrongPropertyType_Fails()
   {
     SchemaValidation result = ResultSchemaValidator.Validate(
-        """{"type":"object","properties":{"count":{"type":"number"}}}""",
-        """{"count":"many"}""");
+                             /*lang=json,strict*/
+                             """{"type":"object","properties":{"count":{"type":"number"}}}""",
+                             /*lang=json,strict*/
+                             """{"count":"many"}""");
 
     Assert.False(result.IsValid);
     Assert.Contains("count", result.Error, StringComparison.Ordinal);
@@ -42,14 +47,14 @@ public class ResultSchemaValidatorTests
   [Fact]
   public void WrongTopLevelType_Fails()
   {
-    SchemaValidation result = ResultSchemaValidator.Validate("""{"type":"array"}""", """{}""");
+    SchemaValidation result = ResultSchemaValidator.Validate(/*lang=json,strict*/ """{"type":"array"}""", """{}""");
     Assert.False(result.IsValid);
   }
 
   [Fact]
   public void MalformedReport_IsValidationFailure_NotException()
   {
-    SchemaValidation result = ResultSchemaValidator.Validate("""{"type":"object"}""", "not json");
+    SchemaValidation result = ResultSchemaValidator.Validate(/*lang=json,strict*/ """{"type":"object"}""", "not json");
     Assert.False(result.IsValid);
     Assert.Contains("not valid JSON", result.Error, StringComparison.Ordinal);
   }

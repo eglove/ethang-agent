@@ -1,7 +1,7 @@
-using eThangAgent.SharedKernel;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using eThangAgent.AgentDomain;
+using eThangAgent.SharedKernel;
 using eThangAgent.Transport.ACL;
 
 namespace eThangAgent.ChildHost;
@@ -47,7 +47,7 @@ public sealed class ChildHostServer(NamedPipeChildTransport transport, string se
     }
   }
 
-  private async System.Threading.Tasks.Task HandleStartAsync(TransportEnvelope envelope)
+  private async Task HandleStartAsync(TransportEnvelope envelope)
   {
     StartCommand command = JsonSerializer.Deserialize<StartCommand>(envelope.Json)
         ?? throw new InvalidOperationException("null start command.");
@@ -61,10 +61,10 @@ public sealed class ChildHostServer(NamedPipeChildTransport transport, string se
 
     CancellationTokenSource cts = new();
     _active[command.RecordId] = cts;
-    _ = System.Threading.Tasks.Task.Run(() => RunChildAsync(command, cts));
+    _ = Task.Run(() => RunChildAsync(command, cts));
   }
 
-  private async System.Threading.Tasks.Task RunChildAsync(StartCommand command, CancellationTokenSource cts)
+  private async Task RunChildAsync(StartCommand command, CancellationTokenSource cts)
   {
     try
     {
@@ -114,9 +114,9 @@ public sealed class ChildHostServer(NamedPipeChildTransport transport, string se
     }
   }
 
-  private async System.Threading.Tasks.Task SendAsync(string kind, string json)
+  private async Task SendAsync(string kind, string json)
   {
-    long sequence = System.Threading.Interlocked.Increment(ref _sequence);
+    long sequence = Interlocked.Increment(ref _sequence);
     await transport.SendAsync(new TransportEnvelope(kind, json, sequence)).ConfigureAwait(false);
   }
 }

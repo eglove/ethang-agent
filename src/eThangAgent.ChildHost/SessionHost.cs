@@ -1,10 +1,11 @@
+using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ModelDomain;
+using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
-using System.Text.Json;
 
 namespace eThangAgent.ChildHost;
 
@@ -60,10 +61,10 @@ public sealed class SessionHost
   ///      refusal that the child model can act on.</summary>
   private sealed class NullClarifyChannel : IClarifyChannel
   {
-    public System.Threading.Tasks.Task<eThangAgent.SharedKernel.Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => System.Threading.Tasks.Task.FromResult(
-            eThangAgent.SharedKernel.Result.Failure<string>(
-                new eThangAgent.SharedKernel.DomainError("ClarifyUnavailable",
+    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
+        => Task.FromResult(
+            Result.Failure<string>(
+                new DomainError("ClarifyUnavailable",
                     "sub-agents cannot reach the human; answer from context or proceed without.")));
   }
 }
