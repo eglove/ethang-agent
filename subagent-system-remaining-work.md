@@ -1,10 +1,14 @@
 # Subagent System — Remaining Work
 
-Status: ACTIVE. This document supersedes `subagent-system-spec.md` (deleted): the end-state
-design is implemented on branch `subagent-system` (16+ commits, all tiers T1-T5); this file
-specs only what is left, at the same bar for precision. The binding requirements for anything
-already shipped live in the code, its tests, and the design record at state key
-`specs/2026-07-19-subagent-system`.
+Status: DELIVERED. Every item below shipped on branch `subagent-system` (commits
+3c835b8 R1, 4d7b63c R4, 091169c R3, 6fa65d5 R2, d7899dd R5 + defect wave). This file
+remains as the delivery record; the design record lives at state key
+`specs/2026-07-19-subagent-system` and the binding truth is the code + its tests.
+Scope notes from delivery: R2.3 decided (links in-memory, final for v1); R2's
+notify-subtree/notify-ancestors premise was stale (never shipped per the T4b ruling) —
+agent.route and agent.escalate deliver the actual gaps; R3's accept-loop re-attach
+replaced the single-connection host model, and the fail-fast-child E2E asserts exact
+declare semantics rather than a still-running child.
 
 ---
 
