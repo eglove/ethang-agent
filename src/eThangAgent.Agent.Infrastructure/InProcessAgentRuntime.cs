@@ -143,6 +143,12 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     return Result.Success(record.Id);
   }
 
+  /// <summary>Ids of runs currently executing in THIS runtime — the in-process owner
+  ///     set for exact orphan repair (FR-L8). Queued (not yet started) ids are NOT
+  ///     included: they have never run, so a session restart legitimately orphans them.</summary>
+  public IReadOnlyCollection<Guid> ActiveChildren
+      => [.. _active.Keys.Select(id => id.Value)];
+
   public void Interrupt(AgentId? childId = null)
   {
     if (childId is { } id)

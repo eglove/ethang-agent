@@ -1,10 +1,12 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
+using eThangAgent.AgentInfrastructure;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.Transport.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition;
@@ -69,6 +71,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         await services.DisposeAsync().ConfigureAwait(false);
         return Result.Failure<AgentSession>(bootstrapped.Error);
       }
+
+      // Exact orphan repair at session open (FR-L8, R3.2): a persisted Running record
+      // survives only if the container's runtime or the remote host still owns it.
+      await RepairOrphansAsync(services, ct).ConfigureAwait(false);
 
       // Publish the root id to the container BEFORE the session is handed out: the
       // RootAgentResolver reads it lazily to persist ModelUsed on each selection, so it
@@ -203,6 +209,23 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     // analyzers enforce elsewhere (IDE0046 would fold guard+return into a conditional).
     string full = Path.GetFullPath(workspaceRoot);
     return Result.Success(full);
+  }
+
+  /// <summary>Runs exact orphan repair against this session's runtime and, in remote
+  ///     mode, the host's declared live set. In-process mode the declared set is empty —
+  ///     every Running record not owned by THIS container is an orphan. Failures of the
+  ///     repair never block session open: they surface through the same validation path
+  ///     as any store fault.</summary>
+  private static async Task RepairOrphansAsync(ServiceProvider services, CancellationToken ct)
+  {
+    InProcessAgentRuntime? inProcess = services.GetService<InProcessAgentRuntime>();
+    RemoteAgentRuntime? remote = services.GetService<RemoteAgentRuntime>();
+    OrphanRepairHandler repair = new(
+        services.GetRequiredService<IAgentStore>(),
+        () => inProcess?.ActiveChildren ?? [],
+        () => remote?.DeclaredLiveChildren ?? [],
+        services.GetRequiredService<IWatchdogEventStore>());
+    await repair.RepairAsync(ct).ConfigureAwait(false);
   }
 
   private ServiceProvider BuildContainer(string workspaceRoot, string providerName,

@@ -29,4 +29,13 @@ public sealed record AgentSession(
     SessionModelPreferences? Preferences = null)
 {
   public string ModelId => Model.ModelId;
+
+  /// <summary>Sink for out-of-band session notices (host health, orphan repair),
+  ///     populated by the host UI after the session is constructed: the VM owns the
+  ///     transcript, the session does not. Null = notices are dropped (headless hosts).
+  ///     Thread-safe by contract: invoked from background supervisory paths.</summary>
+  public Action<string>? NoticeSink { get; set; }
+
+  /// <summary>Posts one out-of-band notice to the session surface.</summary>
+  public void PostNotice(string message) => NoticeSink?.Invoke(message);
 }

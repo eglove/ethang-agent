@@ -373,7 +373,9 @@ public static class AgentComposition
               Path.Combine(Path.GetTempPath(), "ethang-agent", sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
               settings,
               sp.GetRequiredService<AppDatabase>().DatabasePath,
-              notice => { }))
+              // Host-health notices surface on the session transcript when the host UI
+              // has attached its notice sink; headless hosts drop them.
+              notice => sp.GetRequiredService<AgentSession>().PostNotice(notice)))
           .AddSingleton<IAgentRuntime>(sp => new RemoteAgentRuntime(
               NamedPipeChildTransport.ConnectToHostAsync(
                   sp.GetRequiredService<RemoteHostSupervisor>().HostPipeName).GetAwaiter().GetResult()));

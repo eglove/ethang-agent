@@ -22,7 +22,9 @@ public static class AgentConfiguration
 
     SubAgentOptions subAgents = SubAgentConfiguration.Bind(
         configuration["SubAgent:DefaultModel"],
-        configuration["SubAgent:MaxConcurrentAgents"]);
+        configuration["SubAgent:MaxConcurrentAgents"],
+        out bool remoteHost,
+        configuration["SubAgent:RemoteHost"]);
 
     return new AgentSettings(
         new OpenRouterSettings(
@@ -36,7 +38,8 @@ public static class AgentConfiguration
             BindBaseUrl("ZAI_BASE_URL",
                 Environment.GetEnvironmentVariable("ZAI_BASE_URL"), ZaiConfiguration.DefaultBaseUrl),
             BindEndpointMode(Environment.GetEnvironmentVariable("ZAI_ENDPOINT_MODE"))),
-        subAgents);
+        subAgents,
+        RemoteHost: remoteHost);
   }
 
   /// <summary>Parses the endpoint-mode variable: exactly <c>coding</c> or <c>general</c>.

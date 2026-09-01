@@ -16,11 +16,12 @@ namespace eThangAgent.Composition;
 ///     wall-clock is never a child cancellation source.</summary>
 public static class SubAgentConfiguration
 {
-  public static SubAgentOptions Bind(string? defaultModel, string? maxConcurrentAgents, string? remoteHost = null)
+  public static SubAgentOptions Bind(string? defaultModel, string? maxConcurrentAgents,
+      out bool remoteHost, string? remoteHostValue = null)
   {
     ValidateDefaultModel(defaultModel);
     int maxConcurrent = ParseMaxConcurrentAgents(maxConcurrentAgents);
-    _ = ParseRemoteHost(remoteHost); // validation only here; hosts read the flag for runtime wiring
+    remoteHost = ParseRemoteHost(remoteHostValue); // hosts wire the remote runtime when true
     return new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent);
   }
 

@@ -12,7 +12,7 @@ public class SubAgentConfigurationTests
   [Fact]
   public void Bind_MissingSection_UsesDefaults()
   {
-    SubAgentOptions options = SubAgentConfiguration.Bind(defaultModel: null, maxConcurrentAgents: "2");
+    SubAgentOptions options = SubAgentConfiguration.Bind(defaultModel: null, maxConcurrentAgents: "2", out _);
 
     Assert.Equal(2, options.MaxConcurrentAgents);
     Assert.Null(options.DefaultModel);
@@ -22,7 +22,7 @@ public class SubAgentConfigurationTests
   [Fact]
   public void Bind_ExplicitValues_Bind()
   {
-    SubAgentOptions options = SubAgentConfiguration.Bind("provider/model", "2");
+    SubAgentOptions options = SubAgentConfiguration.Bind("provider/model", "2", out _);
 
     Assert.Equal("provider/model", options.DefaultModel);
     Assert.Equal(2, options.MaxConcurrentAgents);
@@ -34,7 +34,7 @@ public class SubAgentConfigurationTests
   public void Bind_EmptyModelString_IsStartupError(string model)
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(model, "2"));
+        () => SubAgentConfiguration.Bind(model, "2", out _));
 
     Assert.Contains("SubAgent:DefaultModel", error.Message, StringComparison.Ordinal);
   }
@@ -43,7 +43,7 @@ public class SubAgentConfigurationTests
   public void Bind_MissingMaxConcurrentAgents_IsStartupError()
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, null));
+        () => SubAgentConfiguration.Bind(null, null, out _));
 
     Assert.Equal("SubAgent:MaxConcurrentAgents is required. Set it to a positive integer.",
         error.Message);
@@ -53,7 +53,7 @@ public class SubAgentConfigurationTests
   public void Bind_UnparseableMaxConcurrentAgents_IsStartupError()
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, "abc"));
+        () => SubAgentConfiguration.Bind(null, "abc", out _));
 
     Assert.Contains("must be a positive integer of at least 1, got 'abc'.",
         error.Message, StringComparison.Ordinal);
@@ -65,7 +65,7 @@ public class SubAgentConfigurationTests
   public void Bind_MaxConcurrentAgentsBelowOne_IsStartupError(string maxConcurrentAgents)
   {
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, maxConcurrentAgents));
+        () => SubAgentConfiguration.Bind(null, maxConcurrentAgents, out _));
 
     Assert.Contains("must be a positive integer of at least 1, got '" + maxConcurrentAgents + "'.",
         error.Message, StringComparison.Ordinal);
@@ -74,8 +74,39 @@ public class SubAgentConfigurationTests
   [Fact]
   public void Bind_ExplicitMaxConcurrentAgents_FlowsIntoOptions()
   {
-    SubAgentOptions options = SubAgentConfiguration.Bind("provider/model", "4");
+    SubAgentOptions options = SubAgentConfiguration.Bind("provider/model", "4", out _);
 
     Assert.Equal(4, options.MaxConcurrentAgents);
+  }
+
+  [Fact]
+  public void Bind_RemoteHostAbsent_False()
+  {
+    _ = SubAgentConfiguration.Bind(null, "2", out bool remote);
+
+    Assert.False(remote);
+  }
+
+  [Theory]
+  [InlineData("true", true)]
+  [InlineData("TRUE", true)]
+  [InlineData("false", false)]
+  public void Bind_RemoteHost_Binds(string value, bool expected)
+  {
+    _ = SubAgentConfiguration.Bind(null, "2", out bool remote, value);
+
+    Assert.Equal(expected, remote);
+  }
+
+  [Theory]
+  [InlineData("")]
+  [InlineData("yes")]
+  [InlineData("1")]
+  public void Bind_RemoteHostNonBoolean_IsStartupError(string value)
+  {
+    InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+        () => SubAgentConfiguration.Bind(null, "2", out _, value));
+
+    Assert.Contains("SubAgent:RemoteHost must be 'true' or 'false'", error.Message, StringComparison.Ordinal);
   }
 }
