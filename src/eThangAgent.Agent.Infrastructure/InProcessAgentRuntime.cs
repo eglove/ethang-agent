@@ -27,6 +27,10 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   // Per-child mailbox registry: Deliver from any sender; Drain by the owner loop at safe
   // points. Between-turn durability rides IMailboxStore (FR-C5).
   private readonly ConcurrentDictionary<AgentId, BoundedAgentMailbox> _mailboxes = [];
+
+  // Per-agent preemption grant (D1): whether THIS agent's contract grants Urgent
+  // preemption. Consulted by Deliver when the sender is a granted agent.
+  private readonly ConcurrentDictionary<Guid, bool> _preemptGrants = [];
   private readonly IMailboxStore? _mailboxStore;
   private readonly IAgentEvents? _events;
   private readonly ChildSupervisorRegistry? _supervisors;
@@ -74,6 +78,8 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       supervisor.OnStart(record.Attempts);
       _supervisors.Register(record.Id, supervisor);
     }
+
+    _preemptGrants[record.Id.Value] = record.Contract is { } contractJson && SpawnContract.Decode(contractJson).PreemptGrant;
     _ = _settling.AddOrUpdate(record.Id,
         static _ => NewSettleSource(),
         static (_, existing) => existing.Task.IsCompleted ? NewSettleSource() : existing);
@@ -290,10 +296,25 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     }
 
     Result<bool> delivered = mailbox.Deliver(message);
-    if (delivered.IsSuccess && _events is not null)
+    if (delivered.IsSuccess)
     {
-      _events.Publish(new MessageDeliveredEvent(id, DateTimeOffset.UtcNow, "inbound",
+      _events?.Publish(new MessageDeliveredEvent(id, DateTimeOffset.UtcNow, "inbound",
           (int)message.Urgency, System.Text.Encoding.UTF8.GetByteCount(message.Text)));
+
+      // Urgent + sender-granted + receiver running => audited preemption (approved D1).
+      // The interrupted turn repairs via the cancelled-turn path; the urgent message
+      // drains at the repaired turn's start.
+      bool senderGranted = message.Sender.StartsWith("agent:", StringComparison.Ordinal)
+          && Guid.TryParse(message.Sender[6..], out Guid senderId)
+          && _preemptGrants.TryGetValue(senderId, out bool granted)
+          && granted;
+      if (PreemptionPolicy.Decide(senderGranted, message.Urgency, receiverRunning: true)
+          is PreemptionDecision.PreemptGranted)
+      {
+        _events?.Publish(new PreemptedEvent(id, DateTimeOffset.UtcNow, message.Sender,
+            (int)message.Urgency));
+        Interrupt(id);
+      }
     }
 
     return delivered;

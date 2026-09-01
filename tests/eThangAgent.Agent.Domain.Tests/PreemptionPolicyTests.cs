@@ -1,6 +1,5 @@
-using eThangAgent.AgentDomain;
 
-namespace eThangAgent.Agent.Application.Tests;
+namespace eThangAgent.AgentDomain.Tests;
 
 /// <summary>The approved preemption matrix (D1/D4-revised): Urgent preempts only with a
 ///     contract grant and a running receiver; everything else drains at boundaries.</summary>

@@ -1,6 +1,5 @@
-using eThangAgent.AgentDomain;
 
-namespace eThangAgent.Agent.Application;
+namespace eThangAgent.AgentDomain;
 
 /// <summary>Pure preemption decision policy (approved D1 / D4-revised). No I/O, no clock:
 ///     the caller hands in facts and audits the decision. Normal never preempts; Attention
