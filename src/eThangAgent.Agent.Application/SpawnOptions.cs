@@ -12,8 +12,12 @@ namespace eThangAgent.Agent.Application;
 ///     children follow it ahead of the static configured default.</param>
 /// <param name="MaxTokens">Max tokens for the child's model config.</param>
 /// <param name="Temperature">Temperature for the child's model config.</param>
+/// <param name="ChildToolSurface">The parent's effective child tool surface (action ids);
+///     grant validation measures requested allows against it. Null disables widening checks
+///     (legacy wiring/tests only).</param>
 public sealed record SpawnOptions(
     string FallbackModelId,
     SessionModelPreferences? Preferences = null,
     int MaxTokens = 4096,
-    float Temperature = 0.7f);
+    float Temperature = 0.7f,
+    IReadOnlySet<string>? ChildToolSurface = null);

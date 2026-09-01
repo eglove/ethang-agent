@@ -346,8 +346,43 @@ public sealed class AgentCapabilityProvider(
         return (null, labelError);
       }
 
+      SpawnContract? contract = null;
+      if (doc.RootElement.TryGetProperty("grants", out JsonElement grantsElement))
+      {
+        if (grantsElement.ValueKind is not JsonValueKind.Object)
+        {
+          return (null, "'grants' must be an object with optional tool.allow / tool.deny entries.");
+        }
+
+        Dictionary<string, string> parsed = [];
+        foreach (string key in new[] { ToolGrantPolicy.AllowKey, ToolGrantPolicy.DenyKey })
+        {
+          if (!grantsElement.TryGetProperty(key, out JsonElement value))
+          {
+            continue;
+          }
+
+          parsed[key] = value.ValueKind switch
+          {
+            JsonValueKind.String => value.GetString() ?? "",
+            JsonValueKind.Array => string.Join(";", value.EnumerateArray()
+                .Where(item => item.ValueKind is JsonValueKind.String)
+                .Select(item => item.GetString())),
+            JsonValueKind.Number => string.Empty,
+            JsonValueKind.True => string.Empty,
+            JsonValueKind.False => string.Empty,
+            JsonValueKind.Null => string.Empty,
+            JsonValueKind.Object => string.Empty,
+            JsonValueKind.Undefined => string.Empty,
+            _ => string.Empty,
+          };
+        }
+
+        contract = new SpawnContract(CapabilityGrants: parsed);
+      }
+
       return (new SpawnRequest(taskPrompt!, string.IsNullOrEmpty(model) ? null : model,
-          string.IsNullOrEmpty(label) ? null : label), null);
+          string.IsNullOrEmpty(label) ? null : label, Contract: contract), null);
     }
   }
 

@@ -38,6 +38,23 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       return Result.Failure<AgentId>(new DomainError("InvalidSpawnRequest", violation.Message));
     }
 
+    // Grant validation (D9/A5): privilege cannot grow down the tree. A spawn whose
+    // allow-list names tools outside the parent's effective set fails strictly.
+    if (request.Contract?.CapabilityGrants is { } grants)
+    {
+      ToolGrantPolicy grantPolicy = new(grants);
+      if (grantPolicy.HasGrants)
+      {
+        IReadOnlySet<string> parentEffective = _spawn.ChildToolSurface ?? new HashSet<string>(StringComparer.Ordinal);
+        IReadOnlyList<string> widening = grantPolicy.WideningViolations(parentEffective);
+        if (widening.Count > 0)
+        {
+          return Result.Failure<AgentId>(new DomainError("InvalidSpawnRequest",
+              "capability grants widen beyond the parent's effective set: " + string.Join(", ", widening)));
+        }
+      }
+    }
+
     if (parent.Depth >= _options.MaxDepth)
     {
       return Result.Failure<AgentId>(new DomainError("DepthExceeded",
