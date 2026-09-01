@@ -74,7 +74,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
       // Exact orphan repair at session open (FR-L8, R3.2): a persisted Running record
       // survives only if the container's runtime or the remote host still owns it.
-      await RepairOrphansAsync(services, ct).ConfigureAwait(false);
+      await RepairOrphansAsync(services, bootstrapped.Value, ct).ConfigureAwait(false);
 
       // Publish the root id to the container BEFORE the session is handed out: the
       // RootAgentResolver reads it lazily to persist ModelUsed on each selection, so it
@@ -216,7 +216,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   ///     every Running record not owned by THIS container is an orphan. Failures of the
   ///     repair never block session open: they surface through the same validation path
   ///     as any store fault.</summary>
-  private static async Task RepairOrphansAsync(ServiceProvider services, CancellationToken ct)
+  private static async Task RepairOrphansAsync(ServiceProvider services, AgentId rootId, CancellationToken ct)
   {
     InProcessAgentRuntime? inProcess = services.GetService<InProcessAgentRuntime>();
     RemoteAgentRuntime? remote = services.GetService<RemoteAgentRuntime>();
@@ -224,7 +224,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         services.GetRequiredService<IAgentStore>(),
         () => inProcess?.ActiveChildren ?? [],
         () => remote?.DeclaredLiveChildren ?? [],
-        services.GetRequiredService<IWatchdogEventStore>());
+        services.GetRequiredService<IWatchdogEventStore>(),
+        exempt: rootId);
     await repair.RepairAsync(ct).ConfigureAwait(false);
   }
 

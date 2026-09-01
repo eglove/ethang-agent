@@ -14,7 +14,8 @@ public sealed class OrphanRepairHandler(
     IAgentStore store,
     Func<IReadOnlyCollection<Guid>> inProcessLive,
     Func<IReadOnlyCollection<Guid>> declaredLive,
-    IWatchdogEventStore? audit = null)
+    IWatchdogEventStore? audit = null,
+    AgentId? exempt = null)
 {
   public async Task RepairAsync(CancellationToken ct = default)
   {
@@ -27,7 +28,9 @@ public sealed class OrphanRepairHandler(
     HashSet<Guid> owners = [.. inProcessLive(), .. declaredLive()];
     foreach (AgentRecord record in listed.Value)
     {
-      if (record.Status is not AgentStatus.Running || owners.Contains(record.Id.Value))
+      // The session's own root is Running by design between turns — it is not a child
+      // and has no runtime owner; repair never touches it.
+      if (record.Status is not AgentStatus.Running || owners.Contains(record.Id.Value) || record.Id == exempt)
       {
         continue;
       }

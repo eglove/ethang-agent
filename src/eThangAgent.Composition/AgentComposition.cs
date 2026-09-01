@@ -211,7 +211,7 @@ public static class AgentComposition
             sp.GetRequiredService<SessionModelPreferences>(),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<DefaultContextCompactor>()))
-        .AddSingleton<IAgentRuntime>(sp => new InProcessAgentRuntime(
+        .AddSingleton(sp => new InProcessAgentRuntime(
             sp.GetRequiredService<SubAgentSpawner>(),
             sp.GetRequiredService<IAgentStore>(),
             settings.SubAgents.MaxConcurrentAgents,
@@ -219,6 +219,7 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentEvents>(),
             sp.GetRequiredService<ChildSupervisorRegistry>(),
             sp.GetRequiredService<ChildMailboxRegistry>()))
+        .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<InProcessAgentRuntime>())
         .AddSingleton<IAgentSpawnCommand>(sp => new StartSpawnHandler(
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<IAgentRuntime>(),
@@ -379,9 +380,11 @@ public static class AgentComposition
               // Host-health notices surface on the session transcript when the host UI
               // has attached its notice sink; headless hosts drop them.
               notice => sp.GetRequiredService<AgentSession>().PostNotice(notice)))
-          .AddSingleton<IAgentRuntime>(sp => new RemoteAgentRuntime(
-              NamedPipeChildTransport.ConnectToHostAsync(
-                  sp.GetRequiredService<RemoteHostSupervisor>().HostPipeName).GetAwaiter().GetResult()));
+          // The runtime starts DISCONNECTED: RepairOrphansAsync -> AttachAsync owns
+          // connecting (once), starting the pump, and reading the declared live set.
+          // A connection attempt at registration would race the host's single accept.
+          .AddSingleton<RemoteAgentRuntime>()
+          .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<RemoteAgentRuntime>());
     }
 
     return wired;

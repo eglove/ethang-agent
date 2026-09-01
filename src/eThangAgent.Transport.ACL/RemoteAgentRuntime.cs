@@ -10,8 +10,20 @@ namespace eThangAgent.Transport.ACL;
 ///     named-pipe transport. Delivery semantics: at-least-once on the wire with host acks —
 ///     presented to the domain as the same surface the in-process runtime exposes (D11).
 ///     OwnedChildren records which ids are remote so orphan repair can be exact (FR-L8).</summary>
-public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAgentRuntime
+public sealed class RemoteAgentRuntime : IAgentRuntime
 {
+  private NamedPipeChildTransport? _transport;
+
+  /// <summary>Creates a DISCONNECTED runtime (composition, remote mode): AttachAsync
+  ///     owns connecting, starting the pump, and reading the host's declared set.</summary>
+  public RemoteAgentRuntime()
+  {
+  }
+
+  /// <summary>Creates a runtime over an already-connected transport (tests, replays).</summary>
+  public RemoteAgentRuntime(NamedPipeChildTransport? transport)
+      => _transport = transport;
+
   private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentRunOutcome>> _settling = [];
   private readonly ConcurrentDictionary<Guid, byte> _owned = [];
   private Guid[] _declaredLive = [];
@@ -42,8 +54,11 @@ public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAge
   public void ReplaceTransport(NamedPipeChildTransport fresh)
   {
     ArgumentNullException.ThrowIfNull(fresh);
-    NamedPipeChildTransport? stale = Interlocked.Exchange(ref transport, fresh);
-    _ = Task.Run(async () => await stale.DisposeAsync().ConfigureAwait(false)).ConfigureAwait(false);
+    NamedPipeChildTransport? stale = Interlocked.Exchange(ref _transport, fresh);
+    if (stale is not null)
+    {
+      _ = Task.Run(async () => await stale.DisposeAsync().ConfigureAwait(false)).ConfigureAwait(false);
+    }
   }
 
   /// <summary>Starts the host-side receive loop. Call once after connecting; every settle
@@ -117,6 +132,7 @@ public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAge
     {
       while (!ct.IsCancellationRequested)
       {
+        NamedPipeChildTransport transport = _transport ?? throw new TransportClosedException("the runtime is not attached to a host pipe.");
         TransportEnvelope envelope = await transport.ReceiveAsync(ct).ConfigureAwait(false);
         if (envelope.Kind == "declare")
         {
@@ -152,7 +168,7 @@ public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAge
           }
         }
 
-        await transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence), ct).ConfigureAwait(false);
+        await _transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence), ct).ConfigureAwait(false);
       }
     }
     // Named decision (CA1031): the pump is the connection's fault boundary. Cancellation
@@ -184,6 +200,7 @@ public sealed class RemoteAgentRuntime(NamedPipeChildTransport transport) : IAge
     long sequence = Interlocked.Increment(ref _sequence);
     try
     {
+      NamedPipeChildTransport transport = _transport ?? throw new TransportClosedException("the runtime is not attached to a host pipe.");
       await transport.SendAsync(new TransportEnvelope(kind, json, sequence), ct).ConfigureAwait(false);
       return true;
     }
