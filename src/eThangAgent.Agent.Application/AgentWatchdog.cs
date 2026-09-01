@@ -124,6 +124,17 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
     {
       try
       {
+        // Hard budget ceiling: one mechanism, two policies (D8) — same interrupt path as a
+        // watchdog terminal decision, audited as BudgetExhausted.
+        if (supervisor.HardCeilingReached)
+        {
+          services.Runtime.Interrupt(supervisor.ChildId);
+          await AppendAsync(new WatchdogEvent(Guid.NewGuid(), supervisor.ChildId,
+              WatchdogEventKind.TerminalReport, "budget hard ceiling reached", supervisor.Attempts, null,
+              services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
+          continue;
+        }
+
         ChildIdleAlertEvent? alert = supervisor.CheckIdle(services.Policy.IdleThreshold);
         if (alert is null)
         {

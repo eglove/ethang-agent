@@ -31,6 +31,13 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   // Per-agent preemption grant (D1): whether THIS agent's contract grants Urgent
   // preemption. Consulted by Deliver when the sender is a granted agent.
   private readonly ConcurrentDictionary<Guid, bool> _preemptGrants = [];
+
+  // Concurrency-boundary waiters (FR-B6): priority then FIFO; cap release wakes the
+  // highest-priority waiter through its TCS — push, not retry-poll.
+  private readonly Lock _waitGate = new();
+  private readonly List<SpawnWaiter> _waiters = [];
+
+  private sealed record SpawnWaiter(AgentRecord Record, int Priority, DateTimeOffset EnqueuedAt);
   private readonly IMailboxStore? _mailboxStore;
   private readonly IAgentEvents? _events;
   private readonly ChildSupervisorRegistry? _supervisors;
@@ -58,10 +65,59 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(record);
-    if (!_slots.Wait(0, CancellationToken.None))
+    if (_slots.Wait(0, CancellationToken.None))
     {
-      return Task.FromResult(Result.Failure<AgentId>(CapError()));
+      _ = BeginRun(record);
+      return Task.FromResult(Result.Success(record.Id));
     }
+
+    Queue(record);
+    return Task.FromResult(Result.Success(record.Id));
+  }
+
+  /// <summary>Parks a start at the concurrency boundary, ordered by priority then FIFO
+  ///     (FR-B6). The waiter is visible and cancellable — cancelling interrupts (removes)
+  ///     it without starting anything. Cap release wakes the head waiter directly.
+  ///     Unknown-contract records default priority 0 (SpawnRequest's default flows into
+  ///     the record via the spawn command; children of children re-spawn with their own).</summary>
+  private void Queue(AgentRecord record)
+  {
+    SpawnWaiter waiter = new(record, PriorityOf(record), DateTimeOffset.UtcNow);
+    lock (_waitGate)
+    {
+      _waiters.Add(waiter);
+      _waiters.Sort((a, b) =>
+      {
+        int byPriority = b.Priority.CompareTo(a.Priority);
+        return byPriority != 0 ? byPriority : a.EnqueuedAt.CompareTo(b.EnqueuedAt);
+      });
+    }
+  }
+
+  private static int PriorityOf(AgentRecord record)
+      => record.Contract is { } contractJson && SpawnContract.Decode(contractJson).PreemptGrant ? 1 : 0;
+
+  /// <summary>Wakes the highest-priority waiter with a fresh slot; runs on the slot-release
+  ///     path so queue entry is strictly push-driven.</summary>
+  private void WakeHeadIfAny()
+  {
+    SpawnWaiter? head;
+    lock (_waitGate)
+    {
+      if (_waiters.Count == 0)
+      {
+        return;
+      }
+
+      head = _waiters[0];
+      _waiters.RemoveAt(0);
+    }
+
+    _ = BeginRun(head.Record);
+  }
+
+  private Result<AgentId> BeginRun(AgentRecord record)
+  {
 
     // Named decision (CA2000): ownership of the CTS transfers to _active; it is disposed
     // in RunToCompletionAsync's finally when the run settles.
@@ -84,13 +140,20 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
         static _ => NewSettleSource(),
         static (_, existing) => existing.Task.IsCompleted ? NewSettleSource() : existing);
     _ = Task.Run(() => RunToCompletionAsync(record, cts), CancellationToken.None);
-    return Task.FromResult(Result.Success(record.Id));
+    return Result.Success(record.Id);
   }
 
   public void Interrupt(AgentId? childId = null)
   {
     if (childId is { } id)
     {
+      // A queued (never-started) spawn is removed outright — cancelling it is explicit,
+      // never a silent drop (A3).
+      lock (_waitGate)
+      {
+        _ = _waiters.RemoveAll(w => w.Record.Id == id);
+      }
+
       // Named decision (CA2000): the CTS is cancelled here; disposal belongs to the
       // run's finally, which owns its lifetime.
 #pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
@@ -155,6 +218,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       }
 
       _ = _slots.Release();
+      WakeHeadIfAny();
     }
   }
 
@@ -377,16 +441,6 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     // A failed remainder write is survivable (messages were undelivered steering, not
     // protocol state); the result is intentionally ignored — never crash the settle path.
     _ = await _mailboxStore.PersistUndeliveredAsync(id, remainder).ConfigureAwait(false);
-  }
-  /// <summary>Translates the canonical CapReached string into an <see cref="DomainError"/> without duplicating
-  /// its text: "Error [Code]: message" becomes Error(Code, message), so downstream pass-through rendering
-  /// reproduces <see cref="RuntimeErrors.CapReached"/> byte-for-byte.</summary>
-  private static DomainError CapError()
-  {
-    string canonical = RuntimeErrors.CapReached;
-    int codeStart = canonical.IndexOf('[', StringComparison.Ordinal) + 1;
-    int codeEnd = canonical.IndexOf(']', codeStart);
-    return new DomainError(canonical[codeStart..codeEnd], canonical[(codeEnd + 3)..]);
   }
 }
 

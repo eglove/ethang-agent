@@ -101,16 +101,36 @@ public class ChildSupervisorTests
     supervisor.OnUsage(new TokenUsage(300, 300)); // 600 < 800
     Assert.Empty(seen);
 
-    supervisor.OnUsage(new TokenUsage(300, 300)); // 1200 >= 800: alert
+    supervisor.OnUsage(new TokenUsage(300, 300)); // 1200 >= 800 soft, and also >= 1000 hard: the hard kind wins
     _ = Assert.Single(seen);
 
     supervisor.OnUsage(new TokenUsage(100, 100)); // already alerted
     _ = Assert.Single(seen);
 
     ChildBudgetAlertEvent alert = (ChildBudgetAlertEvent)seen[0];
-    Assert.Equal("tokens", alert.BudgetKind);
+    Assert.Equal("tokens:hard", alert.BudgetKind);
     Assert.Equal(1200, alert.Consumed);
     Assert.Equal(1000, alert.Ceiling);
+  }
+
+  [Fact]
+  public void Usage_CrossingOnlySoftThreshold_AlertKindIsSoft()
+  {
+    StubClock clock = new(T0);
+    FakeEventStream events = new();
+    List<ChildEvent> seen = [];
+    using IDisposable lease = events.Subscribe(new Collecting(seen));
+    ChildSupervisor supervisor = new(new AgentId(Guid.NewGuid()), events, clock,
+        new BudgetCeilings(MaxTokens: 2000));
+    supervisor.OnStart(1);
+
+    supervisor.OnUsage(new TokenUsage(600, 600)); // 1200 >= 1600? no -> no alert
+    supervisor.OnUsage(new TokenUsage(300, 300)); // 1800 >= 1600 soft, < 2000 hard
+
+    _ = Assert.Single(seen);
+    ChildBudgetAlertEvent alert = (ChildBudgetAlertEvent)seen[0];
+    Assert.Equal("tokens", alert.BudgetKind);
+    Assert.False(supervisor.HardCeilingReached);
   }
 
   [Fact]

@@ -64,19 +64,28 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
     lock (_gate)
     {
       _tokens += usage.InputTokens + usage.OutputTokens;
+      bool hard = ceilings?.MaxTokens is { } hardCeiling && _tokens >= hardCeiling;
       if (ceilings?.MaxTokens is { } tokenCeiling && _tokens >= tokenCeiling * DefaultSoftThreshold
-          && _budgetAlerts.Add($"tokens:{tokenCeiling}"))
+          && _budgetAlerts.Add($"tokens:{(hard ? "hard" : "soft")}:{tokenCeiling}"))
       {
-        alert = new ChildBudgetAlertEvent(ChildId, clock.GetUtcNow(), "tokens", _tokens,
-            tokenCeiling, BurnRatePerMinute());
+        alert = new ChildBudgetAlertEvent(ChildId, clock.GetUtcNow(),
+            hard ? "tokens:hard" : "tokens", _tokens, tokenCeiling, BurnRatePerMinute());
       }
     }
 
     if (alert is not null)
     {
       events.Publish(alert);
+      if (alert.BudgetKind == "tokens:hard")
+      {
+        HardCeilingReached = true;
+      }
     }
   }
+
+  /// <summary>Facts for policy: a hard ceiling was crossed and enforcement has not run yet.
+  ///     The watchdog (or host) enacts the interrupt — one mechanism, two policies (D8).</summary>
+  public bool HardCeilingReached { get; private set; }
 
   /// <summary>Idle observation for the watchdog tick. Returns the alert exactly once per
   ///     idle episode; a subsequent beat re-arms it.</summary>

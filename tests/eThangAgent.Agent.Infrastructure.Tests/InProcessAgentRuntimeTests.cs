@@ -225,13 +225,12 @@ public class InProcessAgentRuntimeTests
     Assert.True(accepted.IsSuccess);
     await runner.FirstCall.ConfigureAwait(true); // the sole slot's child is provably in-flight
 
-    Result<AgentId> rejected = await runtime.Start(RunningChild(), ct: TestContext.Current.CancellationToken);
+    Result<AgentId> queued = await runtime.Start(RunningChild(), ct: TestContext.Current.CancellationToken);
 
-    Assert.False(rejected.IsSuccess);
-    Assert.NotNull(rejected.Error);
-    Assert.Equal(RuntimeErrors.CapReached,
-        $"Error [{rejected.Error.Code}]: {rejected.Error.Message}");
-    _ = Assert.Single(runner.Started); // rejected request never reached the runner
+    // FR-B6 contract: at-capacity starts QUEUE (visible, cancellable) and report success
+    // immediately — the caller never blocks and never sees CapReached (FR-L1 stable).
+    Assert.True(queued.IsSuccess);
+    _ = Assert.Single(runner.Started); // only the first child reached the runner
     Assert.Empty(store.Updates); // nothing persisted by either start yet
   }
 
@@ -247,23 +246,21 @@ public class InProcessAgentRuntimeTests
     Assert.True(firstStart.IsSuccess);
     await runner.FirstCall.ConfigureAwait(true);
 
-    Result<AgentId> blocked = await runtime.Start(RunningChild(), ct: TestContext.Current.CancellationToken);
-    Assert.False(blocked.IsSuccess); // slot held by the gated child
+    AgentRecord next = RunningChild();
+    Result<AgentId> queued = await runtime.Start(next, ct: TestContext.Current.CancellationToken);
+    Assert.True(queued.IsSuccess); // queued, not rejected
+    _ = Assert.Single(runner.Started); // still only the gated child runs
 
     runner.Complete(CompletedOutcome(first.Id, "first done"));
     _ = await store.FirstUpdate.ConfigureAwait(true); // terminal update landed
 
-    AgentRecord next = RunningChild();
-    // Slot release races the awaited update; poll briefly until the freed slot admits the child.
-    Result<AgentId> secondStart = await runtime.Start(next, ct: TestContext.Current.CancellationToken);
+    // The freed slot admits the queued child WITHOUT any further Start call (FR-B6 push).
     DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-    while (!secondStart.IsSuccess && DateTime.UtcNow < deadline)
+    while (runner.Started.Count < 2 && DateTime.UtcNow < deadline)
     {
       await Task.Delay(10, TestContext.Current.CancellationToken);
-      secondStart = await runtime.Start(next, ct: TestContext.Current.CancellationToken);
     }
 
-    Assert.True(secondStart.IsSuccess);
-    Assert.Equal(next.Id, secondStart.Value);
+    Assert.Equal(2, runner.Started.Count);
   }
 }
