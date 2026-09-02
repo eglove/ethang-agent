@@ -87,7 +87,7 @@ public sealed class SqliteAppPreferenceStoreTests : IDisposable
     using SqliteConnection connection = _db.Open();
     using SqliteCommand version = connection.CreateCommand();
     version.CommandText = "PRAGMA user_version;";
-    Assert.Equal(11, Convert.ToInt32(version.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture));
+    Assert.Equal(12, Convert.ToInt32(version.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture));
 
     using SqliteCommand table = connection.CreateCommand();
     table.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'app_preferences';";

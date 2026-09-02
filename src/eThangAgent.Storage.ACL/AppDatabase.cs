@@ -122,6 +122,11 @@ public sealed class AppDatabase
       ApplyV11(connection);
       SetVersion(connection, 11);
     }
+    if (GetVersion(connection) < 12)
+    {
+      ApplyV12(connection);
+      SetVersion(connection, 12);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -464,6 +469,28 @@ public sealed class AppDatabase
             text       TEXT NOT NULL,
             created_at TEXT NOT NULL,
             PRIMARY KEY (agent_id, seq)
+        );
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V12 adds agent_links: consented named links persisted per workspace (W2).
+  ///     Consent decisions survive restarts; revocation deletes the row; replace-by-name
+  ///     semantics ride the (workspace_id, name) primary key.</summary>
+  private static void ApplyV12(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS agent_links (
+            workspace_id  TEXT NOT NULL,
+            name          TEXT NOT NULL,
+            container     TEXT NOT NULL,
+            agent_address TEXT NOT NULL,
+            created_at    TEXT NOT NULL,
+            PRIMARY KEY (workspace_id, name)
         );
         """;
     using SqliteCommand command = connection.CreateCommand();
