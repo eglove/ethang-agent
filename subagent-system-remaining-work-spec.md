@@ -15,7 +15,7 @@ COMPLETE (97a78fc)** — 3.1 locator seam + capability-provider fallback, 3.2 co
 delivery defect found and fixed in the same change: the ChildHost's wire deliver path
 fed a server-owned mailbox the child loop never drained (the SessionHost inboxFor
 bridge was dead code); delivery now resolves through the child container's own
-registry, pinned by ChildHostDeliverWireTests. W4–W6 untouched.
+registry, pinned by ChildHostDeliverWireTests. **W4 COMPLETE** — 4.1/4.2 notify-subtree/notify-ancestors (capability actions over a new `IAgentQueries.ListChildrenAsync` walk, escalate-format receipts), 4.3 capability door + ExecGuide 2.8, 4.4 unread badge (`MailboxDrainedEvent`, supervisor-feed no-beat pin, Desktop tab badge through the real shell wiring) — with a delivery defect found and fixed by the W4 E2E: `CapabilityNameRules` rejected hyphenated action names, killing every session at registry construction (relaxed with a reasoned named decision; stale ChildHost exe rebuilt). W5–W6 untouched.
 
 ## Ground rules (carry from the ledger — read before writing code)
 
@@ -136,7 +136,7 @@ agent in a DIFFERENT session or container — the documented purpose of links �
     (steering-bridge test shape); remote variant — B's child runs in the ChildHost, the
     locator delivers over the wire, drain observed in the child's transcript.
 
-## W4 — Steering surface completion (notify-subtree / notify-ancestors / unread)
+## W4 — Steering surface completion (notify-subtree / notify-ancestors / unread) — DELIVERED
 
 The source spec's broadcast vocabulary (FR-C2/C7) never shipped: `notify-subtree` and
 `notify-ancestors` do not exist anywhere in `src` (verified by source search; the earlier

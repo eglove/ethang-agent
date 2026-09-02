@@ -33,6 +33,11 @@ public sealed record ChildSettledEvent(AgentId ChildId, DateTimeOffset At, Agent
 public sealed record MessageDeliveredEvent(AgentId ChildId, DateTimeOffset At, string Direction, int Urgency, int Size)
     : ChildEvent(ChildId, At);
 
+/// <summary>The owning loop drained its mailbox at a safe point (W4.4). Count is the
+/// number of messages taken; content stays out (D5). Mailbox-lifecycle, not progress.</summary>
+public sealed record MailboxDrainedEvent(AgentId ChildId, DateTimeOffset At, int Count)
+    : ChildEvent(ChildId, At);
+
 /// <summary>A turn was interrupted by an Urgent message under an audited policy grant (D4-revised).</summary>
 public sealed record PreemptedEvent(AgentId ChildId, DateTimeOffset At, string ByWhom, int Urgency)
     : ChildEvent(ChildId, At);

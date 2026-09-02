@@ -21,7 +21,7 @@ safely (W2.1, W2.5) DELIVERED (4107a90, b29f1c9) — scenarios below are impleme
 their pins green. **W3 COMPLETE** — "A link can be dialed outside its session"
 DELIVERED (locator seam + composition wiring + both E2E variants; the remote variant
 exposed and fixed a real defect: the host's wire deliver path fed a mailbox the child
-loop never drained — now pinned by ChildHostDeliverWireTests). W4–W6 not started.
+loop never drained — now pinned by ChildHostDeliverWireTests). **W4 COMPLETE** — One call reaches a whole subtree, One call reaches every ancestor, The broadcast actions exist and are documented, and The user sees a child's unread steering DELIVERED (capability actions + `MailboxDrainedEvent` + Desktop tab badge; delivery defect found+fixed: the capability-name rule rejected hyphenated action names — relaxed with a reasoned named decision, remote E2Es needed a rebuilt ChildHost exe) — scenarios below are implemented and their pins green. W5–W6 not started.
 
 The spec's ground rules — delivery review traces every resolve→invoke chain in the real host,
 both halves of every seam get end-to-end tests, detached test rigs, doctrine tests stay green,
@@ -295,9 +295,9 @@ every real case — links without cross-container delivery are inert.
 
 ---
 
-## W4 — Steering surface completion
+## W4 — Steering surface completion — DELIVERED
 
-### Feature: One call reaches a whole subtree (W4.1)
+### Feature: One call reaches a whole subtree (W4.1) — DELIVERED
 
 `agent.notify-subtree(text, urgency)` broadcasts to every live descendant. Delivery is
 best-effort with per-target receipts — every failure has a surface (A3), and nothing is
@@ -325,7 +325,7 @@ ever retried or polled for later (push-only, A1).
     Then the result reads "reached=0 delivered=0" with no target receipts
 ```
 
-### Feature: One call reaches every ancestor (W4.2)
+### Feature: One call reaches every ancestor (W4.2) — DELIVERED
 
 `agent.notify-ancestors(text, urgency)` is the sibling of escalate: escalate's receipt
 semantics, but walking ALL the way to the root instead of stopping at a hop count.
@@ -349,7 +349,7 @@ semantics, but walking ALL the way to the root instead of stopping at a hop coun
       And notify-ancestors remains the separate tool that walks to the root
 ```
 
-### Feature: The user sees a child's unread steering (W4.4)
+### Feature: The user sees a child's unread steering (W4.4) — DELIVERED
 
 The unread count already exists on every mailbox; nothing shows it. When a busy child has
 steering waiting between turns, the user should see that on the session tab — pushed by
@@ -377,7 +377,7 @@ events, never polled.
     Then nothing UI-related is constructed and nothing breaks
 ```
 
-### Feature: The broadcast actions exist and are documented (W4.3)
+### Feature: The broadcast actions exist and are documented (W4.3) — DELIVERED
 
 ```gherkin
   Scenario: An agent's tool surface offers the broadcast actions

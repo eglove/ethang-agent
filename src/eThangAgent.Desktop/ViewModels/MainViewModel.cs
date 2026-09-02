@@ -686,6 +686,11 @@ internal sealed partial class MainViewModel : ObservableObject
     AttachClarifyChannel(sessionVm, session.ClarifyChannel);
 
     AgentTabViewModel tab = new(session, sessionVm);
+
+
+    // W4.4: push the unread-steering badge from the session's child-event stream
+    // (deliver raises, drain/settle clear) - a subscription, never a poll.
+    tab.AttachBadge(session.Services.GetService<IAgentEvents>());
     Tabs.Add(tab);
     _sessionOpened?.Invoke(session);
     SelectedTab = tab;
@@ -904,6 +909,7 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable CA1031 // Do not catch general exception types
     catch { /* teardown never throws */ }
 #pragma warning restore CA1031
+    tab.Badge?.Dispose();
     _ = Tabs.Remove(tab);
     SelectedTab = Tabs.LastOrDefault();
     await tab.Container.Services.DisposeAsync();

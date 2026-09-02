@@ -88,6 +88,14 @@
             <DataTemplate x:DataType="vm:AgentTabViewModel">
               <StackPanel Orientation="Horizontal" Spacing="6">
                 <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
+                <!-- W4.4: unread-steering badge - pushed by the session's child-event
+                     stream (deliver raises, drain/settle clear), never polled. -->
+                <Border CornerRadius="8" Padding="5,0" Background="#4C8CFF"
+                        VerticalAlignment="Center"
+                        IsVisible="{Binding Badge.HasUnread}">
+                  <TextBlock Text="{Binding Badge.UnreadCount}" FontSize="10"
+                             Foreground="White"/>
+                </Border>
                 <Button Content="✕" Padding="3,0" Background="Transparent" BorderThickness="0"
                         Click="OnCloseTab" ToolTip.Tip="{Binding Subtitle}"/>
               </StackPanel>

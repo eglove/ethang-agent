@@ -318,9 +318,18 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       return;
     }
 
+    int drained = 0;
     while (inbox.TryTake(out string? steered))
     {
       Conversation.AddUserMessage(steered);
+      drained++;
+    }
+
+    if (drained > 0)
+    {
+      // W4.4: the push signal a host's unread badge clears on — mailbox lifecycle,
+      // never run progress (the supervisor feed's pinned no-beat class).
+      _events?.Publish(new MailboxDrainedEvent(Id, DateTimeOffset.UtcNow, drained));
     }
   }
 

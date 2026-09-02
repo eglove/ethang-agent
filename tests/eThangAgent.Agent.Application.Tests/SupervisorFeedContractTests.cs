@@ -11,7 +11,7 @@ namespace eThangAgent.Agent.Application.Tests;
 ///     interrupt must be allowed to stall the idle window. Started events DO beat: the
 ///     runtime mints a fresh supervisor per (re)start, so the retry's started event is
 ///     the new run's liveness fact.</summary>
-public class SupervisorFeedContractTests
+public partial class SupervisorFeedContractTests
 {
   private static readonly DateTimeOffset T0 = new(2026, 8, 31, 12, 0, 0, TimeSpan.Zero);
 
