@@ -12,9 +12,10 @@ codes are quoted verbatim from those sources — tests and docs may copy them fr
 This document shares the spec's lifecycle: it is deleted by the delivery commit once W1–W6
 have landed, as its predecessors were.
 
-Progress: **W1.2 (The operator tunes the host watchdog) DELIVERED (79bee4b)**, **W1.3
-(The supervisor feed's contract is pinned) DELIVERED (26c435f)** — scenarios below are
-implemented and their pins green. Everything else not started.
+Progress: **W1 COMPLETE** — 1.1 (The host interrupts a hung remote child) DELIVERED
+(86f9a52), 1.2 (The operator tunes the host watchdog) DELIVERED (79bee4b), 1.3 (The
+supervisor feed's contract is pinned) DELIVERED (26c435f) — scenarios below are
+implemented and their pins green. W2–W6 not started.
 
 The spec's ground rules — delivery review traces every resolve→invoke chain in the real host,
 both halves of every seam get end-to-end tests, detached test rigs, doctrine tests stay green,
@@ -56,7 +57,7 @@ the spec; they are not restated per scenario here.
 
 | BDD feature | Spec item | Restores (source spec) |
 |---|---|---|
-| The host interrupts a hung remote child | W1.1 | P5 graduated response, FR-L5, A4 |
+| The host interrupts a hung remote child — **DELIVERED (86f9a52)** | W1.1 | P5 graduated response, FR-L5, A4 |
 | The operator tunes the host watchdog — **DELIVERED (79bee4b)** | W1.2 | operator configuration surface |
 | The supervisor feed's contract is pinned — **DELIVERED (26c435f)** | W1.3 | P2/P4 (facts, no re-deciding silently) |
 | A consented link outlives the session | W2.2–W2.4 | FR-C10, P7; supersedes ruling R2.3 |
@@ -76,12 +77,17 @@ the spec; they are not restated per scenario here.
 
 ## W1 — Watchdog hardening
 
-### Feature: The host interrupts a hung remote child (W1.1)
+### Feature: The host interrupts a hung remote child (W1.1) — DELIVERED (86f9a52)
 
 A child running out-of-process that stops making progress is interrupted and retried by the
 HOST — not by the app guessing from absent signals, and never by a wall-clock timer. With
 default options the idle threshold is 15 minutes; the E2E rig drives it with a small
 threshold via the configuration feature below.
+
+Delivered as `HungRemoteChildE2ETests`: real host process, real wire, host-authored audit
+rows, `Failed(Hung)` terminal, final settle envelope observed by the app runtime. One
+defect found and fixed by writing it: the remote runtime dropped a run's second settle
+envelope (now retained per the in-process Settle contract).
 
 ```gherkin
 Background:

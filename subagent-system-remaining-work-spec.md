@@ -6,9 +6,9 @@ exists on `master` (through `8305082`) and its finished state. Supersedes and de
 item must land for this document to be deleted by its successor as delivered. Items are
 ordered by dependency, not importance — W1 unblocks the most, so start there.
 
-Progress (updated as items land): **1.2 DELIVERED (79bee4b)**, **1.3 DELIVERED
-(26c435f)**. Next is 1.1, whose rig 1.2 unblocked (small `SubAgent:Watchdog`
-thresholds). W2–W6 untouched.
+Progress (updated as items land): **1.1 DELIVERED (86f9a52)**, **1.2 DELIVERED
+(79bee4b)**, **1.3 DELIVERED (26c435f) — W1 COMPLETE.** Next is W2 (links
+persistence), whose migration and store seam are untouched. W3–W6 untouched.
 
 ## Ground rules (carry from the ledger — read before writing code)
 
@@ -39,17 +39,16 @@ test drives a hung child through the REAL host process and asserts the HOST inte
 and retries/fails it. This is the exact "implemented but never invoked" defect class
 that shipped five times in this subsystem.
 
-1.1. **Hung-remote-child E2E** (Transport.ACL.Tests, real host exe per the
-    `ReAttachE2ETests` launch pattern): start the host with a settings JSON whose
-    OpenRouter endpoint points at a mock server that accepts the child's first provider
-    request and then HANGS (never responds). Attach a `RemoteAgentRuntime`, start a
-    child through the wire, then poll the shared database (bounded `WaitAsync`) until
-    the host watchdog acts. With `WatchdogOptions.Default` the idle threshold is 15
-    minutes, so land 1.2 first and drive the rig with a small threshold. Assert the
-    `watchdog_events` audit rows written by the HOST process: `HungDetected` then
-    `RetrySpawned` for the child id; assert the child settles `Failed(Hung)` after the
-    wrap-up retry also fails; assert the settle envelope reaches the attached app
-    runtime.
+1.1. **DELIVERED (86f9a52). Hung-remote-child E2E** (`HungRemoteChildE2ETests`,
+    Transport.ACL.Tests, real host exe per the `ReAttachE2ETests` launch pattern): the
+    host runs with a small `SubAgent:Watchdog` threshold (1.2's surface); the mock
+    answers the child's first (tool-call) request then hangs every later one. Asserted:
+    HOST-authored `HungDetected`/`RetrySpawned`/`TerminalReport` audit rows, the child
+    record settling `Failed(Hung)`, and the final settle envelope reaching the attached
+    app runtime. (Delivery finding, fixed in the same change: `RemoteAgentRuntime`
+    dropped a remote run's second settle envelope — the pump now retains completed
+    sources per the in-process Settle contract, pinned by
+    `RemoteRuntimeSettleRetentionTests`.)
 1.2. **DELIVERED (79bee4b). Host watchdog configuration surface**: `ChildHostServer.BuildChildWatchdog`
     hardcodes `WatchdogOptions.Default`. Add a `SubAgent:Watchdog:*` configuration
     section (idle threshold, tick interval, max wrap-up attempts; strict bind like
