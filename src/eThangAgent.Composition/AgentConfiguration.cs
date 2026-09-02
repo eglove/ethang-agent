@@ -25,6 +25,10 @@ public static class AgentConfiguration
         configuration["SubAgent:MaxConcurrentAgents"],
         out bool remoteHost,
         configuration["SubAgent:RemoteHost"]);
+    WatchdogSettings? watchdog = SubAgentConfiguration.BindWatchdog(
+        configuration["SubAgent:Watchdog:TickInterval"],
+        configuration["SubAgent:Watchdog:IdleThreshold"],
+        configuration["SubAgent:Watchdog:MaxWrapUpAttempts"]);
 
     return new AgentSettings(
         new OpenRouterSettings(
@@ -39,7 +43,8 @@ public static class AgentConfiguration
                 Environment.GetEnvironmentVariable("ZAI_BASE_URL"), ZaiConfiguration.DefaultBaseUrl),
             BindEndpointMode(Environment.GetEnvironmentVariable("ZAI_ENDPOINT_MODE"))),
         subAgents,
-        RemoteHost: remoteHost);
+        RemoteHost: remoteHost,
+        Watchdog: watchdog);
   }
 
   /// <summary>Parses the endpoint-mode variable: exactly <c>coding</c> or <c>general</c>.

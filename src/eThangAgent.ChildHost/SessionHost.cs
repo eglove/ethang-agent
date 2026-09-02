@@ -1,4 +1,5 @@
 using System.Text.Json;
+using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ModelDomain;
@@ -16,12 +17,14 @@ namespace eThangAgent.ChildHost;
 ///     clarify channel — human-facing tools never reach sub-agents by contract.</summary>
 public sealed class SessionHost
 {
-  private SessionHost(IServiceProvider services, IAgentStore store, SubAgentSpawner spawner, IAgentRuntime runtime)
+  private SessionHost(IServiceProvider services, IAgentStore store, SubAgentSpawner spawner,
+      IAgentRuntime runtime, WatchdogSettings? watchdog)
   {
     Services = services;
     Store = store;
     Spawner = spawner;
     Runtime = runtime;
+    Watchdog = watchdog;
   }
 
   /// <summary>The child container — the host watchdog resolves the same seams the app
@@ -30,6 +33,17 @@ public sealed class SessionHost
   public IAgentStore Store { get; }
   public SubAgentSpawner Spawner { get; }
   public IAgentRuntime Runtime { get; }
+
+  /// <summary>The SubAgent:Watchdog configuration the app shipped (W1.2): null when no
+  ///     watchdog section was configured. The settings JSON is the only carrier; the
+  ///     host never reads app configuration itself.</summary>
+  public WatchdogSettings? Watchdog { get; }
+
+  /// <summary>The options the host watchdog runs under: the shipped configuration
+  ///     translated strictly, or <see cref="WatchdogOptions.Default"/> when no
+  ///     watchdog section was configured. The single source of truth for the server's
+  ///     watchdog construction — configured values govern exactly (W1.2).</summary>
+  public WatchdogOptions EffectiveWatchdogOptions => Watchdog?.ToOptions() ?? WatchdogOptions.Default;
 
   /// <summary>Builds from the settings JSON the app writes before launching the host, plus
   ///     the app-owned database path (CLI arg — one host per app, sharing its database).
@@ -40,6 +54,31 @@ public sealed class SessionHost
     string json = File.ReadAllText(settingsJsonPath);
     AgentSettings deserialized = JsonSerializer.Deserialize<AgentSettings>(json, Options)
         ?? throw new InvalidOperationException("host settings deserialized to null.");
+    // Strict boundary (W1.2 found this): STJ binds members ABSENT from the JSON to null
+    // even though the record declares them required — the supervisor always serializes
+    // the full settings, but a hand-written file must fail with a NAMED error here,
+    // never a null-reference fault deep in composition.
+    if (deserialized.OpenRouter is null || deserialized.Zai is null || deserialized.SubAgents is null)
+    {
+      List<string> missing = [];
+      if (deserialized.OpenRouter is null)
+      {
+        missing.Add("OpenRouter");
+      }
+
+      if (deserialized.Zai is null)
+      {
+        missing.Add("Zai");
+      }
+
+      if (deserialized.SubAgents is null)
+      {
+        missing.Add("SubAgents");
+      }
+      throw new InvalidOperationException(
+          $"host settings JSON is missing required member(s): {string.Join(", ", missing)}.");
+    }
+
     // The host ALWAYS runs children in its own process via its in-process runtime.
     // The app's RemoteHost flag travels in the same settings JSON (the supervisor
     // serializes the whole AgentSettings), and honoring it here would wire the host's
@@ -75,14 +114,16 @@ public sealed class SessionHost
           services,
           services.GetRequiredService<IAgentStore>(),
           new SubAgentSpawner(childServices),
-          services.GetRequiredService<IAgentRuntime>());
+          services.GetRequiredService<IAgentRuntime>(),
+          settings.Watchdog);
     }
 
     return new SessionHost(
         services,
         services.GetRequiredService<IAgentStore>(),
         services.GetRequiredService<SubAgentSpawner>(),
-        services.GetRequiredService<IAgentRuntime>());
+        services.GetRequiredService<IAgentRuntime>(),
+        settings.Watchdog);
   }
 
   private static JsonSerializerOptions Options { get; } = new(JsonSerializerDefaults.Web);

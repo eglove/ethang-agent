@@ -39,11 +39,12 @@ public sealed record AgentSettings(
     OpenRouterSettings OpenRouter,
     ZaiSettings Zai,
     SubAgentOptions SubAgents,
-    bool RemoteHost = false)
+    bool RemoteHost = false,
+    WatchdogSettings? Watchdog = null)
 {
-  /// <summary>Whether children run in the out-of-process ChildHost (R3, opt-in).
-  ///     Default false: the in-process runtime. Hosts wire RemoteHostSupervisor +
-  ///     RemoteAgentRuntime when this is set.</summary>
+  // Watchdog (W1.2): null means no SubAgent:Watchdog configuration — the host watchdog
+  // runs WatchdogOptions.Default. The value travels to the child host inside the
+  // settings JSON the RemoteHostSupervisor writes.
   /// <summary>True when an OpenRouter API key (non-blank) is configured.</summary>
   public bool HasOpenRouter => !string.IsNullOrWhiteSpace(OpenRouter.ApiKey);
 

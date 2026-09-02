@@ -176,11 +176,14 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       return null;
     }
 
+    // W1.2: the operator's SubAgent:Watchdog section governs the host watchdog —
+    // exactly those values, or WatchdogOptions.Default when the app shipped none.
+    WatchdogOptions options = host.EffectiveWatchdogOptions;
     IAgentEvents? stream = host.Services.GetService(typeof(IAgentEvents)) as IAgentEvents;
     ChildSupervisorRegistry? supervisors = host.Services.GetService(typeof(ChildSupervisorRegistry)) as ChildSupervisorRegistry;
     WatchdogServices services = new(host.Store, host.Runtime, heartbeat, audit,
-        WatchdogPolicyFactory.FromOptions(WatchdogOptions.Default), NoopMetrics.Instance,
-        WatchdogOptions.Default, TimeProvider.System, stream, supervisors);
+        WatchdogPolicyFactory.FromOptions(options), NoopMetrics.Instance,
+        options, TimeProvider.System, stream, supervisors);
     return new HostChildWatchdog(childId, services);
   }
 
