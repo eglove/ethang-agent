@@ -42,13 +42,15 @@ internal static class E2E
     /// <summary>The persisted root session id — the SAME id the view-model appends under.</summary>
     public AgentId RootId { get; private set; }
 
-    public async Task<HostHarness> StartAsync()
+    /// <param name="reuseDatabasePath">When set, the harness runs over THIS database file
+    ///     instead of a fresh temp one — the restart-survival E2E opens two sessions over it.</param>
+    public async Task<HostHarness> StartAsync(string? reuseDatabasePath = null)
     {
       Mock.Start();
       // Catalog the two mock models so the session's window source resolves them;
       // a spawn of a model with no window fails by design (strict correctness).
       _ = Mock.ReturnsCatalog(/*lang=json,strict*/ """{ "data": [ { "id": "mock/sub-model", "pricing": { "prompt": "0.000001", "completion": "0.000002" }, "context_length": 32768, "top_provider": { "max_completion_tokens": 8192 }, "architecture": { "modality": "text->text" } } ] }""");
-      DatabasePath = Path.Combine(Path.GetTempPath(), $"ethang-e2e-{Guid.NewGuid():N}.db");
+      DatabasePath = reuseDatabasePath ?? Path.Combine(Path.GetTempPath(), $"ethang-e2e-{Guid.NewGuid():N}.db");
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", DatabasePath);
 
       AgentSettings settings = BuildSettings();

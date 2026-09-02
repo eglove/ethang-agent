@@ -9,7 +9,8 @@
 
     <TextBlock Grid.Row="0" TextWrapping="Wrap" Opacity="0.75" Margin="0,0,0,8">
       Links let the selected agent send messages to other agents by name (agent.route).
-      Pick an agent, name the link, then confirm. A restart drops links — re-consent recreates them.
+      Pick an agent, name the link, then confirm. Links persist for this workspace — they
+      survive restarts; revoking removes them everywhere.
     </TextBlock>
 
     <Grid Grid.Row="1" ColumnDefinitions="*,16,*">
