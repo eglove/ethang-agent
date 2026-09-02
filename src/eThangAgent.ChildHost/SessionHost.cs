@@ -38,8 +38,14 @@ public sealed class SessionHost
   public static SessionHost Create(string settingsJsonPath, string databasePath, Func<AgentId, IAgentInbox?>? inboxFor = null)
   {
     string json = File.ReadAllText(settingsJsonPath);
-    AgentSettings settings = JsonSerializer.Deserialize<AgentSettings>(json, Options)
+    AgentSettings deserialized = JsonSerializer.Deserialize<AgentSettings>(json, Options)
         ?? throw new InvalidOperationException("host settings deserialized to null.");
+    // The host ALWAYS runs children in its own process via its in-process runtime.
+    // The app's RemoteHost flag travels in the same settings JSON (the supervisor
+    // serializes the whole AgentSettings), and honoring it here would wire the host's
+    // container for ANOTHER remote hop — a runtime with no supervisor that fails every
+    // start HostUnavailable (observed: children stuck Running attempts=0 forever).
+    AgentSettings settings = deserialized with { RemoteHost = false };
 
     string providerName = settings.OpenRouter.ApiKey is not null ? Providers.OpenRouter : Providers.Zai;
     string workspace = Path.GetDirectoryName(settingsJsonPath) ?? AppContext.BaseDirectory;

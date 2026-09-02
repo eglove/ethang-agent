@@ -220,6 +220,17 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   {
     InProcessAgentRuntime? inProcess = services.GetService<InProcessAgentRuntime>();
     RemoteAgentRuntime? remote = services.GetService<RemoteAgentRuntime>();
+    if (remote is not null)
+    {
+      // THE attach (R3.1/3.3): the remote runtime is born disconnected by design, and
+      // this is its only production caller — launching the host if absent, connecting,
+      // starting the settle pump, and reading the declared live set. Skipping it leaves
+      // every remote start failing HostUnavailable and the declared set permanently
+      // empty (the exact resolve-invoke seam the full-app E2E exists to guard).
+      RemoteHostSupervisor supervisor = services.GetRequiredService<RemoteHostSupervisor>();
+      _ = await supervisor.AttachAsync(remote, ct).ConfigureAwait(false);
+    }
+
     OrphanRepairHandler repair = new(
         services.GetRequiredService<IAgentStore>(),
         () => inProcess?.ActiveChildren ?? [],

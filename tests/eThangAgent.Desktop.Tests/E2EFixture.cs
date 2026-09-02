@@ -31,7 +31,7 @@ internal static class E2E
 
     public MockOpenRouterServer Mock { get; } = new();
 
-    private string DatabasePath { get; set; } = "";
+    internal string DatabasePath { get; private set; } = "";
 
     /// <summary>The single agent tab's view-model — the chat surface under test.</summary>
     internal AgentSessionViewModel Vm { get; private set; } = null!;
@@ -105,11 +105,14 @@ internal static class E2E
     }
 
     /// <summary>The settings snapshot serving the harness: the mock server as the
-    ///     OpenRouter endpoint. Shared by the live container and any resume factory.</summary>
-    internal AgentSettings BuildSettings() => new(
+    ///     OpenRouter endpoint. Shared by the live container and any resume factory.
+    ///     RemoteHost routes child starts through the out-of-process ChildHost (opt-in
+    ///     for the remote-mode E2E; default stays in-process).</summary>
+    internal AgentSettings BuildSettings(bool remoteHost = false) => new(
         new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
         new ZaiSettings(null, new Uri("https://zai.test")),
-        new SubAgentOptions(null, 2));
+        new SubAgentOptions(null, 2),
+        RemoteHost: remoteHost);
 
     /// <summary>A factory over the SAME temp database and mock server the harness runs
     ///     on — lets tests drive the real <see cref="AgentSessionFactory.ResumeAsync"/>

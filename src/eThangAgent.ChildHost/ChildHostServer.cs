@@ -113,7 +113,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     try
     {
       SessionHost host = SessionHost.Create(settingsPath, databasePath,
-        inboxFor: id => _mailboxes.TryGetValue(id.Value, out BoundedAgentMailbox? mailbox) ? mailbox : null);
+          inboxFor: id => _mailboxes.TryGetValue(id.Value, out BoundedAgentMailbox? mailbox) ? mailbox : null);
       Result<AgentRecord> loaded = await host.Store.GetAsync(new AgentId(command.RecordId), CancellationToken.None).ConfigureAwait(false);
       if (!loaded.IsSuccess)
       {

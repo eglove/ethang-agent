@@ -32,6 +32,7 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
       AgentSettings settings, string databasePath, Action<string> reportNotice, Func<string> hostExePath)
   {
     HostPipeName = "ethang-host-" + PipeSuffix(workspaceId);
+    _ = Directory.CreateDirectory(scratchDirectory); // the settings file below needs the directory
     _settingsPath = Path.Combine(scratchDirectory, "childhost-settings.json");
     _databasePath = databasePath;
     _reportNotice = reportNotice;
