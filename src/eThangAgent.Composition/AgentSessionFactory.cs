@@ -25,16 +25,22 @@ namespace eThangAgent.Composition;
 /// <remarks>Pass a shared <see cref="AppDatabase"/> so every opened session hits the
 ///     ONE app-owned SQLite file (migrated once); when omitted each session container
 ///     constructs its own connection over the default database path.</remarks>
-public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? database = null)
+public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? database = null,
+    ProcessMailboxLocator? mailboxLocator = null)
 {
   private readonly AgentSettings _settings = settings ?? throw new ArgumentNullException(nameof(settings));
   private readonly AppDatabase? _database = database;
+
+  // ONE process-wide cross-container locator (W3.2): every session this factory opens
+  // contributes its live mailboxes here, so a link to another session's child resolves
+  // instead of failing NotRunning. Lazily minted for single-session hosts.
+  private readonly ProcessMailboxLocator _mailboxLocator = mailboxLocator ?? new();
 
   /// <summary>Returns a factory over the same database serving the updated settings.
   ///     Hosts call this when credentials change (the Desktop's Settings modal);
   ///     sessions already built keep the credentials they were created with.</summary>
   public AgentSessionFactory WithSettings(AgentSettings settings) =>
-      new(settings ?? throw new ArgumentNullException(nameof(settings)), _database);
+      new(settings ?? throw new ArgumentNullException(nameof(settings)), _database, _mailboxLocator);
 
   /// <summary>Creates a session rooted at <paramref name="workspaceRoot"/> on the selected
   ///     <paramref name="providerName"/>. The directory must exist; workspace identity is
@@ -253,7 +259,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         // resolves the real model; the curated floor covers its accounting meanwhile.
         Providers.RoutingContextWindow).Value!;
 
-    return new ServiceCollection()
+    ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(_settings, providerName, defaultModel,
             new AgentHostOptions(
                 clarifyChannel,
@@ -263,8 +269,41 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
                 new WorkspacePathResolver(workspaceRoot),
                 [new WorkspaceInstructionsPromptProvider(workspaceRoot)]),
             _database,
-            conversationSeed)
+            conversationSeed,
+            _mailboxLocator)
         .BuildServiceProvider();
+    return RegisterContainerMailboxSource(services);
+  }
+
+  /// <summary>Contributes THIS container's live-mailbox views to the process-wide
+  ///     locator, carrying the container's event stream so a cross-container delivery
+  ///     is audited on the target's side. Two sources when the session runs remote
+  ///     children: the in-process registry, plus a wire-forwarding proxy source over the
+  ///     remote runtime's OWNED children only (an id the host does not run resolves
+  ///     none, keeping NotRunning honest). Runs once per built container; a source dies
+  ///     with its container — a settled child's mailbox is unregistered, and a disposed
+  ///     container's views resolve to none (the honest NotRunning answer).</summary>
+  private static ServiceProvider RegisterContainerMailboxSource(ServiceProvider services)
+  {
+    ProcessMailboxLocator locator = services.GetRequiredService<ProcessMailboxLocator>();
+    // The closures capture the RESOLVED instances, never the service provider: a probe
+    // runs on any session's route path, possibly after this container was disposed —
+    // a per-probe GetRequiredService would throw ObjectDisposedException there instead
+    // of resolving none (the honest NotRunning answer). Captured singletons stay safe:
+    // a disposed container's registry holds no mailboxes, and a dead remote runtime's
+    // Deliver fails HostUnavailable inside its own fault boundary.
+    ChildMailboxRegistry registry = services.GetRequiredService<ChildMailboxRegistry>();
+    IAgentEvents events = services.GetRequiredService<IAgentEvents>();
+    locator.AddSource(registry.MailboxFor, events);
+    RemoteAgentRuntime? remote = services.GetService<RemoteAgentRuntime>();
+    if (remote is not null)
+    {
+      locator.AddSource(id => remote.OwnedChildren.Contains(id.Value)
+          ? new RemoteMailboxProxy(remote, id)
+          : null, events);
+    }
+
+    return services;
   }
 
   private static AgentSession BuildSession(ServiceProvider services, AgentId rootId,

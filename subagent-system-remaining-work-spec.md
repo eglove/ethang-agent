@@ -9,8 +9,13 @@ ordered by dependency, not importance — W1 unblocks the most, so start there.
 Progress (updated as items land): **1.1 DELIVERED (86f9a52)**, **1.2 DELIVERED
 (79bee4b)**, **1.3 DELIVERED (26c435f) — W1 COMPLETE.** **2.1 DELIVERED (4107a90)**,
 **2.2 DELIVERED (4107a90)**, **2.3 DELIVERED (94acd5d + 0a54d39)**, **2.4 DELIVERED
-(b29f1c9)**, **2.5 DELIVERED (4107a90, 94acd5d, b29f1c9) — W2 COMPLETE.** Next is W3
-(cross-container route delivery). W4–W6 untouched.
+(b29f1c9)**, **2.5 DELIVERED (4107a90, 94acd5d, b29f1c9) — W2 COMPLETE.** **W3
+COMPLETE** — 3.1 locator seam + capability-provider fallback, 3.2 composition wiring
+(ProcessMailboxLocator + per-container sources), 3.4 both E2E variants — with a
+delivery defect found and fixed in the same change: the ChildHost's wire deliver path
+fed a server-owned mailbox the child loop never drained (the SessionHost inboxFor
+bridge was dead code); delivery now resolves through the child container's own
+registry, pinned by ChildHostDeliverWireTests. W4–W6 untouched.
 
 ## Ground rules (carry from the ledger — read before writing code)
 

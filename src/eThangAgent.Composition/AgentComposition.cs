@@ -35,7 +35,8 @@ public static class AgentComposition
   /// <exception cref="InvalidOperationException">the selected provider has no configured API key.</exception>
   public static IServiceCollection AddEThangAgentCore(this IServiceCollection services,
       AgentSettings settings, string providerName, ModelConfig defaultModel, AgentHostOptions host,
-      AppDatabase? database = null, IEnumerable<Message>? conversationSeed = null)
+      AppDatabase? database = null, IEnumerable<Message>? conversationSeed = null,
+      ProcessMailboxLocator? mailboxLocator = null)
   {
     ArgumentNullException.ThrowIfNull(settings);
     ArgumentNullException.ThrowIfNull(defaultModel);
@@ -176,6 +177,11 @@ public static class AgentComposition
         .AddSingleton<IAgentEvents, InProcessAgentEvents>()
         .AddSingleton<ChildSupervisorRegistry>()
         .AddSingleton<ChildMailboxRegistry>()
+        // W3.2: the cross-container mailbox locator. Hosts opening several sessions pass
+        // ONE shared instance (AgentSessionFactory does), so every container's provider
+        // consults the same process-wide registry of live mailboxes; a lone container
+        // gets its own, which changes nothing (its source is itself).
+        .AddSingleton(_ => mailboxLocator ?? new ProcessMailboxLocator())
         .AddSingleton<SessionMemoryWriteCounter>()
         .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy())
         ;
@@ -250,6 +256,8 @@ public static class AgentComposition
                   () => SubAgentSpawner.RunningChild ?? rootRecord,
                   sp.GetRequiredService<IAgentRuntime>(),
                   sp.GetRequiredService<AgentLinkRegistry>(),
+                  locator: sp.GetRequiredService<ProcessMailboxLocator>(),
+                  eventsFor: id => sp.GetRequiredService<ProcessMailboxLocator>().EventsFor(id),
                   fanout: async (parent, children, ct) =>
                   {
                     Result<SpawnGraphOutcome> joined = await graph.ExecuteAsync(parent,

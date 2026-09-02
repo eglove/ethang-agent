@@ -10,7 +10,8 @@ namespace eThangAgent.AgentDomain;
 public sealed class AgentCapabilityProvider(
     IAgentSpawnCommand spawnCommand, IAgentQueries queries, Func<AgentRecord> parentContext,
     IAgentRuntime? runtime = null, AgentLinkRegistry? links = null,
-    Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? fanout = null) : ICapabilityProvider
+    Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? fanout = null,
+    IAgentMailboxLocator? locator = null, Func<AgentId, IAgentEvents?>? eventsFor = null) : ICapabilityProvider
 {
   public const string ProviderId = "agent";
 
@@ -26,6 +27,8 @@ public sealed class AgentCapabilityProvider(
   private readonly IAgentRuntime? _runtime = runtime;
   private readonly AgentLinkRegistry? _links = links;
   private readonly Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? _fanout = fanout;
+  private readonly IAgentMailboxLocator? _locator = locator;
+  private readonly Func<AgentId, IAgentEvents?>? _eventsFor = eventsFor;
 
   public string Id => ProviderId;
 
@@ -324,8 +327,31 @@ public sealed class AgentCapabilityProvider(
     }
 
     AgentRecord sender = _parentContext();
-    Result<bool> delivered = _runtime.Deliver(new AgentId(target),
-        new PendingMessage(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender)));
+    PendingMessage message = new(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender));
+    AgentId targetId = new(target);
+
+    // Local half first (W3.1): the session's own runtime owns its children's mailboxes.
+    Result<bool> delivered = _runtime.Deliver(targetId, message);
+    if (!delivered.IsSuccess
+        && MailboxErrors.NotRunning.Equals(delivered.Error.Code, StringComparison.Ordinal)
+        && _locator?.TryGet(targetId) is { } foreign)
+    {
+      // Cross-container half (W3.2): the local runtime holds no mailbox for the target,
+      // so the process-wide locator resolves the OWNING container's live mailbox. Delivery
+      // and receipt contracts are identical to the local half; the audit event marks the
+      // delivery cross-container on the target's stream (3.3).
+      delivered = foreign.Deliver(message);
+      if (delivered.IsSuccess)
+      {
+        // The audit event publishes on the OWNER's stream — the resolver returns the
+        // target container's own event stream (3.3: the host-side audit trail reads it
+        // where the target's host listens), never the sender's.
+        _eventsFor?.Invoke(targetId)?.Publish(new MessageDeliveredEvent(targetId,
+            DateTimeOffset.UtcNow, "cross-container", (int)urgency,
+            System.Text.Encoding.UTF8.GetByteCount(text!)));
+      }
+    }
+
     return delivered.IsSuccess
         ? CapabilityInvocationResult.Ok($"delivered to={resolved.Value.AgentAddress} link={resolved.Value.Name}")
         : CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");

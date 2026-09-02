@@ -18,7 +18,10 @@ supervisor feed's contract is pinned) DELIVERED (26c435f) — scenarios below ar
 implemented and their pins green. **W2 COMPLETE** — A consented link outlives the
 session (W2.2–W2.4) DELIVERED (94acd5d, 0a54d39, b29f1c9); The links table migrates
 safely (W2.1, W2.5) DELIVERED (4107a90, b29f1c9) — scenarios below are implemented and
-their pins green. W3–W6 not started.
+their pins green. **W3 COMPLETE** — "A link can be dialed outside its session"
+DELIVERED (locator seam + composition wiring + both E2E variants; the remote variant
+exposed and fixed a real defect: the host's wire deliver path fed a mailbox the child
+loop never drained — now pinned by ChildHostDeliverWireTests). W4–W6 not started.
 
 The spec's ground rules — delivery review traces every resolve→invoke chain in the real host,
 both halves of every seam get end-to-end tests, detached test rigs, doctrine tests stay green,
@@ -65,7 +68,7 @@ the spec; they are not restated per scenario here.
 | The supervisor feed's contract is pinned — **DELIVERED (26c435f)** | W1.3 | P2/P4 (facts, no re-deciding silently) |
 | A consented link outlives the session — **DELIVERED (94acd5d, 0a54d39, b29f1c9)** | W2.2–W2.4 | FR-C10, P7; supersedes ruling R2.3 |
 | The links table migrates safely — **DELIVERED (4107a90, b29f1c9)** | W2.1, W2.5 | persistence discipline |
-| A link can be dialed outside its session | W3 | FR-C10's purpose, R2.4, FR-C7 receipts |
+| A link can be dialed outside its session — **DELIVERED** | W3 | FR-C10's purpose, R2.4, FR-C7 receipts |
 | One call reaches a whole subtree | W4.1 | FR-C8 broadcast, FR-C7/A3 receipts |
 | One call reaches every ancestor | W4.2 | FR-C8, FR-C7 |
 | The user sees a child's unread steering | W4.4 | FR-C5 unread counts |

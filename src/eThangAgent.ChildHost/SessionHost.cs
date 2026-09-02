@@ -17,13 +17,13 @@ namespace eThangAgent.ChildHost;
 ///     clarify channel — human-facing tools never reach sub-agents by contract.</summary>
 public sealed class SessionHost
 {
-  private SessionHost(IServiceProvider services, IAgentStore store, SubAgentSpawner spawner,
-      IAgentRuntime runtime, WatchdogSettings? watchdog)
+  private SessionHost(IServiceProvider services, IAgentStore store, IAgentRuntime runtime,
+      ChildMailboxRegistry mailboxes, WatchdogSettings? watchdog)
   {
     Services = services;
     Store = store;
-    Spawner = spawner;
     Runtime = runtime;
+    Mailboxes = mailboxes;
     Watchdog = watchdog;
   }
 
@@ -31,8 +31,12 @@ public sealed class SessionHost
   ///     side does (heartbeat, event store, event stream, supervisor registry) from it.</summary>
   public IServiceProvider Services { get; }
   public IAgentStore Store { get; }
-  public SubAgentSpawner Spawner { get; }
   public IAgentRuntime Runtime { get; }
+
+  /// <summary>The container's live-child mailbox registry — the delivery view the
+  ///     server resolves 'deliver' envelopes through, so wire-delivered steering lands
+  ///     in the SAME box the running child's loop drains (W3).</summary>
+  public ChildMailboxRegistry Mailboxes { get; }
 
   /// <summary>The SubAgent:Watchdog configuration the app shipped (W1.2): null when no
   ///     watchdog section was configured. The settings JSON is the only carrier; the
@@ -47,9 +51,10 @@ public sealed class SessionHost
 
   /// <summary>Builds from the settings JSON the app writes before launching the host, plus
   ///     the app-owned database path (CLI arg — one host per app, sharing its database).
-  ///     <paramref name="inboxFor"/> hands each child its steering mailbox (FR-C2): the
-  ///     server owns the registry so 'deliver' envelopes reach the running child.</summary>
-  public static SessionHost Create(string settingsJsonPath, string databasePath, Func<AgentId, IAgentInbox?>? inboxFor = null)
+  ///     The container's <see cref="ChildMailboxRegistry"/> is exposed as
+  ///     <see cref="Mailboxes"/> so the server's 'deliver' path resolves the SAME box
+  ///     the running child's loop drains (FR-C2, W3 delivery fix).</summary>
+  public static SessionHost Create(string settingsJsonPath, string databasePath)
   {
     string json = File.ReadAllText(settingsJsonPath);
     AgentSettings deserialized = JsonSerializer.Deserialize<AgentSettings>(json, Options)
@@ -103,28 +108,14 @@ public sealed class SessionHost
             null)
         .BuildServiceProvider();
 
-    if (inboxFor is not null)
-    {
-      SubAgentServices childServices = services.GetRequiredService<SubAgentServices>() with
-      {
-        InboxFor = inboxFor,
-      };
-
-      return new SessionHost(
-          services,
-          services.GetRequiredService<IAgentStore>(),
-          new SubAgentSpawner(childServices),
-          services.GetRequiredService<IAgentRuntime>(),
-          settings.Watchdog);
-    }
-
     return new SessionHost(
         services,
         services.GetRequiredService<IAgentStore>(),
-        services.GetRequiredService<SubAgentSpawner>(),
         services.GetRequiredService<IAgentRuntime>(),
+        services.GetRequiredService<ChildMailboxRegistry>(),
         settings.Watchdog);
   }
+
 
   private static JsonSerializerOptions Options { get; } = new(JsonSerializerDefaults.Web);
 

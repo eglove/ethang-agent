@@ -17,7 +17,12 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 {
   private volatile NamedPipeChildTransport? _transport;
   private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _active = [];
-  private readonly ConcurrentDictionary<Guid, BoundedAgentMailbox> _mailboxes = [];
+
+  // W3 delivery fix: the delivery target for each running child is the mailbox in the
+  // CHILD CONTAINER's own registry — the SAME box the runtime registers at BeginRun and
+  // the child loop drains. The server previously kept its own parallel map of boxes the
+  // loop never saw, so wire-delivered steering landed in a box nobody drains.
+  private readonly ConcurrentDictionary<Guid, ChildMailboxRegistry> _delivery = [];
   private long _sequence;
 
   /// <summary>The ids the host currently runs — the exact live set the app's orphan
@@ -92,7 +97,6 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 
     CancellationTokenSource cts = new();
     _active[command.RecordId] = cts;
-    _mailboxes[command.RecordId] = new BoundedAgentMailbox();
     _ = Task.Run(() => RunChildAsync(command, cts));
     // Named decision (CA1031): a failed live-set broadcast IS the disconnect; the accept
     // loop re-attaches. The child was already registered and keeps running.
@@ -112,8 +116,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   {
     try
     {
-      SessionHost host = SessionHost.Create(settingsPath, databasePath,
-          inboxFor: id => _mailboxes.TryGetValue(id.Value, out BoundedAgentMailbox? mailbox) ? mailbox : null);
+      SessionHost host = SessionHost.Create(settingsPath, databasePath);
+      AttachDeliveryRegistry(command.RecordId, host.Mailboxes);
       Result<AgentRecord> loaded = await host.Store.GetAsync(new AgentId(command.RecordId), CancellationToken.None).ConfigureAwait(false);
       if (!loaded.IsSuccess)
       {
@@ -158,7 +162,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     finally
     {
       _ = _active.TryRemove(command.RecordId, out _);
-      _ = _mailboxes.TryRemove(command.RecordId, out _);
+      _ = _delivery.TryRemove(command.RecordId, out _);
       await SendLiveSetAsync().ConfigureAwait(false);
     }
   }
@@ -208,12 +212,20 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       return;
     }
 
-    if (_mailboxes.TryGetValue(command.RecordId, out BoundedAgentMailbox? mailbox))
+    if (_delivery.TryGetValue(command.RecordId, out ChildMailboxRegistry? registry)
+        && registry.MailboxFor(new AgentId(command.RecordId)) is { } mailbox)
     {
       _ = mailbox.Deliver(new PendingMessage(command.Text, (MessageUrgency)command.Urgency,
           DateTimeOffset.UtcNow, command.Sender));
     }
   }
+
+  /// <summary>Registers the per-child container registry whose MailboxFor answers the
+  ///     deliver path (RunChildAsync attaches each child's own; tests may attach a rig
+  ///     registry). MailboxFor returns null once the runtime unregisters the box at
+  ///     settle — stale delivers stay silent drops (the pinned HandleDeliver contract).</summary>
+  public void AttachDeliveryRegistry(Guid recordId, ChildMailboxRegistry registry)
+      => _delivery[recordId] = registry;
 
   private void HandleInterrupt(TransportEnvelope envelope)
   {
