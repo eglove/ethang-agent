@@ -7,8 +7,10 @@ item must land for this document to be deleted by its successor as delivered. It
 ordered by dependency, not importance — W1 unblocks the most, so start there.
 
 Progress (updated as items land): **1.1 DELIVERED (86f9a52)**, **1.2 DELIVERED
-(79bee4b)**, **1.3 DELIVERED (26c435f) — W1 COMPLETE.** Next is W2 (links
-persistence), whose migration and store seam are untouched. W3–W6 untouched.
+(79bee4b)**, **1.3 DELIVERED (26c435f) — W1 COMPLETE.** **2.1 DELIVERED (4107a90)**,
+**2.2 DELIVERED (4107a90)**, **2.3 DELIVERED (94acd5d + 0a54d39)**, **2.4 DELIVERED
+(b29f1c9)**, **2.5 DELIVERED (4107a90, 94acd5d, b29f1c9) — W2 COMPLETE.** Next is W3
+(cross-container route delivery). W4–W6 untouched.
 
 ## Ground rules (carry from the ledger — read before writing code)
 
@@ -68,32 +70,32 @@ that shipped five times in this subsystem.
     non-reentrant lock, an echo would self-deadlock and clear the alert. Pinned by
     `SupervisorFeedContractTests`.)
 
-## W2 — Links persistence (session-scoped links are data loss today)
+## W2 — Links persistence (session-scoped links are data loss today) — DELIVERED (4107a90, 94acd5d, 0a54d39, b29f1c9)
 
 Links live only in the per-session `AgentLinkRegistry` singleton. Closing the tab, an
 app crash, or a restart silently drops every consented link; the agent's `agent.route`
 vocabulary breaks with no signal to the user. Consent is a decision the user made — it
 must survive restarts, and revocation must persist too.
 
-2.1. **Migration V12** (`AppDatabase`, Storage ACL): `agent_links` table —
+2.1. **DELIVERED (4107a90). Migration V12** (`AppDatabase`, Storage ACL): `agent_links` table —
     `workspace_id` TEXT NOT NULL, `name` TEXT NOT NULL, `container` TEXT NOT NULL,
     `agent_address` TEXT NOT NULL, `created_at` TEXT NOT NULL, PRIMARY KEY
     (workspace_id, name) — matching the registry's replace-by-name semantics. Follow the
     existing ApplyV* / user_version discipline (highest current version is 11).
-2.2. **Store seam**: `ILinkStore` in the Agent Domain (the domain never learns SQL),
+2.2. **DELIVERED (4107a90). Store seam**: `ILinkStore` in the Agent Domain (the domain never learns SQL),
     SQLite implementation in the Storage ACL registered per container. Methods: list by
     workspace, upsert, delete by (workspace, name).
-2.3. **Registry becomes store-backed**: `AgentLinkRegistry` keeps its exact public
+2.3. **DELIVERED (94acd5d, 0a54d39). Registry becomes store-backed**: `AgentLinkRegistry` keeps its exact public
     contract (`Link` with the consent gate, `Revoke`, `Resolve`, `Snapshot`) and gains a
     write-through + hydrate-at-construction discipline against `ILinkStore`, scoped by
     the container's `IWorkspaceContext.WorkspaceId`. `Link` with `consented: false`
     still fails without touching the store. Revocation deletes the row — a link removed
     in one session must not reappear.
-2.4. **Desktop behavior**: the Links dialog lists persisted links on open (hydration
+2.4. **DELIVERED (b29f1c9). Desktop behavior**: the Links dialog lists persisted links on open (hydration
     makes `Snapshot` truthful across restarts); no restart notice is needed because
     links simply survive. If the target agent row is gone, `agent.route` already fails
     `NotRunning` — surface that unchanged.
-2.5. **Tests**: store round-trip (upsert/list/delete); registry hydrate-on-construct;
+2.5. **DELIVERED. Tests**: store round-trip (upsert/list/delete); registry hydrate-on-construct;
     replace-by-name; revoke-deletes-row; consent-failure writes nothing; and a
     composition E2E — create a link in session one, dispose the container, open session
     two over the same database, assert `Resolve` succeeds and `agent.route` delivers to

@@ -15,7 +15,10 @@ have landed, as its predecessors were.
 Progress: **W1 COMPLETE** — 1.1 (The host interrupts a hung remote child) DELIVERED
 (86f9a52), 1.2 (The operator tunes the host watchdog) DELIVERED (79bee4b), 1.3 (The
 supervisor feed's contract is pinned) DELIVERED (26c435f) — scenarios below are
-implemented and their pins green. W2–W6 not started.
+implemented and their pins green. **W2 COMPLETE** — A consented link outlives the
+session (W2.2–W2.4) DELIVERED (94acd5d, 0a54d39, b29f1c9); The links table migrates
+safely (W2.1, W2.5) DELIVERED (4107a90, b29f1c9) — scenarios below are implemented and
+their pins green. W3–W6 not started.
 
 The spec's ground rules — delivery review traces every resolve→invoke chain in the real host,
 both halves of every seam get end-to-end tests, detached test rigs, doctrine tests stay green,
@@ -60,8 +63,8 @@ the spec; they are not restated per scenario here.
 | The host interrupts a hung remote child — **DELIVERED (86f9a52)** | W1.1 | P5 graduated response, FR-L5, A4 |
 | The operator tunes the host watchdog — **DELIVERED (79bee4b)** | W1.2 | operator configuration surface |
 | The supervisor feed's contract is pinned — **DELIVERED (26c435f)** | W1.3 | P2/P4 (facts, no re-deciding silently) |
-| A consented link outlives the session | W2.2–W2.4 | FR-C10, P7; supersedes ruling R2.3 |
-| The links table migrates safely | W2.1, W2.5 | persistence discipline |
+| A consented link outlives the session — **DELIVERED (94acd5d, 0a54d39, b29f1c9)** | W2.2–W2.4 | FR-C10, P7; supersedes ruling R2.3 |
+| The links table migrates safely — **DELIVERED (4107a90, b29f1c9)** | W2.1, W2.5 | persistence discipline |
 | A link can be dialed outside its session | W3 | FR-C10's purpose, R2.4, FR-C7 receipts |
 | One call reaches a whole subtree | W4.1 | FR-C8 broadcast, FR-C7/A3 receipts |
 | One call reaches every ancestor | W4.2 | FR-C8, FR-C7 |
@@ -162,7 +165,7 @@ events DO beat (a fresh supervisor is minted per (re)start); idle alerts NEVER f
 
 ## W2 — Links persistence
 
-### Feature: A consented link outlives the session that made it (W2.2–W2.4)
+### Feature: A consented link outlives the session that made it (W2.2–W2.4) — DELIVERED (94acd5d, 0a54d39, b29f1c9)
 
 Consent is a decision the user made; it must survive tab closes, crashes, and restarts, and
 so must revocation. Today every link silently dies with its session and the agent's route
@@ -214,7 +217,7 @@ vocabulary breaks without a signal to anyone.
     Then the other workspace's links are not listed and cannot be routed through
 ```
 
-### Feature: The links table migrates safely (W2.1, W2.5)
+### Feature: The links table migrates safely (W2.1, W2.5) — DELIVERED (4107a90, b29f1c9)
 
 ```gherkin
   Scenario: Version 12 applies cleanly over a version-11 database
