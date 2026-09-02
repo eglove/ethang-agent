@@ -234,7 +234,9 @@ public static class AgentComposition
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
-        .AddSingleton<AgentLinkRegistry>()
+        .AddSingleton(sp => new AgentLinkRegistry(
+            new SqliteLinkStore(sp.GetRequiredService<AppDatabase>()),
+            () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
         .AddSingleton<SpawnGraphHandler>()
         .AddSingleton(sp =>
         {
