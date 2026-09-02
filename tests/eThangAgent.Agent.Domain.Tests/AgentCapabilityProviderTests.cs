@@ -55,6 +55,8 @@ public class AgentCapabilityProviderTests
           ? result
           : Result.Failure<string>(new DomainError("NotFound", $"No agent exists with id '{id}'.")));
     }
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<IReadOnlyList<AgentRecord>>(new DomainError("Unused", "not exercised here")));
   }
 
   private static (AgentCapabilityProvider Provider, FakeSpawnCommand Command, FakeQueries Queries,

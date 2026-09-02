@@ -39,6 +39,10 @@ public sealed class AgentQueries(IAgentStore store) : IAgentQueries
     };
   }
 
+  /// <inheritdoc cref="IAgentQueries.ListChildrenAsync"/>
+  public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+      => _store.ListChildrenAsync(parentId, ct);
+
   private static string NoReportLine(AgentFailureReason? reason) => reason switch
   {
     AgentFailureReason.MaxIterations =>

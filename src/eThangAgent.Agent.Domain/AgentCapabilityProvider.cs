@@ -19,7 +19,8 @@ public sealed class AgentCapabilityProvider(
   ///     grant-surface computation needs the names at composition time, where
   ///     resolving the provider itself would re-enter its singleton (R1).</summary>
   public static readonly string[] ActionNames =
-      ["spawn", "status", "result", "wait", "send", "route", "escalate", "fanout"];
+      ["spawn", "status", "result", "wait", "send", "route", "escalate", "fanout",
+        "notify-subtree", "notify-ancestors"];
 
   private readonly IAgentSpawnCommand _spawnCommand = spawnCommand ?? throw new ArgumentNullException(nameof(spawnCommand));
   private readonly IAgentQueries _queries = queries ?? throw new ArgumentNullException(nameof(queries));
@@ -100,13 +101,40 @@ public sealed class AgentCapabilityProvider(
                 new ActionParameter("hops", ActionParameterTypes.IntegerType, "Optional ancestor hops (default 1, minimum 1)."),
                 new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
             ]),
+        new("notify-subtree", "Broadcast one message to every live descendant of yours.",
+            """
+            Walks your persisted descendant links downward (the same chain a subtree
+            interrupt tears down) and push-delivers 'text' into every live descendant's
+            mailbox - grandchildren included. Best-effort, per-target receipts, never
+            retried: settled or foreign ids report NotRunning and are skipped. The result
+            lists one receipt per target - hop=<n> to=<agent-id> delivered|NotRunning|MailboxFull
+            (hop counts tree depth below you, direct children are hop=1) - then a summary
+            line: reached=<count> delivered=<count>. An empty subtree succeeds with
+            reached=0 delivered=0.
+            """,
+            [
+                new ActionParameter("text", ActionParameterTypes.StringType, "Message text for every descendant. Non-empty."),
+                new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
+            ]),
+        new("notify-ancestors", "Broadcast one message to every ancestor, all the way to the root.",
+            """
+            The sibling of escalate without the hop bound: delivers 'text' to your parent,
+            grandparent, ... up to the root, using escalate's per-hop receipt format -
+            hop=<n> to=<agent-id> delivered|NotRunning|MailboxFull - then closes with
+            reached=root delivered=<count>. A receiver whose row is gone reports NotRunning;
+            the walk continues to the root regardless.
+            """,
+            [
+                new ActionParameter("text", ActionParameterTypes.StringType, "Message text for every ancestor. Non-empty."),
+                new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
+            ]),
         new("fanout", "Spawn several children in one call and wait for ALL of them.",
             """
             Fan-out/fan-in: spawns every child described in 'children' (same shape as agent.spawn, one object each), waits for the whole set to settle, and joins. Per-member receipts name each child's id and terminal state; failed STARTS fail the join immediately; settled failures are collected and fail the join at the end. Receipts: <id>=COMPLETED|FAILED(reason).
             """,
             [
                 new ActionParameter("label", ActionParameterTypes.StringType, "Optional label prefix for the graph."),
-                new ActionParameter("children", ActionParameterTypes.StringType, "JSON array of child specs: [{\"taskPrompt\":\"...\",\"model\":\"...\",\"label\":\"...\"}] — taskPrompt required per child."),
+                new ActionParameter("children", ActionParameterTypes.StringType, "JSON array of child specs: [{\"taskPrompt\":\"...\",\"model\":\"...\",\"label\":\"...\"}] - taskPrompt required per child."),
             ]),
     ];
 
@@ -122,6 +150,8 @@ public sealed class AgentCapabilityProvider(
       "send" => Send(jsonArguments),
       "route" => Route(jsonArguments),
       "escalate" => await Escalate(jsonArguments, ct).ConfigureAwait(false),
+      "notify-subtree" => await NotifySubtree(jsonArguments, ct).ConfigureAwait(false),
+      "notify-ancestors" => await NotifyAncestors(jsonArguments, ct).ConfigureAwait(false),
       "fanout" => await Fanout(jsonArguments, ct).ConfigureAwait(false),
       _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
     };
@@ -401,6 +431,161 @@ public sealed class AgentCapabilityProvider(
     }
 
     return CapabilityInvocationResult.Ok(string.Join("\n", receipts));
+  }
+
+  /// <summary>agent.notify-subtree (W4.1): one message to every live descendant.
+  ///     The walk rides the store's parent-link index — the same chain
+  ///     InterruptSubtree tears down — breadth-first so receipts read near-to-far.
+  ///     Delivery goes through the runtime's push seam exactly like agent.send;
+  ///     per-target failures render in escalate's receipt format and are never
+  ///     retried (A1/A3). The unknown-parent walk terminates (FR-L8 honesty):
+  ///     a pruned branch is skipped, never invented.</summary>
+  private async Task<CapabilityInvocationResult> NotifySubtree(string json, CancellationToken ct)
+  {
+    if (_runtime is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [NotAvailable]: agent.notify-subtree needs a runtime wired into this session's capability provider.");
+    }
+
+    string? parseError = NotifyArgs(json, out string? text, out MessageUrgency urgency);
+    if (parseError is not null)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
+    }
+
+    AgentRecord sender = _parentContext();
+    List<string> receipts = [];
+    int delivered = 0;
+    HashSet<Guid> seen = [sender.Id.Value];
+    List<(AgentRecord Record, int Hop)> frontier = [];
+    Result<IReadOnlyList<AgentRecord>> children = await _queries.ListChildrenAsync(sender.Id, ct).ConfigureAwait(false);
+    if (children.IsSuccess)
+    {
+      frontier.AddRange(children.Value.Select(child => (child, 1)));
+    }
+
+    while (frontier.Count > 0)
+    {
+      List<(AgentRecord Record, int Hop)> next = [];
+      foreach ((AgentRecord record, int hop) in frontier)
+      {
+        if (!seen.Add(record.Id.Value))
+        {
+          continue;
+        }
+
+        Result<bool> attempt = _runtime.Deliver(record.Id,
+            new PendingMessage(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender)));
+        if (attempt.IsSuccess)
+        {
+          delivered++;
+        }
+
+        receipts.Add($"hop={hop} to={record.Id} {(attempt.IsSuccess ? "delivered" : attempt.Error.Code)}");
+        Result<IReadOnlyList<AgentRecord>> grandchildren = await _queries.ListChildrenAsync(record.Id, ct).ConfigureAwait(false);
+        if (grandchildren.IsSuccess)
+        {
+          next.AddRange(grandchildren.Value.Select(grandchild => (grandchild, hop + 1)));
+        }
+      }
+
+      frontier = next;
+    }
+
+    receipts.Add($"reached={receipts.Count} delivered={delivered}");
+    return CapabilityInvocationResult.Ok(string.Join("\n", receipts));
+  }
+
+  /// <summary>agent.notify-ancestors (W4.2): escalate's walk and receipt semantics with
+  ///     no hop bound — every ancestor up to the root receives the message. A pruned
+  ///     parent row reports NotRunning and the walk continues; reached=root closes the
+  ///     contract.</summary>
+  private async Task<CapabilityInvocationResult> NotifyAncestors(string json, CancellationToken ct)
+  {
+    if (_runtime is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [NotAvailable]: agent.notify-ancestors needs a runtime wired into this session's capability provider.");
+    }
+
+    string? parseError = NotifyArgs(json, out string? text, out MessageUrgency urgency);
+    if (parseError is not null)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
+    }
+
+    AgentRecord sender = _parentContext();
+    List<string> receipts = [];
+    int delivered = 0;
+    AgentId? current = sender.ParentId;
+    int hop = 1;
+    while (current is { } target)
+    {
+      Result<AgentRecord> ancestor = await _queries.GetStatus(target, ct).ConfigureAwait(false);
+      Result<bool> attempt = _runtime.Deliver(target,
+          new PendingMessage(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender)));
+      if (attempt.IsSuccess)
+      {
+        delivered++;
+      }
+
+      receipts.Add($"hop={hop} to={target} {(attempt.IsSuccess ? "delivered" : attempt.Error.Code)}");
+      if (!ancestor.IsSuccess)
+      {
+        break; // pruned row: the walk cannot see past the gap; reached=root still closes
+      }
+
+      current = ancestor.Value.ParentId;
+      hop++;
+    }
+
+    receipts.Add($"reached=root delivered={delivered}");
+    return CapabilityInvocationResult.Ok(string.Join("\n", receipts));
+  }
+
+  /// <summary>Strict notify-argument parsing: non-empty text, urgency in range; no other
+  ///     members accepted.</summary>
+  private static string? NotifyArgs(string json, out string? text, out MessageUrgency urgency)
+  {
+    text = null;
+    urgency = MessageUrgency.Normal;
+    JsonDocument doc;
+    try
+    {
+      doc = JsonDocument.Parse(json);
+    }
+    catch (JsonException ex)
+    {
+      return $"arguments must be a JSON object ({ex.Message}).";
+    }
+
+    using (doc)
+    {
+      if (doc.RootElement.ValueKind is not JsonValueKind.Object)
+      {
+        return "arguments must be a JSON object.";
+      }
+
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "text", "urgency" };
+      string[] unknown = [.. doc.RootElement.EnumerateObject().Where(p => !allowed.Contains(p.Name)).Select(p => p.Name)];
+      if (unknown.Length > 0)
+      {
+        return $"unknown parameter(s): {string.Join(", ", unknown)}.";
+      }
+
+      if (!doc.RootElement.TryGetProperty("text", out JsonElement textElement) || textElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(textElement.GetString()))
+      {
+        return "'text' must be a non-empty string.";
+      }
+
+      text = textElement.GetString();
+      return doc.RootElement.TryGetProperty("urgency", out JsonElement urgencyElement)
+          && (urgencyElement.ValueKind is not JsonValueKind.String
+              || !Enum.TryParse(urgencyElement.GetString(), ignoreCase: true, out urgency))
+          ? "'urgency' must be one of: normal, attention, urgent."
+          : null;
+    }
   }
 
   /// <summary>agent.fanout (D12): fan-out/fan-in over the normal spawn command +

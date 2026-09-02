@@ -44,6 +44,8 @@ public class CrossContainerRoutingTests
 
     public Task<Result<string>> GetResult(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<string>(new DomainError("NotFound", "not used")));
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<IReadOnlyList<AgentRecord>>(new DomainError("Unused", "not exercised here")));
   }
 
   private sealed class FakeSpawnCommand : IAgentSpawnCommand

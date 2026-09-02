@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.7";
+  public const string Version = "2.8";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -133,7 +133,29 @@ public static class ExecGuide
       concurrent-agent limit — retrieve pending results before spawning more.
     - Children see the full tool surface and may spawn their own children — depth limit 3.
 
-    ### Recalling earlier work
+    Broadcasting to the agent tree - notify-subtree / notify-ancestors:
+
+        Tools.Invoke("agent.notify-subtree", new { timeoutSeconds = 60, text = "wrap up now", urgency = "attention" })
+        Tools.Invoke("agent.notify-ancestors", new { timeoutSeconds = 60, text = "blocked on CI" })
+
+    - notify-subtree delivers one message to EVERY live descendant (grandchildren
+      included); notify-ancestors delivers to EVERY ancestor up to the root.
+    - Per-target receipt lines, one per receiver, in this exact format:
+        hop=<n> to=<agent-id> delivered|NotRunning|MailboxFull
+      (notify-subtree counts hop as tree depth below you, direct children hop=1),
+      then a summary line:
+        reached=<count> delivered=<count>          (notify-subtree)
+        reached=root delivered=<count>             (notify-ancestors)
+    - Best-effort push, never retried: settled or foreign ids report NotRunning in
+      their receipt line and are skipped; MailboxFull means that receiver's box is
+      full - the rest still received it. An empty target set succeeds with zero counts.
+    - urgency is optional: normal (default) | attention | urgent. Urgent may preempt
+      a receiver's turn only under its own preemption grant.
+    - To reach one agent, use agent.send (a child of yours); to reach a linked agent
+      outside your tree, use agent.route. To reach yourself upward one hop with a hop
+      cap, use agent.escalate.
+
+        ### Recalling earlier work
 
     Run memory.sessions when resuming work or before duplicating effort —
     it lists what conversations exist:

@@ -43,8 +43,10 @@ public class CapabilityRegistryTests
   [Fact]
   public void Create_InvalidActionName_Throws()
   {
+    // Hyphenated names are VALID as of W4 (the broadcast vocabulary: notify-subtree);
+    // dots stay invalid.
     InvalidOperationException ex = Assert.Throws<InvalidOperationException>(
-        () => CapabilityRegistry.Create([new FakeProvider("agent", Act("read-file"))]));
+        () => CapabilityRegistry.Create([new FakeProvider("agent", Act("read.file"))]));
     Assert.Contains("is invalid", ex.Message, StringComparison.Ordinal);
   }
 

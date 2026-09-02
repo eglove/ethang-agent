@@ -100,7 +100,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - Capability registry exposing agent tools plus spawnable sub-agents, durable workspace state, and memory recall
 - Nested sub-agents with depth limits and concurrency caps
 - Per-child capability grants enforced at dispatch (`tool.allow`/`tool.deny` on `agent.spawn`; violations return `Error [GrantViolation]` and are audited)
-- Steering mid-run: `agent.wait` (one await instead of polling), `agent.send`/`parent.send` push-delivery with bounded persistent mailboxes, urgency with audited preemption, and subtree interrupt
+- Steering mid-run: `agent.wait` (one await instead of polling), `agent.send`/`parent.send` push-delivery with bounded persistent mailboxes, urgency with audited preemption, `agent.notify-subtree`/`agent.notify-ancestors` one-call broadcasts with per-target receipts, and subtree interrupt. The session tab shows an unread-steering badge while a child has queued messages (pushed by the child event stream — it appears on delivery and clears when the child drains)
 - Out-of-process children: `eThangAgent.ChildHost` over a named-pipe transport (`eThangAgent.Transport.ACL`) with declared connection-loss failures
 - Structured child results (JSON-schema validated with one repair round), fan-out/fan-in spawn graphs, and a consent-based agent link registry — links are created in the Desktop's per-tab **Links** dialog (🔗 rail entry: pick the target agent, name the link, confirm; revoke from the same list), and `agent.route` delivers to the consented link by name — including agents opened in a
 different session of the same app (in-process or running in the ChildHost); links persist

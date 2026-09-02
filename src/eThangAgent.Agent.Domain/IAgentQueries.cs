@@ -12,4 +12,9 @@ public interface IAgentQueries
   /// <summary>Final report for an agent; running agents fail NotComplete, completed agents
   ///     yield their report verbatim.</summary>
   Task<Result<string>> GetResult(AgentId id, CancellationToken ct = default);
+
+  /// <summary>The persisted children of one agent - the store's parent-link index. The
+  ///     broadcast walks the same chain InterruptSubtree tears down, so the walk can be
+  ///     synchronous over the read model.</summary>
+  Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default);
 }

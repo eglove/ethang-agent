@@ -27,6 +27,8 @@ public class AgentFanoutTests
 
     public Task<Result<string>> GetResult(AgentId id, CancellationToken ct = default)
         => throw new NotSupportedException("not exercised");
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<IReadOnlyList<AgentRecord>>(new DomainError("Unused", "not exercised here")));
   }
 
   [Fact]

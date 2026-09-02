@@ -9,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.7", ExecGuide.Version);
+    Assert.Equal("2.8", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -113,6 +113,22 @@ public class ExecGuideTests
         ];
     Assert.All(markers, m => Assert.True(m >= 0, "teaching marker missing"));
     Assert.Equal(markers.OrderBy(m => m), markers);
+  }
+
+  [Fact]
+  public void Guide_TeachesTheBroadcastActions()
+  {
+    int delegationStart = ExecGuide.Text.IndexOf("### Delegating subtasks", StringComparison.Ordinal);
+    int recallStart = ExecGuide.Text.IndexOf("### Recalling earlier work", StringComparison.Ordinal);
+    Assert.True(delegationStart >= 0 && recallStart > delegationStart, "section anchors missing");
+    string section = ExecGuide.Text[delegationStart..recallStart];
+
+    Assert.Contains("agent.notify-subtree", section, StringComparison.Ordinal);
+    Assert.Contains("agent.notify-ancestors", section, StringComparison.Ordinal);
+    Assert.Contains("hop=<n> to=<agent-id> delivered|NotRunning|MailboxFull", section, StringComparison.Ordinal);
+    Assert.Contains("reached=<count> delivered=<count>", section, StringComparison.Ordinal);
+    Assert.Contains("reached=root delivered=<count>", section, StringComparison.Ordinal);
+    Assert.Contains("never retried", section, StringComparison.Ordinal);
   }
 
   [Fact]
