@@ -1,9 +1,13 @@
 # Subagent System — Handoff
 
-Status: v1 scope DELIVERED on branch `master` (through commit `c764667`; full history below).
-This document supersedes `subagent-system-remaining-work.md` (deleted) and is the SINGLE
-source of truth for what remains. It was written by tracing config → wiring → invocation
-for every shipped surface; the remaining items below are exactly what that audit found.
+Status: v1 scope AND all three remaining items DELIVERED on branch `master` (items 1–3
+landed 2026-08-31 through commit `277bf3a`; full history below). The REMAINING WORK
+section below is retained as the record of what was found and is now closed:
+item 1 → the Desktop Links dialog (`bc25de7`), item 2 → the SupervisorFeed +
+HostChildWatchdog (`7e46661`), item 3 → the RemoteHostE2ETests rig (`277bf3a`), which
+also fixed two production defects it exposed (session open never attached the remote
+runtime; the ChildHost recursively honored the app's RemoteHost flag). Only the
+by-design deferrals and the test-coverage holes remain as recorded — none are gaps.
 
 ---
 
