@@ -6,6 +6,10 @@ exists on `master` (through `8305082`) and its finished state. Supersedes and de
 item must land for this document to be deleted by its successor as delivered. Items are
 ordered by dependency, not importance — W1 unblocks the most, so start there.
 
+Progress (updated as items land): **1.2 DELIVERED (79bee4b)**, **1.3 DELIVERED
+(26c435f)**. Next is 1.1, whose rig 1.2 unblocked (small `SubAgent:Watchdog`
+thresholds). W2–W6 untouched.
+
 ## Ground rules (carry from the ledger — read before writing code)
 
 - **Suite greenness does not establish wiring.** For every feature below, the delivery
@@ -46,19 +50,24 @@ that shipped five times in this subsystem.
     `RetrySpawned` for the child id; assert the child settles `Failed(Hung)` after the
     wrap-up retry also fails; assert the settle envelope reaches the attached app
     runtime.
-1.2. **Host watchdog configuration surface**: `ChildHostServer.BuildChildWatchdog`
+1.2. **DELIVERED (79bee4b). Host watchdog configuration surface**: `ChildHostServer.BuildChildWatchdog`
     hardcodes `WatchdogOptions.Default`. Add a `SubAgent:Watchdog:*` configuration
     section (idle threshold, tick interval, max wrap-up attempts; strict bind like
     `SubAgent:RemoteHost` — invalid values are a startup error, never clamped), plumbed
     `AgentSettings` → supervisor → settings JSON → host, so operators can tune the host
     watchdog without recompiling. Unit-test the bind matrix (absent / valid / invalid /
     boundary) the way `SubAgentConfigurationTests` does.
-1.3. **Supervisor feed contract for the other event kinds**: `SupervisorFeed` handles
+1.3. **DELIVERED (26c435f). Supervisor feed contract for the other event kinds**: `SupervisorFeed` handles
     `ChildProgressEvent` and `ChildSettledEvent`. Decide and pin the contract for the
     remaining stream events: does a budget alert (`ChildBudgetAlertEvent`) reset the
     idle window? (Argue it should NOT — a budget alert is not progress — and pin that
     with a test.) Does `PreemptedEvent`? Pin whichever way is chosen so the next
     contributor does not re-decide it silently.
+    (Delivered contract: budget alerts, preemptions, and mail deliveries do NOT beat;
+    started events DO beat — the runtime mints a fresh supervisor per (re)start; idle
+    alerts NEVER feed — published from inside CheckIdle under the supervisor's
+    non-reentrant lock, an echo would self-deadlock and clear the alert. Pinned by
+    `SupervisorFeedContractTests`.)
 
 ## W2 — Links persistence (session-scoped links are data loss today)
 

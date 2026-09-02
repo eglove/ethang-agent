@@ -12,6 +12,10 @@ codes are quoted verbatim from those sources — tests and docs may copy them fr
 This document shares the spec's lifecycle: it is deleted by the delivery commit once W1–W6
 have landed, as its predecessors were.
 
+Progress: **W1.2 (The operator tunes the host watchdog) DELIVERED (79bee4b)**, **W1.3
+(The supervisor feed's contract is pinned) DELIVERED (26c435f)** — scenarios below are
+implemented and their pins green. Everything else not started.
+
 The spec's ground rules — delivery review traces every resolve→invoke chain in the real host,
 both halves of every seam get end-to-end tests, detached test rigs, doctrine tests stay green,
 build + format gate + clean tree — are process, not behavior. They remain in force and live in
@@ -53,8 +57,8 @@ the spec; they are not restated per scenario here.
 | BDD feature | Spec item | Restores (source spec) |
 |---|---|---|
 | The host interrupts a hung remote child | W1.1 | P5 graduated response, FR-L5, A4 |
-| The operator tunes the host watchdog | W1.2 | operator configuration surface |
-| The supervisor feed's contract is pinned | W1.3 | P2/P4 (facts, no re-deciding silently) |
+| The operator tunes the host watchdog — **DELIVERED (79bee4b)** | W1.2 | operator configuration surface |
+| The supervisor feed's contract is pinned — **DELIVERED (26c435f)** | W1.3 | P2/P4 (facts, no re-deciding silently) |
 | A consented link outlives the session | W2.2–W2.4 | FR-C10, P7; supersedes ruling R2.3 |
 | The links table migrates safely | W2.1, W2.5 | persistence discipline |
 | A link can be dialed outside its session | W3 | FR-C10's purpose, R2.4, FR-C7 receipts |
@@ -102,7 +106,7 @@ Background:
       And the waiting parent learns the terminal outcome without polling
 ```
 
-### Feature: The operator tunes the host watchdog (W1.2)
+### Feature: The operator tunes the host watchdog (W1.2) — DELIVERED (79bee4b)
 
 The host watchdog's thresholds are configuration, not constants: tunable without
 recompiling, bound strictly — an invalid value is a startup error, never silently corrected.
@@ -126,10 +130,14 @@ recompiling, bound strictly — an invalid value is a startup error, never silen
     Then the idle threshold is 15 minutes
 ```
 
-### Feature: The supervisor feed's contract is pinned (W1.3)
+### Feature: The supervisor feed's contract is pinned (W1.3) — DELIVERED (26c435f)
 
 Every event kind's meaning for the idle window is decided once, in the open, so no future
 contributor re-decides it silently.
+
+Pinned contract: budget alerts, preemptions, and mail deliveries do NOT beat; started
+events DO beat (a fresh supervisor is minted per (re)start); idle alerts NEVER feed
+(lock reentrancy + alert preservation).
 
 ```gherkin
   Scenario: A budget alert is not progress
