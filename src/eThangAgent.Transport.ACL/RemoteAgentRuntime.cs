@@ -157,13 +157,13 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
         else if (envelope.Kind == "settle")
         {
           SettleNotice? notice = JsonSerializer.Deserialize<SettleNotice>(envelope.Json);
-          if (notice is not null && _settling.TryRemove(notice.RecordId, out TaskCompletionSource<AgentRunOutcome>? source))
+          if (notice is not null)
           {
             AgentStatus status = Enum.TryParse(notice.Status, out AgentStatus parsed)
                 ? parsed : AgentStatus.Failed;
             AgentFailureReason? reason = Enum.TryParse(notice.Reason, out AgentFailureReason reasonParsed)
                 ? reasonParsed : null;
-            _ = source.TrySetResult(new AgentRunOutcome(new AgentId(notice.RecordId),
+            Settle(new AgentId(notice.RecordId), new AgentRunOutcome(new AgentId(notice.RecordId),
                 status, reason, notice.Report, "remote", 0));
           }
         }
@@ -187,6 +187,51 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }
+
+  /// <summary>Completes every waiter for one child, RETAINING the completed source as
+  ///     an outcome record — the same contract the in-process runtime's Settle upholds
+  ///     (T3 ruling): a run may settle more than once (the host watchdog's wrap-up
+  ///     retry settles the interrupted attempt before the FINAL terminal settle), and
+  ///     a waiter observing the run at any point must read a well-formed outcome —
+  ///     never NotFound, never a silently dropped envelope. The FIRST settle is the
+  ///     interrupted attempt's outcome; later settles REPLACE it so late waiters see
+  ///     the latest outcome.</summary>
+  private void Settle(AgentId id, AgentRunOutcome outcome)
+  {
+    while (true)
+    {
+      if (_settling.TryGetValue(id.Value, out TaskCompletionSource<AgentRunOutcome>? source))
+      {
+        if (source.TrySetResult(outcome))
+        {
+          return;
+        }
+
+        // Stale completed source from an older run: late waiters must observe the
+        // LATEST outcome, so swap in a fresh already-completed source and retry on
+        // add/update races.
+        TaskCompletionSource<AgentRunOutcome> replacement = NewSettleSource();
+        _ = replacement.TrySetResult(outcome);
+        if (_settling.TryUpdate(id.Value, replacement, source))
+        {
+          return;
+        }
+      }
+      else
+      {
+        // Settle for an id this runtime never started (defensive, e.g. re-attach
+        // delivers a settle for a child started by a previous app lifetime): record
+        // the outcome so a late waiter reads a well-formed result instead of NotFound.
+        TaskCompletionSource<AgentRunOutcome> fresh = NewSettleSource();
+        _ = fresh.TrySetResult(outcome);
+        _ = _settling.TryAdd(id.Value, fresh);
+        return;
+      }
+    }
+  }
+
+  private static TaskCompletionSource<AgentRunOutcome> NewSettleSource()
+      => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
   private async Task<Result<AgentId>> SendStartAsync(StartCommand command, AgentId id, CancellationToken ct)
   {
