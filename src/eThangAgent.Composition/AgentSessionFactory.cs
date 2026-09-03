@@ -2,6 +2,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.ConversationDomain;
+using eThangAgent.Local.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
@@ -66,7 +67,17 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     string full = validated.Value;
 
-    ServiceProvider services = BuildContainer(full, providerName, clarifyChannel, conversationSeed: null);
+    // The bootstrap model must exist before any container: on local it IS the server's
+    // own first listed entry (no pseudo-model exists server-side), so an unreachable
+    // server fails the open here — structured, with nothing half-built behind it.
+    Result<BootstrapModel> bootstrap = await ResolveBootstrapModelAsync(providerName, ct).ConfigureAwait(false);
+    if (!bootstrap.IsSuccess)
+    {
+      return Result.Failure<AgentSession>(bootstrap.Error);
+    }
+
+    ServiceProvider services = BuildContainer(full, providerName, clarifyChannel, conversationSeed: null,
+        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId);
     try
     {
       IAgentStore store = services.GetRequiredService<IAgentStore>();
@@ -151,7 +162,17 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     }
 
     string providerName = record.Provider;
-    ServiceProvider services = BuildContainer(workspaceRoot, providerName, clarifyChannel, transcript.Value);
+
+    // Same shared bootstrap as create: the transcript hydrates, but the default model
+    // still resolves from the server's own lineup when resuming a local session.
+    Result<BootstrapModel> bootstrap = await ResolveBootstrapModelAsync(providerName, ct).ConfigureAwait(false);
+    if (!bootstrap.IsSuccess)
+    {
+      return Result.Failure<AgentSession>(bootstrap.Error);
+    }
+
+    ServiceProvider services = BuildContainer(workspaceRoot, providerName, clarifyChannel, transcript.Value,
+        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId);
     try
     {
       services.GetRequiredService<RootSessionIdentity>().Id = sessionId;
@@ -178,7 +199,9 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   }
 
   /// <summary>Guard-style validation shared by create and resume: provider known and
-  ///     configured, workspace non-empty and existing. Returns the full workspace path.</summary>
+  ///     configured (the local base URL text must also RESOLVE — a present-but-unusable
+  ///     URL fails here, never as a raw exception past this seam), workspace non-empty
+  ///     and existing. Returns the full workspace path.</summary>
   private Result<string> ValidateProvider(string workspaceRoot, string providerName)
   {
     if (!Providers.IsKnown(providerName))
@@ -198,6 +221,20 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     {
       return Result.Failure<string>(new DomainError("ProviderNotConfigured",
           $"Provider '{Providers.DisplayName(providerName)}' is not fully configured (API key, or base URL for the local provider). Complete its settings under Settings (gear icon) and open the agent again."));
+    }
+
+    // Local's base URL is raw text and can be PRESENT yet unusable — the one provider
+    // setting that slips past the configured gate. Resolving it here keeps that
+    // failure on the same structured seam as every other validation error; letting it
+    // reach composition would throw a raw InvalidOperationException across the
+    // Task<Result<AgentSession>> seam.
+    if (providerName == Providers.Local)
+    {
+      Result<Uri> resolvedBaseUrl = _settings.Local!.ResolveBaseUrl();
+      if (!resolvedBaseUrl.IsSuccess)
+      {
+        return Result.Failure<string>(resolvedBaseUrl.Error);
+      }
     }
 
     if (string.IsNullOrWhiteSpace(workspaceRoot))
@@ -247,19 +284,68 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     await repair.RepairAsync(ct).ConfigureAwait(false);
   }
 
-  private ServiceProvider BuildContainer(string workspaceRoot, string providerName,
-      IClarifyChannel clarifyChannel, IReadOnlyList<Message>? conversationSeed)
-  {
-    // Bootstrap model: the provider's default — z.ai's glm-5.3-flash or OpenRouter's
-    // openrouter/auto placeholder — serving until the first turn resolves the real one
-    // (intelligent selection, or the user's model picker choice restored from the
-    // per-workspace preference).
-    ModelConfig defaultModel = ModelConfig.Create(
-        Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f,
-        // Bootstrap-only: the routing/fallback placeholder serves until the first turn
-        // resolves the real model; the curated floor covers its accounting meanwhile.
-        Providers.RoutingContextWindow).Value!;
+  /// <summary>The bootstrap model resolved for one session open: the config the
+  ///     container registers as its default, plus the fallback id threaded into spawn
+  ///     defaults and both root resolvers. Null <see cref="ResolvedFallbackModelId"/>
+  ///     keeps composition's static provider default (every non-local provider).</summary>
+  private sealed record BootstrapModel(ModelConfig Config, string? ResolvedFallbackModelId);
 
+  /// <summary>Resolves the bootstrap model BEFORE any container is built. Local
+  ///     resolves from the server's own model list — first listed entry, carrying its
+  ///     advertised context window and traveling into composition as the resolved
+  ///     fallback — because no pseudo-model exists server-side and turn one must name a
+  ///     real id. Every other provider keeps the synchronous constant bootstrap
+  ///     byte-identically: the provider's static fallback id over the curated routing
+  ///     window. Catalog failure (unreachable server, empty lineup) fails the session
+  ///     open here — structured, with nothing half-built behind it.</summary>
+  private async Task<Result<BootstrapModel>> ResolveBootstrapModelAsync(
+      string providerName, CancellationToken ct)
+  {
+    if (providerName != Providers.Local)
+    {
+      ModelConfig constant = ModelConfig.Create(
+          Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f,
+          Providers.RoutingContextWindow).Value!;
+      return Result.Success(new BootstrapModel(constant, ResolvedFallbackModelId: null));
+    }
+
+    LocalSettings local = _settings.Local!;
+    Result<Uri> baseUrl = local.ResolveBaseUrl();
+    if (!baseUrl.IsSuccess)
+    {
+      // Unreachable when ValidateProvider ran (it resolves the same URL) — kept
+      // total so this seam never invents a value or throws on its own.
+      return Result.Failure<BootstrapModel>(baseUrl.Error);
+    }
+
+    // The factory has no container yet, so the catalog is constructed directly over
+    // the resolved base URL; the client is disposed with this resolution, never shared.
+    using HttpClient http = new() { Timeout = TimeSpan.FromSeconds(120) };
+    LocalModelCatalog catalog = new(http, new LocalConfiguration(baseUrl.Value, local.ApiKey));
+    Result<IReadOnlyList<ModelProviderEntry>> lineup = await catalog.GetAsync(ct).ConfigureAwait(false);
+    if (!lineup.IsSuccess)
+    {
+      return Result.Failure<BootstrapModel>(lineup.Error);
+    }
+
+    if (lineup.Value.Count == 0)
+    {
+      return Result.Failure<BootstrapModel>(new DomainError("ProviderUnreachable",
+          $"The local server at {baseUrl.Value.Host} lists no models."));
+    }
+
+    ModelProviderEntry first = lineup.Value[0];
+    ModelConfig resolved = ModelConfig.Create(
+        first.ModelId, null, 32 * 1024, 0.7f,
+        // The server's own advertised window: accounting is honest from turn one.
+        first.ContextLength).Value!;
+    return Result.Success(new BootstrapModel(resolved, ResolvedFallbackModelId: first.ModelId));
+  }
+
+  private ServiceProvider BuildContainer(string workspaceRoot, string providerName,
+      IClarifyChannel clarifyChannel, IReadOnlyList<Message>? conversationSeed,
+      ModelConfig defaultModel, string? resolvedFallbackModelId)
+  {
     ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(_settings, providerName, defaultModel,
             new AgentHostOptions(
@@ -271,7 +357,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
                 [new WorkspaceInstructionsPromptProvider(workspaceRoot)]),
             _database,
             conversationSeed,
-            _mailboxLocator)
+            _mailboxLocator,
+            resolvedFallbackModelId)
         .BuildServiceProvider();
     return RegisterContainerMailboxSource(services);
   }
