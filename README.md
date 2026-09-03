@@ -1,6 +1,6 @@
 # eThang Agent
 
-eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered through an Avalonia desktop application. The harness is the scaffolding an AI model acts through — agent loop, tool dispatch, session persistence, desktop UI — while the model supplies the decisions. It pairs a strict Domain-Driven Design core (layered bounded contexts, CQRS, Specifications, Anti-Corruption Layers) with a pragmatic tool surface: it talks to [OpenRouter](https://openrouter.ai/) and [z.ai](https://z.ai/) models behind provider-neutral contracts, executes model-written C# scripts in-process through a dedicated ACL, and persists every session to an app-owned SQLite database so past work can be recalled.
+eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered through an Avalonia desktop application. The harness is the scaffolding an AI model acts through — agent loop, tool dispatch, session persistence, desktop UI — while the model supplies the decisions. It pairs a strict Domain-Driven Design core (layered bounded contexts, CQRS, Specifications, Anti-Corruption Layers) with a pragmatic tool surface: it talks to [OpenRouter](https://openrouter.ai/), [z.ai](https://z.ai/), and local OpenAI-compatible servers (LM Studio, Ollama, llama.cpp) behind provider-neutral contracts, executes model-written C# scripts in-process through a dedicated ACL, and persists every session to an app-owned SQLite database so past work can be recalled.
 
 > `AGENTS.md` is the engineering handbook — architecture rules and conventions for working *on* this codebase. This README covers what the harness *is* and how to *use* it.
 
@@ -9,8 +9,8 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - One Avalonia desktop frontend over a shared host-agnostic core (`eThangAgent.Composition`) — streamed responses with reasoning/tool activity, clarify prompts answered in-place, sub-agent spawning, durable session persistence
 
 - **Agent watchdog** — a per-session maintenance loop (default tick 60 s) detects spawned child agents that stopped making progress: the agent loop beats a heartbeat every iteration and around tool calls; a child idle past 15 minutes is cancelled and restarted on the same id with a wrap-up nudge (its partial transcript is preserved and resumed); a second breach marks it Failed(Hung) so the parent gets a well-formed failure. The same watchdog runs host-side for out-of-process children (the ChildHost attaches one per child run), so a hung remote child is detected and retired locally — the app never guesses from absent beats. Every decision lands in a structured `watchdog_events` audit table, and the app's working-set size is sampled on the same tick with threshold breaches recorded (observe-only)
-- Conversational coding loop against [OpenRouter](https://openrouter.ai/) or [z.ai](https://z.ai/) GLM models — each agent tab is wired for exactly one provider for its lifetime
-- Desktop shell opens on a main window with a left-hand menu bar; **Open Workspace** opens a dialog with an AI-provider dropdown (the providers whose API keys are configured) and a **Choose Workspace** folder picker. The opened tab is bound to that provider until closed (the status bar shows it), the same directory may be open under both providers, and the choice is remembered in the app database so the dialog pre-selects it next time. Each workspace roots path resolution, `exec` scripts' `Workspace`, and curated-memory scoping, and an `AGENTS.md` found at that root is injected verbatim into the system prompt as read
+- Conversational coding loop against [OpenRouter](https://openrouter.ai/), [z.ai](https://z.ai/) GLM models, or a local OpenAI-compatible server (LM Studio, Ollama, llama.cpp) — each agent tab is wired for exactly one provider for its lifetime
+- Desktop shell opens on a main window with a left-hand menu bar; **Open Workspace** opens a dialog with an AI-provider dropdown (the providers that are configured: an API key for OpenRouter/z.ai, a server address for local) and a **Choose Workspace** folder picker. The opened tab is bound to that provider until closed (the status bar shows it), the same directory may be open under both providers, and the choice is remembered in the app database so the dialog pre-selects it next time. Each workspace roots path resolution, `exec` scripts' `Workspace`, and curated-memory scoping, and an `AGENTS.md` found at that root is injected verbatim into the system prompt as read
 - Live response streaming — assistant text renders as it arrives,
   including interstitial reasoning between tool calls (SSE; falls back transparently when a
   provider endpoint does not stream)
@@ -75,14 +75,15 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - **Effort** entry (left menu, visible whenever a tab is open) — pick the session's
   reasoning effort: model default, or max, extra high, high, medium, low, minimal, none.
   Applies from the next turn to the root agent and children alike, on both OpenRouter and
-  z.ai tabs (OpenRouter maps the level to what the chosen model supports). The choice is
+  z.ai tabs (OpenRouter maps the level to what the chosen model supports); the entry is
+  unavailable on local tabs, whose servers expose no portable reasoning knob. The choice is
   remembered per workspace + provider and restored when the same directory reopens
 - **Context accounting + auto-compaction** — the status bar shows a live `CTX 148.2K/1M, 15%`
   readout (hover for the estimated system-prompt/messages/tools breakdown), plus the session id (first
   8 characters, full id on hover, click ⧉ to copy). The transcript auto-scrolls only while you rest
   at the bottom: your own messages never steal the scroll, scrolling up pauses the follow-the-tail
   behavior until you return to the bottom (or press End), and the reading position survives tab
-  switches. Both providers
+  switches. OpenRouter and z.ai
   report per-request token usage; when utilization crosses 80% at a turn boundary the oldest
   conversation is summarized by a compaction model (per-workspace setting under Settings —
   default: cheapest capable) and replaced by that handoff summary, so long sessions keep
@@ -111,7 +112,7 @@ per workspace across restarts
 
 - Windows (path handling and process execution assume Windows)
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- At least one provider API key: [OpenRouter](https://openrouter.ai/keys) and/or [z.ai](https://docs.z.ai)
+- At least one provider: an [OpenRouter](https://openrouter.ai/keys) and/or [z.ai](https://docs.z.ai) API key, or a running local OpenAI-compatible server (most need no key)
 
 ## Getting started
 
@@ -123,7 +124,7 @@ dotnet build
 dotnet run --project src/eThangAgent.Desktop # Avalonia desktop app
 ```
 
-3. Add an API key: click **⚙ Settings** at the bottom of the left menu and paste your [OpenRouter](https://openrouter.ai/keys) and/or z.ai key. Keys are stored DPAPI-encrypted in the app database (only your Windows user can read them back) and apply to newly opened agents. For z.ai, also pick the endpoint next to the key field: a **GLM Coding Plan** key works only with **Coding plan (subscription)** (the default, hitting `https://api.z.ai/api/coding/paas/v4`), while a pay-as-you-go API key requires **General API** — a coding-plan key against the general endpoint is rejected as rate-limited.
+3. Add an API key: click **⚙ Settings** at the bottom of the left menu and paste your [OpenRouter](https://openrouter.ai/keys) and/or z.ai key, or point **Local (OpenAI-compatible)** at a running local server's address (no key needed for most local servers). Keys are stored DPAPI-encrypted in the app database (only your Windows user can read them back) and apply to newly opened agents. For z.ai, also pick the endpoint next to the key field: a **GLM Coding Plan** key works only with **Coding plan (subscription)** (the default, hitting `https://api.z.ai/api/coding/paas/v4`), while a pay-as-you-go API key requires **General API** — a coding-plan key against the general endpoint is rejected as rate-limited.
 
 The window opens directly on the shell: no workspace and no pre-configured key are required up front. Click **Open Workspace**, pick a directory, and that agent's chat opens as a tab; repeat to work with several workspaces side by side.
 
@@ -136,6 +137,8 @@ The window opens directly on the shell: no workspace and no pre-configured key a
 | OpenRouter API key | **⚙ Settings → API Keys** | DPAPI-encrypted in the app database. Providers without a key are not offered in the Open-Agent dialog. |
 | z.ai API key | **⚙ Settings → API Keys** | Same storage and rules. Leave a field blank to remove that key. |
 | z.ai endpoint mode | **⚙ Settings → z.ai endpoint** | `Coding plan (subscription)` (default) chats through `https://api.z.ai/api/coding/paas/v4`; `General API (pay-as-you-go)` through `https://api.z.ai/api/paas/v4` and is the only mode with the z.ai capability tools. Stored in the app database; applies to newly opened agents. |
+| Local base URL | **⚙ Settings → Local (OpenAI-compatible)** | The server's address, stored as typed (not a secret) and applied to newly opened agents. Any OpenAI-compatible server works: LM Studio serves `http://localhost:1234`, Ollama `http://localhost:11434/v1`, llama.cpp's `llama-server` `http://localhost:8080/v1`. Blank removes the provider. The server must list its models on an OpenAI-style `/v1/models` endpoint. |
+| Local API key | **⚙ Settings → Local (OpenAI-compatible)** | Optional; DPAPI-encrypted like the cloud keys — only servers started with an auth flag (e.g. `llama.cpp --api-key`) need one. |
 | `OPENROUTER_BASE_URL` | environment variable | Optional; defaults to `https://openrouter.ai`. Useful for pointing tests at a mock server. |
 | `ZAI_BASE_URL` | environment variable | Optional; defaults to `https://api.z.ai/api` — the root both z.ai endpoint modes hang off. Also for tests. |
 | `ZAI_ENDPOINT_MODE` | environment variable | Optional; `coding` (default) or `general`. A stored Settings choice wins over it. Any other value aborts startup. |
@@ -149,6 +152,7 @@ The active provider is chosen per agent in the Open-Agent dialog — switching p
 
 - **OpenRouter** — the picker offers **Auto (smart selection)** plus a searchable list of every OpenRouter model (deduped across provider endpoints, shown with effective pricing and context size). Auto is the default: the agent defers model selection to the first user prompt, where a two-stage LLM pipeline categorizes that prompt and selects the best model from OpenRouter's fetched catalog based on the task category and price. The pipeline re-runs on every 10th user message thereafter so the model tracks the conversation's evolving task. Sub-agent spawns similarly select models based on their task prompts. Selection failures fall back to the default model (`openrouter/auto`) and surface as a transcript notice.
 - **z.ai** — no automatic selection. The picker lists z.ai's static lineup (`glm-5.3`, `glm-5.3-flash` — z.ai exposes no models-listing endpoint); the session runs `glm-5.3-flash` until you pick one.
+- **Local (OpenAI-compatible)** — the picker lists the server's own lineup exactly as it advertises it: models come from the server's `/v1/models` listing, and each model's context window is probed from LM Studio's batch endpoint, Ollama's `show`, or a small floor fallback when neither answers. The session runs the first listed model until you pick one. Reasoning effort is not sent to local servers — the **Effort** entry is unavailable on a local tab.
 
 ### Where your data lives
 
@@ -171,7 +175,7 @@ dotnet publish src/eThangAgent.Desktop -c Release -r win-x64 --self-contained fa
 
 - Every change leaves the build green.
 - Unit tests use fakes only — a domain test never knows Roslyn, HTTP, or OpenRouter exist.
-- Integration tests exercise real ACL implementations; E2E tests drive the desktop app headless against a local mock provider server (OpenRouter- and z.ai-shaped).
+- Integration tests exercise real ACL implementations; E2E tests drive the desktop app headless against a local mock provider server (OpenRouter-, z.ai-, and local-server-shaped).
 - Read `AGENTS.md` for architecture rules and conventions before writing code.
 
 ## Repository layout
