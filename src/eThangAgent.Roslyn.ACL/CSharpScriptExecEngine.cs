@@ -95,6 +95,31 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       }
       // The ACL is context-free by contract: its resumptions must never depend
       // on the caller's pump, so shed the captured context here as well.
+      //
+      // The await races the submission against the caller's token: Roslyn's
+      // cancellation is cooperative (cancelOnError ends the run only when SCRIPT
+      // code throws OCE), so a script stuck in synchronous IL — a tight spin, a
+      // blocking call that ignores the token — cannot be interrupted. Awaiting the
+      // submission directly would wedge the turn busy forever despite a user stop.
+      // Named decision: on a token win the submission task is abandoned, not
+      // awaited — the spinning thread and its script object graph stay alive until
+      // process exit (bounded by the pool, not accumulated per call). The turn
+      // settling is worth more than the leak; the budget path already tolerated it.
+      // Event-driven cancel arm (doctrine R5.1: no timed waits): the token
+      // completes a one-shot task; WhenAny races it against the submission.
+      TaskCompletionSource<object?> cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+      await using (cts.Token.Register(
+          static state => ((TaskCompletionSource<object?>)state!).TrySetResult(null), cancelled).ConfigureAwait(false))
+      {
+        Task completed = await Task.WhenAny(scheduled, cancelled.Task).ConfigureAwait(false);
+        if (completed != scheduled)
+        {
+          throw new OperationCanceledException(ct);
+        }
+      }
+
+
+      // scheduled completed here, so this await resumes synchronously.
       ScriptState<object> state = await scheduled.ConfigureAwait(false);
 
       // An OCE thrown from synchronous script surfaces (Shell killed by the budget or

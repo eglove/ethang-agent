@@ -130,6 +130,31 @@ public class CSharpScriptExecEngineTests
     Assert.Equal(ExecRunStatus.Completed, run.Status);
     Assert.True(int.Parse(run.Output, System.Globalization.CultureInfo.InvariantCulture) > 4096, $"stderr drained: {run.Output}");
   }
+
+  /// <summary>Stop-button wedge shape 1: a script spinning in pure synchronous IL
+  ///     (no OCE, no Shell) is invisible to Roslyn's cooperative cancelOnError —
+  ///     previously ExecuteAsync awaited the abandoned Roslyn submission forever,
+  ///     wedging the turn busy despite Stop. Cancellation must settle the run even
+  ///     though the script itself cannot be interrupted.</summary>
+  [Fact]
+  public async Task CallerCancellation_Returns_Promptly_Despite_Stuck_Synchronous_Script()
+  {
+    CSharpScriptExecEngine engine = CreateEngine();
+    using CancellationTokenSource cts = new();
+    Task<ExecRunResult> run = engine.ExecuteAsync(
+        new ExecProgram("while (true) { }"), cts.Token);
+
+    // Give the script a moment to actually enter the spin, then stop.
+    await Task.Delay(200, TestContext.Current.CancellationToken);
+    await cts.CancelAsync();
+
+    // The settled run surfaces as canceled (the engine propagates the OCE for
+    // classification at the tool layer); WhenAny observes completion without throwing.
+    Task done = await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+    Assert.Same(run, done);
+    Assert.True(run.IsCompleted, "ExecuteAsync must settle on cancellation even when the script cannot observe the token");
+  }
+
   [Fact]
   public async Task Workspace_Global_Reflects_Injected_Resolver_PerExecution()
   {

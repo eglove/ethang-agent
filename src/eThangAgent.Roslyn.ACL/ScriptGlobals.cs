@@ -13,6 +13,11 @@ namespace eThangAgent.Roslyn.ACL;
 /// top-level identifiers in the script: Workspace, Tools, Shell, Output, State.</summary>
 public sealed class ScriptGlobals
 {
+  // Post-cancel grace for draining a killed tree's pipes and flushing its exit:
+  // usually the kill closes the pipes instantly; a survivor holding one open gets
+  // this long before the caller unwinds cancelled and abandons the readers.
+  private static readonly TimeSpan ShellDrainGrace = TimeSpan.FromSeconds(2);
+
   private readonly ConcurrentQueue<string> _outputLines = new();
   private readonly bool _captureStdout;
   private TextWriter? _originalOut;
@@ -119,10 +124,16 @@ public sealed class ScriptGlobals
       // a stopped turn must never surface as a successful shell result.
       if (_ct.IsCancellationRequested)
       {
-        // Named decision (S8949): this wait must complete unconditionally — the token
-        // has already fired, and a token-aware WaitAll would throw without draining.
-        Task.WaitAll([stdoutTask, stderrTask], CancellationToken.None);
-        p.WaitForExit(); // flushes output handlers before the tree dies fully
+        // The drain is bounded: killing the tree usually closes its pipes, but a
+        // survivor (a detached child cmd /c start launched) can hold a pipe open
+        // forever. Named decision (S8949): no token-aware wait — the token has
+        // already fired — but an unbounded drain let a surviving orphan wedge the
+        // caller (the stop-button hang). Wait out a short grace for a real flush;
+        // past it, abandon the drain readers (their buffers finalize with the
+        // pipe handles) and the exit-code flush, and unwind cancelled. A hung
+        // stop must settle, not leak the turn.
+        _ = Task.WaitAll([stdoutTask, stderrTask], ShellDrainGrace);
+        _ = p.WaitForExit(ShellDrainGrace);
         throw new OperationCanceledException(_ct);
       }
 
