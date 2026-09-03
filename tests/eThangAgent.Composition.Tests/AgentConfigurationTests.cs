@@ -3,6 +3,7 @@ using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Composition.Tests;
 
+[Collection("EnvironmentSensitive")]
 public class AgentConfigurationTests
 {
   [Fact]

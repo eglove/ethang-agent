@@ -14,18 +14,21 @@ public static class Providers
 
   public const string Zai = "zai";
 
+  public const string Local = "local";
+
   /// <summary>Preference key under which the last user-chosen provider is persisted
   ///     in the app database.</summary>
   public const string PreferenceKey = "active_provider";
 
   public static bool IsKnown(string? providerName)
-      => providerName is OpenRouter or Zai;
+      => providerName is OpenRouter or Zai or Local;
 
   /// <summary>Human-facing provider name (dropdowns, status bars).</summary>
   public static string DisplayName(string providerName) => providerName switch
   {
     OpenRouter => "OpenRouter",
     Zai => "z.ai",
+    Local => "Local (OpenAI-compatible)",
     _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id.")
   };
 

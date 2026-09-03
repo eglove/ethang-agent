@@ -44,7 +44,8 @@ public static class AgentConfiguration
             BindEndpointMode(Environment.GetEnvironmentVariable("ZAI_ENDPOINT_MODE"))),
         subAgents,
         RemoteHost: remoteHost,
-        Watchdog: watchdog);
+        Watchdog: watchdog,
+        Local: BindLocalSettings(Environment.GetEnvironmentVariable("LOCAL_BASE_URL")));
   }
 
   /// <summary>Parses the endpoint-mode variable: exactly <c>coding</c> or <c>general</c>.
@@ -61,6 +62,15 @@ public static class AgentConfiguration
               "ZAI_ENDPOINT_MODE must be 'coding' or 'general', got '" + variableValue + "'."),
     };
   }
+
+  /// <summary>Binds the local provider from LOCAL_BASE_URL: absent or empty means
+  ///     the provider is not offered (null). A present value is stored as-is — an
+  ///     invalid URL text surfaces later, at <see cref="LocalSettings.ResolveBaseUrl"/>
+  ///     time, never silently dropped. LOCAL_API_KEY is deliberately not read here:
+  ///     keys live in each host's credential store (the Desktop overlays them via
+  ///     <see cref="AgentSettings.WithApiKeys"/>).</summary>
+  private static LocalSettings? BindLocalSettings(string? baseUrlEnv)
+      => string.IsNullOrEmpty(baseUrlEnv) ? null : new LocalSettings(baseUrlEnv, null);
 
   private static Uri BindBaseUrl(string variableName, string? baseUrlEnv, string defaultUrl)
   {
