@@ -21,7 +21,7 @@ safely (W2.1, W2.5) DELIVERED (4107a90, b29f1c9) — scenarios below are impleme
 their pins green. **W3 COMPLETE** — "A link can be dialed outside its session"
 DELIVERED (locator seam + composition wiring + both E2E variants; the remote variant
 exposed and fixed a real defect: the host's wire deliver path fed a mailbox the child
-loop never drained — now pinned by ChildHostDeliverWireTests). **W4 COMPLETE** — One call reaches a whole subtree, One call reaches every ancestor, The broadcast actions exist and are documented, and The user sees a child's unread steering DELIVERED (capability actions + `MailboxDrainedEvent` + Desktop tab badge; delivery defect found+fixed: the capability-name rule rejected hyphenated action names — relaxed with a reasoned named decision, remote E2Es needed a rebuilt ChildHost exe) — scenarios below are implemented and their pins green. W5–W6 not started.
+loop never drained — now pinned by ChildHostDeliverWireTests). **W4 COMPLETE** — One call reaches a whole subtree, One call reaches every ancestor, The broadcast actions exist and are documented, and The user sees a child's unread steering DELIVERED (capability actions + `MailboxDrainedEvent` + Desktop tab badge; delivery defect found+fixed: the capability-name rule rejected hyphenated action names — relaxed with a reasoned named decision, remote E2Es needed a rebuilt ChildHost exe) — scenarios below are implemented and their pins green. **W5 COMPLETE** — The wire's deliver path feeds the host mailbox (W5.1) was DELIVERED EARLY by the W3 fix (97a78fc) that found the seam broken; agent.fanout reads its argument strictly (W5.2) and Host notices reach the transcript safely (W5.3) DELIVERED — writing their pins found three fanout contract defects (empty children accepted at the door; non-string model/label silently dropped; DepthExceeded swallowed into a fabricated-receipt JoinFailed wrapper), all fixed; scenarios below are implemented and their pins green. W6 not started.
 
 The spec's ground rules — delivery review traces every resolve→invoke chain in the real host,
 both halves of every seam get end-to-end tests, detached test rigs, doctrine tests stay green,
@@ -73,9 +73,9 @@ the spec; they are not restated per scenario here.
 | One call reaches every ancestor | W4.2 | FR-C8, FR-C7 |
 | The user sees a child's unread steering | W4.4 | FR-C5 unread counts |
 | The broadcast actions exist and are documented | W4.3 | FR-C8 tool surface |
-| The wire's deliver path feeds the host mailbox | W5.1 | FR-X3 |
-| agent.fanout reads its argument strictly | W5.2 | FR-O6 |
-| Host notices reach the transcript | W5.3 | host observability |
+| The wire's deliver path feeds the host mailbox — **DELIVERED (97a78fc, early with W3)** | W5.1 | FR-X3 |
+| agent.fanout reads its argument strictly — **DELIVERED** | W5.2 | FR-O6 |
+| Host notices reach the transcript — **DELIVERED** | W5.3 | host observability |
 | The documentation tells the truth | W6 | — |
 | The operator's acceptance walk | DoD | FR-L7/L8, FR-X4 |
 
@@ -399,7 +399,7 @@ events, never polled.
 These close the last untested halves of shipped seams. Each feature states the behavior the
 missing test must pin.
 
-### Feature: The wire's deliver path feeds the host mailbox (W5.1)
+### Feature: The wire's deliver path feeds the host mailbox (W5.1) — DELIVERED (97a78fc, early with W3)
 
 ```gherkin
   Scenario: A deliver envelope arrives with everything the sender sent
@@ -416,7 +416,7 @@ missing test must pin.
       # the sending side already received its receipt — nothing new is owed to anyone
 ```
 
-### Feature: agent.fanout reads its children argument strictly (W5.2)
+### Feature: agent.fanout reads its children argument strictly (W5.2) — DELIVERED
 
 ```gherkin
   Scenario Outline: children argument outcomes
@@ -435,7 +435,7 @@ missing test must pin.
       | children carrying per-child model overrides | each child runs on its overridden model |
 ```
 
-### Feature: Host notices reach the transcript safely (W5.3)
+### Feature: Host notices reach the transcript safely (W5.3) — DELIVERED
 
 ```gherkin
   Scenario: A notice posted from a background thread renders on the UI

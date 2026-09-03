@@ -15,7 +15,22 @@ COMPLETE (97a78fc)** — 3.1 locator seam + capability-provider fallback, 3.2 co
 delivery defect found and fixed in the same change: the ChildHost's wire deliver path
 fed a server-owned mailbox the child loop never drained (the SessionHost inboxFor
 bridge was dead code); delivery now resolves through the child container's own
-registry, pinned by ChildHostDeliverWireTests. **W4 COMPLETE** — 4.1/4.2 notify-subtree/notify-ancestors (capability actions over a new `IAgentQueries.ListChildrenAsync` walk, escalate-format receipts), 4.3 capability door + ExecGuide 2.8, 4.4 unread badge (`MailboxDrainedEvent`, supervisor-feed no-beat pin, Desktop tab badge through the real shell wiring) — with a delivery defect found and fixed by the W4 E2E: `CapabilityNameRules` rejected hyphenated action names, killing every session at registry construction (relaxed with a reasoned named decision; stale ChildHost exe rebuilt). W5–W6 untouched.
+registry, pinned by ChildHostDeliverWireTests. **W4 COMPLETE** — 4.1/4.2 notify-subtree/notify-ancestors (capability actions over a new `IAgentQueries.ListChildrenAsync` walk, escalate-format receipts), 4.3 capability door + ExecGuide 2.8, 4.4 unread badge (`MailboxDrainedEvent`, supervisor-feed no-beat pin, Desktop tab badge through the real shell wiring) — with a delivery defect found and fixed by the W4 E2E: `CapabilityNameRules` rejected hyphenated action names, killing every session at registry construction (relaxed with a reasoned named decision; stale ChildHost exe rebuilt). **W5 COMPLETE** — 5.1 was delivered early by the W3 delivery
+defect fix (97a78fc): the broken HandleDeliver seam was found by the W3.4 remote E2E and pinned directly
+by `ChildHostDeliverWireTests` (running-child delivery with urgency+sender preserved; unknown/settled-id
+silent drop + loop liveness). 5.2 boundary matrix (`FanoutBoundaryTests`, driven through the production
+provider→composition-lambda→graph-handler shape) + parser pins in `AgentFanoutTests` — with three
+contract defects found and fixed in the same change: (a) the parser accepted an EMPTY children array
+against its own doc ("non-empty"), dying later as InvalidSpawnRequest — now rejected at the door;
+(b) non-string per-child model/label values were silently DROPPED (strict-correctness violation) — now
+rejected as InvalidActionInput; (c) a failed start rendered a fabricated id receipt and a generic
+SpawnFailed wrapper, so DepthExceeded never reached the model — fail-fast now propagates the start's own
+code verbatim (composition JoinPolicy flipped false→true to honor the action's advertised contract),
+handler tests updated for the honest receipts. Named decision: the parsed graph label is validated then
+DORMANT (no production consumer reads SpawnGraphRequest.Label) — comment now states it, ledger entry
+added. 5.3 NoticeSink marshalling pinned (`NoticeSinkMarshallingTests`: worker-thread post queues via
+Dispatcher.Post and renders only after RunJobs; pre-attach posts drop without a fault; mutation-verified
+against the unmarshalled sink). W6 untouched.
 
 ## Ground rules (carry from the ledger — read before writing code)
 
