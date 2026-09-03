@@ -50,6 +50,7 @@ public sealed partial class DoctrineTests
         "src/eThangAgent.ChildHost/Program.cs", // bounded accept-retry backoff
         "src/eThangAgent.OpenRouter.ACL/OpenRouterModelProvider.cs",
         "src/eThangAgent.Zai.ACL/ZaiModelProvider.cs",
+        "src/eThangAgent.Local.ACL/LocalModelProvider.cs", // same injected-delay-seam retry backoff as its two sibling provider ACLs
     ];
 
     List<string> violations = [];
