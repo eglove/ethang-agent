@@ -8,7 +8,8 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.Local.ACL;
 
 /// <summary>Sends domain chat requests to an OpenAI-compatible local server's chat
-///     completions endpoint (llama.cpp, LM Studio, Ollama). The optional API key rides
+///     completions endpoint (llama.cpp, LM Studio, Ollama), streaming over Server-Sent
+///     Events through the shared OpenAI-compatible stream core. The optional API key rides
 ///     an Authorization header only when configured — most local servers need none.
 ///     <see cref="ModelConfig.Effort"/> is deliberately never sent: local servers expose
 ///     no portable reasoning knob, and reasoning streams through the standard
@@ -70,7 +71,7 @@ public sealed class LocalModelProvider(HttpClient http, LocalConfiguration confi
   {
     try
     {
-      using HttpRequestMessage httpRequest = CreateRequest(config, request);
+      using HttpRequestMessage httpRequest = CreateRequest(config, request, stream: false);
       using HttpResponseMessage response = await _http.SendAsync(httpRequest, ct).ConfigureAwait(false);
       return !response.IsSuccessStatusCode
         ? StatusOutcome((int)response.StatusCode, response.Headers.RetryAfter?.Delta, await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false))
@@ -88,7 +89,100 @@ public sealed class LocalModelProvider(HttpClient http, LocalConfiguration confi
     }
   }
 
-  private HttpRequestMessage CreateRequest(ModelConfig config, ModelRequest request)
+  /// <summary>
+  /// Streams a completion over Server-Sent Events: emits every content fragment through
+  /// <paramref name="onContentDelta"/> and reasoning fragments through
+  /// <paramref name="onReasoningDelta"/> as they arrive, assembles tool-call fragments by
+  /// index, and returns the fully assembled final response — the value SendAsync would
+  /// produce for the same request. When the server ignores the stream flag and answers a
+  /// single JSON document, that body is parsed exactly as SendAsync parses it: a transport
+  /// fallback, never a change in parsing rules.
+  /// </summary>
+  public async Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
+      Action<string>? onContentDelta = null,
+      Action<string>? onReasoningDelta = null,
+      CancellationToken ct = default)
+  {
+    int attempts = _config.Retry.MaxAttempts;
+    for (int attempt = 1; attempt <= attempts; attempt++)
+    {
+      bool emitted = false;
+      Action<string>? contentSink = onContentDelta is null ? null : t =>
+      {
+        emitted = true;
+        onContentDelta(t);
+      };
+      Action<string>? reasoningSink = onReasoningDelta is null ? null : t =>
+      {
+        emitted = true;
+        onReasoningDelta(t);
+      };
+
+      OpenAiCompatRequestCore.AttemptOutcome outcome = await SendStreamingOnceAsync(config, request, contentSink, reasoningSink, ct).ConfigureAwait(false);
+      // Once a delta has reached a callback it cannot be replayed without duplicating
+      // output — mid-stream failures surface to the caller as errors, not retries.
+      if (!outcome.Retryable || emitted || ct.IsCancellationRequested || attempt == attempts)
+      {
+        return outcome.Result;
+      }
+
+      if (!await BackoffAsync(attempt, outcome.RetryAfter).ConfigureAwait(false))
+      {
+        return outcome.Result;
+      }
+    }
+
+    // Dead code: RetryPolicy validates MaxAttempts >= 1, so the loop always runs.
+    throw new UnreachableException();
+  }
+
+  private async Task<OpenAiCompatRequestCore.AttemptOutcome> SendStreamingOnceAsync(ModelConfig config, ModelRequest request,
+      Action<string>? onContentDelta, Action<string>? onReasoningDelta, CancellationToken ct)
+  {
+    try
+    {
+      using HttpRequestMessage httpRequest = CreateRequest(config, request, stream: true);
+      // Headers-read completion so the body surfaces incrementally instead of buffering.
+      using HttpResponseMessage response = await _http.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+      if (!response.IsSuccessStatusCode)
+      {
+        return StatusOutcome((int)response.StatusCode, response.Headers.RetryAfter?.Delta,
+            await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+      }
+
+      string? contentType = response.Content.Headers.ContentType?.MediaType;
+      return contentType == "text/event-stream"
+        ? OpenAiCompatRequestCore.AttemptOutcome.Final(await ReadSseStreamAsync(response, onContentDelta, onReasoningDelta, ct).ConfigureAwait(false))
+        : OpenAiCompatRequestCore.AttemptOutcome.Final(await ReadJsonBodyAsync(response, ct).ConfigureAwait(false));
+    }
+    catch (OperationCanceledException)
+    {
+      return new OpenAiCompatRequestCore.AttemptOutcome(Result.Failure<ModelResponse>(new DomainError("ProviderTimeout",
+          "Request timed out.")), Retryable: true, RetryAfter: null);
+    }
+    catch (HttpRequestException ex)
+    {
+      return new OpenAiCompatRequestCore.AttemptOutcome(Result.Failure<ModelResponse>(new DomainError(ProviderError, ex.Message)),
+          Retryable: true, RetryAfter: null);
+    }
+    catch (IOException ex)
+    {
+      return new OpenAiCompatRequestCore.AttemptOutcome(Result.Failure<ModelResponse>(new DomainError(ProviderError,
+          $"Connection lost while reading the provider stream: {ex.Message}")),
+          Retryable: true, RetryAfter: null);
+    }
+  }
+
+  /// <summary>Streams the response body through the shared OpenAI-compatible stream
+  ///     core, supplying the local vocabulary (see <see cref="LocalStreamVocabulary.Instance"/>).</summary>
+  private static Task<Result<ModelResponse>> ReadSseStreamAsync(HttpResponseMessage response,
+      Action<string>? onContentDelta,
+      Action<string>? onReasoningDelta,
+      CancellationToken ct)
+    => OpenAiCompatStreamCore.ReadSseStreamAsync(response, LocalStreamVocabulary.Instance,
+        onContentDelta, onReasoningDelta, ct);
+
+  private HttpRequestMessage CreateRequest(ModelConfig config, ModelRequest request, bool stream)
   {
     Dictionary<string, object?> bodyDict = new()
     {
@@ -97,6 +191,11 @@ public sealed class LocalModelProvider(HttpClient http, LocalConfiguration confi
       ["max_tokens"] = config.MaxTokens,
       ["temperature"] = config.Temperature,
     };
+    if (stream)
+    {
+      bodyDict["stream"] = true;
+    }
+
     if (request.Tools is { Count: > 0 })
     {
       bodyDict["tools"] = request.Tools.Select(OpenAiCompatRequestCore.TranslateTool).ToArray();
