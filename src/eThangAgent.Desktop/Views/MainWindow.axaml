@@ -42,7 +42,7 @@
                 HorizontalAlignment="Center"
                 Margin="0,2" Command="{Binding ChooseEffortCommand}"
                 IsVisible="{Binding HasSelectedTab}"
-                ToolTip.Tip="Effort — reasoning effort for the selected agent"/>
+                ToolTip.Tip="Effort — reasoning effort for the selected agent (unavailable for local servers)"/>
         <Button x:Name="LinksMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="🔗"
                 Width="40" Height="34" Padding="0" FontSize="18"
                 HorizontalAlignment="Center"

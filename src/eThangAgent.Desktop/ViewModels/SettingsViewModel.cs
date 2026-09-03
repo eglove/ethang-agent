@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using eThangAgent.Composition;
 using eThangAgent.ToolDomain;
 using eThangAgent.Zai.ACL;
 
@@ -39,10 +40,12 @@ internal sealed record CompactionModelOption(string? ModelId, string Display)
 
 internal sealed record SettingsUpdate(string? OpenRouterApiKey, string? ZaiApiKey,
     ZaiEndpointMode ZaiEndpointMode, CommitStyle CommitStyle,
-    string? CompactionModelId = null, string? CompactionWorkspaceKey = null);
+    string? CompactionModelId = null, string? CompactionWorkspaceKey = null,
+    string? LocalBaseUrlText = null, string? LocalApiKey = null);
 
-/// <summary>View-model behind the settings modal: the API-key fields for the two
-///     providers, a reveal toggle, the z.ai endpoint mode, and their shared validation.
+/// <summary>View-model behind the settings modal: the API-key fields for the
+///     providers, the local provider's base URL, a reveal toggle, the z.ai endpoint
+///     mode, and their shared validation.
 ///     Blank means cleared; whitespace inside a key is rejected — provider keys never
 ///     contain any. Pure state and commands; persistence and window closing belong to
 ///     the caller.</summary>
@@ -79,6 +82,18 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial string ZaiKey { get; set; }
 
+  /// <summary>The local server's base URL as raw text — hosts remember exactly what
+  ///     the user typed; a non-blank value must parse as an absolute URI.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string LocalBaseUrlText { get; set; }
+
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string LocalApiKey { get; set; }
+
   [ObservableProperty]
   public partial ZaiEndpointModeOption SelectedEndpointMode { get; set; }
 
@@ -96,13 +111,15 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>Save is only actionable when both fields validate.</summary>
   public bool CanSave => ValidationError is null;
 
-  /// <summary>The first validation problem across both fields, or null when clean.</summary>
-  public string? ValidationError => Validate(OpenRouterKey) ?? Validate(ZaiKey);
+  /// <summary>The first validation problem across all fields, or null when clean.</summary>
+  public string? ValidationError =>
+      Validate(OpenRouterKey) ?? Validate(ZaiKey) ?? Validate(LocalApiKey) ?? ValidateBaseUrl(LocalBaseUrlText);
 
   public SettingsViewModel(string? openRouterKey, string? zaiKey,
       ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle = CommitStyle.Conventional,
       IReadOnlyList<CompactionModelOption>? compactionModels = null,
-      CompactionModelOption? selectedCompactionModel = null)
+      CompactionModelOption? selectedCompactionModel = null,
+      string? localBaseUrl = null, string? localApiKey = null)
   {
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
@@ -116,13 +133,16 @@ internal sealed partial class SettingsViewModel : ObservableObject
             SaveRequested?.Invoke(this, new SettingsUpdate(
                 Normalize(OpenRouterKey), Normalize(ZaiKey), SelectedEndpointMode.Mode,
                 SelectedCommitStyle.Style,
-                SelectedCompactionModel.ModelId, null));
+                SelectedCompactionModel.ModelId, null,
+                Normalize(LocalBaseUrlText), Normalize(LocalApiKey)));
           }
         },
         () => CanSave);
     CompactionModels = compactionModels ?? [CompactionModelOption.Automatic];
     OpenRouterKey = openRouterKey ?? string.Empty;
     ZaiKey = zaiKey ?? string.Empty;
+    LocalBaseUrlText = localBaseUrl ?? string.Empty;
+    LocalApiKey = localApiKey ?? string.Empty;
     SelectedCompactionModel = selectedCompactionModel ?? CompactionModelOption.Automatic;
     SelectedEndpointMode = zaiEndpointMode == ZaiEndpointMode.GeneralApi
         ? ZaiEndpointModeOption.GeneralApi
@@ -141,6 +161,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
   partial void OnZaiKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
+  partial void OnLocalBaseUrlTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnLocalApiKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
   /// <summary>Returns the validation problem with <paramref name="key"/>, or null when
   ///     it is a legal entry: blank (cleared), or a trimmed non-empty value with no
   ///     internal whitespace.</summary>
@@ -155,6 +179,23 @@ internal sealed partial class SettingsViewModel : ObservableObject
     return trimmed.Any(char.IsWhiteSpace)
         ? "API keys cannot contain whitespace."
         : null;
+  }
+
+  /// <summary>Returns the validation problem with the local base-URL text, or null
+  ///     when it is a legal entry: blank (cleared), or an absolute URI — the same rule
+  ///     <see cref="LocalSettings.ResolveBaseUrl"/> enforces at use time, surfaced here
+  ///     so the error shows before the dialog closes.</summary>
+  private static string? ValidateBaseUrl(string text)
+  {
+    string trimmed = text.Trim();
+    if (trimmed.Length == 0)
+    {
+      return null; // blank clears the base URL — legal
+    }
+
+    return Uri.TryCreate(trimmed, UriKind.Absolute, out _)
+        ? null
+        : $"Local base URL is not a valid absolute URI: '{trimmed}'.";
   }
 
   private static string? Normalize(string key)

@@ -28,9 +28,14 @@
           <TextBlock Text="z.ai" FontWeight="Bold" Margin="0,6,0,0"/>
           <TextBox x:Name="ZaiKeyBox" Text="{Binding ZaiKey}" PasswordChar="{Binding KeyPasswordChar}"
                    PlaceholderText="No z.ai API key configured"/>
+          <TextBlock Text="Local (OpenAI-compatible)" FontWeight="Bold" Margin="0,6,0,0"/>
+          <TextBox x:Name="LocalBaseUrlBox" Text="{Binding LocalBaseUrlText}"
+                   PlaceholderText="http://localhost:1234"/>
+          <TextBox x:Name="LocalKeyBox" Text="{Binding LocalApiKey}" PasswordChar="{Binding KeyPasswordChar}"
+                   PlaceholderText="No local API key configured"/>
           <CheckBox x:Name="ShowKeysCheck" Content="Show keys" IsChecked="{Binding KeysVisible}" Margin="0,4,0,0"/>
           <TextBlock
-              Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave a field blank to remove that key."
+              Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave a field blank to remove that key. The local server address is stored as typed (it is not a secret); a blank base URL removes the Local provider."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>

@@ -158,9 +158,16 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public bool HasTabs => Tabs.Count > 0;
 
-  /// <summary>True when a tab is selected — drives the Model and Effort menu entries'
-  ///     visibility (every provider has both pickers).</summary>
+  /// <summary>True when a tab is selected — drives the Model menu entry's visibility
+  ///     (every provider has a model picker).</summary>
   public bool HasSelectedTab => SelectedTab is not null;
+
+  /// <summary>True when the selected tab runs on the local provider. Reasoning effort
+  ///     is never sent to local servers, so the effort picker is gated OFF there — the
+  ///     command's canExecute is the ONE gating mechanism; the menu entry binds to the
+  ///     same command. The model picker stays available on every provider.</summary>
+  public bool IsLocalTab => SelectedTab is { } tab
+      && string.Equals(tab.Container.ProviderName, Providers.Local, StringComparison.Ordinal);
 
   /// <summary>True when at least one provider has a configured API key; gates Open Workspace.</summary>
   public bool HasConfiguredProvider => AvailableProviders.Count > 0;
@@ -170,6 +177,14 @@ internal sealed partial class MainViewModel : ObservableObject
   public string? ConfiguredOpenRouterKey => _settings?.OpenRouter.ApiKey;
 
   public string? ConfiguredZaiKey => _settings?.Zai.ApiKey;
+
+  /// <summary>The local base URL the settings modal prefills (null when unset or
+  ///     settings editing is disabled) — raw text, exactly what was configured.</summary>
+  public string? ConfiguredLocalBaseUrl => _settings?.Local?.BaseUrlText;
+
+  /// <summary>The local API key the settings modal prefills (null when unset or
+  ///     settings editing is disabled).</summary>
+  public string? ConfiguredLocalApiKey => _settings?.Local?.ApiKey;
 
   /// <summary>The z.ai endpoint mode the settings modal prefills; CodingPlan when no
   ///     settings snapshot exists.</summary>
@@ -262,7 +277,7 @@ internal sealed partial class MainViewModel : ObservableObject
         () => HasSelectedTab);
     ChooseEffortCommand = new RelayCommand(
         () => EffortPickerRequested?.Invoke(this, EventArgs.Empty),
-        () => HasSelectedTab);
+        () => HasSelectedTab && !IsLocalTab);
     OpenLinksCommand = new RelayCommand(
         () => LinksRequested?.Invoke(this, EventArgs.Empty),
         () => HasSelectedTab);
@@ -354,9 +369,19 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     picker modal and calls <see cref="ApplyModelChoiceAsync"/> with the choice.</summary>
   public void RequestChooseModel() => ModelPickerRequested?.Invoke(this, EventArgs.Empty);
 
-  /// <summary>Menu-bar entry point: raises the effort-picker request. The view shows the
-  ///     picker modal and calls <see cref="ApplyEffortChoiceAsync"/> with the choice.</summary>
-  public void RequestChooseEffort() => EffortPickerRequested?.Invoke(this, EventArgs.Empty);
+  /// <summary>Menu-bar entry point: raises the effort-picker request. The view shows
+  ///     the picker modal and calls <see cref="ApplyEffortChoiceAsync"/> with the choice.
+  ///     Deliberately a no-op when the effort command is gated OFF (no selected tab, or
+  ///     a local tab — reasoning effort is never sent to local servers).</summary>
+  public void RequestChooseEffort()
+  {
+    // Shares the effort command's gate — reasoning effort is never sent to local
+    // servers, so a local tab is a deliberate no-op here exactly as for the command.
+    if (ChooseEffortCommand.CanExecute(null))
+    {
+      EffortPickerRequested?.Invoke(this, EventArgs.Empty);
+    }
+  }
 
   /// <summary>Loads the selected tab's provider catalog for the model picker, or null
   ///     when no tab is selected. The loader escapes collection evaluation in the
@@ -424,9 +449,13 @@ internal sealed partial class MainViewModel : ObservableObject
 
     string? openRouterKey = Normalize(update.OpenRouterApiKey);
     string? zaiKey = Normalize(update.ZaiApiKey);
+    string? localBaseUrl = Normalize(update.LocalBaseUrlText);
+    string? localKey = Normalize(update.LocalApiKey);
 
     await PersistApiKeyAsync(OpenRouterSettings.PreferenceKey, openRouterKey);
     await PersistApiKeyAsync(ZaiSettings.PreferenceKey, zaiKey);
+    await PersistPreferenceAsync(LocalSettings.BaseUrlPreferenceKey, localBaseUrl);
+    await PersistApiKeyAsync(LocalSettings.PreferenceKey, localKey);
     await PersistPreferenceAsync(ZaiSettings.EndpointModePreferenceKey,
         update.ZaiEndpointMode.ToConfigValue());
     await PersistPreferenceAsync(AppPreferenceCommitStyleProvider.PreferenceKey,
@@ -444,8 +473,9 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     _settings = _settings
-        .WithApiKeys(openRouterKey, zaiKey)
-        .WithZaiEndpointMode(update.ZaiEndpointMode);
+        .WithApiKeys(openRouterKey, zaiKey, localKey)
+        .WithZaiEndpointMode(update.ZaiEndpointMode)
+        .WithLocalSettings(localBaseUrl, localKey);
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
 
     AvailableProviders = ProvidersFrom(_settings);
@@ -498,8 +528,9 @@ internal sealed partial class MainViewModel : ObservableObject
   }
 
   /// <summary>Writes one plaintext preference (never a secret — secrets go through the
-  ///     key protector). Best effort, same named decision as the key preferences.</summary>
-  private async Task PersistPreferenceAsync(string preferenceKey, string value)
+  ///     key protector). A null value deletes the preference (blank clears). Best
+  ///     effort, same named decision as the key preferences.</summary>
+  private async Task PersistPreferenceAsync(string preferenceKey, string? value)
   {
     if (_preferences is null)
     {
@@ -510,7 +541,10 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      if (!await _preferences.SetAsync(preferenceKey, value))
+      bool landed = value is null
+          ? await _preferences.DeleteAsync(preferenceKey)
+          : await _preferences.SetAsync(preferenceKey, value);
+      if (!landed)
       {
         await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}'");
       }
@@ -532,6 +566,10 @@ internal sealed partial class MainViewModel : ObservableObject
     if (settings.HasZai)
     {
       providers.Add(new ProviderOption(Providers.Zai, Providers.DisplayName(Providers.Zai)));
+    }
+    if (settings.HasLocal)
+    {
+      providers.Add(new ProviderOption(Providers.Local, Providers.DisplayName(Providers.Local)));
     }
     return providers;
   }

@@ -265,21 +265,26 @@ public class ShellViewModelTests
     Assert.False(vm.HasConfiguredProvider);
 
     await vm.ApplySettingsAsync(new SettingsUpdate("  sk-or-v1-abc  ", " zai-key ",
-        ZaiEndpointMode.CodingPlan, CommitStyle.Conventional));
+        ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
+        LocalBaseUrlText: "http://localhost:1234", LocalApiKey: "lm-key"));
 
     // Keys land trimmed and PROTECTED — never plaintext; the mode lands plaintext
-    // (it is not a secret); nothing to delete.
+    // (it is not a secret); the local pair (absent from this update) clears.
     Assert.Equal(
         [
             (OpenRouterSettings.PreferenceKey, "protected:sk-or-v1-abc"),
             (ZaiSettings.PreferenceKey, "protected:zai-key"),
+            (LocalSettings.BaseUrlPreferenceKey, "http://localhost:1234"),
+            (LocalSettings.PreferenceKey, "protected:lm-key"),
             (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
         ],
         preferences.Writes);
+    // Nothing clears: every field in the update carries a value, the local pair
+    // included — the fully-populated dialog never deletes.
     Assert.Empty(preferences.Deletions);
 
-    Assert.Equal(["openrouter", "zai"], vm.AvailableProviders.Select(p => p.Id));
+    Assert.Equal(["openrouter", "zai", "local"], vm.AvailableProviders.Select(p => p.Id));
     Assert.True(vm.HasConfiguredProvider);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
     Assert.Equal("zai-key", vm.ConfiguredZaiKey);
@@ -297,7 +302,10 @@ public class ShellViewModelTests
 
     await vm.ApplySettingsAsync(new SettingsUpdate(null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional));
 
-    Assert.Equal([OpenRouterSettings.PreferenceKey, ZaiSettings.PreferenceKey], preferences.Deletions);
+    Assert.Equal(
+        [OpenRouterSettings.PreferenceKey, ZaiSettings.PreferenceKey,
+         LocalSettings.BaseUrlPreferenceKey, LocalSettings.PreferenceKey],
+        preferences.Deletions);
     Assert.Equal(
         [
             (ZaiSettings.EndpointModePreferenceKey, "coding"),
@@ -343,7 +351,9 @@ public class ShellViewModelTests
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
         ],
         preferences.Writes);
-    Assert.Equal([ZaiSettings.PreferenceKey], preferences.Deletions);
+    Assert.Equal(
+        [ZaiSettings.PreferenceKey, LocalSettings.BaseUrlPreferenceKey, LocalSettings.PreferenceKey],
+        preferences.Deletions);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
   }
 

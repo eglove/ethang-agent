@@ -54,14 +54,19 @@ internal static class DesktopHost
 
     // ONE app-owned database for every opened session (rows are keyed by workspace id).
     AppDatabase database = new();
-    IAppPreferenceStore preferences = new SqliteAppPreferenceStore(database);
+    SqliteAppPreferenceStore preferences = new(database);
     IApiKeyProtector protector = new DpapiKeyProtector();
 
+    string? localKey = await LoadKeyAsync(preferences, protector, LocalSettings.PreferenceKey);
     settings = settings
         .WithApiKeys(
             await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey),
-            await LoadKeyAsync(preferences, protector, ZaiSettings.PreferenceKey))
-        .WithZaiEndpointMode(await LoadEndpointModeAsync(preferences));
+            await LoadKeyAsync(preferences, protector, ZaiSettings.PreferenceKey),
+            localKey)
+        .WithZaiEndpointMode(await LoadEndpointModeAsync(preferences))
+        // Both overlays must carry the key: WithLocalSettings writes the FULL local
+        // pair, so passing null here would clear what WithApiKeys just set.
+        .WithLocalSettings(await preferences.GetAsync(LocalSettings.BaseUrlPreferenceKey), localKey);
     CommitStyle commitStyle = await LoadCommitStyleAsync(preferences);
 
     // The Sessions dialog reads the shared store directly — it must work with zero
@@ -81,7 +86,7 @@ internal static class DesktopHost
   /// <summary>Recovers one stored key: absent stays null; undecryptable (corrupted or
   ///     foreign blob) reads as absent with a stderr note, never a crash.</summary>
   private static async Task<string?> LoadKeyAsync(
-      IAppPreferenceStore preferences, IApiKeyProtector protector, string preferenceKey)
+      SqliteAppPreferenceStore preferences, IApiKeyProtector protector, string preferenceKey)
   {
     string? stored = await preferences.GetAsync(preferenceKey);
     if (stored is null)
@@ -100,7 +105,7 @@ internal static class DesktopHost
   /// <summary>Recovers the stored z.ai endpoint mode: absent stays at the CodingPlan
   ///     default; a stored value that no longer parses (corrupted or foreign row) reads
   ///     as absent with a stderr note, never a crash.</summary>
-  private static async Task<ZaiEndpointMode> LoadEndpointModeAsync(IAppPreferenceStore preferences)
+  private static async Task<ZaiEndpointMode> LoadEndpointModeAsync(SqliteAppPreferenceStore preferences)
   {
     string? stored = await preferences.GetAsync(ZaiSettings.EndpointModePreferenceKey);
     if (stored is null)
@@ -121,7 +126,7 @@ internal static class DesktopHost
   ///     default; an unrecognized stored value logs to stderr and falls back to the
   ///     default for the PREFILL only — the tool side surfaces the typed error if a
   ///     commit actually runs against corrupt data.</summary>
-  private static async Task<CommitStyle> LoadCommitStyleAsync(IAppPreferenceStore preferences)
+  private static async Task<CommitStyle> LoadCommitStyleAsync(SqliteAppPreferenceStore preferences)
   {
     string? stored = await preferences.GetAsync(AppPreferenceCommitStyleProvider.PreferenceKey);
     Result<CommitStyle> resolved = CommitStylePreference.Resolve(stored);
@@ -139,7 +144,7 @@ internal static class DesktopHost
   ///     is still configured, else the only configured provider, else OpenRouter (the
   ///     both-keys back-compat default).</summary>
   private static async Task<string> ResolvePreferredProviderAsync(
-      AgentSettings settings, IAppPreferenceStore preferences)
+      AgentSettings settings, SqliteAppPreferenceStore preferences)
   {
     string? persisted = await preferences.GetAsync(Providers.PreferenceKey).ConfigureAwait(false);
     if (persisted == Providers.OpenRouter && settings.HasOpenRouter)
@@ -150,6 +155,11 @@ internal static class DesktopHost
     if (persisted == Providers.Zai && settings.HasZai)
     {
       return Providers.Zai;
+    }
+
+    if (persisted == Providers.Local && settings.HasLocal)
+    {
+      return Providers.Local;
     }
 
     bool preferOpenRouter = settings.HasOpenRouter;

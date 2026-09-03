@@ -99,7 +99,8 @@ internal partial class MainWindow : Window
     SettingsWindow dialog = new(_vm!.ConfiguredOpenRouterKey, _vm.ConfiguredZaiKey,
         _vm.ConfiguredZaiEndpointMode, _vm.ConfiguredCommitStyle,
         await _vm.GetCompactionOptionsAsync(),
-        await _vm.GetSelectedCompactionModelAsync());
+        await _vm.GetSelectedCompactionModelAsync(),
+        _vm.ConfiguredLocalBaseUrl, _vm.ConfiguredLocalApiKey);
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {

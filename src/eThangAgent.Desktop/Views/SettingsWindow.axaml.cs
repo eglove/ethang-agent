@@ -7,7 +7,8 @@ using eThangAgent.Zai.ACL;
 namespace eThangAgent.Desktop.Views;
 
 /// <summary>The settings modal: three categorized tabs - API Keys (one masked field
-///     per provider), Models (z.ai endpoint, compaction model), Git (commit style) -
+///     per provider plus the local base URL), Models (z.ai endpoint, compaction model),
+///     Git (commit style) -
 ///     with a shared validation-error + Save/Cancel footer outside the tabs.
 ///     Confirming closes the dialog with the validated <see cref="SettingsUpdate"/>;
 ///     cancelling closes it with null. The view only owns window mechanics —
@@ -21,10 +22,11 @@ internal partial class SettingsWindow : Window
   public SettingsWindow(string? openRouterKey, string? zaiKey,
       ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle,
       IReadOnlyList<CompactionModelOption>? compactionModels = null,
-      CompactionModelOption? selectedCompactionModel = null) : this()
+      CompactionModelOption? selectedCompactionModel = null,
+      string? localBaseUrl = null, string? localApiKey = null) : this()
   {
     _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle,
-        compactionModels, selectedCompactionModel);
+        compactionModels, selectedCompactionModel, localBaseUrl, localApiKey);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);
   }
