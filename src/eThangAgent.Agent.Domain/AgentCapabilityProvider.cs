@@ -600,7 +600,8 @@ public sealed class AgentCapabilityProvider(
     }
 
     string? parseError = FanoutArgs(json, out string? label, out List<SpawnRequest>? children);
-    _ = label; // label prefixing happens in the composition lambda via SpawnGraphRequest.Label
+    _ = label; // validated, then dormant: no production consumer reads SpawnGraphRequest.Label
+    // (W5.2 finding, ledgered - the action advertises an optional label prefix that is never rendered)
     if (parseError is not null)
     {
       return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
@@ -645,9 +646,21 @@ public sealed class AgentCapabilityProvider(
         return "'children' must be an array of child specs.";
       }
 
-      label = doc.RootElement.TryGetProperty("label", out JsonElement labelElement) && labelElement.ValueKind is JsonValueKind.String
-          ? labelElement.GetString()
-          : null;
+      if (childrenElement.GetArrayLength() == 0)
+      {
+        return "'children' requires at least one child spec.";
+      }
+
+      label = null;
+      if (doc.RootElement.TryGetProperty("label", out JsonElement labelElement))
+      {
+        if (labelElement.ValueKind is not JsonValueKind.String)
+        {
+          return "'label' must be a string.";
+        }
+
+        label = labelElement.GetString();
+      }
 
       List<SpawnRequest> parsed = [];
       int index = 0;
@@ -664,8 +677,28 @@ public sealed class AgentCapabilityProvider(
           return $"children[{index}].taskPrompt must be a non-empty string.";
         }
 
-        string? model = child.TryGetProperty("model", out JsonElement modelElement) && modelElement.ValueKind is JsonValueKind.String ? modelElement.GetString() : null;
-        string? childLabel = child.TryGetProperty("label", out JsonElement childLabelElement) && childLabelElement.ValueKind is JsonValueKind.String ? childLabelElement.GetString() : null;
+        string? model = null;
+        if (child.TryGetProperty("model", out JsonElement modelElement))
+        {
+          if (modelElement.ValueKind is not JsonValueKind.String)
+          {
+            return $"children[{index}].model must be a string.";
+          }
+
+          model = modelElement.GetString();
+        }
+
+        string? childLabel = null;
+        if (child.TryGetProperty("label", out JsonElement childLabelElement))
+        {
+          if (childLabelElement.ValueKind is not JsonValueKind.String)
+          {
+            return $"children[{index}].label must be a string.";
+          }
+
+          childLabel = childLabelElement.GetString();
+        }
+
         parsed.Add(new SpawnRequest(promptElement.GetString()!, model, childLabel));
       }
 

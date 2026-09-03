@@ -258,10 +258,13 @@ public static class AgentComposition
                   sp.GetRequiredService<AgentLinkRegistry>(),
                   locator: sp.GetRequiredService<ProcessMailboxLocator>(),
                   eventsFor: id => sp.GetRequiredService<ProcessMailboxLocator>().EventsFor(id),
+                  // Fail-fast join: agent.fanout's advertised contract - failed STARTS
+                  // (DepthExceeded, InvalidSpawnRequest, ...) fail the join immediately
+                  // and surface under their own error code.
                   fanout: async (parent, children, ct) =>
                   {
                     Result<SpawnGraphOutcome> joined = await graph.ExecuteAsync(parent,
-                        new SpawnGraphRequest(Label: "", Children: children, Join: new JoinPolicy(false)), ct).ConfigureAwait(false);
+                        new SpawnGraphRequest(Label: "", Children: children, Join: new JoinPolicy(true)), ct).ConfigureAwait(false);
                     return joined.IsSuccess
                         ? joined.Value.Render()
                         : "Error [" + joined.Error.Code + "]: " + joined.Error.Message;

@@ -92,5 +92,50 @@ public class AgentFanoutTests
   }
 
   [Fact]
+  public async Task Fanout_EmptyChildren_Is_Rejected_At_Validation_Before_The_Seam()
+  {
+    SpawnRequest[]? captured = null;
+    AgentCapabilityProvider provider = Make((_, children, _) =>
+    {
+      captured = children;
+      return Task.FromResult("ok");
+    });
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("fanout",
+        /*lang=json,strict*/ "{\"children\":[]}", TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [InvalidActionInput]", result.Content, StringComparison.Ordinal);
+    Assert.Contains("children", result.Content, StringComparison.Ordinal);
+    Assert.Null(captured);
+  }
+
+  [Fact]
+  public async Task Fanout_NonStringModel_Is_Rejected_Not_Silently_Dropped()
+  {
+    AgentCapabilityProvider provider = Make((_, _, _) => Task.FromResult("ok"));
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("fanout",
+        /*lang=json,strict*/ "{\"children\":[{\"taskPrompt\":\"a\",\"model\":3}]}", TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [InvalidActionInput]", result.Content, StringComparison.Ordinal);
+    Assert.Contains("children[1].model must be a string", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Fanout_NonStringLabel_Is_Rejected_Not_Silently_Dropped()
+  {
+    AgentCapabilityProvider provider = Make((_, _, _) => Task.FromResult("ok"));
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("fanout",
+        /*lang=json,strict*/ "{\"children\":[{\"taskPrompt\":\"a\",\"label\":true}]}", TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [InvalidActionInput]", result.Content, StringComparison.Ordinal);
+    Assert.Contains("children[1].label must be a string", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void ActionNames_IncludeFanout() => Assert.Contains("fanout", AgentCapabilityProvider.ActionNames);
 }

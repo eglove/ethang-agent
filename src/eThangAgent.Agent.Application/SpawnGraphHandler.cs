@@ -37,8 +37,9 @@ public sealed class SpawnGraphHandler(IAgentSpawnCommand spawnCommand, IAgentRun
         startReceipts.Add("spawn-failed: [" + started.Error.Code + "] " + started.Error.Message);
         if (request.Join.FailFast)
         {
-          return Result.Failure<SpawnGraphOutcome>(new DomainError("SpawnFailed",
-              "fail-fast: " + started.Error.Message));
+          // The start already failed: surface ITS error verbatim (DepthExceeded stays
+          // DepthExceeded at the capability boundary) instead of a generic wrapper.
+          return Result.Failure<SpawnGraphOutcome>(new DomainError(started.Error.Code, started.Error.Message));
         }
       }
     }
