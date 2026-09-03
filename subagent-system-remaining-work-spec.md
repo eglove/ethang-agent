@@ -30,7 +30,7 @@ handler tests updated for the honest receipts. Named decision: the parsed graph 
 DORMANT (no production consumer reads SpawnGraphRequest.Label) — comment now states it, ledger entry
 added. 5.3 NoticeSink marshalling pinned (`NoticeSinkMarshallingTests`: worker-thread post queues via
 Dispatcher.Post and renders only after RunJobs; pre-attach posts drop without a fault; mutation-verified
-against the unmarshalled sink). W6 untouched.
+against the unmarshalled sink). W6 COMPLETE — AGENTS.md gained the pinned supervisor-feed contract (W1.3) and the agent.fanout strict-parse/fail-fast contract (W5.2); README's fan-out bullet names agent.fanout's contract; every other W6 surface was verified already-truthful against src (ExecGuide 2.8 pins green, capability surfaces pinned, composition wiring re-read at the factory); the design record carries the W1-W5 landing record. The W5-deferred full-suite gate ran as part of W6 with one delivery finding: WatchdogLoopTests raced the wall clock under 20-project parallel load (2274/2275) — fixed with a manual TimeProvider (deterministic beats, exact-count asserts), full suite 2275/2275 green, format verify clean. W1-W6 COMPLETE; remaining: the DoD's manual acceptance walk and the delivery commit that deletes both documents.
 
 ## Ground rules (carry from the ledger — read before writing code)
 
