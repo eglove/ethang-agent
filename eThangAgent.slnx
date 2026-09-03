@@ -6,6 +6,7 @@
   <Folder Name="/src/">
     <Project Path="src/eThangAgent.Agent.Infrastructure/eThangAgent.Agent.Infrastructure.csproj" />
     <Project Path="src/eThangAgent.ChildHost/eThangAgent.ChildHost.csproj" />
+    <Project Path="src/eThangAgent.Local.ACL/eThangAgent.Local.ACL.csproj" />
     <Project Path="src/eThangAgent.Memory.Domain/eThangAgent.Memory.Domain.csproj" />
     <Project Path="src/eThangAgent.Skill.Domain/eThangAgent.Skill.Domain.csproj" />
     <Project Path="src/eThangAgent.Transport.ACL/eThangAgent.Transport.ACL.csproj" />
@@ -13,6 +14,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/eThangAgent.Agent.Infrastructure.Tests/eThangAgent.Agent.Infrastructure.Tests.csproj" />
+    <Project Path="tests/eThangAgent.Local.ACL.Tests/eThangAgent.Local.ACL.Tests.csproj" />
     <Project Path="tests/eThangAgent.Memory.Domain.Tests/eThangAgent.Memory.Domain.Tests.csproj" />
     <Project Path="tests/eThangAgent.Skill.Domain.Tests/eThangAgent.Skill.Domain.Tests.csproj" />
     <Project Path="tests/eThangAgent.Transport.ACL.Tests/eThangAgent.Transport.ACL.Tests.csproj" />
