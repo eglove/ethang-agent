@@ -6,14 +6,17 @@
              x:DataType="vm:AgentSessionViewModel">
   <UserControl.Styles>
     <!-- Header label inset must mirror the chevron's right inset: stretch the
-         header, then left-align the presenter's content (Fluent centers it) and
-         carry the symmetric inset in the header padding itself. -->
+         header AND its presenter content, so the header DockPanel spans the full
+         row - the fill label starts at the symmetric 8 DIP padding (mirroring the
+         chevron inset) and the docked-right elapsed counter ends flush against
+         the chevron instead of hugging the label text. -->
     <Style Selector="Expander.tool-card /template/ ToggleButton#ExpanderHeader">
       <Setter Property="Padding" Value="8,8,8,8"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
     </Style>
     <Style Selector="Expander.tool-card /template/ ToggleButton#ExpanderHeader ContentPresenter">
-      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
     </Style>
 
     <!-- Keyboard highlight for the clarify option the arrow keys rest on. -->
@@ -108,7 +111,7 @@
               <Expander.Header>
                 <DockPanel HorizontalAlignment="Stretch">
                   <TextBlock DockPanel.Dock="Right" Foreground="Gray" Margin="8,0,0,0"
-                             Text="{Binding ElapsedDisplay, Mode=OneWay}"/>
+                             Text="{Binding Elapsed.Display, Mode=OneWay}"/>
                   <TextBlock TextWrapping="Wrap">
                     <Run Text="⚙ "/><Run Text="{Binding Name, Mode=OneWay}"/>
                     <Run Foreground="Gray" Text="{Binding Preview, Mode=OneWay}"/>

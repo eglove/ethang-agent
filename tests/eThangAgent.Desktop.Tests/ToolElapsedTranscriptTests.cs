@@ -38,7 +38,30 @@ public class ToolElapsedTranscriptTests
 
     ToolCallEntry entry = Assert.IsType<ToolCallEntry>(vm.Entries[^1]);
     Assert.Equal("0.8s", entry.ElapsedDisplay);
-    Assert.Contains(NotifyCollectionChangedAction.Replace, changes);
+    Assert.DoesNotContain(NotifyCollectionChangedAction.Replace, changes);
+  }
+
+  [Fact]
+  public void TickToolElapsed_Raises_Elapsed_Property_Not_An_Entry_Replace()
+  {
+    double now = 0;
+    TranscriptViewModel vm = new(() => now);
+    vm.AddToolCall("read", "{}");
+    ToolCallEntry entry = Assert.IsType<ToolCallEntry>(vm.Entries[^1]);
+    Assert.NotNull(entry.Elapsed);
+    List<string> raised = [];
+    entry.Elapsed.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? "");
+    List<NotifyCollectionChangedAction> changes = [];
+    vm.Entries.CollectionChanged += (_, e) => changes.Add(e.Action);
+
+    now = 0.8;
+    vm.TickToolElapsed();
+    now = 1.9;
+    vm.TickToolElapsed();
+
+    Assert.Equal(["Display", "Display"], raised); // one per tick whose display changed
+    Assert.DoesNotContain(NotifyCollectionChangedAction.Replace, changes);
+    Assert.Equal("1.9s", entry.ElapsedDisplay); // same entry instance, fresh display
   }
 
   [Fact]

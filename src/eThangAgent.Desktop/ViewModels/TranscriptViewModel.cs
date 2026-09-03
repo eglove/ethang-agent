@@ -21,7 +21,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
 
   // The one running tool's timing state (tools execute sequentially, one at a
   // time); null when no tool is running or a turn ended mid-tool.
-  private (int Index, double StartSeconds)? _runningTool;
+  private (int Index, double StartSeconds, ToolElapsedHandle Elapsed)? _runningTool;
 
   // Index of the extendable AssistantTextEntry / ReasoningEntry, else -1.
   private int _openIndex = -1;
@@ -46,8 +46,9 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   public void AddToolCall(string name, string arguments)
   {
     CloseOpen();
-    Entries.Add(new ToolCallEntry(name, arguments, ToolElapsed.Format(0)));
-    _runningTool = (Entries.Count - 1, SecondsNow());
+    ToolElapsedHandle elapsed = new(ToolElapsed.Format(0));
+    Entries.Add(new ToolCallEntry(name, arguments, elapsed));
+    _runningTool = (Entries.Count - 1, SecondsNow(), elapsed);
   }
 
   public void AddToolResult(string name, string summary, string fullContent, bool isError)
@@ -185,10 +186,13 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   ///     displayed while it ran, frozen against later ticks.</summary>
   public void EndTurn() => _runningTool = null;
 
-  /// <summary>Advances the running tool card's elapsed display by replacing the
-  ///     entry (the same replace-notification the stream blocks use). Driven by
-  ///     the view's 80 ms timer while busy; silent when the formatted display
-  ///     has not changed, so idle time never re-renders the transcript.</summary>
+  /// <summary>Advances the running tool card's elapsed display by mutating the
+  ///     entry's elapsed handle (an INotifyPropertyChanged leaf the card header
+  ///     binds to) — never by replacing the entry, whose replace-notification
+  ///     would rebuild the card's Expander container mid-count-up (the chevron
+  ///     re-animation / cannot-expand dropdown bug). Driven by the view's 80 ms
+  ///     timer while busy; silent when the formatted display has not changed, so
+  ///     idle time never re-renders the transcript.</summary>
   public void TickToolElapsed()
   {
     if (_runningTool is not { } running)
@@ -196,14 +200,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
       return;
     }
 
-    ToolCallEntry open = (ToolCallEntry)Entries[running.Index];
-    string display = ToolElapsed.Format(SecondsNow() - running.StartSeconds);
-    if (display == open.ElapsedDisplay)
-    {
-      return; // same formatted second - no re-render
-    }
-
-    Entries[running.Index] = open with { ElapsedDisplay = display };
+    running.Elapsed.Display = ToolElapsed.Format(SecondsNow() - running.StartSeconds);
   }
 
   private double SecondsNow() => _injectedClock is { } clock ? clock() : Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;

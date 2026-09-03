@@ -17,8 +17,12 @@ internal sealed record AssistantTextEntry(string Text, bool IsOpen) : Transcript
 
 internal sealed record ReasoningEntry(string Text, bool IsOpen) : TranscriptEntry;
 
-internal sealed record ToolCallEntry(string Name, string Arguments, string ElapsedDisplay = "") : TranscriptEntry
+internal sealed record ToolCallEntry(string Name, string Arguments, ToolElapsedHandle? Elapsed = null) : TranscriptEntry
 {
+  /// <summary>The elapsed line for logic and tests: the live handle's display
+  ///     while the tool runs, empty on restored cards (no handle).</summary>
+  public string ElapsedDisplay => Elapsed?.Display ?? "";
+
   public string Preview => ToolArgsFormatter.Preview(Arguments);
 
   public string ArgumentsFormatted => ToolArgsFormatter.Indent(Arguments);
