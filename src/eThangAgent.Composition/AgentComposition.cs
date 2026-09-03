@@ -6,6 +6,7 @@ using eThangAgent.AgentInfrastructure;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.FileSystem.ACL;
+using eThangAgent.Local.ACL;
 using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
@@ -30,13 +31,19 @@ public static class AgentComposition
   ///     exactly three decisions via AgentHostOptions. Registration order and lifetimes
   ///     mirror the CLI composition root this replaces.
   ///     <paramref name="database"/> lets multi-session hosts share ONE app database;
-  ///     when omitted each container constructs its own (single-session hosts).</summary>
+  ///     when omitted each container constructs its own (single-session hosts).
+  ///     <paramref name="resolvedFallbackModelId"/> overrides the provider's static
+  ///     fallback id (Providers.FallbackModelId) wherever composition threads one —
+  ///     child spawn defaults and both root resolvers; the session factory passes the
+  ///     server-resolved bootstrap model id for local sessions (Task 9) and null for
+  ///     every other provider, keeping their behavior byte-identical.</summary>
   /// <exception cref="ArgumentException">providerName is not a known provider id.</exception>
-  /// <exception cref="InvalidOperationException">the selected provider has no configured API key.</exception>
+  /// <exception cref="InvalidOperationException">the selected provider has no configured API key, or the local provider's base URL cannot be resolved.</exception>
   public static IServiceCollection AddEThangAgentCore(this IServiceCollection services,
       AgentSettings settings, string providerName, ModelConfig defaultModel, AgentHostOptions host,
       AppDatabase? database = null, IEnumerable<Message>? conversationSeed = null,
-      ProcessMailboxLocator? mailboxLocator = null)
+      ProcessMailboxLocator? mailboxLocator = null,
+      string? resolvedFallbackModelId = null)
   {
     ArgumentNullException.ThrowIfNull(settings);
     ArgumentNullException.ThrowIfNull(defaultModel);
@@ -44,7 +51,7 @@ public static class AgentComposition
     if (!Providers.IsKnown(providerName))
     {
       throw new ArgumentException(
-          $"Unknown provider '{providerName}'. Known providers: {Providers.OpenRouter}, {Providers.Zai}.",
+          $"Unknown provider '{providerName}'. Known providers: {Providers.OpenRouter}, {Providers.Zai}, {Providers.Local}.",
           nameof(providerName));
     }
 
@@ -232,7 +239,7 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentRuntime>(),
             sp.GetRequiredService<SubAgentOptions>(),
             new SpawnOptions(
-                Providers.FallbackModelId(providerName),
+                resolvedFallbackModelId ?? Providers.FallbackModelId(providerName),
                 sp.GetRequiredService<SessionModelPreferences>(),
                 ChildToolSurface: ChildToolSurface(sp)),
             sp.GetService<IModelSelector>(),
@@ -364,7 +371,7 @@ public static class AgentComposition
             new RootModelContext(
                 sp.GetRequiredService<IAgentStore>(),
                 sp.GetRequiredService<RootSessionIdentity>(),
-                Providers.FallbackModelId(providerName),
+                resolvedFallbackModelId ?? Providers.FallbackModelId(providerName),
                 defaultModel.MaxTokens,
                 defaultModel.Temperature,
                 sp.GetRequiredService<IContextWindowSource>()),
@@ -374,7 +381,7 @@ public static class AgentComposition
             new RootModelContext(
                 sp.GetRequiredService<IAgentStore>(),
                 sp.GetRequiredService<RootSessionIdentity>(),
-                Providers.FallbackModelId(providerName),
+                resolvedFallbackModelId ?? Providers.FallbackModelId(providerName),
                 defaultModel.MaxTokens,
                 defaultModel.Temperature,
                 sp.GetRequiredService<IContextWindowSource>()),
@@ -421,56 +428,114 @@ public static class AgentComposition
   private static IServiceCollection AddProviderServices(
       IServiceCollection services, AgentSettings settings, string providerName)
   {
-    string apiKey = providerName switch
+    // Key strictness is per provider: the clouds demand an API key (MissingKey fires
+    // where each cloud configuration is built); local's is optional — most local
+    // servers need none — and its base URL is the mandatory credential, resolved
+    // strictly in the local arm. Selecting local with no local settings at all throws
+    // the same provider-not-configured error, never a NullReferenceException.
+    string? apiKey = providerName switch
     {
       Providers.OpenRouter => settings.OpenRouter.ApiKey,
       Providers.Zai => settings.Zai.ApiKey,
+      Providers.Local => settings.Local?.ApiKey,
       _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id.")
-    } ?? throw new InvalidOperationException(
+    };
+
+    string MissingKey() => throw new InvalidOperationException(
         $"Provider '{providerName}' is selected but its API key is not configured. " +
         "Add the key under Settings (gear icon) before opening a session with it.");
 
-    return providerName == Providers.OpenRouter
-        ? services
-            .AddSingleton(new OpenRouterConfiguration(apiKey, settings.OpenRouter.BaseUrl))
-            .AddHttpClient("OpenRouter", client => { client.Timeout = TimeSpan.FromSeconds(120); })
-            .Services
-            .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
-            {
-              client.Timeout = TimeSpan.FromSeconds(120);
-            })
-            .Services
-        : services
-            .AddSingleton(new ZaiConfiguration(apiKey, settings.Zai.BaseUrl)
-            {
-              EndpointMode = settings.Zai.EndpointMode
-            })
-            .AddHttpClient("Zai", client => { client.Timeout = TimeSpan.FromSeconds(120); })
-            .Services
-            .AddHttpClient<IModelProvider, ZaiModelProvider>(client =>
-            {
-              client.Timeout = TimeSpan.FromSeconds(120);
-            })
-            .Services;
+    return providerName switch
+    {
+      Providers.OpenRouter => services
+          .AddSingleton(new OpenRouterConfiguration(apiKey ?? MissingKey(), settings.OpenRouter.BaseUrl))
+          .AddHttpClient("OpenRouter", client => { client.Timeout = TimeSpan.FromSeconds(120); })
+          .Services
+          .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
+          {
+            client.Timeout = TimeSpan.FromSeconds(120);
+          })
+          .Services,
+      Providers.Local => LocalProviderServices(services, settings, apiKey), // optional key, may be null
+      _ => services
+          .AddSingleton(new ZaiConfiguration(apiKey ?? MissingKey(), settings.Zai.BaseUrl)
+          {
+            EndpointMode = settings.Zai.EndpointMode
+          })
+          .AddHttpClient("Zai", client => { client.Timeout = TimeSpan.FromSeconds(120); })
+          .Services
+          .AddHttpClient<IModelProvider, ZaiModelProvider>(client =>
+          {
+            client.Timeout = TimeSpan.FromSeconds(120);
+          })
+          .Services,
+    };
+  }
+
+  /// <summary>The local provider's transport: the base URL resolves STRICTLY from the
+  ///     raw configured text — no default, no coercion. A selected local provider
+  ///     without a usable base URL is a loud composition failure naming the fix, the
+  ///     same contract as the missing-API-key throw. One configuration, one named
+  ///     HttpClient, one typed provider client, mirroring both cloud arms.</summary>
+  private static IServiceCollection LocalProviderServices(
+      IServiceCollection services, AgentSettings settings, string? apiKey)
+  {
+    // The strict gates: a selected local provider with no settings at all — or with
+    // a base URL that cannot resolve — aborts composition (conditional-with-throw;
+    // IDE0046 shape). Same strictness as the missing-API-key throw above — each
+    // message names the fix, never a NullReferenceException.
+    if (settings.Local is not { } local)
+    {
+      throw new InvalidOperationException(
+          $"Provider '{Providers.Local}' is selected but it is not configured. " +
+          "Set a local server address under Settings (gear icon) before opening a session with it.");
+    }
+
+    Result<Uri> resolved = local.ResolveBaseUrl();
+    Uri baseUrl = resolved.IsSuccess
+        ? resolved.Value
+        : throw new InvalidOperationException(
+            $"Provider '{Providers.Local}' is selected but its base URL is not usable: {resolved.Error.Message} " +
+            "Set a valid local server address under Settings (gear icon) before opening a session with it.");
+
+    return services
+        .AddSingleton(new LocalConfiguration(baseUrl, apiKey))
+        .AddHttpClient("Local", client => { client.Timeout = TimeSpan.FromSeconds(120); })
+        .Services
+        .AddHttpClient<IModelProvider, LocalModelProvider>(client =>
+        {
+          client.Timeout = TimeSpan.FromSeconds(120);
+        })
+        .Services;
   }
 
   /// <summary>Wires the selected provider's model factory and catalog. z.ai has no
-  ///     models-listing endpoint, so its catalog is the static curated one.</summary>
+  ///     models-listing endpoint, so its catalog is the static curated one; local lists
+  ///     its lineup from the OpenAI-compatible server itself.</summary>
   private static IServiceCollection AddModelServices(IServiceCollection services, string providerName)
   {
-    return providerName == Providers.OpenRouter
-        ? services
-            .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
-                sp.GetRequiredService<OpenRouterConfiguration>(),
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
-            .AddSingleton<IModelCatalog>(sp => new OpenRouterCatalogClient(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
-                sp.GetRequiredService<OpenRouterConfiguration>()))
-        : services
-            .AddSingleton<IModelProviderFactory>(sp => new ZaiModelProviderFactory(
-                sp.GetRequiredService<ZaiConfiguration>(),
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("Zai")))
-            .AddSingleton<IModelCatalog>(_ => new ZaiModelCatalog());
+    return providerName switch
+    {
+      Providers.OpenRouter => services
+          .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
+              sp.GetRequiredService<OpenRouterConfiguration>(),
+              sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
+          .AddSingleton<IModelCatalog>(sp => new OpenRouterCatalogClient(
+              sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
+              sp.GetRequiredService<OpenRouterConfiguration>())),
+      Providers.Local => services
+          .AddSingleton<IModelProviderFactory>(sp => new LocalModelProviderFactory(
+              sp.GetRequiredService<LocalConfiguration>(),
+              sp.GetRequiredService<IHttpClientFactory>().CreateClient("Local")))
+          .AddSingleton<IModelCatalog>(sp => new LocalModelCatalog(
+              sp.GetRequiredService<IHttpClientFactory>().CreateClient("Local"),
+              sp.GetRequiredService<LocalConfiguration>())),
+      _ => services
+          .AddSingleton<IModelProviderFactory>(sp => new ZaiModelProviderFactory(
+              sp.GetRequiredService<ZaiConfiguration>(),
+              sp.GetRequiredService<IHttpClientFactory>().CreateClient("Zai")))
+          .AddSingleton<IModelCatalog>(_ => new ZaiModelCatalog()),
+    };
   }
 
   /// <summary>Actions only a root agent may invoke: they present UI to the human,

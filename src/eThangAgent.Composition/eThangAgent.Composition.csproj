@@ -12,6 +12,7 @@
     <ProjectReference Include="../eThangAgent.Agent.Domain/eThangAgent.Agent.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.OpenRouter.ACL/eThangAgent.OpenRouter.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.Zai.ACL/eThangAgent.Zai.ACL.csproj" />
+    <ProjectReference Include="../eThangAgent.Local.ACL/eThangAgent.Local.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.FileSystem.ACL/eThangAgent.FileSystem.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.Web.ACL/eThangAgent.Web.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.Roslyn.ACL/eThangAgent.Roslyn.ACL.csproj" />

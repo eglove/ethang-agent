@@ -184,19 +184,20 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     if (!Providers.IsKnown(providerName))
     {
       return Result.Failure<string>(new DomainError("UnknownProvider",
-          $"Unknown provider '{providerName}'. Known providers: {Providers.OpenRouter}, {Providers.Zai}."));
+          $"Unknown provider '{providerName}'. Known providers: {Providers.OpenRouter}, {Providers.Zai}, {Providers.Local}."));
     }
 
     bool configured = providerName switch
     {
       Providers.OpenRouter => _settings.HasOpenRouter,
       Providers.Zai => _settings.HasZai,
+      Providers.Local => _settings.HasLocal,
       _ => false,
     };
     if (!configured)
     {
       return Result.Failure<string>(new DomainError("ProviderNotConfigured",
-          $"Provider '{Providers.DisplayName(providerName)}' has no API key configured. Add one under Settings (gear icon) and open the agent again."));
+          $"Provider '{Providers.DisplayName(providerName)}' is not fully configured (API key, or base URL for the local provider). Complete its settings under Settings (gear icon) and open the agent again."));
     }
 
     if (string.IsNullOrWhiteSpace(workspaceRoot))
