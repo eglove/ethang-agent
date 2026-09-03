@@ -159,4 +159,57 @@ public class TranscriptScrollControllerTests
     Assert.False(c.StuckToBottom);
     Assert.Equal(100, c.LastOffset);
   }
+  [Fact]
+  public void Tiny_Jitter_At_A_NonBottom_Position_Does_Not_Unstick()
+  {
+    TranscriptScrollController c = new();
+    c.ObserveScroll(extent: 1000, viewport: 200, offset: 400); // user scrolled up: unstuck
+
+    // A reactivation transient (e.g. the unfocused-window refocus jump): a few-DIP
+    // offset report at the same reading position is layout jitter, not a scroll.
+    c.ObserveScroll(extent: 1000, viewport: 200, offset: 398);
+
+    Assert.False(c.StuckToBottom, "sub-tolerance jitter must not change stickiness");
+    Assert.Equal(398, c.LastOffset, 1);
+  }
+
+  [Fact]
+  public void Small_Transient_Toward_The_Bottom_Does_Not_Restick()
+  {
+    TranscriptScrollController c = new();
+    c.ObserveScroll(extent: 1000, viewport: 200, offset: 400); // unstuck, mid-content
+
+    // A transient few-DIP move toward the bottom must not re-stick the transcript
+    // (the refocus guard): only a real move to the bottom tolerance band resticks.
+    c.ObserveScroll(extent: 1000, viewport: 200, offset: 403);
+
+    Assert.False(c.StuckToBottom, "small transients must not restick");
+  }
+
+  [Fact]
+  public void A_Large_Transient_Toward_The_Bottom_Can_Restick_But_Not_MidBand()
+  {
+    TranscriptScrollController c = new();
+    c.ObserveScroll(extent: 1000, viewport: 200, offset: 400); // unstuck
+
+    c.ObserveScroll(extent: 1000, viewport: 200, offset: 500);
+
+    Assert.False(c.StuckToBottom, "a mid-band landing stays unstuck");
+    Assert.Equal(500, c.LastOffset, 1);
+  }
+
+  [Fact]
+  public void SubTolerance_Transient_Into_The_Bottom_Band_Does_Not_Restick()
+  {
+    TranscriptScrollController c = new();
+    c.ObserveScroll(extent: 1000, viewport: 200, offset: 794); // 6 from bottom: unstuck
+    Assert.False(c.StuckToBottom);
+
+    // A reactivation transient of a few DIPs landing inside the bottom tolerance
+    // band must not re-stick: the user was reading above the tail, and a false
+    // re-stick lets the next entry yank the view down (the refocus jump).
+    c.ObserveScroll(extent: 1000, viewport: 200, offset: 797); // 3 from bottom
+
+    Assert.False(c.StuckToBottom, "a jitter-sized move must not restick the transcript");
+  }
 }

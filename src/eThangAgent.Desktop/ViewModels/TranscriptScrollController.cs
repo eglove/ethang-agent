@@ -10,8 +10,13 @@ internal sealed class TranscriptScrollController
   // stuck - ScrollChanged reports transient geometry mid-layout.
   private const double BottomTolerance = 4.0;
 
-  // Movement below this is layout jitter, not a user scroll.
-  private const double OffsetEpsilon = 0.5;
+  // A move within this band of the last offset is layout jitter or a reactivation
+  // transient (an unfocused window re-laid-out on refocus can report a few DIPs of
+  // drift), not a deliberate scroll. Ignored for stickiness in either direction -
+  // but LastOffset still tracks it, so the same transient is not re-detected
+  // forever. Beyond the band it is a real user scroll and stickiness re-evaluates.
+  // Small enough to be invisible as a scroll, larger than encoder rounding.
+  private const double TransientBand = 3.0;
 
   /// <summary>Whether the transcript is pinned to the bottom (the auto-scroll
   ///     precondition). Starts true: a fresh transcript hugs the bottom.</summary>
@@ -46,7 +51,8 @@ internal sealed class TranscriptScrollController
     }
 
     ExtentFits = false;
-    if (Math.Abs(offset - LastOffset) > OffsetEpsilon)
+    double move = Math.Abs(offset - LastOffset);
+    if (move > TransientBand)
     {
       StuckToBottom = extent - viewport - offset <= BottomTolerance;
     }
