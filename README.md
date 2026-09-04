@@ -14,7 +14,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - Live response streaming — assistant text renders as it arrives,
   including interstitial reasoning between tool calls (SSE; falls back transparently when a
   provider endpoint does not stream)
-- Transient-failure retries with exponential backoff against both providers (429/408/5xx,
+- Transient-failure retries with exponential backoff against all three providers (429/408/5xx,
   transport errors, timeouts — four attempts by default; a server `Retry-After` hint is
   honored). A streaming request is retried only while nothing has been emitted to the UI;
   mid-stream failures surface as errors so output is never duplicated

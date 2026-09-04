@@ -66,7 +66,7 @@ A special seam sits beside the ACLs: `eThangAgent.Provider.Wire`, the shared Ope
 - **Language**: C#
 - **Platform**: Windows only — all path handling, process execution, and scripting assume Windows.
 - **Exec / Scripting**: Roslyn C# scripting via the Exec ACL (`IExecEngine`) — no PowerShell anywhere in the solution. External processes (e.g., `git`) are spawned directly with native .NET `Process` APIs.
-- **AI Providers**: OpenRouter, z.ai, and local OpenAI-compatible servers (llama.cpp, LM Studio, Ollama) — the domain model speaks in provider-neutral concepts, and each provider's ACL implements them. Sessions are wired exclusively for one provider; switching providers is a different experience by design. (The local provider is wired at composition; its Desktop wiring follows.)
+- **AI Providers**: OpenRouter, z.ai, and local OpenAI-compatible servers (llama.cpp, LM Studio, Ollama) — the domain model speaks in provider-neutral concepts, and each provider's ACL implements them. Sessions are wired exclusively for one provider; switching providers is a different experience by design. (The local provider is wired at composition and in the Desktop — settings, provider dropdown, and model picker; the effort picker is deliberately unavailable.)
 - **Interface**: Desktop (Avalonia)
 
 ### Packaging & Wiring
