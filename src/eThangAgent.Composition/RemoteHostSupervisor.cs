@@ -114,8 +114,9 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     }
   }
 
-  /// <summary>Default exe resolution: walk up from the executing assembly to the repo root
-  ///     (mirrors the E2E helper), then into the host's build output.</summary>
+  /// <summary>Default exe resolution: walk up from the executing assembly to the repo
+  ///     root (mirrors the E2E helper), then ask the locator for the host's build
+  ///     output (configuration-agnostic: Debug first, Release fallback).</summary>
   private static string DefaultHostExePath()
   {
     DirectoryInfo? dir = new(typeof(RemoteHostSupervisor).Assembly.Location);
@@ -124,7 +125,7 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
       dir = dir.Parent;
     }
 
-    return Path.Combine(dir!.FullName, "src", "eThangAgent.ChildHost", "bin", "Debug", "net10.0", "eThangAgent.ChildHost.exe");
+    return ChildHostExeLocator.ResolveFromRepoRoot(dir!.FullName);
   }
 
   /// <summary>A stable, filesystem-safe pipe suffix for the workspace id (R3.3).</summary>

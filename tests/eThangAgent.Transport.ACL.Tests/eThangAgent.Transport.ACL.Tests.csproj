@@ -2,5 +2,6 @@
   <ItemGroup>
     <ProjectReference Include="../../src/eThangAgent.Transport.ACL/eThangAgent.Transport.ACL.csproj" />
     <ProjectReference Include="../../src/eThangAgent.ChildHost/eThangAgent.ChildHost.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
   </ItemGroup>
 </Project>

@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using eThangAgent.AgentDomain;
+using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 
@@ -31,7 +32,7 @@ public class HungRemoteChildE2ETests
     }
 
     string repo = dir!.FullName;
-    return Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net10.0", "eThangAgent.ChildHost.exe");
+    return ChildHostExeLocator.ResolveFromRepoRoot(repo);
   }
 
   /// <summary>A one-request provider mock: the FIRST chat request is answered with a

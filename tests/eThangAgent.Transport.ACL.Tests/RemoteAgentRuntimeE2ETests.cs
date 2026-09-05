@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using eThangAgent.AgentDomain;
+using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Transport.ACL.Tests;
@@ -19,7 +20,7 @@ public class RemoteAgentRuntimeE2ETests
     }
 
     string repo = dir!.FullName;
-    return Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net10.0", "eThangAgent.ChildHost.exe");
+    return ChildHostExeLocator.ResolveFromRepoRoot(repo);
   }
 
   [Fact]
