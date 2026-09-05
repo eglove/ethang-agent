@@ -26,7 +26,6 @@ public class CompositionCycleSelfCheckTests
             E("ToolRegistry", "ExecTool"),
             E("ExecTool", "IExecEngine"),
             E("IExecEngine", "FuncRegistry", deferred: true),             // resolved per execution
-            E("ToolRegistry", "ClarifyTool"),
             E("AgentSurface", "CapabilityRegistry"),
             E("Session", "ModelProviderFactory"),
         ];

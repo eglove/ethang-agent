@@ -32,7 +32,6 @@ public class ShellResumeTests
         Model: ModelConfig.Create("test/model", null, 128, 0.1f, 8192).Value!,
         WorkspaceRoot: root,
         ProviderName: "openrouter",
-        ClarifyChannel: null!,
         Inbox: new BoundedAgentMailbox(),
         ChildRuntime: new TestFixtures.StubAgentRuntime(),
         Preferences: null);

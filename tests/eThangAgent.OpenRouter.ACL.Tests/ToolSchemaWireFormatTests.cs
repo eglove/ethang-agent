@@ -40,7 +40,7 @@ public class ToolSchemaWireFormatTests
   {
     List<ToolDefinition> tools =
         [
-            new("clarify", "desc",
+            new("demo_tool", "desc",
             [
                 new ToolParameter("options", ToolParameterType.TextArray, "opts"),
             ]),

@@ -3,7 +3,6 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -17,13 +16,6 @@ public class SessionResumeE2ETests
   private static string RawCompletion(string content) =>
       JsonSerializer.Serialize(
           new { choices = new[] { new { message = new { content } } } });
-
-  private sealed class ResumeStubChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<string>(
-            new DomainError("Cancelled", "no clarify expected in this E2E scenario")));
-  }
 
   [Fact]
   public async Task Resume_Replays_Transcript_And_Carries_History_Into_Next_Turn()
@@ -42,7 +34,7 @@ public class SessionResumeE2ETests
 
     // Resume through the real factory over the SAME temp database and mock server.
     AgentSessionFactory factory = host.CreateResumeFactory();
-    Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new ResumeStubChannel(), ct: TestContext.Current.CancellationToken);
+    Result<AgentSession> resumed = await factory.ResumeAsync(rootId, ct: TestContext.Current.CancellationToken);
     Assert.True(resumed.IsSuccess);
     AgentSession session = resumed.Value;
 

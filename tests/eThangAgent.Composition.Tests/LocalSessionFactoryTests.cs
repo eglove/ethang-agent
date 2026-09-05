@@ -8,7 +8,6 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -28,11 +27,6 @@ namespace eThangAgent.Composition.Tests;
 ///     InvalidLocalBaseUrl error, never a raw exception across the Task result seam.</summary>
 public class LocalSessionFactoryTests
 {
-  private sealed class SilentClarifyChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => throw new NotSupportedException("No test should reach the human.");
-  }
 
   private static readonly Uri OpenRouterBaseUrl = new("https://openrouter.test");
 
@@ -77,7 +71,7 @@ public class LocalSessionFactoryTests
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(
-            dir.FullName, Providers.Local, new SilentClarifyChannel(),
+            dir.FullName, Providers.Local,
             ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 
         Assert.True(result.IsSuccess);
@@ -127,7 +121,7 @@ public class LocalSessionFactoryTests
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(
-            dir.FullName, Providers.Local, new SilentClarifyChannel(),
+            dir.FullName, Providers.Local,
             ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 
         Assert.False(result.IsSuccess);
@@ -159,7 +153,7 @@ public class LocalSessionFactoryTests
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(
-            dir.FullName, Providers.Local, new SilentClarifyChannel(),
+            dir.FullName, Providers.Local,
             ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 
         Assert.False(result.IsSuccess);
@@ -190,7 +184,7 @@ public class LocalSessionFactoryTests
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(
-            dir.FullName, Providers.Zai, new SilentClarifyChannel(),
+            dir.FullName, Providers.Zai,
             ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 
         Assert.True(result.IsSuccess);
@@ -233,7 +227,7 @@ public class LocalSessionFactoryTests
       try
       {
         Result<AgentSession> created = await factory.CreateAsync(
-            dir.FullName, Providers.Local, new SilentClarifyChannel(),
+            dir.FullName, Providers.Local,
             ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
         Assert.True(created.IsSuccess);
         rootId = created.Value.RootId;
@@ -247,7 +241,7 @@ public class LocalSessionFactoryTests
             .ConfigureAwait(true);
         await created.Value.Services.DisposeAsync().ConfigureAwait(true);
 
-        Result<AgentSession> resumed = await factory.ResumeAsync(rootId, new SilentClarifyChannel(),
+        Result<AgentSession> resumed = await factory.ResumeAsync(rootId,
             ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 
         Assert.True(resumed.IsSuccess);

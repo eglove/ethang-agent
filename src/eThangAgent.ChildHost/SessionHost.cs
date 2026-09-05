@@ -3,7 +3,6 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ModelDomain;
-using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,8 +12,7 @@ namespace eThangAgent.ChildHost;
 /// <summary>The host's own headless session composition: the provider stack built from the
 ///     settings JSON the app persists for the host (API keys travel host-side once at startup,
 ///     never per-envelope), sharing the SAME database file so records and transcripts written
-///     here are visible to the app and vice versa. Children spawned in the host get a Null
-///     clarify channel — human-facing tools never reach sub-agents by contract.</summary>
+/// </summary>
 public sealed class SessionHost
 {
   private SessionHost(IServiceProvider services, IAgentStore store, IAgentRuntime runtime,
@@ -101,7 +99,6 @@ public sealed class SessionHost
         .AddEThangAgentCore(
             settings, providerName, bootstrapModel,
             new AgentHostOptions(
-                new NullClarifyChannel(),
                 new FixedWorkspaceContext(workspace),
                 new WorkspacePathResolver(workspace)),
             new AppDatabase(databasePath),
@@ -116,17 +113,6 @@ public sealed class SessionHost
         settings.Watchdog);
   }
 
-
   private static JsonSerializerOptions Options { get; } = new(JsonSerializerDefaults.Web);
 
-  /// <summary>Sub-agents never ask humans questions: the clarify tool surfaces a typed
-  ///      refusal that the child model can act on.</summary>
-  private sealed class NullClarifyChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(
-            Result.Failure<string>(
-                new DomainError("ClarifyUnavailable",
-                    "sub-agents cannot reach the human; answer from context or proceed without.")));
-  }
 }

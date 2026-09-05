@@ -6,7 +6,6 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
-using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
@@ -59,7 +58,6 @@ internal static class E2E
           .AddEThangAgentCore(settings, Providers.OpenRouter,
               ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,
               new AgentHostOptions(
-                  new NeverClarifyChannel(),
                   new FixedWorkspaceContext("app"),
                   new UnrootedPathResolver()))
           .BuildServiceProvider();
@@ -88,7 +86,6 @@ internal static class E2E
           ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,
           WorkspaceRoot: workspaceRoot,
           ProviderName: Providers.OpenRouter,
-          ClarifyChannel: new NeverClarifyChannel(),
           Inbox: _services.GetRequiredService<IAgentInbox>(),
           ChildRuntime: _services.GetRequiredService<IAgentRuntime>());
       // No live Avalonia session exists in headless tests, so the production sink
@@ -225,13 +222,6 @@ internal static class E2E
     }
     Assert.NotNull(last);
     return last;
-  }
-
-  private sealed class NeverClarifyChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default) =>
-        Task.FromResult(Result.Failure<string>(
-            new DomainError("Cancelled", "no clarify expected in this E2E scenario")));
   }
 }
 

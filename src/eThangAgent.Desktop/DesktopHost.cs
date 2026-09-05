@@ -197,12 +197,8 @@ internal static class DesktopHost
   {
     Dispatcher.UIThread.VerifyAccess();
 
-    // One fresh clarify channel per opened session: each agent tab presents its own
-    // pending questions through its own view-model (wired in MainViewModel when the
-    // session VM is created). The presenter starts unavailable — a structured,
-    // model-actionable failure — until that tab's VM installs it. No session
-    // delegate is injected: the shell derives it from the factory so saved keys
-    // rebind future opens.
+    // No session delegate is injected: the shell derives it from the factory so
+    // saved keys rebind future opens.
     WatchdogOptions watchdogOptions = WatchdogOptions.Default;
     WatchdogLoop watchdogLoop = new(watchdogOptions.TickInterval, TimeProvider.System);
     WatchdogPolicy policy = WatchdogPolicyFactory.FromOptions(watchdogOptions);
@@ -305,7 +301,7 @@ internal static class DesktopHost
   /// loop must never run on the UI thread: its awaits would post back to Avalonia's
   /// SynchronizationContext, and one sync-blocking tool or script would deadlock the
   /// app (observed in production as a frozen turn with nothing persisted). UI updates
-  /// flow back only through the stream sink and clarify channel, which marshal
+  /// flow back only through the stream sink, which marshals
   /// explicitly onto the dispatcher.</summary>
   public static TurnRunner OffUiThread(TurnRunner inner)
   {

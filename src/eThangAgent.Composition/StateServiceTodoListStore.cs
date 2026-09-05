@@ -8,7 +8,7 @@ namespace eThangAgent.Composition;
 ///     through the Tool Domain's own ITodoListStore port. Tool.Domain cannot reference
 ///     State.Domain directly (State.Domain → Capability.Domain → Tool.Domain), and a domain
 ///     should not depend on another context's contract anyway; this translation lives with
-///     the shared wiring, like the clarify channel adapters.</summary>
+///     the shared wiring.</summary>
 internal sealed class StateServiceTodoListStore(IStateService state) : ITodoListStore
 {
   public Task<Result<string>> GetValueAsync(string key, CancellationToken ct = default) =>

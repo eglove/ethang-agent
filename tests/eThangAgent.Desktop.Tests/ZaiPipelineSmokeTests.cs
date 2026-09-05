@@ -6,7 +6,6 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
-using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,7 +46,6 @@ public class ZaiPipelineSmokeTests
           .AddEThangAgentCore(settings, Providers.Zai,
               ModelConfig.Create("glm-5.3", null, 256, 0.2f, 1_000_000).Value!,
               new AgentHostOptions(
-                  new StubClarifyChannel(),
                   new FixedWorkspaceContext("app"),
                   new UnrootedPathResolver()))
           .BuildServiceProvider();
@@ -66,7 +64,6 @@ public class ZaiPipelineSmokeTests
           ModelConfig.Create("glm-5.3", null, 256, 0.2f, 1_000_000).Value!,
           WorkspaceRoot: Directory.GetCurrentDirectory(),
           ProviderName: Providers.Zai,
-          ClarifyChannel: new StubClarifyChannel(),
           Inbox: services.GetRequiredService<IAgentInbox>(),
           ChildRuntime: services.GetRequiredService<IAgentRuntime>());
 
@@ -120,12 +117,5 @@ public class ZaiPipelineSmokeTests
       catch { /* best effort */ }
 #pragma warning restore CA1031
     }
-  }
-
-  private sealed class StubClarifyChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default) =>
-        Task.FromResult(Result.Failure<string>(
-            new DomainError("Cancelled", "no clarify expected in this smoke test")));
   }
 }

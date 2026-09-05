@@ -19,7 +19,7 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
     </Style>
 
-    <!-- Keyboard highlight for the clarify option the arrow keys rest on. -->
+    <!-- Keyboard highlight for a focused option button. -->
     <Style Selector="Button.selected">
       <Setter Property="BorderBrush" Value="#4C8CFF"/>
       <Setter Property="BorderThickness" Value="2"/>
@@ -42,44 +42,8 @@
       </StackPanel>
     </Border>
 
-    <!-- Input area OR clarify mode. -->
+    <!-- Input area. -->
     <DockPanel DockPanel.Dock="Bottom">
-      <!-- Clarify mode: replaces the input row while a question is pending. -->
-      <StackPanel x:Name="ClarifyArea" DockPanel.Dock="Bottom" Focusable="True"
-                  KeyDown="OnClarifyAreaKeyDown"
-                  IsVisible="{Binding Clarify, Converter={x:Static ObjectConverters.IsNotNull}}">
-        <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,4">
-          <TextBlock Text="{Binding Clarify.Question}" TextWrapping="Wrap" MaxWidth="640"/>
-          <TextBlock Text="{Binding Clarify.ProgressLabel}" Foreground="Gray"
-                     IsVisible="{Binding Clarify.ProgressLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-        </StackPanel>
-        <TextBlock Text="{Binding Clarify.ValidationMessage}" Foreground="OrangeRed" Margin="8,0"
-                   TextWrapping="Wrap"
-                   IsVisible="{Binding Clarify.ValidationMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-        <ItemsControl ItemsSource="{Binding Clarify.OptionRows}" Margin="8,2">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:ClarifyOptionRow">
-              <Button Classes.selected="{Binding IsSelected}" Click="OnClarifyOption" Margin="2"
-                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,4">
-                <Grid ColumnDefinitions="Auto,*">
-                  <TextBlock Grid.Column="0" Margin="0,0,6,0">
-                    <Run Text="{Binding Index, Mode=OneWay}"/><Run Text="."/>
-                  </TextBlock>
-                  <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap"/>
-                </Grid>
-              </Button>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,4"
-                    IsVisible="{Binding Clarify.AllowFreeText}">
-          <TextBox x:Name="ClarifyInput" Text="{Binding Clarify.Input}" Width="480"
-                   KeyDown="OnClarifyInputKeyDown"/>
-          <Button Content="Answer" Click="OnClarifyAnswer"/>
-          <Button Content="Cancel" Click="OnClarifyCancel"/>
-        </StackPanel>
-      </StackPanel>
-
       <!-- Normal input row. The input stays enabled while a turn runs: text submitted
            then steers the active turn; the Stop button interrupts it. -->
       <StackPanel x:Name="InputArea" DockPanel.Dock="Bottom">

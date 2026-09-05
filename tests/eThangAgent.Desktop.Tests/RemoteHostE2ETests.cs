@@ -5,7 +5,6 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -50,7 +49,7 @@ public class RemoteHostE2ETests
         host.BuildSettings(remoteHost: true),
         new AppDatabase(host.DatabasePath));
     Result<AgentSession> opened = await factory.CreateAsync(
-        ws, Providers.OpenRouter, new NeverAsk(),
+        ws, Providers.OpenRouter,
         ct: TestContext.Current.CancellationToken);
     Assert.True(opened.IsSuccess, opened.Error?.Message);
     AgentSession session = opened.Value;
@@ -93,7 +92,7 @@ public class RemoteHostE2ETests
     // Re-open over the SAME database: the factory runs orphan repair with the host's
     // declared (now empty) live set.
     Result<AgentSession> reopened = await factory.CreateAsync(
-        ws, Providers.OpenRouter, new NeverAsk(),
+        ws, Providers.OpenRouter,
         ct: TestContext.Current.CancellationToken);
     Assert.True(reopened.IsSuccess, reopened.Error?.Message);
 
@@ -115,13 +114,5 @@ public class RemoteHostE2ETests
     Assert.Equal(AgentStatus.Running, reopenedRoot.Status);
 
     await reopened.Value.Services.DisposeAsync();
-  }
-
-  private sealed class NeverAsk : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(
-        ClarifyQuestion question, CancellationToken ct = default)
-      => Task.FromResult(Result.Failure<string>(
-          new DomainError("Cancelled", "no clarify in remote E2E")));
   }
 }

@@ -1,7 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -33,7 +32,7 @@ public class SessionOpenOrphanRepairTests
       AgentSessionFactory factory = new(Settings(), new AppDatabase(dbPath));
       string ws = Directory.CreateTempSubdirectory("ethang-ws").FullName;
       Result<AgentSession> session = await factory.CreateAsync(ws, Providers.OpenRouter,
-          new SilentChannel(), ct: TestContext.Current.CancellationToken);
+          ct: TestContext.Current.CancellationToken);
       Assert.True(session.IsSuccess);
 
       SqliteAgentStore verify = new(new AppDatabase(dbPath));
@@ -59,11 +58,5 @@ public class SessionOpenOrphanRepairTests
       }
 #pragma warning restore CA1031
     }
-  }
-
-  private sealed class SilentChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(Result.Success("1"));
   }
 }

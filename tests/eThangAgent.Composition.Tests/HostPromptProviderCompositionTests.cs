@@ -1,6 +1,5 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
-using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -22,17 +21,10 @@ public class HostPromptProviderCompositionTests
         .BuildServiceProvider();
   }
 
-  private sealed class StubClarifyChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(Result.Success("1"));
-  }
-
   [Fact]
   public void Extra_Providers_Are_Merged_Into_The_Composite_System_Prompt()
   {
     using ServiceProvider services = BuildCore(new AgentHostOptions(
-        new StubClarifyChannel(),
         new FixedWorkspaceContext("app"),
         new UnrootedPathResolver(),
         [new StaticPromptProvider("EXTRA-PROMPT-MARKER-123")]));
@@ -46,7 +38,6 @@ public class HostPromptProviderCompositionTests
   public void Core_Providers_Precede_Frontend_Providers()
   {
     using ServiceProvider services = BuildCore(new AgentHostOptions(
-        new StubClarifyChannel(),
         new FixedWorkspaceContext("app"),
         new UnrootedPathResolver(),
         [new StaticPromptProvider("FRONTEND-TAIL-MARKER")]));
@@ -63,7 +54,6 @@ public class HostPromptProviderCompositionTests
   public void Default_Options_Carry_No_Extra_Providers()
   {
     AgentHostOptions options = new(
-        new StubClarifyChannel(),
         new FixedWorkspaceContext("app"),
         new UnrootedPathResolver());
 

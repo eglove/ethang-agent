@@ -9,13 +9,10 @@ namespace eThangAgent.Composition;
 ///     lets a frontend append its own system-prompt sections (e.g. workspace instructions,
 ///     built once at startup); they render after the core providers in the composite prompt.</summary>
 public sealed class AgentHostOptions(
-    IClarifyChannel clarifyChannel,
     IWorkspaceContext workspaceContext,
     IPathResolver pathResolver,
     IReadOnlyList<ISystemPromptProvider>? extraPromptProviders = null)
 {
-  public IClarifyChannel ClarifyChannel { get; } = clarifyChannel ?? throw new ArgumentNullException(nameof(clarifyChannel));
-
   public IWorkspaceContext WorkspaceContext { get; } = workspaceContext ?? throw new ArgumentNullException(nameof(workspaceContext));
 
   public IPathResolver PathResolver { get; } = pathResolver ?? throw new ArgumentNullException(nameof(pathResolver));

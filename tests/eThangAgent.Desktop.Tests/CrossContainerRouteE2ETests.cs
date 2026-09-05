@@ -4,7 +4,6 @@ using eThangAgent.CapabilityDomain;
 using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -30,12 +29,6 @@ public class CrossContainerRouteE2ETests
       new ZaiSettings(null, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2));
 
-  private sealed class NeverAsk : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<string>(new DomainError("Cancelled", "no clarify in this E2E")));
-  }
-
   /// <summary>Subscribes a capture list to a session's event stream; the disposable
   ///     lease is tracked so the test can detach.</summary>
   private sealed class Capture : IAgentEventSubscriber
@@ -57,9 +50,9 @@ public class CrossContainerRouteE2ETests
           new AppDatabase(dbPath), locator);
 
       Result<AgentSession> a = await factory.CreateAsync(ws, Providers.OpenRouter,
-          new NeverAsk(), ct: TestContext.Current.CancellationToken);
+          ct: TestContext.Current.CancellationToken);
       Result<AgentSession> b = await factory.CreateAsync(ws, Providers.OpenRouter,
-          new NeverAsk(), ct: TestContext.Current.CancellationToken);
+          ct: TestContext.Current.CancellationToken);
       Assert.True(a.IsSuccess, a.Error?.Message);
       Assert.True(b.IsSuccess, b.Error?.Message);
 
@@ -109,7 +102,7 @@ public class CrossContainerRouteE2ETests
       // delivery is honestly out of reach.
       AgentSessionFactory secondApp = new(Settings(new Uri("https://openrouter.test")), new AppDatabase(dbPath));
       Result<AgentSession> a2 = await secondApp.CreateAsync(ws, Providers.OpenRouter,
-          new NeverAsk(), ct: TestContext.Current.CancellationToken);
+          ct: TestContext.Current.CancellationToken);
       Assert.True(a2.IsSuccess);
       AgentCapabilityProvider p2 = a2.Value.Services.GetRequiredService<AgentCapabilityProvider>();
       CapabilityInvocationResult foreign = await p2.InvokeAsync("route",

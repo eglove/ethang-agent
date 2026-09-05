@@ -6,24 +6,19 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
 
 /// <summary>Construction options for <see cref="AgentSessionViewModel"/>. The workspace
 ///     root is required identity; every other member is an optional seam whose null
-///     keeps the built-in default exactly as the former absent parameter did: an inline
-///     clarify view-model, a calling-thread stream sink, no inbox (steering rejected
+///     keeps the built-in default exactly as the former absent parameter did::
+///     a calling-thread stream sink, no inbox (steering rejected
 ///     with a notice), no child runtime (stop never interrupts children), no status
 ///     model updater, and no model preferences (pickers report unavailable).</summary>
 internal sealed record AgentSessionViewModelOptions
 {
   /// <summary>The workspace directory this agent works from (tab subtitle and title).</summary>
   public required string WorkspaceRoot { get; init; }
-
-  /// <summary>Presents clarify questions; default builds the view-model inline.
-  ///     Production supplies hooks that marshal onto the UI thread via the Dispatcher.</summary>
-  public Func<ClarifyQuestion, Task<ClarifyViewModel>>? PresentClarify { get; init; }
 
   /// <summary>Applies stream events; default applies on the calling thread (adequate
   ///     for unit tests — production passes UI-thread marshaling).</summary>
@@ -44,7 +39,7 @@ internal sealed record AgentSessionViewModelOptions
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
-///     status bar, clarify presentation, and turn loop — the chat interaction
+///     status bar, and turn loop — the chat interaction
 ///     surface moved here from MainViewModel when the shell gained tabs. Several
 ///     instances coexist, one per open tab, so nothing here may be static or
 ///     process-global.</summary>
@@ -54,7 +49,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly RootSessionLifecycle _lifecycle;
   private readonly AgentId _rootId;
   private readonly Conversation _conversation;
-  private readonly Func<ClarifyQuestion, Task<ClarifyViewModel>> _presentClarify;
   private readonly Func<UiStreamEvent, Task> _streamSink;
   private readonly Action<string>? _statusModelUpdater;
   private readonly SessionModelPreferences? _modelPreferences;
@@ -92,10 +86,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>Tab caption: the workspace directory's name.</summary>
   public string Title => Path.GetFileName(WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar));
 
-  /// <summary>The pending clarify question, or null when none is awaiting an answer.</summary>
-  [ObservableProperty]
-  public partial ClarifyViewModel? Clarify { get; set; }
-
   private readonly IAgentInbox? _inbox;
   private readonly IAgentRuntime? _childRuntime;
 
@@ -124,9 +114,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
     _rootId = rootId;
     _conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
-    // Default present builds the view-model inline. Production supplies hooks that
-    // marshal onto the UI thread via the Dispatcher.
-    _presentClarify = options.PresentClarify ?? (q => Task.FromResult(new ClarifyViewModel(q)));
     // Default sink applies on the calling thread — adequate for unit tests.
     // Production passes ApplyUiStreamEventOnUIThreadAsync so transcript mutations
     // always land on the UI thread.
@@ -142,52 +129,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _childRuntime = options.ChildRuntime;
   }
 
-  /// <summary>
-  /// Records the running turn's tool-batch position, reported synchronously by the
-  /// <c>OnToolCall</c> callback before each tool executes. Kept on the view-model so a
-  /// clarify question presented by the tool that follows can display its position
-  /// ("Q 2/3") — the callback and the presentation share the agent loop's call
-  /// stack, so the stamp is deterministic, never racy with the stream pump.
-  /// </summary>
-  public void RecordToolBatch(string name, int index, int count) => _toolBatch = (name, index, count);
 
-  private (string Name, int Index, int Count)? _toolBatch;
-
-  /// <summary>
-  /// Presents a clarify question by building (and surfacing) its view-model through the
-  /// injected present hook, publishing it as <see cref="Clarify"/>. Returns the view-model
-  /// whose one-shot completion the channel awaits.
-  /// </summary>
-  public async Task<ClarifyViewModel> PresentClarifyAsync(ClarifyQuestion question)
-  {
-    ClarifyViewModel vm = await _presentClarify(question);
-    if (_toolBatch is { } batch && batch.Count > 1)
-    {
-      vm.ProgressLabel = $"Q {batch.Index}/{batch.Count}";
-    }
-
-    // The panel must close whenever the question settles through ANY path —
-    // routed input, option buttons, free-text submit, or cancel — not just the
-    // routed-input path that clears it below. Settlement raises the view-model's
-    // Settled event synchronously, so the close is deterministic and needs no
-    // polling, timers, or fire-and-forget tasks.
-    vm.Settled += (_, _) =>
-    {
-      if (ReferenceEquals(Clarify, vm))
-      {
-        Clarify = null;
-      }
-    };
-    Clarify = vm;
-    // A presenter may hand back an already-settled view-model (its answer was
-    // known before presentation): the event has already fired, so close now.
-    if (ReferenceEquals(Clarify, vm) && vm.Completion.IsCompleted)
-    {
-      Clarify = null;
-    }
-
-    return vm;
-  }
 
   /// <summary>
   /// Processes one submission. Blank input is ignored. While a turn runs, input
@@ -199,14 +141,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     string input = rawInput?.Trim() ?? "";
     if (string.IsNullOrWhiteSpace(input))
     {
-      return Task.CompletedTask;
-    }
-
-    // A pending clarify question intercepts input before anything else — even while a
-    // turn is in flight (IsBusy) awaiting the answer.
-    if (Clarify is { } pending)
-    {
-      RouteToClarify(pending, input);
       return Task.CompletedTask;
     }
 
@@ -327,7 +261,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
               OnCompacted: _ => compactedThisTurn = true,
               OnToolCall: (name, args, index, count) =>
               {
-                RecordToolBatch(name, index, count);
                 bridge.OnToolCall(name, args);
               },
               OnToolResult: (name, summary, full, isError) =>
@@ -439,50 +372,6 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       default:
         break;
     }
-  }
-
-  /// <summary>
-  /// Answers the pending clarify question. Free-text questions submit the trimmed input;
-  /// numbered questions parse a leading integer and select that option. A settled question
-  /// records the answer as a user transcript entry and clears <see cref="Clarify"/> — it
-  /// never increments <see cref="MessageCount"/> nor starts a turn. Invalid input leaves
-  /// the question pending with its validation message showing.
-  /// </summary>
-  private void RouteToClarify(ClarifyViewModel pending, string input)
-  {
-    if (pending.AllowFreeText)
-    {
-      pending.Input = input;
-      pending.SubmitFreeText();
-    }
-    else if (TryParseLeadingInteger(input, out int choice))
-    {
-      pending.ChooseOption(choice);
-    }
-    else
-    {
-      pending.RejectInput($"Enter a number between 1 and {pending.Options.Count}.");
-      return;
-    }
-
-    if (!pending.Completion.IsCompleted)
-    {
-      return; // transient failure — stay pending
-    }
-
-    Transcript.AddUser(input);
-    Clarify = null;
-  }
-
-  private static bool TryParseLeadingInteger(string input, out int value)
-  {
-    int end = 0;
-    while (end < input.Length && char.IsDigit(input[end]))
-    {
-      end++;
-    }
-
-    return int.TryParse(input.AsSpan(0, end), out value);
   }
 
   /// <summary>Parses the resolved model id from a RootAgentResolver notice so the status

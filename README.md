@@ -6,7 +6,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 
 ## What it can do today
 
-- One Avalonia desktop frontend over a shared host-agnostic core (`eThangAgent.Composition`) — streamed responses with reasoning/tool activity, clarify prompts answered in-place, sub-agent spawning, durable session persistence
+- One Avalonia desktop frontend over a shared host-agnostic core (`eThangAgent.Composition`) — streamed responses with reasoning/tool activity, sub-agent spawning, durable session persistence
 
 - **Agent watchdog** — a per-session maintenance loop (default tick 60 s) detects spawned child agents that stopped making progress: the agent loop beats a heartbeat every iteration and around tool calls; a child idle past 15 minutes is cancelled and restarted on the same id with a wrap-up nudge (its partial transcript is preserved and resumed); a second breach marks it Failed(Hung) so the parent gets a well-formed failure. The same watchdog runs host-side for out-of-process children (the ChildHost attaches one per child run), so a hung remote child is detected and retired locally — the app never guesses from absent beats. Every decision lands in a structured `watchdog_events` audit table. Separately, a process-lifetime RSS monitor samples the app's working set for as long as the app runs — no session required — recording rate-limited `RssBreached` rows plus one `RssSustained` row per sustained breach (observe-only; a future force-recycle policy will key off the sustained marker)
 - Conversational coding loop against [OpenRouter](https://openrouter.ai/), [z.ai](https://z.ai/) GLM models, or a local OpenAI-compatible server (LM Studio, Ollama, llama.cpp) — each agent tab is wired for exactly one provider for its lifetime
@@ -64,7 +64,6 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   versioned knowledge base, with turn-boundary nudges prompting curation
 - Skill subsystem: 18 embedded skills (development methodology plus per-style commit guidance),
   session-start bootstrap injection, and `skill_list` / `skill_view` / `skill_manage` tools
-- `clarify` tool — structured clarifying questions with numbered options
 - z.ai capability tools (available only on z.ai tabs in the **General API** endpoint
   mode — the capability endpoints do not exist on the coding endpoint): `web_search` — live web search with
   bounded snippets; `web_read` — fetch one page as markdown; `count_tokens` — GLM tokenizer;

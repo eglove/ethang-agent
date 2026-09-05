@@ -12,65 +12,6 @@ public class ToolContractAdvertisementTests
   private static ToolParameter Param(ITool tool, string name) =>
       Assert.Single(tool.Definition.Parameters, p => p.Name == name);
 
-  // ── clarify ──────────────────────────────────────────────────────────────
-
-  [Fact]
-  public void Clarify_Options_IsAdvertisedAsAnArrayOfStrings()
-  {
-    ToolParameter p = Param(new ClarifyTool(new StubClarifyChannel()), "options");
-    Assert.Equal(ToolParameterType.TextArray, p.Type);
-  }
-
-  [Fact]
-  public void Clarify_OnlyQuestionAndAllowFreeText_AreRequired()
-  {
-    ClarifyTool tool = new(new StubClarifyChannel());
-    Assert.Equal(["timeoutSeconds", "question", "allowFreeText"], tool.Definition.RequiredParameters);
-  }
-
-  [Fact]
-  public void Clarify_Description_StatesArrayTypeVerbatim()
-  {
-    ToolParameter p = Param(new ClarifyTool(new StubClarifyChannel()), "options");
-    Assert.Contains("JSON array", p.Description, StringComparison.Ordinal);
-    Assert.Contains("Optional", p.Description, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public void Clarify_Options_AcceptsAnArrayOfTwoStrings()
-  {
-    Result<ClarifyInput> parsed = ClarifyInput.Create(
-                                 /*lang=json,strict*/
-                                 "{\"question\":\"q\",\"options\":[\"a\",\"b\"],\"allowFreeText\":true}");
-    Assert.True(parsed.IsSuccess);
-  }
-
-  [Fact]
-  public void Clarify_Options_RejectsAPlainString()
-  {
-    Result<ClarifyInput> parsed = ClarifyInput.Create(
-                                 /*lang=json,strict*/
-                                 "{\"question\":\"q\",\"options\":\"a\",\"allowFreeText\":true}");
-    Assert.False(parsed.IsSuccess);
-    Assert.Equal("InvalidParameterType", parsed.Error.Code);
-  }
-
-
-  [Fact]
-  public void Clarify_Description_StatesTheHumanWaitHasNoTimeLimit()
-  {
-    // Format contract: the model must know the clarify wait cannot time out.
-    ClarifyTool tool = new(new StubClarifyChannel());
-    Assert.Contains("NO time limit", tool.Definition.Description, StringComparison.Ordinal);
-    Assert.Contains("Error [ToolTimeout]", tool.Definition.Description, StringComparison.Ordinal);
-  }
-  [Fact]
-  public void Clarify_Options_Omitted_StillSucceeds()
-  {
-    Result<ClarifyInput> parsed = ClarifyInput.Create(/*lang=json,strict*/ "{\"question\":\"q\",\"allowFreeText\":true}");
-    Assert.True(parsed.IsSuccess); // options is optional; advertisement must say so
-  }
-
   // ── git_commit ───────────────────────────────────────────────────────────
 
   private static GitCommitTool NewTool() =>
@@ -255,12 +196,6 @@ public class ToolContractAdvertisementTests
 }
 
 // ── stubs (fakes only — a Tool.Domain test never knows HTTP or OpenRouter exist) ──
-
-internal sealed class StubClarifyChannel : IClarifyChannel
-{
-  public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default) =>
-      Task.FromResult(Result.Success("1"));
-}
 
 internal sealed class StubCommitAccess : IGitCommitAccess
 {

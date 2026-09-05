@@ -6,9 +6,11 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition.Tests;
 
-/// <summary>web_fetch must be wired into the root agent's tool list with its real
-///     ACL dependencies, and must be safe for sub-agents.</summary>
-public class WebFetchWiringTests
+/// <summary>Surface contract after the clarify removal (grand plan: the LLM
+///     formats its own questions): no tool asks the human a question mid-turn.
+///     The root surface must not resolve a clarify action, and no agent tool
+///     binding may carry that name.</summary>
+public class ToolSurfaceTests
 {
   private static ServiceProvider Build()
   {
@@ -25,19 +27,20 @@ public class WebFetchWiringTests
   }
 
   [Fact]
-  public void WebFetch_IsRegistered_ForRootAgents()
+  public void No_AgentToolBinding_Is_Named_Clarify()
   {
     using ServiceProvider services = Build();
     AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
-    Assert.Contains(tools.Actions, a => a.Name == "web_fetch");
+
+    Assert.DoesNotContain(tools.Actions, a => a.Name == "clarify");
   }
 
   [Fact]
-  public void WebFetch_IsAvailableToChildAgents()
+  public void Root_Surface_Does_Not_Resolve_Clarify()
   {
     using ServiceProvider services = Build();
-    AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
-    AgentToolsProvider childTools = tools; // no human-facing filter remains
-    Assert.Contains(childTools.Actions, a => a.Name == "web_fetch");
+    Func<ICapabilityRegistry> surface = services.GetRequiredService<Func<ICapabilityRegistry>>();
+
+    Assert.False(surface().Resolve("clarify").IsSuccess);
   }
 }

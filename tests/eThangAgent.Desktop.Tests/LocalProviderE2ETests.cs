@@ -10,7 +10,6 @@ using eThangAgent.Local.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -58,7 +57,7 @@ public class LocalProviderE2ETests
           throw new InvalidOperationException("local E2E sink fired before the tab was initialized"))
           .ApplyUiStreamEventAsync(evt));
       Task<Result<AgentSession>> CreateSession(string root, string provider) =>
-          factory.CreateAsync(root, provider, new NeverClarifyChannel());
+          factory.CreateAsync(root, provider);
       MainViewModel shell = new(
           CreateSession,
           new MainViewModelOptions { UiStreamSink = sink });
@@ -142,13 +141,6 @@ public class LocalProviderE2ETests
       catch { /* best effort */ }
 #pragma warning restore CA1031
     }
-  }
-
-  private sealed class NeverClarifyChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default) =>
-        Task.FromResult(Result.Failure<string>(
-            new DomainError("Cancelled", "no clarify expected in this E2E scenario")));
   }
 }
 

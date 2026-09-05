@@ -5,7 +5,6 @@ using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
-using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -36,7 +35,6 @@ public class DesktopPipelineSmokeTests
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("mock/model", null, 256, 0.2f, 8192).Value!,
             new AgentHostOptions(
-                new StubClarifyChannel(),
                 new FixedWorkspaceContext("app"),
                 new UnrootedPathResolver()))
         .BuildServiceProvider();
@@ -57,7 +55,6 @@ public class DesktopPipelineSmokeTests
         ModelConfig.Create("mock/model", null, 256, 0.2f, 8192).Value!,
         WorkspaceRoot: Directory.GetCurrentDirectory(),
         ProviderName: Providers.OpenRouter,
-        ClarifyChannel: new StubClarifyChannel(),
         Inbox: services.GetRequiredService<IAgentInbox>(),
         ChildRuntime: services.GetRequiredService<IAgentRuntime>());
     MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session).ConfigureAwait(true);
@@ -70,12 +67,5 @@ public class DesktopPipelineSmokeTests
     Assert.NotEmpty(assistant);
     Assert.Equal("hello from the mock", string.Join("", assistant.Select(a => a.Text)));
     Assert.Equal(1, vm.MessageCount);
-  }
-
-  private sealed class StubClarifyChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default) =>
-        Task.FromResult(Result.Failure<string>(
-            new DomainError("Cancelled", "no clarify expected in this smoke test")));
   }
 }

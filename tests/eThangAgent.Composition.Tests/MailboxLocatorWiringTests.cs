@@ -2,7 +2,6 @@ using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition.Tests;
@@ -18,12 +17,6 @@ public class MailboxLocatorWiringTests
       new ZaiSettings(null, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2));
 
-  private sealed class SilentChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(Result.Success("1"));
-  }
-
   [Fact]
   public async Task Two_Sessions_Share_One_Locator_And_Resolve_Each_Others_Children()
   {
@@ -34,9 +27,9 @@ public class MailboxLocatorWiringTests
     {
       AgentSessionFactory factory = new(Settings(), new AppDatabase(dbPath));
       Result<AgentSession> a = await factory.CreateAsync(ws, Providers.OpenRouter,
-          new SilentChannel(), ct: TestContext.Current.CancellationToken);
+          ct: TestContext.Current.CancellationToken);
       Result<AgentSession> b = await factory.CreateAsync(ws, Providers.OpenRouter,
-          new SilentChannel(), ct: TestContext.Current.CancellationToken);
+          ct: TestContext.Current.CancellationToken);
       Assert.True(a.IsSuccess && b.IsSuccess);
 
       // The locator is ONE process-wide instance, shared by both containers.

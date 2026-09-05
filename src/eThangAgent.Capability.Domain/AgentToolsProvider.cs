@@ -6,17 +6,15 @@ namespace eThangAgent.CapabilityDomain;
 ///     format contract, and tests are unchanged — this is a pure adapter.
 ///     Every action is <see cref="TimeoutPolicy.SelfManaged"/>: ITool contracts parse
 ///     their own timeoutSeconds envelope (ToolCallEnvelopeParser) and bound themselves
-///     via ToolExecution — clarify deliberately runs unbounded while still validating.</summary>
+///     via ToolExecution.</summary>
 public sealed class AgentToolsProvider : ICapabilityProvider
 {
   private readonly Dictionary<string, ITool> _tools;
-  private readonly IReadOnlyList<AgentToolBinding> _bindings;
 
   public AgentToolsProvider(string id, IReadOnlyList<AgentToolBinding> bindings)
   {
     Id = id ?? throw new ArgumentNullException(nameof(id));
-    bindings = bindings ?? throw new ArgumentNullException(nameof(bindings));
-    _bindings = bindings;
+    ArgumentNullException.ThrowIfNull(bindings);
     _tools = bindings.ToDictionary(b => b.Tool.Definition.Name, b => b.Tool, StringComparer.Ordinal);
     Actions = [.. bindings.Select(b => new ActionDescriptor(
         b.Tool.Definition.Name,
@@ -27,19 +25,6 @@ public sealed class AgentToolsProvider : ICapabilityProvider
         TimeoutPolicy.SelfManaged))];
   }
 
-  /// <summary>A copy of this provider without the named actions — how the composition
-  ///     root hides human-facing tools (clarify) from sub-agent surfaces. Unknown names
-  ///     fail loudly: a renamed tool must never silently survive an exclusion filter.</summary>
-  public AgentToolsProvider Except(params string[] actionNames)
-  {
-    HashSet<string> remove = actionNames.ToHashSet(StringComparer.Ordinal);
-    List<AgentToolBinding> filtered = [.. _bindings.Where(b => !remove.Contains(b.Tool.Definition.Name))];
-    return filtered.Count != _bindings.Count - remove.Count
-      ? throw new ArgumentException(
-          "Except() named an action this provider does not expose: " +
-          string.Join(", ", actionNames.Where(n => !_tools.ContainsKey(n))), nameof(actionNames))
-      : new AgentToolsProvider(Id, filtered);
-  }
 
   public string Id { get; }
 

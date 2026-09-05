@@ -111,9 +111,6 @@ public static class AgentComposition
                         sp.GetRequiredService<Func<DateTimeOffset>>()),
                     "Create, update, or delete learned skills."),
                 new AgentToolBinding(
-                    new ClarifyTool(sp.GetRequiredService<IClarifyChannel>()),
-                    "Ask the human a clarifying question with structured options."),
-                new AgentToolBinding(
                     new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
                     "Track a workspace task list."),
                 new AgentToolBinding(
@@ -143,7 +140,6 @@ public static class AgentComposition
         ]))
         .AddSingleton(host.WorkspaceContext)
         .AddSingleton(host.PathResolver)
-        .AddSingleton(host.ClarifyChannel)
         // One app-owned database: hosts opening several sessions pass a shared
         // instance here so every session's stores hit the same SQLite file.
         .AddSingleton(_ => database ?? new AppDatabase())
@@ -295,14 +291,9 @@ public static class AgentComposition
         // DiResolution.tla). Deferred like the Lazy<> wiring this replaced.
         .AddSingleton<Func<ICapabilityRegistry>>(sp =>
         {
-          Lazy<AgentToolsProvider> tools = new(() =>
-                  // Human-facing actions never reach sub-agents: clarify blocks on the
-                  // user, and a machine-owned child must neither wait on nor interrupt them.
-                  sp.GetRequiredService<AgentToolsProvider>().Except(HumanFacingActions));
           Lazy<ICapabilityRegistry> root = new(() => CapabilityRegistry.Create(
                   AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())));
-          Lazy<ICapabilityRegistry> child = new(() => CapabilityRegistry.Create(
-                  AgentSurface(sp, tools.Value)));
+          Lazy<ICapabilityRegistry> child = new(() => root.Value);
 
           // Dispatch-time grant enforcement on the exec path (R1): a running child with
           // a resolved grant set sees the child surface FILTERED to that set. Resolved
@@ -533,10 +524,6 @@ public static class AgentComposition
     };
   }
 
-  /// <summary>Actions only a root agent may invoke: they present UI to the human,
-  ///     and a machine-owned child must never block on (or interrupt) the user.</summary>
-  private static readonly string[] HumanFacingActions = ["clarify"];
-
   /// <summary>Best-effort exec-path grant audit (R1.4): a denied dispatch lands as a
   ///     GrantViolation watchdog row; a failing write never blocks the denial.</summary>
   private static void AuditGrantDenial(IServiceProvider sp, AgentId childId, string actionName)
@@ -572,7 +559,7 @@ public static class AgentComposition
     // inside AgentCapabilityProvider's own construction, so resolving it (or the
     // capability registry) would re-enter the singleton in flight. The agent actions
     // are the provider's fixed set, named literally; everything else is provider-level.
-    AgentToolsProvider childTools = sp.GetRequiredService<AgentToolsProvider>().Except(HumanFacingActions);
+    AgentToolsProvider childTools = sp.GetRequiredService<AgentToolsProvider>();
     IEnumerable<string> names = childTools.Actions.Select(a => a.Name)
         .Concat(AgentCapabilityProvider.ActionNames)
         .Concat(sp.GetRequiredService<StateCapabilityProvider>().Actions.Select(a => a.Name))

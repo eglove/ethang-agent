@@ -1,6 +1,5 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
-using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,15 +19,9 @@ public class WatchdogWiringTests
               new SubAgentOptions(null, 2)),
           Providers.OpenRouter,
           ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
-          new AgentHostOptions(new SilentClarifyChannel(),
+          new AgentHostOptions(
               new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
       .BuildServiceProvider();
-
-  private sealed class SilentClarifyChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => throw new NotSupportedException("No test should reach the human.");
-  }
 
   [Fact]
   public void Container_ResolvesSingletonHeartbeatAndEventStore()

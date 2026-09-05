@@ -4,7 +4,6 @@ using eThangAgent.CapabilityDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
-using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
@@ -29,7 +28,7 @@ public class CompositionGuardTests
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("root/model", null, 512, 0.5f, 8192).Value!,
-            new AgentHostOptions(new StubClarifyChannel(),
+            new AgentHostOptions(
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
         .BuildServiceProvider();
 
@@ -41,11 +40,9 @@ public class CompositionGuardTests
   public static TheoryData<string, AgentHostOptions> BothHostShapes => new()
     {
         { "terminal-shaped", new AgentHostOptions(
-            new StubClarifyChannel(),
             new FixedWorkspaceContext(Path.GetFullPath(".")),
             new WorkspacePathResolver(Path.GetFullPath("."))) },
         { "desktop-shaped", new AgentHostOptions(
-            new StubClarifyChannel(),
             new FixedWorkspaceContext("app"),
             new UnrootedPathResolver()) },
     };
@@ -84,7 +81,6 @@ public class CompositionGuardTests
             services.GetRequiredService<ISkillCatalog>(),
             services.GetRequiredService<ILearnedSkillStore>(),
             services.GetRequiredService<ICuratedMemoryStore>(),
-            services.GetRequiredService<IClarifyChannel>(),
             services.GetRequiredService<IWorkspaceContext>(),
             services.GetRequiredService<IPathResolver>(),
             services.GetRequiredService<IModelProvider>(),
@@ -107,7 +103,7 @@ public class CompositionGuardTests
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.Zai,
             ModelConfig.Create("glm-5.3", null, 512, 0.5f, 8192).Value!,
-            new AgentHostOptions(new StubClarifyChannel(),
+            new AgentHostOptions(
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
         .BuildServiceProvider();
 
@@ -127,7 +123,7 @@ public class CompositionGuardTests
         new ServiceCollection()
             .AddEThangAgentCore(Settings(zaiKey: "zai-test-key"), provider,
                 ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
-                new AgentHostOptions(new StubClarifyChannel(),
+                new AgentHostOptions(
                     new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
             .BuildServiceProvider();
 
@@ -147,7 +143,7 @@ public class CompositionGuardTests
     Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
-            new AgentHostOptions(new StubClarifyChannel(),
+            new AgentHostOptions(
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver())));
 
     InvalidOperationException invalid = Assert.IsType<InvalidOperationException>(ex);
@@ -161,7 +157,7 @@ public class CompositionGuardTests
     Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(settings, "anthropic",
             ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
-            new AgentHostOptions(new StubClarifyChannel(),
+            new AgentHostOptions(
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver())));
 
     ArgumentException argument = Assert.IsType<ArgumentException>(ex);
@@ -178,7 +174,7 @@ public class CompositionGuardTests
         new ServiceCollection()
             .AddEThangAgentCore(Settings(zaiKey: "zai-test-key", zaiEndpointMode: mode), provider,
                 ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
-                new AgentHostOptions(new StubClarifyChannel(),
+                new AgentHostOptions(
                     new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
             .BuildServiceProvider();
 
@@ -200,11 +196,5 @@ public class CompositionGuardTests
       AgentToolsProvider tools = openRouterServices.GetRequiredService<AgentToolsProvider>();
       Assert.All(zaiToolNames, name => Assert.DoesNotContain(tools.Actions, a => a.Name == name));
     }
-  }
-
-  private sealed class StubClarifyChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(Result.Success("1"));
   }
 }

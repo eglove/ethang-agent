@@ -22,11 +22,6 @@ namespace eThangAgent.Composition.Tests;
 ///     HTTP infrastructure is built.</summary>
 public class LocalCompositionTests
 {
-  private sealed class SilentClarifyChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => throw new NotSupportedException("No test should reach the human.");
-  }
 
   private static AgentSettings Settings(LocalSettings? local) => new(
       new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
@@ -41,7 +36,7 @@ public class LocalCompositionTests
       new ServiceCollection()
           .AddEThangAgentCore(Settings(local), Providers.Local,
               ModelConfig.Create("local/bootstrap", null, 512, 0.5f, 8192).Value!,
-              new AgentHostOptions(new SilentClarifyChannel(),
+              new AgentHostOptions(
                   new FixedWorkspaceContext("app"), new UnrootedPathResolver()),
               resolvedFallbackModelId: resolvedFallbackModelId)
           .BuildServiceProvider();
@@ -159,7 +154,7 @@ public class LocalCompositionTests
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(
-            dir.FullName, Providers.Local, new SilentClarifyChannel(),
+            dir.FullName, Providers.Local,
             ct: TestContext.Current.CancellationToken);
 
         Assert.False(result.IsSuccess);
@@ -190,7 +185,7 @@ public class LocalCompositionTests
     Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(Settings(local: null), "anthropic",
             ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
-            new AgentHostOptions(new SilentClarifyChannel(),
+            new AgentHostOptions(
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver())));
 
     ArgumentException argument = Assert.IsType<ArgumentException>(ex);
@@ -209,7 +204,7 @@ public class LocalCompositionTests
       try
       {
         Result<AgentSession> result = await factory.CreateAsync(
-            dir.FullName, "anthropic", new SilentClarifyChannel(),
+            dir.FullName, "anthropic",
             ct: TestContext.Current.CancellationToken);
 
         Assert.False(result.IsSuccess);

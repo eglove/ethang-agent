@@ -85,7 +85,7 @@ public class ToolTimeoutTests
     // the message reads like a tool-internal cap, and the caller misattributes the
     // failure (observed in production: a controller retrospected a tool defect that
     // was actually its own 60s parameter choice).
-    ToolResult result = ToolTimeout.TimedOut("clarify", TimeSpan.FromSeconds(60));
+    ToolResult result = ToolTimeout.TimedOut("web_fetch", TimeSpan.FromSeconds(60));
 
     Assert.Contains("you set via timeoutSeconds", result.Content, StringComparison.Ordinal);
     Assert.Contains("60s", result.Content, StringComparison.Ordinal);

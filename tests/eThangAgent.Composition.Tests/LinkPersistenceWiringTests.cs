@@ -1,7 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition.Tests;
@@ -17,12 +16,6 @@ public class LinkPersistenceWiringTests
       new ZaiSettings(null, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2));
 
-  private sealed class SilentChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(Result.Success("1"));
-  }
-
   [Fact]
   public async Task Session_Registry_Writes_Through_To_The_Shared_Database()
   {
@@ -33,7 +26,7 @@ public class LinkPersistenceWiringTests
     {
       AgentSessionFactory factory = new(Settings(), new AppDatabase(dbPath));
       Result<AgentSession> session = await factory.CreateAsync(workspaceRoot, Providers.OpenRouter,
-          new SilentChannel(), ct: TestContext.Current.CancellationToken);
+          ct: TestContext.Current.CancellationToken);
       Assert.True(session.IsSuccess);
 
       AgentLinkRegistry registry = session.Value.Services.GetRequiredService<AgentLinkRegistry>();

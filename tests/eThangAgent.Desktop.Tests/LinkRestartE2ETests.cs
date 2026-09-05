@@ -44,7 +44,6 @@ public class LinkRestartE2ETests
               Providers.OpenRouter,
               ModelConfig.Create(E2E.SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,
               new AgentHostOptions(
-                  new SilentChannel(),
                   new FixedWorkspaceContext("app"),
                   new UnrootedPathResolver()))
           .BuildServiceProvider();
@@ -192,11 +191,5 @@ public class LinkRestartE2ETests
       }
 #pragma warning restore CA1031, S108
     }
-  }
-
-  private sealed class SilentChannel : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<string>(new DomainError("Cancelled", "no clarify expected in this E2E scenario")));
   }
 }

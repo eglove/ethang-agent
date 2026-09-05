@@ -15,8 +15,8 @@ namespace eThangAgent.Composition;
 /// <summary>Builds one isolated <see cref="AgentSession"/> per opened workspace, wired for
 ///     ONE exclusively selected AI provider. The desktop shell calls this every time the
 ///     user opens a directory through the new-agent dialog; each returned session owns its
-///     own DI container, conversation, path resolver, workspace identity, and clarify
-///     channel, so agents can run concurrently without sharing mutable state. The session
+///     own DI container, conversation, path resolver, and workspace identity, so agents
+///     can run concurrently without sharing mutable state. The session
 ///     stays on its provider until closed. Cross-cutting singletons — configuration, the
 ///     shared SQLite database, model settings — are supplied by the caller and reused
 ///     across sessions. <see cref="ResumeAsync"/> reopens a previously persisted root
@@ -51,18 +51,12 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   ///     automatic resume. Fails with a structured error when the provider is unknown or
   ///     unconfigured, or when bootstrap persistence fails.</summary>
   public async Task<Result<AgentSession>> CreateAsync(string workspaceRoot, string providerName,
-      IClarifyChannel clarifyChannel, CancellationToken ct = default)
+      CancellationToken ct = default)
   {
     Result<string> validated = ValidateProvider(workspaceRoot, providerName);
     if (!validated.IsSuccess)
     {
       return Result.Failure<AgentSession>(validated.Error);
-    }
-
-    if (clarifyChannel is null)
-    {
-      return Result.Failure<AgentSession>(new DomainError("InvalidChannel",
-          "a clarify channel is required to create an agent session."));
     }
 
     string full = validated.Value;
@@ -76,7 +70,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       return Result.Failure<AgentSession>(bootstrap.Error);
     }
 
-    ServiceProvider services = BuildContainer(full, providerName, clarifyChannel, conversationSeed: null,
+    ServiceProvider services = BuildContainer(full, providerName, conversationSeed: null,
         bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId);
     try
     {
@@ -100,7 +94,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
       // Provider lineups are no longer published at session open: the model picker
       // (host UI) fetches the catalog lazily when shown, for either provider.
-      return Result.Success(BuildSession(services, bootstrapped.Value, full, providerName, clarifyChannel));
+      return Result.Success(BuildSession(services, bootstrapped.Value, full, providerName));
     }
     catch
     {
@@ -118,14 +112,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   ///     provider is unknown or unconfigured, the workspace directory is gone, or the
   ///     transcript cannot be read.</summary>
   public async Task<Result<AgentSession>> ResumeAsync(AgentId sessionId,
-      IClarifyChannel clarifyChannel, CancellationToken ct = default)
+      CancellationToken ct = default)
   {
-    if (clarifyChannel is null)
-    {
-      return Result.Failure<AgentSession>(new DomainError("InvalidChannel",
-          "a clarify channel is required to resume an agent session."));
-    }
-
     // Resolve the record before building anything: workspace and provider decide the
     // wiring, so a bad id must not leave a half-built container behind.
     SqliteAgentStore store = _database is null ? new SqliteAgentStore(new AppDatabase()) : new SqliteAgentStore(_database);
@@ -171,7 +159,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       return Result.Failure<AgentSession>(bootstrap.Error);
     }
 
-    ServiceProvider services = BuildContainer(workspaceRoot, providerName, clarifyChannel, transcript.Value,
+    ServiceProvider services = BuildContainer(workspaceRoot, providerName, transcript.Value,
         bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId);
     try
     {
@@ -189,7 +177,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         return Result.Failure<AgentSession>(reopened.Error);
       }
 
-      return Result.Success(BuildSession(services, sessionId, workspaceRoot, providerName, clarifyChannel));
+      return Result.Success(BuildSession(services, sessionId, workspaceRoot, providerName));
     }
     catch
     {
@@ -343,13 +331,12 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   }
 
   private ServiceProvider BuildContainer(string workspaceRoot, string providerName,
-      IClarifyChannel clarifyChannel, IReadOnlyList<Message>? conversationSeed,
+      IReadOnlyList<Message>? conversationSeed,
       ModelConfig defaultModel, string? resolvedFallbackModelId)
   {
     ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(_settings, providerName, defaultModel,
             new AgentHostOptions(
-                clarifyChannel,
                 // Workspace identity IS the root path: state keys and curated
                 // memories scope per opened directory, keyed in the shared DB.
                 new FixedWorkspaceContext(workspaceRoot),
@@ -395,7 +382,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   }
 
   private static AgentSession BuildSession(ServiceProvider services, AgentId rootId,
-      string workspaceRoot, string providerName, IClarifyChannel clarifyChannel) => new(
+      string workspaceRoot, string providerName) => new(
       services,
       rootId,
       services.GetRequiredService<Conversation>(),
@@ -404,7 +391,6 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       services.GetRequiredService<ModelConfig>(),
       workspaceRoot,
       providerName,
-      clarifyChannel,
       services.GetRequiredService<IAgentInbox>(),
       services.GetRequiredService<IAgentRuntime>(),
       services.GetRequiredService<SessionModelPreferences>());

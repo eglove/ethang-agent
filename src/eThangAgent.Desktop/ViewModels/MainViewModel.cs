@@ -255,14 +255,14 @@ internal sealed partial class MainViewModel : ObservableObject
     _keyProtector = options?.ApiKeyProtector;
     _sessionCatalog = options?.SessionCatalog;
     _createSession = createSession ?? ((root, provider) =>
-        _sessionFactory!.CreateAsync(root, provider, new AvaloniaClarifyChannel(null)));
+        _sessionFactory!.CreateAsync(root, provider));
     // Reads the factory at invocation (settings rebind reaches future resumes). A host
     // composing sessions itself (no factory) degrades to a structured failure — resume
     // needs the shared store the factory owns.
     _resumeSession = sessionId => _sessionFactory is null
         ? Task.FromResult(Result.Failure<AgentSession>(new DomainError("ResumeUnavailable",
             "this host composed its sessions without a shared store; sessions cannot be resumed.")))
-        : _sessionFactory.ResumeAsync(sessionId, new AvaloniaClarifyChannel(null));
+        : _sessionFactory.ResumeAsync(sessionId);
 
     // Commands exist before the observable properties: setting those raises the
     // changed hooks, which requery command availability.
@@ -661,7 +661,7 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Wires a created (fresh or resumed) session into a new tab: session
   ///     view-model with the self-referencing stream sink, per-workspace model/effort
   ///     restore BEFORE the tab can take a turn, persisted-transcript replay (a no-op
-  ///     for a fresh session — its conversation is empty), clarify presentation, and
+  ///     for a fresh session — its conversation is empty), and
   ///     tab attach. Must run on the UI thread.</summary>
   private async Task<AgentTabViewModel> AttachSessionAsync(AgentSession session)
   {
@@ -720,8 +720,6 @@ internal sealed partial class MainViewModel : ObservableObject
     // Resume replay: the persisted transcript (already hydrated into the session's
     // conversation) renders into the transcript view. A fresh session replays nothing.
     sessionVm.Transcript.Restore(session.Conversation.Messages);
-
-    AttachClarifyChannel(sessionVm, session.ClarifyChannel);
 
     AgentTabViewModel tab = new(session, sessionVm);
 
@@ -956,40 +954,6 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Synchronous fire-and-forget close used by the tab header's close button.
   ///     Teardown errors are swallowed inside <see cref="CloseTabAsync"/>.</summary>
   public void CloseTab(AgentTabViewModel tab) => _ = CloseTabAsync(tab);
-
-  private static void AttachClarifyChannel(AgentSessionViewModel vm, IClarifyChannel channel)
-  {
-    // Mirror the pre-tab wiring: the desktop channel resolves its presenter lazily,
-    // marshals onto the UI thread, and presents through THIS tab's view-model so
-    // each pending question renders inside its own agent tab.
-    if (channel is AvaloniaClarifyChannel desktop)
-    {
-      desktop.SetPresenter(q => PresentOnUIThread(() => vm.PresentClarifyAsync(q)));
-    }
-  }
-
-  private static async Task<ClarifyViewModel> PresentOnUIThread(
-      Func<Task<ClarifyViewModel>> present)
-  {
-    TaskCompletionSource<ClarifyViewModel> tcs = new(
-        TaskCreationOptions.RunContinuationsAsynchronously);
-    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
-    {
-      // Named decision (CA1031): any presentation fault is forwarded to the TCS so
-      // the awaiting channel receives a well-formed failure, never an unobserved one.
-      try
-      {
-        tcs.SetResult(await present());
-      }
-#pragma warning disable CA1031 // Do not catch general exception types
-      catch (Exception ex)
-      {
-        tcs.SetException(ex);
-      }
-#pragma warning restore CA1031
-    });
-    return await tcs.Task;
-  }
 
   /// <summary>Single-session convenience: a shell whose only tab opens over a
   ///     pre-built session (used by hosts/tests that compose the session themselves).</summary>

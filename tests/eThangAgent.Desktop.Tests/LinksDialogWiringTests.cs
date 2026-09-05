@@ -83,7 +83,6 @@ public class LinksDialogWiringTests
         Model: ModelConfig.Create("test/model", null, 128, 0.1f, 8192).Value!,
         WorkspaceRoot: @"C:\ws\demo",
         ProviderName: "openrouter",
-        ClarifyChannel: null!,
         Inbox: new BoundedAgentMailbox(),
         ChildRuntime: new TestFixtures.StubAgentRuntime());
   }

@@ -5,7 +5,6 @@ using eThangAgent.CapabilityDomain;
 using eThangAgent.Composition;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
-using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -31,12 +30,6 @@ public class CrossContainerRemoteRouteE2ETests
       new ZaiSettings(null, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2),
       RemoteHost: remoteHost);
-
-  private sealed class NeverAsk : IClarifyChannel
-  {
-    public Task<Result<string>> AskAsync(ClarifyQuestion question, CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<string>(new DomainError("Cancelled", "no clarify in this E2E")));
-  }
 
   private sealed class Capture : IAgentEventSubscriber
   {
@@ -66,9 +59,9 @@ public class CrossContainerRemoteRouteE2ETests
             new AppDatabase(dbPath), locator);
 
         Result<AgentSession> a = await factoryA.CreateAsync(wsA, Providers.OpenRouter,
-            new NeverAsk(), ct: TestContext.Current.CancellationToken);
+            ct: TestContext.Current.CancellationToken);
         Result<AgentSession> b = await factoryB.CreateAsync(wsB, Providers.OpenRouter,
-            new NeverAsk(), ct: TestContext.Current.CancellationToken);
+            ct: TestContext.Current.CancellationToken);
         Assert.True(a.IsSuccess, a.Error?.Message);
         Assert.True(b.IsSuccess, b.Error?.Message);
 
