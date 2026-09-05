@@ -24,5 +24,9 @@ public sealed class CuratedMemoryGuidePromptProvider : ISystemPromptProvider
         task state, or anything derivable from the repo. After completing a genuinely complex
         multi-step effort, consider proposing a reusable skill via skill_manage (source learned)
         capturing what generalizes beyond this workspace.
+        On failure, search before you retry: when an error repeats, a fix does not stick, or
+        you are about to retry the same approach, look it up first — memory.recall over past
+        sessions (scope global, or session:<id>) and memories.search over curated entries —
+        and apply what was learned instead of burning another blind attempt.
         """;
 }
