@@ -1,6 +1,6 @@
 ---
 name: using-skills
-description: Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including clarifying questions
+description: Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including questions to the user
 ---
 
 <SUBAGENT-STOP>
@@ -19,7 +19,7 @@ This is not negotiable. You cannot rationalize your way out of this.
 
 ## The Rule
 
-**Invoke relevant or requested skills BEFORE any response or action** — including clarifying questions, exploring the codebase, or checking files. If it turns out wrong for the situation, you don't have to use it.
+**Invoke relevant or requested skills BEFORE any response or action** — including questions to the user, exploring the codebase, or checking files. If it turns out wrong for the situation, you don't have to use it.
 
 **Before entering plan mode:** if you haven't already brainstormed, invoke the brainstorming skill first.
 
@@ -29,7 +29,7 @@ Then announce "Using [skill] to [purpose]" and follow the skill exactly. If it h
 
 When multiple skills apply, process skills come first — they set the approach, then implementation skills (frontend-design, etc.) carry it out. Brainstorming and systematic-debugging are the most common process skills, but the rule holds for any of them.
 
-- "Let's build X" → brainstorming first, then implementation skills.
+- "Let's build X" → grill first when the ask is thin (a bare question or one-liner), then brainstorming, then implementation skills.
 - "Fix this bug" → systematic-debugging first, then domain skills.
 
 ## Red Flags
@@ -39,7 +39,7 @@ These thoughts mean STOP—you're rationalizing:
 | Thought | Reality |
 |---------|---------|
 | "This is just a simple question" | Questions are tasks. Check for skills. |
-| "I need more context first" | Skill check comes BEFORE clarifying questions. |
+| "I need more context first" | Skill check comes BEFORE requirement gathering. |
 | "Let me explore the codebase first" | Skills tell you HOW to explore. Check first. |
 | "I can check git/files quickly" | Files lack conversation context. Check for skills. |
 | "Let me gather information first" | Skills tell you HOW to gather information. |
