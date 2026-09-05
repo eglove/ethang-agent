@@ -43,7 +43,7 @@ public class SkillsBootstrapTests
 
     foreach (string? key in new[]
              {
-                     "read", "write", "edit", "search_files", "exec",
+                     "read", "write", "edit", "exec",
                      "spawn", "todo", "skill_view", "skill_list", "clarify",
                  })
     {

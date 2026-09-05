@@ -236,7 +236,7 @@ public sealed record ShellResult(int ExitCode, string Stdout, string Stderr);
 /// "state.set" that are not identifiers) is reachable through <see cref="Invoke"/>.
 /// available for actions whose names aren't valid C# identifiers.</summary>
 // Named decision (CA1707): convenience methods deliberately mirror the wire tool names
-// (search_files, git_status, ...) — they are the model-facing script API, so underscores
+// (git_status, git_commit, ...) — they are the model-facing script API, so underscores
 // are the contract, not a style violation.
 #pragma warning disable CA1707 // Identifiers should not contain underscores
 public sealed class ScriptTools
@@ -412,7 +412,6 @@ public sealed class ScriptTools
   public string read(object? args = null) => Invoke("read", args);
   public string write(object? args = null) => Invoke("write", args);
   public string edit(object? args = null) => Invoke("edit", args);
-  public string search_files(object? args = null) => Invoke("search_files", args);
   public string exec(object? args = null) => Invoke("exec", args);
   public string git_status(object? args = null) => Invoke("git_status", args);
   public string working_diff(object? args = null) => Invoke("working_diff", args);

@@ -131,15 +131,6 @@ public class ToolContractAdvertisementTests
     Assert.Contains("never stages", d, StringComparison.Ordinal);
     Assert.Contains("stages exactly those", d, StringComparison.Ordinal);
   }
-  // ── search_files ─────────────────────────────────────────────────────────
-
-  [Fact]
-  public void SearchFiles_OnlyPatternModeMaxResults_AreRequired()
-  {
-    SearchTool tool = new(new UnrootedPathResolver(), new StubSearchAccess());
-    Assert.Equal(["timeoutSeconds", "pattern", "mode", "maxResults"], tool.Definition.RequiredParameters);
-  }
-
   // ── edit ─────────────────────────────────────────────────────────────────
 
   [Fact]
@@ -278,13 +269,6 @@ internal sealed class StubCommitAccess : IGitCommitAccess
 
   public Task<Result<GitCommitOutcome>> CommitAsync(string repoPath, string message, CancellationToken ct = default) =>
       Task.FromResult(Result.Failure<GitCommitOutcome>(new DomainError("Unused", "not exercised")));
-}
-
-internal sealed class StubSearchAccess : ISearchAccess
-{
-  public Task<Result<FileSearch>> SearchFilesAsync(string rootPath, string pattern, bool regex,
-      string? glob, int maxResults, int contextLines, CancellationToken ct = default) =>
-      Task.FromResult(Result.Failure<FileSearch>(new DomainError("Unused", "not exercised")));
 }
 
 internal sealed class StubEditAccess : IFileEditAccess

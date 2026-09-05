@@ -12,11 +12,11 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 /// <summary>Acceptance gate from the work order: the exact real-world failure shapes
 /// must be impossible on the fixed resolver — a workspace root carrying the trailing
 /// separator (as desktop folder pickers deliver it) accepts '.', relative subpaths,
-/// and absolute-inside paths, and a search over the resolved root returns hits.</summary>
+/// and absolute-inside paths, and a read through a resolved inside-path returns content.</summary>
 public class WorkspaceRootAcceptanceTests
 {
   [Fact]
-  public async Task SearchFiles_WithDotPath_OnTrailingSeparatorRoot_Succeeds()
+  public async Task ReadFile_WithDotPath_OnTrailingSeparatorRoot_Succeeds()
   {
     DirectoryInfo root = Directory.CreateTempSubdirectory("ethang-accept");
     try
@@ -32,10 +32,12 @@ public class WorkspaceRootAcceptanceTests
       Result<string> resolved = resolver.Resolve(".");
       Assert.True(resolved.IsSuccess, $"resolve('.') failed: {resolved.Error?.Message}");
 
-      Result<FileSearch> hits = await files.SearchFilesAsync(resolved.Value, "Acceptance", regex: false,
-          glob: "*.cs", maxResults: 5, contextLines: 0, ct: TestContext.Current.CancellationToken);
-      Assert.True(hits.IsSuccess);
-      Assert.NotEmpty(hits.Value.Matches);
+      Result<string> hitResolved = resolver.Resolve(Path.Combine("src", "hit.cs"));
+      Assert.True(hitResolved.IsSuccess, $"resolve('src/hit.cs') failed: {hitResolved.Error?.Message}");
+
+      Result<FileRead> read = await files.ReadLinesAsync(hitResolved.Value, 1, 10, TestContext.Current.CancellationToken);
+      Assert.True(read.IsSuccess, $"read failed: {read.Error?.Message}");
+      Assert.Contains(read.Value.Lines, l => l.Contains("Acceptance", StringComparison.Ordinal));
     }
     finally
     {

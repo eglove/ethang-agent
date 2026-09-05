@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.8";
+  public const string Version = "2.9";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -33,7 +33,6 @@ public static class ExecGuide
     Tools are methods on the `Tools` object taking one anonymous object argument:
 
         Tools.read(new { timeoutSeconds = 30, path = "src/App.cs", startLine = 1, endLine = 50 });
-        Tools.search_files(new { timeoutSeconds = 30, pattern = "search-term", mode = "Literal", maxResults = 20, contextLines = 2 });
 
     The generic form behaves identically:
 

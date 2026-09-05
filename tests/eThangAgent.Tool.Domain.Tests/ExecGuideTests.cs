@@ -9,9 +9,15 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.8", ExecGuide.Version);
+    Assert.Equal("2.9", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
+
+  // search_files was deleted (grand plan: exec scripts search the workspace directly);
+  // the guide must no longer advertise or teach it.
+  [Fact]
+  public void Guide_DoesNotTeachRemovedSearchFilesTool() =>
+      Assert.DoesNotContain("search_files", ExecGuide.Text, StringComparison.Ordinal);
 
   [Fact]
   public void Guide_DocumentsDurableState()

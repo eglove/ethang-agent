@@ -65,7 +65,6 @@ public static class AgentComposition
         .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
         .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
         .AddSingleton<IFileEditAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
-        .AddSingleton<ISearchAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
         .AddSingleton<DirectGitAccess>()
         .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
         .AddSingleton<IGitCommitAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
@@ -92,10 +91,6 @@ public static class AgentComposition
                     new EditTool(sp.GetRequiredService<IPathResolver>(),
                         sp.GetRequiredService<IFileEditAccess>()),
                     "Edit a file by exact literal replacement."),
-                new AgentToolBinding(
-                    new SearchTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<ISearchAccess>()),
-                    "Search workspace text files with literal or regex patterns."),
                 new AgentToolBinding(
                     new DbSchemaTool(sp.GetRequiredService<ISelfDatabaseAccess>()),
                     "List the tables, columns, and indexes of the agent's own app database."),

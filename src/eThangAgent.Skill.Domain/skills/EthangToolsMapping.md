@@ -11,7 +11,6 @@ Skills name actions; this harness binds them to real tools:
 | --- | --- |
 | Read a file | `read` (startLine/endLine required, max 1000-line range) |
 | Write / edit files | `write` / `edit` |
-| Search files | `search_files` |
 | Run commands, tests, or git plumbing | `exec` — C# scripting through the exec engine (Roslyn); never shell scripts |
 | Dispatch a subagent | `spawn` (non-blocking, returns an id; poll `status`; fetch the report with `result`) |
 | Create/update todos | `todo` tool |

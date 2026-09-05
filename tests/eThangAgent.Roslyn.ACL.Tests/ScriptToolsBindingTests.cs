@@ -43,7 +43,6 @@ public class ScriptToolsBindingTests
   [InlineData("read")]
   [InlineData("write")]
   [InlineData("edit")]
-  [InlineData("search_files")]
   [InlineData("exec")]
   [InlineData("git_status")]
   [InlineData("working_diff")]

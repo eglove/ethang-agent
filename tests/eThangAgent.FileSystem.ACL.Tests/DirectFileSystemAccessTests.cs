@@ -163,20 +163,4 @@ public sealed class DirectFileSystemAccessTests : IDisposable
     Assert.False(r.IsSuccess);
     Assert.Equal("AnchorNotFound", r.Error.Code);
   }
-
-  [Fact]
-  public async Task SearchFilesAsync_LiteralMatch_FindsLines()
-  {
-    string path = Path.Combine(_tempDir, "search.txt");
-    _ = Directory.CreateDirectory(_tempDir);
-    await File.WriteAllTextAsync(path, "alpha\nbeta\ngamma", TestContext.Current.CancellationToken);
-    DirectFileSystemAccess access = new();
-
-    Result<FileSearch> r = await access.SearchFilesAsync(_tempDir, "beta", regex: false, glob: null, maxResults: 10, contextLines: 0, ct: TestContext.Current.CancellationToken);
-
-    Assert.True(r.IsSuccess);
-    _ = Assert.Single(r.Value.Matches);
-    Assert.Equal("beta", r.Value.Matches[0].Lines[0]);
-    Assert.Equal(2, r.Value.Matches[0].LineNumber);
-  }
 }

@@ -32,7 +32,7 @@ public sealed class WorkspacePathIntegrationTests : IDisposable
   }
 
   [Fact]
-  public async Task SearchOverWorkspaceRoot_ReturnsHits()
+  public async Task ReadThroughResolvedInsidePath_ReturnsContent()
   {
     (WorkspacePathResolver? resolver, DirectFileSystemAccess? files) = Make();
     _ = Directory.CreateDirectory(Path.Combine(_root, "src"));
@@ -41,10 +41,12 @@ public sealed class WorkspacePathIntegrationTests : IDisposable
     Result<string> resolved = resolver.Resolve(".");
     Assert.True(resolved.IsSuccess, $"root '.' rejected: {resolved.Error?.Message}");
 
-    Result<FileSearch> hits = await files.SearchFilesAsync(resolved.Value, "Marker", regex: false,
-        glob: "*.cs", maxResults: 10, contextLines: 0, ct: TestContext.Current.CancellationToken);
-    Assert.True(hits.IsSuccess, $"search failed: {hits.Error?.Message}");
-    Assert.Contains(hits.Value.Matches, m => m.Path.Contains("code.cs", StringComparison.Ordinal));
+    Result<string> codeResolved = resolver.Resolve(Path.Combine("src", "code.cs"));
+    Assert.True(codeResolved.IsSuccess, $"src/code.cs rejected: {codeResolved.Error?.Message}");
+
+    Result<FileRead> read = await files.ReadLinesAsync(codeResolved.Value, 1, 10, TestContext.Current.CancellationToken);
+    Assert.True(read.IsSuccess, $"read failed: {read.Error?.Message}");
+    Assert.Contains(read.Value.Lines, l => l.Contains("Marker", StringComparison.Ordinal));
   }
 
   [Fact]
