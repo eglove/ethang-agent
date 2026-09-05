@@ -6,8 +6,8 @@ namespace eThangAgent.Agent.Application;
 /// <summary>One watchdog sweep for ONE session root: descendants of the root in the shared
 ///     agent store, liveness via this container's heartbeat, decisions via the pure policy,
 ///     enactment through the runtime and store seams, audit via event rows. Never throws:
-///     a failing sweep degrades to a rate-limited WatchdogErrored event. RSS sampling rides
-///     the same tick, observe-only. Heartbeat-presence gate: a Running child with NO beat
+///     a failing sweep degrades to a rate-limited WatchdogErrored event.
+///     Heartbeat-presence gate: a Running child with NO beat
 ///     entry is always Watch - the run belongs to another container or has not beaten yet.
 ///     The policy uses one injected TimeProvider for every time read in a tick.</summary>
 public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : IWatchdogTicker, IDisposable
@@ -21,8 +21,6 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
   ///     outliving the idle threshold false-positives as hung.</summary>
   private readonly IDisposable? _feedLease =
       services.Supervisors is null ? null : services.ChildEventStream?.Subscribe(new SupervisorFeed(services.Supervisors));
-  private DateTimeOffset? _rssBreachSince;
-  private DateTimeOffset? _lastRssReport;
   private DateTimeOffset? _lastErrorReport;
   /// <summary>Settle-poll cadence: one second in production; tests inject a sub-second
   ///     cadence so deadline paths run fast while the iteration bound still gates the loop.</summary>
@@ -38,7 +36,6 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
   {
     try
     {
-      await SampleRssAsync(ct).ConfigureAwait(false);
       await SuperviseRegisteredChildrenAsync(ct).ConfigureAwait(false);
       Result<IReadOnlyList<AgentRecord>> listed = await _store.ListAllAsync(ct).ConfigureAwait(false);
       if (!listed.IsSuccess)
@@ -383,29 +380,6 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
       => new(Guid.NewGuid(), record.Id, WatchdogEventKind.HungDetected,
           "no heartbeat for " + (int)idleAge.TotalMinutes + " minutes", 0, null,
           services.Clock.GetUtcNow());
-
-  private async Task SampleRssAsync(CancellationToken ct)
-  {
-    double megabytes = services.Metrics.WorkingSetBytes() / (1024.0 * 1024.0);
-    if (megabytes < services.Options.RssThresholdMb)
-    {
-      _rssBreachSince = null;
-      return;
-    }
-
-    DateTimeOffset now = services.Clock.GetUtcNow();
-    _rssBreachSince ??= now;
-    if (_lastRssReport is { } last && now - last < services.Options.RssReReportInterval)
-    {
-      return;
-    }
-
-    _lastRssReport = now;
-    await AppendAsync(new WatchdogEvent(Guid.NewGuid(), null, WatchdogEventKind.RssBreached,
-        "working set " + megabytes.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)
-            + " MB exceeds threshold " + services.Options.RssThresholdMb.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " MB",
-        0, Math.Round(megabytes, 1), now), ct).ConfigureAwait(false);
-  }
 
   private async Task RecordErrorAsync(string message, CancellationToken ct)
   {

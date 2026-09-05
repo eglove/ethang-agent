@@ -186,17 +186,9 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     IAgentEvents? stream = host.Services.GetService(typeof(IAgentEvents)) as IAgentEvents;
     ChildSupervisorRegistry? supervisors = host.Services.GetService(typeof(ChildSupervisorRegistry)) as ChildSupervisorRegistry;
     WatchdogServices services = new(host.Store, host.Runtime, heartbeat, audit,
-        WatchdogPolicyFactory.FromOptions(options), NoopMetrics.Instance,
+        WatchdogPolicyFactory.FromOptions(options),
         options, TimeProvider.System, stream, supervisors);
     return new HostChildWatchdog(childId, services);
-  }
-
-  /// <summary>RSS sampling is an app-process concern; the host records nothing (observe-
-  ///     only seam stays unused in the child process).</summary>
-  private sealed class NoopMetrics : IProcessMetrics
-  {
-    public static readonly NoopMetrics Instance = new();
-    public long WorkingSetBytes() => 0;
   }
 
   /// <summary>Delivers a steering envelope into the running child's mailbox (FR-C2).

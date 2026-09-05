@@ -14,7 +14,13 @@ public class WatchdogOptionsTests
     Assert.Equal(1, options.MaxWrapUpAttempts);
     Assert.Equal(4096.0, options.RssThresholdMb);
     Assert.Equal(TimeSpan.FromMinutes(10), options.RssReReportInterval);
+    Assert.Equal(5, options.RssSustainedBreachTicks);
   }
+
+  [Fact]
+  public void NegativeRssSustainedBreachTicks_Throws()
+      => Assert.Throws<ArgumentOutOfRangeException>(() =>
+          new WatchdogOptions(RssSustainedBreachTicks: -1));
 
   [Theory]
   [InlineData(0)]

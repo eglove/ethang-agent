@@ -7,11 +7,12 @@ public enum WatchdogEventKind
   RetryDeferred,
   TerminalReport,
   RssBreached,
+  RssSustained,
   WatchdogErrored,
   GrantViolation,
 }
 
-/// <summary>One structured watchdog decision or observation. Rows are append-only audit:
+/// <summary>One structured watchdog or process-RSS-monitor decision or observation. Rows are append-only audit:
 ///     retry attempts are derived by counting RetrySpawned rows per agent.</summary>
 public sealed record WatchdogEvent(
     Guid Id,

@@ -92,11 +92,6 @@ public class HostChildWatchdogTests
         => Task.FromResult(Result.Success(Rows.Count(e => e.AgentId == agentId && e.Kind == kind)));
   }
 
-  private sealed class FixedMetrics : IProcessMetrics
-  {
-    public long WorkingSetBytes() => 1024L * 1024 * 1024;
-  }
-
   private sealed class TestStream : IAgentEvents
   {
     private readonly List<IAgentEventSubscriber> _subscribers = [];
@@ -122,7 +117,7 @@ public class HostChildWatchdogTests
       FakeHeartbeat heartbeat, FakeAudit audit, TestStream stream, ChildSupervisorRegistry supervisors)
     => new(store, runtime, heartbeat, audit,
         new WatchdogPolicy(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(5), 0),
-        new FixedMetrics(), new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
+        new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 
   [Fact]

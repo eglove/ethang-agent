@@ -7,8 +7,8 @@ namespace eThangAgent.Agent.Application.Tests;
 
 /// <summary>The watchdog tick matrix: first breach retries with reset and Start, settle
 ///     outcomes branch correctly, deadline defers, second breach terminates Failed(Hung),
-///     roots and heartbeat-less children are never touched, RSS is observe-only, and other
-///     roots' children are invisible.</summary>
+///     roots and heartbeat-less children are never touched, and other roots'
+///     children are invisible.</summary>
 public class AgentWatchdogTests
 {
   private static readonly DateTimeOffset T0 = new(2026, 8, 31, 12, 0, 0, TimeSpan.Zero);
@@ -122,11 +122,6 @@ public class AgentWatchdogTests
       => Task.FromResult(Result.Success(Appended.Count(e => e.AgentId == agentId && e.Kind == kind)));
   }
 
-  private sealed class FakeMetrics(long bytes) : IProcessMetrics
-  {
-    public long WorkingSetBytes() => bytes;
-  }
-
   private static AgentRecord Root() => AgentRecord.Spawned(
       AgentId.NewId(), null, 0, "m", "root", "root", T0);
 
@@ -135,7 +130,7 @@ public class AgentWatchdogTests
 
   private static (AgentWatchdog Watchdog, FakeStore Store, FakeRuntime Runtime, FakeHeartbeat
       Heartbeat, FakeEvents Events, StubClock Clock) Harness(
-          AgentId rootId, StubClock clock, TimeSpan? settlePoll = null, FakeMetrics? metrics = null)
+          AgentId rootId, StubClock clock, TimeSpan? settlePoll = null)
   {
     FakeStore store = new();
     FakeRuntime runtime = new();
@@ -143,7 +138,6 @@ public class AgentWatchdogTests
     FakeEvents events = new();
     WatchdogServices services = new(store, runtime, heartbeat, events,
         new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1),
-        metrics ?? new FakeMetrics(1024L * 1024 * 1024),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock);
     AgentWatchdog watchdog = new(rootId, services);
     AgentWatchdog settled = settlePoll is { } poll ? watchdog.WithSettlePollInterval(poll) : watchdog;
@@ -286,22 +280,6 @@ public class AgentWatchdogTests
   }
 
   [Fact]
-  public async Task Tick_RssAboveThreshold_RecordsOnceThenRateLimits()
-  {
-    AgentRecord root = Root();
-    StubClock clock = new(T0);
-    (AgentWatchdog watchdog, _, _, _, FakeEvents events, _) =
-        Harness(root.Id, clock, metrics: new FakeMetrics(5000L * 1024 * 1024));
-
-    await watchdog.TickAsync();
-    await watchdog.TickAsync(); // no clock advance: rate-limited
-    clock.Now = T0 + TimeSpan.FromMinutes(11);
-    await watchdog.TickAsync(); // past the 10 min re-report interval
-
-    Assert.Equal(2, events.Appended.Count(e => e.Kind is WatchdogEventKind.RssBreached));
-  }
-
-  [Fact]
   public async Task Tick_ChildOfAnotherRoot_Ignored()
   {
     AgentRecord root = Root();
@@ -342,7 +320,6 @@ public class AgentWatchdogTests
     supervisors.Register(childId, supervisor);
     WatchdogServices services = new(store, runtime, heartbeat, audit,
         new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1),
-        new FakeMetrics(1024L * 1024 * 1024),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
@@ -379,7 +356,6 @@ public class AgentWatchdogTests
     supervisors.Register(childId, supervisor);
     WatchdogServices services = new(store, runtime, heartbeat, audit,
         new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1),
-        new FakeMetrics(1024L * 1024 * 1024),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test

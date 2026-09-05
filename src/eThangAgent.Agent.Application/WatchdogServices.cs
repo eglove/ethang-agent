@@ -10,7 +10,6 @@ public sealed record WatchdogServices(
     IAgentHeartbeat Heartbeat,
     IWatchdogEventStore Events,
     WatchdogPolicy Policy,
-    IProcessMetrics Metrics,
     WatchdogOptions Options,
     TimeProvider Clock,
     IAgentEvents? ChildEventStream = null,

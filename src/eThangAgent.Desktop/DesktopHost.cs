@@ -31,7 +31,8 @@ internal sealed record DesktopBootstrap(
     IAppPreferenceStore Preferences,
     IApiKeyProtector ApiKeys,
     SessionCatalogQueryHandler Catalog,
-    CommitStyle CommitStyle);
+    CommitStyle CommitStyle,
+    IWatchdogEventStore WatchdogEvents);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads configuration (provider API keys come from the app database, DPAPI-
@@ -80,7 +81,8 @@ internal static class DesktopHost
         preferences,
         protector,
         catalog,
-        commitStyle);
+        commitStyle,
+        new SqliteWatchdogEventStore(database));
   }
 
   /// <summary>Recovers one stored key: absent stays null; undecryptable (corrupted or
@@ -203,15 +205,21 @@ internal static class DesktopHost
     // rebind future opens.
     WatchdogOptions watchdogOptions = WatchdogOptions.Default;
     WatchdogLoop watchdogLoop = new(watchdogOptions.TickInterval, TimeProvider.System);
-    ProcessMetrics metrics = new();
     WatchdogPolicy policy = WatchdogPolicyFactory.FromOptions(watchdogOptions);
+
+    // Process-lifetime RSS watch: observes the app for as long as the window is open,
+    // tabs or no tabs — the 14 GB incident surfaced exactly that blind spot. The host
+    // records breaches into the shared audit; the app process is the single RSS owner
+    // (in-process children live inside this one number; a remote ChildHost would own
+    // its own sampler).
+    ProcessRssMonitor rssMonitor = new(new ProcessMetrics(), boot.WatchdogEvents, watchdogOptions, TimeProvider.System);
 
     WatchdogServices ServicesFor(AgentSession session) => new(
         session.Services.GetRequiredService<IAgentStore>(),
         session.ChildRuntime,
         session.Services.GetRequiredService<IAgentHeartbeat>(),
         session.Services.GetRequiredService<IWatchdogEventStore>(),
-        policy, metrics, watchdogOptions, TimeProvider.System,
+        policy, watchdogOptions, TimeProvider.System,
         session.Services.GetService<IAgentEvents>(),
         session.Services.GetService<ChildSupervisorRegistry>());
 
@@ -241,6 +249,12 @@ internal static class DesktopHost
     _ = Task.Run(() => watchdogLoop.RunAsync(watchdogCts.Token))
         .ContinueWith(
             static t => _ = Console.Error.WriteLineAsync("watchdog loop faulted: " + t.Exception),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+    _ = Task.Run(() => rssMonitor.RunAsync(watchdogCts.Token))
+        .ContinueWith(
+            static t => _ = Console.Error.WriteLineAsync("rss monitor faulted: " + t.Exception),
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);

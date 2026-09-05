@@ -44,20 +44,28 @@ public sealed class SqliteWatchdogEventStoreTests : IDisposable
         "second", 1, null, DateTimeOffset.UtcNow);
     WatchdogEvent rss = new(Guid.NewGuid(), null, WatchdogEventKind.RssBreached,
         "rss", 0, 5000.5, DateTimeOffset.UtcNow);
+    WatchdogEvent sustained = new(Guid.NewGuid(), null, WatchdogEventKind.RssSustained,
+        "sustained", 0, 5000.5, DateTimeOffset.UtcNow.AddSeconds(1));
 
     _ = await _store.AppendAsync(first, TestContext.Current.CancellationToken);
     _ = await _store.AppendAsync(second, TestContext.Current.CancellationToken);
     _ = await _store.AppendAsync(rss, TestContext.Current.CancellationToken);
+    _ = await _store.AppendAsync(sustained, TestContext.Current.CancellationToken);
 
     Result<IReadOnlyList<WatchdogEvent>> recent = await _store.ListRecentAsync(10, TestContext.Current.CancellationToken);
     Assert.True(recent.IsSuccess);
-    Assert.Equal(3, recent.Value.Count);
-    Assert.Equal(rss.Id, recent.Value[0].Id); // newest first
+    Assert.Equal(4, recent.Value.Count);
+    Assert.Equal(sustained.Id, recent.Value[0].Id); // newest first
+    Assert.Equal(WatchdogEventKind.RssSustained, recent.Value[0].Kind);
+    Assert.Null(recent.Value[0].AgentId); // process scope
     WatchdogEvent loadedSecond = recent.Value[1];
-    Assert.Equal(WatchdogEventKind.HungDetected, loadedSecond.Kind);
-    Assert.Equal(1, loadedSecond.Attempt);
-    Assert.Null(loadedSecond.RssMb);
-    Assert.Equal(5000.5, recent.Value[0].RssMb);
+    Assert.Equal(rss.Id, loadedSecond.Id);
+    Assert.Equal(WatchdogEventKind.RssBreached, loadedSecond.Kind);
+    Assert.Equal(5000.5, loadedSecond.RssMb);
+    WatchdogEvent loadedThird = recent.Value[2];
+    Assert.Equal(WatchdogEventKind.HungDetected, loadedThird.Kind);
+    Assert.Equal(1, loadedThird.Attempt);
+    Assert.Null(loadedThird.RssMb);
 
     Result<int> hungCount = await _store.CountKindForAgentAsync(id, WatchdogEventKind.HungDetected, TestContext.Current.CancellationToken);
     Assert.True(hungCount.IsSuccess);

@@ -10,7 +10,8 @@ public sealed class WatchdogOptions(
   TimeSpan? SettleWait = null,
   int MaxWrapUpAttempts = 1,
   double RssThresholdMb = 4096,
-  TimeSpan? RssReReportInterval = null)
+  TimeSpan? RssReReportInterval = null,
+  int RssSustainedBreachTicks = 5)
 {
   public static WatchdogOptions Default { get; } = new();
 
@@ -25,6 +26,9 @@ public sealed class WatchdogOptions(
       ? RssThresholdMb
       : throw new ArgumentOutOfRangeException(nameof(RssThresholdMb), "RssThresholdMb must be positive.");
   public TimeSpan RssReReportInterval { get; } = Positive(RssReReportInterval ?? TimeSpan.FromMinutes(10), nameof(RssReReportInterval));
+  public int RssSustainedBreachTicks { get; } = RssSustainedBreachTicks >= 0
+      ? RssSustainedBreachTicks
+      : throw new ArgumentOutOfRangeException(nameof(RssSustainedBreachTicks), "RssSustainedBreachTicks must not be negative.");
 
   private static TimeSpan Positive(TimeSpan value, string paramName) => value > TimeSpan.Zero
       ? value
