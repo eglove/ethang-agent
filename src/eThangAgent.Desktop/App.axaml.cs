@@ -2,16 +2,37 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using eThangAgent.Desktop.Markdown;
 using eThangAgent.Desktop.Views;
+using Markdig;
+using MarkView.Avalonia;
+using TextMateSharp.Grammars;
 
 namespace eThangAgent.Desktop;
 
 internal class App : Application
 {
+#pragma warning disable S1144, CA1823, IDE0052 // by-design: the initializer IS the registration
+  // App-lifetime subscription, registered once at type init and never disposed
+  // by design: this handler IS the single link-routing gate for every
+  // MarkdownViewer the app ever creates (transcript blocks, future surfaces).
+  private static readonly IDisposable LinkHandlerSubscription =
+      MarkdownViewer.LinkClickedEvent.AddClassHandler<MarkdownViewer>((_, e) => MarkdownLinkLauncher.TryOpen(e.Url));
+#pragma warning restore S1144, CA1823, IDE0052
+
   public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
   public override void OnFrameworkInitializationCompleted()
   {
+    // Transcript markdown rendering is MarkView-backed: defaults are set once so
+    // every MarkdownViewer (transcript blocks and future surfaces) inherits the
+    // same pipeline and highlighting. Registered outside the desktop-lifetime
+    // gate so the headless test app exercises the identical wiring.
+    MarkdownViewerDefaults.Pipeline = new MarkdownPipelineBuilder()
+        .UseSupportedExtensions()
+        .Build();
+    MarkdownViewerDefaults.Extensions.AddTextMateHighlighting(ThemeName.DarkPlus, ThemeName.LightPlus);
+
     if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
     {
       // No window exists until bootstrap finishes; transient helper windows closing

@@ -65,10 +65,10 @@
             <SelectableTextBlock Text="{Binding Text}" FontWeight="Bold" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
           <DataTemplate DataType="vm:AssistantTextEntry">
-            <md:AssistantMarkdownBlock MarkdownText="{Binding Text}" IsOpen="{Binding IsOpen}" Margin="8,2" TextWrapping="Wrap"/>
+            <md:AgentMarkdownBlock MarkdownText="{Binding Text}" IsOpen="{Binding IsOpen}" Margin="8,2"/>
           </DataTemplate>
           <DataTemplate DataType="vm:ReasoningEntry">
-            <md:ReasoningMarkdownBlock MarkdownText="{Binding Text}" IsOpen="{Binding IsOpen}" Margin="8,2" TextWrapping="Wrap"/>
+            <md:AgentMarkdownBlock MarkdownText="{Binding Text}" IsOpen="{Binding IsOpen}" Variant="Reasoning" Margin="8,2"/>
           </DataTemplate>
           <DataTemplate DataType="vm:ToolCallEntry">
             <Expander Classes="tool-card" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">

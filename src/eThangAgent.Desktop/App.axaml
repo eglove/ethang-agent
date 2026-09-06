@@ -4,5 +4,22 @@
              RequestedThemeVariant="Dark">
   <Application.Styles>
     <FluentTheme />
+    <StyleInclude Source="avares://MarkView.Avalonia/Themes/MarkdownTheme.axaml" />
+    <!-- Dark-first overrides for transcript markdown (seeds the Night Owl theme
+         item): wrapped text everywhere, code blocks keyed to the app's dark
+         surfaces, inline code with a subtle background. -->
+    <Style Selector="TextBlock.markdown-paragraph">
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.markdown-h1, TextBlock.markdown-h2, TextBlock.markdown-h3, TextBlock.markdown-h4, TextBlock.markdown-h5, TextBlock.markdown-h6">
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border.markdown-code-block">
+      <Setter Property="Background" Value="#1E1E2A" />
+      <Setter Property="Padding" Value="8,6" />
+    </Style>
+    <Style Selector="Border.markdown-code-inline">
+      <Setter Property="Background" Value="#2A2A3A" />
+    </Style>
   </Application.Styles>
 </Application>

@@ -34,7 +34,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   `Error [TurnCancelled]` / child `interrupted` outcomes rather than crashes or lost state
 - Selectable transcript text in the desktop app — select any message or reasoning block
   and copy it with Ctrl+C
- - Rich transcript rendering — assistant messages render as markdown once a block finishes streaming
+ - Rich transcript rendering — MarkView-powered markdown in the transcript, live while a block streams (re-renders coalesced) and finalized on close
    (headings, bold/italic, inline code, fenced code blocks, lists, links), and tool calls/results appear as
    expandable cards: pretty-printed JSON arguments on the call, the full result content on the result
    (errors highlighted red)
