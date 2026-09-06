@@ -16,13 +16,12 @@ public class RichToolResultStreamTests
     StreamBridge bridge = new(evt => channel.Writer.WriteAsync(evt).AsTask());
     bridge.Start();
 
-    bridge.OnToolResult("exec", "ok", "42", false, "parse names", "```csharp\nreturn 42;\n```");
+    bridge.OnToolResult("exec", "ok", "42", false, "parse names");
     bridge.MarkTurnComplete();
     await bridge.DrainUntilIdleAsync();
 
     UiStreamEvent.ToolResultEvent evt = Assert.IsType<UiStreamEvent.ToolResultEvent>(await channel.Reader.ReadAsync(TestContext.Current.CancellationToken));
     Assert.Equal("parse names", evt.Title);
-    Assert.Equal("```csharp\nreturn 42;\n```", evt.DisplayBody);
   }
 
   [Fact]
@@ -30,11 +29,11 @@ public class RichToolResultStreamTests
   {
     TranscriptViewModel vm = new();
 
-    vm.AddToolResult("exec", "ok", "42", false, "parse names", "```csharp\nreturn 42;\n```");
+    vm.AddToolResult("exec", "ok", "42", false, "parse names");
 
     ToolResultEntry entry = Assert.IsType<ToolResultEntry>(Assert.Single(vm.Entries));
     Assert.Equal("parse names", entry.HeaderTitle);
-    Assert.Equal("```csharp\nreturn 42;\n```", entry.ProgramBody);
+    Assert.Equal("42", entry.FullContent);
   }
 
   [Fact]
@@ -46,7 +45,7 @@ public class RichToolResultStreamTests
 
     ToolResultEntry entry = Assert.IsType<ToolResultEntry>(Assert.Single(vm.Entries));
     Assert.Equal("", entry.HeaderTitle);
-    Assert.Null(entry.ProgramBody);
+
   }
 
   [Fact]
@@ -54,10 +53,9 @@ public class RichToolResultStreamTests
   {
     AgentSessionViewModel vm = TestFixtures.CreateViewModel();
 
-    await vm.ApplyUiStreamEventAsync(new UiStreamEvent.ToolResultEvent("exec", "ok", "42", false, "parse names", "```csharp\nreturn 42;\n```"));
+    await vm.ApplyUiStreamEventAsync(new UiStreamEvent.ToolResultEvent("exec", "ok", "42", false, "parse names"));
 
     ToolResultEntry entry = Assert.IsType<ToolResultEntry>(Assert.Single(vm.Transcript.Entries));
     Assert.Equal("parse names", entry.HeaderTitle);
-    Assert.NotNull(entry.ProgramBody);
   }
 }

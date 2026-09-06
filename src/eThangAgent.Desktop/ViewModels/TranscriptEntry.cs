@@ -99,7 +99,7 @@ internal sealed record ExecCallShape(string? Title, string Program, string Budge
 // restored transcripts render unchanged): the call card counts up while the tool
 // runs, the result card freezes the total; both render it in the card header.
 internal sealed record ToolResultEntry(string Name, string Summary, string FullContent, bool IsError, string ElapsedDisplay = "",
-    string? Title = null, string? DisplayBody = null) : TranscriptEntry
+    string? Title = null) : TranscriptEntry
 {
   public IBrush SummaryBrush => IsError ? Brushes.IndianRed : Brushes.Gray;
 
@@ -107,11 +107,7 @@ internal sealed record ToolResultEntry(string Name, string Summary, string FullC
   ///     (the name-plus-summary legacy header renders instead).</summary>
   public string HeaderTitle => Title ?? "";
 
-  /// <summary>Rich card body (the fenced program); null renders the legacy full content.</summary>
-  public string? ProgramBody => DisplayBody;
 
-  /// <summary>True when a rich body exists and the legacy mono body must hide.</summary>
-  public bool HasRichBody => DisplayBody is not null;
 }
 
 internal sealed record NoticeEntry(string Text) : TranscriptEntry;

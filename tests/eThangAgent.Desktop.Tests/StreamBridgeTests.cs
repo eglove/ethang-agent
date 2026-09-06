@@ -19,7 +19,7 @@ public class StreamBridgeTests
     bridge.OnIterationEnd();
     bridge.OnContentDelta("b");
     bridge.OnToolCall("read", "{}");
-    bridge.OnToolResult("read", "ok", "full result", false, null, null);
+    bridge.OnToolResult("read", "ok", "full result", false, null);
     bridge.MarkTurnComplete();
     await bridge.DrainUntilIdleAsync();
 

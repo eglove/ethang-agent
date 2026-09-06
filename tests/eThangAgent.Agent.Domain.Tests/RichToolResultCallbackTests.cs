@@ -5,9 +5,9 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
 
-/// <summary>OnToolResult carries the executed tool's rich result (title, display
-///     body) as a fifth nullable argument, so hosts can render the card header and
-///     body from metadata that never enters the conversation.</summary>
+/// <summary>OnToolResult carries the executed tool's display title (the body always
+///     renders the content - the program's output for exec) as a fifth nullable
+///     argument, so hosts can title the result card from metadata that never enters the conversation.</summary>
 public class RichToolResultCallbackTests
 {
   private static ModelConfig DefaultConfig =>
@@ -20,7 +20,7 @@ public class RichToolResultCallbackTests
         Result.Success(new ModelResponse(null,
             [new ToolCallRequest("call_1", "exec", "{}")])),
         Result.Success(new ModelResponse("done", [])));
-    RichTool rich = new("parse names", "```csharp\nreturn 42;\n```");
+    RichTool rich = new("parse names");
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([rich]));
 
@@ -34,7 +34,7 @@ public class RichToolResultCallbackTests
     Assert.Equal("exec", Name);
     Assert.NotNull(Rich);
     Assert.Equal("parse names", Rich.Title);
-    Assert.Equal("```csharp\nreturn 42;\n```", Rich.DisplayBody);
+
   }
 
   [Fact]
@@ -65,12 +65,12 @@ public class RichToolResultCallbackTests
             : Result.Success(new ModelResponse("fin", [])));
   }
 
-  private sealed class RichTool(string title, string displayBody) : ITool
+  private sealed class RichTool(string title) : ITool
   {
     public ToolDefinition Definition { get; } = new("exec", "desc", []);
 
     public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
-        => Task.FromResult(new ToolResult("42", false, title, displayBody));
+        => Task.FromResult(new ToolResult("42", false, title));
   }
 
   private sealed class FakeTool(string name, string content) : ITool

@@ -7,7 +7,7 @@ internal abstract record UiStreamEvent
   internal sealed record IterationEnd() : UiStreamEvent;
   internal sealed record ToolCallEvent(string Name, string Arguments) : UiStreamEvent;
   internal sealed record ToolResultEvent(string Name, string Summary, string FullContent, bool IsError,
-      string? Title = null, string? DisplayBody = null) : UiStreamEvent;
+      string? Title = null) : UiStreamEvent;
 
   /// <summary>A turn notice (model selection, fallback announcements). Rides the
   ///     bridge like every other turn-voice event because the pipeline raises notices

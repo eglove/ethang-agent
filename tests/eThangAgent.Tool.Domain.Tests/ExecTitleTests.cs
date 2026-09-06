@@ -58,7 +58,7 @@ public class ExecTitleTests
   }
 
   [Fact]
-  public async Task CompletedRun_ResultCarriesTitle_AndFencedProgramBody()
+  public async Task CompletedRun_ResultCarriesTitle_AndOutputAsContent()
   {
     FakeExecEngine engine = new();
     ExecTool tool = CreateTool(engine);
@@ -73,9 +73,8 @@ public class ExecTitleTests
 
     Assert.False(result.IsError);
     Assert.Equal("parse names", result.Title);
-    Assert.NotNull(result.DisplayBody);
-    Assert.Contains("```csharp", result.DisplayBody, StringComparison.Ordinal);
-    Assert.Contains("return 42;", result.DisplayBody, StringComparison.Ordinal);
+    Assert.Equal("hi", result.Content); // the program's OUTPUT is the content
+    Assert.Equal("hi", result.Content); // the program's OUTPUT is the content
   }
 
   [Fact]
@@ -87,7 +86,6 @@ public class ExecTitleTests
 
     Assert.True(result.IsError);
     Assert.Null(result.Title);
-    Assert.Null(result.DisplayBody);
   }
 
   private ExecTool CreateTool(FakeExecEngine? engine = null)

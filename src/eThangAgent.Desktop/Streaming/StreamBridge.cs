@@ -33,7 +33,7 @@ internal sealed class StreamBridge(Func<UiStreamEvent, Task> sink, bool coalesce
   public Action<string> OnReasoningDelta => text => _channel.Writer.TryWrite(new UiStreamEvent.Reasoning(text));
   public Action OnIterationEnd => () => _channel.Writer.TryWrite(new UiStreamEvent.IterationEnd());
   public Action<string, string> OnToolCall => (name, args) => _channel.Writer.TryWrite(new UiStreamEvent.ToolCallEvent(name, args));
-  public Action<string, string, string, bool, string?, string?> OnToolResult => (name, summary, fullContent, isError, title, displayBody) => _channel.Writer.TryWrite(new UiStreamEvent.ToolResultEvent(name, summary, fullContent, isError, title, displayBody));
+  public Action<string, string, string, bool, string?> OnToolResult => (name, summary, fullContent, isError, title) => _channel.Writer.TryWrite(new UiStreamEvent.ToolResultEvent(name, summary, fullContent, isError, title));
   public Action<string> OnNotice => text => _channel.Writer.TryWrite(new UiStreamEvent.Notice(text));
   public Action<string> OnSystemMessage => text => _channel.Writer.TryWrite(new UiStreamEvent.SystemMessage(text));
 
@@ -113,7 +113,7 @@ internal sealed class StreamBridgePump(
     UiStreamEvent.Reasoning r => coalescer.ReasoningDeltaAsync(r.Text),
     UiStreamEvent.IterationEnd => coalescer.IterationEndAsync(),
     UiStreamEvent.ToolCallEvent tc => coalescer.ToolCallAsync(tc.Name, tc.Arguments),
-    UiStreamEvent.ToolResultEvent tr => coalescer.ToolResultAsync(tr.Name, tr.Summary, tr.FullContent, tr.IsError, tr.Title, tr.DisplayBody),
+    UiStreamEvent.ToolResultEvent tr => coalescer.ToolResultAsync(tr.Name, tr.Summary, tr.FullContent, tr.IsError, tr.Title),
     UiStreamEvent.Notice n => coalescer.NoticeAsync(n.Text),
     UiStreamEvent.SystemMessage sm => coalescer.SystemMessageAsync(sm.Text),
     _ => Task.CompletedTask,

@@ -127,11 +127,8 @@
                   </TextBlock>
                 </DockPanel>
               </Expander.Header>
-            <Panel>
-              <md:AgentMarkdownBlock IsVisible="{Binding HasRichBody}" MarkdownText="{Binding ProgramBody, Mode=OneWay}"/>
-              <SelectableTextBlock IsVisible="{Binding !HasRichBody}" FontFamily="Consolas, Courier New" TextWrapping="Wrap" FontSize="12"
+            <SelectableTextBlock FontFamily="Consolas, Courier New" TextWrapping="Wrap" FontSize="12"
                                    Text="{Binding FullContent, Mode=OneWay}"/>
-            </Panel>
             </Expander>
           </DataTemplate>
           <DataTemplate DataType="vm:CommandRunEntry">

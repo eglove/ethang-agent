@@ -297,7 +297,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       PublishProgress(ChildPhase.Draining, "tool-result");
       string summary = SummarizeToolResult(toolResult);
       callbacks?.OnToolResult?.Invoke(call.Name, summary, toolResult.Content, toolResult.IsError,
-          toolResult.Title is null && toolResult.DisplayBody is null ? null : toolResult);
+          toolResult.Title is null ? null : toolResult);
     }
   }
 

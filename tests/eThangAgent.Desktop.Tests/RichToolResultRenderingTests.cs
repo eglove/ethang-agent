@@ -15,16 +15,18 @@ namespace eThangAgent.Desktop.Tests;
 public class RichToolResultRenderingTests
 {
   [AvaloniaFact]
-  public void RichResult_ShowsTitleInHeader_AndProgramInBody()
+  public void RichResult_ShowsTitleInHeader_AndOutputInBody_NeverTheProgramAgain()
   {
     AgentSessionViewModel vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
-    vm.Transcript.AddToolResult("exec", "ok", "42", false, "parse names", "```csharp\nreturn 42;\n```");
+    vm.Transcript.AddToolResult("exec", "ok", "hello stdout\nline two", false, "parse names");
 
     Window window = new() { Width = 900, Height = 600, Content = new AgentView { DataContext = vm } };
     window.Show();
     Dispatcher.UIThread.RunJobs();
     AgentView view = (AgentView)window.Content;
-    ExpandSingleCard(view);
+    Expander card = view.GetVisualDescendants().OfType<Expander>().First(e => e.Classes.Contains("tool-card"));
+    card.IsExpanded = true;
+    Dispatcher.UIThread.RunJobs();
 
     // Header: the title rides a Run inline beside the tool name.
     TextBlock header = view.GetVisualDescendants().OfType<TextBlock>()
@@ -32,10 +34,13 @@ public class RichToolResultRenderingTests
             .Any(r => r.Text is not null && r.Text.Contains("parse names", StringComparison.Ordinal)) == true);
     Assert.NotNull(header);
 
-    // Body: the fenced program renders through the markdown block.
-    AgentMarkdownBlock body = Assert.Single(view.GetVisualDescendants().OfType<AgentMarkdownBlock>(),
-        b => b.MarkdownText.Contains("return 42;", StringComparison.Ordinal));
+    // Body: the program's OUTPUT in the mono body - the program/fence never re-renders.
+    SelectableTextBlock body = view.GetVisualDescendants().OfType<SelectableTextBlock>()
+        .First(b => b.IsVisible && b.Text is not null && b.Text.Contains("hello stdout", StringComparison.Ordinal));
     Assert.NotNull(body);
+    Assert.DoesNotContain(view.GetVisualDescendants().OfType<AgentMarkdownBlock>()
+        .Where(b => b.IsVisible),
+        b => b.MarkdownText.Contains("```csharp", StringComparison.Ordinal));
   }
 
   [AvaloniaFact]

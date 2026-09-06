@@ -77,7 +77,7 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutpu
       artifactPath = await _artifacts.WriteAsync(run.Output, ct).ConfigureAwait(false);
     }
 
-    ToolResult result = ExecResultFormatter.Format(run, _options, artifactPath, title, exec.Text);
+    ToolResult result = ExecResultFormatter.Format(run, _options, artifactPath, title);
     await _activity.RecordAsync(new ExecActivity(
         exec.Text.Length > 80 ? exec.Text[..80] : exec.Text,
         run.Status,
