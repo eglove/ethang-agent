@@ -36,7 +36,7 @@ public class ExecToolInputTests
   [Fact]
   public void NonStringProgram_IsRejected()
   {
-    Result<ExecToolInput> result = ExecToolInput.Create(/*lang=json,strict*/ "{\"program\":42}");
+    Result<ExecToolInput> result = ExecToolInput.Create(/*lang=json,strict*/ "{\"title\":\"t\",\"program\":42}");
     Assert.False(result.IsSuccess);
     Assert.Equal("InvalidParameterType", result.Error.Code);
   }
@@ -44,7 +44,7 @@ public class ExecToolInputTests
   [Fact]
   public void EmptyStringProgram_IsRejected()
   {
-    Result<ExecToolInput> result = ExecToolInput.Create(/*lang=json,strict*/ "{\"program\":\"\"}");
+    Result<ExecToolInput> result = ExecToolInput.Create(/*lang=json,strict*/ "{\"title\":\"t\",\"program\":\"\"}");
     Assert.False(result.IsSuccess);
     Assert.Equal("InvalidParameterValue", result.Error.Code);
   }
@@ -52,8 +52,9 @@ public class ExecToolInputTests
   [Fact]
   public void ValidJson_CreatesExecToolInput()
   {
-    Result<ExecToolInput> result = ExecToolInput.Create(/*lang=json,strict*/ "{\"program\":\"Write-Output 'hi'\"}");
+    Result<ExecToolInput> result = ExecToolInput.Create(/*lang=json,strict*/ "{\"title\":\"say hi\",\"program\":\"Write-Output 'hi'\"}");
     Assert.True(result.IsSuccess);
+    Assert.Equal("say hi", result.Value.Title);
     Assert.Equal("Write-Output 'hi'", result.Value.Program);
   }
 }

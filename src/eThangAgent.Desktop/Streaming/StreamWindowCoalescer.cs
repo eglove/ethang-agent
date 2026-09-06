@@ -43,7 +43,7 @@ internal sealed class StreamWindowCoalescer(IStreamSink sink, double windowSecon
 
   public Task ToolCallAsync(string name, string arguments) => StructuralAsync(new UiStreamEvent.ToolCallEvent(name, arguments));
 
-  public Task ToolResultAsync(string name, string summary, string fullContent, bool isError) => StructuralAsync(new UiStreamEvent.ToolResultEvent(name, summary, fullContent, isError));
+  public Task ToolResultAsync(string name, string summary, string fullContent, bool isError, string? title = null, string? displayBody = null) => StructuralAsync(new UiStreamEvent.ToolResultEvent(name, summary, fullContent, isError, title, displayBody));
 
   public Task NoticeAsync(string text) => StructuralAsync(new UiStreamEvent.Notice(text));
 

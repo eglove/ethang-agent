@@ -156,7 +156,7 @@ internal static class E2E
   /// <summary>Serializes an exec tool-call argument carrying one C# program and the
   ///     mandatory per-call execution budget.</summary>
   public static string ExecProgram(string program) =>
-      JsonSerializer.Serialize(new { timeoutSeconds = 120, program });
+      JsonSerializer.Serialize(new { timeoutSeconds = 120, title = "e2e", program });
 
   /// <summary>Scripted assistant response performing one exec tool call.</summary>
   public static string ExecToolCall(string id, string arguments) =>

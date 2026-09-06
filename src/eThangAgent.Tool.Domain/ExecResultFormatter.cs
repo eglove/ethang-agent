@@ -5,7 +5,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecResultFormatter
 {
-  public static ToolResult Format(ExecRunResult run, ExecOptions options, string? artifactPath)
+  public static ToolResult Format(ExecRunResult run, ExecOptions options, string? artifactPath, string? title = null, string? program = null)
   {
     ArgumentNullException.ThrowIfNull(run);
     ArgumentNullException.ThrowIfNull(options);
@@ -44,7 +44,8 @@ public static class ExecResultFormatter
       _ = sb.AppendLine().Append(CultureInfo.InvariantCulture, $"exec error [ScriptError]: {line}");
     }
 
-    return new ToolResult(sb.ToString(), run.ErrorLines.Count > 0);
+    string? displayBody = program is null ? null : $"```csharp\n{program}\n```";
+    return new ToolResult(sb.ToString(), run.ErrorLines.Count > 0, title, displayBody);
   }
 
   public static ToolResult ParseErrors(IReadOnlyList<ExecParseError> errors, int maxParseErrors,

@@ -31,9 +31,20 @@ internal sealed record ToolCallEntry(string Name, string Arguments, ToolElapsedH
 // ElapsedDisplay carries the tool card's elapsed-time line (empty when unknown, so
 // restored transcripts render unchanged): the call card counts up while the tool
 // runs, the result card freezes the total; both render it in the card header.
-internal sealed record ToolResultEntry(string Name, string Summary, string FullContent, bool IsError, string ElapsedDisplay = "") : TranscriptEntry
+internal sealed record ToolResultEntry(string Name, string Summary, string FullContent, bool IsError, string ElapsedDisplay = "",
+    string? Title = null, string? DisplayBody = null) : TranscriptEntry
 {
   public IBrush SummaryBrush => IsError ? Brushes.IndianRed : Brushes.Gray;
+
+  /// <summary>Rich card title for the header row; empty when the tool supplied none
+  ///     (the name-plus-summary legacy header renders instead).</summary>
+  public string HeaderTitle => Title ?? "";
+
+  /// <summary>Rich card body (the fenced program); null renders the legacy full content.</summary>
+  public string? ProgramBody => DisplayBody;
+
+  /// <summary>True when a rich body exists and the legacy mono body must hide.</summary>
+  public bool HasRichBody => DisplayBody is not null;
 }
 
 internal sealed record NoticeEntry(string Text) : TranscriptEntry;

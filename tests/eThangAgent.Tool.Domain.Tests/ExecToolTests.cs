@@ -13,7 +13,7 @@ public class ExecToolTests
     ExecTool tool = CreateTool();
 
     Assert.Equal("exec", tool.Definition.Name);
-    Assert.Equal(["timeoutSeconds", "program"],
+    Assert.Equal(["timeoutSeconds", "title", "program"],
         [.. tool.Definition.Parameters.Select(p => p.Name)]);
     Assert.Equal(ToolParameterType.Text,
         tool.Definition.Parameters.Single(p => p.Name == "program").Type);
@@ -53,7 +53,7 @@ public class ExecToolTests
     ExecTool tool = CreateTool(engine, options);
 
     ToolResult result = await tool.ExecuteAsync(
-            new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"program\":\"abcdef\"}"), ct: TestContext.Current.CancellationToken);
+            new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"title\":\"t\",\"program\":\"abcdef\"}"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("exec error [ExecProgramTooLarge]:", result.Content, StringComparison.Ordinal);
@@ -69,6 +69,7 @@ public class ExecToolTests
     string json = System.Text.Json.JsonSerializer.Serialize(new
     {
       timeoutSeconds = 120,
+      title = "t",
       program = "var s = \"\"\"broken",
     });
 
@@ -87,7 +88,7 @@ public class ExecToolTests
     ExecTool tool = CreateTool(engine);
 
     ToolResult result = await tool.ExecuteAsync(
-            new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"program\":\"if (x {\"}"), ct: TestContext.Current.CancellationToken);
+            new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"title\":\"t\",\"program\":\"if (x {\"}"), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("exec error [ExecParseError]:", result.Content, StringComparison.Ordinal);
@@ -102,7 +103,7 @@ public class ExecToolTests
     ExecTool tool = CreateTool(engine, activity: activity);
 
     ToolResult result = await tool.ExecuteAsync(
-            new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"program\":\"Write-Output 'hi'\"}"), ct: TestContext.Current.CancellationToken);
+            new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"title\":\"t\",\"program\":\"Write-Output 'hi'\"}"), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
     Assert.Equal("hi", result.Content);
@@ -123,7 +124,7 @@ public class ExecToolTests
     ExecTool tool = CreateTool(engine, artifacts: store);
 
     ToolResult result = await tool.ExecuteAsync(
-            new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"program\":\"x\"}"), ct: TestContext.Current.CancellationToken);
+            new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"title\":\"t\",\"program\":\"x\"}"), ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(60 * 1024, store.Written.Length);
     Assert.Contains("[exec:artifact C:\\art\\out.txt]", result.Content, StringComparison.Ordinal);

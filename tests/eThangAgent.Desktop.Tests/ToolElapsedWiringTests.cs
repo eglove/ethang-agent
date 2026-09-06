@@ -17,7 +17,7 @@ public class ToolElapsedWiringTests
       static (_c, _ct, cb, _n) =>
       {
         cb?.OnToolCall?.Invoke("read", "{}", 1, 1);
-        cb?.OnToolResult?.Invoke("read", "ok", "ok", false);
+        cb?.OnToolResult?.Invoke("read", "ok", "ok", false, null);
         return Task.FromResult(Result.Success("ack"));
       });
 
@@ -37,9 +37,9 @@ public class ToolElapsedWiringTests
       static (_c, _ct, cb, _n) =>
       {
         cb?.OnToolCall?.Invoke("read", "{}", 1, 2);
-        cb?.OnToolResult?.Invoke("read", "ok", "ok", false);
+        cb?.OnToolResult?.Invoke("read", "ok", "ok", false, null);
         cb?.OnToolCall?.Invoke("bash", "{}", 2, 2);
-        cb?.OnToolResult?.Invoke("bash", "ok", "ok", false);
+        cb?.OnToolResult?.Invoke("bash", "ok", "ok", false, null);
         return Task.FromResult(Result.Success("done"));
       });
 

@@ -20,13 +20,13 @@ public class ToolResultCallbackTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([new FailingTool("Error [Validation]: input was bad")]));
 
-    List<(string Name, string Summary, string FullContent, bool IsError)> results = [];
-    TurnCallbacks callbacks = new(OnToolResult: (name, summary, full, err) => results.Add((name, summary, full, err)));
+    List<(string Name, string Summary, string FullContent, bool IsError, ToolResult? Rich)> results = [];
+    TurnCallbacks callbacks = new(OnToolResult: (name, summary, full, err, richResult) => results.Add((name, summary, full, err, null)));
 
     Result<string> result = await agent.SendMessage("go", callbacks: callbacks, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
-    (string Name, string Summary, string FullContent, bool IsError) = Assert.Single(results);
+    (string Name, string Summary, string FullContent, bool IsError, _) = Assert.Single(results);
     Assert.Equal("faily", Name);
     Assert.Contains("Error [Validation]", Summary, StringComparison.Ordinal);
     Assert.Equal("Error [Validation]: input was bad", FullContent);
@@ -43,13 +43,13 @@ public class ToolResultCallbackTests
     Agent agent = new(provider, new Conversation(), DefaultConfig,
         new ToolRegistry([new FakeTool("read", "file body line\nsecond line")]));
 
-    List<(string Name, string Summary, string FullContent, bool IsError)> results = [];
-    TurnCallbacks callbacks = new(OnToolResult: (name, summary, full, err) => results.Add((name, summary, full, err)));
+    List<(string Name, string Summary, string FullContent, bool IsError, ToolResult? Rich)> results = [];
+    TurnCallbacks callbacks = new(OnToolResult: (name, summary, full, err, richResult) => results.Add((name, summary, full, err, null)));
 
     Result<string> result = await agent.SendMessage("go", callbacks: callbacks, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
-    (_, string Summary, string FullContent, bool IsError) = Assert.Single(results);
+    (_, string Summary, string FullContent, bool IsError, _) = Assert.Single(results);
     Assert.Equal("ok", Summary);
     Assert.Equal("file body line\nsecond line", FullContent);
     Assert.False(IsError);

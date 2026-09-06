@@ -52,12 +52,13 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     _runningTool = (Entries.Count - 1, SecondsNow(), elapsed);
   }
 
-  public void AddToolResult(string name, string summary, string fullContent, bool isError)
+  public void AddToolResult(string name, string summary, string fullContent, bool isError,
+      string? title = null, string? displayBody = null)
   {
     CloseOpen();
     double elapsed = _runningTool is { } running ? SecondsNow() - running.StartSeconds : 0;
     _runningTool = null;
-    Entries.Add(new ToolResultEntry(name, summary, fullContent, isError, ToolElapsed.Format(elapsed, isError)));
+    Entries.Add(new ToolResultEntry(name, summary, fullContent, isError, ToolElapsed.Format(elapsed, isError), title, displayBody));
   }
 
   public void AddNotice(string text)

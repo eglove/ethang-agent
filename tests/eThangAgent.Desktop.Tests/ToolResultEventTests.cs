@@ -14,7 +14,7 @@ public class ToolResultEventTests
       return Task.CompletedTask;
     });
     bridge.Start();
-    bridge.OnToolResult("read", "ok", "line one\nline two", false);
+    bridge.OnToolResult("read", "ok", "line one\nline two", false, null, null);
     bridge.MarkTurnComplete();
     await bridge.DrainUntilIdleAsync();
 

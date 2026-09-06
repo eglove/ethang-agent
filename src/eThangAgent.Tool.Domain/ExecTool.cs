@@ -16,14 +16,16 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutpu
   public ToolDefinition Definition { get; } = new(
       ToolName,
       """
-        Execute a C# program in the agent workspace. The script runs in-process via Roslyn scripting. The return value is the result: strings verbatim, other objects as one-line JSON. Call Output() during execution for intermediate output. Console.WriteLine is also captured. Thrown exceptions mark the result as an error with exec error [ScriptError] lines. Output over 50,000 characters is truncated with both ends preserved and the full output saved to a file reported as [exec:artifact <path>] — read that file with the read tool. Compile errors report 'exec error [ExecParseError]:' followed by 'line N, col M: message' entries. timeoutSeconds is the only execution budget: when it elapses the call fails with 'Error [ToolTimeout]:'. Tools are available as methods on the Tools object taking one anonymous object: Tools.read(new { path = "file.txt", startLine = 1, endLine = 50 }). Tools.Invoke("name", args) is the generic form. Tools.List() lists available tools. Shell(exe, args...) runs an external command line spawned directly via native .NET process APIs (no shell intermediary): every argument after the exe is one token of a single native command line (a multi-token piece like "build -c Release" is re-parsed into separate tokens with Windows argv rules), and the native exit code propagates verbatim. Nested exec is not available. Malformed arguments to exec itself report 'Error [Code]: ...'.
+        Execute a C# program in the agent workspace. The required title names this run for the session UI: a short imperative label for the program's purpose (for example "count failing tests"), not the program text. The transcript's tool card header shows the title and the expanded body shows the program. The script runs in-process via Roslyn scripting. The return value is the result: strings verbatim, other objects as one-line JSON. Call Output() during execution for intermediate output. Console.WriteLine is also captured. Thrown exceptions mark the result as an error with exec error [ScriptError] lines. Output over 50,000 characters is truncated with both ends preserved and the full output saved to a file reported as [exec:artifact <path>] — read that file with the read tool. Compile errors report 'exec error [ExecParseError]:' followed by 'line N, col M: message' entries. timeoutSeconds is the only execution budget: when it elapses the call fails with 'Error [ToolTimeout]:'. Tools are available as methods on the Tools object taking one anonymous object: Tools.read(new { path = "file.txt", startLine = 1, endLine = 50 }). Tools.Invoke("name", args) is the generic form. Tools.List() lists available tools. Shell(exe, args...) runs an external command line spawned directly via native .NET process APIs (no shell intermediary): every argument after the exe is one token of a single native command line (a multi-token piece like "build -c Release" is re-parsed into separate tokens with Windows argv rules), and the native exit code propagates verbatim. Nested exec is not available. Malformed arguments to exec itself report 'Error [Code]: ...'.
         """,
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
+            new ToolParameter("title", ToolParameterType.Text,
+                "Short imperative label naming this run for the transcript's tool card (for example: count failing tests)."),
             new ToolParameter("program", ToolParameterType.Text,
                 "The C# program text to execute."),
       ],
-      ["timeoutSeconds", "program"]);
+      ["timeoutSeconds", "title", "program"]);
 
   public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
   {
@@ -47,11 +49,12 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutpu
     }
 
     ExecProgram exec = program.Value;
+    string title = parsed.Value.Title;
     return ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
-        RunAsync(exec, token), ct);
+        RunAsync(exec, title, token), ct);
   }
 
-  private async Task<ToolResult> RunAsync(ExecProgram exec, CancellationToken ct)
+  private async Task<ToolResult> RunAsync(ExecProgram exec, string title, CancellationToken ct)
   {
     Result<IReadOnlyList<ExecParseError>> parse = await _engine.ValidateAsync(exec, ct).ConfigureAwait(false);
     if (!parse.IsSuccess)
@@ -74,7 +77,7 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutpu
       artifactPath = await _artifacts.WriteAsync(run.Output, ct).ConfigureAwait(false);
     }
 
-    ToolResult result = ExecResultFormatter.Format(run, _options, artifactPath);
+    ToolResult result = ExecResultFormatter.Format(run, _options, artifactPath, title, exec.Text);
     await _activity.RecordAsync(new ExecActivity(
         exec.Text.Length > 80 ? exec.Text[..80] : exec.Text,
         run.Status,
