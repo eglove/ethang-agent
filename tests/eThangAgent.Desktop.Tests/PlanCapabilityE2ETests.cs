@@ -30,7 +30,7 @@ public class PlanCapabilityE2ETests
                 id = 1, status = "Completed" });
             var frozen = Tools.Invoke("plan.add-step", new { timeoutSeconds = 60,
                 id = 1, title = "late" });
-            return created + "|" + (shown.Contains("session ") ? "STAMPED" : "NO-SESSION") + "|" + done + "|" + frozen;
+            return created + "|" + (shown.Contains("session ") && !shown.Contains("session ]") ? "STAMPED" : "NO-SESSION") + "|" + done + "|" + frozen;
             """;
     _ = host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram(program)));
     _ = host.Mock.Returns(RawCompletion("plan lifecycle verified"));

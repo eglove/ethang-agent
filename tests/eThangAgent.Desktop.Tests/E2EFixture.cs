@@ -75,6 +75,10 @@ internal static class E2E
       RootId = (await RootSessionBootstrapper.PersistRootAsync(
           _services.GetRequiredService<IAgentStore>(), workspaceRoot,
           Providers.OpenRouter).ConfigureAwait(false)).Value;
+      // Publish the persisted root id into the container, exactly as AgentSessionFactory
+      // does after PersistRootAsync — without this the session-stamp consumers (plan show
+      // envelope, ModelUsed persistence) see a null id, not production behavior.
+      _services.GetRequiredService<RootSessionIdentity>().Id = RootId;
       SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
       RootSessionLifecycle lifecycle = _services.GetRequiredService<RootSessionLifecycle>();
       Conversation conversation = _services.GetRequiredService<Conversation>();
