@@ -65,8 +65,8 @@
         <Grid ColumnDefinitions="*,Auto" Margin="8,0">
           <TextBox x:Name="InputBox" Grid.Column="0" PlaceholderText="Type a message"
                    AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/>
-          <Button x:Name="StopButton" Grid.Column="1" Margin="8,0,0,0"
-                  IsVisible="{Binding IsBusy}" Click="OnStopClick" VerticalAlignment="Top"/>
+          <Button x:Name="StopButton" Grid.Column="1" Margin="8,0,0,0" MinWidth="64" Padding="16,0"
+                  IsVisible="{Binding IsBusy}" Click="OnStopClick" VerticalAlignment="Stretch"/>
         </Grid>
       </StackPanel>
     </DockPanel>
@@ -90,15 +90,26 @@
               <Expander.Header>
                 <DockPanel HorizontalAlignment="Stretch">
                   <TextBlock DockPanel.Dock="Right" Foreground="Gray" Margin="8,0,0,0"
-                             Text="{Binding Elapsed.Display, Mode=OneWay}"/>
-                  <TextBlock TextWrapping="Wrap">
-                    <Run Text="⚙ "/><Run Text="{Binding Name, Mode=OneWay}"/>
-                    <Run Foreground="Gray" Text="{Binding Preview, Mode=OneWay}"/>
-                  </TextBlock>
+                             Text="{Binding HeaderTimeDisplay, Mode=OneWay}"/>
+                  <Panel>
+                    <!-- Exec call: the card IS the program - title-only header. -->
+                    <TextBlock IsVisible="{Binding IsExecCall}" TextWrapping="Wrap">
+                      <Run Text="⚙ "/><Run Text="{Binding HeaderTitle, Mode=OneWay}" FontWeight="SemiBold"/>
+                    </TextBlock>
+                    <!-- Every other tool keeps the name + args preview header. -->
+                    <TextBlock IsVisible="{Binding !IsExecCall}" TextWrapping="Wrap">
+                      <Run Text="⚙ "/><Run Text="{Binding Name, Mode=OneWay}"/>
+                      <Run Foreground="Gray" Text="{Binding Preview, Mode=OneWay}"/>
+                    </TextBlock>
+                  </Panel>
                 </DockPanel>
               </Expander.Header>
-              <SelectableTextBlock FontFamily="Consolas, Courier New" TextWrapping="Wrap" FontSize="12"
-                                   Text="{Binding ArgumentsFormatted, Mode=OneWay}"/>
+              <Panel>
+                <!-- Exec call body: ONLY the program, fenced for the markdown renderer. -->
+                <md:AgentMarkdownBlock IsVisible="{Binding IsExecCall}" MarkdownText="{Binding ProgramBody, Mode=OneWay}"/>
+                <SelectableTextBlock IsVisible="{Binding !IsExecCall}" FontFamily="Consolas, Courier New" TextWrapping="Wrap" FontSize="12"
+                                     Text="{Binding ArgumentsFormatted, Mode=OneWay}"/>
+              </Panel>
             </Expander>
           </DataTemplate>
           <DataTemplate DataType="vm:ToolResultEntry">
