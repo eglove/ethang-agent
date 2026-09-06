@@ -163,8 +163,97 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     _ = sb.Append(text.AsSpan(originalPos));
     string result = sb.ToString();
     File.WriteAllText(path, result, new UTF8Encoding(false));
-    int lineCount = result.Length == 0 ? 0 : 1 + result.Count(c => c == '\n');
+    int lineCount = SplitLinesLikeReadLine(result).Count;
     return Task.FromResult(Result.Success(new ReplaceOutcome(done, lineCount)));
+  }
+
+  public Task<Result<ReplaceOutcome>> ReplaceLineRangeAsync(
+      string path, int startLine, int endLine, string newText, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(newText);
+    if (!File.Exists(path))
+    {
+      return Task.FromResult(Result.Failure<ReplaceOutcome>(
+          new DomainError("FileNotFound", $"File not found: {path}")));
+    }
+
+    string? text = ReadAllTextRejectBinary(path);
+    if (text is null)
+    {
+      return Task.FromResult(Result.Failure<ReplaceOutcome>(
+          new DomainError("BinaryFile", $"File appears to be binary (NUL byte found): {path}.")));
+    }
+
+    List<(string Content, string Terminator)> lines = SplitLinesLikeReadLine(text);
+    if (startLine < 1 || startLine > lines.Count)
+    {
+      return Task.FromResult(Result.Failure<ReplaceOutcome>(
+          new DomainError("LineRangeBeyondEof", $"'startLine' {startLine} exceeds file length ({lines.Count} lines).")));
+    }
+
+    if (endLine > lines.Count)
+    {
+      return Task.FromResult(Result.Failure<ReplaceOutcome>(
+          new DomainError("LineRangeBeyondEof", $"'endLine' {endLine} exceeds file length ({lines.Count} lines).")));
+    }
+
+    // Splice: untouched lines keep their exact content AND terminator bytes. The
+    // replacement carries the removed range's trailing terminator when one is
+    // owed to the following line (or to the file's trailing-newline convention),
+    // so a content-only edit never changes the file's line-ending style.
+    StringBuilder sb = new();
+    foreach ((string content, string terminator) in lines.Take(startLine - 1))
+    {
+      _ = sb.Append(content).Append(terminator);
+    }
+
+    string lastTerminator = lines[endLine - 1].Terminator;
+    bool owesTerminator = newText.Length > 0
+        && !newText.EndsWith('\n')
+        && (endLine < lines.Count || lastTerminator.Length > 0);
+    _ = owesTerminator ? sb.Append(newText).Append(lastTerminator) : sb.Append(newText);
+
+    foreach ((string content, string terminator) in lines.Skip(endLine))
+    {
+      _ = sb.Append(content).Append(terminator);
+    }
+
+    string result = sb.ToString();
+    File.WriteAllText(path, result, new UTF8Encoding(false));
+    return Task.FromResult(Result.Success(
+        new ReplaceOutcome(endLine - startLine + 1, SplitLinesLikeReadLine(result).Count)));
+  }
+
+  /// <summary>Splits text into (content, terminator) pairs exactly as
+  ///     StreamReader.ReadLine delimits: "\r\n", "\r", or "\n" ends a line, and the
+  ///     final line carries no terminator when the text does not end with one.
+  ///     Terminators are preserved so a splice leaves untouched bytes identical.</summary>
+  private static List<(string Content, string Terminator)> SplitLinesLikeReadLine(string text)
+  {
+    List<(string Content, string Terminator)> lines = [];
+    int lineStart = 0;
+    int i = 0;
+    while (i < text.Length)
+    {
+      char c = text[i];
+      if (c is not ('\r' or '\n'))
+      {
+        i++;
+        continue;
+      }
+
+      int terminatorLength = c == '\r' && i + 1 < text.Length && text[i + 1] == '\n' ? 2 : 1;
+      lines.Add((text[lineStart..i], text.Substring(i, terminatorLength)));
+      i += terminatorLength;
+      lineStart = i;
+    }
+
+    if (lineStart < text.Length)
+    {
+      lines.Add((text[lineStart..], string.Empty));
+    }
+
+    return lines;
   }
 
   /// <summary>Normalizes CRLF and bare CR to LF for tolerant anchor matching.</summary>

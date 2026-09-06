@@ -211,6 +211,10 @@ internal sealed class StubEditAccess : IFileEditAccess
   public Task<Result<ReplaceOutcome>> ReplaceInFileAsync(string path, string oldText,
       string newText, int? occurrences, CancellationToken ct = default) =>
       Task.FromResult(Result.Failure<ReplaceOutcome>(new DomainError("Unused", "not exercised")));
+
+  public Task<Result<ReplaceOutcome>> ReplaceLineRangeAsync(string path, int startLine,
+      int endLine, string newText, CancellationToken ct = default) =>
+      Task.FromResult(Result.Failure<ReplaceOutcome>(new DomainError("Unused", "not exercised")));
 }
 
 

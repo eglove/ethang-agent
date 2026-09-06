@@ -200,5 +200,9 @@ public class EditToolTests
       LastNewText = newText;
       return Task.FromResult(outcome);
     }
+
+    public Task<Result<ReplaceOutcome>> ReplaceLineRangeAsync(
+        string path, int startLine, int endLine, string newText, CancellationToken ct = default) =>
+        throw new NotImplementedException("range mode not implemented yet");
   }
 }

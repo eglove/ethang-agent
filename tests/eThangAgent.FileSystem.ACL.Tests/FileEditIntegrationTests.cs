@@ -107,4 +107,104 @@ public sealed class FileEditIntegrationTests : IDisposable
     Assert.True(r.IsSuccess);
     Assert.Equal(4, r.Value.NewLineCount);
   }
+
+  // ---- ReplaceLineRangeAsync (edit range mode) ----
+
+  [Fact]
+  public async Task LineRange_Spliced_ReplacesInclusiveRange()
+  {
+    string p = await WriteAsync("r1.txt", "one\ntwo\nthree\nfour");
+    Result<ReplaceOutcome> r = await _access.ReplaceLineRangeAsync(p, 2, 3, "TWO\nTHREE", ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    Assert.Equal(4, r.Value.NewLineCount);
+    Assert.Equal("one\nTWO\nTHREE\nfour", await File.ReadAllTextAsync(p, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task LineRange_SingleLine_Replaced()
+  {
+    string p = await WriteAsync("r2.txt", "a\nb\nc");
+    Result<ReplaceOutcome> r = await _access.ReplaceLineRangeAsync(p, 2, 2, "B", ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    Assert.Equal("a\nB\nc", await File.ReadAllTextAsync(p, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task LineRange_EmptyReplacement_DeletesRange()
+  {
+    string p = await WriteAsync("r3.txt", "a\nb\nc\nd");
+    Result<ReplaceOutcome> r = await _access.ReplaceLineRangeAsync(p, 2, 3, "", ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    Assert.Equal(2, r.Value.NewLineCount);
+    Assert.Equal("a\nd", await File.ReadAllTextAsync(p, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task LineRange_EndLineBeyondEof_Fails_NamesActualCount()
+  {
+    string p = await WriteAsync("r4.txt", "a\nb\nc");
+    Result<ReplaceOutcome> r = await _access.ReplaceLineRangeAsync(p, 2, 99, "x", ct: TestContext.Current.CancellationToken);
+    Assert.False(r.IsSuccess);
+    Assert.Equal("LineRangeBeyondEof", r.Error.Code);
+    Assert.Contains("3", r.Error.Message, StringComparison.Ordinal);
+    Assert.Equal("a\nb\nc", await File.ReadAllTextAsync(p, TestContext.Current.CancellationToken)); // untouched
+  }
+
+  [Fact]
+  public async Task LineRange_StartLineBeyondEof_Fails()
+  {
+    string p = await WriteAsync("r5.txt", "a\nb");
+    Result<ReplaceOutcome> r = await _access.ReplaceLineRangeAsync(p, 5, 9, "x", ct: TestContext.Current.CancellationToken);
+    Assert.False(r.IsSuccess);
+    Assert.Equal("LineRangeBeyondEof", r.Error.Code);
+  }
+
+  [Fact]
+  public async Task LineRange_BinaryFile_Fails()
+  {
+    string p = Path.Combine(_root, "binrange.dat");
+    await File.WriteAllBytesAsync(p, [0x01, 0x00, 0x02, 0x03], TestContext.Current.CancellationToken);
+    Result<ReplaceOutcome> r = await _access.ReplaceLineRangeAsync(p, 1, 1, "x", ct: TestContext.Current.CancellationToken);
+    Assert.False(r.IsSuccess);
+    Assert.Equal("BinaryFile", r.Error.Code);
+  }
+
+  [Fact]
+  public async Task LineRange_MissingFile_Fails_FileNotFound()
+  {
+    Result<ReplaceOutcome> r = await _access.ReplaceLineRangeAsync(
+        Path.Combine(_root, "ghostrange.txt"), 1, 1, "x", ct: TestContext.Current.CancellationToken);
+    Assert.False(r.IsSuccess);
+    Assert.Equal("FileNotFound", r.Error.Code);
+  }
+
+  [Fact]
+  public async Task LineRange_CRLFFile_UnchangedLines_KeepCRLF()
+  {
+    string p = await WriteAsync("r6.txt", "a\r\nb\r\nc");
+    Result<ReplaceOutcome> r = await _access.ReplaceLineRangeAsync(p, 2, 2, "B", ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    Assert.Equal("a\r\nB\r\nc", await File.ReadAllTextAsync(p, TestContext.Current.CancellationToken));
+  }
+
+  [Fact]
+  public async Task LineRange_CountsLikeRead_TrailingNewlineFile()
+  {
+    // A file ending in a newline reports 3 lines via ReadLinesAsync ("a\nb\nc\n" → 3).
+    // Line 3 must therefore be a valid range target, and the spliced file must read
+    // back with the same convention (3 lines, no trailing blank line).
+    string p = await WriteAsync("r7.txt", "a\nb\nc\n");
+    Result<FileRead> before = await _access.ReadLinesAsync(p, 1, 10, TestContext.Current.CancellationToken);
+    Assert.True(before.IsSuccess);
+    Assert.Equal(3, before.Value.TotalLines);
+
+    Result<ReplaceOutcome> r = await _access.ReplaceLineRangeAsync(p, 3, 3, "C", ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    Assert.Equal(3, r.Value.NewLineCount);
+    Assert.Equal("a\nb\nC\n", await File.ReadAllTextAsync(p, TestContext.Current.CancellationToken));
+
+    Result<FileRead> after = await _access.ReadLinesAsync(p, 1, 10, TestContext.Current.CancellationToken);
+    Assert.True(after.IsSuccess);
+    Assert.Equal(3, after.Value.TotalLines);
+  }
 }
