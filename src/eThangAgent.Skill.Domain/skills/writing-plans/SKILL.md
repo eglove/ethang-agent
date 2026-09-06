@@ -15,7 +15,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** If working in an isolated worktree, it should have been created via the `using-git-worktrees` skill at execution time.
 
-**Save plans to:** persist the implementation plan as a plan record — `plan create` with the plan as `goal` (announce the plan id), then one `plan add-step` per task (step title carries the task name; step detail carries the file paths and keeps the checkbox step-tracking guidance)
+**Save plans to:** persist the implementation plan as a plan record — `plan.create` with the plan as `goal` (announce the plan id), then one `plan.add-step` per task (step title carries the task name; step detail carries the file paths and keeps the checkbox step-tracking guidance)
 
 ## Scope Check
 
@@ -65,7 +65,7 @@ independently testable deliverable.
 
 **Tech Stack:** [Key technologies/libraries]
 
-**Spec:** [plan id of the spec this plan implements (the spec is the plan's goal body); executors retrieve it with `plan show <id>` — the plan argues from the spec, so the spec travels with it]
+**Spec:** [plan id of the spec this plan implements (the spec is the plan's goal body); executors retrieve it with `plan.show <id>` — the plan argues from the spec, so the spec travels with it]
 
 ## Global Constraints
 

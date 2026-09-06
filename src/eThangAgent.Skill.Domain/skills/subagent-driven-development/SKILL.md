@@ -80,7 +80,7 @@ in todos.
   `state.prune` on the plan's task namespace (dotted boundary
   respected), keeping the ledger itself.
 
-Read the plan once (`plan show <plan-id>`), note its context and Global
+Read the plan once (`plan.show <plan-id>`), note its context and Global
 Constraints, and create a todo per task. The plan's Spec may be the plan
 record's goal body — read it from there. The spec is the authority the plan
 argues from, and conflicts inside the plan resolve against it. A plan with no
@@ -330,7 +330,7 @@ Use finishing-a-development-branch.
 You: I'm using Subagent-Driven Development to execute this plan.
 
 [Setup: worktree verified]
-[plan show <plan-id> once; note Global Constraints]
+[plan.show <plan-id> once; note Global Constraints]
 [state.get sdd.<slug>/ledger — none; create with identity line]
 [Pre-flight scan table written to ledger]
 [Create todos for all tasks]

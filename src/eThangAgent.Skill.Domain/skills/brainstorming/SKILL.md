@@ -96,9 +96,9 @@ your path and complete them in order.
 2. **Ask clarifying questions** — LLM-formatted, batched into rounds (see grill), to understand purpose/constraints/success criteria
 3. **Propose 2-3 approaches** — with trade-offs and your recommendation
 4. **Present design** — in sections scaled to their complexity, get user approval after each section
-5. **Write design doc** — store the validated design as a plan record: `plan create` with the design as `goal` (announce the plan id)
+5. **Write design doc** — store the validated design as a plan record: `plan.create` with the design as `goal` (announce the plan id)
 6. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-7. **User reviews the stored spec** — ask user to review the stored spec (plan show <id>) before proceeding
+7. **User reviews the stored spec** — ask user to review the stored spec (via `plan.show <id>`) before proceeding
 8. **Transition to implementation** — invoke writing-plans skill to create implementation plan
 
 ## Process Flow
@@ -202,7 +202,7 @@ is the whole process.
 
 **Documentation:**
 
-- Store the validated design (spec) as a plan record: `plan create` with the design as `goal` (announce the plan id)
+- Store the validated design (spec) as a plan record: `plan.create` with the design as `goal` (announce the plan id)
 - Re-read the stored spec once before the self-review pass
 
 **Spec Self-Review:**
@@ -218,7 +218,7 @@ Fix any issues inline. No need to re-review — just fix and move on.
 **User Review Gate:**
 After the spec review loop passes, ask the user to review the written spec before proceeding:
 
-> "Spec stored as plan record `#<id>`. Please review it (`plan show <id>`) and let me know if you want any changes before we start writing out the implementation plan."
+> "Spec stored as plan record `#<id>`. Please review it (via `plan.show <id>`) and let me know if you want any changes before we start writing out the implementation plan."
 
 Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
 
