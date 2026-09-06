@@ -8,16 +8,36 @@ namespace eThangAgent.SharedKernel;
 ///     between two letters (the model hard-wraps inside CamelCase identifiers constantly),
 ///     attaches wraps before closing/comma punctuation directly, preserves sentence,
 ///     heading-after-colon, and bullet breaks, collapses blank-line floods to a single
-///     blank line, and drops leading and trailing breaks. Presentation-only: never applied
-///     to text persisted in a conversation.
+///     blank line, and drops leading and trailing breaks. Markdown code fences are exempt:
+///     from an opening fence line (up to three leading spaces, then three or more backticks
+///     or tildes) through the closing fence line, all line breaks are preserved verbatim and
+///     no join rules apply — the stream-time litter mode (a wrap between the fence info
+///     string and the first code token gluing them into one word, breaking the renderer)
+///     cannot occur, and code content survives exactly as emitted. Presentation-only:
+///     never applied to text persisted in a conversation.
 /// </summary>
 public sealed class StreamedTextNormalizer
 {
   private readonly StringBuilder _text = new();
 
   // Line breaks seen since the last non-break character; resolved against the character
-  // that ends the run, because a break's meaning depends on both neighbors.
+  // that ends the run, because a break's meaning depends on both neighbors. Only used
+  // in prose mode — breaks inside a fence are emitted verbatim on arrival.
   private int _pendingBreaks;
+
+  // Fence state: master flag for verbatim-break mode, the marker character and the
+  // opening run length (a closing fence must repeat the same marker, at least as long).
+  private bool _inFence;
+  private bool _closingPending;
+  private char _fenceChar;
+  private int _fenceMarkerLength;
+
+  // Per-line scanner state: while a line could still open or close a fence (only spaces
+  // and fence markers seen so far), each character feeds the classifier.
+  private int _lineColumn;
+  private int _markerRun;
+  private char _markerChar;
+  private bool _lineScanned;
 
   public void Append(string delta)
   {
@@ -31,20 +51,112 @@ public sealed class StreamedTextNormalizer
 
       if (ch == '\n')
       {
-        _pendingBreaks++;
+        AppendBreak();
         continue;
       }
+
       if (_pendingBreaks > 0)
       {
         EmitBreak(_pendingBreaks, ch);
         _pendingBreaks = 0;
       }
+
+      if (!_lineScanned)
+      {
+        ScanFenceChar(ch);
+      }
+
       _ = _text.Append(ch);
+      _lineColumn++;
     }
   }
 
   /// <summary>The normalized text so far, with trailing line breaks trimmed.</summary>
   public string Text => _text.ToString().TrimEnd('\n');
+
+  private void AppendBreak()
+  {
+    if (_inFence)
+    {
+      _ = _text.Append('\n');
+      if (_closingPending)
+      {
+        // The break ending the closing-fence line: verbatim, and the fence is closed —
+        // prose rules resume with the next line's characters.
+        _inFence = false;
+        _closingPending = false;
+      }
+    }
+    else
+    {
+      _pendingBreaks++;
+    }
+
+    _lineColumn = 0;
+    _markerRun = 0;
+    _lineScanned = false;
+  }
+
+  /// <summary>Classifies the character for fence state without altering what is emitted.
+  ///     A line is a fence line only while it consists of at most three leading spaces
+  ///     followed by a run of fence markers; once opened, the rest of the line is the info
+  ///     string, and once a closing run is seen, only whitespace may follow.</summary>
+  private void ScanFenceChar(char ch)
+  {
+    if (ch is '`' or '~')
+    {
+      if (_markerRun == 0)
+      {
+        if (_inFence && ch != _fenceChar)
+        {
+          _lineScanned = true; // a different marker can never close the open fence
+          return;
+        }
+
+        _markerChar = ch;
+        _markerRun = 1;
+        return;
+      }
+
+      if (ch != _markerChar)
+      {
+        _lineScanned = true;
+        return;
+      }
+
+      _markerRun++;
+      if (!_inFence && _markerRun >= 3)
+      {
+        _inFence = true;
+        _fenceChar = ch;
+        _fenceMarkerLength = _markerRun;
+        _lineScanned = true;
+      }
+      else if (_inFence && _markerRun >= _fenceMarkerLength)
+      {
+        _closingPending = true;
+      }
+
+      return;
+    }
+
+    if (ch == ' ' && _markerRun == 0)
+    {
+      if (_lineColumn >= 3)
+      {
+        _lineScanned = true; // four-space indent can never be a fence line
+      }
+
+      return; // leading space: the line stays a fence candidate
+    }
+
+    if (_closingPending && ch is not (' ' or '\t'))
+    {
+      _closingPending = false; // an info string on a closing line makes it content
+    }
+
+    _lineScanned = true;
+  }
 
   private void EmitBreak(int count, char next)
   {

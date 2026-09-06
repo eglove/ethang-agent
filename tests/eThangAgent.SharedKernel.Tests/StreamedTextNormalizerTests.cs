@@ -169,4 +169,114 @@ public class StreamedTextNormalizerTests
     n.Append("\n\nb");
     Assert.Equal("a\n\nb", n.Text);
   }
+
+  // ---- Fence awareness (markdown code fences must survive normalization) ----
+
+  [Fact]
+  public void FenceLine_BreakAfterOpeningFence_IsPreserved()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("```csharp");
+    n.Append("\npublic class Foo");
+    Assert.Equal("```csharp\npublic class Foo", n.Text);
+  }
+
+  [Fact]
+  public void FenceLine_InsideFence_AllBreaksPreservedVerbatim()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("```");
+    n.Append("\ncode with\n\nblank lines\nand wraps");
+    n.Append("\n```");
+    Assert.Equal("```\ncode with\n\nblank lines\nand wraps\n```", n.Text);
+  }
+
+  [Fact]
+  public void FenceLine_LetterWrapInsideFence_IsNotJoined()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("```csharp");
+    n.Append("\npublic");
+    n.Append("\nclass Foo");
+    Assert.Equal("```csharp\npublic\nclass Foo", n.Text);
+  }
+
+  [Fact]
+  public void FenceLine_IndentUpToThreeSpaces_OpeningFence()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("   ```js");
+    n.Append("\nlet x = 1");
+    Assert.Equal("   ```js\nlet x = 1", n.Text);
+  }
+
+  [Fact]
+  public void FenceLine_FourSpaceIndent_IsNotAFence()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("text\n    ```py");
+    n.Append("\nvalue");
+    // A four-space-indented fence is prose: no fence protection applies — the wrap
+    // joins with a space (the existing clause-wrap rule) and the indent stays as-is.
+    Assert.Equal("text     ```pyvalue", n.Text);
+  }
+
+  [Fact]
+  public void FenceLine_Tildes_OpeningFence()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("~~~ruby");
+    n.Append("\nputs 1");
+    Assert.Equal("~~~ruby\nputs 1", n.Text);
+  }
+
+  [Fact]
+  public void FenceLine_ClosingFence_StartsOwnLine()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("```js");
+    n.Append("\nlet x = 1\n```");
+    n.Append("\nafter the fence");
+    Assert.Equal("```js\nlet x = 1\n```\nafter the fence", n.Text);
+  }
+
+  [Fact]
+  public void FenceLine_BlankLineRunInsideFence_PreservedNotCollapsed()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("```");
+    n.Append("\na\n\n\n\nb");
+    n.Append("\n```");
+    Assert.Equal("```\na\n\n\n\nb\n```", n.Text);
+  }
+
+  [Fact]
+  public void FenceLine_TextAfterOpeningFence_IsCodeContent()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("```csharp code here");
+    n.Append("\nbody");
+    Assert.Equal("```csharp code here\nbody", n.Text);
+  }
+
+  [Fact]
+  public void FenceLine_NormalRulesResume_AfterClosingFence()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("```\ncode\n```");
+    n.Append("\nhowever, next");
+    Assert.Equal("```\ncode\n```\nhowever, next", n.Text);
+  }
+
+  [Fact]
+  public void FenceLine_TrailingBreakState_EnteringFence()
+  {
+    // Pending breaks accumulated before the fence line must resolve against the
+    // fence characters (paragraph collapse), not leak past the fence opening.
+    StreamedTextNormalizer n = new();
+    n.Append("para\n\n");
+    n.Append("```");
+    n.Append("\ncode");
+    Assert.Equal("para\n\n```\ncode", n.Text);
+  }
 }
