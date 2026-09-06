@@ -54,7 +54,7 @@ public sealed class LinkMigrationTests : IDisposable
     AppDatabase migrated = new(_dbPath); // constructor migrates
 
     using SqliteConnection connection = Open();
-    Assert.Equal(12, Version(connection));
+    Assert.Equal(13, Version(connection));
     Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_links';"));
     // Every earlier table and row is untouched.
     Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM agents;"));
@@ -79,7 +79,7 @@ public sealed class LinkMigrationTests : IDisposable
     _ = await Task.WhenAll(both).ConfigureAwait(true);
 
     using SqliteConnection connection = Open();
-    Assert.Equal(12, Version(connection));
+    Assert.Equal(13, Version(connection));
     Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_links';"));
   }
 

@@ -127,6 +127,11 @@ public sealed class AppDatabase
       ApplyV12(connection);
       SetVersion(connection, 12);
     }
+    if (GetVersion(connection) < 13)
+    {
+      ApplyV13(connection);
+      SetVersion(connection, 13);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -491,6 +496,40 @@ public sealed class AppDatabase
             agent_address TEXT NOT NULL,
             created_at    TEXT NOT NULL,
             PRIMARY KEY (workspace_id, name)
+        );
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V13 adds plans + plan_steps: durable structured plans (one row per plan,
+  ///     workspace-bound; steps ride (plan_id, position); statuses stored as their string
+  ///     names; timestamps ISO-8601).</summary>
+  private static void ApplyV13(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            goal TEXT NOT NULL,
+            status TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plan_steps (
+            plan_id INTEGER NOT NULL REFERENCES plans(id),
+            position INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            detail TEXT,
+            todo_id INTEGER,
+            status TEXT NOT NULL,
+            PRIMARY KEY (plan_id, position)
         );
         """;
     using SqliteCommand command = connection.CreateCommand();

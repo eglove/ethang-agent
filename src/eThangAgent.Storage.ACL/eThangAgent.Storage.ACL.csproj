@@ -8,5 +8,6 @@
     <ProjectReference Include="../eThangAgent.State.Domain/eThangAgent.State.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.Skill.Domain/eThangAgent.Skill.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.Memory.Domain/eThangAgent.Memory.Domain.csproj" />
+    <ProjectReference Include="../eThangAgent.Plan.Domain/eThangAgent.Plan.Domain.csproj" />
   </ItemGroup>
 </Project>
