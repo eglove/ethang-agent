@@ -74,6 +74,9 @@ public static class ExecGuide
     fresh load — on VersionConflict, re-get (plan.show), reconcile, retry. Errors
     arrive as Error [PlanNotFound] / [InvalidTransition] / [PlanStepNotFound] /
     [InvalidActionInput].
+    Completing or abandoning a plan also removes its linked todos (step todoId
+    values) from the shared todo list; the set-status result then appends
+    `[plan] #<id> cleaned <n> linked todo(s)`.
 
     Argument-shape contract errors — InvalidParameterValue and MissingParameter — THROW
     `ScriptToolException` even after dispatch: a malformed call has no legitimate continue-path.

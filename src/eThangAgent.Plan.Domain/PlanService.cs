@@ -9,8 +9,10 @@ namespace eThangAgent.PlanDomain;
 /// store failures (PlanNotFound, VersionConflict) pass through verbatim. Events are raised
 /// in-process on success and never persisted.
 /// </summary>
-public sealed class PlanService(IPlanStore store)
+public sealed class PlanService(IPlanStore store, IPlanTodoCleaner? todoCleaner = null)
 {
+  private readonly IPlanTodoCleaner? _todoCleaner = todoCleaner;
+
   // Action<T> events are mandated by the plan's public contract; CA1003's
   // EventHandler<TEventArgs> preference would change the advertised API shape.
 #pragma warning disable CA1003
@@ -135,13 +137,13 @@ public sealed class PlanService(IPlanStore store)
     return saved;
   }
 
-  public async Task<Result<Plan>> SetStatusAsync(int id, PlanStatus target, int expectedVersion,
+  public async Task<Result<PlanSetStatusResult>> SetStatusAsync(int id, PlanStatus target, int expectedVersion,
     DateTimeOffset now, CancellationToken ct = default)
   {
     Result<Plan> loaded = await store.GetAsync(id, ct).ConfigureAwait(false);
     if (!loaded.IsSuccess)
     {
-      return loaded;
+      return Result.Failure<PlanSetStatusResult>(loaded.Error);
     }
 
     Plan current = loaded.Value;
@@ -152,15 +154,37 @@ public sealed class PlanService(IPlanStore store)
     }
     catch (PlanInputException ex)
     {
-      return Result.Failure<Plan>(new DomainError("InvalidTransition", ex.Message));
+      return Result.Failure<PlanSetStatusResult>(new DomainError("InvalidTransition", ex.Message));
     }
 
     Result<Plan> saved = await store.SaveAsync(mutated with { UpdatedAt = now }, expectedVersion, ct).ConfigureAwait(false);
-    if (saved.IsSuccess)
+    if (!saved.IsSuccess)
     {
-      StatusChanged?.Invoke(new PlanStatusChanged(id, current.Status, target, now));
+      return Result.Failure<PlanSetStatusResult>(saved.Error);
     }
 
-    return saved;
+    StatusChanged?.Invoke(new PlanStatusChanged(id, current.Status, target, now));
+
+    List<int> linked = [.. current.Steps
+        .Where(s => s.TodoId is { })
+        .Select(s => s.TodoId!.Value)
+        .Distinct()];
+    List<int> removed = [];
+    DomainError? cleanupError = null;
+    if (_todoCleaner is not null && linked.Count > 0)
+    {
+      Result<IReadOnlyList<int>> cleaned =
+          await _todoCleaner.RemoveLinkedAsync(linked, ct).ConfigureAwait(false);
+      if (cleaned.IsSuccess)
+      {
+        removed = [.. cleaned.Value];
+      }
+      else
+      {
+        cleanupError = cleaned.Error;
+      }
+    }
+
+    return Result.Success(new PlanSetStatusResult(saved.Value, removed, cleanupError));
   }
 }

@@ -454,6 +454,40 @@ public class PlanCapabilityProviderTests
     Assert.StartsWith("Error [PlanNotFound]:", r.Content, StringComparison.Ordinal);
   }
 
+  private static PlanCapabilityProvider NewWithCleaner(RecordingCleaner cleaner)
+  {
+    FakeStore store = new();
+    return new PlanCapabilityProvider(new PlanService(store, cleaner), () => "root-session-1");
+  }
+
+  [Fact]
+  public async Task SetStatus_TerminalWithRemovedTodos_AppendsCleanedLine()
+  {
+    RecordingCleaner cleaner = new() { Existing = [3] };
+    PlanCapabilityProvider provider = NewWithCleaner(cleaner);
+    _ = await provider.InvokeAsync("create",
+      /*lang=json,strict*/"{ \"title\": \"Ship\", \"goal\": \"G\", \"steps\": [ { \"title\": \"one\", \"todoId\": 3 } ] }",
+      TestContext.Current.CancellationToken);
+    CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
+      /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+    Assert.False(r.IsError);
+    Assert.Equal("[plan] #1 is now Completed\n[plan] #1 cleaned 1 linked todo(s)", r.Content);
+  }
+
+  [Fact]
+  public async Task SetStatus_CleanupFails_AppendsWarningLine_AndStillSucceeds()
+  {
+    RecordingCleaner cleaner = new() { FailWith = new DomainError("StorageWriteFailed", "disk full") };
+    PlanCapabilityProvider provider = NewWithCleaner(cleaner);
+    _ = await provider.InvokeAsync("create",
+      /*lang=json,strict*/"{ \"title\": \"Ship\", \"goal\": \"G\", \"steps\": [ { \"title\": \"one\", \"todoId\": 3 } ] }",
+      TestContext.Current.CancellationToken);
+    CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
+      /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+    Assert.False(r.IsError);
+    Assert.Equal("[plan] #1 is now Completed\n[plan] warning: todo cleanup failed (StorageWriteFailed)", r.Content);
+  }
+
   // ---- surface ---------------------------------------------------------------
 
   [Fact]

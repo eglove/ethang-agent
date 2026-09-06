@@ -21,16 +21,20 @@ public class PlanCapabilityE2ETests
     _ = await host.StartAsync();
 
     string program = """
+            var linked = Tools.Invoke("todo", new { timeoutSeconds = 30, action = "Add", description = "linked" });
+            var keeper = Tools.Invoke("todo", new { timeoutSeconds = 30, action = "Add", description = "keeper" });
             var created = Tools.Invoke("plan.create", new { timeoutSeconds = 60,
                 title = "Ship the thing", goal = "Make it good",
-                steps = new[] { new { title = "build" }, new { title = "test" } } });
+                steps = new[] { new { title = "build", todoId = 1 }, new { title = "test", todoId = 2 } } });
             if (!created.StartsWith("[plan] created #")) return "BAD CREATE: " + created;
+            var extra = Tools.Invoke("todo", new { timeoutSeconds = 30, action = "Add", description = "extra" });
             var shown = Tools.Invoke("plan.show", new { timeoutSeconds = 60, id = 1 });
             var done = Tools.Invoke("plan.set-status", new { timeoutSeconds = 60,
                 id = 1, status = "Completed" });
             var frozen = Tools.Invoke("plan.add-step", new { timeoutSeconds = 60,
                 id = 1, title = "late" });
-            return created + "|" + (shown.Contains("session ") && !shown.Contains("session ]") ? "STAMPED" : "NO-SESSION") + "|" + done + "|" + frozen;
+            var todos = Tools.Invoke("todo", new { timeoutSeconds = 30, action = "List" });
+            return linked + "|" + extra + "|" + created + "|" + (shown.Contains("session ") && !shown.Contains("session ]") ? "STAMPED" : "NO-SESSION") + "|" + done + "|" + frozen + "|" + todos;
             """;
     _ = host.Mock.Returns(E2E.ExecToolCall("call_1", E2E.ExecProgram(program)));
     _ = host.Mock.Returns(RawCompletion("plan lifecycle verified"));
@@ -46,6 +50,9 @@ public class PlanCapabilityE2ETests
     Assert.Contains("[plan] created #", toolContent, StringComparison.Ordinal);
     Assert.Contains("STAMPED", toolContent, StringComparison.Ordinal);
     Assert.Contains("[plan] #1 is now Completed", toolContent, StringComparison.Ordinal);
+    Assert.Contains("[plan] #1 cleaned 2 linked todo(s)", toolContent, StringComparison.Ordinal);
     Assert.Contains("InvalidTransition", toolContent, StringComparison.Ordinal);
+    Assert.Contains("[todo: 1 open / 1 total]", toolContent, StringComparison.Ordinal);
+    Assert.Contains("#3 [Pending] extra", toolContent, StringComparison.Ordinal);
   }
 }

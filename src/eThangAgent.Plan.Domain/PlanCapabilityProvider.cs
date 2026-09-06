@@ -74,7 +74,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position.")],
             [IdParam, Position]),
         new("set-status", "Move a plan between statuses.",
-            "Only Active -> Completed / Active -> Abandoned is legal; other moves fail Error [InvalidTransition] naming the allowed moves. Output contract: '[plan] #<id> is now <status>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition, VersionConflict.",
+            "Only Active -> Completed / Active -> Abandoned is legal; other moves fail Error [InvalidTransition] naming the allowed moves. Completing or abandoning a plan whose steps carry todoId links also removes those todos from the shared todo list; output then appends '[plan] #<id> cleaned <n> linked todo(s)' (n >= 1), or '[plan] warning: todo cleanup failed (<code>)' when the todo store write failed after the transition landed (the transition itself still succeeded). Output contract: '[plan] #<id> is now <status>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition, VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Status, ActionParameterTypes.StringType, "Required. Exactly Active|Completed|Abandoned.")],
             [IdParam, Status]),
@@ -231,11 +231,26 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       return Gutter(plan.Error);
     }
 
-    Result<Plan> saved = await _service.SetStatusAsync(
+    Result<PlanSetStatusResult> saved = await _service.SetStatusAsync(
         id, target, plan.Value.Version, DateTimeOffset.UtcNow).ConfigureAwait(false);
-    return saved.IsSuccess
-        ? CapabilityInvocationResult.Ok($"[plan] #{id} is now {saved.Value.Status}")
-        : await ResolveMutationErrorAsync(id, position: null, plan.Value.Version, saved.Error).ConfigureAwait(false);
+    if (!saved.IsSuccess)
+    {
+      return await ResolveMutationErrorAsync(id, position: null, plan.Value.Version, saved.Error).ConfigureAwait(false);
+    }
+
+    StringBuilder line = new();
+    _ = line.Append(CultureInfo.InvariantCulture, $"[plan] #{id} is now {saved.Value.Plan.Status}");
+    if (saved.Value.RemovedTodoIds.Count > 0)
+    {
+      _ = line.Append(CultureInfo.InvariantCulture, $"\n[plan] #{id} cleaned {saved.Value.RemovedTodoIds.Count} linked todo(s)");
+    }
+
+    if (saved.Value.CleanupError is { } cleanup)
+    {
+      _ = line.Append(CultureInfo.InvariantCulture, $"\n[plan] warning: todo cleanup failed ({cleanup.Code})");
+    }
+
+    return CapabilityInvocationResult.Ok(line.ToString());
   }
 
   // ---- rendering -----------------------------------------------------------
