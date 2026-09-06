@@ -45,7 +45,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   cancellation always honored
 - `read` tool — bounded, line-range text file reads
 - `write` tool — create/replace files behind an explicit overwrite gate
-- `edit` tool — exact literal replacements with occurrence verification
+- `edit` tool — exact literal replacements with occurrence verification, or line-range replacement (lines N..M, no anchor, endLine past EOF rejected)
 - `write_markdown` tool — renders a structured JSON document into well-formed markdown deterministically (headers, lists, tables, alerts, frontmatter); returns the string or writes it to a workspace file behind the same overwrite gate as `write`
 - `db_schema` / `db_query` tools — read-only inspection of the agent's own app database:
   `db_schema` lists tables, columns, and indexes (row counts opt-in); `db_query` runs one
