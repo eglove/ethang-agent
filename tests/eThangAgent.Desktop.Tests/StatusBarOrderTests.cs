@@ -6,9 +6,9 @@ using eThangAgent.Desktop.Views;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>Status-bar ordering contract: the phase label comes directly after the
-///     spinner, the context display follows the phase -
-///     [spinner] [phase] [ctx] [provider] [model] [effort] [session id].</summary>
+/// <summary>Status-bar ordering contract: the info line reads [spinner] [phase]
+///     [ctx] [provider] [model] [effort]; the Session Id control sits docked right
+///     (pinned by FullWidthLayoutTests) and is not part of the info-line order.</summary>
 public class StatusBarOrderTests
 {
   [AvaloniaFact]
@@ -19,7 +19,7 @@ public class StatusBarOrderTests
     window.Show();
     AgentView view = (AgentView)window.Content;
 
-    StackPanel bar = view.GetControl<StackPanel>("StatusBar");
+    StackPanel bar = view.GetControl<StackPanel>("StatusInfo");
     List<string> names = [];
     foreach (object? child in bar.Children)
     {
