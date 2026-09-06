@@ -39,6 +39,49 @@
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>
+      <TabItem Header="Files">
+        <StackPanel Spacing="10">
+          <TextBlock Text="Global session files (loaded for every workspace)" FontWeight="Bold"/>
+          <ItemsControl x:Name="GlobalFilesList" ItemsSource="{Binding GlobalFiles}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <CheckBox IsChecked="{Binding Enabled}"/>
+                  <TextBlock Text="{Binding Path}" VerticalAlignment="Center"/>
+                  <Button Content="✕" Command="{Binding $parent[ItemsControl].DataContext.RemoveGlobalFileCommand}"
+                          CommandParameter="{Binding}" Padding="2,0"/>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBox x:Name="NewGlobalFileBox" Text="{Binding NewGlobalFile}" Width="320"
+                     PlaceholderText="C:\absolute\path\to\file.md"/>
+            <Button x:Name="AddGlobalFileButton" Content="Add" Command="{Binding AddGlobalFileCommand}"/>
+          </StackPanel>
+          <TextBlock Text="Workspace session files (loaded for this workspace only)" FontWeight="Bold" Margin="0,6,0,0"/>
+          <ItemsControl x:Name="WorkspaceFilesList" ItemsSource="{Binding WorkspaceFiles}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <CheckBox IsChecked="{Binding Enabled}"/>
+                  <TextBlock Text="{Binding Path}" VerticalAlignment="Center"/>
+                  <Button Content="✕" Command="{Binding $parent[ItemsControl].DataContext.RemoveWorkspaceFileCommand}"
+                          CommandParameter="{Binding}" Padding="2,0"/>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBox x:Name="NewWorkspaceFileBox" Text="{Binding NewWorkspaceFile}" Width="320"
+                     PlaceholderText="C:\absolute\path\to\file.md"/>
+            <Button x:Name="AddWorkspaceFileButton" Content="Add" Command="{Binding AddWorkspaceFileCommand}"/>
+          </StackPanel>
+          <TextBlock
+              Text="Checked files are read at session start and injected verbatim into the system prompt (global first, then workspace). Missing or unreadable files are skipped with a note; nothing is loaded unless you configure it here. Applies to newly opened agents."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+        </StackPanel>
+      </TabItem>
       <TabItem Header="Models">
         <StackPanel Spacing="10">
           <TextBlock Text="z.ai endpoint" FontWeight="Bold"/>

@@ -7,19 +7,20 @@ using eThangAgent.Desktop.Views;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Settings chrome: the flat settings list is a categorized TabControl
-///     (API Keys / Models / Git) with the validation error and Save/Cancel footer
+///     (API Keys / Files / Models / Git) with the validation error and Save/Cancel footer
 ///     shared outside the tabs.</summary>
 public class SettingsWindowTabsTests
 {
   [AvaloniaFact]
-  public void Settings_Renders_As_Three_Categorized_Tabs()
+  public void Settings_Renders_As_Four_Categorized_Tabs()
   {
     SettingsWindow window = new();
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
-    Assert.Equal(3, tabs.Items.Count);
+    Assert.Equal(4, tabs.Items.Count);
     Assert.Collection(tabs.Items,
         item => Assert.Equal("API Keys", Assert.IsType<TabItem>(item).Header),
+        item => Assert.Equal("Files", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Models", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Git", Assert.IsType<TabItem>(item).Header));
   }
@@ -46,11 +47,11 @@ public class SettingsWindowTabsTests
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
 
-    tabs.SelectedIndex = 1;
+    tabs.SelectedIndex = 2;
     Dispatcher.UIThread.RunJobs();
     _ = window.GetControl<ComboBox>("ZaiEndpointBox");
     _ = window.GetControl<ComboBox>("CompactionModelBox");
-    Assert.Equal(1, tabs.SelectedIndex);
+    Assert.Equal(2, tabs.SelectedIndex);
   }
 
   [AvaloniaFact]
@@ -60,10 +61,10 @@ public class SettingsWindowTabsTests
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
 
-    tabs.SelectedIndex = 2;
+    tabs.SelectedIndex = 3;
     Dispatcher.UIThread.RunJobs();
     _ = window.GetControl<ComboBox>("CommitStyleBox");
-    Assert.Equal(2, tabs.SelectedIndex);
+    Assert.Equal(3, tabs.SelectedIndex);
   }
 
   [AvaloniaFact]

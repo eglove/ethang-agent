@@ -70,8 +70,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       return Result.Failure<AgentSession>(bootstrap.Error);
     }
 
+    (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(full, providerName, conversationSeed: null,
-        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId);
+        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId, globalFiles, workspaceFiles);
+    services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
     {
       IAgentStore store = services.GetRequiredService<IAgentStore>();
@@ -159,12 +161,14 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       return Result.Failure<AgentSession>(bootstrap.Error);
     }
 
+    (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(workspaceRoot, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(workspaceRoot, providerName, transcript.Value,
-        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId);
+        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId, globalFiles, workspaceFiles);
+    services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
     {
-      services.GetRequiredService<RootSessionIdentity>().Id = sessionId;
 
+      services.GetRequiredService<RootSessionIdentity>().Id = sessionId;
       // Re-open: clear a Completed row back to Running so status reflects the live session.
       Result<string> reopened = await store.UpdateAsync(record with
       {
@@ -330,9 +334,22 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     return Result.Success(new BootstrapModel(resolved, ResolvedFallbackModelId: first.ModelId));
   }
 
+  /// <summary>Reads the two stored session-file lists (global, workspace) for one
+  ///     workspace. Both are optional: a store miss returns nulls and the session
+  ///     opens with nothing injected (truly empty by default).</summary>
+  private async Task<(string? Global, string? Workspace)> ReadSessionFilesAsync(
+      string workspaceRoot, CancellationToken ct)
+  {
+    SqliteAppPreferenceStore preferences = new(_database ?? new AppDatabase());
+    string? global = await preferences.GetAsync(SessionFilePreferences.GlobalKey, ct).ConfigureAwait(false);
+    string? workspace = await preferences.GetAsync(SessionFilePreferences.WorkspaceKey(workspaceRoot), ct).ConfigureAwait(false);
+    return (global, workspace);
+  }
+
   private ServiceProvider BuildContainer(string workspaceRoot, string providerName,
       IReadOnlyList<Message>? conversationSeed,
-      ModelConfig defaultModel, string? resolvedFallbackModelId)
+      ModelConfig defaultModel, string? resolvedFallbackModelId,
+      string? globalSessionFiles, string? workspaceSessionFiles)
   {
     ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(_settings, providerName, defaultModel,
@@ -341,7 +358,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
                 // memories scope per opened directory, keyed in the shared DB.
                 new FixedWorkspaceContext(workspaceRoot),
                 new WorkspacePathResolver(workspaceRoot),
-                [new WorkspaceInstructionsPromptProvider(workspaceRoot)]),
+                [new SessionFilesPromptProvider(workspaceRoot, globalSessionFiles, workspaceSessionFiles)]),
             _database,
             conversationSeed,
             _mailboxLocator,

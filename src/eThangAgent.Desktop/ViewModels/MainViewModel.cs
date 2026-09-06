@@ -356,6 +356,35 @@ internal sealed partial class MainViewModel : ObservableObject
     return options;
   }
 
+  /// <summary>Loads the global session-file rows for the settings modal prefill (E).
+  ///     Unset preference renders as an empty list, never an error.</summary>
+  public async Task<IReadOnlyList<SessionFileEntry>> GetGlobalSessionFilesAsync()
+  {
+    if (_preferences is null)
+    {
+      return [];
+    }
+
+    string? stored = await _preferences.GetAsync(SessionFilePreferences.GlobalKey);
+    Result<IReadOnlyList<SessionFileEntry>> parsed = SessionFilePreferences.Parse(stored);
+    return parsed.IsSuccess ? parsed.Value : [];
+  }
+
+  /// <summary>Loads the selected tab's workspace session-file rows for the prefill.
+  ///     No selected tab means an empty workspace scope.</summary>
+  public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSessionFilesAsync()
+  {
+    if (_preferences is null || SelectedTab is not { } tab)
+    {
+      return [];
+    }
+
+    string? stored = await _preferences.GetAsync(
+        SessionFilePreferences.WorkspaceKey(tab.Container.WorkspaceRoot));
+    Result<IReadOnlyList<SessionFileEntry>> parsedWs = SessionFilePreferences.Parse(stored);
+    return parsedWs.IsSuccess ? parsedWs.Value : [];
+  }
+
   /// <summary>The currently-selected compaction model row for the modal's prefill.</summary>
   public Task<CompactionModelOption?> GetSelectedCompactionModelAsync()
   {
@@ -470,6 +499,22 @@ internal sealed partial class MainViewModel : ObservableObject
       _ = update.CompactionModelId is null
           ? _preferences?.DeleteAsync(compactionKey)
           : _preferences?.SetAsync(compactionKey, update.CompactionModelId);
+    }
+
+    // Session-start files (E): serialize exactly what the dialog showed, per scope.
+    if (update.GlobalFiles is { } globalFiles)
+    {
+      _ = globalFiles.Count == 0
+          ? _preferences?.DeleteAsync(SessionFilePreferences.GlobalKey)
+          : _preferences?.SetAsync(SessionFilePreferences.GlobalKey, SessionFilePreferences.Serialize(globalFiles));
+    }
+
+    if (update.WorkspaceFiles is { } workspaceFiles)
+    {
+      string wsKey = SessionFilePreferences.WorkspaceKey(_compactionWorkspaceKey ?? string.Empty);
+      _ = workspaceFiles.Count == 0
+          ? _preferences?.DeleteAsync(wsKey)
+          : _preferences?.SetAsync(wsKey, SessionFilePreferences.Serialize(workspaceFiles));
     }
 
     _settings = _settings

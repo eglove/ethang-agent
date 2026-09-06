@@ -75,7 +75,9 @@ public sealed record AgentSettings(
     bool RemoteHost = false,
     WatchdogSettings? Watchdog = null,
     LocalSettings? Local = null,
-    string? WorkspaceRoot = null)
+    string? WorkspaceRoot = null,
+    string? SessionFilesGlobal = null,
+    string? SessionFilesWorkspace = null)
 {
   // Local: null (the default) means unconfigured — a named decision, never silent
   // leniency: it keeps every existing construction site compiling, and hosts (the
@@ -122,6 +124,16 @@ public sealed record AgentSettings(
     Local = (Local ?? new LocalSettings(null, null)) with { BaseUrlText = baseUrlText, ApiKey = apiKey },
   };
 #pragma warning restore CA1054
+
+  /// <summary>Returns the same settings with the stored session-file lists overlaid
+  ///     (E): the raw preference values travel to the host inside the settings JSON,
+  ///     so remote children receive the SAME configured files as the app-side session.
+  ///     Null arguments keep whatever the caller already set - never a clobber.</summary>
+  public AgentSettings WithSessionFiles(string? globalStored, string? workspaceStored) => this with
+  {
+    SessionFilesGlobal = SessionFilesGlobal ?? globalStored,
+    SessionFilesWorkspace = SessionFilesWorkspace ?? workspaceStored,
+  };
 
   /// <summary>Returns the same settings with the workspace root overlaid. The
   ///     out-of-process child host anchors its whole container here (D: spawn-time

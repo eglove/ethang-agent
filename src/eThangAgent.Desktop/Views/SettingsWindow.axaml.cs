@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ToolDomain;
 using eThangAgent.Zai.ACL;
@@ -23,10 +24,13 @@ internal partial class SettingsWindow : Window
       ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle,
       IReadOnlyList<CompactionModelOption>? compactionModels = null,
       CompactionModelOption? selectedCompactionModel = null,
-      string? localBaseUrl = null, string? localApiKey = null) : this()
+      string? localBaseUrl = null, string? localApiKey = null,
+      IReadOnlyList<SessionFileEntry>? globalFiles = null,
+      IReadOnlyList<SessionFileEntry>? workspaceFiles = null) : this()
   {
     _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle,
-        compactionModels, selectedCompactionModel, localBaseUrl, localApiKey);
+        compactionModels, selectedCompactionModel, localBaseUrl, localApiKey,
+        globalFiles, workspaceFiles);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);
   }

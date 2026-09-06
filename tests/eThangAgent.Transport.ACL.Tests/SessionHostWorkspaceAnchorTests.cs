@@ -1,4 +1,5 @@
 using eThangAgent.ChildHost;
+using eThangAgent.Composition;
 using eThangAgent.ModelDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.ToolDomain;
@@ -81,7 +82,8 @@ public class SessionHostWorkspaceAnchorTests
     string root = Directory.CreateTempSubdirectory("ethang-anchor-ws2").FullName;
     File.WriteAllText(Path.Combine(root, "AGENTS.md"), "# anchor prompt parity probe");
     string escaped = root.Replace("\\", "\\\\", StringComparison.Ordinal);
-    string path = WriteSettings(SettingsJson(",\"WorkspaceRoot\":\"" + escaped + "\""));
+    string configured = SessionFilePreferences.Serialize([new SessionFileEntry(Path.Combine(root, "AGENTS.md"), true)]);
+    string path = WriteSettings(SettingsJson(",\"WorkspaceRoot\":\"" + escaped + "\",\"SessionFilesGlobal\":\"" + configured.Replace("\\", "\\\\\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\""));
     try
     {
       SessionHost host = SessionHost.Create(path, Path.Combine(Path.GetTempPath(), "ethang-anchor-" + Guid.NewGuid().ToString("N") + ".db"));

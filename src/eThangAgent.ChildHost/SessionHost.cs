@@ -101,7 +101,7 @@ public sealed class SessionHost
             new AgentHostOptions(
                 new FixedWorkspaceContext(workspace),
                 new WorkspacePathResolver(workspace),
-                [new WorkspaceInstructionsPromptProvider(workspace)]),
+                [new SessionFilesPromptProvider(workspace, settings.SessionFilesGlobal, settings.SessionFilesWorkspace)]),
             new AppDatabase(databasePath),
             null)
         .BuildServiceProvider();

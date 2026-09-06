@@ -55,6 +55,10 @@ public class RemoteHostE2ETests
       await File.WriteAllTextAsync(probe, "ANCHOR-PROBE-777", TestContext.Current.CancellationToken);
       await File.WriteAllTextAsync(Path.Combine(ws, "AGENTS.md"), "# anchor test agents file",
           TestContext.Current.CancellationToken);
+      SqliteAppPreferenceStore preferences = new(new AppDatabase(host.DatabasePath));
+      _ = await preferences.SetAsync(SessionFilePreferences.GlobalKey,
+          SessionFilePreferences.Serialize([new SessionFileEntry(Path.Combine(ws, "AGENTS.md"), true)]),
+          TestContext.Current.CancellationToken);
 
       AgentSessionFactory factory = new(
           host.BuildSettings(remoteHost: true),
@@ -92,7 +96,7 @@ public class RemoteHostE2ETests
       string probeResult = E2E.FindToolMessageContaining(host.Mock.RequestBodies, "PROBE:");
       Assert.Contains("ANCHOR-PROBE-777", probeResult, StringComparison.Ordinal);
       Assert.Contains(host.Mock.RequestBodies,
-          b => b.Contains("agents-file", StringComparison.Ordinal)
+          b => b.Contains("session-file", StringComparison.Ordinal)
               && b.Contains("# anchor test agents file", StringComparison.Ordinal));
     }
     finally

@@ -100,7 +100,9 @@ internal partial class MainWindow : Window
         _vm.ConfiguredZaiEndpointMode, _vm.ConfiguredCommitStyle,
         await _vm.GetCompactionOptionsAsync(),
         await _vm.GetSelectedCompactionModelAsync(),
-        _vm.ConfiguredLocalBaseUrl, _vm.ConfiguredLocalApiKey);
+        _vm.ConfiguredLocalBaseUrl, _vm.ConfiguredLocalApiKey,
+        await _vm.GetGlobalSessionFilesAsync(),
+        await _vm.GetWorkspaceSessionFilesAsync());
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {

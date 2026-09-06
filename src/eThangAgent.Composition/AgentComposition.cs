@@ -412,10 +412,13 @@ public static class AgentComposition
     if (settings.RemoteHost)
     {
       wired = wired
+          .AddSingleton<SessionFilesCarrier>()
           .AddSingleton(sp => new RemoteHostSupervisor(
               sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
               Path.Combine(Path.GetTempPath(), "ethang-agent", RemoteHostSupervisor.ScratchFolderFor(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)),
-              settings,
+              settings.WithSessionFiles(
+                  sp.GetRequiredService<SessionFilesCarrier>().Global,
+                  sp.GetRequiredService<SessionFilesCarrier>().Workspace),
               sp.GetRequiredService<AppDatabase>().DatabasePath,
               // Host-health notices surface on the session transcript when the host UI
               // has attached its notice sink; headless hosts drop them.

@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Composition;
@@ -38,10 +39,18 @@ internal sealed record CompactionModelOption(string? ModelId, string Display)
   internal static readonly CompactionModelOption Automatic = new(null, "Automatic (cheapest capable)");
 }
 
+/// <summary>One editable session-file row in the settings modal: the absolute path
+///     and its checkbox state.</summary>
+internal sealed record SessionFileRow(string Path, bool Enabled)
+{
+  public static implicit operator SessionFileEntry(SessionFileRow row) => new(row.Path, row.Enabled);
+}
+
 internal sealed record SettingsUpdate(string? OpenRouterApiKey, string? ZaiApiKey,
     ZaiEndpointMode ZaiEndpointMode, CommitStyle CommitStyle,
     string? CompactionModelId = null, string? CompactionWorkspaceKey = null,
-    string? LocalBaseUrlText = null, string? LocalApiKey = null);
+    string? LocalBaseUrlText = null, string? LocalApiKey = null,
+    IReadOnlyList<SessionFileEntry>? GlobalFiles = null, IReadOnlyList<SessionFileEntry>? WorkspaceFiles = null);
 
 /// <summary>View-model behind the settings modal: the API-key fields for the
 ///     providers, the local provider's base URL, a reveal toggle, the z.ai endpoint
@@ -104,6 +113,52 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(KeyPasswordChar))]
   public partial bool KeysVisible { get; set; }
 
+  /// <summary>The global session-file rows: what loads (when checked) for every
+  ///     workspace. Editable in place - checkbox toggles, row remove.</summary>
+  public ObservableCollection<SessionFileRow> GlobalFiles { get; } = [];
+
+  /// <summary>The workspace-scope session-file rows: what loads for THIS workspace.</summary>
+  public ObservableCollection<SessionFileRow> WorkspaceFiles { get; } = [];
+
+  /// <summary>Entry field for a new global file path; Add validates it.</summary>
+  [ObservableProperty]
+  public partial string NewGlobalFile { get; set; } = string.Empty;
+
+  /// <summary>Entry field for a new workspace file path; Add validates it.</summary>
+  [ObservableProperty]
+  public partial string NewWorkspaceFile { get; set; } = string.Empty;
+
+  /// <summary>Adds a validated global row. A relative path is a named, shown error -
+  ///     never a silent coercion (strict boundaries).</summary>
+  [RelayCommand]
+  private void AddGlobalFile()
+  {
+    if (TryAddFile(NewGlobalFile, GlobalFiles))
+    {
+      NewGlobalFile = string.Empty;
+    }
+  }
+
+  /// <summary>Adds a validated workspace-scope row.</summary>
+  [RelayCommand]
+  private void AddWorkspaceFile()
+  {
+    if (TryAddFile(NewWorkspaceFile, WorkspaceFiles))
+    {
+      NewWorkspaceFile = string.Empty;
+    }
+  }
+
+  /// <summary>Shared add: validates absolute-ness, appends checked. Returns whether
+  ///     it landed.</summary>
+
+  [RelayCommand]
+  private void RemoveGlobalFile(SessionFileRow row) => _ = GlobalFiles.Remove(row);
+
+  [RelayCommand]
+  private void RemoveWorkspaceFile(SessionFileRow row) => _ = WorkspaceFiles.Remove(row);
+
+
   /// <summary>The mask the settings window applies to both key fields; null-mask char
   ///     when revealed.</summary>
   public char KeyPasswordChar => KeysVisible ? default : '•';
@@ -113,13 +168,15 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
   /// <summary>The first validation problem across all fields, or null when clean.</summary>
   public string? ValidationError =>
-      Validate(OpenRouterKey) ?? Validate(ZaiKey) ?? Validate(LocalApiKey) ?? ValidateBaseUrl(LocalBaseUrlText);
+      FileError ?? Validate(OpenRouterKey) ?? Validate(ZaiKey) ?? Validate(LocalApiKey) ?? ValidateBaseUrl(LocalBaseUrlText);
 
   public SettingsViewModel(string? openRouterKey, string? zaiKey,
       ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle = CommitStyle.Conventional,
       IReadOnlyList<CompactionModelOption>? compactionModels = null,
       CompactionModelOption? selectedCompactionModel = null,
-      string? localBaseUrl = null, string? localApiKey = null)
+      string? localBaseUrl = null, string? localApiKey = null,
+      IReadOnlyList<SessionFileEntry>? globalFiles = null,
+      IReadOnlyList<SessionFileEntry>? workspaceFiles = null)
   {
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
@@ -134,7 +191,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 Normalize(OpenRouterKey), Normalize(ZaiKey), SelectedEndpointMode.Mode,
                 SelectedCommitStyle.Style,
                 SelectedCompactionModel.ModelId, null,
-                Normalize(LocalBaseUrlText), Normalize(LocalApiKey)));
+                Normalize(LocalBaseUrlText), Normalize(LocalApiKey),
+                [.. GlobalFiles], [.. WorkspaceFiles]));
           }
         },
         () => CanSave);
@@ -144,6 +202,15 @@ internal sealed partial class SettingsViewModel : ObservableObject
     LocalBaseUrlText = localBaseUrl ?? string.Empty;
     LocalApiKey = localApiKey ?? string.Empty;
     SelectedCompactionModel = selectedCompactionModel ?? CompactionModelOption.Automatic;
+    foreach (SessionFileEntry entry in globalFiles ?? [])
+    {
+      GlobalFiles.Add(new SessionFileRow(entry.Path, entry.Enabled));
+    }
+
+    foreach (SessionFileEntry entry in workspaceFiles ?? [])
+    {
+      WorkspaceFiles.Add(new SessionFileRow(entry.Path, entry.Enabled));
+    }
     SelectedEndpointMode = zaiEndpointMode == ZaiEndpointMode.GeneralApi
         ? ZaiEndpointModeOption.GeneralApi
         : ZaiEndpointModeOption.CodingPlan;
@@ -164,6 +231,33 @@ internal sealed partial class SettingsViewModel : ObservableObject
   partial void OnLocalBaseUrlTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnLocalApiKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  /// <summary>Validates one entered path and appends a checked row. A relative path
+  ///     fails into <see cref="FileError"/> - shown where every other validation
+  ///     error shows - and nothing is added.</summary>
+  private bool TryAddFile(string entered, ObservableCollection<SessionFileRow> rows)
+  {
+    string trimmed = entered.Trim();
+    if (trimmed.Length == 0)
+    {
+      return false;
+    }
+
+    if (!Path.IsPathRooted(trimmed))
+    {
+      FileError = $"Session file paths must be absolute: '{trimmed}' is relative.";
+      return false;
+    }
+
+    FileError = null;
+    rows.Add(new SessionFileRow(trimmed, Enabled: true));
+    return true;
+  }
+
+  /// <summary>The named problem with the last file-add attempt, or null. Rendered
+  ///     beside the file lists so the user sees why an add was refused.</summary>
+  [ObservableProperty]
+  public partial string? FileError { get; set; }
 
   /// <summary>Returns the validation problem with <paramref name="key"/>, or null when
   ///     it is a legal entry: blank (cleared), or a trimmed non-empty value with no
