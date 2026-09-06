@@ -116,7 +116,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         ReportUsage(request, response, callbacks);
         if (response.ToolCalls.Count == 0)
         {
-          if (FinishWithoutToolCalls(response, ref autoContinuations) is { } outcome)
+          if (FinishWithoutToolCalls(response, ref autoContinuations, callbacks) is { } outcome)
           {
             return outcome;
           }
@@ -179,8 +179,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
     // Graceful degradation: a System notice tells the model why nothing changed;
     // the turn-local flag (this return value) keeps a broken compactor from spamming.
-    Conversation.AddSystemMessage(
-        $"[Context compaction failed: {compacted.Error.Code} {compacted.Error.Message}; continuing without compaction.]");
+    string notice =
+        $"[Context compaction failed: {compacted.Error.Code} {compacted.Error.Message}; continuing without compaction.]";
+    Conversation.AddSystemMessage(notice);
+    callbacks?.OnSystemMessage?.Invoke(notice);
     return true;
   }
 
@@ -189,7 +191,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     the model is nudged to continue (bounded — a pathological model cannot spin
   ///     forever; leniency with a visible cap, never a silent retry), and null is
   ///     returned so the loop continues. A complete answer is appended and returned.</summary>
-  private Result<string>? FinishWithoutToolCalls(ModelResponse response, ref int autoContinuations)
+  private Result<string>? FinishWithoutToolCalls(ModelResponse response, ref int autoContinuations,
+      TurnCallbacks? callbacks)
   {
     string content = response.Content ?? "";
     if (response.FinishReason is not FinishReason.Length)
@@ -207,6 +210,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     autoContinuations++;
     Conversation.AddAssistantMessage(content);
     Conversation.AddSystemMessage(ContinuationPrompt);
+    callbacks?.OnSystemMessage?.Invoke(ContinuationPrompt);
     return null;
   }
 

@@ -38,6 +38,12 @@ internal sealed record ToolResultEntry(string Name, string Summary, string FullC
 
 internal sealed record NoticeEntry(string Text) : TranscriptEntry;
 
+/// <summary>A system message the agent loop appended to the conversation mid-turn
+///     (nudges, continuation prompts, compaction-failure notices). Loop-voice, unlike
+///     a transient host notice: it lives in the persisted conversation, and restore
+///     maps persisted System messages onto this kind.</summary>
+internal sealed record SystemMessageEntry(string Text) : TranscriptEntry;
+
 /// <summary>A ! command the user ran: echoed as typed, before its result lands.
 ///     Local-only — a command entry never enters the conversation.</summary>
 internal sealed record CommandRunEntry(string Command) : TranscriptEntry;

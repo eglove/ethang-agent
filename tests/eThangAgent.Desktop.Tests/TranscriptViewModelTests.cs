@@ -167,8 +167,8 @@ public class TranscriptViewModelTests
     Assert.Equal("file content", result.FullContent);
     Assert.False(result.IsError);
     Assert.Equal("final answer", Assert.IsType<AssistantTextEntry>(vm.Entries[3]).Text);
-    // System messages (nudges, continuation prompts) render as notices.
-    Assert.Equal("nudge line", Assert.IsType<NoticeEntry>(vm.Entries[4]).Text);
+    // System messages (nudges, continuation prompts) render as system messages.
+    Assert.Equal("nudge line", Assert.IsType<SystemMessageEntry>(vm.Entries[4]).Text);
   }
 
   [Fact]

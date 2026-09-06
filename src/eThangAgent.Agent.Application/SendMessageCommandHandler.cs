@@ -58,6 +58,7 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
       if (line is not null)
       {
         _conversation.AddSystemMessage(line);
+        callbacks?.OnSystemMessage?.Invoke(line);
       }
     }
 

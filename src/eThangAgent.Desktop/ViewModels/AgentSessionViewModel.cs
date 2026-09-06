@@ -310,7 +310,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
                 bridge.OnToolCall(name, args);
               },
               OnToolResult: (name, summary, full, isError) =>
-                bridge.OnToolResult(name, summary, full, isError)),
+                bridge.OnToolResult(name, summary, full, isError),
+              OnSystemMessage: bridge.OnSystemMessage),
           onNotice: bridge.OnNotice);
 
     // Close the channel so the pump can drain all buffered events.
@@ -404,6 +405,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         break;
       case UiStreamEvent.ToolResultEvent tr:
         Transcript.AddToolResult(tr.Name, tr.Summary, tr.FullContent, tr.IsError);
+        break;
+      case UiStreamEvent.SystemMessage sm:
+        // Same thread contract as notices (see below): bridge-delivered, applied on
+        // the sink's thread — the UI thread in production.
+        Transcript.AddSystemMessage(sm.Text);
         break;
       case UiStreamEvent.Notice n:
         // Notices arrive through the bridge (turn thread) and apply here on the sink's

@@ -66,6 +66,15 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     Entries.Add(new NoticeEntry(text));
   }
 
+  /// <summary>Lands one system message the agent loop appended mid-turn (nudge,
+  ///     continuation prompt, compaction-failure notice). Loop-voice, persisted in the
+  ///     conversation — unlike a host notice, which is transient session chatter.</summary>
+  public void AddSystemMessage(string text)
+  {
+    CloseOpen();
+    Entries.Add(new SystemMessageEntry(text));
+  }
+
   /// <summary>Echoes a ! command as the user typed it (before execution).
   ///     User-voice rule: like user entries, appending never triggers auto-scroll.
   ///     Command entries are the user's own actions, not agent output.</summary>
@@ -97,7 +106,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   /// an assistant tool-call message → its text (when non-empty) plus one call entry per
   /// call; a tool result → result entry with the tool name resolved from the preceding
   /// assistant batch by <see cref="Message.ToolCallId"/> ("tool" when unresolvable);
-  /// system messages (nudges, continuation prompts) → notices. Reasoning traces and
+  /// system messages (nudges, continuation prompts) → system-message entries. Reasoning traces and
   /// stream notices are never persisted, so a restored transcript shows content only.
   /// </summary>
   public void Restore(IReadOnlyList<Message> messages)
@@ -119,7 +128,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
           Entries.Add(RestoredToolResult(callNames, message));
           break;
         case Role.System:
-          AddNotice(message.Content);
+          AddSystemMessage(message.Content);
           break;
         default:
           break;

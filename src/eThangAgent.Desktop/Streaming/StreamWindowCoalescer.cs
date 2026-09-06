@@ -47,6 +47,8 @@ internal sealed class StreamWindowCoalescer(IStreamSink sink, double windowSecon
 
   public Task NoticeAsync(string text) => StructuralAsync(new UiStreamEvent.Notice(text));
 
+  public Task SystemMessageAsync(string text) => StructuralAsync(new UiStreamEvent.SystemMessage(text));
+
   /// <summary>Delivers verbatim, bypassing the buffer. Part of <see cref="IStreamSink"/>
   ///     so coalescers and bridges can nest.</summary>
   public Task DeliverAsync(UiStreamEvent evt)

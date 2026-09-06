@@ -136,6 +136,12 @@
           <DataTemplate DataType="vm:NoticeEntry">
             <SelectableTextBlock Text="{Binding Text}" Foreground="DarkGray" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
+          <DataTemplate DataType="vm:SystemMessageEntry">
+            <Grid ColumnDefinitions="Auto,*" Margin="8,2">
+              <TextBlock Grid.Column="0" Foreground="#9EB8D9" Text="❖ " VerticalAlignment="Top"/>
+              <SelectableTextBlock Grid.Column="1" Text="{Binding Text}" Foreground="#B9C7E2" TextWrapping="Wrap"/>
+            </Grid>
+          </DataTemplate>
         </ItemsControl.DataTemplates>
       </ItemsControl>
     </ScrollViewer>

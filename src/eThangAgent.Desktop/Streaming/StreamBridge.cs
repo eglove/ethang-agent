@@ -35,6 +35,7 @@ internal sealed class StreamBridge(Func<UiStreamEvent, Task> sink, bool coalesce
   public Action<string, string> OnToolCall => (name, args) => _channel.Writer.TryWrite(new UiStreamEvent.ToolCallEvent(name, args));
   public Action<string, string, string, bool> OnToolResult => (name, summary, fullContent, isError) => _channel.Writer.TryWrite(new UiStreamEvent.ToolResultEvent(name, summary, fullContent, isError));
   public Action<string> OnNotice => text => _channel.Writer.TryWrite(new UiStreamEvent.Notice(text));
+  public Action<string> OnSystemMessage => text => _channel.Writer.TryWrite(new UiStreamEvent.SystemMessage(text));
 
   // Time-slice window for text deltas; flush cadence parity with the spinner timer.
   internal const double CoalesceWindowSeconds = 0.08;
@@ -114,6 +115,7 @@ internal sealed class StreamBridgePump(
     UiStreamEvent.ToolCallEvent tc => coalescer.ToolCallAsync(tc.Name, tc.Arguments),
     UiStreamEvent.ToolResultEvent tr => coalescer.ToolResultAsync(tr.Name, tr.Summary, tr.FullContent, tr.IsError),
     UiStreamEvent.Notice n => coalescer.NoticeAsync(n.Text),
+    UiStreamEvent.SystemMessage sm => coalescer.SystemMessageAsync(sm.Text),
     _ => Task.CompletedTask,
   };
 }

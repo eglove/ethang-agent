@@ -22,6 +22,10 @@ namespace eThangAgent.AgentDomain;
 ///     observers must marshal to their own context.</param>
 /// <param name="OnCompacted">Invoked after a successful automatic compaction with what
 ///     the compactor did.</param>
+/// <param name="OnSystemMessage">Invoked verbatim whenever the loop itself appends a
+///     System message to the conversation mid-turn (length-truncation continuation
+///     prompt, compaction-failure notice), so hosts can surface loop-voice decisions
+///     live. Also used by the application handler for post-turn nudge lines.</param>
 public sealed record TurnCallbacks(
     Action<string>? OnContentDelta = null,
     Action<string>? OnReasoningDelta = null,
@@ -29,4 +33,5 @@ public sealed record TurnCallbacks(
     Action<string, string, int, int>? OnToolCall = null,
     Action<string, string, string, bool>? OnToolResult = null,
     Action<ContextSnapshot>? OnContextUpdate = null,
-    Action<CompactionOutcome>? OnCompacted = null);
+    Action<CompactionOutcome>? OnCompacted = null,
+    Action<string>? OnSystemMessage = null);

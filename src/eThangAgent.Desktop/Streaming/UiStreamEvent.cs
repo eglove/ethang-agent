@@ -13,4 +13,9 @@ internal abstract record UiStreamEvent
   ///     on the turn thread — applying them inline would mutate the UI-owned
   ///     transcript collection cross-thread.</summary>
   internal sealed record Notice(string Text) : UiStreamEvent;
+
+  /// <summary>A system message the agent loop appended mid-turn (nudges, continuation
+  ///     prompts, compaction-failure notices). Loop-voice, unlike a transient host
+  ///     notice — rendered as its own transcript entry kind.</summary>
+  internal sealed record SystemMessage(string Text) : UiStreamEvent;
 }
