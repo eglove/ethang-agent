@@ -41,7 +41,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   public IReadOnlyList<ActionDescriptor> Actions { get; } =
   [
       new("create", "Create a new structured plan with an optional initial step list.",
-            "Creates an Active plan stamped with the current session id. Title and goal are required non-empty strings; steps is an optional array of step objects (each: required non-empty 'title', optional 'detail' string, optional 'todoId' integer >= 1). Output contract: '[plan] created #<id>' - and show renders the full plan with its session line. Errors: InvalidActionInput (bad params), InvalidTransition.",
+            "Creates an Active plan stamped with the current session id. Title and goal are required non-empty strings; steps is an optional array of step objects (each: required non-empty 'title', optional 'detail' string, optional 'todoId' integer >= 1). Output contract: '[plan] created #<id>' - and show renders the full plan with its session line. Errors: InvalidActionInput (bad params).",
             [new ActionParameter(Title, ActionParameterTypes.StringType, "Required. Non-empty plan title."),
               new ActionParameter(Goal, ActionParameterTypes.StringType, "Required. Non-empty goal; may be multi-line."),
               new ActionParameter(Steps, "Array", "Optional. Step objects: { 'title' (required non-empty), 'detail' (optional string), 'todoId' (optional integer >= 1). }")]),
@@ -53,7 +53,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
             "Output contract: header '[plan] <n> plan(s)' then one line per plan:\n#<id> [ <status> ] <title> (<n> step(s), session <sid>)\nAn empty list prints only the header. status, when present, must be exactly Active|Completed|Abandoned. Errors: InvalidActionInput (bad params).",
             [new ActionParameter(Status, ActionParameterTypes.StringType, "Optional. Exactly Active|Completed|Abandoned; omit for every plan.")]),
         new("add-step", "Append one step to a plan.",
-            "Appends at the next 1-based position. Output contract: '[plan] added step <position> to #<id>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition (frozen plan).",
+            "Appends at the next 1-based position. Output contract: '[plan] added step <position> to #<id>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Title, ActionParameterTypes.StringType, "Required. Non-empty step title."),
               new ActionParameter(Detail, ActionParameterTypes.StringType, "Optional. Non-empty when present."),
@@ -69,12 +69,12 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
               new ActionParameter(Status, ActionParameterTypes.StringType, "Optional. Exactly Pending|InProgress|Done.")],
             [IdParam, Position]),
         new("remove-step", "Remove one step; the tail renumbers.",
-            "Output contract: '[plan] removed step <position> from #<id>'. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. Errors: InvalidActionInput (bad params), PlanNotFound, PlanStepNotFound, InvalidTransition (frozen plan).",
+            "Output contract: '[plan] removed step <position> from #<id>'. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. Errors: InvalidActionInput (bad params), PlanNotFound, PlanStepNotFound, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position.")],
             [IdParam, Position]),
         new("set-status", "Move a plan between statuses.",
-            "Only Active -> Completed / Active -> Abandoned is legal; other moves fail Error [InvalidTransition] naming the allowed moves. Output contract: '[plan] #<id> is now <status>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition.",
+            "Only Active -> Completed / Active -> Abandoned is legal; other moves fail Error [InvalidTransition] naming the allowed moves. Output contract: '[plan] #<id> is now <status>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition, VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Status, ActionParameterTypes.StringType, "Required. Exactly Active|Completed|Abandoned.")],
             [IdParam, Status]),
@@ -235,7 +235,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
         id, target, plan.Value.Version, DateTimeOffset.UtcNow).ConfigureAwait(false);
     return saved.IsSuccess
         ? CapabilityInvocationResult.Ok($"[plan] #{id} is now {saved.Value.Status}")
-        : Gutter(saved.Error);
+        : await ResolveMutationErrorAsync(id, position: null, plan.Value.Version, saved.Error).ConfigureAwait(false);
   }
 
   // ---- rendering -----------------------------------------------------------
