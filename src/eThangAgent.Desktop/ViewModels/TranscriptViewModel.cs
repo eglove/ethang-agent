@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -63,6 +64,29 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   {
     CloseOpen();
     Entries.Add(new NoticeEntry(text));
+  }
+
+  /// <summary>Echoes a ! command as the user typed it (before execution).
+  ///     User-voice rule: like user entries, appending never triggers auto-scroll.
+  ///     Command entries are the user's own actions, not agent output.</summary>
+  public void AddCommandRun(string command)
+  {
+    CloseOpen();
+    Entries.Add(new CommandRunEntry(command));
+  }
+
+  /// <summary>Lands one completed ! command's captured output: a bounded tail (the
+  ///     full output lives in the command_runs table; command_output reads it back).
+  ///     Not user-voice — a result arriving while stuck scrolls into view.</summary>
+  public void AddCommandResult(CommandRun run, int tailLines = 30)
+  {
+    CloseOpen();
+    string[] lines = run.Output.Length == 0
+        ? []
+        : run.Output.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd('\n').Split('\n');
+    bool truncated = lines.Length > tailLines;
+    string tail = truncated ? string.Join("\n", lines[^tailLines..]) : string.Join("\n", lines);
+    Entries.Add(new CommandResultEntry(run.Command, run.Id, run.ExitCode, run.TimedOut, tail, truncated));
   }
 
   public void EndIteration() => CloseOpen();

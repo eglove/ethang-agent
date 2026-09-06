@@ -37,3 +37,21 @@ internal sealed record ToolResultEntry(string Name, string Summary, string FullC
 }
 
 internal sealed record NoticeEntry(string Text) : TranscriptEntry;
+
+/// <summary>A ! command the user ran: echoed as typed, before its result lands.
+///     Local-only — a command entry never enters the conversation.</summary>
+internal sealed record CommandRunEntry(string Command) : TranscriptEntry;
+
+/// <summary>The captured output of one ! command run. Shows a tail of the output
+///     (the full text lives in the database; command_output reads it back) plus the
+///     exit/timeout line. Local-only, like the run entry.</summary>
+internal sealed record CommandResultEntry(string Command, int RunId, int ExitCode, bool TimedOut, string OutputTail, bool Truncated) : TranscriptEntry
+{
+  public IBrush StatusBrush => TimedOut || ExitCode != 0 ? Brushes.IndianRed : Brushes.Gray;
+
+  public string OutputDisplay => string.IsNullOrWhiteSpace(OutputTail) ? "(no output)" : OutputTail;
+
+  public string StatusLine => TimedOut
+      ? $"id {RunId} — TIMED OUT (partial output captured)"
+      : $"id {RunId} — exit code {ExitCode}";
+}

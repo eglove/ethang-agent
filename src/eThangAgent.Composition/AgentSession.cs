@@ -28,6 +28,11 @@ public sealed record AgentSession(
 {
   public string ModelId => Model.ModelId;
 
+  /// <summary>Runs ! commands (user-side shell utilities) against this session's
+  ///     workspace: persists the run, appends the system message. Null when the host
+  ///     did not wire shell access (headless stubs).</summary>
+  public IUserCommandRunner? CommandRunner { get; init; }
+
   /// <summary>Sink for out-of-band session notices (host health, orphan repair),
   ///     populated by the host UI after the session is constructed: the VM owns the
   ///     transcript, the session does not. Null = notices are dropped (headless hosts).

@@ -79,6 +79,10 @@ internal partial class AgentView : UserControl
     // Tunnel so Enter is seen before TextBox class handling consumes it.
     InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);
 
+    // Command-mode affordance: live as the user types — an input starting with '!'
+    // gets the amber command border and the shell watermark; clearing reverts.
+    InputBox.TextChanged += OnInputTextChanged;
+
     // Tunnel so Esc/End are seen no matter which control inside the view holds
     // focus (input box, transcript).
     AddHandler(KeyDownEvent, OnViewKeyDownTunnel, RoutingStrategies.Tunnel);
@@ -231,6 +235,25 @@ internal partial class AgentView : UserControl
       vm.Transcript.Scroll.RequestScrollToEnd();
       TranscriptScroll.ScrollToEnd();
     }
+  }
+
+  /// <summary>Toggles command mode with the input text: text starting with '!' (after
+  ///     trim) shows the amber border and shell watermark; anything else reverts.
+  ///     Pure view concern — the transcript's sticky state is untouched.</summary>
+  private void OnInputTextChanged(object? sender, TextChangedEventArgs e)
+  {
+    string text = InputBox.Text ?? "";
+    bool commandMode = text.TrimStart().StartsWith('!');
+    if (commandMode)
+    {
+      InputBox.Classes.Add("command");
+    }
+    else
+    {
+      _ = InputBox.Classes.Remove("command");
+    }
+
+    InputBox.PlaceholderText = commandMode ? "Run a shell command (!)" : "Type a message";
   }
 
   private void OnInputKeyDownTunnel(object? sender, KeyEventArgs e)

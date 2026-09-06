@@ -393,5 +393,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       providerName,
       services.GetRequiredService<IAgentInbox>(),
       services.GetRequiredService<IAgentRuntime>(),
-      services.GetRequiredService<SessionModelPreferences>());
+      services.GetRequiredService<SessionModelPreferences>())
+      {
+        // Shell access is registered by the core composition; a bare session container
+        // (test stubs) without it yields a null runner and the ! surface reports unavailable.
+        CommandRunner = services.GetService<IUserCommandRunner>(),
+      };
 }

@@ -3,4 +3,8 @@
     <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The shell-resolution test hook is internal; tests pin it headlessly. -->
+    <InternalsVisibleTo Include="eThangAgent.FileSystem.ACL.Tests" />
+  </ItemGroup>
 </Project>

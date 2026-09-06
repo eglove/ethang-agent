@@ -55,6 +55,13 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - `git_commit` tool — validated commits of the current index in the user's chosen style
   (Conventional, Gitmoji, or plain — a host setting, resolved live per commit; never a model parameter),
   with an optional `files` array of workspace-relative paths to stage first (relative-only: no drives, no `..`, no `.`)
+- `!` chat commands — a line starting with `!` runs as a shell command against the workspace
+  (through the machine's shell: pwsh, PowerShell, or cmd — probed in that order) instead of going
+  to the model, even mid-turn. Output is captured to the local transcript and the app database,
+  never sent as context; the conversation receives only a compact system message
+  (`User ran: ... (id: N, exit code M)`) plus the read-back tool:
+- `command_output` tool — reads a stored `!` command's output by id (default: the latest run),
+  optionally capped to the last `tailLines` lines; ids persist per workspace across sessions
 - `web_fetch` tool — fetch a web page or resource over HTTP(S) and return readable text:
   HTML pages are converted to markdown (headings, links with absolute URLs, lists, tables,
   fenced code); other textual responses (plain text, JSON, XML) pass through verbatim; binary

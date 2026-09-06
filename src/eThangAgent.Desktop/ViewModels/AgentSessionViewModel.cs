@@ -6,6 +6,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -36,6 +37,10 @@ internal sealed record AgentSessionViewModelOptions
   /// <summary>The session's live model/effort preferences backing the Model and Effort
   ///     pickers.</summary>
   public SessionModelPreferences? ModelPreferences { get; init; }
+
+  /// <summary>Runs ! commands (user-side shell utilities). Null = the surface reports
+  ///     commands unavailable.</summary>
+  public IUserCommandRunner? CommandRunner { get; init; }
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
@@ -86,6 +91,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>Tab caption: the workspace directory's name.</summary>
   public string Title => Path.GetFileName(WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar));
 
+  /// <summary>Runs ! commands (user-side shell utilities) against the workspace.
+  ///     Null = the ! surface is unavailable (headless stubs).</summary>
+  private readonly IUserCommandRunner? _commandRunner;
+
   private readonly IAgentInbox? _inbox;
   private readonly IAgentRuntime? _childRuntime;
 
@@ -125,6 +134,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _modelPreferences = options.ModelPreferences;
     Status = new StatusViewModel(provider, modelId, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort));
     _sessionDefaultModelId = modelId;
+    _commandRunner = options.CommandRunner;
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
   }
@@ -144,6 +154,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return Task.CompletedTask;
     }
 
+    // The ! prefix is a USER-side shell command, not an LLM turn: it runs against the
+    // workspace directly — even while a turn is in flight (it never steers the model).
+    if (input.StartsWith('!'))
+    {
+      return RunCommandAsync(input[1..].Trim());
+    }
+
     // While a turn runs, input steers it: posted to the session inbox for delivery at the
     // loop's next safe point, and echoed into the transcript immediately. Never dropped.
     if (IsBusy)
@@ -155,6 +172,35 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // Real turn — start and track it.
     _runningTurn = ExecuteTurnAsync(input);
     return _runningTurn;
+  }
+
+  /// <summary>Runs one ! command: echoes a command entry, executes through the
+  ///     session's runner (persisting the run and appending the system message for the
+  ///     model), and lands the captured output as a local transcript entry. The
+  ///     command's output never enters the conversation; the system message does.</summary>
+  private async Task RunCommandAsync(string command)
+  {
+    if (string.IsNullOrWhiteSpace(command))
+    {
+      Transcript.AddNotice("Type a command after the ! (for example: ! git status).");
+      return;
+    }
+
+    if (_commandRunner is null)
+    {
+      Transcript.AddNotice("Commands are unavailable in this session (no shell runner wired).");
+      return;
+    }
+
+    Transcript.AddCommandRun(command);
+    Result<CommandRun> result = await _commandRunner.RunAsync(command, CancellationToken.None).ConfigureAwait(true);
+    if (!result.IsSuccess)
+    {
+      Transcript.AddNotice($"Error [{result.Error.Code}]: {result.Error.Message}");
+      return;
+    }
+
+    Transcript.AddCommandResult(result.Value);
   }
 
   /// <summary>

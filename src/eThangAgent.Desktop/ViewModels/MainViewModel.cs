@@ -692,6 +692,7 @@ internal sealed partial class MainViewModel : ObservableObject
           ChildRuntime = session.ChildRuntime,
           StatusModelUpdater = id => sessionVmRef!.Status.ModelId = id,
           ModelPreferences = session.Preferences,
+          CommandRunner = session.CommandRunner,
         });
     sessionVmRef = sessionVm;
 

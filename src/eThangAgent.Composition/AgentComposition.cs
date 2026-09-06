@@ -128,6 +128,9 @@ public static class AgentComposition
                         sp.GetRequiredService<ICommitStyleProvider>()),
                     "Commit the current index with a validated conventional or gitmoji message."),
                 new AgentToolBinding(
+                    new CommandOutputTool(sp.GetRequiredService<ICommandRunStore>()),
+                    "Read the stored output of a user command run (a ! command the user ran in chat)."),
+                new AgentToolBinding(
                     new WebFetchTool(sp.GetRequiredService<IWebAccess>(),
                         sp.GetRequiredService<IHtmlToMarkdown>()),
                     "Fetch a web page or resource over HTTP(S) and return readable text (HTML converted to markdown; other text verbatim)."),
@@ -161,6 +164,17 @@ public static class AgentComposition
               () => summarizer.ResolveAsync(SubAgentSpawner.ChildMaxTokens, SubAgentSpawner.ChildTemperature).GetAwaiter().GetResult());
         })
         .AddSingleton<ICommitStyleProvider, AppPreferenceCommitStyleProvider>()
+        .AddSingleton<DirectShellAccess>()
+        .AddSingleton<IShellCommandAccess>(sp => sp.GetRequiredService<DirectShellAccess>())
+        .AddSingleton<ICommandRunStore>(sp => new SqliteCommandRunStore(
+            sp.GetRequiredService<AppDatabase>(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton(sp => new UserCommandRunner(
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+            sp.GetRequiredService<IShellCommandAccess>(),
+            sp.GetRequiredService<ICommandRunStore>(),
+            sp.GetRequiredService<Conversation>()))
+        .AddSingleton<IUserCommandRunner>(sp => sp.GetRequiredService<UserCommandRunner>())
         .AddSingleton<IStateStore, SqliteStateStore>()
         .AddSingleton<IPlanStore>(sp => new SqlitePlanStore(
             sp.GetRequiredService<AppDatabase>(),

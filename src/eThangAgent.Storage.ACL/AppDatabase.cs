@@ -132,6 +132,11 @@ public sealed class AppDatabase
       ApplyV13(connection);
       SetVersion(connection, 13);
     }
+    if (GetVersion(connection) < 14)
+    {
+      ApplyV14(connection);
+      SetVersion(connection, 14);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -531,6 +536,31 @@ public sealed class AppDatabase
             status TEXT NOT NULL,
             PRIMARY KEY (plan_id, position)
         );
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V14 adds command_runs: completed !-command runs per workspace (the chat
+  ///     command surface). Ids are GLOBAL autoincrement but every read filters on the
+  ///     bound workspace, mirroring SqlitePlanStore's isolation; output is capped by the
+  ///     writer, not the schema. Timestamps ISO-8601.</summary>
+  private static void ApplyV14(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS command_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id TEXT NOT NULL,
+            command TEXT NOT NULL,
+            exit_code INTEGER NOT NULL,
+            timed_out INTEGER NOT NULL,
+            output TEXT NOT NULL,
+            ran_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_command_runs_ws_id ON command_runs(workspace_id, id);
         """;
     using SqliteCommand command = connection.CreateCommand();
 #pragma warning disable CA2100
