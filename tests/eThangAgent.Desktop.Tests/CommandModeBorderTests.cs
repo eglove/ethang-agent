@@ -58,6 +58,26 @@ public class CommandModeBorderTests
   }
 
   [AvaloniaFact]
+  public void FocusedInput_TypingExclamation_KeepsAmberBorder()
+  {
+    // The user sees command mode WHILE TYPING — the box has keyboard focus, and
+    // Fluent's TextBox theme sets PART_BorderElement's brush directly in :focus/:pointerover
+    // states, which overrides a value carried through the TemplateBinding. Pin that the
+    // amber survives focus.
+    (AgentView _, TextBox input) = Show();
+    _ = input.Focus();
+    Dispatcher.UIThread.RunJobs();
+
+    input.Text = "! git status";
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.True(input.IsFocused, "precondition: the input must be focused");
+    Border? border = TemplateBorder(input);
+    Assert.NotNull(border);
+    Assert.Equal(Color.Parse("#FFB454"), ((ISolidColorBrush)border.BorderBrush!).Color);
+  }
+
+  [AvaloniaFact]
   public void Placeholder_SwapsToShellHint_InCommandMode()
   {
     (AgentView _, TextBox input) = Show();

@@ -28,8 +28,12 @@
     <!-- Command mode: input text starts with '!' — the border turns amber so the
          user sees, before pressing Enter, that the line runs as a shell command
          instead of going to the model. The class is toggled by the view's
-         TextChanged handler; this style is what makes it visible. -->
-    <Style Selector="TextBox.command">
+         TextChanged handler; this style is what makes it visible. The selector
+         targets the TEMPLATE's border element directly: Fluent's :focus/:pointerover
+         theme styles set PART_BorderElement's brush themselves, and a control-level
+         BorderBrush (TemplateBinding) loses to them exactly while the user is typing.
+         A host-style scope outranks the theme scope, so this wins under focus too. -->
+    <Style Selector="TextBox.command /template/ Border#PART_BorderElement">
       <Setter Property="BorderBrush" Value="#FFB454"/>
       <Setter Property="BorderThickness" Value="2"/>
     </Style>
