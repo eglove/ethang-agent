@@ -10,6 +10,7 @@ using eThangAgent.Local.ACL;
 using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
+using eThangAgent.PlanDomain;
 using eThangAgent.Roslyn.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
@@ -161,6 +162,10 @@ public static class AgentComposition
         })
         .AddSingleton<ICommitStyleProvider, AppPreferenceCommitStyleProvider>()
         .AddSingleton<IStateStore, SqliteStateStore>()
+        .AddSingleton<IPlanStore>(sp => new SqlitePlanStore(
+            sp.GetRequiredService<AppDatabase>(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton<PlanService>()
         .AddSingleton<IAgentStore, SqliteAgentStore>()
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
@@ -275,6 +280,9 @@ public static class AgentComposition
             sp.GetRequiredService<AppDatabase>(),
             sp.GetRequiredService<IWorkspaceContext>()))
         .AddSingleton<StateCapabilityProvider>()
+        .AddSingleton(sp => new PlanCapabilityProvider(
+            sp.GetRequiredService<PlanService>(),
+            () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString()))
         .AddSingleton<MemoryCapabilityProvider>()
         .AddSingleton(sp => new CuratedMemoryCapabilityProvider(
             sp.GetRequiredService<ICuratedMemoryStore>(),
@@ -563,6 +571,7 @@ public static class AgentComposition
     IEnumerable<string> names = childTools.Actions.Select(a => a.Name)
         .Concat(AgentCapabilityProvider.ActionNames)
         .Concat(sp.GetRequiredService<StateCapabilityProvider>().Actions.Select(a => a.Name))
+        .Concat(sp.GetRequiredService<PlanCapabilityProvider>().Actions.Select(a => a.Name))
         .Concat(sp.GetRequiredService<MemoryCapabilityProvider>().Actions.Select(a => a.Name))
         .Concat(sp.GetRequiredService<CuratedMemoryCapabilityProvider>().Actions.Select(a => a.Name));
     return [.. names];
@@ -621,6 +630,7 @@ public static class AgentComposition
             sp.GetRequiredService<AgentCapabilityProvider>(),
         ]),
         sp.GetRequiredService<StateCapabilityProvider>(),
+        sp.GetRequiredService<PlanCapabilityProvider>(),
         sp.GetRequiredService<MemoryCapabilityProvider>(),
         sp.GetRequiredService<CuratedMemoryCapabilityProvider>(),
   ];
