@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.9";
+  public const string Version = "2.10";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -57,6 +57,23 @@ public static class ExecGuide
         Tools.Invoke("state.transition", new { timeoutSeconds = 30, from = "coding", to = "done",
             summary = "work", evidence = new[] { "dotnet build" } });
         Tools.Invoke("state.verify", new { timeoutSeconds = 30 });
+
+    Structured plans (design specs, implementation plans) are plan records in the app
+    database, kept by the plan capability provider. plan.create makes one (title, goal,
+    optional steps array of {title, detail?, todoId?}), plan.show (id) retrieves it,
+    plan.index lists (optional status filter), and plan.add-step / plan.update-step /
+    plan.remove-step / plan.set-status mutate:
+
+        Tools.Invoke("plan.create", new { timeoutSeconds = 60, title = "...", goal = "..." })
+        → [plan] created #<id>
+
+    The dot form resolves provider.action (plan.create → the plan provider's create
+    action); the harness validates timeoutSeconds and strips it, so pure capability
+    actions never see it. show renders the envelope
+    [plan #<id> v<version> | <status> | session <sid>] <title>. Mutations CAS on a
+    fresh load — on VersionConflict, re-get (plan.show), reconcile, retry. Errors
+    arrive as Error [PlanNotFound] / [InvalidTransition] / [PlanStepNotFound] /
+    [InvalidActionInput].
 
     Argument-shape contract errors — InvalidParameterValue and MissingParameter — THROW
     `ScriptToolException` even after dispatch: a malformed call has no legitimate continue-path.

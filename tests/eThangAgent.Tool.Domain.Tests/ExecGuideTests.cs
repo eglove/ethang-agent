@@ -9,8 +9,21 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.9", ExecGuide.Version);
+    Assert.Equal("2.10", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
+  }
+
+  [Fact]
+  public void Guide_DocumentsPlanCapabilityProvider()
+  {
+    // The plan capability provider is taught under '### Calling tools'.
+    int calling = ExecGuide.Text.IndexOf("### Calling tools", StringComparison.Ordinal);
+    int shell = ExecGuide.Text.IndexOf("### Running external commands", StringComparison.Ordinal);
+    Assert.True(calling >= 0 && shell > calling, "Calling tools section missing");
+    string section = ExecGuide.Text[calling..shell];
+
+    Assert.Contains("plan.create", section, StringComparison.Ordinal);
+    Assert.Contains("[plan] created #", section, StringComparison.Ordinal);
   }
 
   // search_files was deleted (grand plan: exec scripts search the workspace directly);
