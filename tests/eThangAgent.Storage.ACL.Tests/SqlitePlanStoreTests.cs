@@ -49,6 +49,7 @@ public sealed class SqlitePlanStoreTests : IDisposable
     Assert.False((await other.GetAsync(created.Id, TestContext.Current.CancellationToken)).IsSuccess);
     Result<Plan> crossSave = await other.SaveAsync(created.AddStep("x", null, null), 1, TestContext.Current.CancellationToken);
     Assert.False(crossSave.IsSuccess);
+    Assert.Equal("PlanNotFound", crossSave.Error.Code);
   }
 
   [Fact]
