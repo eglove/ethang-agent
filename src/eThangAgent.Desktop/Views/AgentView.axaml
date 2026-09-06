@@ -42,17 +42,19 @@
     <!-- Status bar: phase first, then context, provider, model id, reasoning effort.
          The running tool's elapsed lives in its chat tool cards, not here. -->
     <Border DockPanel.Dock="Bottom" Background="#22000000">
-      <StackPanel x:Name="StatusBar" Orientation="Horizontal" Spacing="12" Margin="8,4">
-        <TextBlock x:Name="SpinnerText" Text="{Binding Status.Spinner}"/>
-        <TextBlock x:Name="PhaseText" Text="{Binding Status.PhaseLabel}"/>
-        <TextBlock x:Name="ContextText" Text="{Binding Status.ContextDisplay}" ToolTip.Tip="{Binding Status.ContextBreakdownText}"/>
-        <TextBlock Text="{Binding Status.Provider}"/>
-        <TextBlock Text="{Binding Status.ModelId}"/>
-        <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>
-        <Button x:Name="SessionIdButton" Content="Sess. Id ⧉" Padding="6,0"
+      <DockPanel x:Name="StatusBar" Margin="8,4" LastChildFill="False">
+        <Button x:Name="SessionIdButton" DockPanel.Dock="Right" Content="Sess. Id ⧉" Padding="6,0"
                 Click="OnCopySessionId" VerticalAlignment="Center"
                 ToolTip.Tip="{Binding SessionIdFull}"/>
-      </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <TextBlock x:Name="SpinnerText" Text="{Binding Status.Spinner}"/>
+          <TextBlock x:Name="PhaseText" Text="{Binding Status.PhaseLabel}"/>
+          <TextBlock x:Name="ContextText" Text="{Binding Status.ContextDisplay}" ToolTip.Tip="{Binding Status.ContextBreakdownText}"/>
+          <TextBlock Text="{Binding Status.Provider}"/>
+          <TextBlock Text="{Binding Status.ModelId}"/>
+          <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>
+        </StackPanel>
+      </DockPanel>
     </Border>
 
     <!-- Input area. -->
@@ -60,12 +62,12 @@
       <!-- Normal input row. The input stays enabled while a turn runs: text submitted
            then steers the active turn; the Stop button interrupts it. -->
       <StackPanel x:Name="InputArea" DockPanel.Dock="Bottom">
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <TextBox x:Name="InputBox" Width="480" PlaceholderText="Type a message"
+        <Grid ColumnDefinitions="*,Auto" Margin="8,0">
+          <TextBox x:Name="InputBox" Grid.Column="0" PlaceholderText="Type a message"
                    AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/>
-          <Button x:Name="StopButton" Content="Stop"
+          <Button x:Name="StopButton" Grid.Column="1" Margin="8,0,0,0"
                   IsVisible="{Binding IsBusy}" Click="OnStopClick" VerticalAlignment="Top"/>
-        </StackPanel>
+        </Grid>
       </StackPanel>
     </DockPanel>
 
