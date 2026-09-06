@@ -97,6 +97,7 @@ address-only rule are unchanged; a cross-container delivery publishes
 - **Memory Domain**: recall and search over persisted sessions (lexical and bounded-regex query planning), plus the curated-memory learning loop (categorized, tagged, full-text searchable, versioned).
 - **Skill Domain**: the methodology-skill subsystem — embedded built-in skills (shipped verbatim) and agent-created learned skills, with version history and usage tracking.
 - **State Domain**: durable, workspace-scoped key-value state, evidence-carrying transitions, and state events.
+- **Plan Domain**: durable plan records — ids tied to owning sessions, ordered steps with optional todo references — persisted through the Storage ACL (`plans`/`plan_steps`, migration V13) and exposed through the `plan` capability provider; the SDD workflow's design specs and implementation plans are plan records.
 
 Configuration concerns live with their consumers until a real Configuration context earns its own boundary.
 

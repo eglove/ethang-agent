@@ -59,8 +59,8 @@ single most expensive failure observed. Track progress in the ledger, not only
 in todos.
 
 - Each plan owns a state namespace: `sdd.<plan-slug>` where `<plan-slug>` is
-  the plan key's basename (plan key `plans/2026-08-24-native-skills-db-planning`
-  → namespace `sdd.native-skills-db-planning`). Home to the ledger
+  derived from the plan record's title (plan record titled
+  `2026-08-24-native-skills-db-planning` → namespace `sdd.native-skills-db-planning`). Home to the ledger
   (`sdd.<slug>/ledger`), per-task briefs (`sdd.<slug>/task-N-brief`), and
   reports (`sdd.<slug>/task-N-report`). Another plan's keys are never yours to
   read or write.
@@ -80,9 +80,9 @@ in todos.
   `state.prune` on the plan's task namespace (dotted boundary
   respected), keeping the ledger itself.
 
-Read the plan once (`state.get <plan-key>`), note its context and Global
-Constraints, and create a todo per task. If the plan names a Spec (a
-`specs/<date>-<topic>` key), read that too: the spec is the authority the plan
+Read the plan once (`plan show <plan-id>`), note its context and Global
+Constraints, and create a todo per task. The plan's Spec may be the plan
+record's goal body — read it from there. The spec is the authority the plan
 argues from, and conflicts inside the plan resolve against it. A plan with no
 reachable spec gets a ledger note saying so — rulings made without one are
 provisional.
@@ -330,7 +330,7 @@ Use finishing-a-development-branch.
 You: I'm using Subagent-Driven Development to execute this plan.
 
 [Setup: worktree verified]
-[state.get plans/<plan-key> once; note Global Constraints]
+[plan show <plan-id> once; note Global Constraints]
 [state.get sdd.<slug>/ledger — none; create with identity line]
 [Pre-flight scan table written to ledger]
 [Create todos for all tasks]

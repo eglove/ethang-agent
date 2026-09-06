@@ -15,8 +15,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** If working in an isolated worktree, it should have been created via the `using-git-worktrees` skill at execution time.
 
-**Save plans to:** state key `plans/<yyyy-mm-dd>-<feature-name>` via `state.set`
-- (User-approved key-scheme overrides live in the spec's Key Scheme table)
+**Save plans to:** persist the implementation plan as a plan record — `plan create` with the plan as `goal` (announce the plan id), then one `plan add-step` per task (step title carries the task name; step detail carries the file paths and keeps the checkbox step-tracking guidance)
 
 ## Scope Check
 
@@ -66,8 +65,7 @@ independently testable deliverable.
 
 **Tech Stack:** [Key technologies/libraries]
 
-**Spec:** [state key of the spec this plan implements, e.g. `specs/<yyyy-mm-dd>-<topic>` —
-the plan argues from the spec, so the spec travels with it; executors retrieve both with `state.get`]
+**Spec:** [plan id of the spec this plan implements (the spec is the plan's goal body); executors retrieve it with `plan show <id>` — the plan argues from the spec, so the spec travels with it]
 
 ## Global Constraints
 
@@ -152,7 +150,7 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 After saving the plan, offer execution choice:
 
-**"Plan complete and saved to state key `plans/<filename>`. Two execution options:**
+**"Plan complete and stored as plan record `#<id>`. Two execution options:**
 
 **1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
 

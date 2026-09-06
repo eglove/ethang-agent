@@ -184,7 +184,7 @@ src/     One project per bounded context and ACL (see AGENTS.md for the map)
          eThangAgent.Desktop (Avalonia frontend)
 tests/   Mirror-image test projects
 docs/    Project documentation only; no workflow artifacts
-        (specs and implementation plans live in workspace state — keys specs/* and plans/* — not repo files)
+        (design specs and implementation plans live as plan records — create/read them through the 'plan' capability; working ledgers, task briefs, and reports stay in workspace state keys — not repo files)
 ```
 
 ## Roadmap
