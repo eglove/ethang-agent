@@ -53,7 +53,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult created = await provider.InvokeAsync("create",
-      "{ \"title\": \"Ship\", \"goal\": \"G\", \"steps\": [ { \"title\": \"one\" }, { \"title\": \"two\", \"detail\": \"d\", \"todoId\": 3 } ] }",
+      /*lang=json,strict*/"{ \"title\": \"Ship\", \"goal\": \"G\", \"steps\": [ { \"title\": \"one\" }, { \"title\": \"two\", \"detail\": \"d\", \"todoId\": 3 } ] }",
       TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.False(created.IsError);
     return provider;
@@ -66,11 +66,11 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     string args =
-      "{ \"title\": \"Ship\", \"goal\": \"G\", \"steps\": [ { \"title\": \"one\" }, { \"title\": \"two\", \"detail\": \"d\", \"todoId\": 3 } ] }";
+      /*lang=json,strict*/"{ \"title\": \"Ship\", \"goal\": \"G\", \"steps\": [ { \"title\": \"one\" }, { \"title\": \"two\", \"detail\": \"d\", \"todoId\": 3 } ] }";
     CapabilityInvocationResult r = await provider.InvokeAsync("create", args, TestContext.Current.CancellationToken);
     Assert.False(r.IsError);
     Assert.StartsWith("[plan] created #", r.Content, StringComparison.Ordinal);
-    CapabilityInvocationResult shown = await provider.InvokeAsync("show", "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     string get1 = shown.Content;
     Assert.Contains("session root-session-1", get1, StringComparison.Ordinal);
   }
@@ -80,7 +80,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult r = await provider.InvokeAsync("create",
-      "{ \"title\": \"   \", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"title\": \"   \", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
     CapabilityInvocationResult idx = await provider.InvokeAsync("index", "{ }", TestContext.Current.CancellationToken);
@@ -92,7 +92,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult r = await provider.InvokeAsync("create",
-      "{ \"title\": \"T\", \"goal\": \"\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"title\": \"T\", \"goal\": \"\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
   }
@@ -102,7 +102,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult r = await provider.InvokeAsync("create",
-      "{ \"title\": \"T\", \"goal\": \"G\", \"steps\": [ { \"title\": \"ok\" }, { \"title\": \" \" } ] }",
+      /*lang=json,strict*/"{ \"title\": \"T\", \"goal\": \"G\", \"steps\": [ { \"title\": \"ok\" }, { \"title\": \" \" } ] }",
       TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
@@ -113,7 +113,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult r = await provider.InvokeAsync("create",
-      "{ \"title\": \"T\", \"goal\": \"G\", \"steps\": [ { \"title\": \"s\", \"todoId\": 0 } ] }",
+      /*lang=json,strict*/"{ \"title\": \"T\", \"goal\": \"G\", \"steps\": [ { \"title\": \"s\", \"todoId\": 0 } ] }",
       TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
@@ -124,7 +124,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult r = await provider.InvokeAsync("create",
-      "{ \"title\": \"T\", \"goal\": \"G\", \"steps\": \"nope\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"title\": \"T\", \"goal\": \"G\", \"steps\": \"nope\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
   }
@@ -134,7 +134,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult r = await provider.InvokeAsync("create",
-      "{ \"title\": \"T\", \"goal\": \"G\", \"steps\": [ \"nope\" ] }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"title\": \"T\", \"goal\": \"G\", \"steps\": [ \"nope\" ] }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
   }
@@ -144,7 +144,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult r = await provider.InvokeAsync("create",
-      "{ \"title\": \"T\", \"goal\": \"G\", \"bogus\": 1 }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"title\": \"T\", \"goal\": \"G\", \"bogus\": 1 }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.Contains("bogus", r.Content, StringComparison.Ordinal);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
@@ -156,7 +156,7 @@ public class PlanCapabilityProviderTests
   public async Task Show_RendersEnvelope_Session_Steps_TodoAndDetail()
   {
     PlanCapabilityProvider provider = await SeededAsync();
-    CapabilityInvocationResult shown = await provider.InvokeAsync("show", "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.False(shown.IsError);
     Assert.Contains("[plan #1 v1 | Active | session root-session-1] Ship", shown.Content, StringComparison.Ordinal);
     Assert.Contains("\nG\n", shown.Content, StringComparison.Ordinal);
@@ -169,8 +169,8 @@ public class PlanCapabilityProviderTests
   public async Task Show_NoSteps_PrintsZeroStepHeader_AndNoStepLines()
   {
     PlanCapabilityProvider provider = New(out _);
-    _ = await provider.InvokeAsync("create", "{ \"title\": \"T\", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
-    CapabilityInvocationResult shown = await provider.InvokeAsync("show", "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    _ = await provider.InvokeAsync("create", /*lang=json,strict*/"{ \"title\": \"T\", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.Contains("0 step(s):", shown.Content, StringComparison.Ordinal);
     Assert.DoesNotContain("1. [", shown.Content, StringComparison.Ordinal);
   }
@@ -180,15 +180,15 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     _ = await provider.InvokeAsync("create",
-      "{ \"title\": \"T\", \"goal\": \"line one\\nline two\" }", TestContext.Current.CancellationToken);
-    CapabilityInvocationResult shown = await provider.InvokeAsync("show", "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"title\": \"T\", \"goal\": \"line one\\nline two\" }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.Contains("\nline one\nline two\n", shown.Content, StringComparison.Ordinal);
   }
 
   [Theory]
   [InlineData("{ }")]
-  [InlineData("{ \"id\": \"x\" }")]
-  [InlineData("{ \"id\": 0 }")]
+  [InlineData(/*lang=json,strict*/"{ \"id\": \"x\" }")]
+  [InlineData(/*lang=json,strict*/"{ \"id\": 0 }")]
   public async Task Show_BadId_FailsInvalidActionInput(string args)
   {
     PlanCapabilityProvider provider = New(out _);
@@ -201,7 +201,7 @@ public class PlanCapabilityProviderTests
   public async Task Show_UnknownPlan_FailsPlanNotFound()
   {
     PlanCapabilityProvider provider = New(out _);
-    CapabilityInvocationResult r = await provider.InvokeAsync("show", "{ \"id\": 9 }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult r = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 9 }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [PlanNotFound]:", r.Content, StringComparison.Ordinal);
   }
@@ -221,8 +221,8 @@ public class PlanCapabilityProviderTests
   public async Task Index_ListsEveryPlan_WithStepCounts_AndSessions()
   {
     PlanCapabilityProvider provider = New(out _);
-    _ = await provider.InvokeAsync("create", "{ \"title\": \"T1\", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
-    _ = await provider.InvokeAsync("create", "{ \"title\": \"T2\", \"goal\": \"G\", \"steps\": [ { \"title\": \"s\" } ] }",
+    _ = await provider.InvokeAsync("create", /*lang=json,strict*/"{ \"title\": \"T1\", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
+    _ = await provider.InvokeAsync("create", /*lang=json,strict*/"{ \"title\": \"T2\", \"goal\": \"G\", \"steps\": [ { \"title\": \"s\" } ] }",
       TestContext.Current.CancellationToken);
     CapabilityInvocationResult r = await provider.InvokeAsync("index", "{ }", TestContext.Current.CancellationToken);
     Assert.StartsWith("[plan] 2 plan(s)", r.Content, StringComparison.Ordinal);
@@ -234,13 +234,13 @@ public class PlanCapabilityProviderTests
   public async Task Index_StatusFilter_ListsOnlyMatching()
   {
     PlanCapabilityProvider provider = New(out _);
-    _ = await provider.InvokeAsync("create", "{ \"title\": \"T1\", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
-    _ = await provider.InvokeAsync("create", "{ \"title\": \"T2\", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
-    _ = await provider.InvokeAsync("set-status", "{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
-    CapabilityInvocationResult done = await provider.InvokeAsync("index", "{ \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+    _ = await provider.InvokeAsync("create", /*lang=json,strict*/"{ \"title\": \"T1\", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
+    _ = await provider.InvokeAsync("create", /*lang=json,strict*/"{ \"title\": \"T2\", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
+    _ = await provider.InvokeAsync("set-status", /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult done = await provider.InvokeAsync("index", /*lang=json,strict*/"{ \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
     Assert.StartsWith("[plan] 1 plan(s)", done.Content, StringComparison.Ordinal);
     Assert.Contains("#1 [ Completed ] T1", done.Content, StringComparison.Ordinal);
-    CapabilityInvocationResult active = await provider.InvokeAsync("index", "{ \"status\": \"Active\" }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult active = await provider.InvokeAsync("index", /*lang=json,strict*/"{ \"status\": \"Active\" }", TestContext.Current.CancellationToken);
     Assert.Contains("#2 [ Active ] T2", active.Content, StringComparison.Ordinal);
     Assert.DoesNotContain("T1", active.Content, StringComparison.Ordinal);
   }
@@ -249,7 +249,7 @@ public class PlanCapabilityProviderTests
   public async Task Index_InvalidStatusToken_FailsInvalidActionInput()
   {
     PlanCapabilityProvider provider = New(out _);
-    CapabilityInvocationResult r = await provider.InvokeAsync("index", "{ \"status\": \"done\" }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult r = await provider.InvokeAsync("index", /*lang=json,strict*/"{ \"status\": \"done\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
     Assert.Contains("Active", r.Content, StringComparison.Ordinal);
@@ -262,10 +262,10 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("add-step",
-      "{ \"id\": 1, \"title\": \"extra\", \"todoId\": 2 }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"title\": \"extra\", \"todoId\": 2 }", TestContext.Current.CancellationToken);
     Assert.False(r.IsError);
     Assert.Equal("[plan] added step 3 to #1", r.Content);
-    CapabilityInvocationResult shown = await provider.InvokeAsync("show", "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.Contains("  3. [ Pending ] extra (todo #2)", shown.Content, StringComparison.Ordinal);
   }
 
@@ -274,7 +274,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("add-step",
-      "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
   }
@@ -283,9 +283,9 @@ public class PlanCapabilityProviderTests
   public async Task AddStep_OnFrozenPlan_FailsInvalidTransition()
   {
     PlanCapabilityProvider provider = await SeededAsync();
-    _ = await provider.InvokeAsync("set-status", "{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+    _ = await provider.InvokeAsync("set-status", /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
     CapabilityInvocationResult r = await provider.InvokeAsync("add-step",
-      "{ \"id\": 1, \"title\": \"extra\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"title\": \"extra\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidTransition]:", r.Content, StringComparison.Ordinal);
     Assert.Contains("frozen", r.Content, StringComparison.Ordinal);
@@ -296,7 +296,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult r = await provider.InvokeAsync("add-step",
-      "{ \"id\": 7, \"title\": \"s\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 7, \"title\": \"s\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [PlanNotFound]:", r.Content, StringComparison.Ordinal);
   }
@@ -308,11 +308,11 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("update-step",
-      "{ \"id\": 1, \"position\": 2, \"title\": \"rewritten\", \"detail\": \"new detail\" }",
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 2, \"title\": \"rewritten\", \"detail\": \"new detail\" }",
       TestContext.Current.CancellationToken);
     Assert.False(r.IsError);
     Assert.Equal("[plan] updated step 2 in #1", r.Content);
-    CapabilityInvocationResult shown = await provider.InvokeAsync("show", "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.Contains("  2. [ Pending ] rewritten (todo #3) \u2014 new detail", shown.Content, StringComparison.Ordinal);
   }
 
@@ -321,10 +321,10 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("update-step",
-      "{ \"id\": 1, \"position\": 1, \"status\": \"InProgress\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 1, \"status\": \"InProgress\" }", TestContext.Current.CancellationToken);
     Assert.False(r.IsError);
     Assert.Equal("[plan] updated step 1 in #1", r.Content);
-    CapabilityInvocationResult shown = await provider.InvokeAsync("show", "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.Contains("  1. [ InProgress ] one", shown.Content, StringComparison.Ordinal);
   }
 
@@ -333,7 +333,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("update-step",
-      "{ \"id\": 1, \"position\": 1, \"status\": \"done\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 1, \"status\": \"done\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
   }
@@ -343,7 +343,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("update-step",
-      "{ \"id\": 1, \"position\": 1 }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 1 }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
   }
@@ -353,7 +353,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("update-step",
-      "{ \"id\": 1, \"position\": 5, \"title\": \"x\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 5, \"title\": \"x\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [PlanStepNotFound]:", r.Content, StringComparison.Ordinal);
     Assert.Contains("5", r.Content, StringComparison.Ordinal);
@@ -367,10 +367,10 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("remove-step",
-      "{ \"id\": 1, \"position\": 1 }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 1 }", TestContext.Current.CancellationToken);
     Assert.False(r.IsError);
     Assert.Equal("[plan] removed step 1 from #1", r.Content);
-    CapabilityInvocationResult shown = await provider.InvokeAsync("show", "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.Contains("1 step(s):", shown.Content, StringComparison.Ordinal);
     Assert.Contains("  1. [ Pending ] two (todo #3) \u2014 d", shown.Content, StringComparison.Ordinal);
   }
@@ -380,7 +380,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("remove-step",
-      "{ \"id\": 1, \"position\": 9 }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 9 }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [PlanStepNotFound]:", r.Content, StringComparison.Ordinal);
   }
@@ -390,7 +390,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("remove-step",
-      "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
   }
@@ -402,10 +402,10 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
-      "{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
     Assert.False(r.IsError);
     Assert.Equal("[plan] #1 is now Completed", r.Content);
-    CapabilityInvocationResult shown = await provider.InvokeAsync("show", "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.Contains("[plan #1 v2 | Completed | session root-session-1]", shown.Content, StringComparison.Ordinal);
   }
 
@@ -414,7 +414,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
-      "{ \"id\": 1, \"status\": \"completed\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"status\": \"completed\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
     Assert.Contains("Active", r.Content, StringComparison.Ordinal);
@@ -425,7 +425,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = await SeededAsync();
     CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
-      "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidActionInput]:", r.Content, StringComparison.Ordinal);
   }
@@ -434,9 +434,9 @@ public class PlanCapabilityProviderTests
   public async Task SetStatus_FromTerminal_FailsInvalidTransition_NamingAllowedMoves()
   {
     PlanCapabilityProvider provider = await SeededAsync();
-    _ = await provider.InvokeAsync("set-status", "{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+    _ = await provider.InvokeAsync("set-status", /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
     CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
-      "{ \"id\": 1, \"status\": \"Active\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Active\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [InvalidTransition]:", r.Content, StringComparison.Ordinal);
     Assert.Contains("'active'", r.Content, StringComparison.Ordinal);
@@ -449,7 +449,7 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
-      "{ \"id\": 4, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 4, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError);
     Assert.StartsWith("Error [PlanNotFound]:", r.Content, StringComparison.Ordinal);
   }
@@ -491,14 +491,14 @@ public class PlanCapabilityProviderTests
   {
     PlanCapabilityProvider provider = New(out _);
     CapabilityInvocationResult r = await provider.InvokeAsync("add-step",
-      "{ \"id\": 1, \"title\": \"s\", \"detail\": null, \"todoId\": null }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"title\": \"s\", \"detail\": null, \"todoId\": null }", TestContext.Current.CancellationToken);
     Assert.True(r.IsError); // no plan #1 yet -> PlanNotFound, proving the parse layer accepted nulls
     Assert.StartsWith("Error [PlanNotFound]:", r.Content, StringComparison.Ordinal);
-    _ = await provider.InvokeAsync("create", "{ \"title\": \"T\", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
+    _ = await provider.InvokeAsync("create", /*lang=json,strict*/"{ \"title\": \"T\", \"goal\": \"G\" }", TestContext.Current.CancellationToken);
     CapabilityInvocationResult added = await provider.InvokeAsync("add-step",
-      "{ \"id\": 1, \"title\": \"s\", \"detail\": null, \"todoId\": null }", TestContext.Current.CancellationToken);
+      /*lang=json,strict*/"{ \"id\": 1, \"title\": \"s\", \"detail\": null, \"todoId\": null }", TestContext.Current.CancellationToken);
     Assert.False(added.IsError);
-    CapabilityInvocationResult shown = await provider.InvokeAsync("show", "{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
     Assert.Contains("  1. [ Pending ] s", shown.Content, StringComparison.Ordinal);
     Assert.DoesNotContain("\u2014", shown.Content, StringComparison.Ordinal);
   }
