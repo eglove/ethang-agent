@@ -98,7 +98,7 @@ your path and complete them in order.
 4. **Present design** — in sections scaled to their complexity, get user approval after each section
 5. **Write design doc** — store the validated design as a plan record: `plan create` with the design as `goal` (announce the plan id)
 6. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-7. **User reviews the stored spec** — ask user to review the stored spec via `state.get` before proceeding
+7. **User reviews the stored spec** — ask user to review the stored spec (plan show <id>) before proceeding
 8. **Transition to implementation** — invoke writing-plans skill to create implementation plan
 
 ## Process Flow
