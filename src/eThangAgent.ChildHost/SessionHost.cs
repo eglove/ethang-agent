@@ -90,7 +90,7 @@ public sealed class SessionHost
     AgentSettings settings = deserialized with { RemoteHost = false };
 
     string providerName = settings.OpenRouter.ApiKey is not null ? Providers.OpenRouter : Providers.Zai;
-    string workspace = Path.GetDirectoryName(settingsJsonPath) ?? AppContext.BaseDirectory;
+    string workspace = ResolveWorkspace(settings.WorkspaceRoot, settingsJsonPath);
     ModelConfig bootstrapModel = ModelConfig.Create(
         Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f,
         Providers.RoutingContextWindow).Value!;
@@ -100,7 +100,8 @@ public sealed class SessionHost
             settings, providerName, bootstrapModel,
             new AgentHostOptions(
                 new FixedWorkspaceContext(workspace),
-                new WorkspacePathResolver(workspace)),
+                new WorkspacePathResolver(workspace),
+                [new WorkspaceInstructionsPromptProvider(workspace)]),
             new AppDatabase(databasePath),
             null)
         .BuildServiceProvider();
@@ -111,6 +112,24 @@ public sealed class SessionHost
         services.GetRequiredService<IAgentRuntime>(),
         services.GetRequiredService<ChildMailboxRegistry>(),
         settings.Watchdog);
+  }
+
+  /// <summary>The workspace the host's container anchors at (D): the root the app
+  ///     ships in the settings JSON when present - absolute only, a relative root is
+  ///     a named startup error (strict boundaries; never a silent resolution against
+  ///     a random current directory) - else the legacy fallback: the settings JSON's
+  ///     own directory, kept for settings files written before the anchor existed.</summary>
+  private static string ResolveWorkspace(string? workspaceRoot, string settingsJsonPath)
+  {
+    return workspaceRoot switch
+    {
+      { } root when string.IsNullOrWhiteSpace(root) =>
+          Path.GetDirectoryName(settingsJsonPath) ?? AppContext.BaseDirectory,
+      { } root when Path.IsPathRooted(root) => root,
+      { } root => throw new InvalidOperationException(
+          "WorkspaceRoot must be an absolute path: '" + root + "'."),
+      _ => Path.GetDirectoryName(settingsJsonPath) ?? AppContext.BaseDirectory,
+    };
   }
 
   private static JsonSerializerOptions Options { get; } = new(JsonSerializerDefaults.Web);

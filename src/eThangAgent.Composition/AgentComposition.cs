@@ -414,7 +414,7 @@ public static class AgentComposition
       wired = wired
           .AddSingleton(sp => new RemoteHostSupervisor(
               sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
-              Path.Combine(Path.GetTempPath(), "ethang-agent", sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
+              Path.Combine(Path.GetTempPath(), "ethang-agent", RemoteHostSupervisor.ScratchFolderFor(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)),
               settings,
               sp.GetRequiredService<AppDatabase>().DatabasePath,
               // Host-health notices surface on the session transcript when the host UI

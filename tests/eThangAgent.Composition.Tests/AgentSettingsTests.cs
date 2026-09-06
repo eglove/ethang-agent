@@ -44,6 +44,37 @@ public class AgentSettingsTests
   }
 
   [Fact]
+  public void WithWorkspaceRoot_Overlays_And_Never_Mutates()
+  {
+    AgentSettings original = Settings(openRouter: "sk-or-test");
+    Assert.Null(original.WorkspaceRoot);
+
+    AgentSettings overlaid = original.WithWorkspaceRoot("C:\\ws\\anchor");
+
+    Assert.Equal("C:\\ws\\anchor", overlaid.WorkspaceRoot);
+    Assert.Null(original.WorkspaceRoot);
+    // Untouched members carry over.
+    Assert.True(overlaid.HasOpenRouter);
+  }
+
+  [Fact]
+  public void Settings_Json_Round_Trips_WorkspaceRoot_And_Old_Json_Reads_Null()
+  {
+    System.Text.Json.JsonSerializerOptions options = new(System.Text.Json.JsonSerializerDefaults.Web);
+    AgentSettings settings = Settings().WithWorkspaceRoot("C:\\temp\\ws");
+
+    string json = System.Text.Json.JsonSerializer.Serialize(settings, options);
+    AgentSettings parsed = System.Text.Json.JsonSerializer.Deserialize<AgentSettings>(json, options)!;
+    Assert.Equal("C:\\temp\\ws", parsed.WorkspaceRoot);
+
+    // A settings JSON written before the member existed (no WorkspaceRoot key)
+    // deserializes with a null root - the documented fallback, never a fault.
+    string legacy = "{\"OpenRouter\":{\"ApiKey\":null,\"BaseUrl\":\"http://openrouter.test\"},\"Zai\":{\"ApiKey\":null,\"BaseUrl\":\"http://zai.test\"},\"SubAgents\":{\"MaxConcurrentAgents\":1}}";
+    AgentSettings legacyParsed = System.Text.Json.JsonSerializer.Deserialize<AgentSettings>(legacy, options)!;
+    Assert.Null(legacyParsed.WorkspaceRoot);
+  }
+
+  [Fact]
   public void WithApiKeys_Does_Not_Mutate_The_Original()
   {
     AgentSettings original = Settings(openRouter: "before");

@@ -74,7 +74,8 @@ public sealed record AgentSettings(
     SubAgentOptions SubAgents,
     bool RemoteHost = false,
     WatchdogSettings? Watchdog = null,
-    LocalSettings? Local = null)
+    LocalSettings? Local = null,
+    string? WorkspaceRoot = null)
 {
   // Local: null (the default) means unconfigured — a named decision, never silent
   // leniency: it keeps every existing construction site compiling, and hosts (the
@@ -121,4 +122,16 @@ public sealed record AgentSettings(
     Local = (Local ?? new LocalSettings(null, null)) with { BaseUrlText = baseUrlText, ApiKey = apiKey },
   };
 #pragma warning restore CA1054
+
+  /// <summary>Returns the same settings with the workspace root overlaid. The
+  ///     out-of-process child host anchors its whole container here (D: spawn-time
+  ///     workspace anchor); the value travels inside the settings JSON the
+  ///     RemoteHostSupervisor writes, so the host needs no other carrier. Hosts
+  ///     whose workspace identity is the opened directory (the Desktop) use this to
+  ///     ship that root to the host; validation lives where the value is consumed
+  ///     (SessionHost), strict as everywhere else.</summary>
+  public AgentSettings WithWorkspaceRoot(string? workspaceRoot) => this with
+  {
+    WorkspaceRoot = workspaceRoot,
+  };
 }

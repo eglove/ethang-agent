@@ -36,6 +36,86 @@ public class RemoteHostE2ETests
             return Tools.Invoke("agent.result", new { timeoutSeconds = 60, id = "{{child_id}}" });
             """;
 
+  /// <summary>D (spawn-time workspace anchor): a remote child resolves relative tool
+  ///     paths against the REAL workspace the session opened on, and receives the
+  ///     workspace's AGENTS.md in its system prompt - parity with in-process children.
+  ///     Cleanup is unconditional: a leaked ChildHost process holds the supervisor's
+  ///     redirected pipes open and wedges the test host.</summary>
+  [Fact]
+  public async Task RemoteSpawn_ChildAnchorsAtTheRealWorkspace_DocsInjected()
+  {
+    string? ws = null;
+    using E2E.HostHarness host = new();
+    _ = await host.StartAsync();
+    AgentSession? session = null;
+    try
+    {
+      ws = Directory.CreateTempSubdirectory("ethang-remote-anchor").FullName;
+      string probe = Path.Combine(ws, "anchor-probe.md");
+      await File.WriteAllTextAsync(probe, "ANCHOR-PROBE-777", TestContext.Current.CancellationToken);
+      await File.WriteAllTextAsync(Path.Combine(ws, "AGENTS.md"), "# anchor test agents file",
+          TestContext.Current.CancellationToken);
+
+      AgentSessionFactory factory = new(
+          host.BuildSettings(remoteHost: true),
+          new AppDatabase(host.DatabasePath));
+      Result<AgentSession> opened = await factory.CreateAsync(
+          ws, Providers.OpenRouter,
+          ct: TestContext.Current.CancellationToken);
+      Assert.True(opened.IsSuccess, opened.Error?.Message);
+      session = opened.Value;
+      session.Services.GetRequiredService<SessionModelPreferences>().ModelId = E2E.SessionModel;
+
+      AgentSessionViewModel? vmRef = null;
+      async Task Sink(UiStreamEvent evt) =>
+          await (vmRef ?? throw new InvalidOperationException("sink before view-model init"))
+              .ApplyUiStreamEventAsync(evt).ConfigureAwait(true);
+      MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session, Sink);
+      AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
+      vmRef = vm;
+
+      _ = host.Mock.ReturnsForModel(E2E.SessionModel,
+          E2E.ExecToolCall("anchor_call_1", E2E.ExecProgram("var spawned = Tools.Invoke(\"agent.spawn\", new { timeoutSeconds = 60, taskPrompt = \"Run the scripted tool call, then report.\", model = \"mock/sub-model\", label = \"remote-anchor\" }); return spawned;")),
+          E2E.ExecToolCall("anchor_call_2", E2E.ExecProgram(PollThenResult)),
+          RawCompletion("done: anchor child reported"));
+
+      string readProgram = "var f = Tools.Invoke(\"read\", new { timeoutSeconds = 30, path = \"anchor-probe.md\", startLine = 1, endLine = 10 }); return \"PROBE:\" + f;";
+      _ = host.Mock.ReturnsForModel("mock/sub-model",
+          E2E.ExecToolCall("child_call_1", E2E.ExecProgram(readProgram)),
+          RawCompletion("anchor child done"));
+
+      await vm.RunTurnAsync("delegate to a remote child")
+          .WaitAsync(TimeSpan.FromSeconds(120), TestContext.Current.CancellationToken);
+
+      // Diagnose in order: the child's exec result first (prints the read's verbatim
+      // error on failure), then the probe content, then prompt parity.
+      string probeResult = E2E.FindToolMessageContaining(host.Mock.RequestBodies, "PROBE:");
+      Assert.Contains("ANCHOR-PROBE-777", probeResult, StringComparison.Ordinal);
+      Assert.Contains(host.Mock.RequestBodies,
+          b => b.Contains("agents-file", StringComparison.Ordinal)
+              && b.Contains("# anchor test agents file", StringComparison.Ordinal));
+    }
+    finally
+    {
+      if (session is not null)
+      {
+        await session.Services.DisposeAsync();
+      }
+
+      if (ws is not null)
+      {
+        try
+        {
+          Directory.Delete(ws, recursive: true);
+        }
+        catch (IOException)
+        {
+          // best effort: a still-draining host may pin the directory
+        }
+      }
+    }
+  }
+
   [Fact]
   public async Task RemoteSpawn_SettlesThroughWire_SurvivesAppContainerDeath()
   {

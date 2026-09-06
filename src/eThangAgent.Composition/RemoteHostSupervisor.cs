@@ -31,14 +31,30 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   public RemoteHostSupervisor(string workspaceId, string scratchDirectory,
       AgentSettings settings, string databasePath, Action<string> reportNotice, Func<string> hostExePath)
   {
+    ArgumentNullException.ThrowIfNull(settings);
     HostPipeName = "ethang-host-" + PipeSuffix(workspaceId);
     _ = Directory.CreateDirectory(scratchDirectory); // the settings file below needs the directory
     _settingsPath = Path.Combine(scratchDirectory, "childhost-settings.json");
     _databasePath = databasePath;
     _reportNotice = reportNotice;
     _hostExePath = hostExePath;
-    File.WriteAllText(_settingsPath, JsonSerializer.Serialize(settings));
+    // The workspace root rides the settings JSON (D): the host's ONLY carrier, and
+    // SessionHost anchors its container there - without it the host anchors at the
+    // settings-file directory and every tool path fails. An explicit root on the
+    // settings wins: the overlay never silently overwrites caller-supplied data.
+    AgentSettings shipped = string.IsNullOrWhiteSpace(settings.WorkspaceRoot)
+        ? settings.WithWorkspaceRoot(workspaceId)
+        : settings;
+    File.WriteAllText(_settingsPath, JsonSerializer.Serialize(shipped));
   }
+
+  /// <summary>A filesystem-safe scratch folder name for one workspace id (D5).
+  ///     Hashing is the point: a workspace id is often an ABSOLUTE PATH, and a raw
+  ///     path segment would silently discard every earlier Path.Combine segment
+  ///     (observed: the host's settings JSON landed inside the user's workspace).
+  ///     Composition joins this under the temp root, so the scratch can never reach
+  ///     the workspace it serves.</summary>
+  public static string ScratchFolderFor(string workspaceId) => "ws-" + PipeSuffix(workspaceId);
 
   /// <summary>The pipe name (exposed for tests and diagnostics).</summary>
   public string HostPipeName { get; }
