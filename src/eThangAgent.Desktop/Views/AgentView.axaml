@@ -24,6 +24,15 @@
       <Setter Property="BorderBrush" Value="#4C8CFF"/>
       <Setter Property="BorderThickness" Value="2"/>
     </Style>
+
+    <!-- Command mode: input text starts with '!' — the border turns amber so the
+         user sees, before pressing Enter, that the line runs as a shell command
+         instead of going to the model. The class is toggled by the view's
+         TextChanged handler; this style is what makes it visible. -->
+    <Style Selector="TextBox.command">
+      <Setter Property="BorderBrush" Value="#FFB454"/>
+      <Setter Property="BorderThickness" Value="2"/>
+    </Style>
   </UserControl.Styles>
   <DockPanel>
     <!-- Status bar: phase first, then context, provider, model id, reasoning effort.
