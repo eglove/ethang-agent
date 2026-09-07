@@ -5,6 +5,12 @@
              x:Class="eThangAgent.Desktop.Views.AgentView"
              x:DataType="vm:AgentSessionViewModel">
   <UserControl.Styles>
+    <!-- Stop glyph must sit centered in its button regardless of template
+         defaults: target the presenter directly (same as the rail menu items). -->
+    <Style Selector="Button#StopButton > ContentPresenter">
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
     <!-- Header label inset must mirror the chevron's right inset: stretch the
          header AND its presenter content, so the header DockPanel spans the full
          row - the fill label starts at the symmetric 8 DIP padding (mirroring the
@@ -66,7 +72,8 @@
           <TextBox x:Name="InputBox" Grid.Column="0" PlaceholderText="Type a message"
                    AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/>
           <Button x:Name="StopButton" Grid.Column="1" Margin="8,0,0,0" MinWidth="64" Padding="16,0"
-                  IsVisible="{Binding IsBusy}" Click="OnStopClick" VerticalAlignment="Stretch"/>
+                  IsVisible="{Binding IsBusy}" Click="OnStopClick" VerticalAlignment="Stretch"
+                  Content="■" FontSize="14" ToolTip.Tip="Stop"/>
         </Grid>
       </StackPanel>
     </DockPanel>
