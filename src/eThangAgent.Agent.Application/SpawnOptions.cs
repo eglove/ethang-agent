@@ -15,9 +15,14 @@ namespace eThangAgent.Agent.Application;
 /// <param name="ChildToolSurface">The parent's effective child tool surface (action ids);
 ///     grant validation measures requested allows against it. Null disables widening checks
 ///     (legacy wiring/tests only).</param>
+/// <param name="WorkspaceRoot">The session workspace the handler validates a request's
+///     anchor against when the parent record carries no persisted anchor of its own
+///     (worktree ladder, T5). Composition supplies it; null means an anchored request
+///     without a parent anchor is refused rather than silently inherited.</param>
 public sealed record SpawnOptions(
     string FallbackModelId,
     SessionModelPreferences? Preferences = null,
     int MaxTokens = 4096,
     float Temperature = 0.7f,
-    IReadOnlySet<string>? ChildToolSurface = null);
+    IReadOnlySet<string>? ChildToolSurface = null,
+    string? WorkspaceRoot = null);

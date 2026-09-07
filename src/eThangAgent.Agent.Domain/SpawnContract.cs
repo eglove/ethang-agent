@@ -9,13 +9,24 @@ public sealed record BudgetCeilings(long? MaxTokens = null, decimal? MaxCost = n
 /// <summary>The spawn-time agreement (source spec Section 4.5): persisted with the record
 ///     so resume and audit see the contract the run started with. T3 members exist now,
 ///     defaulted — the ladder adds enforcement, not shape.</summary>
+/// <param name="ResultSchema">Optional JSON schema a child's final report must satisfy.</param>
+/// <param name="CapabilityGrants">Requested tool allow/deny grants, validated at spawn.</param>
+/// <param name="Budgets">Optional budget ceilings; null members are unbounded.</param>
+/// <param name="MaxUrgency">Highest urgency the child may use when steering further down.</param>
+/// <param name="PreemptGrant">Whether steering may preempt the child mid-turn.</param>
+/// <param name="EffectiveTools">Dispatch-time effective tool set R1 enforces (resolved,
+///     persisted); null = no resolved grants (default surface).</param>
+/// <param name="WorkspaceRoot">The child's validated workspace anchor (worktree ladder,
+///     T5): the fully resolved directory the run is anchored to, persisted so later
+///     enforcement and grandchild chains measure against it. Null = unanchored legacy run.</param>
 public sealed record SpawnContract(
     string? ResultSchema = null,
     IReadOnlyDictionary<string, string>? CapabilityGrants = null,
     BudgetCeilings? Budgets = null,
     int MaxUrgency = 0,
     bool PreemptGrant = false,
-    string? EffectiveTools = null)
+    string? EffectiveTools = null,
+    string? WorkspaceRoot = null)
 {
   /// <summary>The dispatch-time effective tool set R1 enforces: resolved by the spawn
   ///     command from the parent's effective set and the validated grants, persisted so

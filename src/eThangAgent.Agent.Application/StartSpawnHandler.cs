@@ -7,7 +7,8 @@ namespace eThangAgent.Agent.Application;
 
 /// <summary>Start command of the spawn CQRS split: validates the request, persists a Running child,
 ///     and hands it to the runtime as an independent actor. Owns the validation/depth/model rules
-///     that previously lived in SubAgentSpawner's synchronous path. When no explicit model is
+///     that previously lived in SubAgentSpawner's synchronous path, plus the workspace-anchor
+///     rule (validated against the parent's effective root, resolved path persisted on the contract). When no explicit model is
 ///     provided and no session model preference is set, an available IModelSelector runs
 ///     intelligent model selection; the chain falls back to the host-injected
 ///     <see cref="SpawnOptions.FallbackModelId"/> on any selection failure.</summary>
@@ -68,6 +69,42 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       }
     }
 
+    // Workspace anchor (worktree ladder, T5): an anchor on the request is validated
+    // against the parent's effective root — the parent's OWN persisted anchor when its
+    // contract carries one (grandchild chains measure against it), else the session
+    // workspace — and the FULL resolved path is persisted on the contract so the record
+    // stays self-describing for later enforcement. A null/whitespace anchor keeps the
+    // byte-identical legacy path: no spec run, no persistence change.
+    if (!string.IsNullOrWhiteSpace(request.WorkspaceRoot))
+    {
+      string? effectiveRoot = parent.Contract is { } parentContractJson
+          && SpawnContract.Decode(parentContractJson).WorkspaceRoot is { } parentAnchor
+              ? parentAnchor
+              : _spawn.WorkspaceRoot;
+      if (string.IsNullOrWhiteSpace(effectiveRoot))
+      {
+        // Named refusal, never silent inheritance: an anchor cannot be validated
+        // without a root to measure containment against.
+        return Result.Failure<AgentId>(new DomainError("AnchorInvalid",
+            WorkspaceAnchorSpecification.InvalidPrefix + " the anchor '" + request.WorkspaceRoot
+                + "' cannot be validated: no session workspace and no parent anchor establish a root."));
+      }
+
+      WorkspaceAnchorSpecification anchorSpec = new(effectiveRoot);
+      if (anchorSpec.ViolationFor(request.WorkspaceRoot) is { } anchorViolation)
+      {
+        string message = anchorViolation.Message;
+        string code = message.StartsWith(WorkspaceAnchorSpecification.MissingPrefix, StringComparison.Ordinal)
+            ? "AnchorMissing"
+            : "AnchorInvalid";
+        return Result.Failure<AgentId>(new DomainError(code, message));
+      }
+
+      resolvedContract = (resolvedContract ?? new SpawnContract())
+      with
+      { WorkspaceRoot = ResolveAnchor(request.WorkspaceRoot) };
+    }
+
     if (parent.Depth >= _options.MaxDepth)
     {
       return Result.Failure<AgentId>(new DomainError("DepthExceeded",
@@ -95,6 +132,17 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     return started.IsSuccess
         ? Result.Success(record.Id)
         : Result.Failure<AgentId>(started.Error);
+  }
+
+  /// <summary>Canonical form of a resolved anchor: fully qualified with any trailing
+  ///     separators removed — the same discipline the tool domain's workspace root uses,
+  ///     so a persisted anchor never differs from a later candidate comparison by a
+  ///     separator. A drive root ("C:\") would trim to "C:" which no longer refers to
+  ///     the drive root; restore the separator so it stays meaningful.</summary>
+  private static string ResolveAnchor(string anchor)
+  {
+    string full = Path.GetFullPath(anchor).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    return full.Length == 2 && full[1] == ':' ? full + Path.DirectorySeparatorChar : full;
   }
 
   /// <summary>The parent's effective tool set, as R1 defines it: the parent's OWN
