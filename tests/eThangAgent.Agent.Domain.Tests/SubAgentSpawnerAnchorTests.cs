@@ -1,3 +1,4 @@
+using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
@@ -9,16 +10,23 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     an unanchored contract passes the registry through untouched and never writes the
 ///     scope; an anchored contract with no scope wired is an infrastructure
 ///     misconfiguration whose ArgumentNullException maps to Failed(ProviderError)
-///     through the run's fault boundary.</summary>
+///     through the run's fault boundary. When a contract carries both an anchor and a
+///     resolved effective tool set, the wraps compose Filtered(Anchored(session)) —
+///     grants OUTSIDE the anchor: a granted call resolves re-rooted at the anchor and
+///     a denied call renders the structured GrantViolation contract (the loop resolves
+///     refusals through the concrete FilteredToolRegistry, so the filter must be the
+///     registry the Agent carries).</summary>
 public class SubAgentSpawnerAnchorTests
 {
   private const string Anchor = @"C:\anchor\ws";
   private const string ParentRoot = @"C:\parent\ws";
 
-  private static AgentRecord Child(string? contractJson, string prompt = "do things")
+  private static AgentRecord Child(string? contractJson, string prompt = "do things",
+      string? effectiveTools = null)
       => AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", null, prompt,
           new DateTime(2026, 8, 21, 12, 0, 0, DateTimeKind.Utc),
-          contractJson is null ? null : new SpawnContract(WorkspaceRoot: contractJson));
+          contractJson is null ? null : new SpawnContract(WorkspaceRoot: contractJson,
+              EffectiveTools: effectiveTools));
 
   private static SubAgentSpawner MakeRunner(
       IModelProvider provider, FakeAgentStore store, IToolRegistry tools,
@@ -144,6 +152,51 @@ public class SubAgentSpawnerAnchorTests
     Assert.Equal(ParentRoot, scope.Current);
   }
 
+  // ── (f) chain order: anchored + granted → Filtered(Anchored(session)) ───────
+
+  [Fact]
+  public async Task RunAsync_AnchoredAndGrantedContract_ComposesFilteredOutsideAnchored()
+  {
+    FakeAgentStore store = new();
+    RecordingScope scope = new();
+    ExecLog log = new();
+    ScopedFakeTool scoped = new("scoped", log);
+    SentinelTool ungranted = new("ungranted", log);
+    // Grants admit ONLY "scoped". The denied-but-real "ungranted" probe distinguishes
+    // the topologies: the loop resolves refusal explanations through the concrete
+    // FilteredToolRegistry, so the GrantViolation contract renders only when the
+    // filter is OUTERMOST — the inverted chain renders UnknownTool here instead.
+    RecordingProvider provider = new(scope,
+        Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "ungranted", "{}")])),
+        Result.Success(new ModelResponse(null, [new ToolCallRequest("c2", "scoped", "{}")])),
+        Result.Success(new ModelResponse("done", [])));
+    SubAgentSpawner spawner = MakeRunner(provider, store, new ToolRegistry([scoped, ungranted]), scope);
+
+    AgentRunOutcome outcome = await spawner.RunAsync(
+        Child(Anchor, effectiveTools: "scoped"), TestContext.Current.CancellationToken);
+
+    Assert.Equal(AgentStatus.Completed, outcome.Status);
+
+    // The denied call was refused in the filter's own structured words (R1.3) —
+    // never the plain UnknownTool line: the run's second provider call carries
+    // exactly one tool result, the answer to the denied probe.
+    Message denial = Assert.Single(provider.Requests[1].Messages,
+        m => m.Role == Role.Tool);
+    Assert.Equal(GrantViolation.For("ungranted"), denial.Content);
+
+    // The granted call was served by the RE-ROOTED sentinel: the anchored view sits
+    // BENEATH the filter (Filtered(Anchored(session)), not Anchored(Filtered(...)));
+    // the ungranted tool never executed.
+    Assert.Equal(Anchor, scoped.RootedAtArg);
+    Assert.Equal([SentinelTool.SentinelExec], log.Entries);
+
+    // The advertised surface is the filtered view of the anchored registry: only the
+    // granted tool's definition reaches the provider (anchoring re-roots resolution,
+    // never advertisement).
+    string[] advertised = [.. provider.Requests[^1].Tools!.Select(t => t.Name)];
+    Assert.Equal(["scoped"], advertised);
+  }
+
   // ── fakes ────────────────────────────────────────────────────────────────────
 
   /// <summary>Which tool instance served a dispatch: the original or the re-rooted sentinel.</summary>
@@ -207,11 +260,13 @@ public class SubAgentSpawnerAnchorTests
     }
 
     public List<string?> ScopeSamples { get; } = [];
+    public List<ModelRequest> Requests { get; } = [];
 
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
         CancellationToken ct = default)
     {
       ScopeSamples.Add(_scope.Current);
+      Requests.Add(request);
       return Task.FromResult(_responses.Count > 0
           ? _responses.Dequeue()
           : Result.Success(new ModelResponse("done", [])));

@@ -101,34 +101,43 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
             + " your run was restarted by the watchdog after an idle timeout. Continue from where you stopped and wrap up now with your final report."
         : child.TaskPrompt;
 
-    // Dispatch-time grant enforcement (R1): a contract carrying a resolved effective
-    // set runs against the FILTERED view of the session registry; grants absent means
-    // the shared registry passes through unchanged (zero behavior delta).
+    // Run-path registry topology (R1 + worktree ladder, T7): the wraps compose
+    // inner-first — the anchored view is applied BEFORE the grant filter, so the
+    // registry the Agent carries is Filtered(Anchored(session)). The outermost wrap
+    // must be the filter: the loop resolves refusal explanations through the concrete
+    // FilteredToolRegistry (the structured GrantViolation contract, R1.3), and Find
+    // flows the grant policy down onto the anchored view, so a granted tool still
+    // resolves re-rooted at the anchor.
     IToolRegistry tools = _tools;
     string? anchor = null;
     if (child.Contract is { } runContractJson)
     {
-      // Decode once: the same contract feeds both the grant filter and the anchor.
+      // Decode once: the same contract feeds both the anchor and the grant filter.
       SpawnContract runContract = SpawnContract.Decode(runContractJson);
       anchor = runContract.WorkspaceRoot;
 
+      // Anchoring wraps first (innermost): an anchored contract runs against a view
+      // of the registry re-rooted at the anchor. An already-anchored registry (a
+      // resumed/retried run) is never wrapped again (no-double-wrap discipline); a
+      // null anchor touches nothing (zero behavior delta).
+      if (anchor is not null && tools is not AnchoredToolRegistry)
+      {
+        tools = new AnchoredToolRegistry(tools, anchor);
+      }
+
+      // Grants wrap second (outermost): a contract carrying a resolved effective set
+      // runs against the FILTERED view of the anchored registry; grants absent means
+      // the (possibly anchored) registry passes through unchanged. The double-wrap
+      // check still guards: at this point tools is the session registry or its
+      // anchored view — never already-filtered — so the wrap always proceeds; the
+      // check only catches a registry handed in already filtered.
       if (runContract.DecodedEffectiveTools is { } effective
           && tools is not FilteredToolRegistry) // never double-wrap (a resumed/retried run)
       {
         IWatchdogEventStore? audit = services.Audit;
-        tools = new FilteredToolRegistry(_tools, effective,
+        tools = new FilteredToolRegistry(tools, effective,
             onDenial: name => _ = GrantAuditAsync(audit!, child.Id, "tool '" + name + "' denied at dispatch", ct));
       }
-    }
-
-    // Workspace anchoring (worktree ladder, T7): an anchored contract runs against a
-    // view of the registry re-rooted at the anchor, applied BEFORE the grant filter's
-    // view so grants may still wrap outside it. A resumed/retried run that is already
-    // anchored is never wrapped again (mirrors the no-double-wrap check above). A null
-    // anchor touches nothing (zero behavior delta).
-    if (anchor is not null && tools is not AnchoredToolRegistry)
-    {
-      tools = new AnchoredToolRegistry(tools, anchor);
     }
 
     // Each child gets its own accountant: two children must never share totals.
