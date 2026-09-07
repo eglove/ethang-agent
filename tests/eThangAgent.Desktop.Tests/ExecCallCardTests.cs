@@ -41,7 +41,7 @@ public class ExecCallCardTests
 
     ToolCallEntry entry = Assert.IsType<ToolCallEntry>(Assert.Single(vm.Entries));
     Assert.StartsWith(entry.ElapsedDisplay, entry.HeaderTimeDisplay, StringComparison.Ordinal);
-    Assert.EndsWith(" / 120s", entry.HeaderTimeDisplay, StringComparison.Ordinal);
+    Assert.EndsWith(" / 2m", entry.HeaderTimeDisplay, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -57,7 +57,7 @@ public class ExecCallCardTests
 
     ToolCallEntry entry = Assert.IsType<ToolCallEntry>(Assert.Single(vm.Entries));
     Assert.Equal("", entry.ElapsedDisplay);
-    Assert.Equal("120s", entry.HeaderTimeDisplay);
+    Assert.Equal("2m", entry.HeaderTimeDisplay);
     Assert.Equal("parse names", entry.HeaderTitle);
     Assert.Equal("```csharp\nreturn 42;\n```", entry.ProgramBody);
   }

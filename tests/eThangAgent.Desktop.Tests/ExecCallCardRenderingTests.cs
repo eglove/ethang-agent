@@ -43,7 +43,7 @@ public class ExecCallCardRenderingTests
 
     // Right slot: budget visible in the header time display.
     TextBlock time = view.GetVisualDescendants().OfType<TextBlock>()
-        .First(b => b.Text is not null && b.Text.Contains("120s", StringComparison.Ordinal));
+        .First(b => b.Text is not null && b.Text.Contains("2m", StringComparison.Ordinal));
     Assert.NotNull(time);
   }
 }

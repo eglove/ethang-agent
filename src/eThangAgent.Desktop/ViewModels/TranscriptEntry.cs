@@ -48,6 +48,20 @@ internal sealed record ToolCallEntry(string Name, string Arguments, ToolElapsedH
   ///     the legacy JSON arguments body.</summary>
   public string? ProgramBody => Shape is { } shape ? $"```csharp\n{shape.Program}\n```" : null;
 
+  /// <summary>True when a live elapsed handle backs the header's count-up: the
+  ///     header binds straight through this to the handle's Display leaf, so the
+  ///     handle's PropertyChanged ticks reach the card without rebuilding the
+  ///     entry (the chevron re-animation fix).</summary>
+  public bool HasLiveElapsed => Elapsed is not null;
+
+  /// <summary>The exec timeout budget as a duration ("15m"); empty for non-exec
+  ///     cards.</summary>
+  public string BudgetDisplay => Shape?.BudgetDisplay ?? "";
+
+  /// <summary>True when both the live count-up and a budget render — the
+  ///     "/" separator's slot; a bare elapsed or a bare budget shows none.</summary>
+  public bool ShowTimeSeparator => HasLiveElapsed && BudgetDisplay.Length > 0;
+
   /// <summary>Right header slot: live "elapsed / budget" while running, "budget"
   ///     alone on restored cards, bare elapsed for non-exec tools.</summary>
   public string HeaderTimeDisplay => Shape is not { } shape
@@ -86,7 +100,7 @@ internal sealed record ExecCallShape(string? Title, string Program, string Budge
           && titleEl.ValueKind == System.Text.Json.JsonValueKind.String
           ? titleEl.GetString()
           : null;
-      return new ExecCallShape(title, programEl.GetString()!, $"{budgetEl.GetDouble()}s");
+      return new ExecCallShape(title, programEl.GetString()!, ToolElapsed.FormatBudget((int)budgetEl.GetDouble()));
     }
     catch (System.Text.Json.JsonException)
     {

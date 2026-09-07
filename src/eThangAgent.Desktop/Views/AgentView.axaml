@@ -89,8 +89,16 @@
             <Expander Classes="tool-card" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
               <Expander.Header>
                 <DockPanel HorizontalAlignment="Stretch">
-                  <TextBlock DockPanel.Dock="Right" Foreground="Gray" Margin="8,0,0,0"
-                             Text="{Binding HeaderTimeDisplay, Mode=OneWay}"/>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0">
+                    <!-- Live count-up: bound through the INPC handle leaf so the tick's
+                         PropertyChanged reaches this TextBlock directly, never rebuilding
+                         the entry (the chevron re-animation fix). Visible only while a
+                         tool runs; restored cards show the budget alone. -->
+                    <TextBlock IsVisible="{Binding HasLiveElapsed}"
+                               Text="{Binding Elapsed.Display, Mode=OneWay}"/>
+                    <TextBlock IsVisible="{Binding ShowTimeSeparator}" Text=" / " Foreground="Gray"/>
+                    <TextBlock Text="{Binding BudgetDisplay, Mode=OneWay}" Foreground="Gray"/>
+                  </StackPanel>
                   <Panel>
                     <!-- Exec call: the card IS the program - title-only header. -->
                     <TextBlock IsVisible="{Binding IsExecCall}" TextWrapping="Wrap">
