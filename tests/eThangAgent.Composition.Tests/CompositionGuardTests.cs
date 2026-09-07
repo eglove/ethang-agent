@@ -97,6 +97,26 @@ public class CompositionGuardTests
   }
 
   [Fact]
+  public void Worktree_Tool_Is_In_The_Session_Surface()
+  {
+    // The worktree capability is core wiring, not provider-specific: every
+    // session's tool surface carries it, OpenRouter and z.ai alike.
+    string[] providers = [Providers.OpenRouter, Providers.Zai];
+    foreach (string provider in providers)
+    {
+      using ServiceProvider services = new ServiceCollection()
+          .AddEThangAgentCore(Settings(zaiKey: "zai-test-key"), provider,
+              ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+              new AgentHostOptions(
+                  new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
+          .BuildServiceProvider();
+
+      AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
+      Assert.Contains(tools.Actions, a => a.Name == "worktree");
+    }
+  }
+
+  [Fact]
   public void ZaiWiring_Resolves_ZaiProvider_Factory_AndCatalog()
   {
     AgentSettings settings = Settings(zaiKey: "zai-test-key");

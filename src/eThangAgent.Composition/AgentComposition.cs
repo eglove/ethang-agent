@@ -69,6 +69,8 @@ public static class AgentComposition
         .AddSingleton<DirectGitAccess>()
         .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
         .AddSingleton<IGitCommitAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
+        .AddSingleton<GitWorktreeAccess>()
+        .AddSingleton<IGitWorktreeAccess>(sp => sp.GetRequiredService<GitWorktreeAccess>())
         .AddSingleton(ExecOptions.Default)
         .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
         .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
@@ -131,6 +133,10 @@ public static class AgentComposition
                         sp.GetRequiredService<IGitCommitAccess>(),
                         sp.GetRequiredService<ICommitStyleProvider>()),
                     "Commit the current index with a validated conventional or gitmoji message."),
+                new AgentToolBinding(
+                    new WorktreeTool(sp.GetRequiredService<IPathResolver>(),
+                        sp.GetRequiredService<IGitWorktreeAccess>()),
+                    "List git worktrees, or create/remove one under .worktrees."),
                 new AgentToolBinding(
                     new CommandOutputTool(sp.GetRequiredService<ICommandRunStore>()),
                     "Read the stored output of a user command run (a ! command the user ran in chat)."),
