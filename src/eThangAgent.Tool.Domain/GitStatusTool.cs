@@ -3,10 +3,14 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class GitStatusTool(IPathResolver resolver, IGitQueryAccess git) : ITool
+public sealed class GitStatusTool(IPathResolver resolver, IGitQueryAccess git) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IGitQueryAccess _git = git ?? throw new ArgumentNullException(nameof(git));
+
+  /// <inheritdoc />
+  public ITool RootedAt(string workspaceRoot)
+      => new GitStatusTool(new WorkspacePathResolver(workspaceRoot), _git);
 
   public ToolDefinition Definition { get; } = new(
       "git_status",

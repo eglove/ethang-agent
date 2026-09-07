@@ -4,7 +4,7 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class WorkingDiffTool(IPathResolver resolver, IGitQueryAccess git) : ITool
+public sealed class WorkingDiffTool(IPathResolver resolver, IGitQueryAccess git) : ITool, IWorkspaceScopedTool
 {
   /// <summary>The character cap at which the access layer truncates patches. The
   /// domain owns this contract number for display; the access layer enforces it.</summary>
@@ -12,6 +12,10 @@ public sealed class WorkingDiffTool(IPathResolver resolver, IGitQueryAccess git)
 
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IGitQueryAccess _git = git ?? throw new ArgumentNullException(nameof(git));
+
+  /// <inheritdoc />
+  public ITool RootedAt(string workspaceRoot)
+      => new WorkingDiffTool(new WorkspacePathResolver(workspaceRoot), _git);
 
   public ToolDefinition Definition { get; } = new(
       "working_diff",

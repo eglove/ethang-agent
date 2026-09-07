@@ -2,10 +2,14 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : ITool
+public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileEditAccess _files = files ?? throw new ArgumentNullException(nameof(files));
+
+  /// <inheritdoc />
+  public ITool RootedAt(string workspaceRoot)
+      => new EditTool(new WorkspacePathResolver(workspaceRoot), _files);
 
   public ToolDefinition Definition { get; } = new(
       "edit",

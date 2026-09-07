@@ -4,10 +4,14 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class WorktreeTool(IPathResolver resolver, IGitWorktreeAccess worktrees) : ITool
+public sealed class WorktreeTool(IPathResolver resolver, IGitWorktreeAccess worktrees) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IGitWorktreeAccess _worktrees = worktrees ?? throw new ArgumentNullException(nameof(worktrees));
+
+  /// <inheritdoc />
+  public ITool RootedAt(string workspaceRoot)
+      => new WorktreeTool(new WorkspacePathResolver(workspaceRoot), _worktrees);
 
   public ToolDefinition Definition { get; } = new(
       "worktree",

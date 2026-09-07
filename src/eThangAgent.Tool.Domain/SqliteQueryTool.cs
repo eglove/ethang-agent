@@ -10,10 +10,14 @@ namespace eThangAgent.ToolDomain;
 ///     <c>[sqlite_query resolved-path]</c> annotation that names the file. The path is
 ///     resolved and refused outside the workspace before the seam is touched; the
 ///     seam's read-only connection is the enforcement backstop.</summary>
-public sealed class SqliteQueryTool(IPathResolver resolver, ISqliteFileAccess files) : ITool
+public sealed class SqliteQueryTool(IPathResolver resolver, ISqliteFileAccess files) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly ISqliteFileAccess _files = files ?? throw new ArgumentNullException(nameof(files));
+
+  /// <inheritdoc />
+  public ITool RootedAt(string workspaceRoot)
+      => new SqliteQueryTool(new WorkspacePathResolver(workspaceRoot), _files);
 
   public ToolDefinition Definition { get; } = new(
       "sqlite_query",

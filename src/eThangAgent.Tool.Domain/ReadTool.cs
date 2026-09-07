@@ -4,10 +4,14 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files) : ITool
+public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileSystemAccess _files = files ?? throw new ArgumentNullException(nameof(files));
+
+  /// <inheritdoc />
+  public ITool RootedAt(string workspaceRoot)
+      => new ReadTool(new WorkspacePathResolver(workspaceRoot), _files);
 
   public ToolDefinition Definition { get; } = new(
       "read",

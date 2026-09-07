@@ -3,11 +3,15 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.ToolDomain;
 
 public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commits,
-    ICommitStyleProvider styleProvider) : ITool
+    ICommitStyleProvider styleProvider) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IGitCommitAccess _commits = commits ?? throw new ArgumentNullException(nameof(commits));
   private readonly ICommitStyleProvider _styleProvider = styleProvider ?? throw new ArgumentNullException(nameof(styleProvider));
+
+  /// <inheritdoc />
+  public ITool RootedAt(string workspaceRoot)
+      => new GitCommitTool(new WorkspacePathResolver(workspaceRoot), _commits, _styleProvider);
 
   public ToolDefinition Definition { get; } = new(
       "git_commit",
