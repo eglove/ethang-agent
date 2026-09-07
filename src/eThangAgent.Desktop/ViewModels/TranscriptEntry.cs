@@ -126,6 +126,14 @@ internal sealed record ToolResultEntry(string Name, string Summary, string FullC
 
 internal sealed record NoticeEntry(string Text) : TranscriptEntry;
 
+/// <summary>The one context line every session opens with (transient, like a
+///     notice — it never enters the conversation): workspace, provider, model,
+///     and the short session id, shown before any content including on resume.</summary>
+internal sealed record BootstrapEntry(string WorkspaceRoot, string Provider, string ModelId, string SessionId8) : TranscriptEntry
+{
+  public string Summary => $"{WorkspaceRoot} — {Provider} · {ModelId} · session {SessionId8}";
+}
+
 /// <summary>A system message the agent loop appended to the conversation mid-turn
 ///     (nudges, continuation prompts, compaction-failure notices). Loop-voice, unlike
 ///     a transient host notice: it lives in the persisted conversation, and restore

@@ -55,7 +55,7 @@ public class RichToolResultStreamTests
 
     await vm.ApplyUiStreamEventAsync(new UiStreamEvent.ToolResultEvent("exec", "ok", "42", false, "parse names"));
 
-    ToolResultEntry entry = Assert.IsType<ToolResultEntry>(Assert.Single(vm.Transcript.Entries));
+    ToolResultEntry entry = Assert.IsType<ToolResultEntry>(Assert.Single(vm.Transcript.Entries.OfType<ToolResultEntry>()));
     Assert.Equal("parse names", entry.HeaderTitle);
   }
 }

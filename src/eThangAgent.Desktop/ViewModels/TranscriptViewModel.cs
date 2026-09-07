@@ -66,6 +66,14 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     Entries.Add(new NoticeEntry(text));
   }
 
+  /// <summary>Lands the session's bootstrap context entry — the transcript's first
+  ///     line, appended at construction before any restore or turn.</summary>
+  public void AddBootstrap(BootstrapEntry entry)
+  {
+    CloseOpen();
+    Entries.Add(entry);
+  }
+
   /// <summary>Lands one system message the agent loop appended mid-turn (nudge,
   ///     continuation prompt, compaction-failure notice). Loop-voice, persisted in the
   ///     conversation — unlike a host notice, which is transient session chatter.</summary>

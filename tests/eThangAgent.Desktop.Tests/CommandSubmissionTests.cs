@@ -61,9 +61,9 @@ public class CommandSubmissionTests
 
     await vm.SubmitAsync("! echo hi");
 
-    CommandRunEntry run = Assert.IsType<CommandRunEntry>(vm.Transcript.Entries[0]);
+    CommandRunEntry run = Assert.IsType<CommandRunEntry>(vm.Transcript.Entries[1]);
     Assert.Equal("echo hi", run.Command);
-    _ = Assert.IsType<CommandResultEntry>(vm.Transcript.Entries[1]);
+    _ = Assert.IsType<CommandResultEntry>(vm.Transcript.Entries[2]);
   }
 
   [Fact]

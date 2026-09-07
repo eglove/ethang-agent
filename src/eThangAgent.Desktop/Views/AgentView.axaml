@@ -166,6 +166,9 @@
           <DataTemplate DataType="vm:NoticeEntry">
             <SelectableTextBlock Text="{Binding Text}" Foreground="DarkGray" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
+          <DataTemplate DataType="vm:BootstrapEntry">
+            <SelectableTextBlock Text="{Binding Summary}" Foreground="#6E7B91" Margin="8,2" TextWrapping="Wrap"/>
+          </DataTemplate>
           <DataTemplate DataType="vm:SystemMessageEntry">
             <Grid ColumnDefinitions="Auto,*" Margin="8,2">
               <TextBlock Grid.Column="0" Foreground="#9EB8D9" Text="❖ " VerticalAlignment="Top"/>

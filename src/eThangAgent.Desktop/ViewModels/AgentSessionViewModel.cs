@@ -137,6 +137,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _commandRunner = options.CommandRunner;
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
+    // Grand-plan "show initial bootstrap/context at start of session": the first
+    // transcript line states what the session runs under (transient, never a
+    // conversation message). Resume replays persisted history after it.
+    Transcript.AddBootstrap(new BootstrapEntry(
+        WorkspaceRoot, provider, modelId, SessionIdShort));
   }
 
 

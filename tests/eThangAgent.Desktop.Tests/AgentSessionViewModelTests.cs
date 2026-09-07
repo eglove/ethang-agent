@@ -80,7 +80,8 @@ public class AgentSessionViewModelTests
     await turnTask.ConfigureAwait(true);
     await vm.WaitForTurnAsync();
 
-    _ = Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[0]);
+    _ = Assert.IsType<BootstrapEntry>(vm.Transcript.Entries[0]);
+    _ = Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[1]);
     AssistantTextEntry last = Assert.IsType<AssistantTextEntry>(vm.Transcript.Entries[^1]);
     Assert.Equal("hello", last.Text);
     Assert.False(vm.IsBusy);
@@ -170,7 +171,9 @@ public class AgentSessionViewModelTests
 
     await vm.SubmitAsync("   ");
 
-    Assert.Empty(vm.Transcript.Entries);
+    // Blank input adds nothing beyond the construction-time bootstrap line.
+    TranscriptEntry entry = Assert.Single(vm.Transcript.Entries);
+    _ = Assert.IsType<BootstrapEntry>(entry);
   }
 
   // ── 5. Model picker choice ────────────────────────────────────────────────

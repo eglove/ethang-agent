@@ -55,11 +55,13 @@ public class SessionResumeE2ETests
     AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
     sessionVmRef = vm;
 
-    Assert.Equal(2, vm.Transcript.Entries.Count);
+    // The bootstrap context line leads; the replayed transcript follows it.
+    Assert.Equal(3, vm.Transcript.Entries.Count);
+    _ = Assert.IsType<BootstrapEntry>(vm.Transcript.Entries[0]);
     Assert.Equal("remember the word crumble",
-        Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[0]).Text);
+        Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[1]).Text);
     Assert.Contains("pineapple",
-        Assert.IsType<AssistantTextEntry>(vm.Transcript.Entries[1]).Text, StringComparison.Ordinal);
+        Assert.IsType<AssistantTextEntry>(vm.Transcript.Entries[2]).Text, StringComparison.Ordinal);
 
     // Turn two: the resumed session's request must CARRY the prior history.
     _ = host.Mock.Returns(RawCompletion("crumble, of course"));

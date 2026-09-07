@@ -104,9 +104,10 @@ public class ShellResumeTests
     MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session);
     TranscriptViewModel transcript = shell.Tabs[0].ViewModel.Transcript;
 
-    Assert.Equal(2, transcript.Entries.Count);
-    Assert.Equal("persisted question", Assert.IsType<UserMessageEntry>(transcript.Entries[0]).Text);
-    Assert.Equal("persisted answer", Assert.IsType<AssistantTextEntry>(transcript.Entries[1]).Text);
+    Assert.Equal(3, transcript.Entries.Count);
+    _ = Assert.IsType<BootstrapEntry>(transcript.Entries[0]);
+    Assert.Equal("persisted question", Assert.IsType<UserMessageEntry>(transcript.Entries[1]).Text);
+    Assert.Equal("persisted answer", Assert.IsType<AssistantTextEntry>(transcript.Entries[2]).Text);
   }
 
   [Fact]
