@@ -5,7 +5,7 @@
         x:Class="eThangAgent.Desktop.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="eThang Agent" Width="1000" Height="700"
-        Closed="OnWindowClosed">
+        WindowState="Maximized" Closed="OnWindowClosed">
   <Window.Styles>
     <!-- Icon glyphs must sit centered in their buttons regardless of template
          defaults: target the presenter directly. -->
