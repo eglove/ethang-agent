@@ -99,6 +99,10 @@ public static class AgentComposition
                     new DbQueryTool(sp.GetRequiredService<ISelfDatabaseAccess>()),
                     "Run one read-only SQL query against the agent's own app database."),
                 new AgentToolBinding(
+                    new SqliteQueryTool(sp.GetRequiredService<IPathResolver>(),
+                        sp.GetRequiredService<ISqliteFileAccess>()),
+                    "Run one read-only SQL query against any SQLite file in the workspace."),
+                new AgentToolBinding(
                     new SkillListTool(sp.GetRequiredService<ISkillCatalog>(),
                         sp.GetRequiredService<ILearnedSkillStore>()),
                     "List available skills."),
@@ -150,6 +154,7 @@ public static class AgentComposition
         .AddSingleton<IAppPreferenceStore>(sp => new SqliteAppPreferenceStore(
             sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<ISelfDatabaseAccess, SqliteSelfDatabaseAccess>()
+        .AddSingleton<ISqliteFileAccess, SqliteFileAccess>()
         .AddSingleton<IContextWindowSource, SessionContextWindowSource>()
         .AddSingleton(sp =>
         {

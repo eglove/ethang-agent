@@ -91,6 +91,9 @@ public class DesktopE2ETests
         "db_query(timeoutSeconds: WholeNumber, sql: Text, maxRows: WholeNumber): Run one read-only SQL query",
         host.Mock.LastChatRequestBody, StringComparison.Ordinal);
     Assert.Contains(
+        "sqlite_query(timeoutSeconds: WholeNumber, path: Text, sql: Text, maxRows: WholeNumber): Run one read-only SQL query against any SQLite file in the workspace.",
+        host.Mock.LastChatRequestBody, StringComparison.Ordinal);
+    Assert.Contains(
         "db_schema(timeoutSeconds: WholeNumber, includeCounts: Flag): List the tables, columns, and indexes",
         host.Mock.LastChatRequestBody, StringComparison.Ordinal);
   }
