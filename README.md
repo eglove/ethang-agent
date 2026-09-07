@@ -59,6 +59,8 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - `git_commit` tool — validated commits of the current index in the user's chosen style
   (Conventional, Gitmoji, or plain — a host setting, resolved live per commit; never a model parameter),
   with an optional `files` array of workspace-relative paths to stage first (relative-only: no drives, no `..`, no `.`)
+- `worktree` tool — list git worktrees, or create/remove one under the workspace's `.worktrees/` folder
+  (branch `worktree/<name>` from HEAD; dirty worktrees refuse removal unless forced)
 - `!` chat commands — a line starting with `!` runs as a shell command against the workspace
   (through the machine's shell: pwsh, PowerShell, or cmd — probed in that order) instead of going
   to the model, even mid-turn. Output is captured to the local transcript and the app database,
@@ -109,7 +111,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - `todo` tool — durable workspace task list with compare-and-swap writes
 - Capability registry exposing agent tools plus spawnable sub-agents, durable workspace state, and memory recall
 - Nested sub-agents with depth limits and concurrency caps
-- Per-child capability grants enforced at dispatch (`tool.allow`/`tool.deny` on `agent.spawn`; violations return `Error [GrantViolation]` and are audited)
+- Per-child capability grants enforced at dispatch (`tool.allow`/`tool.deny` on `agent.spawn`; violations return `Error [GrantViolation]` and are audited). A spawn can also anchor the child's workspace at a validated directory inside the parent's root (`WorkspaceRoot` on the spawn contract) — the child's exec scripts and path-rooted tools then resolve at the anchor.
 - Steering mid-run: `agent.wait` (one await instead of polling), `agent.send`/`parent.send` push-delivery with bounded persistent mailboxes, urgency with audited preemption, `agent.notify-subtree`/`agent.notify-ancestors` one-call broadcasts with per-target receipts, and subtree interrupt. The session tab shows an unread-steering badge while a child has queued messages (pushed by the child event stream — it appears on delivery and clears when the child drains)
 - Out-of-process children: `eThangAgent.ChildHost` over a named-pipe transport (`eThangAgent.Transport.ACL`) with declared connection-loss failures
 - Structured child results (JSON-schema validated with one repair round), fan-out/fan-in spawn graphs (`agent.fanout` parses its `children` argument strictly and fails the join fast when a start fails, surfacing the real error code), and a consent-based agent link registry — links are created in the Desktop's per-tab **Links** dialog (🔗 rail entry: pick the target agent, name the link, confirm; revoke from the same list), and `agent.route` delivers to the consented link by name — including agents opened in a
