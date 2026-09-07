@@ -232,6 +232,11 @@ public static class AgentComposition
     }
 
     wired = wired
+        // The workspace anchor scope (worktree ladder, T7): one instance per session
+        // container, written by the spawner around an anchored child's run and read
+        // by the exec engine's workspace resolver. AsyncLocal-backed, so the anchor
+        // flows down a child's async flow and never leaks into concurrent runs.
+        .AddSingleton<IWorkspaceAnchorScope, SessionWorkspaceAnchorScope>()
         .AddSingleton(sp => new SubAgentServices(
             sp.GetRequiredService<IModelProviderFactory>(),
             sp.GetRequiredService<IAgentStore>(),
@@ -241,7 +246,8 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentHeartbeat>(),
             sp.GetRequiredService<IAgentEvents>(),
             sp.GetRequiredService<IWatchdogEventStore>(),
-            InboxFor: id => sp.GetRequiredService<ChildMailboxRegistry>().InboxFor(id)))
+            InboxFor: id => sp.GetRequiredService<ChildMailboxRegistry>().InboxFor(id),
+            AnchorScope: sp.GetRequiredService<IWorkspaceAnchorScope>()))
         .AddSingleton(sp => new SubAgentSpawner(
             sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),
@@ -263,7 +269,8 @@ public static class AgentComposition
             new SpawnOptions(
                 resolvedFallbackModelId ?? Providers.FallbackModelId(providerName),
                 sp.GetRequiredService<SessionModelPreferences>(),
-                ChildToolSurface: ChildToolSurface(sp)),
+                ChildToolSurface: ChildToolSurface(sp),
+                WorkspaceRoot: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
             sp.GetService<IModelSelector>(),
             sp.GetRequiredService<IContextWindowSource>()))
         .AddSingleton<IAgentQueries, AgentQueries>()
@@ -354,7 +361,11 @@ public static class AgentComposition
             // Registry and workspace are both resolved per execution so concurrent
             // sessions in one process each see their own context, never a stale
             // construction-time value pinned to whichever container was built first.
-            () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+            // An anchored child run lifts the workspace anchor scope around its loop
+            // (T7), so its exec scripts resolve Workspace at the CHILD's anchor; the
+            // session workspace is the fallback whenever no anchored run is ambient.
+            () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
+                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
         .AddSingleton<ITool>(sp => new ExecTool(
             sp.GetRequiredService<IExecEngine>(),
             sp.GetRequiredService<ExecOptions>(),

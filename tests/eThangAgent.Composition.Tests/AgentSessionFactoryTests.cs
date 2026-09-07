@@ -233,6 +233,124 @@ public class AgentSessionFactoryTests
     }
   }
 
+  /// <summary>Test (e), the anchor resolution path end to end over ONE composed container:
+  ///     the real start command's anchor rule refuses an outside anchor (AnchorInvalid,
+  ///     before any model resolution); a persisted anchored child record is what the
+  ///     handler writes when the rule passes; lifting the container's scope to that
+  ///     anchor — the ambient the real spawner creates around a child loop — makes the
+  ///     REAL exec engine resolve Workspace at the anchor (its delegate consults the
+  ///     scope first), and the spawner's anchored registry view passes the registry's
+  ///     unscoped tools through untouched; the scope restores to null after.</summary>
+  [Fact]
+  public async Task CreateAsync_AnchoredChild_ExecResolvesWorkspaceAtAnchor()
+  {
+    (AgentSessionFactory? factory, string? db) = CreateFactory();
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-anchor");
+      try
+      {
+        Result<AgentSession> session = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
+        Assert.True(session.IsSuccess);
+        ServiceProvider services = session.Value.Services;
+
+        // Composition: the scope exists once per container and starts empty.
+        IWorkspaceAnchorScope scope = services.GetRequiredService<IWorkspaceAnchorScope>();
+        Assert.Null(scope.Current);
+        _ = Assert.IsType<SessionWorkspaceAnchorScope>(scope);
+
+        // The anchor lives INSIDE the session workspace; the probe exists NOWHERE else,
+        // so any observation that finds it proves resolution rooted at the anchor.
+        string workspaceRoot = services.GetRequiredService<IWorkspaceContext>().WorkspaceId;
+        string anchorPath = Path.GetFullPath(Path.Combine(workspaceRoot, "anchored"));
+        _ = Directory.CreateDirectory(anchorPath);
+
+        // The spawn-side seam over the real container: an anchored request that
+        // resolves OUTSIDE the session workspace fails AnchorInvalid before any model
+        // resolution runs (the anchor rule sits ahead of it in the handler).
+        string outsidePath = Directory.CreateTempSubdirectory("ethang-anchor-out").FullName;
+        try
+        {
+          Result<AgentId> refused = await services.GetRequiredService<IAgentSpawnCommand>().Execute(
+              RootRecord(workspaceRoot),
+              new SpawnRequest("nope", WorkspaceRoot: outsidePath),
+              ct: TestContext.Current.CancellationToken);
+          Assert.False(refused.IsSuccess, $"expected AnchorInvalid, got success");
+          Assert.Equal("AnchorInvalid", refused.Error.Code);
+        }
+        finally
+        {
+          Directory.Delete(outsidePath, true);
+        }
+
+        // The run-side seam: a persisted anchored child (exactly what the start command
+        // writes when its anchor rule passes) runs through the container's REAL spawner.
+        ModelConfig childModel = ModelConfig.Create("test/model", null, 4096, 0.7f, 32 * 1024).Value!;
+        AgentRecord child = AgentRecord.Spawned(AgentId.NewId(), RootRecord(workspaceRoot).Id, 1,
+            childModel.ModelId, "anchored", "resolve the anchor", DateTimeOffset.UtcNow,
+            new SpawnContract(WorkspaceRoot: anchorPath));
+        _ = await services.GetRequiredService<IAgentStore>().SaveAsync(child, TestContext.Current.CancellationToken);
+
+        // The child run's ambient, reproduced exactly as the spawner creates it: the
+        // scope lifted to the anchor for the duration of the observation. The exec
+        // engine — the REAL composed engine whose workspace delegate consults the
+        // scope FIRST — must then resolve Workspace at the anchor.
+        scope.Current = anchorPath;
+        try
+        {
+          ExecRunResult exec = await services.GetRequiredService<IExecEngine>()
+              .ExecuteAsync(new ExecProgram("return Workspace;"), ct: TestContext.Current.CancellationToken);
+          Assert.True(exec.Output.Contains(anchorPath, StringComparison.OrdinalIgnoreCase),
+              $"expected Workspace at the anchor, got: {exec.Output}");
+
+          // The spawner's anchored view over the container registry: unscoped tools
+          // (exec IS the registry's only tool in this composition) pass through
+          // unchanged, so the child loop keeps its surface; definitions delegate.
+          AnchoredToolRegistry anchored = new(
+              services.GetRequiredService<IToolRegistry>(), anchorPath);
+          ITool execTool = anchored.Find(ExecTool.ToolName)
+              ?? throw new InvalidOperationException("the anchored view lost 'exec'.");
+          Assert.NotNull(execTool.Definition);
+        }
+        finally
+        {
+          scope.Current = null;
+        }
+
+        // The scope was restored after the run.
+        Assert.Null(scope.Current);
+
+        // The spawned child row: the run is never started here (no provider is wired
+        // for it), so mark the row Interrupted — a settled row, never a phantom Running.
+        _ = await services.GetRequiredService<IAgentStore>().UpdateAsync(child with
+        {
+          Status = AgentStatus.Interrupted,
+          CompletedAt = DateTimeOffset.UtcNow,
+        }, TestContext.Current.CancellationToken);
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      try
+      {
+        File.Delete(db);
+      }
+      catch { }
+    }
+  }
+
+  /// <summary>A depth-0 root record for driving the spawn handler directly: bound to the
+  ///     workspace so the anchor rule measures the request against it.</summary>
+  private static AgentRecord RootRecord(string workspaceRoot) => new(
+      new AgentId(Guid.NewGuid()), null, 0, AgentStatus.Running, null,
+      "test/model", "root", "root task", DateTimeOffset.UtcNow, null, null,
+      workspaceRoot, Providers.OpenRouter);
+
   [Fact]
   public async Task CreateAsync_ZaiConfigured_WiresZaiProviderAndCarriesProviderName()
   {

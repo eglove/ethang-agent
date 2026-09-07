@@ -105,13 +105,30 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     // set runs against the FILTERED view of the session registry; grants absent means
     // the shared registry passes through unchanged (zero behavior delta).
     IToolRegistry tools = _tools;
-    if (child.Contract is { } runContractJson
-        && SpawnContract.Decode(runContractJson).DecodedEffectiveTools is { } effective
-        && tools is not FilteredToolRegistry) // never double-wrap (a resumed/retried run)
+    string? anchor = null;
+    if (child.Contract is { } runContractJson)
     {
-      IWatchdogEventStore? audit = services.Audit;
-      tools = new FilteredToolRegistry(_tools, effective,
-          onDenial: name => _ = GrantAuditAsync(audit!, child.Id, "tool '" + name + "' denied at dispatch", ct));
+      // Decode once: the same contract feeds both the grant filter and the anchor.
+      SpawnContract runContract = SpawnContract.Decode(runContractJson);
+      anchor = runContract.WorkspaceRoot;
+
+      if (runContract.DecodedEffectiveTools is { } effective
+          && tools is not FilteredToolRegistry) // never double-wrap (a resumed/retried run)
+      {
+        IWatchdogEventStore? audit = services.Audit;
+        tools = new FilteredToolRegistry(_tools, effective,
+            onDenial: name => _ = GrantAuditAsync(audit!, child.Id, "tool '" + name + "' denied at dispatch", ct));
+      }
+    }
+
+    // Workspace anchoring (worktree ladder, T7): an anchored contract runs against a
+    // view of the registry re-rooted at the anchor, applied BEFORE the grant filter's
+    // view so grants may still wrap outside it. A resumed/retried run that is already
+    // anchored is never wrapped again (mirrors the no-double-wrap check above). A null
+    // anchor touches nothing (zero behavior delta).
+    if (anchor is not null && tools is not AnchoredToolRegistry)
+    {
+      tools = new AnchoredToolRegistry(tools, anchor);
     }
 
     // Each child gets its own accountant: two children must never share totals.
@@ -133,8 +150,22 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     AgentFailureReason? failureReason = null;
     AgentRecord? previousChild = RunningChildCurrent.Value;
     RunningChildCurrent.Value = child;
+    // The anchor scope mirrors RunningChildCurrent's save/restore exactly: the
+    // previous value may be null and is restored in the finally, so a nested
+    // grandchild run chains correctly (its restore puts the parent's anchor back).
+    string? previousAnchor = null;
     try
     {
+      // The SET sits inside the try on purpose: an anchored contract with NO scope
+      // wired is strictly a composition wiring fault — the ArgumentNullException
+      // thrown here maps through the catch(Exception) boundary to Failed(ProviderError),
+      // a well-formed terminal outcome, never a crash of the spawning agent.
+      previousAnchor = services.AnchorScope?.Current;
+      if (anchor is not null)
+      {
+        services.AnchorScope!.Current = anchor;
+      }
+
       // The child drains its runtime-owned mailbox at safe points (FR-C2): the runtime
       // hands it over here; messages sent via agent.send land as User messages between
       // iterations, never between a tool call and its results.
@@ -167,6 +198,11 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
 #pragma warning restore CA1031
     finally
     {
+      if (anchor is not null && services.AnchorScope is { } anchorScope)
+      {
+        anchorScope.Current = previousAnchor;
+      }
+
       RunningChildCurrent.Value = previousChild;
       _heartbeat?.Forget(child.Id);
     }
