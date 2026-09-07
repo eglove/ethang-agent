@@ -68,6 +68,8 @@ public sealed class GitWorktreeAccessTests : IDisposable
 
   private string WorktreePath(string name) => Path.Combine(_repoDir, ".worktrees", name);
 
+  private static string WorktreePath(string root, string name) => Path.Combine(root, ".worktrees", name);
+
   [Fact]
   public async Task ListAsync_FreshRepo_ReturnsSingleMainWorktree()
   {
@@ -310,5 +312,40 @@ public sealed class GitWorktreeAccessTests : IDisposable
     {
       Directory.Delete(plain, true);
     }
+  }
+
+  [Fact]
+  public async Task Create_List_Remove_AgainstLinkedWorktreeRoot_Succeeds()
+  {
+    // The layout behind the exclude-path crash: the session root IS a linked
+    // worktree, so its .git is a FILE (a gitdir pointer), not a directory —
+    // hand-joining <root>/.git/info there throws IOException.
+    string linkedRoot = WorktreePath("linked-root");
+    Assert.Equal(0, RunGit("worktree", "add", "-b", "worktree/linked-root", linkedRoot, "HEAD").ExitCode);
+    Assert.True(File.Exists(Path.Combine(linkedRoot, ".git")), "precondition: linked root's .git is a file");
+
+    GitWorktreeAccess access = new();
+
+    Result<WorktreeInfo> created = await access.CreateAsync(linkedRoot, "nested-fix", ct: TestContext.Current.CancellationToken);
+    Assert.True(created.IsSuccess);
+    Assert.Equal(WorktreePath(linkedRoot, "nested-fix"), created.Value.Path);
+
+    // The exclude entry lands at git's own resolution — the shared git dir,
+    // which a linked worktree's .git file points at (it has no .git directory).
+    string excludePath = RunGit("-C", linkedRoot, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude").StdOut.Trim();
+    string exclude = await File.ReadAllTextAsync(excludePath, TestContext.Current.CancellationToken);
+    Assert.Contains(".worktrees/", exclude, StringComparison.Ordinal);
+
+    Result<IReadOnlyList<WorktreeInfo>> list = await access.ListAsync(linkedRoot, ct: TestContext.Current.CancellationToken);
+    Assert.True(list.IsSuccess);
+    Assert.Contains(list.Value, w => w.IsMain);
+    WorktreeInfo nested = Assert.Single(list.Value, w => w.Name == "nested-fix");
+    Assert.Equal("worktree/nested-fix", nested.Branch);
+    Assert.False(nested.IsMain);
+
+    Result<bool> removed = await access.RemoveAsync(linkedRoot, "nested-fix", force: false, ct: TestContext.Current.CancellationToken);
+    Assert.True(removed.IsSuccess);
+    Assert.True(removed.Value);
+    Assert.False(Directory.Exists(WorktreePath(linkedRoot, "nested-fix")));
   }
 }

@@ -13,8 +13,9 @@ namespace eThangAgent.FileSystem.ACL;
 /// stdout/stderr are captured separately (exact exit codes, no stream merging), and
 /// every git failure maps to a named <see cref="DomainError"/> carrying git's stderr
 /// tail. Worktrees are created under <c>repoRoot/.worktrees/NAME</c> on branches
-/// named <c>worktree/NAME</c>; the <c>.worktrees/</c> directory is registered in
-/// <c>.git/info/exclude</c> so created worktrees never pollute the parent's status.
+/// named <c>worktree/NAME</c>; the <c>.worktrees/</c> directory is registered in the
+/// repository's exclude file — its path resolved BY GIT across repo layouts (normal,
+/// linked-worktree, bare) — so created worktrees never pollute the repository's status.
 /// </summary>
 public sealed class GitWorktreeAccess : IGitWorktreeAccess
 {
@@ -125,11 +126,24 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
         return Result.Failure<WorktreeInfo>(prune.Error);
       }
 
-      Directory.Delete(targetPath, true);
+      try
+      {
+        Directory.Delete(targetPath, true);
+      }
+      catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+      {
+        // Same crash family as the old exclude write: ToolExecution catches only
+        // cancellation, so a stale-dir removal failure must land as a named error.
+        return Result.Failure<WorktreeInfo>(StaleDirectoryRemovalFailed(targetPath, ex.Message));
+      }
     }
 
     _ = Directory.CreateDirectory(Path.Combine(repoRoot, WorktreesDir));
-    await EnsureWorktreesExcludedAsync(repoRoot, ct).ConfigureAwait(false);
+    Result<bool> excluded = await EnsureWorktreesExcludedAsync(repoRoot, ct).ConfigureAwait(false);
+    if (!excluded.IsSuccess)
+    {
+      return Result.Failure<WorktreeInfo>(excluded.Error);
+    }
 
     Result<GitRun> add = await RunGitVerifiedAsync(repoRoot, ["worktree", "add", "-b", branch, targetPath, "HEAD"], ct).ConfigureAwait(false);
     if (!add.IsSuccess)
@@ -285,23 +299,83 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
     return entries;
   }
 
-  /// <summary>Appends '.worktrees/' to ROOT/.git/info/exclude when absent so
-  ///     created worktrees never pollute the parent repository's status.</summary>
-  private static async Task EnsureWorktreesExcludedAsync(string repoRoot, CancellationToken ct)
+  /// <summary>Appends '.worktrees/' to the repository's exclude file when absent so
+  ///     created worktrees never pollute the repository's status. The exclude path is
+  ///     resolved BY GIT ('rev-parse --path-format=absolute --git-path') so every repo
+  ///     layout resolves correctly: a normal repository, a linked worktree (whose .git
+  ///     is a file with a gitdir pointer — hand-joining <c>root/.git/info</c> would throw
+  ///     IOException), and a bare repository alike. Writing is skipped when the file's
+  ///     directory does not exist (a bare repository ships none); any remaining failure
+  ///     is a named <c>ExcludeRegistrationFailed</c> error, never an exception —
+  ///     ToolExecution catches only cancellation, so an unhandled throw here would
+  ///     crash the turn instead of reaching the model as an error result.</summary>
+  private static async Task<Result<bool>> EnsureWorktreesExcludedAsync(string repoRoot, CancellationToken ct)
   {
-    string excludePath = Path.Combine(repoRoot, ".git", "info", "exclude");
-    _ = Directory.CreateDirectory(Path.GetDirectoryName(excludePath)!);
+    GitRun resolved = await RunGitAsync(repoRoot,
+        [RevParse, "--path-format=absolute", "--git-path", "info/exclude"], ct).ConfigureAwait(false);
+    if (!resolved.Ok)
+    {
+      return Result.Failure<bool>(resolved.Err);
+    }
+
+    if (resolved.ExitCode != 0)
+    {
+      return Result.Failure<bool>(ToGitFailure(repoRoot, resolved.ExitCode, resolved.StdErr));
+    }
+
+    string excludePath = resolved.StdOut.Trim();
+    if (excludePath.Length == 0)
+    {
+      return Result.Failure<bool>(ExcludeRegistrationFailed(repoRoot,
+          "git resolved an empty exclude path"));
+    }
+
+    // A directory that does not exist and cannot be created safely (a bare repo's
+    // admin area ships no info/) means there is no exclude file to register into —
+    // skip, not fail: exclusion is a courtesy, and writing a bogus TREE into a bare
+    // repo was the old bug this resolution exists to prevent.
+    string? excludeDir = Path.GetDirectoryName(excludePath);
+    if (excludeDir is not null && !Directory.Exists(excludeDir))
+    {
+      try
+      {
+        _ = Directory.CreateDirectory(excludeDir);
+      }
+      catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+      {
+        return Result.Success(true);
+      }
+    }
+
     string existing = File.Exists(excludePath)
         ? await File.ReadAllTextAsync(excludePath, ct).ConfigureAwait(false)
         : string.Empty;
     if (existing.Contains(ExcludeEntry, StringComparison.Ordinal))
     {
-      return;
+      return Result.Success(true);
     }
 
-    string prefix = existing.Length > 0 && !existing.EndsWith('\n') ? "\n" : string.Empty;
-    await File.AppendAllTextAsync(excludePath, prefix + ExcludeEntry + "\n", ct).ConfigureAwait(false);
+    try
+    {
+      string prefix = existing.Length > 0 && !existing.EndsWith('\n') ? "\n" : string.Empty;
+      await File.AppendAllTextAsync(excludePath, prefix + ExcludeEntry + "\n", ct).ConfigureAwait(false);
+      return Result.Success(true);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+      return Result.Failure<bool>(ExcludeRegistrationFailed(excludePath, ex.Message));
+    }
   }
+
+  private static DomainError ExcludeRegistrationFailed(string target, string detail)
+      => new("ExcludeRegistrationFailed",
+          $"Could not register '{WorktreesDir}/' in the repository's exclude file ({target}): " +
+          detail + ". Worktree creation is unaffected; the entry may pollute 'git status'.");
+
+  private static DomainError StaleDirectoryRemovalFailed(string target, string detail)
+      => new("StaleDirectoryRemovalFailed",
+          $"A stale directory occupies '{target}' and could not be removed: " +
+          detail + ". Remove it manually, then retry.");
 
   private static DomainError InvalidNameError(string shown)
       => new("InvalidName",
