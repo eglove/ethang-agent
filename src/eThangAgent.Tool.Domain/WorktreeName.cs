@@ -20,8 +20,9 @@ public sealed partial record WorktreeName
 
   /// <summary>Validates <paramref name="raw"/> as a worktree name: 1..64 characters
   ///     matching ^[a-z0-9-]+$, culture-invariant, with no trimming. The only way to
-  ///     obtain a <see cref="WorktreeName"/> is through a success here; anything else is
-  ///     an <c>InvalidName</c> error whose message names the rule and the pattern.</summary>
+  ///     obtain a <see cref="WorktreeName"/> is through a success here; any non-conforming
+  ///     value is an <c>InvalidName</c> error whose message names the rule and the pattern.
+  ///     Null is a caller error (<c>ArgumentNullException</c>), not an InvalidName case.</summary>
   public static Result<WorktreeName> Create(string? raw)
   {
     ArgumentNullException.ThrowIfNull(raw);

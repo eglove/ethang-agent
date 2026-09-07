@@ -4,8 +4,9 @@ namespace eThangAgent.ToolDomain;
 ///     registry resolves is re-rooted at the anchor (a child run's workspace root):
 ///     resolution serves <c>RootedAt(anchor)</c> for scoped tools and passes every other
 ///     tool through unchanged; unknown names resolve exactly as inner resolves them.
-///     Wrapping is single — construction refuses an inner <see cref="AnchoredToolRegistry"/>,
-///     mirroring <c>FilteredToolRegistry</c>'s no-double-wrap discipline. Definitions are
+///     Wrapping is single — construction refuses an inner <see cref="AnchoredToolRegistry"/>:
+///     the no-double-wrap guard is this class's own, enforced here (FilteredToolRegistry has
+///     no such guard; its callers stay single by their own discipline). Definitions are
 ///     delegated to inner untouched: anchoring changes path resolution, never advertisement.</summary>
 public sealed class AnchoredToolRegistry : IToolRegistry
 {
