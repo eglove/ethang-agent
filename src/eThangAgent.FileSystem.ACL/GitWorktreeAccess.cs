@@ -44,7 +44,9 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
     {
       bool isMain = IsSamePath(entry.Path, repoRoot);
       bool isDirty = false;
-      if (!entry.IsBareOrDetached)
+      // 'git status' fails inside a bare repo, so bare entries alone skip the
+      // dirty probe; detached worktrees still get the real check.
+      if (!entry.IsBare)
       {
         Result<bool> dirty = await IsDirtyAsync(entry.Path, ct).ConfigureAwait(false);
         if (!dirty.IsSuccess)
@@ -233,7 +235,8 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
 
   /// <summary>Splits 'git worktree list --porcelain' output into block records.
   ///     Each block starts at a 'worktree PATH' line; 'HEAD SHA', 'branch REF',
-  ///     'bare', and 'detached' lines refine it, any other line is ignored.</summary>
+  ///     and 'bare' lines refine it, any other line is ignored. Detachedness is
+  ///     conveyed by the absent branch line — never conflated with bare.</summary>
   private static List<WorktreeEntry> ParseWorktreeList(string stdout)
   {
     List<WorktreeEntry> entries = [];
@@ -241,13 +244,12 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
     string? head = null;
     string? branch = null;
     bool isBare = false;
-    bool isDetached = false;
 
     void Flush()
     {
       if (path is not null)
       {
-        entries.Add(new WorktreeEntry(path, head ?? "", branch, isBare || isDetached));
+        entries.Add(new WorktreeEntry(path, head ?? "", branch, isBare));
       }
     }
 
@@ -261,7 +263,6 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
         head = null;
         branch = null;
         isBare = false;
-        isDetached = false;
       }
       else if (line.StartsWith("HEAD ", StringComparison.Ordinal))
       {
@@ -277,10 +278,6 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
       else if (line == "bare")
       {
         isBare = true;
-      }
-      else if (line == "detached")
-      {
-        isDetached = true;
       }
     }
 
@@ -321,7 +318,7 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
 
   /// <summary>One block of 'git worktree list --porcelain' output. <see cref="Branch"/>
   ///     is the short branch name when a branch line was present, else null.</summary>
-  private sealed record WorktreeEntry(string Path, string Head, string? Branch, bool IsBareOrDetached);
+  private sealed record WorktreeEntry(string Path, string Head, string? Branch, bool IsBare);
 
   /// <summary>Result of a single git CLI invocation. <see cref="Ok"/> is false only
   ///     when the process could not be started at all (e.g. git not on PATH).</summary>

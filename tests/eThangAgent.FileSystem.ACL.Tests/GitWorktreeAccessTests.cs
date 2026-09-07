@@ -85,6 +85,63 @@ public sealed class GitWorktreeAccessTests : IDisposable
   }
 
   [Fact]
+  public async Task ListAsync_DetachedWorktreeWithChanges_ReportsDirty()
+  {
+    GitWorktreeAccess access = new();
+    Result<WorktreeInfo> created = await access.CreateAsync(_repoDir, "agent-fix", ct: TestContext.Current.CancellationToken);
+    Assert.True(created.IsSuccess);
+    Assert.Equal(0, RunGit("-C", WorktreePath("agent-fix"), "checkout", "--detach", "HEAD").ExitCode);
+    await File.WriteAllTextAsync(Path.Combine(WorktreePath("agent-fix"), "dirty.txt"), "x", TestContext.Current.CancellationToken);
+
+    Result<IReadOnlyList<WorktreeInfo>> list = await access.ListAsync(_repoDir, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(list.IsSuccess);
+    WorktreeInfo detached = Assert.Single(list.Value, w => w.Branch == "(detached)");
+    Assert.False(detached.IsMain);
+    Assert.True(detached.IsDirty, "detached worktree reported IsDirty without a dirty check");
+  }
+
+  [Fact]
+  public async Task ListAsync_DetachedMainTree_ReportsDirty()
+  {
+    Assert.Equal(0, RunGit("checkout", "--detach", "HEAD").ExitCode);
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "dirty.txt"), "x", TestContext.Current.CancellationToken);
+    GitWorktreeAccess access = new();
+
+    Result<IReadOnlyList<WorktreeInfo>> list = await access.ListAsync(_repoDir, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(list.IsSuccess);
+    WorktreeInfo main = Assert.Single(list.Value, w => w.IsMain);
+    Assert.Equal("(detached)", main.Branch);
+    Assert.True(main.IsDirty, "detached main tree reported IsDirty without a dirty check");
+  }
+
+  [Fact]
+  public async Task ListAsync_BareRepository_SkipsDirtyProbeAndListsOneEntry()
+  {
+    string bare = Path.Combine(Path.GetTempPath(), "ethang-bare-tests-" + Guid.NewGuid().ToString("N"));
+    _ = Directory.CreateDirectory(bare);
+    try
+    {
+      Assert.Equal(0, RunGit("-C", bare, "init", "--bare").ExitCode);
+      GitWorktreeAccess access = new();
+
+      Result<IReadOnlyList<WorktreeInfo>> r = await access.ListAsync(bare, ct: TestContext.Current.CancellationToken);
+
+      // 'git status' fails inside a bare repo: success here pins that the bare
+      // entry alone skipped the dirty probe while still being listed.
+      Assert.True(r.IsSuccess);
+      WorktreeInfo entry = Assert.Single(r.Value);
+      Assert.True(entry.IsMain);
+      Assert.False(entry.IsDirty);
+    }
+    finally
+    {
+      Directory.Delete(bare, true);
+    }
+  }
+
+  [Fact]
   public async Task CreateAsync_CreatesDirectoryBranchAndReportsWorktree()
   {
     GitWorktreeAccess access = new();
