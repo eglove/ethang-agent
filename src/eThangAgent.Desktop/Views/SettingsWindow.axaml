@@ -61,8 +61,13 @@
           </StackPanel>
           <TextBlock Text="{Binding InfoMessage}" Foreground="Goldenrod" TextWrapping="Wrap" FontSize="12"
                    IsVisible="{Binding InfoMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-          <TextBlock Text="Workspace session files (loaded for this workspace only)" FontWeight="Bold" Margin="0,6,0,0"/>
-          <ItemsControl x:Name="WorkspaceFilesList" ItemsSource="{Binding WorkspaceFiles}">
+          <TextBlock x:Name="WorkspaceRootText"
+                   Text="{Binding WorkspaceRoot}"
+                   FontWeight="Bold" Margin="0,6,0,0"
+                   IsVisible="{Binding HasWorkspace}"/>
+          <TextBlock Text="Workspace session files (loaded for the workspace above only)"
+                   FontWeight="Bold" IsVisible="{Binding HasWorkspace}"/>
+          <ItemsControl x:Name="WorkspaceFilesList" ItemsSource="{Binding WorkspaceFiles}" IsVisible="{Binding HasWorkspace}">
             <ItemsControl.ItemTemplate>
               <DataTemplate>
                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -74,7 +79,7 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-          <StackPanel Orientation="Horizontal" Spacing="6">
+          <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasWorkspace}">
             <TextBox x:Name="NewWorkspaceFileBox" Text="{Binding NewWorkspaceFile}" Width="320"
                      PlaceholderText="C:\absolute\path\to\file.md"/>
             <Button x:Name="AddWorkspaceFileButton" Content="Add" Command="{Binding AddWorkspaceFileCommand}"/>

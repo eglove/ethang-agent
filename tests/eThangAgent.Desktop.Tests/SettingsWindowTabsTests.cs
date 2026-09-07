@@ -2,7 +2,11 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using eThangAgent.Composition;
 using eThangAgent.Desktop.Views;
+using eThangAgent.ToolDomain;
+using eThangAgent.Zai.ACL;
+
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -74,11 +78,40 @@ public class SettingsWindowTabsTests
     window.Show();
     _ = window.GetControl<Button>("SaveButton");
     Button cancel = window.GetControl<Button>("CancelButton");
-    _ = window.GetControl<TextBlock>("ValidationErrorText");
+    _ = window.GetControl<Avalonia.Controls.TextBlock>("ValidationErrorText");
 
     // The footer must not live inside the TabControl (shared across tabs).
     Assert.False(IsDescendantOf(cancel, window.GetControl<TabControl>("SettingsTabs")),
         "Save/Cancel footer must be shared outside the tab control");
+  }
+
+
+  [AvaloniaFact]
+  public void Files_Tab_Shows_The_Open_Workspace_Path_And_Global_Entry()
+  {
+    SettingsWindow window = new(
+        null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
+        globalFiles: [new SessionFileEntry("C:\\g\\a.md", true)],
+        workspaceRoot: @"C:\proj\demo");
+    window.Show();
+    TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
+    tabs.SelectedIndex = 1;
+    Dispatcher.UIThread.RunJobs();
+    Avalonia.Controls.TextBlock root = window.GetControl<Avalonia.Controls.TextBlock>("WorkspaceRootText");
+    Assert.Contains("C:\\proj\\demo", root.Text, StringComparison.Ordinal);
+  }
+
+  [AvaloniaFact]
+  public void Files_Tab_Without_Workspace_Hides_The_Workspace_Section()
+  {
+    SettingsWindow window = new(
+        null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+    window.Show();
+    TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
+    tabs.SelectedIndex = 1;
+    Dispatcher.UIThread.RunJobs();
+    Avalonia.Controls.TextBlock root = window.GetControl<Avalonia.Controls.TextBlock>("WorkspaceRootText");
+    Assert.False(root.IsVisible);
   }
 
   private static bool IsDescendantOf(Avalonia.Visual node, Avalonia.Visual ancestor)
