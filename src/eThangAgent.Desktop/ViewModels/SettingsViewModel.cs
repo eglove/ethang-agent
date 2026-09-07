@@ -50,7 +50,8 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, string? ZaiApiKe
     ZaiEndpointMode ZaiEndpointMode, CommitStyle CommitStyle,
     string? CompactionModelId = null, string? CompactionWorkspaceKey = null,
     string? LocalBaseUrlText = null, string? LocalApiKey = null,
-    IReadOnlyList<SessionFileEntry>? GlobalFiles = null, IReadOnlyList<SessionFileEntry>? WorkspaceFiles = null);
+    IReadOnlyList<SessionFileEntry>? GlobalFiles = null, IReadOnlyList<SessionFileEntry>? WorkspaceFiles = null,
+    string? WorkspaceRoot = null);
 
 /// <summary>View-model behind the settings modal: the API-key fields for the
 ///     providers, the local provider's base URL, a reveal toggle, the z.ai endpoint
@@ -117,6 +118,14 @@ internal sealed partial class SettingsViewModel : ObservableObject
   ///     workspace. Editable in place - checkbox toggles, row remove.</summary>
   public ObservableCollection<SessionFileRow> GlobalFiles { get; } = [];
 
+  /// <summary>The workspace the settings dialog is editing for: null when no
+  ///     workspace is open - then the workspace scope is INERT (no rows, no add,
+  ///     nothing persisted under a blank key).</summary>
+  public string? WorkspaceRoot { get; }
+
+  /// <summary>Whether a workspace is open; drives the workspace section's visibility.</summary>
+  public bool HasWorkspace => WorkspaceRoot is not null;
+
   /// <summary>The workspace-scope session-file rows: what loads for THIS workspace.</summary>
   public ObservableCollection<SessionFileRow> WorkspaceFiles { get; } = [];
 
@@ -143,22 +152,23 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [RelayCommand]
   private void AddWorkspaceFile()
   {
+    if (!HasWorkspace)
+    {
+      FileError = null;
+      InfoMessage = "Open a workspace to configure its session files.";
+      return;
+    }
+
     if (TryAddFile(NewWorkspaceFile, WorkspaceFiles))
     {
       NewWorkspaceFile = string.Empty;
     }
   }
 
-  /// <summary>Shared add: validates absolute-ness, appends checked. Returns whether
-  ///     it landed.</summary>
-
   [RelayCommand]
   private void RemoveGlobalFile(SessionFileRow row) => _ = GlobalFiles.Remove(row);
-
   [RelayCommand]
   private void RemoveWorkspaceFile(SessionFileRow row) => _ = WorkspaceFiles.Remove(row);
-
-
   /// <summary>The mask the settings window applies to both key fields; null-mask char
   ///     when revealed.</summary>
   public char KeyPasswordChar => KeysVisible ? default : '•';
@@ -176,7 +186,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
       CompactionModelOption? selectedCompactionModel = null,
       string? localBaseUrl = null, string? localApiKey = null,
       IReadOnlyList<SessionFileEntry>? globalFiles = null,
-      IReadOnlyList<SessionFileEntry>? workspaceFiles = null)
+      IReadOnlyList<SessionFileEntry>? workspaceFiles = null,
+      string? workspaceRoot = null)
   {
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
@@ -192,7 +203,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 SelectedCommitStyle.Style,
                 SelectedCompactionModel.ModelId, null,
                 Normalize(LocalBaseUrlText), Normalize(LocalApiKey),
-                [.. GlobalFiles], [.. WorkspaceFiles]));
+                GlobalFiles: [.. GlobalFiles], WorkspaceFiles: HasWorkspace ? [.. WorkspaceFiles] : null,
+                WorkspaceRoot: WorkspaceRoot));
           }
         },
         () => CanSave);
@@ -207,7 +219,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
       GlobalFiles.Add(new SessionFileRow(entry.Path, entry.Enabled));
     }
 
-    foreach (SessionFileEntry entry in workspaceFiles ?? [])
+    WorkspaceRoot = workspaceRoot;
+    foreach (SessionFileEntry entry in workspaceRoot is null ? [] : workspaceFiles ?? [])
     {
       WorkspaceFiles.Add(new SessionFileRow(entry.Path, entry.Enabled));
     }
@@ -253,6 +266,11 @@ internal sealed partial class SettingsViewModel : ObservableObject
     rows.Add(new SessionFileRow(trimmed, Enabled: true));
     return true;
   }
+
+  /// <summary>Non-blocking status for the file section (e.g. the workspace scope
+  ///     is inert because no workspace is open). Never blocks saving.</summary>
+  [ObservableProperty]
+  public partial string? InfoMessage { get; set; }
 
   /// <summary>The named problem with the last file-add attempt, or null. Rendered
   ///     beside the file lists so the user sees why an add was refused.</summary>

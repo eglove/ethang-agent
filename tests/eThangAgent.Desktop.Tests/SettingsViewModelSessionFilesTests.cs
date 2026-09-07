@@ -11,11 +11,50 @@ namespace eThangAgent.Desktop.Tests;
 ///     what the preference store gets.</summary>
 public class SettingsViewModelSessionFilesTests
 {
+  [Fact]
+  public void Without_A_Workspace_The_Workspace_Scope_Is_Inert()
+  {
+    SettingsViewModel vm = CreateVm();
+    Assert.False(vm.HasWorkspace);
+    vm.NewWorkspaceFile = @"C:\ws\NOTES.md";
+    vm.AddWorkspaceFileCommand.Execute(null);
+    Assert.Empty(vm.WorkspaceFiles);
+    // Save carries no workspace files: nothing may be persisted under a blank key.
+    SettingsUpdate? saved = null;
+    vm.SaveRequested += (_, update) => saved = update;
+    vm.SaveCommand.Execute(null);
+    Assert.NotNull(saved);
+    Assert.Null(saved.WorkspaceRoot);
+    Assert.Null(saved.WorkspaceFiles);
+  }
+
+  [Fact]
+  public void With_A_Workspace_Rows_Prefill_And_Save_Carries_The_Root()
+  {
+    SettingsViewModel vm = CreateVm(
+        workspaceRoot: @"C:\proj\demo",
+        workspace: [new SessionFileEntry(@"C:\proj\demo\NOTES.md", true)]);
+    Assert.True(vm.HasWorkspace);
+    Assert.Equal(@"C:\proj\demo", vm.WorkspaceRoot);
+    SessionFileRow w = Assert.Single(vm.WorkspaceFiles);
+    Assert.True(w.Enabled);
+    SettingsUpdate? saved = null;
+    vm.SaveRequested += (_, update) => saved = update;
+    vm.SaveCommand.Execute(null);
+    Assert.NotNull(saved);
+    Assert.Equal(@"C:\proj\demo", saved.WorkspaceRoot);
+    Assert.NotNull(saved.WorkspaceFiles);
+    SessionFileEntry workspaceEntry = saved.WorkspaceFiles[0];
+    _ = workspaceEntry;
+  }
+
   private static SettingsViewModel CreateVm(
       IReadOnlyList<SessionFileEntry>? global = null,
-      IReadOnlyList<SessionFileEntry>? workspace = null) => new(
+      IReadOnlyList<SessionFileEntry>? workspace = null,
+      string? workspaceRoot = null) => new(
       "sk-or-test", null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
-      globalFiles: global, workspaceFiles: workspace);
+      globalFiles: global, workspaceFiles: workspace,
+      workspaceRoot: workspaceRoot);
 
   [Fact]
   public void Without_Configured_Files_Both_Scopes_Start_Empty()
@@ -30,7 +69,8 @@ public class SettingsViewModelSessionFilesTests
   {
     SettingsViewModel vm = CreateVm(
         global: [new SessionFileEntry(@"C:\g\AGENTS.md", true)],
-        workspace: [new SessionFileEntry(@"C:\w\NOTES.md", false)]);
+        workspace: [new SessionFileEntry(@"C:\w\NOTES.md", false)],
+        workspaceRoot: @"C:\w");
     SessionFileRow g = Assert.Single(vm.GlobalFiles);
     Assert.Equal(@"C:\g\AGENTS.md", g.Path);
     Assert.True(g.Enabled);
@@ -64,7 +104,7 @@ public class SettingsViewModelSessionFilesTests
   [Fact]
   public void Add_Workspace_File_Lands_In_The_Workspace_Scope()
   {
-    SettingsViewModel vm = CreateVm();
+    SettingsViewModel vm = CreateVm(workspaceRoot: @"C:\ws");
     vm.NewWorkspaceFile = @"C:\ws\NOTES.md";
     vm.AddWorkspaceFileCommand.Execute(null);
     _ = Assert.Single(vm.WorkspaceFiles);
@@ -87,7 +127,8 @@ public class SettingsViewModelSessionFilesTests
   {
     SettingsViewModel vm = CreateVm(
         global: [new SessionFileEntry(@"C:\g\AGENTS.md", true)],
-        workspace: [new SessionFileEntry(@"C:\w\NOTES.md", false)]);
+        workspace: [new SessionFileEntry(@"C:\w\NOTES.md", false)],
+        workspaceRoot: @"C:\w");
     SettingsUpdate? saved = null;
     vm.SaveRequested += (_, update) => saved = update;
     vm.SaveCommand.Execute(null);

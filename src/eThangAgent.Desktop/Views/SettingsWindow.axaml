@@ -59,6 +59,8 @@
                      PlaceholderText="C:\absolute\path\to\file.md"/>
             <Button x:Name="AddGlobalFileButton" Content="Add" Command="{Binding AddGlobalFileCommand}"/>
           </StackPanel>
+          <TextBlock Text="{Binding InfoMessage}" Foreground="Goldenrod" TextWrapping="Wrap" FontSize="12"
+                   IsVisible="{Binding InfoMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
           <TextBlock Text="Workspace session files (loaded for this workspace only)" FontWeight="Bold" Margin="0,6,0,0"/>
           <ItemsControl x:Name="WorkspaceFilesList" ItemsSource="{Binding WorkspaceFiles}">
             <ItemsControl.ItemTemplate>

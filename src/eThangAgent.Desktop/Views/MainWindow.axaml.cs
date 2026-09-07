@@ -102,7 +102,8 @@ internal partial class MainWindow : Window
         await _vm.GetSelectedCompactionModelAsync(),
         _vm.ConfiguredLocalBaseUrl, _vm.ConfiguredLocalApiKey,
         await _vm.GetGlobalSessionFilesAsync(),
-        await _vm.GetWorkspaceSessionFilesAsync());
+        await _vm.GetWorkspaceSessionFilesAsync(),
+        _vm.SelectedTab?.Container.WorkspaceRoot);
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {

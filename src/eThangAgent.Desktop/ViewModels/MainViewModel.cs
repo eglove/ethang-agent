@@ -509,9 +509,9 @@ internal sealed partial class MainViewModel : ObservableObject
           : _preferences?.SetAsync(SessionFilePreferences.GlobalKey, SessionFilePreferences.Serialize(globalFiles));
     }
 
-    if (update.WorkspaceFiles is { } workspaceFiles)
+    if (update.WorkspaceRoot is { } workspaceRoot && update.WorkspaceFiles is { } workspaceFiles)
     {
-      string wsKey = SessionFilePreferences.WorkspaceKey(_compactionWorkspaceKey ?? string.Empty);
+      string wsKey = SessionFilePreferences.WorkspaceKey(workspaceRoot);
       _ = workspaceFiles.Count == 0
           ? _preferences?.DeleteAsync(wsKey)
           : _preferences?.SetAsync(wsKey, SessionFilePreferences.Serialize(workspaceFiles));

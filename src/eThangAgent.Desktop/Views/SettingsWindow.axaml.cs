@@ -26,11 +26,12 @@ internal partial class SettingsWindow : Window
       CompactionModelOption? selectedCompactionModel = null,
       string? localBaseUrl = null, string? localApiKey = null,
       IReadOnlyList<SessionFileEntry>? globalFiles = null,
-      IReadOnlyList<SessionFileEntry>? workspaceFiles = null) : this()
+      IReadOnlyList<SessionFileEntry>? workspaceFiles = null,
+      string? workspaceRoot = null) : this()
   {
     _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle,
         compactionModels, selectedCompactionModel, localBaseUrl, localApiKey,
-        globalFiles, workspaceFiles);
+        globalFiles, workspaceFiles, workspaceRoot);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);
   }
