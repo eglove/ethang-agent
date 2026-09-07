@@ -39,6 +39,8 @@ public sealed class AgentCapabilityProvider(
             """
             Starts a child agent on a self-contained task and returns right away — never wait on the spawn call itself. Continue useful work or fan out siblings; when you need a child's outcome, use agent.wait (one await) — status is a projection for humans, not a poll target. Children may spawn their own children; depth limit is 3.
             Start failures return canonical error lines: InvalidSpawnRequest, DepthExceeded, MissingModel, ConcurrencyCapReached.
+            Optional workspaceRoot anchors the child's exec scripts at a directory: it must be a non-empty ABSOLUTE path to an EXISTING directory inside the parent's effective root (the parent's own anchor for grandchild chains, else the session workspace); relative paths, missing directories, and outside-of-root paths are refused before the child starts. The child's exec scripts then resolve Workspace at the anchor. It does NOT re-root the child's capability surface (read/write/edit/git tools keep the parent's workspace) — pass explicit paths or have the child use worktree-aware tooling.
+            Anchor failures return: AnchorMissing (empty/relative/nonexistent path), AnchorInvalid (resolves outside the effective root, or no root establishes containment).
             Output contract:
             id=<id> status=running
             """,
@@ -47,6 +49,7 @@ public sealed class AgentCapabilityProvider(
                 new ActionParameter("model", ActionParameterTypes.StringType, "Optional provider model reference; omit to use the configured default."),
                 new ActionParameter("label", ActionParameterTypes.StringType, "Optional free-text label for humans and logs."),
                 new ActionParameter("grants", ActionParameterTypes.StringType, "Optional capability grant: {\"tool.allow\": \"read; exec\", \"tool.deny\": \"web_fetch\"} (entries also accept string arrays). A granted child physically holds ONLY these tools plus agent actions; any other dispatch returns Error [GrantViolation] and is audited. Denying or omitting exec leaves the child no path to harness tools — grant exec unless the child needs none."),
+                new ActionParameter("workspaceRoot", ActionParameterTypes.StringType, "Optional absolute path to an existing directory inside the parent's effective root; anchors the child's exec scripts' Workspace there (handler-validated: AnchorMissing / AnchorInvalid on violation). Does not re-root the child's capability surface."),
             ]),
         new("status", "Projection of a spawned child agent's current state, for humans and debugging.",
             """
@@ -131,10 +134,11 @@ public sealed class AgentCapabilityProvider(
         new("fanout", "Spawn several children in one call and wait for ALL of them.",
             """
             Fan-out/fan-in: spawns every child described in 'children' (same shape as agent.spawn, one object each), waits for the whole set to settle, and joins. Per-member receipts name each child's id and terminal state; failed STARTS fail the join immediately; settled failures are collected and fail the join at the end. Receipts: <id>=COMPLETED|FAILED(reason).
+            Each child spec additionally accepts an optional workspaceRoot (absolute path to an existing directory inside the parent's effective root) — same anchor semantics and AnchorMissing / AnchorInvalid refusals as agent.spawn; an invalid anchor in ANY child fails the fan-out's start.
             """,
             [
                 new ActionParameter("label", ActionParameterTypes.StringType, "Optional label prefix for the graph."),
-                new ActionParameter("children", ActionParameterTypes.StringType, "JSON array of child specs: [{\"taskPrompt\":\"...\",\"model\":\"...\",\"label\":\"...\"}] - taskPrompt required per child."),
+                new ActionParameter("children", ActionParameterTypes.StringType, "JSON array of child specs: [{\"taskPrompt\":\"...\",\"model\":\"...\",\"label\":\"...\",\"workspaceRoot\":\"C:\\\\abs\\\\path\"}] - taskPrompt required per child; optional workspaceRoot anchors that child's exec scripts (AnchorMissing / AnchorInvalid on violation)."),
             ]),
     ];
 
@@ -699,7 +703,21 @@ public sealed class AgentCapabilityProvider(
           childLabel = childLabelElement.GetString();
         }
 
-        parsed.Add(new SpawnRequest(promptElement.GetString()!, model, childLabel));
+        string? childWorkspaceRoot = null;
+        if (child.TryGetProperty("workspaceRoot", out JsonElement childRootElement))
+        {
+          if (childRootElement.ValueKind is not JsonValueKind.String
+              || childRootElement.GetString() is not { } childRoot
+              || childRoot.Length == 0)
+          {
+            return $"children[{index}].workspaceRoot must be a non-empty string.";
+          }
+
+          childWorkspaceRoot = childRoot;
+        }
+
+        parsed.Add(new SpawnRequest(promptElement.GetString()!, model, childLabel,
+            WorkspaceRoot: childWorkspaceRoot));
       }
 
       children = parsed;
@@ -878,7 +896,7 @@ public sealed class AgentCapabilityProvider(
         return (null, "arguments must be a JSON object.");
       }
 
-      HashSet<string> allowed = new(StringComparer.Ordinal) { "taskPrompt", "model", "label", "grants" };
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "taskPrompt", "model", "label", "grants", "workspaceRoot" };
       string[] unknown = [.. doc.RootElement.EnumerateObject()
           .Where(p => !allowed.Contains(p.Name))
           .Select(p => p.Name)];
@@ -900,6 +918,11 @@ public sealed class AgentCapabilityProvider(
       if (!TryGetString(doc.RootElement, "label", required: false, out string? label, out string? labelError))
       {
         return (null, labelError);
+      }
+
+      if (!TryGetString(doc.RootElement, "workspaceRoot", required: false, out string? workspaceRoot, out string? workspaceRootError))
+      {
+        return (null, workspaceRootError);
       }
 
       SpawnContract? contract = null;
@@ -938,7 +961,8 @@ public sealed class AgentCapabilityProvider(
       }
 
       return (new SpawnRequest(taskPrompt!, string.IsNullOrEmpty(model) ? null : model,
-          string.IsNullOrEmpty(label) ? null : label, Contract: contract), null);
+          string.IsNullOrEmpty(label) ? null : label, Contract: contract,
+          WorkspaceRoot: string.IsNullOrEmpty(workspaceRoot) ? null : workspaceRoot), null);
     }
   }
 

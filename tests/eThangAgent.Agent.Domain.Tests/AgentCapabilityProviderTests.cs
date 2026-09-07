@@ -152,6 +152,9 @@ public class AgentCapabilityProviderTests
   [InlineData("""{}""", "taskPrompt")]
   [InlineData(/*lang=json,strict*/ """{"taskPrompt":"  "}""", "taskPrompt")]
   [InlineData(/*lang=json,strict*/ """{"taskPrompt":"x","model":" "}""", "model")]
+  [InlineData(/*lang=json,strict*/ """{"taskPrompt":"x","workspaceRoot":""}""", "workspaceRoot")]
+  [InlineData(/*lang=json,strict*/ """{"taskPrompt":"x","workspaceRoot":" "}""", "workspaceRoot")]
+  [InlineData(/*lang=json,strict*/ """{"taskPrompt":"x","workspaceRoot":7}""", "workspaceRoot")]
   public async Task Spawn_InvalidInput_TypedErrorNamingField(string json, string expected)
   {
     (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)>? calls) = MakeProvider(ParentAtDepth(0));
@@ -161,6 +164,86 @@ public class AgentCapabilityProviderTests
     Assert.True(result.IsError);
     Assert.Contains(expected, result.Content, StringComparison.Ordinal);
     Assert.Empty(calls);
+  }
+
+  [Fact]
+  public async Task Spawn_WorkspaceRoot_FlowsIntoRequestForHandlerValidation()
+  {
+    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)>? calls) = MakeProvider(ParentAtDepth(0), Result.Success(AgentId.NewId()));
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("spawn",
+                         /*lang=json,strict*/
+                         """{"taskPrompt":"x","workspaceRoot":"C:\\repo\\.worktrees\\agent-fix"}""",
+                         ct: TestContext.Current.CancellationToken);
+
+    // The provider only carries the value: strict anchor validation (AnchorMissing /
+    // AnchorInvalid) is StartSpawnHandler's contract, exercised by the application suite.
+    Assert.False(result.IsError);
+    (AgentRecord? _, SpawnRequest? request) = Assert.Single(calls);
+    Assert.Equal("C:\\repo\\.worktrees\\agent-fix", request.WorkspaceRoot);
+  }
+
+  [Fact]
+  public async Task Spawn_WorkspaceRootAbsent_StaysNull_LegacyPathUnchanged()
+  {
+    (AgentCapabilityProvider? provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)>? calls) = MakeProvider(ParentAtDepth(0), Result.Success(AgentId.NewId()));
+
+    _ = await provider.InvokeAsync("spawn", /*lang=json,strict*/ """{"taskPrompt":"x"}""", ct: TestContext.Current.CancellationToken);
+
+    (AgentRecord? _, SpawnRequest? request) = Assert.Single(calls);
+    Assert.Null(request.WorkspaceRoot);
+  }
+
+  [Fact]
+  public async Task Fanout_ChildWorkspaceRoot_FlowsIntoEachRequest()
+  {
+    List<SpawnRequest> fanned = [];
+    AgentRecord parent = ParentAtDepth(0);
+    FanoutChildrenCollector collector = new((_, requests, _) =>
+    {
+      fanned.AddRange(requests);
+      return Task.FromResult("done");
+    });
+    AgentCapabilityProvider provider = new(new NoopSpawn(), new FakeQueries(), () => parent, fanout: collector.FanoutAsync);
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("fanout",
+                         /*lang=json,strict*/
+                         """{"children":[{"taskPrompt":"a","workspaceRoot":"C:\\repo\\.worktrees\\one"},{"taskPrompt":"b"}]}""",
+                         ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal(2, fanned.Count);
+    Assert.Equal("C:\\repo\\.worktrees\\one", fanned[0].WorkspaceRoot);
+    Assert.Null(fanned[1].WorkspaceRoot);
+  }
+
+  [Fact]
+  public async Task Fanout_EmptyChildWorkspaceRoot_TypedArgumentError()
+  {
+    AgentRecord parent = ParentAtDepth(0);
+    FanoutChildrenCollector collector = new((_, requests, _) => Task.FromResult("unreachable"));
+    AgentCapabilityProvider provider = new(new NoopSpawn(), new FakeQueries(), () => parent, fanout: collector.FanoutAsync);
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("fanout",
+                         /*lang=json,strict*/
+                         """{"children":[{"taskPrompt":"a","workspaceRoot":""}]}""",
+                         ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Contains("children[1].workspaceRoot must be a non-empty string.", result.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>Fanout seam fake: records the requests it receives so tests can assert
+  ///     the exact SpawnRequest list the parser produced.</summary>
+  private sealed class FanoutChildrenCollector(Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>> impl)
+  {
+    public Task<string> FanoutAsync(AgentRecord parent, SpawnRequest[] children, CancellationToken ct) => impl(parent, children, ct);
+  }
+
+  private sealed class NoopSpawn : IAgentSpawnCommand
+  {
+    public Task<Result<AgentId>> Execute(AgentRecord parent, SpawnRequest request, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(AgentId.NewId()));
   }
 
   // --- status --------------------------------------------------------------
