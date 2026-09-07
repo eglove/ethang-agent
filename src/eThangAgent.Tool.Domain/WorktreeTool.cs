@@ -76,10 +76,10 @@ public sealed class WorktreeTool(IPathResolver resolver, IGitWorktreeAccess work
           return InvalidName(v.Name);
         }
 
-        Result<bool> removed = await _worktrees.RemoveAsync(repoRoot, v.Name, v.Force ?? false, ct).ConfigureAwait(false);
-        return removed.IsSuccess
-          ? new ToolResult($"[worktree] removed {v.Name}", false)
-          : Err(removed.Error);
+        Result<WorktreeName> worktreeName = WorktreeName.Create(v.Name);
+        return !worktreeName.IsSuccess
+          ? Err(worktreeName.Error)
+          : await RemoveAsync(repoRoot, worktreeName.Value.Value, v.Force ?? false, ct).ConfigureAwait(false);
 
       default:
         throw new InvalidOperationException($"unreachable: input parser admits only list/create/remove, got {v.Action}");
@@ -92,6 +92,14 @@ public sealed class WorktreeTool(IPathResolver resolver, IGitWorktreeAccess work
     return created.IsSuccess
       ? new ToolResult($"[worktree] created {name} at {created.Value.Path}", false)
       : Err(created.Error);
+  }
+
+  private async Task<ToolResult> RemoveAsync(string repoRoot, string name, bool force, CancellationToken ct)
+  {
+    Result<bool> removed = await _worktrees.RemoveAsync(repoRoot, name, force, ct).ConfigureAwait(false);
+    return removed.IsSuccess
+      ? new ToolResult($"[worktree] removed {name}", false)
+      : Err(removed.Error);
   }
 
   private static ToolResult RenderList(string repoRoot, IReadOnlyList<WorktreeInfo> worktrees)

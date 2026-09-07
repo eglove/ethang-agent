@@ -4,8 +4,9 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.ToolDomain;
 
 /// <summary>Strictly parsed arguments for the 'worktree' tool: a required action
-///     (exactly 'list', 'create', or 'remove', case-sensitive), a name required for
-///     create and remove, and an optional force flag only remove admits.</summary>
+///     (exactly 'list', 'create', or 'remove', case-sensitive — absent or unknown
+///     both fail InvalidAction), a name required for create and remove, and an
+///     optional force flag only remove admits.</summary>
 public sealed record WorktreeToolInput(WorktreeAction Action, string? Name, bool? Force)
 {
   public static Result<WorktreeToolInput> Create(string jsonArguments)
@@ -20,7 +21,8 @@ public sealed record WorktreeToolInput(WorktreeAction Action, string? Name, bool
 
     if (!json.TryGetProperty("action", out JsonElement actionEl))
     {
-      return ToolArguments.Missing<WorktreeToolInput>("action", "This tool requires action: exactly one of 'list', 'create', or 'remove'.");
+      return Fail(new DomainError("InvalidAction",
+          "'action' is required: exactly one of 'list', 'create', or 'remove' (case-sensitive)."));
     }
 
     if (actionEl.ValueKind != JsonValueKind.String)

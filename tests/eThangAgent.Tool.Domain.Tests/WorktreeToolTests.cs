@@ -22,13 +22,13 @@ public class WorktreeToolTests
   // ---- Input contract ----
 
   [Fact]
-  public async Task MissingAction_ReturnsError()
+  public async Task MissingAction_FailsWithInvalidAction()
   {
     WorktreeTool tool = Make(new FakeGitWorktreeAccess());
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("worktree", Args("")),
         ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
-    Assert.Contains("MissingParameter", result.Content, StringComparison.Ordinal);
+    Assert.Contains("InvalidAction", result.Content, StringComparison.Ordinal);
     Assert.Contains("'action'", result.Content, StringComparison.Ordinal);
   }
 
@@ -125,21 +125,26 @@ public class WorktreeToolTests
   // ---- InvalidName gate: validation happens before the seam ----
 
   [Theory]
-  [InlineData("")]
-  [InlineData(" ")]
-  [InlineData("Bad Name")]
-  [InlineData("Caps")]
-  public async Task InvalidName_NeverTouchesTheSeam(string name)
+  [InlineData("create", "")]
+  [InlineData("create", " ")]
+  [InlineData("create", "Bad Name")]
+  [InlineData("create", "Caps")]
+  [InlineData("remove", "")]
+  [InlineData("remove", " ")]
+  [InlineData("remove", "Bad Name")]
+  [InlineData("remove", "Caps")]
+  public async Task InvalidName_NeverTouchesTheSeam(string action, string name)
   {
     FakeGitWorktreeAccess fake = new();
     WorktreeTool tool = Make(fake);
     string encoded = System.Text.Json.JsonEncodedText.Encode(name).ToString();
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("worktree",
-        Args("\"action\":\"create\",\"name\":\"" + encoded + "\"")),
+        Args("\"action\":\"" + action + "\",\"name\":\"" + encoded + "\"")),
         ct: TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.Contains("InvalidName", result.Content, StringComparison.Ordinal);
     Assert.Equal(0, fake.CreateCallCount);
+    Assert.Empty(fake.RemoveCalls);
   }
 
   // ---- list: output contract ----
