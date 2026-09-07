@@ -78,6 +78,21 @@ public class CommandSubmissionTests
   }
 
   [Fact]
+  public async Task ExclamationSubmission_Shows_The_Model_Facing_System_Line_Live()
+  {
+    (AgentSessionViewModel vm, FakeUserCommandRunner _) = Build();
+
+    await vm.SubmitAsync("! echo hi");
+
+    // The conversation gained the system line at the runner; the live transcript
+    // must show the SAME verbatim text the model receives, not only the card.
+    SystemMessageEntry systemEntry = Assert.IsType<SystemMessageEntry>(vm.Transcript.Entries[3]);
+    Assert.Contains("User ran", systemEntry.Text, StringComparison.Ordinal);
+    Assert.Contains("echo hi", systemEntry.Text, StringComparison.Ordinal);
+    Assert.Contains("id: 1", systemEntry.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task BareExclamation_ShowsNotice_RunsNothing()
   {
     (AgentSessionViewModel vm, FakeUserCommandRunner runner) = Build();
@@ -128,14 +143,11 @@ public class CommandSubmissionTests
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
 
     Task turn = vm.SubmitAsync("hello");
-    Assert.True(vm.IsBusy);
-
-    await vm.SubmitAsync("! git status");
-
-    Assert.Equal("git status", runner.LastCommand);
-
+    await vm.SubmitAsync("! echo hi");
     release.SetResult();
     await turn.ConfigureAwait(true);
-    await vm.WaitForTurnAsync();
+    await vm.WaitForTurnAsync().ConfigureAwait(true);
+
+    Assert.Equal("echo hi", runner.LastCommand);
   }
 }

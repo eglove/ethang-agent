@@ -415,5 +415,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         // Shell access is registered by the core composition; a bare session container
         // (test stubs) without it yields a null runner and the ! surface reports unavailable.
         CommandRunner = services.GetService<IUserCommandRunner>(),
+        // The verbatim system prompt rides the session so hosts can show the user
+        // exactly what the agent receives. Build() is a pure render (session-file
+        // reads happen at container build); building it here keeps the conversation
+        // untouched - the prompt never enters it.
+        SystemPrompt = services.GetRequiredService<ISystemPromptProvider>().Build(),
       };
 }

@@ -126,12 +126,19 @@ internal sealed record ToolResultEntry(string Name, string Summary, string FullC
 
 internal sealed record NoticeEntry(string Text) : TranscriptEntry;
 
-/// <summary>The one context line every session opens with (transient, like a
+/// <summary>The one context entry every session opens with (transient, like a
 ///     notice — it never enters the conversation): workspace, provider, model,
-///     and the short session id, shown before any content including on resume.</summary>
-internal sealed record BootstrapEntry(string WorkspaceRoot, string Provider, string ModelId, string SessionId8) : TranscriptEntry
+///     and the short session id, shown before any content including on resume.
+///     Carries the session's verbatim system prompt (empty when nothing is wired)
+///     so the user can expand exactly what the agent receives - nothing hidden.</summary>
+internal sealed record BootstrapEntry(string WorkspaceRoot, string Provider, string ModelId, string SessionId8,
+    string SystemPrompt) : TranscriptEntry
 {
   public string Summary => $"{WorkspaceRoot} — {Provider} · {ModelId} · session {SessionId8}";
+
+  /// <summary>Whether an expander is worth rendering: false keeps the plain
+  ///     one-line form (headless stubs, prompts that render empty).</summary>
+  public bool HasSystemPrompt => SystemPrompt.Length > 0;
 }
 
 /// <summary>A system message the agent loop appended to the conversation mid-turn

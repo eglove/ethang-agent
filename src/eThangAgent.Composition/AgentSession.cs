@@ -28,6 +28,12 @@ public sealed record AgentSession(
 {
   public string ModelId => Model.ModelId;
 
+  /// <summary>The session's rendered system prompt - the verbatim text every provider
+  ///     call sends (skills bootstrap, persona, guides, configured session files).
+  ///     Surfaces carry it to the user so nothing the agent receives is hidden.
+  ///     Rendered once at session creation from the container's prompt providers.</summary>
+  public string SystemPrompt { get; init; } = string.Empty;
+
   /// <summary>Runs ! commands (user-side shell utilities) against this session's
   ///     workspace: persists the run, appends the system message. Null when the host
   ///     did not wire shell access (headless stubs).</summary>

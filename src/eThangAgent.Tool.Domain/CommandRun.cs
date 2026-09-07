@@ -9,4 +9,22 @@ public sealed record CommandRun(
     int ExitCode,
     bool TimedOut,
     string Output,
-    DateTimeOffset RanAt);
+    DateTimeOffset RanAt)
+{
+  /// <summary>The compact model-facing line appended to the session conversation:
+  ///     what ran, its id, and how it ended - success, exit code, or timeout.
+  ///     Points the model at command_output for the stored output; the output
+  ///     itself never rides this message. Rendered here so every surface (the
+  ///     conversation append and the live transcript) shows the identical text.</summary>
+  public string ModelFacingLine
+  {
+    get
+    {
+      string outcome = TimedOut
+          ? "timed out (partial output captured)"
+          : $"exit code {ExitCode}";
+      return $"User ran: `{Command}` (id: {Id}, {outcome}). " +
+          "Output is stored — call command_output to read it if the user references it.";
+    }
+  }
+}

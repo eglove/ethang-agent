@@ -382,4 +382,38 @@ public class AgentSessionFactoryTests
       catch { }
     }
   }
+
+  [Fact]
+  public async Task CreateAsync_Session_Carries_The_Rendered_System_Prompt()
+  {
+    (AgentSessionFactory? factory, string? db) = CreateFactory();
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-sp");
+      try
+      {
+        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        string prompt = result.Value.SystemPrompt;
+        Assert.False(string.IsNullOrWhiteSpace(prompt));
+        // The composite render: the skills bootstrap leads, session files follow.
+        Assert.Contains("EXTREMELY_IMPORTANT", prompt, StringComparison.Ordinal);
+        Assert.Contains("You are eThang Agent", prompt, StringComparison.Ordinal);
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      try
+      {
+        File.Delete(db);
+      }
+      catch { }
+    }
+  }
 }

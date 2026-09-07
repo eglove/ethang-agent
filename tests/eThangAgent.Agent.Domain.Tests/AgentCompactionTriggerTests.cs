@@ -35,6 +35,28 @@ public class AgentCompactionTriggerTests
     }
   }
 
+  /// <summary>A compactor that actually performs the aggregate replacement the real
+  ///     one does: prepends the IsSummary handoff message to the conversation.</summary>
+  private sealed class ScriptedCompactingCompactor : IContextCompactor
+  {
+    public const string SummaryText = "[Conversation summary - earlier messages were compacted.]\nhandoff summary text";
+
+    public int Calls { get; private set; }
+
+    public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+    {
+      Calls++;
+      Result<bool> replaced = conversation.Compact(
+      [
+        new Message(Role.System, SummaryText, DateTimeOffset.UtcNow, IsSummary: true),
+            ..conversation.Messages,
+      ]);
+      return Task.FromResult(replaced.IsSuccess
+          ? Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100)))
+          : Result.Failure<CompactionOutcome>(replaced.Error));
+    }
+  }
+
   private sealed class StubProvider : IModelProvider
   {
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)
@@ -63,6 +85,28 @@ public class AgentCompactionTriggerTests
     Assert.True(result.IsSuccess);
     Assert.Equal(1, compactor.Calls);
     _ = Assert.Single(compacted);
+  }
+
+  [Fact]
+  public async Task SuccessfulCompaction_Fires_SystemMessage_With_Summary_Text()
+  {
+    Conversation conversation = new();
+    ScriptedCompactingCompactor compactor = new();
+    Agent agent = new(new StubProvider(), conversation, Config, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(80.0),
+          ContextCompactor = compactor,
+        });
+    List<string> systemMessages = [];
+
+    Result<string> result = await agent.SendMessage("go",
+        new TurnCallbacks(OnSystemMessage: systemMessages.Add), ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    string summary = Assert.Single(systemMessages);
+    Assert.Contains("Conversation summary", summary, StringComparison.Ordinal);
+    Assert.Contains("handoff summary text", summary, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -98,6 +142,6 @@ public class AgentCompactionTriggerTests
     Assert.True(result.IsSuccess);
     Assert.Equal(1, compactor.Calls); // one attempt, no spam
     Assert.Contains(conversation.Messages, m =>
-        m.Role is Role.System && m.Content.Contains("[Context compaction failed:", StringComparison.Ordinal));
+        m.Role is Role.System && m.Content.Contains("compaction failed", StringComparison.OrdinalIgnoreCase));
   }
 }

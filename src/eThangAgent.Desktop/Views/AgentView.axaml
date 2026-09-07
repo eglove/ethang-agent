@@ -167,7 +167,19 @@
             <SelectableTextBlock Text="{Binding Text}" Foreground="DarkGray" Margin="8,2" TextWrapping="Wrap"/>
           </DataTemplate>
           <DataTemplate DataType="vm:BootstrapEntry">
-            <SelectableTextBlock Text="{Binding Summary}" Foreground="#6E7B91" Margin="8,2" TextWrapping="Wrap"/>
+            <Grid Margin="8,2">
+              <!-- Collapsed by default: the header line reads exactly as before;
+                   expanding reveals the verbatim system prompt - nothing hidden. -->
+              <Expander IsExpanded="False"
+                        IsVisible="{Binding HasSystemPrompt}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                <Expander.Header>
+                  <SelectableTextBlock Text="{Binding Summary}" Foreground="#6E7B91" TextWrapping="Wrap"/>
+                </Expander.Header>
+                <SelectableTextBlock FontFamily="Consolas, Courier New" FontSize="12" Foreground="#6E7B91"
+                                     Text="{Binding SystemPrompt}" TextWrapping="Wrap"/>
+              </Expander>
+            </Grid>
           </DataTemplate>
           <DataTemplate DataType="vm:SystemMessageEntry">
             <Grid ColumnDefinitions="Auto,*" Margin="8,2">

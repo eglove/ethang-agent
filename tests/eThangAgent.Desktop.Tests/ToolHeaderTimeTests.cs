@@ -67,7 +67,7 @@ public class ToolHeaderTimeTests
     Dispatcher.UIThread.RunJobs();
 
     ToolCallEntry entry = Assert.IsType<ToolCallEntry>(vm.Transcript.Entries[^1]);
-    Expander card = FindDescendants<Expander>((Control)window.Content).First();
+    Expander card = TestFixtures.ToolCards((Control)window.Content).First();
     TextBlock elapsed = HeaderTextBlocks(card).First(t => t.Text == "0.0s");
 
     entry.Elapsed!.Display = "1.2s";

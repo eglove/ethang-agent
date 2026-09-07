@@ -173,6 +173,16 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     if (compacted.IsSuccess)
     {
       callbacks?.OnCompacted?.Invoke(compacted.Value);
+      // The summary message the compaction left in the conversation is surfaced
+      // verbatim: nothing the agent receives stays hidden from the host surface
+      // (live parity with the resume replay, which restores it as a system
+      // entry). A compactor that reports success without replacing the prefix
+      // leaves nothing to surface - and nothing was received, so none is fired.
+      if (Conversation.Messages.FirstOrDefault(m => m.IsSummary) is { } summary)
+      {
+        callbacks?.OnSystemMessage?.Invoke(summary.Content);
+      }
+
       ReportUsageFromMonitor(callbacks);
       return false;
     }

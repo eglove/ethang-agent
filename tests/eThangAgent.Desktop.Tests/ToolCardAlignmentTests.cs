@@ -16,7 +16,7 @@ public class ToolCardAlignmentTests
 {
   private static (double CardX, double TextX) Layout(AgentView view)
   {
-    Expander card = view.GetVisualDescendants().OfType<Expander>().First();
+    Expander card = TestFixtures.ToolCards(view).First();
     TextBlock userText = view.GetVisualDescendants()
         .OfType<TextBlock>()
         .First(t => t.Text == "user line");
@@ -62,7 +62,7 @@ public class ToolCardAlignmentTests
     vm.Transcript.AddToolResult("read", "ok", "content", false);
     Dispatcher.UIThread.RunJobs();
 
-    Expander[] cards = [.. view.GetVisualDescendants().OfType<Expander>()];
+    Expander[] cards = [.. TestFixtures.ToolCards(view)];
     Assert.Equal(2, cards.Length);
     double callX = RootX(cards[0]);
     double resultX = RootX(cards[1]);
@@ -78,7 +78,7 @@ public class ToolCardAlignmentTests
     AgentView view = (AgentView)window.Content;
     vm.Transcript.AddToolCall("exec", "{ program }");
     Dispatcher.UIThread.RunJobs();
-    Expander card = view.GetVisualDescendants().OfType<Expander>().First();
+    Expander card = TestFixtures.ToolCards(view).First();
     card.IsExpanded = true;
     Dispatcher.UIThread.RunJobs();
     Avalonia.Controls.Primitives.ToggleButton header = card.GetVisualDescendants()

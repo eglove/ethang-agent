@@ -22,7 +22,7 @@ public class ToolElapsedCardTests
     Window window = new() { Content = new AgentView { DataContext = vm } };
     window.Show();
 
-    Expander? card = FindDescendants<Expander>((Control)window.Content).FirstOrDefault();
+    Expander? card = TestFixtures.ToolCards((Control)window.Content).FirstOrDefault();
 
     Assert.NotNull(card);
     Assert.Contains("0.0s", HeaderText(card), StringComparison.Ordinal);
@@ -37,7 +37,7 @@ public class ToolElapsedCardTests
     Window window = new() { Content = new AgentView { DataContext = vm } };
     window.Show();
 
-    List<Expander> cards = [.. FindDescendants<Expander>((Control)window.Content)];
+    List<Expander> cards = [.. TestFixtures.ToolCards((Control)window.Content)];
 
     Assert.Equal(2, cards.Count);
     string resultHeader = HeaderText(cards[1]);
@@ -53,7 +53,7 @@ public class ToolElapsedCardTests
     window.Show();
     AgentView view = (AgentView)window.Content;
     Dispatcher.UIThread.RunJobs();
-    Expander card = view.GetVisualDescendants().OfType<Expander>().First();
+    Expander card = TestFixtures.ToolCards(view).First();
     card.IsExpanded = true;
     Dispatcher.UIThread.RunJobs();
 
@@ -64,7 +64,7 @@ public class ToolElapsedCardTests
     entry.Elapsed.Display = "1.2s";
     Dispatcher.UIThread.RunJobs();
 
-    Expander after = view.GetVisualDescendants().OfType<Expander>().First();
+    Expander after = TestFixtures.ToolCards(view).First();
     Assert.Same(card, after);
     Assert.True(after.IsExpanded, "expanded card must stay expanded across elapsed ticks");
   }
@@ -78,7 +78,7 @@ public class ToolElapsedCardTests
     window.Show();
     AgentView view = (AgentView)window.Content;
     Dispatcher.UIThread.RunJobs();
-    Avalonia.Controls.Primitives.ToggleButton header = view.GetVisualDescendants()
+    Avalonia.Controls.Primitives.ToggleButton header = TestFixtures.ToolCards(view).First().GetVisualDescendants()
         .OfType<Avalonia.Controls.Primitives.ToggleButton>().First();
     TextBlock elapsed = header.GetVisualDescendants().OfType<TextBlock>()
         .First(t => t.Text is not null && t.Text.EndsWith('s'));

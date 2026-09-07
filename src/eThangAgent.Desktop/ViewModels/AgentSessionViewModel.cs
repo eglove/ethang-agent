@@ -41,6 +41,11 @@ internal sealed record AgentSessionViewModelOptions
   /// <summary>Runs ! commands (user-side shell utilities). Null = the surface reports
   ///     commands unavailable.</summary>
   public IUserCommandRunner? CommandRunner { get; init; }
+
+  /// <summary>The session's rendered system prompt, shown verbatim (collapsed) in the
+  ///     bootstrap entry so nothing the agent receives is hidden. Empty = nothing to
+  ///     surface (headless stubs); production always passes the session's prompt.</summary>
+  public string SystemPrompt { get; init; } = string.Empty;
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
@@ -141,7 +146,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // transcript line states what the session runs under (transient, never a
     // conversation message). Resume replays persisted history after it.
     Transcript.AddBootstrap(new BootstrapEntry(
-        WorkspaceRoot, provider, modelId, SessionIdShort));
+        WorkspaceRoot, provider, modelId, SessionIdShort, options.SystemPrompt));
   }
 
 
@@ -206,6 +211,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
 
     Transcript.AddCommandResult(result.Value);
+    // Full transparency: the conversation just gained the model-facing system line
+    // for this run; the live transcript shows the SAME verbatim text (a resumed
+    // session replays it as a system entry - live parity is the contract).
+    Transcript.AddSystemMessage(result.Value.ModelFacingLine);
   }
 
   /// <summary>

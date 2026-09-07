@@ -1,3 +1,5 @@
+using Avalonia.Controls;
+using Avalonia.VisualTree;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
@@ -83,6 +85,13 @@ internal static class TestFixtures
     public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success(records));
   }
+
+  /// <summary>Tool-card expanders only: the transcript's bootstrap context entry also
+  ///     renders an (initially hidden) Expander, so unscoped visual-tree Expander
+  ///     searches would grab it instead of a tool card. Locators for card layout,
+  ///     header slots, and tick survival must scope to the tool-card class.</summary>
+  internal static IEnumerable<Expander> ToolCards(Avalonia.Visual root)
+      => root.GetVisualDescendants().OfType<Expander>().Where(e => e.Classes.Contains("tool-card"));
 
   /// <summary>Builds an AgentSessionViewModel whose turn runner streams "ack" and succeeds.
   ///     When <paramref name="marshalToUIThread"/> is true the stream sink marshals onto

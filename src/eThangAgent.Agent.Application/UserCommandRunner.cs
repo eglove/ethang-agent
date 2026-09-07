@@ -52,19 +52,7 @@ public sealed class UserCommandRunner(
       return saved;
     }
 
-    _conversation?.AddSystemMessage(Describe(saved.Value));
+    _conversation?.AddSystemMessage(saved.Value.ModelFacingLine);
     return saved;
-  }
-
-  /// <summary>The compact model-facing line: what ran, its id, and how it ended —
-  ///     success, exit code, or timeout. Points the model at command_output for the
-  ///     stored output; the output itself never rides this message.</summary>
-  private static string Describe(CommandRun run)
-  {
-    string outcome = run.TimedOut
-        ? "timed out (partial output captured)"
-        : $"exit code {run.ExitCode}";
-    return $"User ran: `{run.Command}` (id: {run.Id}, {outcome}). " +
-        "Output is stored — call command_output to read it if the user references it.";
   }
 }

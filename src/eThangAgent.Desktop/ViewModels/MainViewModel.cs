@@ -730,6 +730,7 @@ internal sealed partial class MainViewModel : ObservableObject
         new AgentSessionViewModelOptions
         {
           WorkspaceRoot = session.WorkspaceRoot,
+          SystemPrompt = session.SystemPrompt,
           UiStreamSink = _streamSink ?? (evt => (sessionVmRef ??
               throw new InvalidOperationException("session view-model not initialized"))
               .ApplyUiStreamEventOnUIThreadAsync(evt)),
