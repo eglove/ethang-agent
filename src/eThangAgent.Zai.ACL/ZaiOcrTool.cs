@@ -10,7 +10,7 @@ namespace eThangAgent.Zai.ACL;
 ///     markdown transcription. Local limits mirror the API's: ≤10MB per image, ≤50MB per
 ///     PDF, at most 30 pages.</summary>
 public sealed class ZaiOcrTool(
-    HttpClient http, ZaiConfiguration config, IPathResolver resolver, IFileSystemAccess files) : ITool
+    HttpClient http, ZaiConfiguration config, IPathResolver resolver, IFileSystemAccess files) : ITool, IWorkspaceScopedTool
 {
   /// <summary>Bounded output; longer transcriptions are cut with a visible marker.</summary>
   internal const int ResultLimit = 50_000;
@@ -19,6 +19,10 @@ public sealed class ZaiOcrTool(
   private readonly ZaiConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileSystemAccess _files = files ?? throw new ArgumentNullException(nameof(files));
+
+  /// <inheritdoc />
+  public ITool RootedAt(string workspaceRoot)
+      => new ZaiOcrTool(_http, _config, new WorkspacePathResolver(workspaceRoot), _files);
 
   public ToolDefinition Definition { get; } = new(
       "ocr_document",

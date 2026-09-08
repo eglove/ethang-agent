@@ -9,12 +9,16 @@ namespace eThangAgent.Zai.ACL;
 /// <summary>Transcribes a short workspace audio clip (.wav/.mp3, ≤25MB, ≤30s of audio)
 ///     with GLM-ASR. Optional context carries prior transcription text for continuity.</summary>
 public sealed class ZaiTranscriptionTool(
-    HttpClient http, ZaiConfiguration config, IPathResolver resolver, IFileSystemAccess files) : ITool
+    HttpClient http, ZaiConfiguration config, IPathResolver resolver, IFileSystemAccess files) : ITool, IWorkspaceScopedTool
 {
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly ZaiConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileSystemAccess _files = files ?? throw new ArgumentNullException(nameof(files));
+
+  /// <inheritdoc />
+  public ITool RootedAt(string workspaceRoot)
+      => new ZaiTranscriptionTool(_http, _config, new WorkspacePathResolver(workspaceRoot), _files);
 
   public ToolDefinition Definition { get; } = new(
       "transcribe_audio",

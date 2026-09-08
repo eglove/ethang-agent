@@ -10,12 +10,16 @@ namespace eThangAgent.Zai.ACL;
 ///     artifact, which is why the tool downloads and writes it instead of returning the
 ///     link alone.</summary>
 public sealed class ZaiImageTool(
-    HttpClient http, ZaiConfiguration config, IPathResolver resolver, IFileWriteAccess files) : ITool
+    HttpClient http, ZaiConfiguration config, IPathResolver resolver, IFileWriteAccess files) : ITool, IWorkspaceScopedTool
 {
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly ZaiConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileWriteAccess _files = files ?? throw new ArgumentNullException(nameof(files));
+
+  /// <inheritdoc />
+  public ITool RootedAt(string workspaceRoot)
+      => new ZaiImageTool(_http, _config, new WorkspacePathResolver(workspaceRoot), _files);
 
   public ToolDefinition Definition { get; } = new(
       "generate_image",
