@@ -104,6 +104,18 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       with
       { WorkspaceRoot = ResolveAnchor(request.WorkspaceRoot) };
     }
+    else if (parent.Contract is { } inheritedJson
+        && SpawnContract.Decode(inheritedJson).WorkspaceRoot is { } inheritedAnchor)
+    {
+      // Grandchild chains anchor by default (capability-surface re-rooting, spec
+      // decision 2): an anchored parent spawns anchored children - an unanchored
+      // grandchild would silently escape the parent's confinement at the session
+      // root. The inherited anchor is the parent's own canonical value; it was
+      // validated when the parent spawned and is never re-validated here.
+      resolvedContract = (resolvedContract ?? new SpawnContract())
+      with
+      { WorkspaceRoot = inheritedAnchor };
+    }
 
     if (parent.Depth >= _options.MaxDepth)
     {

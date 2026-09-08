@@ -213,6 +213,73 @@ public class StartSpawnHandlerAnchorTests
   }
 
   [Fact]
+  public async Task Execute_AnchoredParent_NoExplicitAnchor_InheritsParentAnchor()
+  {
+    FakeAgentStore store = new();
+    FakeAgentRuntime runtime = new();
+    string parentAnchor = TempRoot();
+    try
+    {
+      StartSpawnHandler handler = MakeHandler(store, runtime, sessionRoot: null);
+      AgentRecord parent = Parent(contractJson: SpawnContract.Encode(new SpawnContract(WorkspaceRoot: parentAnchor)));
+
+      Result<AgentId> result = await handler.Execute(parent, new SpawnRequest("task", Model: "explicit-model"),
+          ct: TestContext.Current.CancellationToken);
+
+      Assert.True(result.IsSuccess);
+      AgentRecord saved = Assert.Single(store.Saved);
+      Assert.Equal(parentAnchor, SpawnContract.Decode(saved.Contract!).WorkspaceRoot);
+    }
+    finally
+    {
+      Directory.Delete(parentAnchor, recursive: true);
+    }
+  }
+
+  [Fact]
+  public async Task Execute_AnchoredParent_ExplicitAnchor_StillValidatesAgainstParentAnchor()
+  {
+    FakeAgentStore store = new();
+    FakeAgentRuntime runtime = new();
+    string parentAnchor = TempRoot();
+    string outside = TempRoot();
+    try
+    {
+      StartSpawnHandler handler = MakeHandler(store, runtime, sessionRoot: null);
+      AgentRecord parent = Parent(contractJson: SpawnContract.Encode(new SpawnContract(WorkspaceRoot: parentAnchor)));
+
+      Result<AgentId> result = await handler.Execute(parent, Anchored(outside),
+          ct: TestContext.Current.CancellationToken);
+
+      Assert.False(result.IsSuccess);
+      Assert.Equal("AnchorInvalid", result.Error.Code);
+      Assert.Empty(store.Saved);
+    }
+    finally
+    {
+      Directory.Delete(parentAnchor, recursive: true);
+      Directory.Delete(outside, recursive: true);
+    }
+  }
+
+  [Fact]
+  public async Task Execute_UnanchoredParent_NoExplicitAnchor_LeavesContractUnanchored()
+  {
+    FakeAgentStore store = new();
+    FakeAgentRuntime runtime = new();
+    StartSpawnHandler handler = MakeHandler(store, runtime, sessionRoot: null);
+    AgentRecord parent = Parent();
+
+    Result<AgentId> result = await handler.Execute(parent, new SpawnRequest("task", Model: "explicit-model"),
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    // The legacy path persists NO contract at all when the request carries none
+    // (SpawnContract.Encode(null) is null): byte-identical means the column stays null.
+    Assert.Null(Assert.Single(store.Saved).Contract);
+  }
+
+  [Fact]
   public async Task Execute_AnchoredRequest_WithoutAnyRoot_FailsAnchorInvalid()
   {
     FakeAgentStore store = new();
