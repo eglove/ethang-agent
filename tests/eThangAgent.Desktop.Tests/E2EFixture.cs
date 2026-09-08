@@ -43,7 +43,11 @@ internal static class E2E
 
     /// <param name="reuseDatabasePath">When set, the harness runs over THIS database file
     ///     instead of a fresh temp one — the restart-survival E2E opens two sessions over it.</param>
-    public async Task<HostHarness> StartAsync(string? reuseDatabasePath = null)
+    /// <param name="workspaceRoot">When set, the harness binds THIS absolute workspace root:
+    ///     FixedWorkspaceContext, AgentSession.WorkspaceRoot, and the root-session bootstrap all
+    ///     carry it, so anchored-spawn E2E can validate anchors against a real directory. When
+    ///     null, behavior is unchanged: FixedWorkspaceContext("app") and WorkspaceRoot = cwd.</param>
+    public async Task<HostHarness> StartAsync(string? reuseDatabasePath = null, string? workspaceRoot = null)
     {
       Mock.Start();
       // Catalog the two mock models so the session's window source resolves them;
@@ -54,11 +58,18 @@ internal static class E2E
 
       AgentSettings settings = BuildSettings();
 
+      // Byte-identical null branch (named by the brief): the harness historically wired
+      // FixedWorkspaceContext("app") while the session binding carried cwd. An EXPLICIT
+      // workspaceRoot (anchored-spawn E2E — spawn anchor validation requires an absolute,
+      // existing root) replaces all three: the context, the binding, and the bootstrap.
+      string workspaceContextId = workspaceRoot ?? "app";
+      string effectiveWorkspaceRoot = workspaceRoot ?? Directory.GetCurrentDirectory();
+
       _services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.OpenRouter,
               ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,
               new AgentHostOptions(
-                  new FixedWorkspaceContext("app"),
+                  new FixedWorkspaceContext(workspaceContextId),
                   new UnrootedPathResolver()))
           .BuildServiceProvider();
 
@@ -71,9 +82,8 @@ internal static class E2E
       // path as the desktop host, so the persisted id and the id the view-model
       // appends under can never drift apart. The binding (workspace + provider) is
       // what resume needs to rehydrate this session later.
-      string workspaceRoot = Directory.GetCurrentDirectory();
       RootId = (await RootSessionBootstrapper.PersistRootAsync(
-          _services.GetRequiredService<IAgentStore>(), workspaceRoot,
+          _services.GetRequiredService<IAgentStore>(), effectiveWorkspaceRoot,
           Providers.OpenRouter).ConfigureAwait(false)).Value;
       // Publish the persisted root id into the container, exactly as AgentSessionFactory
       // does after PersistRootAsync — without this the session-stamp consumers (plan show
@@ -88,7 +98,7 @@ internal static class E2E
       AgentSession session = new(
           _services, RootId, conversation, handler, lifecycle,
           ModelConfig.Create(SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,
-          WorkspaceRoot: workspaceRoot,
+          WorkspaceRoot: effectiveWorkspaceRoot,
           ProviderName: Providers.OpenRouter,
           Inbox: _services.GetRequiredService<IAgentInbox>(),
           ChildRuntime: _services.GetRequiredService<IAgentRuntime>());
