@@ -39,7 +39,7 @@ public sealed class AgentCapabilityProvider(
             """
             Starts a child agent on a self-contained task and returns right away — never wait on the spawn call itself. Continue useful work or fan out siblings; when you need a child's outcome, use agent.wait (one await) — status is a projection for humans, not a poll target. Children may spawn their own children; depth limit is 3.
             Start failures return canonical error lines: InvalidSpawnRequest, DepthExceeded, MissingModel, ConcurrencyCapReached.
-            Optional workspaceRoot anchors the child's exec scripts at a directory: it must be a non-empty ABSOLUTE path to an EXISTING directory inside the parent's effective root (the parent's own anchor for grandchild chains, else the session workspace); relative paths, missing directories, and outside-of-root paths are refused before the child starts. The child's exec scripts then resolve Workspace at the anchor. It does NOT re-root the child's capability surface (read/write/edit/git tools keep the parent's workspace) — pass explicit paths or have the child use worktree-aware tooling.
+            Optional workspaceRoot anchors the child's exec scripts at a directory: it must be a non-empty ABSOLUTE path to an EXISTING directory inside the parent's effective root (the parent's own anchor for grandchild chains, else the session workspace); relative paths, missing directories, and outside-of-root paths are refused before the child starts. The anchor re-roots the child's ENTIRE tool surface: exec scripts resolve Workspace at the anchor AND every path-rooted tool (read/write/edit/git_status/git_commit/working_diff/worktree/sqlite_query and any workspace-relative file tool) resolves paths at the anchor - paths outside it are refused with PathOutsideWorkspace. An anchored parent spawns anchored children by default: a child spawned WITHOUT workspaceRoot inherits the parent's anchor.
             Anchor failures return: AnchorMissing (empty/relative/nonexistent path), AnchorInvalid (resolves outside the effective root, or no root establishes containment).
             Output contract:
             id=<id> status=running
@@ -49,7 +49,7 @@ public sealed class AgentCapabilityProvider(
                 new ActionParameter("model", ActionParameterTypes.StringType, "Optional provider model reference; omit to use the configured default."),
                 new ActionParameter("label", ActionParameterTypes.StringType, "Optional free-text label for humans and logs."),
                 new ActionParameter("grants", ActionParameterTypes.StringType, "Optional capability grant: {\"tool.allow\": \"read; exec\", \"tool.deny\": \"web_fetch\"} (entries also accept string arrays). A granted child physically holds ONLY these tools plus agent actions; any other dispatch returns Error [GrantViolation] and is audited. Denying or omitting exec leaves the child no path to harness tools — grant exec unless the child needs none."),
-                new ActionParameter("workspaceRoot", ActionParameterTypes.StringType, "Optional absolute path to an existing directory inside the parent's effective root; anchors the child's exec scripts' Workspace there (handler-validated: AnchorMissing / AnchorInvalid on violation). Does not re-root the child's capability surface."),
+                new ActionParameter("workspaceRoot", ActionParameterTypes.StringType, "Optional absolute path to an existing directory inside the parent's effective root; anchors the child's ENTIRE tool surface there (exec Workspace AND path-rooted tools; handler-validated: AnchorMissing / AnchorInvalid on violation). An anchored child spawned without workspaceRoot inherits the parent's anchor."),
             ]),
         new("status", "Projection of a spawned child agent's current state, for humans and debugging.",
             """
@@ -138,7 +138,7 @@ public sealed class AgentCapabilityProvider(
             """,
             [
                 new ActionParameter("label", ActionParameterTypes.StringType, "Optional label prefix for the graph."),
-                new ActionParameter("children", ActionParameterTypes.StringType, "JSON array of child specs: [{\"taskPrompt\":\"...\",\"model\":\"...\",\"label\":\"...\",\"workspaceRoot\":\"C:\\\\abs\\\\path\"}] - taskPrompt required per child; optional workspaceRoot anchors that child's exec scripts (AnchorMissing / AnchorInvalid on violation)."),
+                new ActionParameter("children", ActionParameterTypes.StringType, "JSON array of child specs: [{\"taskPrompt\":\"...\",\"model\":\"...\",\"label\":\"...\",\"workspaceRoot\":\"C:\\\\abs\\\\path\"}] - taskPrompt required per child; optional workspaceRoot anchors that child's ENTIRE tool surface - exec scripts AND path-rooted tools resolve at the anchor; a child spawned without workspaceRoot inherits the parent's anchor (AnchorMissing / AnchorInvalid on violation)."),
             ]),
     ];
 

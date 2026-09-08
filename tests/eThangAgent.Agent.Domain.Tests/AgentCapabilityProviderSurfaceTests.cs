@@ -1,3 +1,4 @@
+using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.AgentDomain.Tests;
@@ -14,6 +15,20 @@ public class AgentCapabilityProviderSurfaceTests
     string[] actual = [.. provider.Actions.Select(a => a.Name).OrderBy(n => n, StringComparer.Ordinal)];
     string[] declared = [.. AgentCapabilityProvider.ActionNames.OrderBy(n => n, StringComparer.Ordinal)];
     Assert.Equal(actual, declared);
+  }
+
+  [Fact]
+  public void SpawnDescription_StatesCapabilitySurfaceRerooting()
+  {
+    AgentCapabilityProvider provider = MakeBare();
+    ActionDescriptor spawn = provider.Actions.Single(a => a.Name == "spawn");
+    Assert.Contains("ENTIRE tool surface", spawn.Description, StringComparison.Ordinal);
+    Assert.Contains("inherits the parent's anchor", spawn.Description, StringComparison.Ordinal);
+    Assert.DoesNotContain("does NOT re-root", spawn.Description, StringComparison.Ordinal);
+    ActionDescriptor fanout = provider.Actions.Single(a => a.Name == "fanout");
+    string children = fanout.Parameters.Single(p => p.Name == "children").Description;
+    Assert.Contains("anchors that child's ENTIRE tool surface", children, StringComparison.Ordinal);
+    Assert.DoesNotContain("Does not re-root the child's capability surface", children, StringComparison.Ordinal);
   }
 
   /// <summary>The provider with every collaborator faked: only the Actions surface matters.</summary>
