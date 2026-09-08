@@ -2,7 +2,7 @@ using System.Text.Json;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
-#pragma warning disable CA2000 // HttpClient owns no handler here; the tool never reaches the network under test
+#pragma warning disable CA2000 // the client never performs I/O in these refusal tests; test lifetime bounds it
 namespace eThangAgent.Zai.ACL.Tests;
 
 public class ZaiPathToolRootingTests
