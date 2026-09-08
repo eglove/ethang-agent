@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using eThangAgent.Agent.Application;
 using eThangAgent.Agent.Application.Memory;
 using eThangAgent.Agent.Application.Nudges;
@@ -334,17 +335,33 @@ public static class AgentComposition
         {
           Lazy<ICapabilityRegistry> root = new(() => CapabilityRegistry.Create(
                   AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())));
-          Lazy<ICapabilityRegistry> child = new(() => root.Value);
+          AgentToolsProvider tools = sp.GetRequiredService<AgentToolsProvider>();
+          ConcurrentDictionary<string, ICapabilityRegistry> anchored = new(StringComparer.Ordinal);
 
-          // Dispatch-time grant enforcement on the exec path (R1): a running child with
-          // a resolved grant set sees the child surface FILTERED to that set. Resolved
-          // per execution — the ambient RunningChild flips between containers.
+          // Dispatch-time resolution (R1 + capability-surface re-rooting): the ambient
+          // running child's contract decides the surface. An anchored contract serves the
+          // memoized ANCHORED provider registry - every IWorkspaceScopedTool re-rooted at
+          // the anchor, advertisement untouched - so the child's exec scripts reach
+          // read/write/edit/git AT THE ANCHOR. Grants then wrap outermost:
+          // Filtered(Anchored(session)), the loop registry's documented order.
           ICapabilityRegistry ResolveSurface()
           {
             AgentRecord? running = SubAgentSpawner.RunningChild;
-            ICapabilityRegistry surface = running is null ? root.Value : child.Value;
-            if (running?.Contract is { } contractJson
-                && SpawnContract.Decode(contractJson).DecodedEffectiveTools is { } effective)
+            if (running is null)
+            {
+              return root.Value;
+            }
+
+            // Decode once: the same contract feeds the anchor branch and the grant filter.
+            SpawnContract contract = running.Contract is { } contractJson
+                ? SpawnContract.Decode(contractJson)
+                : new SpawnContract();
+
+            ICapabilityRegistry surface = contract.WorkspaceRoot is { } anchor
+                ? anchored.GetOrAdd(anchor, a => CapabilityRegistry.Create(AgentSurface(sp, tools.RootedAt(a))))
+                : root.Value;
+
+            if (contract.DecodedEffectiveTools is { } effective)
             {
               AgentId childId = running.Id;
               surface = new FilteredCapabilityRegistry(surface, effective,

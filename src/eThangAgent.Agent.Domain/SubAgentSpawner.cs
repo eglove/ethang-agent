@@ -63,6 +63,23 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   ///     parent context as <c>() => SubAgentSpawner.RunningChild ?? rootRecord</c>.</summary>
   public static AgentRecord? RunningChild => RunningChildCurrent.Value;
 
+  /// <summary>Test seam: lifts the running-child ambient for the scope of the returned
+  ///     token and restores the previous value on dispose - the exact set/restore the
+  ///     spawner performs around a real child run. Production never calls this.
+  ///     Composition tests use it to drive the per-execution surface resolver without a
+  ///     live child loop.</summary>
+  internal static IDisposable PushRunningChildForTests(AgentRecord child)
+  {
+    AgentRecord? previous = RunningChildCurrent.Value;
+    RunningChildCurrent.Value = child;
+    return new AmbientRestore(previous);
+  }
+
+  private sealed class AmbientRestore(AgentRecord? previous) : IDisposable
+  {
+    public void Dispose() => RunningChildCurrent.Value = previous;
+  }
+
   /// <summary>Runs the child's conversation loop under its timeout budget and persists the terminal
   ///     outcome — Completed with the truncated report, or Failed with its reason — plus the child
   ///     transcript delta. It never saves the initial Running row; that is the spawn command's job.
