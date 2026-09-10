@@ -234,7 +234,8 @@ public sealed record Routing(
 /// <param name="Fusion">Fusion retrieval. Wire type: openrouter:fusion.</param>
 /// <param name="Advisor">Advisor. Wire type: openrouter:advisor.</param>
 /// <param name="Subagent">Sub-agent delegation. Wire type: openrouter:subagent.</param>
-/// <param name="SearchModels">Model search. Wire type: openrouter:search_models.</param>
+/// <param name="SearchModels">Model search. Wire type:
+///     openrouter:experimental__search_models.</param>
 /// <param name="ToolSearch">Tool search. Wire type: openrouter:tool_search.</param>
 /// <param name="MaxToolCalls">Budget: maximum server-tool calls per turn; null is
 ///     unbounded and omitted. Wire: max_tool_calls.</param>
@@ -335,7 +336,7 @@ public sealed record ServerTools(
 
   /// <summary>Wire view of SearchModels: serialized as its wire type string only
   ///     when the tool is enabled.</summary>
-  [JsonPropertyName("openrouter:search_models")]
+  [JsonPropertyName("openrouter:experimental__search_models")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public bool? SearchModelsWire { get => SearchModels ? true : null; init => SearchModels = value.GetValueOrDefault(); }
 

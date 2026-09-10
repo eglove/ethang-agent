@@ -63,7 +63,13 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   {
     try
     {
-      using HttpRequestMessage httpRequest = CreateRequest(config, request, stream: false);
+      Result<HttpRequestMessage> created = CreateRequest(config, request, stream: false);
+      if (!created.IsSuccess)
+      {
+        return AttemptOutcome.Final(Result.Failure<ModelResponse>(created.Error));
+      }
+
+      using HttpRequestMessage httpRequest = created.Value;
       using HttpResponseMessage response = await _http.SendAsync(httpRequest, ct).ConfigureAwait(false);
       return !response.IsSuccessStatusCode
         ? StatusOutcome((int)response.StatusCode, response.Headers.RetryAfter?.Delta)
@@ -132,7 +138,13 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   {
     try
     {
-      using HttpRequestMessage httpRequest = CreateRequest(config, request, stream: true);
+      Result<HttpRequestMessage> created = CreateRequest(config, request, stream: true);
+      if (!created.IsSuccess)
+      {
+        return AttemptOutcome.Final(Result.Failure<ModelResponse>(created.Error));
+      }
+
+      using HttpRequestMessage httpRequest = created.Value;
       // Headers-read completion so the body surfaces incrementally instead of buffering.
       using HttpResponseMessage response = await _http.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
       if (!response.IsSuccessStatusCode)
@@ -163,7 +175,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
   }
 
-  private HttpRequestMessage CreateRequest(ModelConfig config, ModelRequest request, bool stream)
+  private Result<HttpRequestMessage> CreateRequest(ModelConfig config, ModelRequest request, bool stream)
   {
     Dictionary<string, object?> bodyDict = new()
     {
@@ -192,7 +204,13 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       bodyDict["provider"] = new { only = new[] { config.Provider } };
     }
 
-    OpenRouterRequestSettings? settings = ParseSettings(config.ProviderSettings);
+    Result<OpenRouterRequestSettings?> settingsResult = ParseSettings(config.ProviderSettings);
+    if (!settingsResult.IsSuccess)
+    {
+      return Result.Failure<HttpRequestMessage>(settingsResult.Error);
+    }
+
+    OpenRouterRequestSettings? settings = settingsResult.ValueOrNull;
     if (settings?.Routing is { } routing && routing != EmptyRouting)
     {
       bodyDict["provider"] = RoutingBody(routing);
@@ -215,18 +233,18 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       bodyDict["reasoning"] = new { effort = OpenRouterReasoningEffort.ToWire(effort) };
     }
 
-    bool serverToolsEnabled = settings?.ServerTools is { } st
-        && (st.WebSearch || st.WebFetch || st.Datetime || st.ImageGeneration || st.Shell
-            || st.ApplyPatch || st.Bash || st.Fusion || st.Advisor || st.Subagent
-            || st.SearchModels || st.ToolSearch);
-    if (request.Tools is { Count: > 0 } || serverToolsEnabled)
+    // The server-tool entries are computed ONCE; enablement (the tools key existing
+    // at all) derives from the entries themselves, so adding a thirteenth tool can
+    // never desync the enablement check from the entries actually emitted.
+    List<object> serverToolEntries = [];
+    if (settings is not null)
     {
-      List<object> tools = [];
-      if (settings is not null)
-      {
-        tools.AddRange(ServerToolEntries(settings.ServerTools));
-      }
+      serverToolEntries.AddRange(ServerToolEntries(settings.ServerTools));
+    }
 
+    if (serverToolEntries.Count > 0 || request.Tools is { Count: > 0 })
+    {
+      List<object> tools = serverToolEntries;
       if (request.Tools is { Count: > 0 })
       {
         tools.AddRange(request.Tools.Select(TranslateTool));
@@ -253,12 +271,16 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       bodyDict["plugins"] = entries.ToArray();
     }
 
+    // Ownership of the request transfers through the Result to the send path, whose
+    // using disposes it; CA2000 cannot see the transfer, hence the scoped deviation.
+#pragma warning disable CA2000 // Ownership transfers to the caller, which disposes it.
     HttpRequestMessage httpRequest = new(HttpMethod.Post, _config.Endpoint("/api/v1/chat/completions"))
     {
       Content = JsonContent.Create(bodyDict)
     };
+#pragma warning restore CA2000
     httpRequest.Headers.Add("Authorization", $"Bearer {_config.ApiKey}");
-    return httpRequest;
+    return Result.Success(httpRequest);
   }
 
   /// <summary>Emits each set sampling knob under its OpenRouter wire key; null knobs
@@ -325,18 +347,21 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
   }
 
-  /// <summary>Parses the persisted provider settings: null/unset settings parse to null
-  ///     and leave the body untouched; malformed JSON is an infrastructure fault and
-  ///     surfaces as InvalidOperationException (the Parse JsonException carries the cause).</summary>
-  private static OpenRouterRequestSettings? ParseSettings(string? providerSettings)
+  /// <summary>Parses the persisted provider settings: null/unset settings parse to
+  ///     null and leave the body untouched; malformed JSON flows through the Result
+  ///     error contract as a named InvalidProviderSettings failure — an expected
+  ///     environmental failure is data, never an exception the send paths' catch
+  ///     sets (cancellation, transport) would miss.</summary>
+  private static Result<OpenRouterRequestSettings?> ParseSettings(string? providerSettings)
   {
     try
     {
-      return OpenRouterRequestSettings.Parse(providerSettings);
+      return Result.Success(OpenRouterRequestSettings.Parse(providerSettings));
     }
     catch (JsonException ex)
     {
-      throw new InvalidOperationException("Malformed OpenRouter provider settings: " + ex.Message, ex);
+      return Result.Failure<OpenRouterRequestSettings?>(new DomainError("InvalidProviderSettings",
+          $"Malformed OpenRouter provider settings: {ex.Message}"));
     }
   }
 

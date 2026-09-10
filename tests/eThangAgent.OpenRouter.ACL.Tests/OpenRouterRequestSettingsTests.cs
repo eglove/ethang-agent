@@ -18,7 +18,7 @@ public class OpenRouterRequestSettingsTests
     "openrouter:fusion",
     "openrouter:advisor",
     "openrouter:subagent",
-    "openrouter:search_models",
+    "openrouter:experimental__search_models",
     "openrouter:tool_search"
   ];
 
@@ -83,6 +83,19 @@ public class OpenRouterRequestSettingsTests
     {
       Assert.DoesNotContain(other, json, StringComparison.Ordinal);
     }
+  }
+
+  [Fact]
+  public void Serialize_EnabledSearchModelsOnly_ContainsWireTypeEntry()
+  {
+    OpenRouterRequestSettings settings = new() { ServerTools = new ServerTools(SearchModels: true) };
+
+    string json = OpenRouterRequestSettings.Serialize(settings)!;
+
+    // Controller ruling (docs-authoritative): the SearchModels toggle rides the
+    // experimental__ wire type string OpenRouter's docs declare, never the bare one.
+    Assert.Contains("openrouter:experimental__search_models", json, StringComparison.Ordinal);
+    Assert.DoesNotContain("openrouter:search_models", json, StringComparison.Ordinal);
   }
 
   [Fact]

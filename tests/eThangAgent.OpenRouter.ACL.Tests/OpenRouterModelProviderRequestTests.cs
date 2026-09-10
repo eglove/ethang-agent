@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
+using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
 #pragma warning disable CA2000 // HttpClient owns the handler; provider lifetime bounds it
@@ -142,7 +143,7 @@ public class OpenRouterModelProviderRequestTests
   {
     OpenRouterRequestSettings settings = new()
     {
-      ServerTools = new ServerTools(WebSearch: true, Datetime: true)
+      ServerTools = new ServerTools(WebSearch: true, Datetime: true, SearchModels: true)
     };
     List<ToolDefinition> tools =
       [
@@ -156,11 +157,12 @@ public class OpenRouterModelProviderRequestTests
 
     using JsonDocument doc = JsonDocument.Parse(body);
     JsonElement toolsElement = doc.RootElement.GetProperty("tools");
-    Assert.Equal(3, toolsElement.GetArrayLength());
+    Assert.Equal(4, toolsElement.GetArrayLength());
     Assert.Equal("openrouter:web_search", toolsElement[0].GetProperty("type").GetString());
     Assert.Equal("openrouter:datetime", toolsElement[1].GetProperty("type").GetString());
+    Assert.Equal("openrouter:experimental__search_models", toolsElement[2].GetProperty("type").GetString());
     _ = Assert.Single(toolsElement[0].EnumerateObject());
-    Assert.Equal("demo_tool", toolsElement[2].GetProperty("function").GetProperty("name").GetString());
+    Assert.Equal("demo_tool", toolsElement[3].GetProperty("function").GetProperty("name").GetString());
   }
 
   [Fact]
@@ -222,5 +224,47 @@ public class OpenRouterModelProviderRequestTests
         ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096).Value!).ConfigureAwait(true);
 
     Assert.Equal(withoutSettings, withDefaults);
+  }
+
+  // Corrupt ProviderSettings is an expected environmental failure: it flows through
+  // the provider's Result error contract (a named DomainError), never as an exception
+  // — no catch set on the send path would otherwise intercept it.
+  private const string CorruptSettings = "{not json";
+
+  private static ModelConfig WithCorruptSettings() =>
+      ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096, providerSettings: CorruptSettings).Value!;
+
+  [Fact]
+  public async Task Send_CorruptSettings_FailsThroughResultContract()
+  {
+    FakeHttpMessageHandler handler = new(_ => throw new InvalidOperationException(
+        "the turn must fail before any HTTP send, not here"));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendAsync(
+        WithCorruptSettings(), new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidProviderSettings", result.Error.Code);
+    Assert.Contains("provider settings", result.Error.Message, StringComparison.OrdinalIgnoreCase);
+  }
+
+  [Fact]
+  public async Task SendStreaming_CorruptSettings_FailsThroughResultContract()
+  {
+    FakeHttpMessageHandler handler = new(_ => throw new InvalidOperationException(
+        "the turn must fail before any HTTP send, not here"));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendStreamingAsync(
+        WithCorruptSettings(), new ModelRequest([UserMsg("hi")]),
+        onContentDelta: null, onReasoningDelta: null,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidProviderSettings", result.Error.Code);
+    Assert.Contains("provider settings", result.Error.Message, StringComparison.OrdinalIgnoreCase);
   }
 }
