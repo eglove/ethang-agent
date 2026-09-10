@@ -41,6 +41,7 @@ public sealed class AgentCapabilityProvider(
             Start failures return canonical error lines: InvalidSpawnRequest, DepthExceeded, MissingModel, ConcurrencyCapReached.
             Optional workspaceRoot anchors the child's exec scripts at a directory: it must be a non-empty ABSOLUTE path to an EXISTING directory inside the parent's effective root (the parent's own anchor for grandchild chains, else the session workspace); relative paths, missing directories, and outside-of-root paths are refused before the child starts. The anchor re-roots the child's ENTIRE tool surface: exec scripts resolve Workspace at the anchor AND every path-rooted tool (read/write/edit/git_status/git_commit/working_diff/worktree/sqlite_query and any workspace-relative file tool) resolves paths at the anchor - paths outside it are refused with PathOutsideWorkspace. An anchored parent spawns anchored children by default: a child spawned WITHOUT workspaceRoot inherits the parent's anchor.
             Anchor failures return: AnchorMissing (empty/relative/nonexistent path), AnchorInvalid (resolves outside the effective root, or no root establishes containment).
+            Optional isolateInWorktree (boolean) provisions a FRESH worktree of the session repository inside the parent's effective root and anchors the child at it - the child's whole tool surface (files, exec, git) lands in the worktree and its git commits land on the worktree's branch, never the controller's checkout. Mutually exclusive with workspaceRoot; a failed provision refuses the spawn before it starts. Removal stays manual via the worktree tool.
             Output contract:
             id=<id> status=running
             """,
@@ -50,6 +51,7 @@ public sealed class AgentCapabilityProvider(
                 new ActionParameter("label", ActionParameterTypes.StringType, "Optional free-text label for humans and logs."),
                 new ActionParameter("grants", ActionParameterTypes.StringType, "Optional capability grant: {\"tool.allow\": \"read; exec\", \"tool.deny\": \"web_fetch\"} (entries also accept string arrays). A granted child physically holds ONLY these tools plus agent actions; any other dispatch returns Error [GrantViolation] and is audited. Denying or omitting exec leaves the child no path to harness tools — grant exec unless the child needs none."),
                 new ActionParameter("workspaceRoot", ActionParameterTypes.StringType, "Optional absolute path to an existing directory inside the parent's effective root; anchors the child's ENTIRE tool surface there (exec Workspace AND path-rooted tools; handler-validated: AnchorMissing / AnchorInvalid on violation). An anchored child spawned without workspaceRoot inherits the parent's anchor."),
+                new ActionParameter("isolateInWorktree", ActionParameterTypes.BooleanType, "Optional; provision a fresh worktree inside the parent's effective root and anchor the child at it. Mutually exclusive with workspaceRoot; the child's git commits land on the worktree's branch, never the controller's checkout."),
             ]),
         new("status", "Projection of a spawned child agent's current state, for humans and debugging.",
             """
@@ -134,11 +136,11 @@ public sealed class AgentCapabilityProvider(
         new("fanout", "Spawn several children in one call and wait for ALL of them.",
             """
             Fan-out/fan-in: spawns every child described in 'children' (same shape as agent.spawn, one object each), waits for the whole set to settle, and joins. Per-member receipts name each child's id and terminal state; failed STARTS fail the join immediately; settled failures are collected and fail the join at the end. Receipts: <id>=COMPLETED|FAILED(reason).
-            Each child spec additionally accepts an optional workspaceRoot (absolute path to an existing directory inside the parent's effective root) — same anchor semantics and AnchorMissing / AnchorInvalid refusals as agent.spawn; an invalid anchor in ANY child fails the fan-out's start.
+            Each child spec additionally accepts an optional workspaceRoot (absolute path to an existing directory inside the parent's effective root) — same anchor semantics and AnchorMissing / AnchorInvalid refusals as agent.spawn — or isolateInWorktree (boolean; a fresh worktree is provisioned inside the parent's effective root and the child anchored at it; mutually exclusive with that child's workspaceRoot); an invalid anchor in ANY child fails the fan-out's start.
             """,
             [
                 new ActionParameter("label", ActionParameterTypes.StringType, "Optional label prefix for the graph."),
-                new ActionParameter("children", ActionParameterTypes.StringType, "JSON array of child specs: [{\"taskPrompt\":\"...\",\"model\":\"...\",\"label\":\"...\",\"workspaceRoot\":\"C:\\\\abs\\\\path\"}] - taskPrompt required per child; optional workspaceRoot anchors that child's ENTIRE tool surface - exec scripts AND path-rooted tools resolve at the anchor; a child spawned without workspaceRoot inherits the parent's anchor (AnchorMissing / AnchorInvalid on violation)."),
+                new ActionParameter("children", ActionParameterTypes.StringType, "JSON array of child specs: [{\"taskPrompt\":\"...\",\"model\":\"...\",\"label\":\"...\",\"workspaceRoot\":\"C:\\\\abs\\\\path\",\"isolateInWorktree\":true}] - taskPrompt required per child; optional workspaceRoot anchors that child's ENTIRE tool surface - exec scripts AND path-rooted tools resolve at the anchor; a child spawned without workspaceRoot inherits the parent's anchor (AnchorMissing / AnchorInvalid on violation); optional isolateInWorktree provisions a fresh worktree and anchors the child at it, mutually exclusive with workspaceRoot."),
             ]),
     ];
 
@@ -716,8 +718,19 @@ public sealed class AgentCapabilityProvider(
           childWorkspaceRoot = childRoot;
         }
 
+        bool childIsolate = false;
+        if (child.TryGetProperty("isolateInWorktree", out JsonElement childIsolateElement))
+        {
+          if (childIsolateElement.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+          {
+            return $"children[{index}].isolateInWorktree must be a boolean.";
+          }
+
+          childIsolate = childIsolateElement.GetBoolean();
+        }
+
         parsed.Add(new SpawnRequest(promptElement.GetString()!, model, childLabel,
-            WorkspaceRoot: childWorkspaceRoot));
+            WorkspaceRoot: childWorkspaceRoot, IsolateInWorktree: childIsolate));
       }
 
       children = parsed;
@@ -896,7 +909,7 @@ public sealed class AgentCapabilityProvider(
         return (null, "arguments must be a JSON object.");
       }
 
-      HashSet<string> allowed = new(StringComparer.Ordinal) { "taskPrompt", "model", "label", "grants", "workspaceRoot" };
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "taskPrompt", "model", "label", "grants", "workspaceRoot", "isolateInWorktree" };
       string[] unknown = [.. doc.RootElement.EnumerateObject()
           .Where(p => !allowed.Contains(p.Name))
           .Select(p => p.Name)];
@@ -923,6 +936,17 @@ public sealed class AgentCapabilityProvider(
       if (!TryGetString(doc.RootElement, "workspaceRoot", required: false, out string? workspaceRoot, out string? workspaceRootError))
       {
         return (null, workspaceRootError);
+      }
+
+      bool isolateInWorktree = false;
+      if (doc.RootElement.TryGetProperty("isolateInWorktree", out JsonElement isolateElement))
+      {
+        if (isolateElement.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+        {
+          return (null, "isolateInWorktree must be a boolean.");
+        }
+
+        isolateInWorktree = isolateElement.GetBoolean();
       }
 
       SpawnContract? contract = null;
@@ -962,7 +986,8 @@ public sealed class AgentCapabilityProvider(
 
       return (new SpawnRequest(taskPrompt!, string.IsNullOrEmpty(model) ? null : model,
           string.IsNullOrEmpty(label) ? null : label, Contract: contract,
-          WorkspaceRoot: string.IsNullOrEmpty(workspaceRoot) ? null : workspaceRoot), null);
+          WorkspaceRoot: string.IsNullOrEmpty(workspaceRoot) ? null : workspaceRoot,
+          IsolateInWorktree: isolateInWorktree), null);
     }
   }
 

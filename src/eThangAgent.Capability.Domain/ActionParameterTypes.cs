@@ -8,4 +8,7 @@ public static class ActionParameterTypes
 
   /// <summary>A JSON integer value.</summary>
   public const string IntegerType = "Integer";
+
+  /// <summary>A JSON boolean value.</summary>
+  public const string BooleanType = "Boolean";
 }
