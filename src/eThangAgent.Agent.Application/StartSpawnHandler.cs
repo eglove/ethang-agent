@@ -7,13 +7,16 @@ namespace eThangAgent.Agent.Application;
 
 /// <summary>Start command of the spawn CQRS split: validates the request, persists a Running child,
 ///     and hands it to the runtime as an independent actor. Owns the validation/depth/model rules
-///     that previously lived in SubAgentSpawner's synchronous path, plus the workspace-anchor
-///     rule (validated against the parent's effective root, resolved path persisted on the contract). When no explicit model is
+///     that previously lived in SubAgentSpawner's synchronous path, the workspace-anchor
+///     rule (validated against the parent's effective root, resolved path persisted on the contract),
+///     and spawn-time worktree isolation (an IsolateInWorktree request is provisioned a fresh worktree
+///     and anchored at it). When no explicit model is
 ///     provided and no session model preference is set, an available IModelSelector runs
 ///     intelligent model selection; the chain falls back to the host-injected
 ///     <see cref="SpawnOptions.FallbackModelId"/> on any selection failure.</summary>
 public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, SubAgentOptions options,
-    SpawnOptions spawn, IModelSelector? modelSelector = null, IContextWindowSource? windowSource = null)
+    SpawnOptions spawn, IModelSelector? modelSelector = null, IContextWindowSource? windowSource = null,
+    IWorktreeProvisioner? worktrees = null)
     : IAgentSpawnCommand
 {
   private readonly SpawnOptions _spawn = spawn ?? throw new ArgumentNullException(nameof(spawn));
@@ -22,6 +25,7 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
   private readonly SubAgentOptions _options = options ?? throw new ArgumentNullException(nameof(options));
   private readonly IModelSelector? _modelSelector = modelSelector;
   private readonly IContextWindowSource? _windowSource = windowSource;
+  private readonly IWorktreeProvisioner? _worktrees = worktrees;
   private readonly string _fallbackModelId = spawn?.FallbackModelId
       ?? throw new ArgumentNullException(nameof(spawn));
 
@@ -69,6 +73,47 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       }
     }
 
+    // Spawn-time worktree isolation: a flagged request is provisioned a fresh worktree
+    // inside the parent's effective root and anchored at the provisioned path — the
+    // child's entire re-rooted surface (files, exec, git) lands in the worktree and its
+    // commits land on the worktree's branch, never the controller's checkout. The flag
+    // and an explicit anchor are contradictory: refused before anything happens.
+    if (request.IsolateInWorktree)
+    {
+      if (!string.IsNullOrWhiteSpace(request.WorkspaceRoot))
+      {
+        return Result.Failure<AgentId>(new DomainError("InvalidSpawnRequest",
+            "isolateInWorktree and workspaceRoot are mutually exclusive: pick one."));
+      }
+
+      if (_worktrees is null)
+      {
+        return Result.Failure<AgentId>(new DomainError("InvalidSpawnRequest",
+            "isolateInWorktree requires a worktree provisioner; none is wired."));
+      }
+
+      string? isolationRoot = parent.Contract is { } isoParentJson
+          && SpawnContract.Decode(isoParentJson).WorkspaceRoot is { } isoParentAnchor
+              ? isoParentAnchor
+              : _spawn.WorkspaceRoot;
+      if (string.IsNullOrWhiteSpace(isolationRoot))
+      {
+        return Result.Failure<AgentId>(new DomainError("AnchorInvalid",
+            WorkspaceAnchorSpecification.InvalidPrefix + " isolation requested but no session workspace and no parent anchor establish a root to provision inside."));
+      }
+
+      string worktreeName = DeriveWorktreeName(request.Label, request.TaskPrompt);
+      Result<WorktreeProvision> provisioned = await _worktrees.CreateAsync(isolationRoot, worktreeName, ct).ConfigureAwait(false);
+      if (!provisioned.IsSuccess)
+      {
+        return Result.Failure<AgentId>(provisioned.Error);
+      }
+
+      resolvedContract = (resolvedContract ?? new SpawnContract())
+      with
+      { WorkspaceRoot = provisioned.Value.Path };
+    }
+
     // Workspace anchor (worktree ladder, T5): an anchor on the request is validated
     // against the parent's effective root — the parent's OWN persisted anchor when its
     // contract carries one (grandchild chains measure against it), else the session
@@ -104,14 +149,17 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       with
       { WorkspaceRoot = ResolveAnchor(request.WorkspaceRoot) };
     }
-    else if (parent.Contract is { } inheritedJson
+    else if (!request.IsolateInWorktree
+        && parent.Contract is { } inheritedJson
         && SpawnContract.Decode(inheritedJson).WorkspaceRoot is { } inheritedAnchor)
     {
       // Grandchild chains anchor by default (capability-surface re-rooting, spec
       // decision 2): an anchored parent spawns anchored children - an unanchored
       // grandchild would silently escape the parent's confinement at the session
       // root. The inherited anchor is the parent's own canonical value; it was
-      // validated when the parent spawned and is never re-validated here.
+      // validated when the parent spawned and is never re-validated here. An isolated
+      // request skips inheritance: it was anchored at its freshly provisioned worktree
+      // above - the worktree IS the confinement, and the provisioned path must stand.
       resolvedContract = (resolvedContract ?? new SpawnContract())
       with
       { WorkspaceRoot = inheritedAnchor };
@@ -155,6 +203,43 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
   {
     string full = Path.GetFullPath(anchor).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     return full.Length == 2 && full[1] == ':' ? full + Path.DirectorySeparatorChar : full;
+  }
+
+  /// <summary>Derives a WorktreeName-conforming name for an isolated child: a label- or
+  ///     prompt-derived slug (lowercase letters, digits, hyphens) truncated to leave
+  ///     room for a uniqueness fragment, so concurrent isolated spawns of the same task
+  ///     never collide (a collision is a WorktreeExists refusal, not a surprise).
+  ///     Falls back to "spawn" when nothing survives shaping.</summary>
+  private static string DeriveWorktreeName(string? label, string taskPrompt)
+  {
+    string source = string.IsNullOrWhiteSpace(label) ? taskPrompt : label;
+    System.Text.StringBuilder sb = new();
+    bool lastWasHyphen = false;
+    foreach (char c in source)
+    {
+      char lower = char.ToLowerInvariant(c);
+      bool ok = char.IsAsciiLetterOrDigit(lower);
+      if (ok)
+      {
+        _ = sb.Append(lower);
+        lastWasHyphen = false;
+      }
+      else if (!lastWasHyphen && sb.Length > 0)
+      {
+        _ = sb.Append('-');
+        lastWasHyphen = true;
+      }
+    }
+
+    string slug = sb.ToString().TrimEnd('-');
+    if (slug.Length == 0)
+    {
+      slug = "spawn";
+    }
+
+    string fragment = Guid.NewGuid().ToString("N")[..8];
+    int maxSlug = 64 - fragment.Length - 1;
+    return slug.Length > maxSlug ? slug[..maxSlug].TrimEnd('-') + "-" + fragment : slug + "-" + fragment;
   }
 
   /// <summary>The parent's effective tool set, as R1 defines it: the parent's OWN

@@ -72,6 +72,7 @@ public static class AgentComposition
         .AddSingleton<IGitCommitAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
         .AddSingleton<GitWorktreeAccess>()
         .AddSingleton<IGitWorktreeAccess>(sp => sp.GetRequiredService<GitWorktreeAccess>())
+        .AddSingleton<IWorktreeProvisioner>(sp => new GitWorktreeProvisioner(sp.GetRequiredService<GitWorktreeAccess>()))
         .AddSingleton(ExecOptions.Default)
         .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
         .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
@@ -273,7 +274,8 @@ public static class AgentComposition
                 ChildToolSurface: ChildToolSurface(sp),
                 WorkspaceRoot: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
             sp.GetService<IModelSelector>(),
-            sp.GetRequiredService<IContextWindowSource>()))
+            sp.GetRequiredService<IContextWindowSource>(),
+            sp.GetRequiredService<IWorktreeProvisioner>()))
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
