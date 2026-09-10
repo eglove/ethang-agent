@@ -53,6 +53,13 @@ Ensure work happens in an isolated workspace: use using-git-worktrees to create
 one or verify the existing one. Never start implementation on a main/master
 branch without your human partner's explicit consent.
 
+When dispatching implementer/reviewer children, request isolation explicitly:
+pass "isolateInWorktree": true on every agent.spawn (and per child in agent.fanout).
+The harness provisions a fresh worktree inside the parent's effective root and
+anchors the child there, so the child's edits, tests, and git commits land on the
+worktree's branch - never the controller's checkout. A failed child's worktree is
+evidence: remove it manually with the worktree tool after review.
+
 Conversation memory does not survive compaction. In real sessions, controllers
 that lost their place have re-dispatched entire completed task sequences — the
 single most expensive failure observed. Track progress in the ledger, not only
