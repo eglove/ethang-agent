@@ -8,8 +8,9 @@ using eThangAgent.Desktop.Views;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Grand-plan input-row polish: the Stop button stretches to the input's
-///     current height (aligned whether the input is one line or five) and is wide
-///     enough to actually read "Stop" — never a tiny unlabeled rectangle.</summary>
+///     current height (aligned whether the input is one line or five) and fits its
+///     glyph — a small padded square, not a wide bar (the readable-width floor was
+///     superseded: the glyph "■" is the whole label, centered).</summary>
 public class StopButtonLayoutTests
 {
   [AvaloniaFact]
@@ -28,8 +29,8 @@ public class StopButtonLayoutTests
 
     Assert.True(stop.IsVisible, "precondition: busy shows the stop button");
     Assert.Equal(input.Bounds.Height, stop.Bounds.Height, 1.0);
-    Assert.True(stop.Bounds.Width >= 56,
-        $"stop button must be wide enough to read ({stop.Bounds.Width} DIP)");
+    // glyph-fitted: small padding around "■" — wide enough to click, never a wide bar
+    Assert.InRange(stop.Bounds.Width, 28, 44);
   }
 
   [AvaloniaFact]

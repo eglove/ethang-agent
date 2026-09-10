@@ -71,7 +71,7 @@
         <Grid ColumnDefinitions="*,Auto" Margin="8,0">
           <TextBox x:Name="InputBox" Grid.Column="0" PlaceholderText="Type a message"
                    AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/>
-          <Button x:Name="StopButton" Grid.Column="1" Margin="8,0,0,0" MinWidth="64" Padding="16,0"
+          <Button x:Name="StopButton" Grid.Column="1" Margin="8,0,0,0" MinWidth="36" Padding="10,0"
                   IsVisible="{Binding IsBusy}" Click="OnStopClick" VerticalAlignment="Stretch"
                   Content="■" FontSize="14" ToolTip.Tip="Stop"/>
         </Grid>
