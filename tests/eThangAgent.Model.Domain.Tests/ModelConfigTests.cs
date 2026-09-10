@@ -1,3 +1,4 @@
+using System.Text.Json;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
@@ -88,5 +89,170 @@ public class ModelConfigTests
     Result<ModelConfig> result = ModelConfig.Create("gpt-4o", null, 1024, 0.7f, 2048);
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.Provider);
+  }
+
+  [Fact]
+  public void Create_AcceptsNullKnobs()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 512, 0.5f, 8192);
+    Assert.True(result.IsSuccess);
+    Assert.Null(result.Value.TopP);
+    Assert.Null(result.Value.TopK);
+    Assert.Null(result.Value.FrequencyPenalty);
+    Assert.Null(result.Value.PresencePenalty);
+    Assert.Null(result.Value.RepetitionPenalty);
+    Assert.Null(result.Value.MinP);
+    Assert.Null(result.Value.TopA);
+    Assert.Null(result.Value.Seed);
+    Assert.Null(result.Value.Verbosity);
+    Assert.Null(result.Value.ParallelToolCalls);
+    Assert.Null(result.Value.ProviderSettings);
+  }
+
+  [Fact]
+  public void Create_WithTopPBelowZero_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, topP: -0.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithTopPAboveOne_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, topP: 1.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithNegativeTopK_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, topK: -1);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithFrequencyPenaltyBelowMinusTwo_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, frequencyPenalty: -2.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithFrequencyPenaltyAboveTwo_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, frequencyPenalty: 2.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithPresencePenaltyBelowMinusTwo_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, presencePenalty: -2.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithPresencePenaltyAboveTwo_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, presencePenalty: 2.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithRepetitionPenaltyBelowZero_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, repetitionPenalty: -0.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithRepetitionPenaltyAboveTwo_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, repetitionPenalty: 2.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithMinPBelowZero_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, minP: -0.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithMinPAboveOne_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, minP: 1.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithTopABelowZero_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, topA: -0.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithTopAAboveOne_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, 2048, topA: 1.1f);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_AcceptsBoundaryValues()
+  {
+    Assert.True(ModelConfig.Create("m", null, 100, 0.5f, 2048, topP: 0f).IsSuccess);
+    Assert.True(ModelConfig.Create("m", null, 100, 0.5f, 2048, topP: 1f).IsSuccess);
+    Assert.True(ModelConfig.Create("m", null, 100, 0.5f, 2048, frequencyPenalty: -2f).IsSuccess);
+    Assert.True(ModelConfig.Create("m", null, 100, 0.5f, 2048, frequencyPenalty: 2f).IsSuccess);
+    Assert.True(ModelConfig.Create("m", null, 100, 0.5f, 2048, presencePenalty: -2f).IsSuccess);
+    Assert.True(ModelConfig.Create("m", null, 100, 0.5f, 2048, presencePenalty: 2f).IsSuccess);
+    Assert.True(ModelConfig.Create("m", null, 100, 0.5f, 2048, repetitionPenalty: 0f).IsSuccess);
+    Assert.True(ModelConfig.Create("m", null, 100, 0.5f, 2048, repetitionPenalty: 2f).IsSuccess);
+  }
+
+  [Fact]
+  public void Create_FullSurfaceConstruction()
+  {
+    string settings = JsonSerializer.Serialize(new { k = "v" });
+    ModelConfig config = ModelConfig.Create(
+        "m", null, 100, 0.5f, 2048,
+        topP: 0.9f,
+        topK: 40,
+        frequencyPenalty: 0.5f,
+        presencePenalty: -1f,
+        repetitionPenalty: 1.1f,
+        minP: 0.05f,
+        topA: 0.2f,
+        seed: 42,
+        verbosity: VerbosityLevel.High,
+        parallelToolCalls: false,
+        providerSettings: settings).Value!;
+    Assert.Equal(0.9f, config.TopP);
+    Assert.Equal(40, config.TopK);
+    Assert.Equal(0.5f, config.FrequencyPenalty);
+    Assert.Equal(-1f, config.PresencePenalty);
+    Assert.Equal(1.1f, config.RepetitionPenalty);
+    Assert.Equal(0.05f, config.MinP);
+    Assert.Equal(0.2f, config.TopA);
+    Assert.Equal(42, config.Seed);
+    Assert.Equal(VerbosityLevel.High, config.Verbosity);
+    Assert.False(config.ParallelToolCalls!.Value);
+    Assert.Equal(settings, config.ProviderSettings);
   }
 }
