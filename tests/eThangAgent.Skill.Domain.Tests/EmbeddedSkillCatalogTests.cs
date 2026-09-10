@@ -52,6 +52,24 @@ public class EmbeddedSkillCatalogTests
   }
 
   [Fact]
+  public async Task Sdd_Requires_WatchedRed_Evidence_And_Tdd_Skill_Captures_It()
+  {
+    // Grand plan: watched-RED is unverifiable downstream — every SDD implementer
+    // report must carry a RED-transcript artifact (command + failing output
+    // verbatim), the task reviewer audits it, and the TDD skill's checklist
+    // tells the implementer to capture it.
+    Result<SkillDefinition> sdd = await _catalog.GetAsync("subagent-driven-development", ct: TestContext.Current.CancellationToken);
+    Assert.True(sdd.IsSuccess);
+    Assert.Contains("RED transcript", sdd.Value.Body, StringComparison.Ordinal);
+    Assert.Contains("exact test command", sdd.Value.Body, StringComparison.Ordinal);
+    Assert.Contains("Audit the RED transcript", sdd.Value.Body, StringComparison.Ordinal);
+
+    Result<SkillDefinition> tdd = await _catalog.GetAsync("test-driven-development", ct: TestContext.Current.CancellationToken);
+    Assert.True(tdd.IsSuccess);
+    Assert.Contains("RED transcript", tdd.Value.Body, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task Get_UnknownName_Fails()
   {
     Result<SkillDefinition> r = await _catalog.GetAsync("not-a-skill", ct: TestContext.Current.CancellationToken);

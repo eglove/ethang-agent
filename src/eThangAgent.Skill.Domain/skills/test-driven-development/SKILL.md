@@ -127,6 +127,10 @@ Confirm:
 
 **Test errors?** Fix error, re-run until it fails correctly.
 
+**Capture the RED transcript** — the exact test command and the verbatim
+failing output. Report formats downstream (implementer reports, code review)
+require it as evidence you watched the fail; verbatim, not summarized.
+
 ### GREEN - Minimal Code
 
 Write simplest code to pass the test.
@@ -286,6 +290,7 @@ Before marking work complete:
 
 - [ ] Every new function/method has a test
 - [ ] Watched each test fail before implementing
+- [ ] Kept the RED transcript: exact command + verbatim failing output
 - [ ] Each test failed for expected reason (feature missing, not typo)
 - [ ] Wrote minimal code to pass each test
 - [ ] All tests pass

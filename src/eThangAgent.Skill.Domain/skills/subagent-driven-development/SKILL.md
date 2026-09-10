@@ -134,7 +134,10 @@ Record BASE (`git rev-parse HEAD`) before dispatching — fix-round diffs need i
 - **Report:** the implementer writes its full report to
   `sdd.<slug>/task-N-report` via `state.set` and returns ONLY: status (DONE /
   DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED), commits, a one-line test
-  summary, concerns.
+  summary, concerns. The report MUST carry the RED transcript: the exact test
+  command and the verbatim failing output, captured when the new test was
+  watched failing. No RED transcript means the TDD claim is unverified — send
+  the report back.
 - A dispatch describes one task, not the session's history. Do not paste
   accumulated prior-task summaries into later dispatches. A fresh child needs
   its task, the interfaces it touches, and the global constraints. Nothing else.
@@ -189,7 +192,10 @@ replaces the task review.
 - Do not add open-ended directives ("check all uses") without a concrete
   task-specific reason.
 - Do not ask a reviewer to re-run tests the implementer already ran on the same
-  code — the report carries the test evidence.
+  code — the report carries the test evidence. Audit the RED transcript first:
+  the exact test command and the verbatim failing output must be present in
+  the report. A missing or summarized-only RED transcript goes back
+  to the implementer — review does not start on an unaudited TDD claim.
 - Do not pre-judge findings. Never instruct a reviewer to ignore or not flag an
   issue. If you believe a finding is false, let the reviewer raise it and
   adjudicate in the loop. If your prompt contains "do not flag," "don't treat X
@@ -394,12 +400,17 @@ Ambiguity resolutions: <rulings you already made, or "none">
 Write your FULL report — what you did, files touched, test commands with
 output summaries, self-review notes — to
   state.set key="sdd.<slug>/task-N-report" value=<full report>
+The report MUST include the RED transcript for every new test: the exact test
+command you ran and the verbatim failing output, captured when you watched it
+fail — before implementing. If no test changed this round, state why RED does
+not apply.
 Appending later fix rounds goes to the SAME key with CAS.
 
 Return ONLY this contract, nothing else:
 STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 COMMITS: <list>
 TESTS: <one line>
+RED: <in report: exact command + verbatim failing output, or "n/a — no test changed">
 CONCERNS: <none, or one line each>
 
 Rules:
