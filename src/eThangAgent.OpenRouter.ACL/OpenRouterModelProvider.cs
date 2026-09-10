@@ -16,6 +16,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   private const string ProviderError = "ProviderError";
   private const string ToolCalls = "tool_calls";
   private const string Function = "function";
+  private static readonly Routing EmptyRouting = new();
 
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly OpenRouterConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
@@ -171,6 +172,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       ["max_tokens"] = config.MaxTokens,
       ["temperature"] = config.Temperature,
     };
+    ApplySamplingKnobs(bodyDict, config);
     if (stream)
     {
       bodyDict["stream"] = true;
@@ -178,9 +180,32 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       bodyDict["stream_options"] = new { include_usage = true };
     }
 
+    // The OR-side request settings (routing, server-side tools, plugins, budgets)
+    // reach the wire here. Routing REPLACES the provider pinning (same "provider"
+    // key); with no routing configured the pinning stays exactly as before.
+    // Server-tool entries lead the tools array so user-defined tools follow;
+    // enabled plugins ride the "plugins" array. Default sections contribute zero
+    // keys, so a default ProviderSettings leaves the body unchanged.
+
     if (!string.IsNullOrWhiteSpace(config.Provider))
     {
       bodyDict["provider"] = new { only = new[] { config.Provider } };
+    }
+
+    OpenRouterRequestSettings? settings = ParseSettings(config.ProviderSettings);
+    if (settings?.Routing is { } routing && routing != EmptyRouting)
+    {
+      bodyDict["provider"] = RoutingBody(routing);
+    }
+
+    if (settings?.ServerTools.MaxToolCalls is { } maxToolCalls)
+    {
+      bodyDict["max_tool_calls"] = maxToolCalls;
+    }
+
+    if (settings?.ServerTools.StopServerToolsWhen is { } stopWhen)
+    {
+      bodyDict["stop_server_tools_when"] = stopWhen;
     }
 
     // Only sent when the user picked a level (the effort picker); OpenRouter's own
@@ -190,9 +215,42 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       bodyDict["reasoning"] = new { effort = OpenRouterReasoningEffort.ToWire(effort) };
     }
 
-    if (request.Tools is { Count: > 0 })
+    bool serverToolsEnabled = settings?.ServerTools is { } st
+        && (st.WebSearch || st.WebFetch || st.Datetime || st.ImageGeneration || st.Shell
+            || st.ApplyPatch || st.Bash || st.Fusion || st.Advisor || st.Subagent
+            || st.SearchModels || st.ToolSearch);
+    if (request.Tools is { Count: > 0 } || serverToolsEnabled)
     {
-      bodyDict["tools"] = request.Tools.Select(TranslateTool).ToArray();
+      List<object> tools = [];
+      if (settings is not null)
+      {
+        tools.AddRange(ServerToolEntries(settings.ServerTools));
+      }
+
+      if (request.Tools is { Count: > 0 })
+      {
+        tools.AddRange(request.Tools.Select(TranslateTool));
+      }
+
+      bodyDict["tools"] = tools.ToArray();
+    }
+
+    if (settings?.Plugins is { } plugins && (plugins.WebGrounding || plugins.ResponseHealing))
+    {
+      List<object> entries = [];
+      if (plugins.WebGrounding)
+      {
+        entries.Add(plugins.WebGroundingEngine is { } engine
+            ? new Dictionary<string, object?> { ["id"] = "web", ["engine"] = engine }
+            : new Dictionary<string, object?> { ["id"] = "web" });
+      }
+
+      if (plugins.ResponseHealing)
+      {
+        entries.Add(new Dictionary<string, object?> { ["id"] = "response-healing" });
+      }
+
+      bodyDict["plugins"] = entries.ToArray();
     }
 
     HttpRequestMessage httpRequest = new(HttpMethod.Post, _config.Endpoint("/api/v1/chat/completions"))
@@ -201,6 +259,174 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     };
     httpRequest.Headers.Add("Authorization", $"Bearer {_config.ApiKey}");
     return httpRequest;
+  }
+
+  /// <summary>Emits each set sampling knob under its OpenRouter wire key; null knobs
+  ///     never appear on the wire. Verbosity maps to the wire string
+  ///     (low | medium | high | xhigh | max).</summary>
+  private static void ApplySamplingKnobs(Dictionary<string, object?> body, ModelConfig config)
+  {
+    if (config.TopP is { } topP)
+    {
+      body["top_p"] = topP;
+    }
+
+    if (config.TopK is { } topK)
+    {
+      body["top_k"] = topK;
+    }
+
+    if (config.FrequencyPenalty is { } frequencyPenalty)
+    {
+      body["frequency_penalty"] = frequencyPenalty;
+    }
+
+    if (config.PresencePenalty is { } presencePenalty)
+    {
+      body["presence_penalty"] = presencePenalty;
+    }
+
+    if (config.RepetitionPenalty is { } repetitionPenalty)
+    {
+      body["repetition_penalty"] = repetitionPenalty;
+    }
+
+    if (config.MinP is { } minP)
+    {
+      body["min_p"] = minP;
+    }
+
+    if (config.TopA is { } topA)
+    {
+      body["top_a"] = topA;
+    }
+
+    if (config.Seed is { } seed)
+    {
+      body["seed"] = seed;
+    }
+
+    if (config.Verbosity is { } verbosity)
+    {
+      body["verbosity"] = verbosity switch
+      {
+        VerbosityLevel.Low => "low",
+        VerbosityLevel.Medium => "medium",
+        VerbosityLevel.High => "high",
+        VerbosityLevel.XHigh => "xhigh",
+        VerbosityLevel.Max => "max",
+        _ => throw new InvalidOperationException("Unknown verbosity level: " + verbosity),
+      };
+    }
+
+    if (config.ParallelToolCalls is { } parallelToolCalls)
+    {
+      body["parallel_tool_calls"] = parallelToolCalls;
+    }
+  }
+
+  /// <summary>Parses the persisted provider settings: null/unset settings parse to null
+  ///     and leave the body untouched; malformed JSON is an infrastructure fault and
+  ///     surfaces as InvalidOperationException (the Parse JsonException carries the cause).</summary>
+  private static OpenRouterRequestSettings? ParseSettings(string? providerSettings)
+  {
+    try
+    {
+      return OpenRouterRequestSettings.Parse(providerSettings);
+    }
+    catch (JsonException ex)
+    {
+      throw new InvalidOperationException("Malformed OpenRouter provider settings: " + ex.Message, ex);
+    }
+  }
+
+  /// <summary>The full routing object for body["provider"]: every non-null member under
+  ///     its snake_case wire key, matching the T3 serializer's routing section shape;
+  ///     null members are emitted only when present.</summary>
+  private static Dictionary<string, object?> RoutingBody(Routing routing)
+  {
+    Dictionary<string, object?> body = [];
+    if (routing.Order is { } order)
+    {
+      body["order"] = order;
+    }
+
+    if (routing.Only is { } only)
+    {
+      body["only"] = only;
+    }
+
+    if (routing.Ignore is { } ignore)
+    {
+      body["ignore"] = ignore;
+    }
+
+    if (routing.AllowFallbacks is { } allowFallbacks)
+    {
+      body["allow_fallbacks"] = allowFallbacks;
+    }
+
+    if (routing.Sort is { } sort)
+    {
+      body["sort"] = sort;
+    }
+
+    if (routing.Quantizations is { } quantizations)
+    {
+      body["quantizations"] = quantizations;
+    }
+
+    if (routing.RequireParameters is { } requireParameters)
+    {
+      body["require_parameters"] = requireParameters;
+    }
+
+    if (routing.DataCollection is { } dataCollection)
+    {
+      body["data_collection"] = dataCollection;
+    }
+
+    if (routing.Models is { } models)
+    {
+      body["models"] = models;
+    }
+
+    if (routing.Route is { } route)
+    {
+      body["route"] = route;
+    }
+
+    return body;
+  }
+
+  /// <summary>The wire entries for the enabled server tools, in declared order: each
+  ///     entry is an object with a type member carrying the tool's wire type string;
+  ///     v1 carries no per-tool parameters. Type strings follow the task-4 wire
+  ///     ruling: SearchModels is openrouter:experimental__search_models.</summary>
+  private static object[] ServerToolEntries(ServerTools tools)
+  {
+    List<object> entries = [];
+    void AddIf(bool enabled, string wireType)
+    {
+      if (enabled)
+      {
+        entries.Add(new Dictionary<string, object?> { ["type"] = wireType });
+      }
+    }
+
+    AddIf(tools.WebSearch, "openrouter:web_search");
+    AddIf(tools.WebFetch, "openrouter:web_fetch");
+    AddIf(tools.Datetime, "openrouter:datetime");
+    AddIf(tools.ImageGeneration, "openrouter:image_generation");
+    AddIf(tools.Shell, "openrouter:shell");
+    AddIf(tools.ApplyPatch, "openrouter:apply_patch");
+    AddIf(tools.Bash, "openrouter:bash");
+    AddIf(tools.Fusion, "openrouter:fusion");
+    AddIf(tools.Advisor, "openrouter:advisor");
+    AddIf(tools.Subagent, "openrouter:subagent");
+    AddIf(tools.SearchModels, "openrouter:experimental__search_models");
+    AddIf(tools.ToolSearch, "openrouter:tool_search");
+    return [.. entries];
   }
 
   /// <summary>Maps an HTTP status to its error result plus retry classification: 408, 429,
