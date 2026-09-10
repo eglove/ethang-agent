@@ -90,8 +90,9 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(child);
-    // Children inherit the session's runtime preferences (the effort picker): the
-    // effort choice is a property of the conversation, not of the root agent. A wired
+    // Children inherit the session's runtime preferences (the effort picker and the
+    // sampling knobs, overlaid below): the effort choice is a property of the
+    // conversation, not of the root agent. A wired
     // window source must know the child's model — accounting cannot run blind. With no
     // source wired (legacy wiring, tests) the config carries the unbounded legacy
     // sentinel and the child simply runs without accounting.
@@ -101,8 +102,9 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
           ?? throw new InvalidOperationException(
               $"Child model '{child.ModelUsed}' has no catalog context window; the child run cannot proceed. "
               + "This is a composition wiring fault: every spawnable model must have a known window.");
-    ModelConfig config = ModelConfig.Create(
-        child.ModelUsed, null, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort).Value!;
+    ModelConfig config = ModelPreferencesOverlay.Apply(ModelConfig.Create(
+        child.ModelUsed, null, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort).Value!,
+        _preferences);
 
     // Resume hydration: a persisted transcript means this run restarts a previously
     // interrupted (typically watchdog-retried) child - continue the conversation with

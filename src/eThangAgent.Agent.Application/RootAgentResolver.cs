@@ -46,8 +46,8 @@ public sealed class RootAgentResolver(
     ArgumentNullException.ThrowIfNull(conversation);
 
     // 0. The user's live model choice wins over everything static — selection,
-    //    cadence, and fallback. Runtime preferences (reasoning effort) still apply:
-    //    the choice fixes the model identity, not the knobs.
+    //    cadence, and fallback. Runtime preferences (reasoning effort and the
+    //    sampling knobs) still apply: the choice fixes the model identity, not the knobs.
     if (_preferences?.ModelId is { } preferred)
     {
       string? preferredNotice = await TryPersistModelAsync(preferred, ct).ConfigureAwait(false);
@@ -113,7 +113,7 @@ public sealed class RootAgentResolver(
           modelId, providerName, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort);
       if (created.IsSuccess)
       {
-        return created.Value;
+        return ModelPreferencesOverlay.Apply(created.Value, _preferences);
       }
     }
 
@@ -127,7 +127,9 @@ public sealed class RootAgentResolver(
   {
     int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(_fallbackModelId, null, ct).ConfigureAwait(false);
     return window is { } resolved
-        ? ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort).Value!
+        ? ModelPreferencesOverlay.Apply(
+            ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort).Value!,
+            _preferences)
         : throw new InvalidOperationException(
             $"Fallback model '{_fallbackModelId}' has no catalog context window; the resolver cannot serve any turn. "
             + "This is a composition wiring fault: the fallback must be a model the catalog (or a curated constant) knows.");
