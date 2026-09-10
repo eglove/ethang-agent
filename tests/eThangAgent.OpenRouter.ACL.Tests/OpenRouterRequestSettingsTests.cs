@@ -1,3 +1,6 @@
+// The expected wire-JSON literal below is deliberate: the plugins shape contract
+// is asserted byte-for-byte against the serializer's output.
+#pragma warning disable JSON002
 using System.Text.Json;
 
 namespace eThangAgent.OpenRouter.ACL.Tests;
@@ -120,4 +123,22 @@ public class OpenRouterRequestSettingsTests
       Assert.DoesNotContain(other, json, StringComparison.Ordinal);
     }
   }
+
+  [Fact]
+  public void Serialize_WebGroundingWithEngine_EmitsEngineExactlyOnceInsideWebEntry()
+  {
+    OpenRouterRequestSettings settings = new() { Plugins = new Plugins(WebGrounding: true, WebGroundingEngine: "exa") };
+
+    string json = OpenRouterRequestSettings.Serialize(settings)!;
+
+    // Pins the plugins wire shape: the engine value appears exactly once, inside
+    // the web entry, and no plugins-level engine key leaks beside it.
+    Assert.Equal("{\"plugins\":{\"web\":{\"engine\":\"exa\"}}}", json);
+  }
+
+  [Fact]
+  public void Parse_JsonNull_ThrowsJsonException()
+    => Assert.Throws<JsonException>(() => OpenRouterRequestSettings.Parse("null"));
+
+#pragma warning restore JSON002
 }

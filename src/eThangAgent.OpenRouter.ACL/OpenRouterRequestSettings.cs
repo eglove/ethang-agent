@@ -39,8 +39,8 @@ public sealed record OpenRouterRequestSettings
       => settings is null ? null : JsonSerializer.Serialize(settings, Options);
 
   /// <summary>Parses persisted ProviderSettings JSON. Null or whitespace yields null.
-  ///     Malformed JSON throws JsonException — corrupt preference storage is an
-  ///     infrastructure fault, never silently dropped.</summary>
+  ///     Malformed JSON — including JSON null — throws JsonException: corrupt
+  ///     preference storage is an infrastructure fault, never silently dropped.</summary>
   public static OpenRouterRequestSettings? Parse(string? json)
       => string.IsNullOrWhiteSpace(json)
           ? null
@@ -404,15 +404,14 @@ public sealed record ServerTools(
 /// <param name="WebGrounding">Web grounding plugin. Plugin id: web.</param>
 /// <param name="ResponseHealing">Response healing plugin. Plugin id: response-healing.</param>
 /// <param name="WebGroundingEngine">Optional search engine override for web
-///     grounding; null uses the provider default. Wire: the engine member of the
-///     web entry.</param>
+///     grounding; null uses the provider default. C#-only member — never on
+///     the wire directly; the engine travels only inside the web entry.</param>
 public sealed record Plugins(
   [property: JsonIgnore]
   bool WebGrounding = false,
   [property: JsonIgnore]
   bool ResponseHealing = false,
-  [property: JsonPropertyName("engine")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  [property: JsonIgnore]
   string? WebGroundingEngine = null)
 {
   /// <summary>Wire entry for the web grounding plugin: serialized only when the
