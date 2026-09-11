@@ -13,7 +13,9 @@ namespace eThangAgent.Zai.ACL;
 ///     deliberately never sent: GLM defaults apply (flagship models force thinking on) and
 ///     reasoning surfaces through the standard <c>reasoning_content</c> stream field.
 ///     <see cref="ModelConfig.Effort"/> — set by the user via the host's effort picker —
-///     maps to <c>reasoning_effort</c> when present. Temperature passes through unvalidated — z.ai
+///     maps to <c>reasoning_effort</c> when present. The applicable sampling knobs (<c>top_p</c>,
+///     <c>frequency_penalty</c>, <c>presence_penalty</c>) are sent only when set; all other
+///     <see cref="ModelConfig"/> knobs are never serialized. Temperature passes through unvalidated — z.ai
 ///     rejects out-of-range values server-side (HTTP 400 → ProviderError) rather than this ACL
 ///     clamping silently.</summary>
 public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
@@ -177,6 +179,27 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
       ["max_tokens"] = config.MaxTokens,
       ["temperature"] = config.Temperature,
     };
+
+    // Only the knobs z.ai's OpenAI-compatible chat API documents reach the wire (spec AD2/AD6):
+    // top_p, frequency_penalty, presence_penalty. The remaining ModelConfig knobs (topK,
+    // repetitionPenalty, minP, topA, seed, verbosity, parallelToolCalls, providerSettings) have
+    // no documented z.ai analogue and are never sent, even when set; the Model Settings UI marks
+    // them N/A at pick time.
+    if (config.TopP is { } topP)
+    {
+      bodyDict["top_p"] = topP;
+    }
+
+    if (config.FrequencyPenalty is { } frequencyPenalty)
+    {
+      bodyDict["frequency_penalty"] = frequencyPenalty;
+    }
+
+    if (config.PresencePenalty is { } presencePenalty)
+    {
+      bodyDict["presence_penalty"] = presencePenalty;
+    }
+
     if (stream)
     {
       bodyDict["stream"] = true;
