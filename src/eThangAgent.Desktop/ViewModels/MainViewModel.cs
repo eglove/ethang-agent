@@ -500,8 +500,14 @@ internal sealed partial class MainViewModel : ObservableObject
     tab.ViewModel.ApplySamplingSettings(snapshot.Preferences);
     string providerName = tab.Container.ProviderName;
     string workspaceRoot = tab.Container.WorkspaceRoot;
-    string knobPayload = JsonSerializer.Serialize(snapshot.KnobTexts);
-    await PersistSamplingPrefsAsync(providerName, workspaceRoot, snapshot.KnobTexts.Count == 0 ? null : knobPayload);
+    // Every knob unset means the whole preference is unset: delete the key instead
+    // of persisting an empty map (matching the documented null-deletes contract;
+    // the restore path already treats a missing key as unset). An all-whitespace
+    // map serializes to entries whose values are empty strings — still unset.
+    bool allUnset = snapshot.KnobTexts.Count == 0
+        || snapshot.KnobTexts.Values.All(value => value.Length == 0);
+    string? knobPayload = allUnset ? null : JsonSerializer.Serialize(snapshot.KnobTexts);
+    await PersistSamplingPrefsAsync(providerName, workspaceRoot, knobPayload);
     await PersistProviderSettingsAsync(providerName, workspaceRoot, snapshot.ProviderSettingsJson);
   }
 
@@ -1077,20 +1083,13 @@ internal sealed partial class MainViewModel : ObservableObject
 
   private static VerbosityLevel? ParseVerbosity(IReadOnlyDictionary<string, string> knobs)
   {
-    bool stored = knobs.TryGetValue("verbosity", out string? text);
-    return stored switch
-    {
-      false => null,
-      _ => text!.ToUpperInvariant() switch
-      {
-        nameof(VerbosityLevel.Low) => VerbosityLevel.Low,
-        nameof(VerbosityLevel.Medium) => VerbosityLevel.Medium,
-        nameof(VerbosityLevel.High) => VerbosityLevel.High,
-        nameof(VerbosityLevel.XHigh) => VerbosityLevel.XHigh,
-        nameof(VerbosityLevel.Max) => VerbosityLevel.Max,
-        _ => null,
-      },
-    };
+    // The stored text is the settings window's lowercase wire spelling (low/medium/
+    // high/xhigh/max); parse case-insensitively so any casing round-trips. Unknown
+    // or corrupt values degrade to unset — never coerced (named decision).
+    return knobs.TryGetValue("verbosity", out string? text)
+        && Enum.TryParse(text, ignoreCase: true, out VerbosityLevel value)
+        ? value
+        : null;
   }
 
   /// <summary>Loads the selected tab's persisted sampling knob texts for the

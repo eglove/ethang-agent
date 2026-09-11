@@ -31,11 +31,17 @@ internal sealed record ModelSettingsSnapshot(
 ///     provider dictates. The window binds <see cref="Text"/> two-way; the
 ///     view-model parses and range-checks on save — never per keystroke — so
 ///     invalid intermediate text is legal to type and blocks only the save.
+///     Every text change raises <see cref="ObservableObject.PropertyChanged"/>
+///     and invokes the owner's callback, so the validation-derived state
+///     (<c>ValidationError</c>, <c>CanSave</c>, the Save command) re-queries on
+///     each edit — window edits and programmatic setters behave identically.
 ///     Empty text means "unset": the live preference returns to null.</summary>
-internal sealed partial class KnobEntry(string name, string label, string text, bool isEnabled) : ObservableObject
+internal sealed partial class KnobEntry(string name, string label, string text, bool isEnabled, Action onTextChanged) : ObservableObject
 {
   [ObservableProperty]
   public partial string Text { get; set; } = text;
+
+  partial void OnTextChanged(string value) => onTextChanged();
 
   public string Name { get; } = name;
 
@@ -45,7 +51,6 @@ internal sealed partial class KnobEntry(string name, string label, string text, 
   ///     (z.ai's seven N/A knobs): the field renders disabled/greyed and its
   ///     value never reaches the preferences.</summary>
   public bool IsEnabled { get; } = isEnabled;
-
 }
 
 /// <summary>The OpenRouter routing fields, edited as raw text (list fields are
@@ -212,8 +217,9 @@ internal sealed class PluginsSection
 /// <summary>One bindable knob row for the window: wraps a <see cref="KnobEntry"/>
 ///     and exposes the label and not-applicable tooltip the XAML binds. XAML
 ///     compiled bindings need a concrete x:DataType; the dictionary is surfaced
-///     as this row list in fixed display order.</summary>
-internal sealed partial class KnobRow(KnobEntry entry, string tooltip) : ObservableObject
+///     as this row list in fixed display order. Text writes forward to the
+///     entry, whose own change notification is the single source of truth.</summary>
+internal sealed class KnobRow(KnobEntry entry, string tooltip) : ObservableObject
 {
   private readonly KnobEntry _entry = entry;
 
@@ -415,22 +421,35 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     bool Editable(string knob) => !IsZai || !ZaiNotApplicable.Contains(knob);
     string Text(string knob, string? fromPreferences) =>
         persistedKnobTexts.TryGetValue(knob, out string? persisted) ? persisted : fromPreferences ?? string.Empty;
+    KnobEntry CreateEntry(string knob, string? fromPreferences) =>
+        new(knob, KnobLabels[knob], Text(knob, fromPreferences), Editable(knob), OnKnobTextChanged);
     Knobs = new Dictionary<string, KnobEntry>
     {
-      [KnobTemperature] = new(KnobTemperature, KnobLabels[KnobTemperature], Text(KnobTemperature, Format(_live.Temperature)), Editable(KnobTemperature)),
-      [KnobMaxTokens] = new(KnobMaxTokens, KnobLabels[KnobMaxTokens], Text(KnobMaxTokens, Format(_live.MaxTokens)), Editable(KnobMaxTokens)),
-      [KnobTopP] = new(KnobTopP, KnobLabels[KnobTopP], Text(KnobTopP, Format(_live.TopP)), Editable(KnobTopP)),
-      [KnobTopK] = new(KnobTopK, KnobLabels[KnobTopK], Text(KnobTopK, Format(_live.TopK)), Editable(KnobTopK)),
-      [KnobFrequencyPenalty] = new(KnobFrequencyPenalty, KnobLabels[KnobFrequencyPenalty], Text(KnobFrequencyPenalty, Format(_live.FrequencyPenalty)), Editable(KnobFrequencyPenalty)),
-      [KnobPresencePenalty] = new(KnobPresencePenalty, KnobLabels[KnobPresencePenalty], Text(KnobPresencePenalty, Format(_live.PresencePenalty)), Editable(KnobPresencePenalty)),
-      [KnobRepetitionPenalty] = new(KnobRepetitionPenalty, KnobLabels[KnobRepetitionPenalty], Text(KnobRepetitionPenalty, Format(_live.RepetitionPenalty)), Editable(KnobRepetitionPenalty)),
-      [KnobMinP] = new(KnobMinP, KnobLabels[KnobMinP], Text(KnobMinP, Format(_live.MinP)), Editable(KnobMinP)),
-      [KnobTopA] = new(KnobTopA, KnobLabels[KnobTopA], Text(KnobTopA, Format(_live.TopA)), Editable(KnobTopA)),
-      [KnobSeed] = new(KnobSeed, KnobLabels[KnobSeed], Text(KnobSeed, Format(_live.Seed)), Editable(KnobSeed)),
-      [KnobVerbosity] = new(KnobVerbosity, KnobLabels[KnobVerbosity], Text(KnobVerbosity, Format(_live.Verbosity)), Editable(KnobVerbosity)),
-      [KnobParallelToolCalls] = new(KnobParallelToolCalls, KnobLabels[KnobParallelToolCalls], Text(KnobParallelToolCalls, Format(_live.ParallelToolCalls)), Editable(KnobParallelToolCalls)),
+      [KnobTemperature] = CreateEntry(KnobTemperature, Format(_live.Temperature)),
+      [KnobMaxTokens] = CreateEntry(KnobMaxTokens, Format(_live.MaxTokens)),
+      [KnobTopP] = CreateEntry(KnobTopP, Format(_live.TopP)),
+      [KnobTopK] = CreateEntry(KnobTopK, Format(_live.TopK)),
+      [KnobFrequencyPenalty] = CreateEntry(KnobFrequencyPenalty, Format(_live.FrequencyPenalty)),
+      [KnobPresencePenalty] = CreateEntry(KnobPresencePenalty, Format(_live.PresencePenalty)),
+      [KnobRepetitionPenalty] = CreateEntry(KnobRepetitionPenalty, Format(_live.RepetitionPenalty)),
+      [KnobMinP] = CreateEntry(KnobMinP, Format(_live.MinP)),
+      [KnobTopA] = CreateEntry(KnobTopA, Format(_live.TopA)),
+      [KnobSeed] = CreateEntry(KnobSeed, Format(_live.Seed)),
+      [KnobVerbosity] = CreateEntry(KnobVerbosity, Format(_live.Verbosity)),
+      [KnobParallelToolCalls] = CreateEntry(KnobParallelToolCalls, Format(_live.ParallelToolCalls)),
     };
     (Routing, ServerTools, Plugins) = ParseProviderSettings(_live.ProviderSettings);
+    foreach (KnobEntry entry in Knobs.Values)
+    {
+      entry.PropertyChanged += (_, args) =>
+      {
+        if (args.PropertyName == nameof(KnobEntry.Text))
+        {
+          OnKnobTextChanged();
+        }
+      };
+    }
+
     KnobRows = [.. Knobs.Values.Select(entry => new KnobRow(entry, TooltipFor(entry.Name)))];
     ToolToggles =
     [
@@ -484,19 +503,26 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
 
   /// <summary>The first validation problem across all knobs, or null when clean.
   ///     Computed on demand: the window shows it after a blocked save, and the
-  ///     Save command requeries availability on text edits.</summary>
+  ///     Save command requeries availability on every knob text edit.</summary>
   public string? ValidationError => ValidateKnobs();
 
   /// <summary>Save is only actionable when every populated knob validates.</summary>
   public bool CanSave => ValidationError is null;
 
-  /// <summary>Programmatic setter mirroring two-way binding (tests): sets the
-  ///     row's text and requeries save availability.</summary>
-  public void SetKnob(string knob, string text)
+  /// <summary>Every knob text edit funnels here (entries invoke the owner's
+  ///     callback): the validation-derived observables re-notify and the Save
+  ///     command re-queries availability — window edits and programmatic setters
+  ///     behave identically.</summary>
+  private void OnKnobTextChanged()
   {
-    Knobs[knob].Text = text;
+    OnPropertyChanged(nameof(ValidationError));
+    OnPropertyChanged(nameof(CanSave));
     SaveCommand.NotifyCanExecuteChanged();
   }
+
+  /// <summary>Programmatic setter mirroring two-way binding (tests): the entry's
+  ///     change notification already requeries save availability.</summary>
+  public void SetKnob(string knob, string text) => Knobs[knob].Text = text;
 
   /// <summary>The all-or-nothing save: validate every knob, then apply to the
   ///     live preferences, serialize the OpenRouter section (null when hidden or
@@ -612,6 +638,14 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     }
 
     if (!float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float value))
+    {
+      return NotANumber(knob, text);
+    }
+
+    // NumberStyles.Float accepts NaN/Infinity spellings, whose every comparison is
+    // false — the range check below would pass them vacuously. Reject them as the
+    // not-a-number error before the range check.
+    if (!float.IsFinite(value))
     {
       return NotANumber(knob, text);
     }
