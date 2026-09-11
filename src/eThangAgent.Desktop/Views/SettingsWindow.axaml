@@ -142,7 +142,7 @@
             <TextBlock Text="Max wrap-up attempts" VerticalAlignment="Center" FontSize="12"/>
           </StackPanel>
           <TextBlock
-              Text="The watchdog restarts a child agent that stops making progress: it samples each running child's activity every tick interval, and a child idle past the threshold is cancelled and restarted once with a wrap-up nudge (its partial work is kept); a second idle breach marks it failed. Max wrap-up attempts is how many of those nudged restarts a child may receive. Durations use constant format — '00:01:00' is one minute; a bare number is rejected (it would read as days). Blank fields keep the defaults. Applies to newly opened agents."
+              Text="The watchdog restarts a child agent that stops making progress: it samples each running child's activity every tick interval, and a child idle past the threshold is cancelled and restarted once with a wrap-up nudge (its partial work is kept); a second idle breach marks it failed. Max wrap-up attempts is how many of those nudged restarts a child may receive. Durations use constant format — '00:01:00' is one minute; a bare number is rejected (it would read as days). Blank fields keep the defaults. The child host applies changes to newly opened agents; the app-side watchdog binds them once per process — changes reach it after the app restarts."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>
