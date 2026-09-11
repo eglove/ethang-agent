@@ -19,7 +19,7 @@ using CommitStylePreference = eThangAgent.ToolDomain.CommitStylePreference;
 namespace eThangAgent.Desktop;
 
 /// <summary>Everything <see cref="DesktopHost.CreateMainWindow"/> needs, prepared OFF the UI thread:
-///     validated configuration with the API keys lifted from app preferences, the
+///     settings loaded from app preferences with the API keys overlaid, the
 ///     provider-aware session factory the shell uses to open one isolated agent
 ///     container per chosen directory, the settings snapshot behind the Settings modal,
 ///     the preferred provider, the preference store, and the key protector. No agent
@@ -35,8 +35,8 @@ internal sealed record DesktopBootstrap(
     IWatchdogEventStore WatchdogEvents);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
-///     Startup loads configuration (provider API keys come from the app database, DPAPI-
-///     protected — never from environment variables) and shows the shell immediately;
+///     Startup loads settings from app preferences (provider API keys live DPAPI-
+///     protected in the same app database) and shows the shell immediately;
 ///     each 'Open Workspace' pick builds an isolated <see cref="AgentSession"/> whose directory
 ///     roots path resolution, workspace identity, and — when an AGENTS.md exists there — a
 ///     verbatim system-prompt injection announcing it as read. Startup infrastructure
@@ -44,20 +44,20 @@ internal sealed record DesktopBootstrap(
 ///     one — the unkeyed provider simply is not offered.</summary>
 internal static class DesktopHost
 {
-  /// <summary>Background-thread-safe preparation: strict config load, key recovery from
-  ///     app preferences, and the provider-aware session factory. Constructs NO Avalonia
+  /// <summary>Background-thread-safe preparation: settings loaded from app preferences,
+  ///     key recovery, and the provider-aware session factory. Constructs NO Avalonia
   ///     controls (they are thread-affine and must be built on the UI thread via
   ///     <see cref="CreateMainWindow"/>). No workspace is required up front: agents are
   ///     opened per tab from the shell.</summary>
   public static async Task<DesktopBootstrap> PrepareAsync()
   {
-    AgentSettings settings = AgentConfiguration.Load();
-
     // ONE app-owned database for every opened session (rows are keyed by workspace id).
     AppDatabase database = new();
     SqliteAppPreferenceStore preferences = new(database);
     IApiKeyProtector protector = new DpapiKeyProtector();
 
+    // Non-secret settings load from app preferences — the single configuration source.
+    AgentSettings settings = await AgentSettingsLoader.LoadAsync(preferences);
     string? localKey = await LoadKeyAsync(preferences, protector, LocalSettings.PreferenceKey);
     settings = settings
         .WithApiKeys(

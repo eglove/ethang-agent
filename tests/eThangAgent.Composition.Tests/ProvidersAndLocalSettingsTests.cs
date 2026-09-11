@@ -4,8 +4,8 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.Composition.Tests;
 
 /// <summary>Provider identity for the local OpenAI-compatible provider, the
-///     settings shape hosts overlay credentials onto, and the strict configuration
-///     load for it. The spec pins each name verbatim — tests are the pin.</summary>
+///     settings shape hosts overlay credentials onto, and the overlay behavior.
+///     The spec pins each name verbatim — tests are the pin.</summary>
 [Collection("EnvironmentSensitive")]
 public class ProvidersAndLocalSettingsTests
 {
@@ -135,73 +135,9 @@ public class ProvidersAndLocalSettingsTests
     Assert.Null(overlaid.Local.ApiKey);
   }
 
-  // --- AgentConfiguration.Load ---
-
-  [Fact]
-  public void Local_Absent_LocalIsNull()
-  {
-    AgentSettings s = Load();
-
-    Assert.Null(s.Local);
-    Assert.False(s.HasLocal);
-  }
-
-  [Fact]
-  public void Local_BaseUrl_Set_IsStoredAsIs()
-  {
-    // A present-but-invalid URL text is stored as-is — validation happens at
-    // ResolveBaseUrl time, never silently dropped.
-    AgentSettings valid = Load(env: ("LOCAL_BASE_URL", "http://localhost:8080/v1"));
-    Assert.NotNull(valid.Local);
-    Assert.Equal("http://localhost:8080/v1", valid.Local.BaseUrlText);
-
-    AgentSettings invalid = Load(env: ("LOCAL_BASE_URL", "not-a-url"));
-    Assert.NotNull(invalid.Local);
-    Assert.Equal("not-a-url", invalid.Local.BaseUrlText);
-  }
-
-  [Fact]
-  public void Local_BaseUrl_Empty_String_Is_Absent()
-  {
-    AgentSettings s = Load(env: ("LOCAL_BASE_URL", ""));
-
-    Assert.Null(s.Local);
-  }
-
-  [Fact]
-  public void Local_ApiKey_Env_Is_Ignored()
-  {
-    // Keys live in each host's credential store, never in configuration — the
-    // Desktop overlays the local key via WithApiKeys like every other provider.
-    AgentSettings s = Load(("LOCAL_BASE_URL", "http://localhost:8080/v1"), ("LOCAL_API_KEY", "local-key"));
-
-    Assert.NotNull(s.Local);
-    Assert.Null(s.Local.ApiKey);
-  }
-
   private static AgentSettings Settings(string? localBaseUrl = null) => new(
       new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
       new ZaiSettings("zai-key", new Uri("https://zai.test")),
       new SubAgentOptions(null, 2),
       Local: localBaseUrl is null ? null : new LocalSettings(localBaseUrl, "local-key"));
-
-  private static AgentSettings Load(params (string Key, string Value)[] env)
-  {
-    foreach ((string? key, string? value) in env)
-    {
-      Environment.SetEnvironmentVariable(key, value);
-    }
-
-    try
-    {
-      return AgentConfiguration.Load();
-    }
-    finally
-    {
-      foreach ((string? key, string _) in env)
-      {
-        Environment.SetEnvironmentVariable(key, null);
-      }
-    }
-  }
 }
