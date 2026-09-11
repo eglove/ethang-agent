@@ -9,6 +9,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.ModelDomain;
+using eThangAgent.OpenRouter.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
@@ -1189,8 +1190,12 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore CA1031
   }
 
-  /// <summary>Reads the persisted serialized OpenRouter request settings, or null
-  ///     when unset. A failed read degrades to unset (named decision, CA1031).
+  /// <summary>Reads the persisted serialized OpenRouter request settings and parses
+  ///     it through the ACL's typed parser, or null when unset. Malformed stored JSON
+  ///     degrades to unset — the same corrupt-to-unset named decision the knob map
+  ///     and the effort choice apply — so a corrupt payload never reaches a turn
+  ///     (the provider would fail the whole request over it); a failed read likewise
+  ///     degrades to unset and never fails the open (named decision, CA1031).
   ///     </summary>
   private async Task<string?> ReadProviderSettingsAsync(string providerName, string workspaceRoot)
   {
@@ -1203,7 +1208,17 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      return await _preferences.GetAsync(ProviderSettingsKey(providerName, workspaceRoot));
+      string? stored = await _preferences.GetAsync(ProviderSettingsKey(providerName, workspaceRoot));
+      if (stored is null)
+      {
+        return null;
+      }
+
+      // Parse throws JsonException on malformed storage; the model-facing wire path
+      // fails the whole request over such a payload, so restore refuses it up front.
+      return OpenRouterRequestSettings.Parse(stored) is { } parsed
+          ? OpenRouterRequestSettings.Serialize(parsed)
+          : null;
     }
     catch (Exception ex)
     {

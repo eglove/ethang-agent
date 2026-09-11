@@ -41,6 +41,17 @@ internal static class E2E
     /// <summary>The persisted root session id — the SAME id the view-model appends under.</summary>
     public AgentId RootId { get; private set; }
 
+    /// <summary>The session preference store over the SAME temp database the composed
+    ///     container uses — how tests persist per-workspace preferences (model choice,
+    ///     sampling settings) the production open path restores.</summary>
+    public IAppPreferenceStore Store { get; private set; } = null!;
+
+    /// <summary>The composed session container — lets a settings E2E build a second
+    ///     AgentSession over the SAME container (shared live preferences) and drive it
+    ///     through a preference-store-wired shell open path.</summary>
+    internal ServiceProvider Services => _services
+        ?? throw new InvalidOperationException("harness not started");
+
     /// <param name="reuseDatabasePath">When set, the harness runs over THIS database file
     ///     instead of a fresh temp one — the restart-survival E2E opens two sessions over it.</param>
     /// <param name="workspaceRoot">When set, the harness binds THIS absolute workspace root:
@@ -73,6 +84,8 @@ internal static class E2E
                   new UnrootedPathResolver()))
           .BuildServiceProvider();
 
+      Store = _services.GetRequiredService<IAppPreferenceStore>();
+
       // Pin the session's model through the same live-preference surface the desktop
       // model picker uses — selection must not run here, or it would consume the
       // mock's scripted chat responses before the turn under test.
@@ -101,7 +114,8 @@ internal static class E2E
           WorkspaceRoot: effectiveWorkspaceRoot,
           ProviderName: Providers.OpenRouter,
           Inbox: _services.GetRequiredService<IAgentInbox>(),
-          ChildRuntime: _services.GetRequiredService<IAgentRuntime>());
+          ChildRuntime: _services.GetRequiredService<IAgentRuntime>(),
+          Preferences: _services.GetRequiredService<SessionModelPreferences>());
       // No live Avalonia session exists in headless tests, so the production sink
       // (ApplyUiStreamEventOnUIThreadAsync) posts onto Dispatcher.UIThread, where queued
       // operations never execute (shut-down unit-test dispatcher) — wedging every turn
