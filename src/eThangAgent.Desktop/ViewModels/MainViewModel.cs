@@ -486,8 +486,12 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     per workspace + provider (best effort — the same named decision as the
   ///     other preferences): the knob texts under the sampling_prefs key, the
   ///     serialized OpenRouter settings under the provider_settings key (null
-  ///     deletes — an unset value never lingers). The typed values are already on
-  ///     the session's live preferences through the session view-model's apply.
+  ///     deletes — an unset value never lingers), and the effort choice under
+  ///     the SAME effort_choice key the effort picker uses (a saved Model
+  ///     default deletes — a stored level must never outlive an explicit
+  ///     Model default save and silently win on reopen). The typed values are
+  ///     already on the session's live preferences through the session
+  ///     view-model's apply.
   ///     </summary>
   public async Task ApplySamplingSettingsAsync(ModelSettingsSnapshot snapshot)
   {
@@ -501,6 +505,7 @@ internal sealed partial class MainViewModel : ObservableObject
     tab.ViewModel.ApplySamplingSettings(snapshot.Preferences);
     string providerName = tab.Container.ProviderName;
     string workspaceRoot = tab.Container.WorkspaceRoot;
+    await PersistEffortChoiceAsync(providerName, workspaceRoot, snapshot.Preferences.ReasoningEffort);
     // Every knob unset means the whole preference is unset: delete the key instead
     // of persisting an empty map (matching the documented null-deletes contract;
     // the restore path already treats a missing key as unset). An all-whitespace

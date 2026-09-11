@@ -238,11 +238,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>
-  /// Applies a Model Settings save: every non-null knob lands on the session's
-  /// live model preferences (null = unset — the resolved config's value applies),
-  /// and the serialized OpenRouter provider settings ride along verbatim.
-  /// Applies from the next turn, root and children alike; persisted per workspace
-  /// by the shell. Mirrors ApplyEffortChoice.
+  /// Applies a Model Settings save: the effort choice and every non-null knob
+  /// land on the session's live model preferences (null = unset — the resolved
+  /// config's value applies; a null effort returns it to the model default), and
+  /// the serialized OpenRouter provider settings ride along verbatim. Applies
+  /// from the next turn, root and children alike; persisted per workspace by the
+  /// shell. Mirrors ApplyEffortChoice.
   /// </summary>
   public void ApplySamplingSettings(SessionModelPreferences settings)
   {
@@ -252,6 +253,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return;
     }
 
+    _modelPreferences.ReasoningEffort = settings.ReasoningEffort;
+    Status.Effort = EffortLevels.DisplayName(settings.ReasoningEffort);
     _modelPreferences.Temperature = settings.Temperature;
     _modelPreferences.MaxTokens = settings.MaxTokens;
     _modelPreferences.TopP = settings.TopP;
