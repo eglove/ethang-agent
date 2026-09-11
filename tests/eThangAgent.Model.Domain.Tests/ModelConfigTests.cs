@@ -37,6 +37,46 @@ public class ModelConfigTests
     Assert.Equal("InvalidModel", result.Error.Code);
   }
 
+  // ---- Final fix wave: non-finite floats are outside every documented range (AD6) ----
+
+  [Fact]
+  public void Create_WithNaNTemperature_ReturnsFailure()
+  {
+    // Vacuous range checks let NaN through before the fix — the window already
+    // blocks NaN text, so this is the domain boundary's own backstop.
+    Result<ModelConfig> result = ModelConfig.Create("model", null, 100, float.NaN, 2048);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Fact]
+  public void Create_WithInfiniteTemperature_ReturnsFailure()
+  {
+    Result<ModelConfig> result = ModelConfig.Create("model", null, 100, float.PositiveInfinity, 2048);
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidModel", result.Error.Code);
+  }
+
+  [Theory]
+  [InlineData("NaN")]
+  [InlineData("Infinity")]
+  [InlineData("-Infinity")]
+  public void Create_NonFiniteOnEveryFloatKnob_ReturnsFailure(string kind)
+  {
+    float value = kind switch
+    {
+      "NaN" => float.NaN,
+      "Infinity" => float.PositiveInfinity,
+      _ => float.NegativeInfinity,
+    };
+    Assert.False(ModelConfig.Create("m", null, 100, 0.5f, 2048, topP: value).IsSuccess, kind + " topP");
+    Assert.False(ModelConfig.Create("m", null, 100, 0.5f, 2048, frequencyPenalty: value).IsSuccess, kind + " frequencyPenalty");
+    Assert.False(ModelConfig.Create("m", null, 100, 0.5f, 2048, presencePenalty: value).IsSuccess, kind + " presencePenalty");
+    Assert.False(ModelConfig.Create("m", null, 100, 0.5f, 2048, repetitionPenalty: value).IsSuccess, kind + " repetitionPenalty");
+    Assert.False(ModelConfig.Create("m", null, 100, 0.5f, 2048, minP: value).IsSuccess, kind + " minP");
+    Assert.False(ModelConfig.Create("m", null, 100, 0.5f, 2048, topA: value).IsSuccess, kind + " topA");
+  }
+
   [Fact]
   public void Create_WithNegativeTemperature_ReturnsFailure()
   {

@@ -50,7 +50,9 @@ public sealed record ModelConfig(
       return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "MaxTokens must be positive."));
     }
 
-    if (temperature is < 0f or > 2f)
+    // float.IsFinite guards: NaN fails every range comparison vacuously, so each
+    // float knob's documented range is enforced against it explicitly.
+    if (!float.IsFinite(temperature) || temperature is < 0f or > 2f)
     {
       return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Temperature must be between 0 and 2."));
     }
@@ -60,7 +62,7 @@ public sealed record ModelConfig(
       return Result.Failure<ModelConfig>(new DomainError("InvalidContextWindow", "Context window must be positive."));
     }
 
-    if (topP is < 0f or > 1f)
+    if (topP is not null && (!float.IsFinite(topP.Value) || topP.Value is < 0f or > 1f))
     {
       return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "TopP must be between 0 and 1."));
     }
@@ -70,27 +72,27 @@ public sealed record ModelConfig(
       return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "TopK must be zero or greater."));
     }
 
-    if (frequencyPenalty is < -2f or > 2f)
+    if (frequencyPenalty is not null && (!float.IsFinite(frequencyPenalty.Value) || frequencyPenalty.Value is < -2f or > 2f))
     {
       return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "FrequencyPenalty must be between -2 and 2."));
     }
 
-    if (presencePenalty is < -2f or > 2f)
+    if (presencePenalty is not null && (!float.IsFinite(presencePenalty.Value) || presencePenalty.Value is < -2f or > 2f))
     {
       return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "PresencePenalty must be between -2 and 2."));
     }
 
-    if (repetitionPenalty is < 0f or > 2f)
+    if (repetitionPenalty is not null && (!float.IsFinite(repetitionPenalty.Value) || repetitionPenalty.Value is < 0f or > 2f))
     {
       return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "RepetitionPenalty must be between 0 and 2."));
     }
 
-    if (minP is < 0f or > 1f)
+    if (minP is not null && (!float.IsFinite(minP.Value) || minP.Value is < 0f or > 1f))
     {
       return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "MinP must be between 0 and 1."));
     }
 
-    if (topA is < 0f or > 1f)
+    if (topA is not null && (!float.IsFinite(topA.Value) || topA.Value is < 0f or > 1f))
     {
       return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "TopA must be between 0 and 1."));
     }
