@@ -42,7 +42,23 @@ public class SessionModelPreferencesOverlayTests
   }
 
   [Fact]
-  public void Apply_DoesNotTouchTemperatureOrEffort()
+  public void Apply_OverlaysTemperatureAndMaxTokens()
+  {
+    ModelConfig config = ModelConfig.Create("m", "openrouter", 512, 0.5f, 8192, topK: 40).Value!;
+    SessionModelPreferences prefs = new() { Temperature = 0.2f, MaxTokens = 1024 };
+
+    ModelConfig replaced = ModelPreferencesOverlay.Apply(config, prefs);
+
+    Assert.Equal(0.2f, replaced.Temperature);
+    Assert.Equal(1024, replaced.MaxTokens);
+
+    ModelConfig preserved = ModelPreferencesOverlay.Apply(config, new SessionModelPreferences());
+    Assert.Equal(0.5f, preserved.Temperature);
+    Assert.Equal(512, preserved.MaxTokens);
+  }
+
+  [Fact]
+  public void Apply_DoesNotTouchEffort()
   {
     ModelConfig config = ModelConfig.Create("m", "openrouter", 512, 0.5f, 8192, ReasoningEffort.High, topK: 40).Value!;
     SessionModelPreferences prefs = new() { ReasoningEffort = ReasoningEffort.Low, TopK = 80 };

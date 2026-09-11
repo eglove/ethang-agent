@@ -20,6 +20,8 @@ public class ModelSettingsViewModelTests
     {
       EffortChoice = ModelSettingsViewModel.EffortHigh,
     };
+    vm.SetKnob(ModelSettingsViewModel.KnobTemperature, "0.3");
+    vm.SetKnob(ModelSettingsViewModel.KnobMaxTokens, "1024");
     vm.SetKnob(ModelSettingsViewModel.KnobTopP, "0.9");
     vm.SetKnob(ModelSettingsViewModel.KnobSeed, "42");
     vm.ServerTools.WebSearch = true;
@@ -30,6 +32,8 @@ public class ModelSettingsViewModelTests
     Assert.True(saved, error ?? "no error");
     Assert.Null(error);
     Assert.Equal(ReasoningEffort.High, live.ReasoningEffort);
+    Assert.Equal(0.3f, live.Temperature);
+    Assert.Equal(1024, live.MaxTokens);
     Assert.Equal(0.9f, live.TopP);
     Assert.Equal(42, live.Seed);
     Assert.NotNull(live.ProviderSettings);
@@ -92,14 +96,18 @@ public class ModelSettingsViewModelTests
   {
     SessionModelPreferences live = Snapshot();
     live.TopP = 0.9f;
+    live.Temperature = 0.3f;
     ModelSettingsViewModel vm = new(live, ProvidersOpenRouter, persist: _ => { });
     Assert.Equal("0.9", vm.Knobs[ModelSettingsViewModel.KnobTopP].Text);
+    Assert.Equal("0.3", vm.Knobs[ModelSettingsViewModel.KnobTemperature].Text);
 
     vm.SetKnob(ModelSettingsViewModel.KnobTopP, "");
+    vm.SetKnob(ModelSettingsViewModel.KnobTemperature, "");
     bool saved = vm.TrySave(out string? error);
 
     Assert.True(saved, error ?? "no error");
     Assert.Null(live.TopP);
+    Assert.Null(live.Temperature);
   }
 
   private const string ProvidersOpenRouter = "openrouter";

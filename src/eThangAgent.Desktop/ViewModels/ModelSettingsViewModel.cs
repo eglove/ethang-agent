@@ -9,8 +9,9 @@ namespace eThangAgent.Desktop.ViewModels;
 /// <summary>Everything one Model Settings save carries: the live
 ///     <see cref="SessionModelPreferences"/> (already mutated by the save), the
 ///     dialog's twelve knob text fields verbatim (the persisted
-///     <c>sampling_prefs</c> payload — all twelve, including the two that have no
-///     typed preference member), and the serialized OpenRouter request settings
+///     <c>sampling_prefs</c> payload — all twelve; the typed members are the
+///     live-wire path, the map is the restore + prefill persistence), and the
+///     serialized OpenRouter request settings
 ///     (null when the section is hidden or everything is default — the persisted
 ///     <c>provider_settings</c> payload). The shell persists the two text
 ///     payloads per workspace + provider; the typed values are already on the
@@ -416,8 +417,8 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
         persistedKnobTexts.TryGetValue(knob, out string? persisted) ? persisted : fromPreferences ?? string.Empty;
     Knobs = new Dictionary<string, KnobEntry>
     {
-      [KnobTemperature] = new(KnobTemperature, KnobLabels[KnobTemperature], Text(KnobTemperature, null), Editable(KnobTemperature)),
-      [KnobMaxTokens] = new(KnobMaxTokens, KnobLabels[KnobMaxTokens], Text(KnobMaxTokens, null), Editable(KnobMaxTokens)),
+      [KnobTemperature] = new(KnobTemperature, KnobLabels[KnobTemperature], Text(KnobTemperature, Format(_live.Temperature)), Editable(KnobTemperature)),
+      [KnobMaxTokens] = new(KnobMaxTokens, KnobLabels[KnobMaxTokens], Text(KnobMaxTokens, Format(_live.MaxTokens)), Editable(KnobMaxTokens)),
       [KnobTopP] = new(KnobTopP, KnobLabels[KnobTopP], Text(KnobTopP, Format(_live.TopP)), Editable(KnobTopP)),
       [KnobTopK] = new(KnobTopK, KnobLabels[KnobTopK], Text(KnobTopK, Format(_live.TopK)), Editable(KnobTopK)),
       [KnobFrequencyPenalty] = new(KnobFrequencyPenalty, KnobLabels[KnobFrequencyPenalty], Text(KnobFrequencyPenalty, Format(_live.FrequencyPenalty)), Editable(KnobFrequencyPenalty)),
@@ -546,13 +547,14 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   }
 
   /// <summary>Parses and applies every populated knob text plus the effort choice
-  ///     onto the live preferences. Called only after validation succeeded. The
-  ///     ten typed knobs land on their preference members; temperature and
-  ///     maxTokens have no typed member — they persist through the snapshot's
-  ///     knob-text map.</summary>
+  ///     onto the live preferences. Called only after validation succeeded. All
+  ///     twelve knobs land on their typed preference members; the snapshot's
+  ///     knob-text map persists them for the restore + window-prefill path.</summary>
   private void ApplyKnobsAndEffort()
   {
     _live.ReasoningEffort = EffortChoice == EffortDefault ? null : Enum.Parse<ReasoningEffort>(EffortChoice);
+    ApplyFloat(KnobTemperature, value => _live.Temperature = value);
+    ApplyInt(KnobMaxTokens, value => _live.MaxTokens = value);
     ApplyFloat(KnobTopP, value => _live.TopP = value);
     ApplyInt(KnobTopK, value => _live.TopK = value);
     ApplyFloat(KnobFrequencyPenalty, value => _live.FrequencyPenalty = value);

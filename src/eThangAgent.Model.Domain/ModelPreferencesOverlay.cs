@@ -2,9 +2,9 @@ namespace eThangAgent.ModelDomain;
 
 /// <summary>Overlays the session's runtime sampling preferences onto a resolved
 ///     <see cref="ModelConfig"/>: for every knob, a non-null preference replaces the
-///     config's value and a null preference preserves it. Temperature and
-///     <see cref="ReasoningEffort"/> are NOT touched — they have their own overlay
-///     paths (the effort flows through the config constructors' effort parameter).
+///     config's value and a null preference preserves it. Only
+///     <see cref="ReasoningEffort"/> is NOT touched — it has its own overlay
+///     path (the effort flows through the config constructors' effort parameter).
 ///     ProviderSettings is opaque: copied verbatim when non-null, never parsed. A
 ///     config whose knobs are all overlaid by null preferences passes through
 ///     value-equal.</summary>
@@ -19,6 +19,8 @@ public static class ModelPreferencesOverlay
         ? config
         : config with
         {
+          Temperature = prefs.Temperature ?? config.Temperature,
+          MaxTokens = prefs.MaxTokens ?? config.MaxTokens,
           TopP = prefs.TopP ?? config.TopP,
           TopK = prefs.TopK ?? config.TopK,
           FrequencyPenalty = prefs.FrequencyPenalty ?? config.FrequencyPenalty,

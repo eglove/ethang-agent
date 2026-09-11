@@ -252,6 +252,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return;
     }
 
+    _modelPreferences.Temperature = settings.Temperature;
+    _modelPreferences.MaxTokens = settings.MaxTokens;
     _modelPreferences.TopP = settings.TopP;
     _modelPreferences.TopK = settings.TopK;
     _modelPreferences.FrequencyPenalty = settings.FrequencyPenalty;

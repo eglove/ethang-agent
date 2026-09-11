@@ -22,6 +22,12 @@ public sealed class SessionModelPreferences
   ///     away.)</summary>
   public string? ModelId { get; set; }
 
+  /// <summary>Sampling temperature, or null to keep the resolved config's value.</summary>
+  public float? Temperature { get; set; }
+
+  /// <summary>Maximum output tokens, or null to keep the resolved config's value.</summary>
+  public int? MaxTokens { get; set; }
+
   /// <summary>Nucleus-sampling cutoff, or null to keep the resolved config's value.</summary>
   public float? TopP { get; set; }
 

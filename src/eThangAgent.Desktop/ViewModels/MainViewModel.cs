@@ -1048,6 +1048,8 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     save (a corrupt stored value degrades to unset — never coerced).</summary>
   private static void ApplyRestoredKnobs(SessionModelPreferences preferences, IReadOnlyDictionary<string, string> knobs)
   {
+    preferences.Temperature = ParseFloat(knobs, "temperature") ?? preferences.Temperature;
+    preferences.MaxTokens = ParseInt(knobs, "maxTokens") ?? preferences.MaxTokens;
     preferences.TopP = ParseFloat(knobs, "topP") ?? preferences.TopP;
     preferences.TopK = ParseInt(knobs, "topK") ?? preferences.TopK;
     preferences.FrequencyPenalty = ParseFloat(knobs, "frequencyPenalty") ?? preferences.FrequencyPenalty;
