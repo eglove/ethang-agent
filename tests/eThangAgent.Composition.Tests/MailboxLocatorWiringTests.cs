@@ -10,6 +10,7 @@ namespace eThangAgent.Composition.Tests;
 ///     each container registers its OWN live-mailbox view at construction; the session's
 ///     capability provider receives the SAME shared locator. A link to another session's
 ///     live child therefore resolves cross-container through the composed surface.</summary>
+[Collection("EnvironmentSensitive")]
 public class MailboxLocatorWiringTests
 {
   private static AgentSettings Settings() => new(

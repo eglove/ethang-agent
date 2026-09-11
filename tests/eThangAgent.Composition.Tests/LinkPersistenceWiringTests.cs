@@ -9,6 +9,7 @@ namespace eThangAgent.Composition.Tests;
 ///     consented through the session registry lands in the shared app database (visible to a
 ///     store over a SECOND AppDatabase instance, i.e. the next session's path), scoped to the
 ///     session's workspace.</summary>
+[Collection("EnvironmentSensitive")]
 public class LinkPersistenceWiringTests
 {
   private static AgentSettings Settings() => new(

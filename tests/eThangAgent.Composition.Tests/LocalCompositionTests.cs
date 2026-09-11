@@ -20,6 +20,7 @@ namespace eThangAgent.Composition.Tests;
 ///     Strictness pins: selecting local without a usable base URL aborts loudly, and
 ///     selecting it with no configuration fails ProviderNotConfigured before any
 ///     HTTP infrastructure is built.</summary>
+[Collection("EnvironmentSensitive")]
 public class LocalCompositionTests
 {
 
