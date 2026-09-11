@@ -523,38 +523,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
 
     return Result.Success(
-        new ModelResponse(content, toolCalls, ParseFinishReason(choices[0]), ParseUsage(body)));
-  }
-
-  /// <summary>Maps the OpenAI-compatible usage object (prompt_tokens / completion_tokens /
-  ///     prompt_tokens_details.cached_tokens) into TokenUsage; null when absent.</summary>
-  private static TokenUsage? ParseUsage(JsonElement parent)
-  {
-    if (!parent.TryGetProperty("usage", out JsonElement u) || u.ValueKind != JsonValueKind.Object)
-    {
-      return null;
-    }
-
-    if (!TryGetInt(u, "prompt_tokens", out int prompt) || !TryGetInt(u, "completion_tokens", out int completion))
-    {
-      return null;
-    }
-
-    int? cached = null;
-    if (u.TryGetProperty("prompt_tokens_details", out JsonElement details)
-        && details.ValueKind == JsonValueKind.Object
-        && TryGetInt(details, "cached_tokens", out int cachedValue))
-    {
-      cached = cachedValue;
-    }
-
-    return new TokenUsage(prompt, completion, cached);
-  }
-
-  private static bool TryGetInt(JsonElement parent, string name, out int value)
-  {
-    value = 0;
-    return parent.TryGetProperty(name, out JsonElement el) && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out value);
+        new ModelResponse(content, toolCalls, ParseFinishReason(choices[0]), OpenAiCompatRequestCore.ParseUsage(body)));
   }
 
   /// <summary>Translates OpenRouter's finish_reason vocabulary into the provider-neutral

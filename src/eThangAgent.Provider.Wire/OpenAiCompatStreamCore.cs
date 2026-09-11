@@ -235,7 +235,8 @@ public static class OpenAiCompatStreamCore
     => vocabulary.TryGetValue(value, out FinishReason mapped) ? mapped : FinishReason.Unknown;
 
   /// <summary>Maps the OpenAI-compatible usage object (prompt_tokens / completion_tokens /
-  ///     prompt_tokens_details.cached_tokens) into TokenUsage; null when absent.</summary>
+  ///     prompt_tokens_details.cached_tokens / server_tool_use.web_search_requests) into
+  ///     TokenUsage; null when absent.</summary>
   private static TokenUsage? ParseUsage(JsonElement parent)
   {
     if (!parent.TryGetProperty("usage", out JsonElement u) || u.ValueKind != JsonValueKind.Object)
@@ -256,7 +257,16 @@ public static class OpenAiCompatStreamCore
       cached = cachedValue;
     }
 
-    return new TokenUsage(prompt, completion, cached);
+    // Server-executed tool usage (OpenRouter's usage.server_tool_use), when reported.
+    int? serverToolCalls = null;
+    if (u.TryGetProperty("server_tool_use", out JsonElement serverUse)
+        && serverUse.ValueKind == JsonValueKind.Object
+        && TryGetInt(serverUse, "web_search_requests", out int webSearchRequests))
+    {
+      serverToolCalls = webSearchRequests;
+    }
+
+    return new TokenUsage(prompt, completion, cached, serverToolCalls);
   }
 
   private static bool TryGetInt(JsonElement parent, string name, out int value)
