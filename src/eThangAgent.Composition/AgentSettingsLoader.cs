@@ -65,7 +65,7 @@ public static class AgentSettingsLoader
       // layer), but they predate preference keys and name the retired config
       // paths. Only the key naming is translated here; the rule text travels
       // verbatim from the binder.
-      throw new InvalidOperationException(NamePreferenceKey(ex.Message), ex);
+      throw WithPreferenceKeyName(ex);
     }
 
     return new AgentSettings(
@@ -78,6 +78,18 @@ public static class AgentSettingsLoader
         subAgents,
         RemoteHost: remoteHost,
         Watchdog: watchdog);
+  }
+
+  /// <summary>Re-surfaces a binder error with this loader's preference-key names —
+  ///     the one shared translation for every path that binds through the
+  ///     SubAgentConfiguration binders (LoadAsync and the Desktop's store-less
+  ///     rebind), so surfaced error naming cannot diverge between them. Only the
+  ///     key naming is translated; the rule text travels verbatim and the original
+  ///     error rides as the inner exception.</summary>
+  public static InvalidOperationException WithPreferenceKeyName(InvalidOperationException binderError)
+  {
+    ArgumentNullException.ThrowIfNull(binderError);
+    return new InvalidOperationException(NamePreferenceKey(binderError.Message), binderError);
   }
 
   /// <summary>Stored absolute URI or the anchored provider default. Invalid stored

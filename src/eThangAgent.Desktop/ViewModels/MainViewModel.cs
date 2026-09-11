@@ -659,19 +659,33 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Rebuilds the non-secret settings from a settings-modal update when no
   ///     preference store exists (test seam) — the same strict binders
-  ///     <see cref="AgentSettingsLoader.LoadAsync"/> runs, so there is exactly one
-  ///     interpretation of the persisted text either way.</summary>
+  ///     <see cref="AgentSettingsLoader.LoadAsync"/> runs and the same shared
+  ///     preference-key error naming, so there is exactly one interpretation of
+  ///     the persisted text either way.</summary>
   private static AgentSettings BindFromUpdate(SettingsUpdate update)
   {
-    SubAgentOptions subAgents = SubAgentConfiguration.Bind(
-        Normalize(update.DefaultModelText),
-        Normalize(update.MaxConcurrentAgentsText)
-            ?? AgentSettingsDefaults.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture),
-        out bool remoteHost,
-        update.RemoteHost ? "true" : "false");
-    WatchdogSettings? watchdog = SubAgentConfiguration.BindWatchdog(
-        Normalize(update.WatchdogTickText), Normalize(update.WatchdogIdleText),
-        Normalize(update.WatchdogWrapUpText));
+    SubAgentOptions subAgents;
+    WatchdogSettings? watchdog;
+    bool remoteHost;
+    try
+    {
+      subAgents = SubAgentConfiguration.Bind(
+          Normalize(update.DefaultModelText),
+          Normalize(update.MaxConcurrentAgentsText)
+              ?? AgentSettingsDefaults.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture),
+          out remoteHost,
+          update.RemoteHost ? "true" : "false");
+      watchdog = SubAgentConfiguration.BindWatchdog(
+          Normalize(update.WatchdogTickText), Normalize(update.WatchdogIdleText),
+          Normalize(update.WatchdogWrapUpText));
+    }
+    catch (InvalidOperationException ex)
+    {
+      // The same surfaced names as the loader path — one shared translation
+      // (AgentSettingsLoader.WithPreferenceKeyName): the binders' retired
+      // config-path key names never leak through this seam either.
+      throw AgentSettingsLoader.WithPreferenceKeyName(ex);
+    }
     return new AgentSettings(
         new OpenRouterSettings(null, AgentSettingsLoader.BindBaseUrl(Normalize(update.OpenRouterBaseUrlText),
 #pragma warning disable S1075 // Anchored provider default; the loader's own seam carries the same named decision.
