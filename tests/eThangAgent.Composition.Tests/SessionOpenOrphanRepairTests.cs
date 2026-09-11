@@ -8,6 +8,7 @@ namespace eThangAgent.Composition.Tests;
 ///     owns is Failed(Interrupted) with an audit row once a session opens; rows owned by
 ///     the fresh container's runtime (none at open time besides the new root, which is
 ///     not registered as a child) and already-terminal rows are untouched.</summary>
+[Collection("EnvironmentSensitive")]
 public class SessionOpenOrphanRepairTests
 {
   private static AgentSettings Settings() => new(

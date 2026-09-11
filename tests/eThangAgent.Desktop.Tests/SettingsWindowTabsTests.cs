@@ -11,21 +11,23 @@ using eThangAgent.Zai.ACL;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Settings chrome: the flat settings list is a categorized TabControl
-///     (API Keys / Files / Models / Git) with the validation error and Save/Cancel footer
-///     shared outside the tabs.</summary>
+///     (API Keys / Files / Models / Agents / Advanced / Git) with the validation error
+///     and Save/Cancel footer shared outside the tabs.</summary>
 public class SettingsWindowTabsTests
 {
   [AvaloniaFact]
-  public void Settings_Renders_As_Four_Categorized_Tabs()
+  public void Settings_Renders_As_Six_Categorized_Tabs()
   {
     SettingsWindow window = new();
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
-    Assert.Equal(4, tabs.Items.Count);
+    Assert.Equal(6, tabs.Items.Count);
     Assert.Collection(tabs.Items,
         item => Assert.Equal("API Keys", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Files", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Models", Assert.IsType<TabItem>(item).Header),
+        item => Assert.Equal("Agents", Assert.IsType<TabItem>(item).Header),
+        item => Assert.Equal("Advanced", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Git", Assert.IsType<TabItem>(item).Header));
   }
 

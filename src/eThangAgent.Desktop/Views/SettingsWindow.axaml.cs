@@ -7,8 +7,9 @@ using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Views;
 
-/// <summary>The settings modal: three categorized tabs - API Keys (one masked field
-///     per provider plus the local base URL), Models (z.ai endpoint, compaction model),
+/// <summary>The settings modal: six categorized tabs - API Keys (one masked field
+///     per provider plus the local base URL), Files, Models (z.ai endpoint, compaction
+///     model), Agents (sub-agent and watchdog knobs), Advanced (provider base URLs),
 ///     Git (commit style) -
 ///     with a shared validation-error + Save/Cancel footer outside the tabs.
 ///     Confirming closes the dialog with the validated <see cref="SettingsUpdate"/>;
@@ -27,11 +28,17 @@ internal partial class SettingsWindow : Window
       string? localBaseUrl = null, string? localApiKey = null,
       IReadOnlyList<SessionFileEntry>? globalFiles = null,
       IReadOnlyList<SessionFileEntry>? workspaceFiles = null,
-      string? workspaceRoot = null) : this()
+      string? workspaceRoot = null,
+      string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
+      string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
+      string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null) : this()
   {
     _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle,
         compactionModels, selectedCompactionModel, localBaseUrl, localApiKey,
-        globalFiles, workspaceFiles, workspaceRoot);
+        globalFiles, workspaceFiles, workspaceRoot,
+        maxConcurrentAgentsText, defaultModelText, remoteHost,
+        watchdogTickText, watchdogIdleText, watchdogWrapUpText,
+        openRouterBaseUrlText, zaiBaseUrlText);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);
   }

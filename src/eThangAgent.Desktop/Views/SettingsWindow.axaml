@@ -115,6 +115,50 @@
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>
+      <TabItem Header="Agents">
+        <StackPanel Spacing="10">
+          <TextBlock Text="Max concurrent agents" FontWeight="Bold"/>
+          <TextBox x:Name="MaxConcurrentAgentsBox" Text="{Binding MaxConcurrentAgentsText}"
+                   PlaceholderText="4"/>
+          <TextBlock Text="Default sub-agent model" FontWeight="Bold" Margin="0,6,0,0"/>
+          <TextBox x:Name="DefaultModelBox" Text="{Binding DefaultModelText}"
+                   PlaceholderText="No default — spawns pass a model explicitly"/>
+          <CheckBox x:Name="RemoteHostCheck" Content="Run child agents in an out-of-process host"
+                    IsChecked="{Binding RemoteHost}" Margin="0,4,0,0"/>
+          <TextBlock Text="Watchdog" FontWeight="Bold" Margin="0,6,0,0"/>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBox x:Name="WatchdogTickBox" Text="{Binding WatchdogTickText}" Width="140"
+                     PlaceholderText="blank = 00:01:00"/>
+            <TextBlock Text="Tick interval" VerticalAlignment="Center" FontSize="12"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBox x:Name="WatchdogIdleBox" Text="{Binding WatchdogIdleText}" Width="140"
+                     PlaceholderText="blank = 00:15:00"/>
+            <TextBlock Text="Idle threshold" VerticalAlignment="Center" FontSize="12"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBox x:Name="WatchdogWrapUpBox" Text="{Binding WatchdogWrapUpText}" Width="140"
+                     PlaceholderText="blank = 1"/>
+            <TextBlock Text="Max wrap-up attempts" VerticalAlignment="Center" FontSize="12"/>
+          </StackPanel>
+          <TextBlock
+              Text="The watchdog restarts a child agent that stops making progress: it samples each running child's activity every tick interval, and a child idle past the threshold is cancelled and restarted once with a wrap-up nudge (its partial work is kept); a second idle breach marks it failed. Max wrap-up attempts is how many of those nudged restarts a child may receive. Durations use constant format — '00:01:00' is one minute; a bare number is rejected (it would read as days). Blank fields keep the defaults. The child host applies changes to newly opened agents; the app-side watchdog binds them once per process — changes reach it after the app restarts."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+        </StackPanel>
+      </TabItem>
+      <TabItem Header="Advanced">
+        <StackPanel Spacing="10">
+          <TextBlock Text="OpenRouter base URL" FontWeight="Bold"/>
+          <TextBox x:Name="OpenRouterBaseUrlBox" Text="{Binding OpenRouterBaseUrlText}"
+                   PlaceholderText="https://openrouter.ai (provider default)"/>
+          <TextBlock Text="z.ai base URL" FontWeight="Bold" Margin="0,6,0,0"/>
+          <TextBox x:Name="ZaiBaseUrlBox" Text="{Binding ZaiBaseUrlText}"
+                   PlaceholderText="https://api.z.ai/api (provider default)"/>
+          <TextBlock
+              Text="Overrides the provider API roots — for gateways or proxies that mirror the provider's API. Leave a field blank to use the provider default. The stored address is not a secret and applies to newly opened agents."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+        </StackPanel>
+      </TabItem>
       <TabItem Header="Git">
         <StackPanel Spacing="10">
           <TextBlock Text="Commit style" FontWeight="Bold"/>

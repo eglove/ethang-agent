@@ -11,6 +11,7 @@ namespace eThangAgent.Composition.Tests;
 /// <summary>Real wiring proof: a completed/abandoned plan removes its linked todos from
 ///     the shared todo document through the composition-wired IPlanTodoCleaner, keeps
 ///     unlinked todos, and deletes the todo key once nothing remains.</summary>
+[Collection("EnvironmentSensitive")]
 public class PlanTodoCleanerWiringTests
 {
   private static AgentSettings Settings() => new(

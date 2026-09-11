@@ -15,6 +15,7 @@ namespace eThangAgent.Composition.Tests;
 ///     must carry its own workspace identity and path resolver rooted at the chosen
 ///     directory while sharing the one app database. Sessions are also the provider
 ///     seam: each is wired exclusively for the provider it was opened with.</summary>
+[Collection("EnvironmentSensitive")]
 public class AgentSessionFactoryTests
 {
 
