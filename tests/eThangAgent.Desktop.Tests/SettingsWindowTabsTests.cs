@@ -16,7 +16,7 @@ namespace eThangAgent.Desktop.Tests;
 public class SettingsWindowTabsTests
 {
   [AvaloniaFact]
-  public void Settings_Renders_As_Four_Categorized_Tabs()
+  public void Settings_Renders_As_Six_Categorized_Tabs()
   {
     SettingsWindow window = new();
     window.Show();

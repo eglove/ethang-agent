@@ -7,7 +7,7 @@ using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Views;
 
-/// <summary>The settings modal: five categorized tabs - API Keys (one masked field
+/// <summary>The settings modal: six categorized tabs - API Keys (one masked field
 ///     per provider plus the local base URL), Files, Models (z.ai endpoint, compaction
 ///     model), Agents (sub-agent and watchdog knobs), Advanced (provider base URLs),
 ///     Git (commit style) -
