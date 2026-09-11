@@ -32,7 +32,8 @@ internal sealed record DesktopBootstrap(
     IApiKeyProtector ApiKeys,
     SessionCatalogQueryHandler Catalog,
     CommitStyle CommitStyle,
-    IWatchdogEventStore WatchdogEvents);
+    IWatchdogEventStore WatchdogEvents,
+    WatchdogOptions WatchdogOptions);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads settings from app preferences (provider API keys live DPAPI-
@@ -70,6 +71,10 @@ internal static class DesktopHost
         .WithLocalSettings(await preferences.GetAsync(LocalSettings.BaseUrlPreferenceKey), localKey);
     CommitStyle commitStyle = await LoadCommitStyleAsync(preferences);
 
+    // The app-side watchdog (loop, policy, RSS monitor) runs the SAME configured knobs
+    // the child host receives through the settings JSON — never hardcoded defaults.
+    WatchdogOptions watchdogOptions = settings.Watchdog?.ToOptions() ?? WatchdogOptions.Default;
+
     // The Sessions dialog reads the shared store directly — it must work with zero
     // tabs open, i.e. outside any per-session container.
     SessionCatalogQueryHandler catalog = new(new SqliteAgentStore(database));
@@ -82,7 +87,8 @@ internal static class DesktopHost
         protector,
         catalog,
         commitStyle,
-        new SqliteWatchdogEventStore(database));
+        new SqliteWatchdogEventStore(database),
+        watchdogOptions);
   }
 
   /// <summary>Recovers one stored key: absent stays null; undecryptable (corrupted or
@@ -199,7 +205,9 @@ internal static class DesktopHost
 
     // No session delegate is injected: the shell derives it from the factory so
     // saved keys rebind future opens.
-    WatchdogOptions watchdogOptions = WatchdogOptions.Default;
+    // The loop, policy, and RSS monitor run the SAME configured knobs the child host
+    // receives — never hardcoded defaults.
+    WatchdogOptions watchdogOptions = boot.WatchdogOptions;
     WatchdogLoop watchdogLoop = new(watchdogOptions.TickInterval, TimeProvider.System);
     WatchdogPolicy policy = WatchdogPolicyFactory.FromOptions(watchdogOptions);
 

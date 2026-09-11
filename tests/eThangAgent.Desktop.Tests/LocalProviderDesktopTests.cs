@@ -16,6 +16,7 @@ namespace eThangAgent.Desktop.Tests;
 ///     local row only when a base URL is set, and startup loads both local
 ///     preferences back onto the settings snapshot. Session creation is faked at
 ///     the factory seam, mirroring ShellViewModelTests.</summary>
+[Collection("Desktop E2E")] // ETHANG_AGENT_DB is process-wide (test below mutates it): must not race collection members.
 public class LocalProviderDesktopTests
 {
   private static AgentSession FakeSession(string root, string provider = "openrouter",
