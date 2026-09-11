@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Composition;
@@ -51,7 +52,10 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, string? ZaiApiKe
     string? CompactionModelId = null, string? CompactionWorkspaceKey = null,
     string? LocalBaseUrlText = null, string? LocalApiKey = null,
     IReadOnlyList<SessionFileEntry>? GlobalFiles = null, IReadOnlyList<SessionFileEntry>? WorkspaceFiles = null,
-    string? WorkspaceRoot = null);
+    string? WorkspaceRoot = null,
+    string? MaxConcurrentAgentsText = null, string? DefaultModelText = null, bool RemoteHost = false,
+    string? WatchdogTickText = null, string? WatchdogIdleText = null, string? WatchdogWrapUpText = null,
+    string? OpenRouterBaseUrlText = null, string? ZaiBaseUrlText = null);
 
 /// <summary>View-model behind the settings modal: the API-key fields for the
 ///     providers, the local provider's base URL, a reveal toggle, the z.ai endpoint
@@ -103,6 +107,62 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(ValidationError))]
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial string LocalApiKey { get; set; }
+
+  /// <summary>Maximum concurrently running child agents as raw text — blank means the
+  ///     shipped default (4); a non-blank value must be a positive integer.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string MaxConcurrentAgentsText { get; set; }
+
+  /// <summary>The default child-agent model as raw text — blank means no default
+  ///     (spawns must then pass a model explicitly).</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string DefaultModelText { get; set; }
+
+  /// <summary>True opts newly opened agents into the out-of-process child host.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial bool RemoteHost { get; set; }
+
+  /// <summary>The watchdog tick interval as raw text — blank means the watchdog
+  ///     default; a non-blank value must be a positive constant-format duration
+  ///     (a bare integer is rejected: TimeSpan would read it as days).</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string WatchdogTickText { get; set; }
+
+  /// <summary>The watchdog idle threshold as raw text — same rule as the tick
+  ///     interval.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string WatchdogIdleText { get; set; }
+
+  /// <summary>The maximum watchdog wrap-up attempts as raw text — blank means the
+  ///     watchdog default; a non-blank value must be a non-negative integer.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string WatchdogWrapUpText { get; set; }
+
+  /// <summary>The OpenRouter base URL as raw text — hosts remember exactly what the
+  ///     user typed; a non-blank value must parse as an absolute URI.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string OpenRouterBaseUrlText { get; set; }
+
+  /// <summary>The z.ai base URL as raw text — same rule as the OpenRouter base
+  ///     URL.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string ZaiBaseUrlText { get; set; }
 
   [ObservableProperty]
   public partial ZaiEndpointModeOption SelectedEndpointMode { get; set; }
@@ -178,7 +238,14 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
   /// <summary>The first validation problem across all fields, or null when clean.</summary>
   public string? ValidationError =>
-      FileError ?? Validate(OpenRouterKey) ?? Validate(ZaiKey) ?? Validate(LocalApiKey) ?? ValidateBaseUrl(LocalBaseUrlText);
+      FileError ?? Validate(OpenRouterKey) ?? Validate(ZaiKey) ?? Validate(LocalApiKey)
+      ?? ValidateBaseUrl(LocalBaseUrlText)
+      ?? ValidateMaxConcurrent(MaxConcurrentAgentsText)
+      ?? ValidateDuration(WatchdogTickText, "Tick interval")
+      ?? ValidateDuration(WatchdogIdleText, "Idle threshold")
+      ?? ValidateWrapUp(WatchdogWrapUpText)
+      ?? ValidateLabeledBaseUrl(OpenRouterBaseUrlText, "OpenRouter base URL")
+      ?? ValidateLabeledBaseUrl(ZaiBaseUrlText, "z.ai base URL");
 
   public SettingsViewModel(string? openRouterKey, string? zaiKey,
       ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle = CommitStyle.Conventional,
@@ -187,7 +254,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
       string? localBaseUrl = null, string? localApiKey = null,
       IReadOnlyList<SessionFileEntry>? globalFiles = null,
       IReadOnlyList<SessionFileEntry>? workspaceFiles = null,
-      string? workspaceRoot = null)
+      string? workspaceRoot = null,
+      string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
+      string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
+      string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null)
   {
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
@@ -204,7 +274,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 SelectedCompactionModel.ModelId, null,
                 Normalize(LocalBaseUrlText), Normalize(LocalApiKey),
                 GlobalFiles: [.. GlobalFiles], WorkspaceFiles: HasWorkspace ? [.. WorkspaceFiles] : null,
-                WorkspaceRoot: WorkspaceRoot));
+                WorkspaceRoot: WorkspaceRoot,
+                Normalize(MaxConcurrentAgentsText), Normalize(DefaultModelText), RemoteHost,
+                Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
+                Normalize(OpenRouterBaseUrlText), Normalize(ZaiBaseUrlText)));
           }
         },
         () => CanSave);
@@ -213,6 +286,14 @@ internal sealed partial class SettingsViewModel : ObservableObject
     ZaiKey = zaiKey ?? string.Empty;
     LocalBaseUrlText = localBaseUrl ?? string.Empty;
     LocalApiKey = localApiKey ?? string.Empty;
+    MaxConcurrentAgentsText = maxConcurrentAgentsText ?? string.Empty;
+    DefaultModelText = defaultModelText ?? string.Empty;
+    RemoteHost = remoteHost;
+    WatchdogTickText = watchdogTickText ?? string.Empty;
+    WatchdogIdleText = watchdogIdleText ?? string.Empty;
+    WatchdogWrapUpText = watchdogWrapUpText ?? string.Empty;
+    OpenRouterBaseUrlText = openRouterBaseUrlText ?? string.Empty;
+    ZaiBaseUrlText = zaiBaseUrlText ?? string.Empty;
     SelectedCompactionModel = selectedCompactionModel ?? CompactionModelOption.Automatic;
     foreach (SessionFileEntry entry in globalFiles ?? [])
     {
@@ -244,6 +325,22 @@ internal sealed partial class SettingsViewModel : ObservableObject
   partial void OnLocalBaseUrlTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnLocalApiKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnMaxConcurrentAgentsTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnDefaultModelTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnRemoteHostChanged(bool value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnWatchdogTickTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnWatchdogIdleTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnWatchdogWrapUpTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnOpenRouterBaseUrlTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnZaiBaseUrlTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   /// <summary>Validates one entered path and appends a checked row. A relative path
   ///     fails into <see cref="FileError"/> - shown where every other validation
@@ -297,17 +394,87 @@ internal sealed partial class SettingsViewModel : ObservableObject
   ///     when it is a legal entry: blank (cleared), or an absolute URI — the same rule
   ///     <see cref="LocalSettings.ResolveBaseUrl"/> enforces at use time, surfaced here
   ///     so the error shows before the dialog closes.</summary>
-  private static string? ValidateBaseUrl(string text)
+  private static string? ValidateBaseUrl(string text) =>
+      ValidateLabeledBaseUrl(text, "Local base URL");
+
+  /// <summary>Returns the validation problem with a labeled base-URL text, or null
+  ///     when it is a legal entry: blank (cleared), or an absolute URI — the same rule
+  ///     the loader's <see cref="AgentSettingsLoader.BindBaseUrl"/> enforces at load
+  ///     time, surfaced here so the error shows before the dialog closes. Every
+  ///     provider base-URL field shares it.</summary>
+  private static string? ValidateLabeledBaseUrl(string text, string label)
   {
     string trimmed = text.Trim();
     if (trimmed.Length == 0)
     {
-      return null; // blank clears the base URL — legal
+      return null; // blank clears the base URL — legal (provider default applies)
     }
 
     return Uri.TryCreate(trimmed, UriKind.Absolute, out _)
         ? null
-        : $"Local base URL is not a valid absolute URI: '{trimmed}'.";
+        : $"{label} is not a valid absolute URI: '{trimmed}'.";
+  }
+
+  /// <summary>Returns the validation problem with the max-concurrent-agents text, or
+  ///     null when it is a legal entry: blank (the shipped default of 4 applies), or a
+  ///     positive integer — the same rule
+  ///     <see cref="SubAgentConfiguration.Bind"/> enforces at load time.</summary>
+  private static string? ValidateMaxConcurrent(string text)
+  {
+    string trimmed = text.Trim();
+    if (trimmed.Length == 0)
+    {
+      return null; // blank = shipped default (4)
+    }
+
+    bool legal = int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) && n >= 1;
+    return legal
+        ? null
+        : "Max concurrent agents must be a positive integer.";
+  }
+
+  /// <summary>Returns the validation problem with a watchdog duration text, or null
+  ///     when it is a legal entry: blank (the watchdog default applies), or a positive
+  ///     constant-format duration. A bare integer is rejected by name — TimeSpan would
+  ///     silently read it as DAYS — the same named decision
+  ///     <see cref="SubAgentConfiguration.BindWatchdog"/> makes at load time.</summary>
+  private static string? ValidateDuration(string text, string label)
+  {
+    string trimmed = text.Trim();
+    if (trimmed.Length == 0)
+    {
+      return null; // blank = watchdog default
+    }
+
+    bool bareInteger = trimmed.All(char.IsDigit);
+    if (bareInteger)
+    {
+      return $"{label} must carry units (e.g. '00:00:02'); the bare integer '{trimmed}' would bind as days.";
+    }
+
+    bool legal = TimeSpan.TryParseExact(trimmed, ["c", "g"], CultureInfo.InvariantCulture,
+        TimeSpanStyles.None, out TimeSpan d) && d > TimeSpan.Zero;
+    return legal
+        ? null
+        : $"{label} must be a positive duration in constant format (e.g. '00:00:02').";
+  }
+
+  /// <summary>Returns the validation problem with the wrap-up-attempts text, or null
+  ///     when it is a legal entry: blank (the watchdog default applies), or a
+  ///     non-negative integer — the same rule
+  ///     <see cref="SubAgentConfiguration.BindWatchdog"/> enforces at load time.</summary>
+  private static string? ValidateWrapUp(string text)
+  {
+    string trimmed = text.Trim();
+    if (trimmed.Length == 0)
+    {
+      return null;
+    }
+
+    bool legal = int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) && n >= 0;
+    return legal
+        ? null
+        : "Max wrap-up attempts must be a non-negative integer.";
   }
 
   private static string? Normalize(string key)

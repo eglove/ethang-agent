@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Globalization;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -187,6 +188,41 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>The local API key the settings modal prefills (null when unset or
   ///     settings editing is disabled).</summary>
   public string? ConfiguredLocalApiKey => _settings?.Local?.ApiKey;
+
+  /// <summary>The max-concurrent-agents text the settings modal prefills: the loaded
+  ///     value (the shipped default of 4 when no preference is stored). Null when no
+  ///     settings snapshot exists.</summary>
+  public string? ConfiguredMaxConcurrentAgents =>
+      _settings?.SubAgents.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture);
+
+  /// <summary>The default sub-agent model the settings modal prefills (null when
+  ///     unset — spawns must then pass a model explicitly).</summary>
+  public string? ConfiguredDefaultModel => _settings?.SubAgents.DefaultModel;
+
+  /// <summary>Whether newly opened agents run in the out-of-process child host —
+  ///     the settings modal's prefill.</summary>
+  public bool ConfiguredRemoteHost => _settings?.RemoteHost ?? false;
+
+  /// <summary>The watchdog tick-interval text the settings modal prefills in constant
+  ///     format (null when the knob is unset — the watchdog default applies).</summary>
+  public string? ConfiguredWatchdogTick => _settings?.Watchdog?.TickInterval?.ToString("c");
+
+  /// <summary>The watchdog idle-threshold text the settings modal prefills in
+  ///     constant format (null when the knob is unset).</summary>
+  public string? ConfiguredWatchdogIdle => _settings?.Watchdog?.IdleThreshold?.ToString("c");
+
+  /// <summary>The watchdog wrap-up-attempts text the settings modal prefills (null
+  ///     when the knob is unset).</summary>
+  public string? ConfiguredWatchdogWrapUp =>
+      _settings?.Watchdog?.MaxWrapUpAttempts?.ToString(CultureInfo.InvariantCulture);
+
+  /// <summary>The OpenRouter base URL the settings modal prefills — the configured
+  ///     absolute URI, or the provider default when none is stored.</summary>
+  public string? ConfiguredOpenRouterBaseUrl => _settings?.OpenRouter.BaseUrl.ToString();
+
+  /// <summary>The z.ai base URL the settings modal prefills — the configured absolute
+  ///     URI, or the provider default when none is stored.</summary>
+  public string? ConfiguredZaiBaseUrl => _settings?.Zai.BaseUrl.ToString();
 
   /// <summary>The z.ai endpoint mode the settings modal prefills; CodingPlan when no
   ///     settings snapshot exists.</summary>
@@ -547,6 +583,22 @@ internal sealed partial class MainViewModel : ObservableObject
         update.ZaiEndpointMode.ToConfigValue());
     await PersistPreferenceAsync(AppPreferenceCommitStyleProvider.PreferenceKey,
         update.CommitStyle.ToString());
+    await PersistPreferenceAsync(AgentPreferenceKeys.MaxConcurrentAgents,
+        Normalize(update.MaxConcurrentAgentsText));
+    await PersistPreferenceAsync(AgentPreferenceKeys.DefaultModel,
+        Normalize(update.DefaultModelText));
+    await PersistPreferenceAsync(AgentPreferenceKeys.RemoteHost,
+        update.RemoteHost ? "true" : "false");
+    await PersistPreferenceAsync(AgentPreferenceKeys.WatchdogTickInterval,
+        Normalize(update.WatchdogTickText));
+    await PersistPreferenceAsync(AgentPreferenceKeys.WatchdogIdleThreshold,
+        Normalize(update.WatchdogIdleText));
+    await PersistPreferenceAsync(AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
+        Normalize(update.WatchdogWrapUpText));
+    await PersistPreferenceAsync(AgentPreferenceKeys.OpenRouterBaseUrl,
+        Normalize(update.OpenRouterBaseUrlText));
+    await PersistPreferenceAsync(AgentPreferenceKeys.ZaiBaseUrl,
+        Normalize(update.ZaiBaseUrlText));
     ConfiguredCommitStyle = update.CommitStyle;
 
     // Compaction summarizer is per selected tab's (provider, workspace): unset means
@@ -575,7 +627,18 @@ internal sealed partial class MainViewModel : ObservableObject
           : _preferences?.SetAsync(wsKey, SessionFilePreferences.Serialize(workspaceFiles));
     }
 
-    _settings = _settings
+    // Re-hydrate non-secrets from the store they just landed in — the loader's strict
+    // binding is the single interpretation of these values (no parallel with-mutators).
+    // (Deviation from the plan snippet's literal 'previous.OpenRouter.ApiKey': reading
+    // the PRE-save snapshot would resurrect keys this very save cleared — the update
+    // carries FULL field state and null keys mean cleared. The keys current to this
+    // save are the normalized update values, the same ones persisted above; deviating
+    // to re-apply them keeps both contracts — no loss on re-hydration (rebuilt carries
+    // none), no resurrection of cleared keys.)
+    AgentSettings rebuilt = _preferences is not null
+        ? await AgentSettingsLoader.LoadAsync(_preferences)
+        : BindFromUpdate(update); // test seam: no store, same strict binders
+    _settings = rebuilt
         .WithApiKeys(openRouterKey, zaiKey, localKey)
         .WithZaiEndpointMode(update.ZaiEndpointMode)
         .WithLocalSettings(localBaseUrl, localKey);
@@ -592,6 +655,33 @@ internal sealed partial class MainViewModel : ObservableObject
   {
     string trimmed = key?.Trim() ?? string.Empty;
     return trimmed.Length == 0 ? null : trimmed;
+  }
+
+  /// <summary>Rebuilds the non-secret settings from a settings-modal update when no
+  ///     preference store exists (test seam) — the same strict binders
+  ///     <see cref="AgentSettingsLoader.LoadAsync"/> runs, so there is exactly one
+  ///     interpretation of the persisted text either way.</summary>
+  private static AgentSettings BindFromUpdate(SettingsUpdate update)
+  {
+    SubAgentOptions subAgents = SubAgentConfiguration.Bind(
+        Normalize(update.DefaultModelText),
+        Normalize(update.MaxConcurrentAgentsText)
+            ?? AgentSettingsDefaults.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture),
+        out bool remoteHost,
+        update.RemoteHost ? "true" : "false");
+    WatchdogSettings? watchdog = SubAgentConfiguration.BindWatchdog(
+        Normalize(update.WatchdogTickText), Normalize(update.WatchdogIdleText),
+        Normalize(update.WatchdogWrapUpText));
+    return new AgentSettings(
+        new OpenRouterSettings(null, AgentSettingsLoader.BindBaseUrl(Normalize(update.OpenRouterBaseUrlText),
+#pragma warning disable S1075 // Anchored provider default; the loader's own seam carries the same named decision.
+            AgentPreferenceKeys.OpenRouterBaseUrl, "https://openrouter.ai")),
+#pragma warning restore S1075
+        new ZaiSettings(null, AgentSettingsLoader.BindBaseUrl(Normalize(update.ZaiBaseUrlText),
+            AgentPreferenceKeys.ZaiBaseUrl, ZaiConfiguration.DefaultBaseUrl)),
+        subAgents,
+        RemoteHost: remoteHost,
+        Watchdog: watchdog);
   }
 
   /// <summary>Writes one key preference: set (protected) when configured, delete when
@@ -1075,12 +1165,12 @@ internal sealed partial class MainViewModel : ObservableObject
   }
 
   private static float? ParseFloat(IReadOnlyDictionary<string, string> knobs, string name)
-      => knobs.TryGetValue(name, out string? text) && float.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out float value)
+      => knobs.TryGetValue(name, out string? text) && float.TryParse(text, CultureInfo.InvariantCulture, out float value)
           ? value
           : null;
 
   private static int? ParseInt(IReadOnlyDictionary<string, string> knobs, string name)
-      => knobs.TryGetValue(name, out string? text) && int.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out int value)
+      => knobs.TryGetValue(name, out string? text) && int.TryParse(text, CultureInfo.InvariantCulture, out int value)
           ? value
           : null;
 

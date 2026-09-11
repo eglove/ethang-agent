@@ -268,7 +268,8 @@ public class ShellViewModelTests
         LocalBaseUrlText: "http://localhost:1234", LocalApiKey: "lm-key"));
 
     // Keys land trimmed and PROTECTED — never plaintext; the mode lands plaintext
-    // (it is not a secret); the local pair (absent from this update) clears.
+    // (it is not a secret); the local pair (absent from this update) clears. The
+    // Agents/Advanced knobs persist in the same pass (all defaults here).
     Assert.Equal(
         [
             (OpenRouterSettings.PreferenceKey, "protected:sk-or-v1-abc"),
@@ -277,11 +278,18 @@ public class ShellViewModelTests
             (LocalSettings.PreferenceKey, "protected:lm-key"),
             (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
+            (AgentPreferenceKeys.RemoteHost, "false"),
         ],
         preferences.Writes);
-    // Nothing clears: every field in the update carries a value, the local pair
-    // included — the fully-populated dialog never deletes.
-    Assert.Empty(preferences.Deletions);
+    // The blank knob texts clear exactly their own preferences (blank = absent,
+    // never an empty-string value): the Agents/Advanced fields this legacy-shaped
+    // update leaves unset all delete.
+    Assert.Equal(
+        [AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
+         AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl,
+         AgentPreferenceKeys.ZaiBaseUrl],
+        preferences.Deletions);
 
     Assert.Equal(["openrouter", "zai", "local"], vm.AvailableProviders.Select(p => p.Id));
     Assert.True(vm.HasConfiguredProvider);
@@ -303,12 +311,17 @@ public class ShellViewModelTests
 
     Assert.Equal(
         [OpenRouterSettings.PreferenceKey, ZaiSettings.PreferenceKey,
-         LocalSettings.BaseUrlPreferenceKey, LocalSettings.PreferenceKey],
+         LocalSettings.BaseUrlPreferenceKey, LocalSettings.PreferenceKey,
+         AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
+         AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl,
+         AgentPreferenceKeys.ZaiBaseUrl],
         preferences.Deletions);
     Assert.Equal(
         [
             (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
+            (AgentPreferenceKeys.RemoteHost, "false"),
         ],
         preferences.Writes);
     Assert.Empty(vm.AvailableProviders);
@@ -343,15 +356,21 @@ public class ShellViewModelTests
     // Strict boundary: no protector means no durable key, ever. The in-memory
     // surface still reflects the edit — only persistence is skipped. (The z.ai
     // delete no-ops — the key was never stored.) The plaintext mode preference
-    // still lands: it is not a secret and needs no protector.
+    // still lands: it is not a secret and needs no protector. The remote-host
+    // flag persists plaintext for the same reason.
     Assert.Equal(
         [
             (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
+            (AgentPreferenceKeys.RemoteHost, "false"),
         ],
         preferences.Writes);
     Assert.Equal(
-        [ZaiSettings.PreferenceKey, LocalSettings.BaseUrlPreferenceKey, LocalSettings.PreferenceKey],
+        [ZaiSettings.PreferenceKey, LocalSettings.BaseUrlPreferenceKey, LocalSettings.PreferenceKey,
+         AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
+         AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl,
+         AgentPreferenceKeys.ZaiBaseUrl],
         preferences.Deletions);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
   }
@@ -369,6 +388,7 @@ public class ShellViewModelTests
             (ZaiSettings.PreferenceKey, "protected:zai-key"),
             (ZaiSettings.EndpointModePreferenceKey, "general"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
+            (AgentPreferenceKeys.RemoteHost, "false"),
         ],
         preferences.Writes);
     Assert.Equal(ZaiEndpointMode.GeneralApi, vm.ConfiguredZaiEndpointMode);
@@ -603,6 +623,7 @@ public class ShellViewModelTests
             (ZaiSettings.PreferenceKey, "protected:zai-key"),
             (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Gitmoji"),
+            (AgentPreferenceKeys.RemoteHost, "false"),
         ],
         preferences.Writes);
   }

@@ -160,10 +160,18 @@ public class LocalProviderDesktopTests
           (LocalSettings.PreferenceKey, "protected:lm-key"),
           (ZaiSettings.EndpointModePreferenceKey, "coding"),
           (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
+          (AgentPreferenceKeys.RemoteHost, "false"),
         ],
         preferences.Writes);
-    // The cleared provider keys delete; the freshly set local key does not.
-    Assert.Equal([OpenRouterSettings.PreferenceKey, ZaiSettings.PreferenceKey], preferences.Deletions);
+    // The cleared provider keys delete; the freshly set local key does not. The
+    // blank knob texts clear exactly their own preferences (blank = absent).
+    Assert.Equal(
+        [OpenRouterSettings.PreferenceKey, ZaiSettings.PreferenceKey,
+         AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
+         AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl,
+         AgentPreferenceKeys.ZaiBaseUrl],
+        preferences.Deletions);
     Assert.Equal(["local"], vm.AvailableProviders.Select(p => p.Id)); // no provider keys configured
     Assert.True(vm.HasConfiguredProvider);
   }
@@ -183,9 +191,15 @@ public class LocalProviderDesktopTests
     await vm.ApplySettingsAsync(Update(null, null, openRouterKey: "sk-or", zaiKey: "zai-key"));
 
     // URL first (plain), key second (protected) — the same order the keys use.
+    // The blank local fields clear exactly their own pair; the unset knob texts
+    // clear their own keys the same way.
     Assert.Equal(
-        [LocalSettings.BaseUrlPreferenceKey, LocalSettings.PreferenceKey],
-        preferences.Deletions); // the blank local fields clear exactly their own pair
+        [LocalSettings.BaseUrlPreferenceKey, LocalSettings.PreferenceKey,
+         AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
+         AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl,
+         AgentPreferenceKeys.ZaiBaseUrl],
+        preferences.Deletions);
     Assert.Equal(["openrouter", "zai"], vm.AvailableProviders.Select(p => p.Id));
     Assert.Equal(Providers.OpenRouter, vm.PreferredProviderId); // falls back to the first remaining row
   }
@@ -208,6 +222,7 @@ public class LocalProviderDesktopTests
           (LocalSettings.PreferenceKey, "protected:new-lm-key"),
           (ZaiSettings.EndpointModePreferenceKey, "coding"),
           (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
+          (AgentPreferenceKeys.RemoteHost, "false"),
         ],
         preferences.Writes);
   }
