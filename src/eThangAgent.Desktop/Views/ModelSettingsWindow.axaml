@@ -18,7 +18,8 @@
     </StackPanel>
 
     <ScrollViewer>
-      <StackPanel Spacing="12">
+      <!-- 8 DIP right inset reserves the overlay-scrollbar strip: inputs never sit under the thumb. -->
+      <StackPanel Spacing="12" Margin="0,0,8,0">
         <!-- Reasoning effort: the same vocabulary the effort picker offers. -->
         <StackPanel Spacing="4">
           <TextBlock Text="Reasoning effort" FontWeight="SemiBold"/>
