@@ -1,0 +1,95 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:eThangAgent.Desktop.ViewModels"
+        x:Class="eThangAgent.Desktop.Views.ModelSettingsWindow"
+        x:DataType="vm:ModelSettingsViewModel"
+        Title="Model Settings" Width="520" Height="680" MinWidth="460" MinHeight="420"
+        CanResize="True" WindowStartupLocation="CenterOwner">
+  <DockPanel Margin="16">
+    <!-- Shared footer: validation error plus Save/Cancel, outside the scroll so it
+         applies to whichever section is showing. -->
+    <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,8,0,0">
+      <TextBlock Text="{Binding ValidationError}" Foreground="OrangeRed" TextWrapping="Wrap" FontSize="12"
+                 IsVisible="{Binding ValidationError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+        <Button Content="Cancel" Click="OnCancel"/>
+        <Button x:Name="SaveButton" Content="Save" Command="{Binding SaveCommand}"/>
+      </StackPanel>
+    </StackPanel>
+
+    <ScrollViewer>
+      <StackPanel Spacing="12">
+        <!-- Reasoning effort: the same vocabulary the effort picker offers. -->
+        <StackPanel Spacing="4">
+          <TextBlock Text="Reasoning effort" FontWeight="SemiBold"/>
+          <ComboBox x:Name="EffortBox" ItemsSource="{Binding EffortOptions}"
+                    SelectedItem="{Binding SelectedEffortOption}"
+                    DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
+        </StackPanel>
+
+        <!-- The twelve sampling knobs: z.ai hides the N/A seven behind IsEnabled=false,
+             the tooltip naming them not applicable. -->
+        <TextBlock Text="Sampling" FontWeight="SemiBold"/>
+        <ItemsControl x:Name="KnobList" ItemsSource="{Binding KnobRows}" Margin="0,-8,0,0">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:KnobRow">
+              <StackPanel Spacing="2" Margin="0,4">
+                <TextBlock Text="{Binding Label}" FontSize="12" Opacity="0.75"
+                           ToolTip.Tip="{Binding Tooltip}"/>
+                <TextBox Text="{Binding Text}" IsEnabled="{Binding IsEnabled}"
+                         ToolTip.Tip="{Binding Tooltip}"/>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- OpenRouter-only: routing, server tools, plugins, budgets. Collapsed
+             entirely on non-OpenRouter sessions; a save then persists null. -->
+        <StackPanel IsVisible="{Binding ShowOpenRouterSection}" Spacing="8">
+          <TextBlock Text="OpenRouter routing" FontWeight="SemiBold"/>
+          <StackPanel Spacing="4">
+            <TextBlock Text="Provider order (comma-separated)" FontSize="12" Opacity="0.75"/>
+            <TextBox Text="{Binding Routing.OrderText}"/>
+            <TextBlock Text="Only these providers (comma-separated)" FontSize="12" Opacity="0.75"/>
+            <TextBox Text="{Binding Routing.OnlyText}"/>
+            <TextBlock Text="Ignore these providers (comma-separated)" FontSize="12" Opacity="0.75"/>
+            <TextBox Text="{Binding Routing.IgnoreText}"/>
+            <CheckBox Content="Allow fallbacks" IsChecked="{Binding Routing.AllowFallbacks}"/>
+            <TextBlock Text="Sort" FontSize="12" Opacity="0.75"/>
+            <TextBox Text="{Binding Routing.SortText}"/>
+            <TextBlock Text="Quantizations (comma-separated)" FontSize="12" Opacity="0.75"/>
+            <TextBox Text="{Binding Routing.QuantizationsText}"/>
+            <CheckBox Content="Require parameters" IsChecked="{Binding Routing.RequireParameters}"/>
+            <TextBlock Text="Data collection (e.g. deny)" FontSize="12" Opacity="0.75"/>
+            <TextBox Text="{Binding Routing.DataCollectionText}"/>
+            <TextBlock Text="Models fallback chain (comma-separated)" FontSize="12" Opacity="0.75"/>
+            <TextBox Text="{Binding Routing.ModelsText}"/>
+            <TextBlock Text="Route" FontSize="12" Opacity="0.75"/>
+            <TextBox Text="{Binding Routing.RouteText}"/>
+          </StackPanel>
+
+          <TextBlock Text="Server-side tools" FontWeight="SemiBold" Margin="0,8,0,0"/>
+          <ItemsControl ItemsSource="{Binding ToolToggles}" Margin="0,-8,0,0">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ToolToggleRow">
+                <CheckBox Content="{Binding Label}" IsChecked="{Binding IsChecked}" Margin="0,2"/>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <StackPanel Spacing="4">
+            <TextBlock Text="Max tool calls (empty = unbounded)" FontSize="12" Opacity="0.75"/>
+            <TextBox Text="{Binding ServerTools.MaxToolCallsText}"/>
+            <TextBlock Text="Stop server tools when (comma-separated)" FontSize="12" Opacity="0.75"/>
+            <TextBox Text="{Binding ServerTools.StopServerToolsWhenText}"/>
+          </StackPanel>
+
+          <TextBlock Text="Plugins" FontWeight="SemiBold" Margin="0,8,0,0"/>
+          <CheckBox Content="Web grounding" IsChecked="{Binding Plugins.WebGrounding}"/>
+          <TextBlock Text="Search engine override (optional, e.g. exa)" FontSize="12" Opacity="0.75"/>
+          <TextBox Text="{Binding Plugins.WebGroundingEngineText}"/>
+          <CheckBox Content="Response healing" IsChecked="{Binding Plugins.ResponseHealing}"/>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

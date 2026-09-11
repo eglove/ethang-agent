@@ -42,6 +42,7 @@ internal partial class MainWindow : Window
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
     vm.ModelPickerRequested += async (_, _) => await ShowModelPickerDialogAsync();
     vm.EffortPickerRequested += async (_, _) => await ShowEffortPickerDialogAsync();
+    vm.ModelSettingsRequested += async (_, _) => await ShowModelSettingsDialogAsync();
     vm.LinksRequested += async (_, _) => await ShowLinksDialogAsync();
   }
 
@@ -158,6 +159,34 @@ internal partial class MainWindow : Window
 
     await _vm.ApplyEffortChoiceAsync(choice.Level);
   }
+
+  /// <summary>Shows the Model Settings window for the selected tab: effort, the
+  ///     twelve sampling knobs, and the OpenRouter section (hidden elsewhere).
+  ///     A cancelled dialog is a no-op; a confirmed one applies the snapshot on
+  ///     the shell (session + per-workspace preferences). The window's
+  ///     persistence seam delegates here — nothing persists unless save succeeds.
+  ///     </summary>
+  private async Task ShowModelSettingsDialogAsync()
+  {
+    if (_vm!.SelectedTab is not { } tab)
+    {
+      return; // no selected tab — the menu entry is hidden anyway
+    }
+
+    if (tab.Container.Preferences is not { } preferences)
+    {
+      return; // host composed the session without model preferences — nothing to edit
+    }
+
+    ModelSettingsViewModel vm = new(
+        preferences,
+        tab.Container.ProviderName,
+        persist: snapshot => _ = _vm.ApplySamplingSettingsAsync(snapshot),
+        await _vm.ReadSamplingPrefsForSelectedTabAsync());
+    ModelSettingsWindow dialog = new(vm);
+    _ = await dialog.ShowDialog<ModelSettingsSnapshot?>(this);
+  }
+
   /// <summary>Shows the Links dialog (consent door, D10) for the selected tab. The
   ///     dialog links through the tab's OWN registry — the same object the session's
   ///     capability provider resolves agent.route names through — and lists candidate

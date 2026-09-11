@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Agent.Application;
@@ -206,6 +207,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public IRelayCommand ChooseEffortCommand { get; }
 
+  public IRelayCommand ChooseModelSettingsCommand { get; }
+
   public IRelayCommand OpenLinksCommand { get; }
 
   /// <summary>Raised when the shell wants the new-agent dialog shown.</summary>
@@ -222,6 +225,9 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Raised when the shell wants the selected tab's effort picker shown.</summary>
   public event EventHandler? EffortPickerRequested;
+
+  /// <summary>Raised when the shell wants the selected tab's Model Settings window shown.</summary>
+  public event EventHandler? ModelSettingsRequested;
 
   /// <summary>Raised when the shell wants the selected tab's Links dialog shown.</summary>
   public event EventHandler? LinksRequested;
@@ -278,6 +284,9 @@ internal sealed partial class MainViewModel : ObservableObject
     ChooseEffortCommand = new RelayCommand(
         () => EffortPickerRequested?.Invoke(this, EventArgs.Empty),
         () => HasSelectedTab && !IsLocalTab);
+    ChooseModelSettingsCommand = new RelayCommand(
+        () => ModelSettingsRequested?.Invoke(this, EventArgs.Empty),
+        () => HasSelectedTab);
     OpenLinksCommand = new RelayCommand(
         () => LinksRequested?.Invoke(this, EventArgs.Empty),
         () => HasSelectedTab);
@@ -314,6 +323,7 @@ internal sealed partial class MainViewModel : ObservableObject
   {
     ChooseModelCommand.NotifyCanExecuteChanged();
     ChooseEffortCommand.NotifyCanExecuteChanged();
+    ChooseModelSettingsCommand.NotifyCanExecuteChanged();
   }
 
   private void OnTabsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -412,6 +422,18 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
+  /// <summary>Menu-bar entry point: raises the Model Settings request. The view
+  ///     shows the settings window and calls <see cref="ApplySamplingSettingsAsync"/>
+  ///     with the saved snapshot. Available on every provider: z.ai sessions grey
+  ///     out the knobs they do not accept instead of hiding the window.</summary>
+  public void RequestChooseModelSettings()
+  {
+    if (ChooseModelSettingsCommand.CanExecute(null))
+    {
+      ModelSettingsRequested?.Invoke(this, EventArgs.Empty);
+    }
+  }
+
   /// <summary>Loads the selected tab's provider catalog for the model picker, or null
   ///     when no tab is selected. The loader escapes collection evaluation in the
   ///     picker's view-model, which runs it off the UI thread.</summary>
@@ -457,6 +479,30 @@ internal sealed partial class MainViewModel : ObservableObject
 
     tab.ViewModel.ApplyEffortChoice(effort);
     await PersistEffortChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot, effort);
+  }
+
+  /// <summary>Applies a Model Settings save to the selected tab and persists it
+  ///     per workspace + provider (best effort — the same named decision as the
+  ///     other preferences): the knob texts under the sampling_prefs key, the
+  ///     serialized OpenRouter settings under the provider_settings key (null
+  ///     deletes — an unset value never lingers). The typed values are already on
+  ///     the session's live preferences through the session view-model's apply.
+  ///     </summary>
+  public async Task ApplySamplingSettingsAsync(ModelSettingsSnapshot snapshot)
+  {
+    ArgumentNullException.ThrowIfNull(snapshot);
+    AgentTabViewModel? tab = SelectedTab;
+    if (tab is null)
+    {
+      return;
+    }
+
+    tab.ViewModel.ApplySamplingSettings(snapshot.Preferences);
+    string providerName = tab.Container.ProviderName;
+    string workspaceRoot = tab.Container.WorkspaceRoot;
+    string knobPayload = JsonSerializer.Serialize(snapshot.KnobTexts);
+    await PersistSamplingPrefsAsync(providerName, workspaceRoot, snapshot.KnobTexts.Count == 0 ? null : knobPayload);
+    await PersistProviderSettingsAsync(providerName, workspaceRoot, snapshot.ProviderSettingsJson);
   }
 
   /// <summary>Applies a settings-modal result: persists the keys (protected) or deletes
@@ -762,6 +808,21 @@ internal sealed partial class MainViewModel : ObservableObject
         preferences.ReasoningEffort = effort;
         sessionVm.Status.Effort = EffortLevels.DisplayName(effort);
       }
+
+      // Restored sampling knobs and serialized OpenRouter settings ride the same
+      // live preferences: the first turn resolves straight to them, no re-pick.
+      IReadOnlyDictionary<string, string>? restoredKnobs =
+          await ReadSamplingPrefsAsync(session.ProviderName, session.WorkspaceRoot);
+      if (restoredKnobs is { } knobs)
+      {
+        ApplyRestoredKnobs(preferences, knobs);
+      }
+
+      string? restoredSettings = await ReadProviderSettingsAsync(session.ProviderName, session.WorkspaceRoot);
+      if (restoredSettings is not null)
+      {
+        preferences.ProviderSettings = restoredSettings;
+      }
     }
 
     // Resume replay: the persisted transcript (already hydrated into the session's
@@ -964,6 +1025,189 @@ internal sealed partial class MainViewModel : ObservableObject
     catch (Exception ex)
     {
       await Console.Error.WriteLineAsync($"effort choice preference write failed: {ex.Message}");
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Composite preference key of the per-workspace sampling knobs: the
+  ///     same directory may be open under both providers, so the key is scoped to
+  ///     the (provider, workspace) pair — the ModelChoiceKey derivation style. The
+  ///     value is the JSON map of knob-name to entered text (empty text = unset);
+  ///     keys are only ever read back verbatim — never parsed for structure.</summary>
+  private static string SamplingPrefsKey(string providerName, string workspaceRoot)
+      => $"sampling_prefs:{providerName}:{workspaceRoot}";
+
+  /// <summary>Composite preference key of the per-workspace serialized OpenRouter
+  ///     request settings (same scoping rule). Null value deletes the key.</summary>
+  private static string ProviderSettingsKey(string providerName, string workspaceRoot)
+      => $"provider_settings:{providerName}:{workspaceRoot}";
+
+  /// <summary>Applies restored knob texts onto the live preferences: only the
+  ///     ten typed knobs parse here; temperature and maxTokens live in the map
+  ///     for the settings window's prefill and are validated/typed on the next
+  ///     save (a corrupt stored value degrades to unset — never coerced).</summary>
+  private static void ApplyRestoredKnobs(SessionModelPreferences preferences, IReadOnlyDictionary<string, string> knobs)
+  {
+    preferences.TopP = ParseFloat(knobs, "topP") ?? preferences.TopP;
+    preferences.TopK = ParseInt(knobs, "topK") ?? preferences.TopK;
+    preferences.FrequencyPenalty = ParseFloat(knobs, "frequencyPenalty") ?? preferences.FrequencyPenalty;
+    preferences.PresencePenalty = ParseFloat(knobs, "presencePenalty") ?? preferences.PresencePenalty;
+    preferences.RepetitionPenalty = ParseFloat(knobs, "repetitionPenalty") ?? preferences.RepetitionPenalty;
+    preferences.MinP = ParseFloat(knobs, "minP") ?? preferences.MinP;
+    preferences.TopA = ParseFloat(knobs, "topA") ?? preferences.TopA;
+    preferences.Seed = ParseInt(knobs, "seed") ?? preferences.Seed;
+    preferences.Verbosity = ParseVerbosity(knobs) ?? preferences.Verbosity;
+    preferences.ParallelToolCalls = ParseBool(knobs, "parallelToolCalls") ?? preferences.ParallelToolCalls;
+  }
+
+  private static float? ParseFloat(IReadOnlyDictionary<string, string> knobs, string name)
+      => knobs.TryGetValue(name, out string? text) && float.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out float value)
+          ? value
+          : null;
+
+  private static int? ParseInt(IReadOnlyDictionary<string, string> knobs, string name)
+      => knobs.TryGetValue(name, out string? text) && int.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, out int value)
+          ? value
+          : null;
+
+  private static bool? ParseBool(IReadOnlyDictionary<string, string> knobs, string name)
+      => knobs.TryGetValue(name, out string? text) && bool.TryParse(text, out bool value) ? value : null;
+
+  private static VerbosityLevel? ParseVerbosity(IReadOnlyDictionary<string, string> knobs)
+  {
+    bool stored = knobs.TryGetValue("verbosity", out string? text);
+    return stored switch
+    {
+      false => null,
+      _ => text!.ToUpperInvariant() switch
+      {
+        nameof(VerbosityLevel.Low) => VerbosityLevel.Low,
+        nameof(VerbosityLevel.Medium) => VerbosityLevel.Medium,
+        nameof(VerbosityLevel.High) => VerbosityLevel.High,
+        nameof(VerbosityLevel.XHigh) => VerbosityLevel.XHigh,
+        nameof(VerbosityLevel.Max) => VerbosityLevel.Max,
+        _ => null,
+      },
+    };
+  }
+
+  /// <summary>Loads the selected tab's persisted sampling knob texts for the
+  ///     Model Settings window's prefill (null when no tab or nothing stored).
+  ///     </summary>
+  public async Task<IReadOnlyDictionary<string, string>?> ReadSamplingPrefsForSelectedTabAsync()
+  {
+    AgentTabViewModel? tab = SelectedTab;
+    return tab is null
+        ? null
+        : await ReadSamplingPrefsAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot);
+  }
+
+  /// <summary>Persists (or, for the all-unset map, clears) the per-workspace
+  ///     sampling knob texts. Best effort — a failed write logs to stderr and
+  ///     never fails the save (named decision, CA1031).</summary>
+  private async Task PersistSamplingPrefsAsync(string providerName, string workspaceRoot, string? knobPayload)
+  {
+    if (_preferences is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): preference persistence must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      string key = SamplingPrefsKey(providerName, workspaceRoot);
+      bool landed = knobPayload is null
+          ? await _preferences.DeleteAsync(key)
+          : await _preferences.SetAsync(key, knobPayload);
+      if (!landed)
+      {
+        await Console.Error.WriteLineAsync($"sampling prefs write failed for '{key}'");
+      }
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"sampling prefs write failed: {ex.Message}");
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Persists (or clears) the per-workspace serialized OpenRouter request
+  ///     settings. Best effort, same named decision.</summary>
+  private async Task PersistProviderSettingsAsync(string providerName, string workspaceRoot, string? settingsJson)
+  {
+    if (_preferences is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): preference persistence must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      string key = ProviderSettingsKey(providerName, workspaceRoot);
+      bool landed = settingsJson is null
+          ? await _preferences.DeleteAsync(key)
+          : await _preferences.SetAsync(key, settingsJson);
+      if (!landed)
+      {
+        await Console.Error.WriteLineAsync($"provider settings write failed for '{key}'");
+      }
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"provider settings write failed: {ex.Message}");
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Reads the persisted sampling knob texts, or null when unset (or the
+  ///     store is unavailable, or the payload is corrupt — a failed read degrades
+  ///     to unset, never fails the open; named decision, CA1031).</summary>
+  private async Task<IReadOnlyDictionary<string, string>?> ReadSamplingPrefsAsync(string providerName, string workspaceRoot)
+  {
+    if (_preferences is null)
+    {
+      return null;
+    }
+
+    // Named decision (CA1031): preference reads must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      string? stored = await _preferences.GetAsync(SamplingPrefsKey(providerName, workspaceRoot));
+      return stored is null
+          ? null
+          : JsonSerializer.Deserialize<Dictionary<string, string>>(stored);
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"sampling prefs read failed: {ex.Message}");
+      return null;
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Reads the persisted serialized OpenRouter request settings, or null
+  ///     when unset. A failed read degrades to unset (named decision, CA1031).
+  ///     </summary>
+  private async Task<string?> ReadProviderSettingsAsync(string providerName, string workspaceRoot)
+  {
+    if (_preferences is null)
+    {
+      return null;
+    }
+
+    // Named decision (CA1031): preference reads must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      return await _preferences.GetAsync(ProviderSettingsKey(providerName, workspaceRoot));
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"provider settings read failed: {ex.Message}");
+      return null;
     }
 #pragma warning restore CA1031
   }

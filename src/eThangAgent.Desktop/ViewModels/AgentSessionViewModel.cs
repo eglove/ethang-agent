@@ -238,6 +238,35 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>
+  /// Applies a Model Settings save: every non-null knob lands on the session's
+  /// live model preferences (null = unset — the resolved config's value applies),
+  /// and the serialized OpenRouter provider settings ride along verbatim.
+  /// Applies from the next turn, root and children alike; persisted per workspace
+  /// by the shell. Mirrors ApplyEffortChoice.
+  /// </summary>
+  public void ApplySamplingSettings(SessionModelPreferences settings)
+  {
+    if (_modelPreferences is null)
+    {
+      Transcript.AddNotice("Sampling settings are unavailable in this session (no model preferences wired).");
+      return;
+    }
+
+    _modelPreferences.TopP = settings.TopP;
+    _modelPreferences.TopK = settings.TopK;
+    _modelPreferences.FrequencyPenalty = settings.FrequencyPenalty;
+    _modelPreferences.PresencePenalty = settings.PresencePenalty;
+    _modelPreferences.RepetitionPenalty = settings.RepetitionPenalty;
+    _modelPreferences.MinP = settings.MinP;
+    _modelPreferences.TopA = settings.TopA;
+    _modelPreferences.Seed = settings.Seed;
+    _modelPreferences.Verbosity = settings.Verbosity;
+    _modelPreferences.ParallelToolCalls = settings.ParallelToolCalls;
+    _modelPreferences.ProviderSettings = settings.ProviderSettings;
+    Transcript.AddNotice("Sampling settings applied; they take effect from the next turn.");
+  }
+
+  /// <summary>
   /// Applies the user's model picker choice: pins the session's model (null returns it
   /// to automatic choice — intelligent selection on OpenRouter, the provider default on
   /// z.ai), updates the status bar, and announces the change. Applies from the next turn,
