@@ -32,6 +32,9 @@ internal static class TestFixtures
     public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", "not found")));
 
+    public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+    => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised by this fake.")));
+
     public void InterruptSubtree(AgentId rootOfSubtree) => InterruptAllCount++;
 
     public void Interrupt(AgentId? childId = null)

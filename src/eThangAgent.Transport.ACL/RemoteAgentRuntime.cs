@@ -118,6 +118,12 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     }
   }
 
+  /// <inheritdoc cref="IAgentRuntime.Resume"/>
+  public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+      => Task.FromResult(Result.Failure<AgentId>(new DomainError(
+          "ResumeUnsupported",
+          "resume-after-settle is not yet wired through the child host (named follow-up); only in-process children can be resumed.")));
+
   /// <inheritdoc cref="IAgentRuntime.InterruptSubtree"/>
   public void InterruptSubtree(AgentId rootOfSubtree)
       => _ = SendEnvelopeAsync("interrupt", JsonSerializer.Serialize(new InterruptCommand(rootOfSubtree.Value)), rootOfSubtree, CancellationToken.None);

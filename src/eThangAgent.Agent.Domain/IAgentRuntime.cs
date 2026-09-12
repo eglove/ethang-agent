@@ -15,6 +15,16 @@ public interface IAgentRuntime
   ///     outcome; a watchdog same-id retry keeps the original await alive.</summary>
   Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default);
 
+  /// <summary>Resumes a SETTLED child (Completed or Failed) on the SAME id with
+  ///     'message' as its continuation prompt: the persisted transcript, anchor, and
+  ///     grants carry over; Attempts increments. Fails NotRunning for unknown ids,
+  ///     live children (steer those with Deliver), and ids this runtime cannot see;
+  ///     InvalidMessage for empty text. The resumed run reuses the start pipeline
+  ///     (slots, priority queue) and is awaited like any other child (WhenSettledAsync).</summary>
+#pragma warning disable CA1716 // Named decision: 'Resume' is the spec's ubiquitous term (the plan's agent.resume contract) and is not a C# keyword; the collision is VB-only.
+  Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default);
+#pragma warning restore CA1716
+
   /// <summary>Push-delivers a steering message into the child's mailbox. Fails NotRunning
   ///     for unknown/finished ids and MailboxFull when the box is at capacity — the
   ///     failure flows to the SENDER as a tool result (P3). Delivery to self is rejected

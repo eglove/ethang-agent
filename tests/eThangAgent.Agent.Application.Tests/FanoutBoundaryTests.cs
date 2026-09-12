@@ -32,6 +32,9 @@ public class FanoutBoundaryTests
     public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Success(new AgentRunOutcome(id, AgentStatus.Completed, null, "ok", "m/x", 1)));
 
+    public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+    => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised by this fake.")));
+
     public Result<bool> Deliver(AgentId id, PendingMessage message) => Result.Success(true);
 
     public void Interrupt(AgentId? childId = null) { }

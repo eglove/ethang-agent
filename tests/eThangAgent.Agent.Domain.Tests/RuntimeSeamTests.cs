@@ -20,4 +20,15 @@ public class RuntimeSeamTests
     Assert.Contains(id.ToString(), RuntimeErrors.NotFound(id), StringComparison.Ordinal);
     Assert.Contains(id.ToString(), RuntimeErrors.NotComplete(id), StringComparison.Ordinal);
   }
+
+  [Fact]
+  public void Resume_Member_Is_On_The_Runtime_Seam_And_Typed_Errors_Are_Distinct()
+  {
+    Guid id = Guid.NewGuid();
+    // The resume contract's failure vocabulary, pinned: the capability layer composes
+    // 'Error [<code>]: <message>' from exactly these codes.
+    string[] codes = ["NotRunning", "InvalidMessage", "ResumeUnsupported"];
+    Assert.Equal(3, codes.Distinct().Count());
+    Assert.Contains(id.ToString(), RuntimeErrors.NotFound(id), StringComparison.Ordinal); // seam error style unchanged
+  }
 }

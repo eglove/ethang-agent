@@ -24,6 +24,9 @@ public class SpawnGraphHandlerTests
             ? Result.Success(new AgentRunOutcome(id, AgentStatus.Completed, null, "ok", "m/x", 1))
             : Result.Success(new AgentRunOutcome(id, AgentStatus.Failed, AgentFailureReason.ProviderError, "", "m/x", 1)));
 
+    public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+    => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised by this fake.")));
+
     public Result<bool> Deliver(AgentId id, PendingMessage message)
         => Result.Success(true);
 

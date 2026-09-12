@@ -25,6 +25,9 @@ public class CrossContainerRoutingTests
     public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", "not used")));
 
+    public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+    => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised by this fake.")));
+
     public Result<bool> Deliver(AgentId id, PendingMessage message)
         => Running.Contains(id.Value)
             ? Result.Success(true)

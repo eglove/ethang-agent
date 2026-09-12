@@ -76,6 +76,9 @@ public class AgentWatchdogTests
     public Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
   => Task.FromResult(Result.Failure<AgentRunOutcome>(new DomainError("NotFound", $"agent '{id}' has no live or settled run owned by this runtime.")));
 
+    public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+    => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised by this fake.")));
+
     public void InterruptSubtree(AgentId rootOfSubtree) { }
 
     public void Interrupt(AgentId? childId = null)

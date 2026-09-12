@@ -256,6 +256,11 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     }
   }
 
+  /// <inheritdoc cref="IAgentRuntime.Resume"/>
+  public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+      => Task.FromResult(Result.Failure<AgentId>(new DomainError(
+          "NotImplemented", "resume lands with the next change in this plan.")));
+
   /// <summary>Completes every waiter for one child. Called after the terminal record write
   ///     so waiters always observe persisted state.</summary>
   private bool Settle(AgentId id, AgentRunOutcome outcome)

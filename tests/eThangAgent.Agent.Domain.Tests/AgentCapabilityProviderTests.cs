@@ -83,6 +83,15 @@ public class AgentCapabilityProviderTests
             ? Result.Success(outcome ?? new AgentRunOutcome(id, AgentStatus.Completed, null, "settled report", "prov/child", 1))
             : Result.Failure<AgentRunOutcome>(error));
 
+    public List<(Guid Id, string Message)> Resumed { get; } = [];
+
+    // Records the resume call and returns success: the capability task builds on this fake.
+    public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+    {
+      Resumed.Add((id.Value, message));
+      return Task.FromResult(Result.Success(id));
+    }
+
     public Result<bool> Deliver(AgentId id, PendingMessage message)
         => Result.Success(true);
 
