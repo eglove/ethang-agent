@@ -84,9 +84,10 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   ///     outcome — Completed with the truncated report, or Failed with its reason — plus the child
   ///     transcript delta. It never saves the initial Running row; that is the spawn command's job.
   ///     A failing terminal write is an infrastructure fault and throws. Resume contract: an
-  ///     existing persisted transcript hydrates the conversation and the run receives only the
-  ///     watchdog wrap-up nudge instead of the original task prompt; only messages this run adds
-  ///     are appended back (never duplicating the seed).</summary>
+  ///     existing persisted transcript hydrates the conversation and the run receives the
+  ///     agent.resume carrier when the contract stamps one, else the watchdog wrap-up nudge,
+  ///     instead of the original task prompt; only messages this run adds are appended back
+  ///     (never duplicating the seed).</summary>
   public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(child);
@@ -107,18 +108,24 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
         _preferences);
 
     // Resume hydration: a persisted transcript means this run restarts a previously
-    // interrupted (typically watchdog-retried) child - continue the conversation with
-    // only the wrap-up nudge instead of replaying the original task prompt. Mirrors
-    // the root-session resume hydration in AgentSessionFactory. seed.Count is the
-    // persistence baseline: failure paths persist only what this run adds beyond it.
+    // interrupted (typically watchdog-retried) child. Mirrors the root-session resume
+    // hydration in AgentSessionFactory. seed.Count is the persistence baseline: failure
+    // paths persist only what this run adds beyond it.
     Result<IReadOnlyList<Message>> persisted = await _store.GetTranscriptAsync(child.Id, ct).ConfigureAwait(false);
     IReadOnlyList<Message> seed = persisted.IsSuccess ? persisted.Value : [];
     bool resuming = seed.Count > 0;
     Conversation conversation = new(resuming ? seed : null);
-    string prompt = resuming
+    // Prompt precedence: an agent.resume carrier (one-shot, stamped by the runtime)
+    // beats the watchdog wrap-up nudge, which beats the original task prompt. The
+    // carrier is consumed HERE (read) and cleared by the RUNTIME at terminal persist —
+    // this run must not mutate the record's contract mid-flight.
+    string? resumeMessage = child.Contract is { } resumeJson
+        ? SpawnContract.Decode(resumeJson).ResumeMessage
+        : null;
+    string prompt = resumeMessage ?? (resuming
         ? WrapUpNudgeSentinel
             + " your run was restarted by the watchdog after an idle timeout. Continue from where you stopped and wrap up now with your final report."
-        : child.TaskPrompt;
+        : child.TaskPrompt);
 
     // Run-path registry topology (R1 + worktree ladder, T7): the wraps compose
     // inner-first — the anchored view is applied BEFORE the grant filter, so the

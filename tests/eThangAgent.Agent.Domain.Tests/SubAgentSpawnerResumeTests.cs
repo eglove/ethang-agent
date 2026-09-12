@@ -117,6 +117,47 @@ public class SubAgentSpawnerResumeTests
   }
 
   [Fact]
+  public async Task ResumedRun_ContractCarrier_BecomesTheContinuationPrompt()
+  {
+    FakeAgentStore store = new();
+    FakeProvider provider = new(Result.Success(new ModelResponse("fixed", [])));
+    AgentId id = AgentId.NewId();
+    AgentRecord child = AgentRecord.Spawned(id, AgentId.NewId(), 1, "test-model", "test",
+        "original task", DateTimeOffset.UtcNow,
+        contract: new SpawnContract().WithResumeMessage("fix the failing tests"));
+    _ = await store.SaveAsync(child);
+    // Pre-seed the transcript: the run restarts over a persisted frontier.
+    _ = await store.AppendMessageAsync(id, new Message(Role.User, "original task", DateTimeOffset.UtcNow), TestContext.Current.CancellationToken);
+    _ = await store.AppendMessageAsync(id, new Message(Role.Assistant, "did most of it", DateTimeOffset.UtcNow), TestContext.Current.CancellationToken);
+
+    AgentRunOutcome outcome = await Spawner(store, provider).RunAsync(child, ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal(AgentStatus.Completed, outcome.Status);
+    string prompt = Assert.Single(provider.Prompts);
+    Assert.Equal("fix the failing tests", prompt);
+    Assert.DoesNotContain(SubAgentSpawner.WrapUpNudgeSentinel, prompt, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task WatchdogRestart_AfterAResume_RetreatsToTheWrapUpNudge()
+  {
+    // Same transcript shape, but NO carrier: the watchdog-retry path must never see
+    // a stale resume message.
+    FakeAgentStore store = new();
+    FakeProvider provider = new(Result.Success(new ModelResponse("done", [])));
+    AgentId id = AgentId.NewId();
+    AgentRecord child = AgentRecord.Spawned(id, AgentId.NewId(), 1, "test-model", "test",
+        "original task", DateTimeOffset.UtcNow, contract: new SpawnContract());
+    _ = await store.SaveAsync(child);
+    _ = await store.AppendMessageAsync(id, new Message(Role.User, "original task", DateTimeOffset.UtcNow), TestContext.Current.CancellationToken);
+
+    _ = await Spawner(store, provider).RunAsync(child, ct: TestContext.Current.CancellationToken);
+
+    string prompt = Assert.Single(provider.Prompts);
+    Assert.StartsWith(SubAgentSpawner.WrapUpNudgeSentinel, prompt, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task ResumedRun_Success_AppendsOnlyItsDelta()
   {
     FakeAgentStore store = new();

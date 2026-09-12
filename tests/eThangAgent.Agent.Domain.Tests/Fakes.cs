@@ -22,6 +22,10 @@ internal sealed class FakeProvider : IModelProvider
   public System.Collections.ObjectModel.Collection<ModelConfig> ConfigsSeen { get; } = [];
   public System.Collections.ObjectModel.Collection<ModelRequest> RequestsSeen { get; } = [];
 
+  /// <summary>User-message text of each request seen, in order — prompt assertions
+  ///     (resume carrier, wrap-up nudge) without digging through the message list.</summary>
+  public System.Collections.ObjectModel.Collection<string> Prompts { get; } = [];
+
   public FakeProvider(params Result<ModelResponse>[] responses)
   {
     foreach (Result<ModelResponse> response in responses)
@@ -35,6 +39,7 @@ internal sealed class FakeProvider : IModelProvider
   {
     ConfigsSeen.Add(config);
     RequestsSeen.Add(request);
+    Prompts.Add(request.Messages.Last(m => m.Role is Role.User).Content);
     return Task.FromResult(_responses.Count > 0
         ? _responses.Dequeue()
         : Result.Success(new ModelResponse("done", [])));
