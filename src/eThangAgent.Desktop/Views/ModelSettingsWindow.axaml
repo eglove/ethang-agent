@@ -20,12 +20,40 @@
     <ScrollViewer>
       <!-- 8 DIP right inset reserves the overlay-scrollbar strip: inputs never sit under the thumb. -->
       <StackPanel Spacing="12" Margin="0,0,8,0">
-        <!-- Reasoning effort: the same vocabulary the effort picker offers. -->
+        <!-- Model choice (grand-plan item 117): the old rail picker, embedded.
+             Auto row where the provider offers one; the live choice pre-selects. -->
+        <StackPanel Spacing="4">
+          <TextBlock Text="Model" FontWeight="SemiBold"/>
+          <TextBox PlaceholderText="Search models…" Text="{Binding ModelSection.SearchText}"/>
+          <Panel MinHeight="120">
+            <ListBox x:Name="ModelList" ItemsSource="{Binding ModelSection.FilteredRows}"
+                     SelectedItem="{Binding ModelSection.SelectedRow}" MaxHeight="220">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ModelPickerRow">
+                  <StackPanel Margin="2,4">
+                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding Detail}" Opacity="0.6" FontSize="12"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Text="Loading model catalog…" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Opacity="0.7" IsVisible="{Binding ModelSection.IsLoading}"/>
+          </Panel>
+          <TextBlock Text="{Binding ModelSection.LoadError}" Foreground="OrangeRed" TextWrapping="Wrap" FontSize="12"
+                     IsVisible="{Binding ModelSection.LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+        </StackPanel>
+
+        <!-- Reasoning effort: the same vocabulary the old effort picker offered;
+             disabled on local servers (reasoning effort is never sent there). -->
         <StackPanel Spacing="4">
           <TextBlock Text="Reasoning effort" FontWeight="SemiBold"/>
           <ComboBox x:Name="EffortBox" ItemsSource="{Binding EffortOptions}"
                     SelectedItem="{Binding SelectedEffortOption}"
-                    DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
+                    DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"
+                    IsEnabled="{Binding IsEffortApplicable}"/>
+          <TextBlock Text="Reasoning effort does not apply to local servers." FontSize="12" Opacity="0.7"
+                     IsVisible="{Binding IsEffortApplicable, Converter={x:Static BoolConverters.Not}}"/>
         </StackPanel>
 
         <!-- The twelve sampling knobs: z.ai hides the N/A seven behind IsEnabled=false,

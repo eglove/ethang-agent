@@ -96,52 +96,34 @@ public class LocalProviderDesktopTests
       => new(openRouterKey, zaiKey, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
           LocalBaseUrlText: localBaseUrl, LocalApiKey: localApiKey);
 
-  // ── Effort gate ───────────────────────────────────────────────────────────
+  // ── Effort gate (grand-plan item 117: the gate lives in the Model Settings
+  //    window now — the rail entries are gone, so the per-provider rule moved
+  //    onto the settings view-model's IsEffortApplicable) ─────────────────────
 
   [Fact]
-  public async Task ChooseEffortCommand_Is_Gated_Off_On_A_Local_Tab()
+  public async Task Model_Settings_Entry_Is_Available_On_A_Local_Tab()
   {
+    // The window itself stays reachable on a local server: knobs are editable,
+    // effort is greyed in-window (IsEffortApplicable), never hidden wholesale.
     MainViewModel vm = new((root, provider) => Task.FromResult(Result.Success(
         FakeSession(root, provider, new SessionModelPreferences()))));
 
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", Providers.Local);
 
     Assert.True(vm.HasSelectedTab);
-    Assert.False(vm.ChooseEffortCommand.CanExecute(null));
-
-    bool raised = false;
-    vm.EffortPickerRequested += (_, _) => raised = true;
-    vm.RequestChooseEffort(); // the shell entry point shares the command's gate
-    Assert.False(raised);
+    Assert.True(vm.ChooseModelSettingsCommand.CanExecute(null));
   }
 
   [Fact]
-  public async Task Effort_Gate_Requeries_When_Selection_Moves_Between_Local_And_NonLocal_Tabs()
+  public async Task Model_Settings_Entry_Stays_Gated_On_Tab_Selection()
   {
     MainViewModel vm = new((root, provider) => Task.FromResult(Result.Success(
         FakeSession(root, provider, new SessionModelPreferences()))));
 
+    Assert.False(vm.ChooseModelSettingsCommand.CanExecute(null)); // no tab yet
+
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", Providers.Local);
-    _ = await vm.OpenAgentAsync(@"C:\work\beta", Providers.OpenRouter);
-    AgentTabViewModel localTab = vm.Tabs[0];
-    AgentTabViewModel openRouterTab = vm.Tabs[1];
-
-    Assert.True(vm.ChooseEffortCommand.CanExecute(null)); // beta (openrouter) selected
-
-    vm.SelectedTab = localTab;
-    Assert.False(vm.ChooseEffortCommand.CanExecute(null));
-
-    vm.SelectedTab = openRouterTab;
-    Assert.True(vm.ChooseEffortCommand.CanExecute(null));
-  }
-
-  [Fact]
-  public async Task Model_Picker_Stays_Available_On_A_Local_Tab()
-  {
-    MainViewModel ungated = new((root, provider) => Task.FromResult(Result.Success(
-        FakeSession(root, provider, new SessionModelPreferences()))));
-    _ = await ungated.OpenAgentAsync(@"C:\work\alpha", Providers.Local);
-    Assert.True(ungated.ChooseModelCommand.CanExecute(null));
+    Assert.True(vm.ChooseModelSettingsCommand.CanExecute(null));
   }
 
   // ── Settings save: persistence + provider surface ─────────────────────────

@@ -5,7 +5,6 @@ using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
-using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.Views;
@@ -33,15 +32,12 @@ internal partial class MainWindow : Window
     // chosen provider/workspace pair comes back through OpenAgentAsync. The Sessions
     // button shows the sessions dialog the same way, its pick flowing through
     // ResumeSessionAsync. The gear button shows the settings modal the same way, and
-    // its result flows through ApplySettingsAsync. The Model button shows the selected
-    // tab's model picker with its result flowing through ApplyModelChoiceAsync, and
-    // the Effort button shows the selected tab's effort picker through
-    // ApplyEffortChoiceAsync.
+    // its result flows through ApplySettingsAsync. The Model Settings button shows
+    // the selected tab's settings window — model choice, effort, sampling knobs,
+    // provider routing — with its save flowing through ApplySamplingSettingsAsync.
     vm.OpenAgentRequested += async (_, _) => await ShowNewAgentDialogAsync();
     vm.SessionsRequested += async (_, _) => await ShowSessionsDialogAsync();
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
-    vm.ModelPickerRequested += async (_, _) => await ShowModelPickerDialogAsync();
-    vm.EffortPickerRequested += async (_, _) => await ShowEffortPickerDialogAsync();
     vm.ModelSettingsRequested += async (_, _) => await ShowModelSettingsDialogAsync();
     vm.LinksRequested += async (_, _) => await ShowLinksDialogAsync();
   }
@@ -117,58 +113,13 @@ internal partial class MainWindow : Window
     await _vm.ApplySettingsAsync(update);
   }
 
-  /// <summary>Shows the model picker for the selected tab. A cancelled dialog is a
-  ///     no-op; a confirmed one applies the choice on the shell (session + per-workspace
-  ///     preference). Only OpenRouter offers the auto row — z.ai has no automatic
-  ///     resolution, so its picker is just the static lineup.</summary>
-  private async Task ShowModelPickerDialogAsync()
-  {
-    Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? loader =
-        _vm!.SelectedTabCatalogLoader;
-    if (loader is null || _vm.SelectedTab is not { } tab)
-    {
-      return; // no selected tab — the menu entry is hidden anyway
-    }
-
-    bool allowAuto = string.Equals(
-        tab.Container.ProviderName, Providers.OpenRouter, StringComparison.Ordinal);
-    ModelPickerWindow dialog = new(loader, allowAuto, tab.Container.Preferences?.ModelId);
-    ModelChoice? choice = await dialog.ShowDialog<ModelChoice?>(this);
-    if (choice is null)
-    {
-      return; // user cancelled — no-op
-    }
-
-    await _vm.ApplyModelChoiceAsync(choice.ModelId);
-  }
-
-  /// <summary>Shows the effort picker for the selected tab. A cancelled dialog is a
-  ///     no-op; a confirmed one applies the choice on the shell (session + per-workspace
-  ///     preference). The level list is identical on both providers — both consume the
-  ///     domain's reasoning-effort vocabulary.</summary>
-  private async Task ShowEffortPickerDialogAsync()
-  {
-    if (_vm!.SelectedTab is not { } tab)
-    {
-      return; // no selected tab — the menu entry is hidden anyway
-    }
-
-    EffortPickerWindow dialog = new(tab.Container.Preferences?.ReasoningEffort);
-    EffortChoice? choice = await dialog.ShowDialog<EffortChoice?>(this);
-    if (choice is null)
-    {
-      return; // user cancelled — no-op
-    }
-
-    await _vm.ApplyEffortChoiceAsync(choice.Level);
-  }
-
-  /// <summary>Shows the Model Settings window for the selected tab: effort, the
-  ///     twelve sampling knobs, and the OpenRouter section (hidden elsewhere).
-  ///     A cancelled dialog is a no-op; a confirmed one applies the snapshot on
-  ///     the shell (session + per-workspace preferences). The window's
-  ///     persistence seam delegates here — nothing persists unless save succeeds.
-  ///     </summary>
+  /// <summary>Shows the Model Settings window for the selected tab: the model
+  ///     choice (searchable catalog, auto row where the provider offers one),
+  ///     effort, the twelve sampling knobs, and the OpenRouter section (hidden
+  ///     elsewhere). A cancelled dialog is a no-op; a confirmed one applies the
+  ///     snapshot on the shell (session + per-workspace preferences, the model
+  ///     choice included). The window's persistence seam delegates here —
+  ///     nothing persists unless save succeeds.</summary>
   private async Task ShowModelSettingsDialogAsync()
   {
     if (_vm!.SelectedTab is not { } tab)
@@ -181,11 +132,16 @@ internal partial class MainWindow : Window
       return; // host composed the session without model preferences — nothing to edit
     }
 
+    bool allowAuto = string.Equals(
+        tab.Container.ProviderName, Providers.OpenRouter, StringComparison.Ordinal);
     ModelSettingsViewModel vm = new(
         preferences,
         tab.Container.ProviderName,
         persist: snapshot => _ = _vm.ApplySamplingSettingsAsync(snapshot),
-        await _vm.ReadSamplingPrefsForSelectedTabAsync());
+        await _vm.ReadSamplingPrefsForSelectedTabAsync(),
+        loadCatalog: _vm.SelectedTabCatalogLoader,
+        allowAuto,
+        currentModelId: preferences.ModelId);
     ModelSettingsWindow dialog = new(vm);
     _ = await dialog.ShowDialog<ModelSettingsSnapshot?>(this);
   }

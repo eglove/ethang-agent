@@ -240,10 +240,6 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public IRelayCommand OpenSettingsCommand { get; }
 
-  public IRelayCommand ChooseModelCommand { get; }
-
-  public IRelayCommand ChooseEffortCommand { get; }
-
   public IRelayCommand ChooseModelSettingsCommand { get; }
 
   public IRelayCommand OpenLinksCommand { get; }
@@ -256,12 +252,6 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Raised when the shell wants the settings modal shown.</summary>
   public event EventHandler? SettingsRequested;
-
-  /// <summary>Raised when the shell wants the selected tab's model picker shown.</summary>
-  public event EventHandler? ModelPickerRequested;
-
-  /// <summary>Raised when the shell wants the selected tab's effort picker shown.</summary>
-  public event EventHandler? EffortPickerRequested;
 
   /// <summary>Raised when the shell wants the selected tab's Model Settings window shown.</summary>
   public event EventHandler? ModelSettingsRequested;
@@ -315,12 +305,6 @@ internal sealed partial class MainViewModel : ObservableObject
     OpenSessionsCommand = new RelayCommand(
         () => SessionsRequested?.Invoke(this, EventArgs.Empty));
     OpenSettingsCommand = new RelayCommand(() => SettingsRequested?.Invoke(this, EventArgs.Empty));
-    ChooseModelCommand = new RelayCommand(
-        () => ModelPickerRequested?.Invoke(this, EventArgs.Empty),
-        () => HasSelectedTab);
-    ChooseEffortCommand = new RelayCommand(
-        () => EffortPickerRequested?.Invoke(this, EventArgs.Empty),
-        () => HasSelectedTab && !IsLocalTab);
     ChooseModelSettingsCommand = new RelayCommand(
         () => ModelSettingsRequested?.Invoke(this, EventArgs.Empty),
         () => HasSelectedTab);
@@ -358,8 +342,6 @@ internal sealed partial class MainViewModel : ObservableObject
 
   partial void OnSelectedTabChanged(AgentTabViewModel? value)
   {
-    ChooseModelCommand.NotifyCanExecuteChanged();
-    ChooseEffortCommand.NotifyCanExecuteChanged();
     ChooseModelSettingsCommand.NotifyCanExecuteChanged();
   }
 
@@ -439,24 +421,6 @@ internal sealed partial class MainViewModel : ObservableObject
         ? null
         : _preferences.GetAsync(CompactionModelResolver.PreferenceKey(PreferredProviderId, _compactionWorkspaceKey)).GetAwaiter().GetResult();
     return Task.FromResult(preferred is null ? null : new CompactionModelOption(preferred, preferred));
-  }
-
-  /// <summary>Menu-bar entry point: raises the model-picker request. The view shows the
-  ///     picker modal and calls <see cref="ApplyModelChoiceAsync"/> with the choice.</summary>
-  public void RequestChooseModel() => ModelPickerRequested?.Invoke(this, EventArgs.Empty);
-
-  /// <summary>Menu-bar entry point: raises the effort-picker request. The view shows
-  ///     the picker modal and calls <see cref="ApplyEffortChoiceAsync"/> with the choice.
-  ///     Deliberately a no-op when the effort command is gated OFF (no selected tab, or
-  ///     a local tab — reasoning effort is never sent to local servers).</summary>
-  public void RequestChooseEffort()
-  {
-    // Shares the effort command's gate — reasoning effort is never sent to local
-    // servers, so a local tab is a deliberate no-op here exactly as for the command.
-    if (ChooseEffortCommand.CanExecute(null))
-    {
-      EffortPickerRequested?.Invoke(this, EventArgs.Empty);
-    }
   }
 
   /// <summary>Menu-bar entry point: raises the Model Settings request. The view
@@ -541,6 +505,17 @@ internal sealed partial class MainViewModel : ObservableObject
     tab.ViewModel.ApplySamplingSettings(snapshot.Preferences);
     string providerName = tab.Container.ProviderName;
     string workspaceRoot = tab.Container.WorkspaceRoot;
+    // The embedded model section rides the same save: Unchanged leaves the
+    // session's model choice (and its persisted preference) untouched; Auto
+    // clears it (automatic resolution applies from the next turn); Pinned pins
+    // the chosen id. Same apply + per-workspace persistence the old picker used.
+    if (snapshot.Model is { } model && model.Kind != ModelChoiceKind.Unchanged)
+    {
+      string? modelId = model.Kind == ModelChoiceKind.Pinned ? model.ModelId : null;
+      tab.ViewModel.ApplyModelChoice(modelId);
+      await PersistModelChoiceAsync(providerName, workspaceRoot, modelId);
+    }
+
     await PersistEffortChoiceAsync(providerName, workspaceRoot, snapshot.Preferences.ReasoningEffort);
     // Every knob unset means the whole preference is unset: delete the key instead
     // of persisting an empty map (matching the documented null-deletes contract;

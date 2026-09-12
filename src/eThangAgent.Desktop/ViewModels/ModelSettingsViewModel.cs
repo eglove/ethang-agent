@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
+using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -21,10 +22,14 @@ namespace eThangAgent.Desktop.ViewModels;
 ///     same constants as <see cref="ModelSettingsViewModel.Knobs"/>.</param>
 /// <param name="ProviderSettingsJson">The serialized OpenRouter section, or null
 ///     when hidden or all-default.</param>
+/// <param name="Model">The tri-state model choice the save carries. Null (the
+///     default) means Unchanged — legacy callers that never touch the model
+///     section keep the shell's model persistence untouched.</param>
 internal sealed record ModelSettingsSnapshot(
   SessionModelPreferences Preferences,
   IReadOnlyDictionary<string, string> KnobTexts,
-  string? ProviderSettingsJson);
+  string? ProviderSettingsJson,
+  ModelSettingsViewModel.ModelChoice? Model = null);
 
 /// <summary>One editable sampling knob row: a stable name constant (the test and
 ///     AXAML key), the display label, the current text, and the editability the
@@ -276,8 +281,29 @@ internal sealed class ToolToggleRow
 ///     are the single source of truth, mirrored as small private validators
 ///     (per the brief, <c>ModelConfig.Create</c> is not referenced for per-knob
 ///     validation).</summary>
+/// <summary>The tri-state model choice a save carries: the user did not touch
+///     the model section (unchanged - the shell's existing model persistence is
+///     untouched), chose the auto row (the pinned choice clears - automatic
+///     resolution applies from the next turn), or pinned a concrete model id.</summary>
+internal enum ModelChoiceKind
+{
+  Unchanged,
+  Auto,
+  Pinned,
+}
+
 internal sealed partial class ModelSettingsViewModel : ObservableObject
 {
+  /// <summary>The model section's choice state, tri-state at save time: the user
+  ///     never touched the list (Unchanged - the shell's model persistence is
+  ///     untouched), chose the auto row (Auto), or pinned a concrete model id
+  ///     (Pinned, carrying the id).</summary>
+  internal sealed record ModelChoice(ModelChoiceKind Kind, string? ModelId)
+  {
+    public static readonly ModelChoice Unchanged = new(ModelChoiceKind.Unchanged, null);
+    public static readonly ModelChoice Auto = new(ModelChoiceKind.Auto, null);
+    public static ModelChoice Pinned(string modelId) => new(ModelChoiceKind.Pinned, modelId);
+  }
   // Knob name constants — the single vocabulary shared by tests, the AXAML keys,
   // and the snapshot's knob-text map.
   public const string KnobTemperature = "temperature";
@@ -326,6 +352,24 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
 
   private readonly SessionModelPreferences _live;
   private readonly Action<ModelSettingsSnapshot> _persist;
+  /// <summary>The embedded model section: the same searchable catalog view-model
+  ///     the standalone picker used (deduped rows, auto row where offered,
+  ///     stable-list selection). Null when the host supplies no catalog loader —
+  ///     the section then never renders and saves always carry Unchanged.</summary>
+  public ModelPickerViewModel? ModelSection { get; }
+
+  /// <summary>Loads the catalog for the embedded model section (delegates to the
+  ///     picker view-model's own load). A no-op when there is no section.</summary>
+  public async Task LoadModelCatalogAsync()
+  {
+    if (ModelSection is null)
+    {
+      return;
+    }
+
+    await ModelSection.LoadAsync();
+    _preselectedRow = ModelSection.SelectedRow;
+  }
 
   /// <summary>The twelve knob rows, keyed by name constant.</summary>
   public IReadOnlyDictionary<string, KnobEntry> Knobs { get; }
@@ -341,9 +385,17 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     then persists null provider settings (never stale values).</summary>
   public bool ShowOpenRouterSection => IsOpenRouter;
 
+  /// <summary>Whether reasoning effort applies to this session's provider.
+  ///     False on local servers — reasoning effort is never sent there (the same
+  ///     named rule the old rail-entry gate enforced); the window then renders
+  ///     the effort selector disabled and a save leaves the preference unset.</summary>
+  public bool IsEffortApplicable => !IsLocal;
+
   private bool IsOpenRouter { get; }
 
   private bool IsZai { get; }
+
+  private bool IsLocal { get; }
 
   /// <summary>The chosen reasoning effort: <see cref="EffortDefault"/> or a
   ///     <see cref="ReasoningEffort"/> name. The window binds this to its effort
@@ -408,7 +460,10 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   private string TooltipFor(string knob) => Knobs[knob].IsEnabled ? string.Empty : NotApplicableTooltip;
   public ModelSettingsViewModel(SessionModelPreferences current, string providerName,
       Action<ModelSettingsSnapshot> persist,
-      IReadOnlyDictionary<string, string>? persistedKnobTexts = null)
+      IReadOnlyDictionary<string, string>? persistedKnobTexts = null,
+      Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? loadCatalog = null,
+      bool allowAuto = false,
+      string? currentModelId = null)
   {
     ArgumentNullException.ThrowIfNull(current);
     ArgumentException.ThrowIfNullOrWhiteSpace(providerName);
@@ -417,6 +472,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     _persist = persist;
     IsOpenRouter = string.Equals(providerName, ProvidersOpenRouter, StringComparison.Ordinal);
     IsZai = string.Equals(providerName, ProvidersZai, StringComparison.Ordinal);
+    IsLocal = string.Equals(providerName, ProvidersLocal, StringComparison.Ordinal);
     persistedKnobTexts ??= new Dictionary<string, string>();
     bool Editable(string knob) => !IsZai || !ZaiNotApplicable.Contains(knob);
     string Text(string knob, string? fromPreferences) =>
@@ -473,6 +529,9 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     // is load-bearing: ICommand.Execute does not consult CanExecute, and a disabled
     // button is only one of several ways this command can be invoked.
     SaveCommand = new RelayCommand(Save, () => CanSave);
+    ModelSection = loadCatalog is null
+        ? null
+        : new ModelPickerViewModel(loadCatalog, allowAuto, currentModelId);
   }
 
   /// <summary>Parses the persisted provider settings for the section prefill.
@@ -524,6 +583,35 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     change notification already requeries save availability.</summary>
   public void SetKnob(string knob, string text) => Knobs[knob].Text = text;
 
+  /// <summary>The model choice the save carries, derived from the section: no
+  ///     section, or no row picked, means Unchanged; the auto row means Auto;
+  ///     any other selected row means Pinned with its model id. Derived at save
+  ///     time — the picker view-model keeps no separate dirty flag.</summary>
+  /// <summary>The row the section pre-selected when it loaded: the session's live
+  ///     choice, or the auto row when no choice is pinned and the provider offers
+  ///     automatic resolution. A save with this row still selected carries
+  ///     Unchanged — the user opened the window and changed nothing.</summary>
+  private ModelPickerRow? _preselectedRow;
+
+  private ModelChoice ModelChoiceFromSection()
+  {
+    if (ModelSection?.SelectedRow is not { } row)
+    {
+      return ModelChoice.Unchanged; // nothing picked — the shell's model state is untouched
+    }
+
+    if (ReferenceEquals(row, ModelPickerViewModel.AutoRow))
+    {
+      return ReferenceEquals(_preselectedRow, ModelPickerViewModel.AutoRow)
+          ? ModelChoice.Unchanged // opened on auto, still on auto
+          : ModelChoice.Auto;     // a pinned choice cleared to auto
+    }
+
+    return ReferenceEquals(row, _preselectedRow)
+        ? ModelChoice.Unchanged // opened on this model, still on it
+        : ModelChoice.Pinned(row.ModelId!);
+  }
+
   /// <summary>The all-or-nothing save: validate every knob, then apply to the
   ///     live preferences, serialize the OpenRouter section (null when hidden or
   ///     all-default), and hand the snapshot to the persistence seam. Returns
@@ -538,9 +626,15 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     }
 
     ApplyKnobsAndEffort();
+    ModelChoice modelChoice = ModelChoiceFromSection();
+    if (modelChoice.Kind != ModelChoiceKind.Unchanged)
+    {
+      _live.ModelId = modelChoice.ModelId;
+    }
+
     string? serialized = ShowOpenRouterSection ? SerializeSectionOrNull() : null;
     _live.ProviderSettings = serialized;
-    ModelSettingsSnapshot snapshot = new(_live, KnobTexts(), serialized);
+    ModelSettingsSnapshot snapshot = new(_live, KnobTexts(), serialized, modelChoice);
     _persist(snapshot);
     SettingsSaved?.Invoke(this, snapshot);
     return true;
@@ -738,4 +832,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   private const string ProvidersOpenRouter = "openrouter";
 
   private const string ProvidersZai = "zai";
+
+  private const string ProvidersLocal = "local";
 }

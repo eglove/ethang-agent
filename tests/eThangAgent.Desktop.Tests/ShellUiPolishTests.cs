@@ -32,19 +32,22 @@ public class ShellUiPolishTests
     Assert.True(menu.Width <= 60, $"side menu must be a thin rail, width={menu.Width}");
     Assert.Null(window.FindControl<TextBlock>("MenuHeader"));
 
+    // Grand-plan item 117: the Model and Effort rail entries are gone — their
+    // choices live in the Model Settings window, the rail's per-tab entry.
+    Assert.Null(window.FindControl<Button>("ModelMenuItem"));
+    Assert.Null(window.FindControl<Button>("EffortMenuItem"));
+
     Button[] items =
     [
             window.GetControl<Button>("OpenAgentMenuItem"),
             window.GetControl<Button>("SessionsMenuItem"),
-            window.GetControl<Button>("ModelMenuItem"),
-            window.GetControl<Button>("EffortMenuItem"),
+            window.GetControl<Button>("ModelSettingsMenuItem"),
             window.GetControl<Button>("SettingsMenuItem"),
         ];
     Assert.Collection(items,
         b => Assert.Equal("\uD83D\uDCC2", b.Content),
         b => Assert.Equal("\uD83D\uDCAC", b.Content),
-        b => Assert.Equal("\uD83E\uDDE0", b.Content),
-        b => Assert.Equal("\uD83C\uDF9A", b.Content),
+        b => Assert.Equal("\uD83C\uDF9B", b.Content),
         b => Assert.Equal("\u2699", b.Content));
     foreach (Button item in items)
     {
@@ -60,12 +63,12 @@ public class ShellUiPolishTests
     window.Show();
     Dispatcher.UIThread.RunJobs(); // real geometry: bounds only exist after layout
 
-    foreach (string name in new[] { "OpenAgentMenuItem", "SessionsMenuItem", "ModelMenuItem", "EffortMenuItem", "SettingsMenuItem" })
+    foreach (string name in new[] { "OpenAgentMenuItem", "SessionsMenuItem", "ModelSettingsMenuItem", "SettingsMenuItem" })
     {
       Button item = window.GetControl<Button>(name);
       if (!item.IsVisible)
       {
-        continue; // per-tab entries (model/effort) hide with no tab selected
+        continue; // per-tab entries (model settings) hide with no tab selected
       }
 
       Assert.True(item.FontSize >= 16,

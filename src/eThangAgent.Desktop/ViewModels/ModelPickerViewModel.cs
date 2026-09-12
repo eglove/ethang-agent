@@ -26,7 +26,7 @@ internal sealed record ModelPickerRow(string? ModelId, string DisplayName, strin
 ///     stays in loading state until then.</summary>
 internal sealed partial class ModelPickerViewModel : ObservableObject
 {
-  private static readonly ModelPickerRow AutoRow =
+  internal static readonly ModelPickerRow AutoRow =
       new(null, "Auto (smart selection)", "Picks the best model for each prompt automatically");
 
   private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> _loadCatalog;

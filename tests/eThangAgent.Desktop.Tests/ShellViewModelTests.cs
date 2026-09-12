@@ -405,26 +405,8 @@ public class ShellViewModelTests
     Assert.False(vm.OpenAgentCommand.CanExecute(null));
   }
 
-  // ── Model picker ──────────────────────────────────────────────────────────
-
-  [Fact]
-  public async Task ChooseModelCommand_Gated_On_Selected_Tab_And_Raises_Request()
-  {
-    MainViewModel vm = CreateShell((root, provider) => FakeSession(
-        root, provider, new SessionModelPreferences()));
-    bool raised = false;
-    vm.ModelPickerRequested += (_, _) => raised = true;
-
-    Assert.False(vm.HasSelectedTab);
-    Assert.False(vm.ChooseModelCommand.CanExecute(null));
-
-    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
-
-    Assert.True(vm.HasSelectedTab);
-    Assert.True(vm.ChooseModelCommand.CanExecute(null));
-    vm.ChooseModelCommand.Execute(null);
-    Assert.True(raised);
-  }
+  // ── Model choice (item 117: the picker folded into Model Settings; the shell
+  //    applies a saved snapshot's model choice through the same paths) ────────
 
   [Fact]
   public async Task ApplyModelChoice_Updates_Session_And_Persists_Per_Workspace()
@@ -508,26 +490,7 @@ public class ShellViewModelTests
     Assert.Equal("test/model", tab.ViewModel.Status.ModelId);
   }
 
-  // ── Effort picker ─────────────────────────────────────────────────────────
-
-  [Fact]
-  public async Task ChooseEffortCommand_Gated_On_Selected_Tab_And_Raises_Request()
-  {
-    MainViewModel vm = CreateShell((root, provider) => FakeSession(
-        root, provider, new SessionModelPreferences()));
-    bool raised = false;
-    vm.EffortPickerRequested += (_, _) => raised = true;
-
-    Assert.False(vm.HasSelectedTab);
-    Assert.False(vm.ChooseEffortCommand.CanExecute(null));
-
-    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
-
-    Assert.True(vm.HasSelectedTab);
-    Assert.True(vm.ChooseEffortCommand.CanExecute(null));
-    vm.ChooseEffortCommand.Execute(null);
-    Assert.True(raised);
-  }
+  // ── Effort choice (item 117: the picker folded into Model Settings) ──────
 
   [Fact]
   public async Task ApplyEffortChoice_Updates_Session_And_Persists_Per_Workspace()

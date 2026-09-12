@@ -83,13 +83,20 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   `generate_image` — GLM-Image saved into the workspace as a PNG; `ocr_document` — GLM-OCR
   transcription of workspace PDFs/images; `transcribe_audio` — GLM-ASR transcription of
   short audio clips
-- **Effort** entry (left menu, visible whenever a tab is open) — pick the session's
-  reasoning effort: model default, or max, extra high, high, medium, low, minimal, none.
-  Applies from the next turn to the root agent and children alike, on both OpenRouter and
-  z.ai tabs (OpenRouter maps the level to what the chosen model supports); the entry is
-  unavailable on local tabs, whose servers expose no portable reasoning knob. The choice is
-  remembered per workspace + provider and restored when the same directory reopens
-- **Model Settings** window (left menu, visible whenever a tab is open) — sampling knobs for every provider (top-p, top-k, frequency/presence/repetition penalties, min-p, top-a, seed, verbosity, parallel tool calls, temperature and max-tokens caps); OpenRouter tabs add provider routing, the twelve server tools, plugins, and loop budgets; z.ai marks knobs it cannot express N/A. On local-provider (llama.cpp / LM Studio / Ollama) tabs the window opens but sampling knobs do not reach a local wire today (the local provider sends only model, messages, max_tokens, temperature) — a named follow-up will mark them N/A like z.ai's. Choices apply from the next turn, root and children alike, and are persisted per workspace + provider — no config files
+- **Model Settings** window (left menu, visible whenever a tab is open) — the one
+  surface for per-session model choices. The **Model** section is a searchable catalog of
+  the provider's lineup (plus **Auto (smart selection)** on OpenRouter); the
+  **Reasoning effort** selector offers model default or max, extra high, high, medium,
+  low, minimal, none on OpenRouter and z.ai tabs and is disabled on local tabs, whose
+  servers expose no portable reasoning knob. The **Sampling** section carries the knobs
+  for every provider (top-p, top-k, frequency/presence/repetition penalties, min-p, top-a,
+  seed, verbosity, parallel tool calls, temperature and max-tokens caps); OpenRouter tabs
+  add provider routing, the twelve server tools, plugins, and loop budgets; z.ai marks
+  knobs it cannot express N/A. On local-provider (llama.cpp / LM Studio / Ollama) tabs
+  sampling knobs do not reach a local wire today (the local provider sends only model,
+  messages, max_tokens, temperature) — a named follow-up will mark them N/A like z.ai's.
+  Choices apply from the next turn, root and children alike, and are persisted per
+  workspace + provider — no config files
 - **Context accounting + auto-compaction** — the status bar shows a live `CTX 148.2K/1M, 15%`
   readout (hover for the estimated system-prompt/messages/tools breakdown), plus the session id (first
   8 characters, full id on hover, click ⧉ to copy). The transcript auto-scrolls only while you rest
@@ -158,11 +165,11 @@ The window opens directly on the shell: no workspace and no pre-configured key a
 
 Saved keys apply to newly opened agents; already-open tabs keep the credentials they were created with. The same applies to the z.ai endpoint mode.
 
-The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. The model is chosen per tab through the **Model** entry in the left menu (visible whenever a tab is open), and the choice applies from the next turn to the root agent and children alike. It is remembered per workspace + provider and restored when the same directory reopens; picking **Auto** again returns the session to automatic resolution. Reasoning effort works the same way through the **Effort** entry, with **Model default** returning the session to the provider's own behavior.
+The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. The model is chosen per tab through the **Model Settings** window (left menu, visible whenever a tab is open), and the choice applies from the next turn to the root agent and children alike. It is remembered per workspace + provider and restored when the same directory reopens; picking **Auto (smart selection)** again returns the session to automatic resolution. Reasoning effort works the same way through the window's **Reasoning effort** selector, with **Model default** returning the session to the provider's own behavior.
 
 - **OpenRouter** — the picker offers **Auto (smart selection)** plus a searchable list of every OpenRouter model (deduped across provider endpoints, shown with effective pricing and context size). Auto is the default: the agent defers model selection to the first user prompt, where a two-stage LLM pipeline categorizes that prompt and selects the best model from OpenRouter's fetched catalog based on the task category and price. The pipeline re-runs on every 10th user message thereafter so the model tracks the conversation's evolving task. Sub-agent spawns similarly select models based on their task prompts. Selection failures fall back to the default model (`openrouter/auto`) and surface as a transcript notice.
 - **z.ai** — no automatic selection. The picker lists z.ai's static lineup (`glm-5.3`, `glm-5.3-flash` — z.ai exposes no models-listing endpoint); the session runs `glm-5.3-flash` until you pick one.
-- **Local (OpenAI-compatible)** — the picker lists the server's own lineup exactly as it advertises it: models come from the server's `/v1/models` listing, and each model's context window is probed from LM Studio's batch endpoint, Ollama's `show`, or a small floor fallback when neither answers. The session runs the first listed model until you pick one. Reasoning effort is not sent to local servers — the **Effort** entry is unavailable on a local tab.
+- **Local (OpenAI-compatible)** — the model list shows the server's own lineup exactly as it advertises it: models come from the server's `/v1/models` listing, and each model's context window is probed from LM Studio's batch endpoint, Ollama's `show`, or a small floor fallback when neither answers. The session runs the first listed model until you pick one. Reasoning effort is not sent to local servers — the effort selector is disabled in Model Settings on a local tab.
 
 ### Where your data lives
 

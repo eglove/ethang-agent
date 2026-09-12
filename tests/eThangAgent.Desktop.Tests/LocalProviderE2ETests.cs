@@ -109,14 +109,11 @@ public class LocalProviderE2ETests
       Assert.Equal(["first-model", "second-model"], [.. catalog.Value.Select(e => e.ModelId)]);
       Assert.All(catalog.Value, e => Assert.Equal(LocalModelCatalog.ProviderName, e.ProviderName));
 
-      // Task 10's effort gate: reasoning effort is never sent to local servers, so
-      // the command is not executable on this tab and the shell entry point is a no-op.
+      // Task 10's effort gate (item 117 form): reasoning effort is never sent to
+      // local servers — the settings window's effort selector is disabled there.
+      // The shell keeps no effort entry of its own anymore.
       Assert.True(shell.IsLocalTab);
-      Assert.False(shell.ChooseEffortCommand.CanExecute(null));
-      int raiseCount = 0;
-      shell.EffortPickerRequested += (_, _) => raiseCount++;
-      shell.RequestChooseEffort();
-      Assert.Equal(0, raiseCount);
+      Assert.True(shell.ChooseModelSettingsCommand.CanExecute(null));
     }
     finally
     {
