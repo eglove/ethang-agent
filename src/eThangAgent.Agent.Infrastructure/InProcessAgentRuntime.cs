@@ -8,7 +8,6 @@ namespace eThangAgent.AgentInfrastructure;
 /// while the caller continues. A strict concurrency cap is enforced with a zero-timeout slot wait —
 /// at-capacity starts fail with <see cref="RuntimeErrors.CapReached"/> and produce no side effects.
 /// Each active run owns a CancellationTokenSource registered here, so <see cref="Interrupt"/> can
-/// cancel one or all runs; runners observe the token and persist well-formed terminal outcomes. a CancellationTokenSource registered here, so <see cref="Interrupt"/> can
 /// cancel one or all runs; runners observe the token and persist well-formed terminal outcomes.</summary>
 #pragma warning disable CA1001 // Types that own disposable fields should be disposable
 // Named decision: the runtime is a process-lifetime singleton owned by the composition
@@ -188,13 +187,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       // Named decision (S8949): CancellationToken.None — Interrupt() cancels cts while
       // the run is settling; the terminal-outcome write must not itself be cancellable,
       // or the record would stay 'running' with no retrievable outcome.
-      _ = await _store.UpdateAsync(record with
-      {
-        Status = outcome.Status,
-        FailureReason = outcome.Reason,
-        CompletedAt = DateTimeOffset.UtcNow,
-        FinalReport = outcome.Report,
-      }, CancellationToken.None).ConfigureAwait(false);
+      await TerminalUpdateAsync(record, outcome.Status, outcome.Reason, outcome.Report).ConfigureAwait(false);
       CloseMailbox(record.Id, outcome);
       _ = Settle(record.Id, outcome);
     }
@@ -207,13 +200,8 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       // can retrieve a well-formed failure via agent.result.
       // Named decision (S8949): CancellationToken.None — same contract as the success
       // path above; the failure record must land even if cts was cancelled.
-      _ = await _store.UpdateAsync(record with
-      {
-        Status = AgentStatus.Failed,
-        FailureReason = AgentFailureReason.ProviderError,
-        CompletedAt = DateTimeOffset.UtcNow,
-        FinalReport = "Error [ProviderError]: " + ex.Message,
-      }, CancellationToken.None).ConfigureAwait(false);
+      await TerminalUpdateAsync(record, AgentStatus.Failed, AgentFailureReason.ProviderError,
+          "Error [ProviderError]: " + ex.Message).ConfigureAwait(false);
       CloseMailbox(record.Id, new AgentRunOutcome(record.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
           "Error [ProviderError]: " + ex.Message, record.ModelUsed, record.Depth));
       _ = Settle(record.Id, new AgentRunOutcome(record.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
@@ -257,9 +245,74 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   }
 
   /// <inheritdoc cref="IAgentRuntime.Resume"/>
-  public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
-      => Task.FromResult(Result.Failure<AgentId>(new DomainError(
-          "NotImplemented", "resume lands with the next change in this plan.")));
+  public async Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
+  {
+    if (string.IsNullOrWhiteSpace(message))
+    {
+      return Result.Failure<AgentId>(new DomainError("InvalidMessage",
+          "the resume message must be a non-empty string."));
+    }
+
+    if (_active.ContainsKey(id))
+    {
+      return Result.Failure<AgentId>(new DomainError("NotRunning",
+          $"agent '{id}' is still running — steer it with agent.send, not agent.resume."));
+    }
+
+    Result<AgentRecord> loaded = await _store.GetAsync(id, ct).ConfigureAwait(false);
+    if (!loaded.IsSuccess)
+    {
+      return Result.Failure<AgentId>(new DomainError("NotRunning",
+          $"agent '{id}' is not a settled child known to this runtime."));
+    }
+
+    AgentRecord record = loaded.Value;
+    if (record.Status is AgentStatus.Running)
+    {
+      return Result.Failure<AgentId>(new DomainError("NotRunning",
+          $"agent '{id}' is still running — steer it with agent.send, not agent.resume."));
+    }
+
+    SpawnContract contract = record.Contract is { } json ? SpawnContract.Decode(json) : new SpawnContract();
+    AgentRecord resumed = record with
+    {
+      Status = AgentStatus.Running,
+      FailureReason = null,
+      CompletedAt = null,
+      FinalReport = null,
+      Phase = ChildPhase.ModelCall,
+      Attempts = record.Attempts + 1,
+      Contract = SpawnContract.Encode(contract.WithResumeMessage(message)),
+    };
+    Result<string> updated = await _store.UpdateAsync(resumed, ct).ConfigureAwait(false);
+    return updated.IsSuccess ? await Start(resumed, ct).ConfigureAwait(false) : Result.Failure<AgentId>(updated.Error);
+  }
+
+  /// <summary>The single terminal-persist path: writes the terminal columns AND clears
+  ///     the one-shot resume carrier — the run consumed it, so a watchdog retry of this
+  ///     child reverts to the wrap-up nudge and the same resume can never re-deliver.</summary>
+  private async Task TerminalUpdateAsync(AgentRecord record, AgentStatus status,
+      AgentFailureReason? reason, string? report)
+  {
+    string? contractJson = record.Contract;
+    if (contractJson is not null)
+    {
+      SpawnContract decoded = SpawnContract.Decode(contractJson);
+      if (decoded.ResumeMessage is not null)
+      {
+        contractJson = SpawnContract.Encode(decoded.WithoutResumeMessage());
+      }
+    }
+
+    _ = await _store.UpdateAsync(record with
+    {
+      Status = status,
+      FailureReason = reason,
+      CompletedAt = DateTimeOffset.UtcNow,
+      FinalReport = report,
+      Contract = contractJson,
+    }, CancellationToken.None).ConfigureAwait(false);
+  }
 
   /// <summary>Completes every waiter for one child. Called after the terminal record write
   ///     so waiters always observe persisted state.</summary>
