@@ -3,10 +3,11 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.AgentDomain.Tests;
 
-/// <summary>Coverage of the three capability actions against fake command/queries fakes:
+/// <summary>Coverage of the agent capability actions against fake command/queries fakes:
 ///     spawn renders only the running line (non-blocking), status renders the state line
 ///     with a reason suffix when failed, result passes the query outcome through verbatim,
-///     ids parse strictly as Guid "D", unknown actions get typed errors.</summary>
+///     resume re-launches a settled child on the same id, ids parse strictly as Guid "D",
+///     unknown actions get typed errors.</summary>
 public class AgentCapabilityProviderTests
 {
   private static AgentRecord ParentAtDepth(int depth) =>
@@ -73,7 +74,7 @@ public class AgentCapabilityProviderTests
     return (new AgentCapabilityProvider(command, queries, () => parent, runtime), command, queries, calls);
   }
 
-  private sealed class FakeRuntime(AgentRunOutcome? outcome = null, DomainError? error = null) : IAgentRuntime
+  private sealed class FakeRuntime(AgentRunOutcome? outcome = null, DomainError? error = null, DomainError? resumeError = null) : IAgentRuntime
   {
     public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
         => Task.FromResult(Result.Success(record.Id));
@@ -85,11 +86,13 @@ public class AgentCapabilityProviderTests
 
     public List<(Guid Id, string Message)> Resumed { get; } = [];
 
-    // Records the resume call and returns success: the capability task builds on this fake.
+    // Records the resume call and replies resumeError or success: the capability task builds on this fake.
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
     {
       Resumed.Add((id.Value, message));
-      return Task.FromResult(Result.Success(id));
+      return Task.FromResult(resumeError is null
+          ? Result.Success(id)
+          : Result.Failure<AgentId>(resumeError));
     }
 
     public Result<bool> Deliver(AgentId id, PendingMessage message)
@@ -447,6 +450,69 @@ public class AgentCapabilityProviderTests
     Assert.True(result.IsError);
     Assert.Contains("NotAvailable", result.Content, StringComparison.Ordinal);
   }
+
+  // --- resume ---------------------------------------------------------------
+
+  [Fact]
+  public async Task Resume_WithoutRuntime_FailsNotAvailable()
+  {
+    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0));
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("resume",
+        $"{{\"id\":\"{Guid.NewGuid()}\",\"text\":\"go\"}}", TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Contains("Error [NotAvailable]", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Resume_DispatchesToRuntime_AndReturnsStartReceipt()
+  {
+    Guid childId = Guid.NewGuid();
+    FakeRuntime runtime = new();
+    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), runtime: runtime);
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("resume",
+        $"{{\"id\":\"{childId}\",\"text\":\"fix the failing tests\"}}", TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal($"id={childId} status=running", result.Content.Trim());
+    Assert.Equal([(childId, "fix the failing tests")], runtime.Resumed);
+  }
+
+  [Fact]
+  public async Task Resume_SurfacesTheRuntimeErrorVerbatim()
+  {
+    FakeRuntime runtime = new(resumeError: new DomainError("NotRunning", "agent 'x' is still running"));
+    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), runtime: runtime);
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("resume",
+        $"{{\"id\":\"{Guid.NewGuid()}\",\"text\":\"go\"}}", TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Contains("Error [NotRunning]", result.Content, StringComparison.Ordinal);
+  }
+
+  // The raw JSON literals below are deliberate: Resume parses raw text, so the theory
+  // pins the exact malformed payloads (parser input, not constructed objects).
+#pragma warning disable JSON002
+  [Theory]
+  [InlineData("{}", "id")]
+  [InlineData("{\"id\":\"not-a-guid\",\"text\":\"go\"}", "id")]
+  [InlineData("{\"id\":\"00000000-0000-0000-0000-000000000000\",\"text\":\"\"}", "text")]
+  public async Task Resume_RejectsMalformedInput(string json, string member)
+  {
+    FakeRuntime runtime = new();
+    (AgentCapabilityProvider provider, FakeSpawnCommand _, FakeQueries _, List<(AgentRecord Parent, SpawnRequest Request)> _) = MakeProvider(ParentAtDepth(0), runtime: runtime);
+
+    CapabilityInvocationResult result = await provider.InvokeAsync("resume", json, TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Contains("Error [InvalidActionInput]", result.Content, StringComparison.Ordinal);
+    Assert.Contains(member, result.Content, StringComparison.Ordinal);
+  }
+#pragma warning restore JSON002
+
   // --- shared dispatch behavior --------------------------------------------
 
   [Fact]

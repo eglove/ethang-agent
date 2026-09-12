@@ -18,6 +18,14 @@ public class AgentCapabilityProviderSurfaceTests
   }
 
   [Fact]
+  public void ActionNames_ExposeResume()
+  {
+    AgentCapabilityProvider provider = MakeBare();
+    Assert.Contains("resume", provider.Actions.Select(a => a.Name));
+    Assert.Contains("resume", AgentCapabilityProvider.ActionNames);
+  }
+
+  [Fact]
   public void SpawnDescription_StatesCapabilitySurfaceRerooting()
   {
     AgentCapabilityProvider provider = MakeBare();

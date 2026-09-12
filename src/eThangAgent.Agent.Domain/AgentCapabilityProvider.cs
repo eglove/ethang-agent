@@ -19,7 +19,7 @@ public sealed class AgentCapabilityProvider(
   ///     grant-surface computation needs the names at composition time, where
   ///     resolving the provider itself would re-enter its singleton (R1).</summary>
   public static readonly string[] ActionNames =
-      ["spawn", "status", "result", "wait", "send", "route", "escalate", "fanout",
+      ["spawn", "status", "result", "wait", "send", "resume", "route", "escalate", "fanout",
         "notify-subtree", "notify-ancestors"];
 
   private readonly IAgentSpawnCommand _spawnCommand = spawnCommand ?? throw new ArgumentNullException(nameof(spawnCommand));
@@ -88,6 +88,19 @@ public sealed class AgentCapabilityProvider(
                 new ActionParameter("text", ActionParameterTypes.StringType, "Steering message for the child. Non-empty."),
                 new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
             ]),
+        new("resume", "Resume a settled child agent with a new message (same id, same context).",
+            """
+            Continues a SETTLED child (completed or failed) on the SAME id: its persisted transcript,
+            workspace anchor, and grants carry over; 'text' becomes the child's next instruction.
+            Returns id=<id> status=running — await the fresh outcome with agent.wait, read it with
+            agent.result. Fails: NotRunning (unknown id, or the child is still running — steer that
+            with agent.send), InvalidMessage (empty text). Every fix round on a settled child beats
+            re-spawning from scratch.
+            """,
+            [
+                new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the settled child agent, exactly as returned by spawn."),
+                new ActionParameter("text", ActionParameterTypes.StringType, "The continuation instruction for the child. Non-empty."),
+            ]),
         new("route", "Send a message to a linked agent outside your local tree.",
             """
             Resolves 'name' through the session's consented link registry and delivers 'text' to that agent's runtime mailbox. Isolation by default: an unlinked name fails Error [NotLinked]. Unknown or finished targets fail Error [NotRunning]; a full mailbox fails Error [MailboxFull]. Receipt: delivered to=<address> link=<name>.
@@ -154,6 +167,7 @@ public sealed class AgentCapabilityProvider(
       "result" => await GetResult(jsonArguments, ct).ConfigureAwait(false),
       "wait" => await Wait(jsonArguments, ct).ConfigureAwait(false),
       "send" => Send(jsonArguments),
+      "resume" => await Resume(jsonArguments).ConfigureAwait(false),
       "route" => Route(jsonArguments),
       "escalate" => await Escalate(jsonArguments, ct).ConfigureAwait(false),
       "notify-subtree" => await NotifySubtree(jsonArguments, ct).ConfigureAwait(false),
@@ -236,6 +250,30 @@ public sealed class AgentCapabilityProvider(
     return delivered.IsSuccess
         ? CapabilityInvocationResult.Ok($"delivered to={id.Value} urgency={urgency.ToString().ToUpperInvariant()}")
         : CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");
+  }
+
+  /// <summary>agent.resume: same-id fix-round continuation of a SETTLED child. Reuses
+  ///     the send-argument parsing (id + text; no urgency). Every failure has a recipient:
+  ///     NotRunning (unknown/still-running/foreign), InvalidMessage, and ResumeUnsupported
+  ///     on remote runtimes.</summary>
+  private async Task<CapabilityInvocationResult> Resume(string json)
+  {
+    if (_runtime is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [NotAvailable]: agent.resume needs a runtime wired into this session's capability provider.");
+    }
+
+    string? parseError = SendArgs(json, out AgentId? id, out string? text, out MessageUrgency _);
+    if (parseError is not null)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
+    }
+
+    Result<AgentId> resumed = await _runtime.Resume(id!.Value, text!, CancellationToken.None).ConfigureAwait(false);
+    return resumed.IsSuccess
+        ? CapabilityInvocationResult.Ok($"id={resumed.Value} status=running")
+        : CapabilityInvocationResult.Fail($"Error [{resumed.Error.Code}]: {resumed.Error.Message}");
   }
 
   private static string SenderLabel(AgentRecord record)

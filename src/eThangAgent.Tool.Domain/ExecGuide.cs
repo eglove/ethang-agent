@@ -145,6 +145,14 @@ public static class ExecGuide
 
         Tools.Invoke("agent.result", new { timeoutSeconds = 60, id = "<guid>" })
 
+    Resume a settled child for a fix round (same id, same transcript, same anchor/grants):
+
+        Tools.Invoke("agent.resume", new { timeoutSeconds = 30, id = "<guid>", text = "tests still fail - fix them" })
+        → id=<guid> status=running
+
+    - Only SETTLED children (completed or failed) take agent.resume; RUNNING children
+      take agent.send. Await the fresh outcome with agent.wait.
+    - Every fix round on a settled child beats re-spawning from scratch.
     - `Error [NotComplete]` means the child is still running — try again later
       (one agent.wait beats repeated polling).
     - `Error [NotFound]` means the id is wrong.
