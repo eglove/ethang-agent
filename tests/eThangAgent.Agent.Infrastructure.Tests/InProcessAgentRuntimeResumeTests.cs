@@ -171,7 +171,23 @@ public class InProcessAgentRuntimeResumeTests
     await runner.FirstCall.ConfigureAwait(true);
     runner.Complete(CompletedOutcome(child.Id, report));
     _ = await store.FirstUpdate.ConfigureAwait(true); // terminal write landed
-    await Task.Delay(50, TestContext.Current.CancellationToken).ConfigureAwait(true); // run's finally: the slot freed
+    await WaitForRetirementAsync(runtime, child.Id).ConfigureAwait(true); // run retired: the slot is freed for good
+  }
+
+  /// <summary>Bounded wait until the child's run retired from the runtime's active set:
+  ///     the finally block ran, so the terminal persist is final — deterministic, no sleep.</summary>
+  private static async Task WaitForRetirementAsync(InProcessAgentRuntime runtime, AgentId id)
+  {
+    DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+    while (runtime.ActiveChildren.Contains(id.Value))
+    {
+      if (DateTime.UtcNow > deadline)
+      {
+        Assert.Fail($"run for '{id}' did not retire in time");
+      }
+
+      await Task.Delay(10, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
   }
 
   [Fact]
