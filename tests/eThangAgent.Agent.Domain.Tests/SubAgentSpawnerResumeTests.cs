@@ -8,8 +8,9 @@ using eThangAgent.ToolDomain;
 namespace eThangAgent.AgentDomain.Tests;
 
 /// <summary>Resume contract for child runs: fresh runs send the task prompt; runs over a
-///     persisted transcript send only the watchdog wrap-up nudge and append back only their
-///     delta; failure paths persist the partial delta; teardown forgets the heartbeat.</summary>
+///     persisted transcript send the agent.resume carrier when the contract stamps one, else
+///     the watchdog wrap-up nudge, and append back only their delta; failure paths persist the
+///     partial delta; teardown forgets the heartbeat.</summary>
 public class SubAgentSpawnerResumeTests
 {
   private static AgentRecord Child() => AgentRecord.Spawned(
