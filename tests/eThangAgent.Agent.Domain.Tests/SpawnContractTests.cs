@@ -1,3 +1,4 @@
+#pragma warning disable JSON002
 using System.Text.Json;
 
 
@@ -39,4 +40,37 @@ public class SpawnContractTests
   [Fact]
   public void Decode_RejectsGarbage()
       => Assert.Throws<JsonException>(() => SpawnContract.Decode("not json"));
+
+  [Fact]
+  public void WithResumeMessage_SetsCarrier_AndSurvivesEncodeDecodeRoundTrip()
+  {
+    SpawnContract contract = new() { MaxUrgency = 2 };
+    SpawnContract stamped = contract.WithResumeMessage("fix the failing tests");
+
+    string? json = SpawnContract.Encode(stamped);
+    SpawnContract decoded = SpawnContract.Decode(json!);
+
+    Assert.Equal("fix the failing tests", decoded.ResumeMessage);
+    Assert.Equal(2, decoded.MaxUrgency); // unrelated members survive
+  }
+
+  [Fact]
+  public void WithoutResumeMessage_ClearsCarrier()
+  {
+    SpawnContract stamped = new SpawnContract().WithResumeMessage("go again");
+
+    SpawnContract cleared = stamped.WithoutResumeMessage();
+
+    Assert.Null(cleared.ResumeMessage);
+  }
+
+  [Fact]
+  public void Decode_LegacyContractWithoutResumeField_YieldsNullCarrier()
+  {
+    // A contract persisted before the carrier existed must decode cleanly.
+    SpawnContract decoded = SpawnContract.Decode("""{"maxUrgency":1}""");
+
+    Assert.Null(decoded.ResumeMessage);
+  }
 }
+#pragma warning restore JSON002

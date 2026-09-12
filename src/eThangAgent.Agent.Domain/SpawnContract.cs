@@ -19,6 +19,7 @@ public sealed record BudgetCeilings(long? MaxTokens = null, decimal? MaxCost = n
 /// <param name="WorkspaceRoot">The child's validated workspace anchor (worktree ladder,
 ///     T5): the fully resolved directory the run is anchored to, persisted so later
 ///     enforcement and grandchild chains measure against it. Null = unanchored legacy run.</param>
+/// <param name="ResumeMessage">One-shot resume carrier stamped by agent.resume: the continuation prompt the NEXT run of this child delivers instead of the watchdog wrap-up nudge. Cleared by the runtime at terminal persist (one-shot semantics). Null = no resume pending.</param>
 public sealed record SpawnContract(
     string? ResultSchema = null,
     IReadOnlyDictionary<string, string>? CapabilityGrants = null,
@@ -26,7 +27,8 @@ public sealed record SpawnContract(
     int MaxUrgency = 0,
     bool PreemptGrant = false,
     string? EffectiveTools = null,
-    string? WorkspaceRoot = null)
+    string? WorkspaceRoot = null,
+    string? ResumeMessage = null)
 {
   /// <summary>The dispatch-time effective tool set R1 enforces: resolved by the spawn
   ///     command from the parent's effective set and the validated grants, persisted so
@@ -40,6 +42,14 @@ public sealed record SpawnContract(
   /// <summary>Persists the resolved effective set onto this contract (ordinal-ordered).</summary>
   public SpawnContract WithEffectiveTools(IReadOnlySet<string> effective)
       => this with { EffectiveTools = string.Join(";", effective.OrderBy(n => n, StringComparer.Ordinal)) };
+
+  /// <summary>Stamps the one-shot resume carrier (agent.resume). The NEXT run of this
+  ///     child delivers it as the continuation prompt.</summary>
+  public SpawnContract WithResumeMessage(string message) => this with { ResumeMessage = message };
+
+  /// <summary>Clears the one-shot resume carrier: the run consumed it. The runtime
+  ///     calls this at terminal persist so watchdog retries revert to the wrap-up nudge.</summary>
+  public SpawnContract WithoutResumeMessage() => this with { ResumeMessage = null };
 
   private static readonly JsonSerializerOptions Options = new();
 
