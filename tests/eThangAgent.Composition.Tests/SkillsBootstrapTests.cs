@@ -106,6 +106,15 @@ public class SkillsBootstrapTests
   }
 
   [Fact]
+  public void Build_InjectsUserMessageStyleRule_AsdSte100()
+  {
+    string output = Build();
+
+    Assert.Contains("ASD-STE100", output, StringComparison.Ordinal);
+    Assert.Contains("Simplified Technical English", output, StringComparison.Ordinal);
+    Assert.Contains("messages to the user", output, StringComparison.Ordinal);
+  }
+  [Fact]
   public void Build_MissingSelectedStyleSkill_ThrowsInvalidOperationException()
   {
     // A selected style whose built-in skill is absent is a packaging defect,
