@@ -82,4 +82,43 @@ public class RemoteAgentRuntimeE2ETests
       }
     }
   }
+
+  /// <summary>Connects one in-process app/host pipe pair (the RemoteRuntimeSettleRetentionTests
+  ///     pattern) so the runtime is exercised over a REAL connected transport.</summary>
+  private static async Task<(NamedPipeChildTransport App, NamedPipeChildTransport Host)> ConnectAsync()
+  {
+    string pipeName = "ethang-settle-" + Guid.NewGuid().ToString("N");
+    Task<NamedPipeChildTransport> serverTask = NamedPipeChildTransport.AcceptAppAsync(pipeName, TestContext.Current.CancellationToken);
+    NamedPipeChildTransport app = await NamedPipeChildTransport.ConnectToHostAsync(pipeName,
+        TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    NamedPipeChildTransport host = await serverTask.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    return (app, host);
+  }
+
+  /// <summary>Pins the task-2 typed contract: resume-after-settle is NOT wired through the
+  ///     child host yet, and the refusal is a typed DomainError on the Result — never an
+  ///     exception and never a silent success.</summary>
+  [Fact]
+  public async Task Resume_OnARemoteRuntime_IsATypedUnsupportedError()
+  {
+    (NamedPipeChildTransport app, NamedPipeChildTransport host) = await ConnectAsync().ConfigureAwait(true);
+    try
+    {
+      RemoteAgentRuntime runtime = new(app);
+      using CancellationTokenSource loop = new();
+      _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+      Result<AgentId> resumed = await runtime.Resume(new AgentId(Guid.NewGuid()), "go",
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      Assert.False(resumed.IsSuccess);
+      Assert.Equal("ResumeUnsupported", resumed.Error.Code);
+      Assert.Contains("child host", resumed.Error.Message, StringComparison.Ordinal);
+    }
+    finally
+    {
+      await app.DisposeAsync().ConfigureAwait(true);
+      await host.DisposeAsync().ConfigureAwait(true);
+    }
+  }
 }
