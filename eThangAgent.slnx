@@ -48,6 +48,8 @@
   <Project Path="tests/eThangAgent.Plan.Domain.Tests/eThangAgent.Plan.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.Storage.ACL.Tests/eThangAgent.Storage.ACL.Tests.csproj" />
   <Project Path="tests/eThangAgent.Roslyn.ACL.Tests/eThangAgent.Roslyn.ACL.Tests.csproj" />
+  <Project Path="tests/eThangAgent.ComputerUse.ACL.Tests/eThangAgent.ComputerUse.ACL.Tests.csproj" />
+  <Project Path="src/eThangAgent.ComputerUse.ACL/eThangAgent.ComputerUse.ACL.csproj" />
   <Project Path="src/eThangAgent.Desktop/eThangAgent.Desktop.csproj" />
   <Project Path="tests/eThangAgent.Desktop.Tests/eThangAgent.Desktop.Tests.csproj" />
 </Solution>

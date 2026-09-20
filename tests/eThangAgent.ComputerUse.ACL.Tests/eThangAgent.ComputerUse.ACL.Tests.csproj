@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.ComputerUse.ACL/eThangAgent.ComputerUse.ACL.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="StubHost/**" />
+    <None Remove="StubHost/**" />
+  </ItemGroup>
+</Project>
