@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -142,7 +143,7 @@ public static class OpenAiCompatRequestCore
   public static object TranslateMessage(Message m) => (m ?? throw new ArgumentNullException(nameof(m))).Role switch
   {
     Role.System => new { role = "system", content = m.Content },
-    Role.User => new { role = "user", content = m.Content },
+    Role.User => new { role = "user", content = ContentFor(m) },
     Role.Assistant when m.ToolCalls is { Count: > 0 } => new
     {
       role = "assistant",
@@ -155,9 +156,33 @@ public static class OpenAiCompatRequestCore
       }).ToArray()
     },
     Role.Assistant => new { role = "assistant", content = m.Content },
-    Role.Tool => new { role = "tool", content = m.Content, tool_call_id = m.ToolCallId },
+    Role.Tool => new { role = "tool", content = ContentFor(m), tool_call_id = m.ToolCallId },
     _ => throw new ArgumentOutOfRangeException(nameof(m), m.Role, "Unknown role.")
   };
+
+  /// <summary>Content of a user- or tool-role message: a parts array when the message
+  ///     carries non-null non-empty parts, today's flat string otherwise (absent-collaborator
+  ///     rule: Parts == null keeps the wire payload byte-identical).</summary>
+  private static object ContentFor(Message m) =>
+      m.Parts is { Count: > 0 } ? PartsContent(m.Parts) : m.Content;
+
+  /// <summary>Serializes parts in order: text parts as type=text with the part text;
+  ///     image parts as type=image_url with a data: URL (data:&lt;mediaType&gt;;base64,&lt;data&gt;).</summary>
+  private static object[] PartsContent(IReadOnlyList<MessagePart> parts) =>
+      [.. parts.Select(p => p switch
+      {
+        MessagePart.TextPart text => (object)new { type = "text", text = text.Text },
+        MessagePart.ImagePart image => new
+        {
+          type = "image_url",
+          image_url = new
+          {
+            url = $"data:{image.MediaType};base64,{image.Base64Data}"
+          }
+        },
+        _ => throw new InvalidOperationException(
+              $"Unhandled message part type: {p.GetType().Name}."),
+      })];
 
   public static object TranslateTool(ToolDefinition t)
   {
@@ -204,4 +229,23 @@ public static class OpenAiCompatRequestCore
       }
     };
   }
+
+  /// <summary>The request-wire JSON serializer, pinned once: camelCase property naming
+  ///     and enums as strings, so every OpenAI-compatible provider gets byte-stable
+  ///     payloads regardless of any ambient serializer configuration.</summary>
+  // Named decision (CA1034): WireJson nests inside the core it serializes for by pinned
+  // design — one serializer travels with the request builder to every provider ACL.
+#pragma warning disable CA1034 // Do not nest type
+  public static class WireJson
+  {
+    public static readonly JsonSerializerOptions Options = CreateOptions();
+
+    private static JsonSerializerOptions CreateOptions() =>
+        new()
+        {
+          PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+          Converters = { new JsonStringEnumConverter() },
+        };
+  }
+#pragma warning restore CA1034 // Do not nest type
 }
