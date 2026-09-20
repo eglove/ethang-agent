@@ -53,6 +53,19 @@ public class RootAgentResolverVisionFlagTests
   }
 
   [Fact]
+  public async Task AutoFallbackId_WithAutoOnlyCatalog_ResolvesFlagTrue()
+  {
+    // The OpenRouter fallback IS openrouter/auto: the resolver must see its curated
+    // image capability through the catalog consult (the client serves the curated
+    // entry through GetAsync), not a hard-coded default.
+    RootAgentResolver resolver = await ResolverAsync(new VisionCatalog(("openrouter/auto", true)));
+
+    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(config.AcceptsImageInput);
+  }
+
+  [Fact]
   public async Task NoCatalog_Wired_ResolvedConfig_DefaultsFalse()
   {
     RootAgentResolver withoutCatalog = new(

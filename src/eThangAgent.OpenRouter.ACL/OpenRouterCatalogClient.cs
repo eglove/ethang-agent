@@ -40,9 +40,10 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
       }
 
       List<ModelProviderEntry> entries = await ExpandEndpointsAsync(phase1.Value, ct).ConfigureAwait(false);
-      _cached = UpdateEntriesFromCatalog(entries);
+      IReadOnlyList<ModelProviderEntry> resolved = WithCuratedEntries(UpdateEntriesFromCatalog(entries));
+      _cached = resolved;
       _fetchedAt = DateTimeOffset.UtcNow;
-      return Result.Success<IReadOnlyList<ModelProviderEntry>>(entries);
+      return Result.Success(resolved);
     }
     finally
     {
@@ -76,6 +77,20 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
     return entries.Count == 0
         ? entries
         : [.. entries.Select(e => e.ModelId == RoutingModelEntry.ModelId ? RoutingModelEntry : e)];
+  }
+
+  /// <summary>Makes the curated entries consultable through <see cref="GetAsync"/>:
+  ///     the routing pseudo-model is appended unless the fetch already carried a row
+  ///     with its id (UpdateEntriesFromCatalog has already forced the curated facts
+  ///     onto such a row). Without this, RootAgentResolver/ProviderFailoverResolver
+  ///     resolve the fallback id's vision capability as false and an auto-routed
+  ///     session can never accept images end-to-end.</summary>
+  private static IReadOnlyList<ModelProviderEntry> WithCuratedEntries(
+      IReadOnlyList<ModelProviderEntry> entries)
+  {
+    return entries.Any(e => e.ModelId == RoutingModelEntry.ModelId)
+        ? entries
+        : [.. entries, RoutingModelEntry];
   }
 
   private bool IsFresh()

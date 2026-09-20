@@ -46,8 +46,8 @@ public class OpenRouterCatalogClientTests
     Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
-    // 2 from gemini endpoints + 1 from llama endpoints = 3 entries
-    Assert.Equal(3, result.Value.Count);
+    // 2 from gemini endpoints + 1 from llama endpoints + 1 curated auto entry = 4
+    Assert.Equal(4, result.Value.Count);
 
     // Gemini via Google: effective price = 0.000001 * (1 - 0.5) = 0.0000005
     ModelProviderEntry geminiGoogle = Assert.Single(result.Value, e => e.ModelId == "google/gemini-2.0-flash-001" && e.ProviderName == "Google");
@@ -163,8 +163,8 @@ public class OpenRouterCatalogClientTests
     Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
-    // 2 from gemini endpoints + 1 from llama top_provider fallback
-    Assert.Equal(3, result.Value.Count);
+    // 2 from gemini endpoints + 1 from llama top_provider fallback + 1 curated auto = 4
+    Assert.Equal(4, result.Value.Count);
     ModelProviderEntry llama = Assert.Single(result.Value, e => e.ModelId == "meta-llama/llama-3.3-70b");
     // top_provider didn't have a provider_name, so it falls back to "Unknown"
     Assert.NotNull(llama.ProviderName);

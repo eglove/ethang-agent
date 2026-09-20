@@ -16,7 +16,7 @@ namespace eThangAgent.Agent.Application;
 ///     <see cref="SpawnOptions.FallbackModelId"/> on any selection failure.</summary>
 public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, SubAgentOptions options,
     SpawnOptions spawn, IModelSelector? modelSelector = null, IContextWindowSource? windowSource = null,
-    IWorktreeProvisioner? worktrees = null)
+    IWorktreeProvisioner? worktrees = null, IModelCatalog? catalog = null)
     : IAgentSpawnCommand
 {
   private readonly SpawnOptions _spawn = spawn ?? throw new ArgumentNullException(nameof(spawn));
@@ -26,6 +26,7 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
   private readonly IModelSelector? _modelSelector = modelSelector;
   private readonly IContextWindowSource? _windowSource = windowSource;
   private readonly IWorktreeProvisioner? _worktrees = worktrees;
+  private readonly IModelCatalog? _catalog = catalog;
   private readonly string _fallbackModelId = spawn?.FallbackModelId
       ?? throw new ArgumentNullException(nameof(spawn));
 
@@ -287,7 +288,8 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
         if (selectedWindow is { } selected)
         {
           return ModelConfig.Create(selection.Value.ModelId, selection.Value.ProviderName,
-              _spawn.MaxTokens, _spawn.Temperature, selected);
+              _spawn.MaxTokens, _spawn.Temperature, selected,
+              acceptsImageInput: await AcceptsImagesAsync(selection.Value.ModelId, selection.Value.ProviderName, ct).ConfigureAwait(false));
         }
       }
     }
@@ -296,13 +298,31 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     return await CreateAsync(_fallbackModelId, null, ct).ConfigureAwait(false);
   }
 
+  /// <summary>The model's vision capability from the session catalog: the first entry
+  ///     matching the model (and provider, when named) that accepts image input. A
+  ///     missing or failed catalog resolves false — capability is never guessed.</summary>
+  private async Task<bool> AcceptsImagesAsync(string modelId, string? providerName, CancellationToken ct)
+  {
+    if (_catalog is null)
+    {
+      return false;
+    }
+
+    Result<IReadOnlyList<ModelProviderEntry>> entries = await _catalog.GetAsync(ct).ConfigureAwait(false);
+    return entries.IsSuccess && entries.Value.Any(e =>
+        e.ModelId == modelId
+        && (providerName is null || e.ProviderName == providerName)
+        && e.SupportsVision);
+  }
+
   /// <summary>Creates the config for an explicitly chosen model id; a model with no
   /// catalog window fails the spawn (strict correctness — never guess a window).</summary>
   private async Task<Result<ModelConfig>> CreateAsync(string modelId, string? providerName, CancellationToken ct)
   {
     int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(modelId, providerName, ct).ConfigureAwait(false);
     return window is { } resolved
-        ? ModelConfig.Create(modelId, providerName, _spawn.MaxTokens, _spawn.Temperature, resolved)
+        ? ModelConfig.Create(modelId, providerName, _spawn.MaxTokens, _spawn.Temperature, resolved,
+            acceptsImageInput: await AcceptsImagesAsync(modelId, providerName, ct).ConfigureAwait(false))
         : Result.Failure<ModelConfig>(new DomainError("UnknownModelWindow",
             $"Model '{modelId}' has no catalog context window; the spawn cannot proceed."));
   }

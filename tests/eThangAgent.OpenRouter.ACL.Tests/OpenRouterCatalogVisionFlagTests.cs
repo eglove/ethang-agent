@@ -91,11 +91,19 @@ public class OpenRouterCatalogVisionFlagTests
   }
 
   [Fact]
-  public void RoutingPseudoModel_CuratedEntry_AcceptsImageInput()
+  public async Task RoutingPseudoModel_ResolvableThroughGetAsync_AcceptsImageInput()
   {
     // openrouter/auto routes server-side across upstreams and never appears in the
-    // fetched catalog: its capability facts are a curated entry on the client.
-    Assert.Equal("openrouter/auto", OpenRouterCatalogClient.RoutingModelEntry.ModelId);
-    Assert.True(OpenRouterCatalogClient.RoutingModelEntry.SupportsVision);
+    // fetched catalog: GetAsync must still serve it as a consultable entry, or a
+    // resolver resolving the fallback id cannot see its image capability.
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(Handler(req)));
+    using HttpClient http = new(handler);
+    OpenRouterCatalogClient client = new(http, Config);
+
+    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    ModelProviderEntry auto = Assert.Single(result.Value, e => e.ModelId == "openrouter/auto");
+    Assert.True(auto.SupportsVision);
   }
 }

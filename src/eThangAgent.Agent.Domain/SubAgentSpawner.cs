@@ -20,7 +20,8 @@ public sealed record AgentRunOutcome(
 ///     Validation, depth enforcement, model resolution, and the initial Running save belong to the
 ///     spawn command (<c>StartSpawnHandler</c>), which hands the persisted record here.</summary>
 public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPreferences? preferences = null,
-    IContextWindowSource? windowSource = null, IContextCompactor? contextCompactor = null)
+    IContextWindowSource? windowSource = null, IContextCompactor? contextCompactor = null,
+    IModelCatalog? catalog = null)
     : IAgentRunner
 {
   /// <summary>Model-facing annotation appended when a child report exceeds the 50 KB storage guideline.</summary>
@@ -45,6 +46,20 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   ///     task prompt: identifies watchdog restarts in the transcript.</summary>
   public const string WrapUpNudgeSentinel = "[watchdog] You showed no activity for";
 
+  /// <summary>The child model's vision capability from the session catalog. A missing or
+  ///     failed catalog resolves false — capability is never guessed (legacy wiring keeps
+  ///     byte-identical false, like the legacy window sentinel).</summary>
+  private async Task<bool> AcceptsImagesAsync(string modelId, CancellationToken ct)
+  {
+    if (_catalog is null)
+    {
+      return false;
+    }
+
+    Result<IReadOnlyList<ModelProviderEntry>> entries = await _catalog.GetAsync(ct).ConfigureAwait(false);
+    return entries.IsSuccess && entries.Value.Any(e => e.ModelId == modelId && e.SupportsVision);
+  }
+
   private readonly IModelProviderFactory _factory = services.Factory ?? throw new ArgumentNullException(nameof(services), "Factory must not be null.");
   private readonly IAgentStore _store = services.Store ?? throw new ArgumentNullException(nameof(services), "Store must not be null.");
   private readonly IToolRegistry _tools = services.Tools ?? throw new ArgumentNullException(nameof(services), "Tools must not be null.");
@@ -52,6 +67,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IContextWindowSource? _windowSource = windowSource;
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
+  private readonly IModelCatalog? _catalog = catalog;
   private readonly IAgentHeartbeat? _heartbeat = services.Heartbeat;
   private readonly IAgentEvents? _events = services.Events;
 
@@ -104,7 +120,8 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
               $"Child model '{child.ModelUsed}' has no catalog context window; the child run cannot proceed. "
               + "This is a composition wiring fault: every spawnable model must have a known window.");
     ModelConfig config = ModelPreferencesOverlay.Apply(ModelConfig.Create(
-        child.ModelUsed, null, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort).Value!,
+        child.ModelUsed, null, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort,
+        acceptsImageInput: await AcceptsImagesAsync(child.ModelUsed, ct).ConfigureAwait(false)).Value!,
         _preferences);
 
     // Resume hydration: a persisted transcript means this run restarts a previously

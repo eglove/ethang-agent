@@ -93,7 +93,8 @@ public sealed class SessionHost
     string workspace = ResolveWorkspace(settings.WorkspaceRoot, settingsJsonPath);
     ModelConfig bootstrapModel = ModelConfig.Create(
         Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f,
-        Providers.RoutingContextWindow).Value!;
+        Providers.RoutingContextWindow,
+        acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.FallbackModelId(providerName))).Value!;
 
     ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(

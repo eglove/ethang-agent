@@ -233,7 +233,8 @@ public static class AgentComposition
           sp.GetRequiredService<IModelCatalog>(),
           ModelConfig.Create(Providers.SelectorModelId(providerName), null, 2048, 0f,
               // Bootstrap-only selector pseudo-model; its own calls are tiny and fixed.
-              Providers.RoutingContextWindow).Value!));
+              Providers.RoutingContextWindow,
+              acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.SelectorModelId(providerName))).Value!));
     }
 
     wired = wired
@@ -257,7 +258,8 @@ public static class AgentComposition
             sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),
             sp.GetRequiredService<IContextWindowSource>(),
-            sp.GetRequiredService<DefaultContextCompactor>()))
+            sp.GetRequiredService<DefaultContextCompactor>(),
+            sp.GetRequiredService<IModelCatalog>()))
         .AddSingleton(sp => new InProcessAgentRuntime(
             sp.GetRequiredService<SubAgentSpawner>(),
             sp.GetRequiredService<IAgentStore>(),
@@ -278,7 +280,8 @@ public static class AgentComposition
                 WorkspaceRoot: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
             sp.GetService<IModelSelector>(),
             sp.GetRequiredService<IContextWindowSource>(),
-            sp.GetRequiredService<IWorktreeProvisioner>()))
+            sp.GetRequiredService<IWorktreeProvisioner>(),
+            sp.GetRequiredService<IModelCatalog>()))
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()

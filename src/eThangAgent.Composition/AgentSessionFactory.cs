@@ -297,7 +297,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     {
       ModelConfig constant = ModelConfig.Create(
           Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f,
-          Providers.RoutingContextWindow).Value!;
+          Providers.RoutingContextWindow,
+          acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.FallbackModelId(providerName))).Value!;
       return Result.Success(new BootstrapModel(constant, ResolvedFallbackModelId: null));
     }
 
@@ -330,7 +331,9 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     ModelConfig resolved = ModelConfig.Create(
         first.ModelId, null, 32 * 1024, 0.7f,
         // The server's own advertised window: accounting is honest from turn one.
-        first.ContextLength).Value!;
+        first.ContextLength,
+        // Local catalogs never advertise vision (cannot verify): the entry says false.
+        acceptsImageInput: first.SupportsVision).Value!;
     return Result.Success(new BootstrapModel(resolved, ResolvedFallbackModelId: first.ModelId));
   }
 
