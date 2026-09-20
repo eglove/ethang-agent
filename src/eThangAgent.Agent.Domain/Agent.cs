@@ -28,6 +28,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     interruption. Verbatim contract: tells the model why its calls produced nothing.</summary>
   public const string InterruptedToolResult = "[turn interrupted by the user; this call never ran]";
 
+  /// <summary>Verbatim prefix a tool result carries when the conversation shrank
+  ///     during this turn (the context_edit tool's contract). The loop rests
+  ///     auto-compaction for the rest of the turn; persistence replaces the
+  ///     transcript instead of appending the turn's slice.</summary>
+  public const string ContextShrinkSentinel = "[context: shrank";
+
   private readonly IModelProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
   private readonly ISystemPromptProvider? _systemPrompt = options?.SystemPrompt;
@@ -49,6 +55,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
   /// <summary>Tool calls executed during the most recent SendMessage; 0 when the turn ended without any.</summary>
   public int LastTurnToolCalls { get; private set; }
+
+  /// <summary>True when a tool result carried <see cref="ContextShrinkSentinel"/>
+  ///     during the most recent SendMessage; reset at the start of each turn.</summary>
+  public bool ShrankThisTurn { get; private set; }
+
+  private bool _shrankThisTurnObserved;
 
   /// <summary>
   /// Runs one user turn through the provider/tool loop. Content deltas stream out through
@@ -78,6 +90,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     try
     {
       LastTurnToolCalls = 0;
+      ShrankThisTurn = false;
+      _shrankThisTurnObserved = false;
+      ShrankThisTurn = false;
+      _shrankThisTurnObserved = false;
       // Auto-continuations used by this turn only: reset here, never carried between turns.
       int autoContinuations = 0;
       DrainInbox(inbox);
@@ -87,17 +103,23 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // tool calls. Termination is the model's job — but cancellation is checked
       // every round, because nothing else in the loop is obliged to observe ct
       // (fakes, cached providers, and instant tools may never see it).
-      bool compactionFailed = false;
+      bool autoCompactBlocked = false;
       while (true)
       {
         ct.ThrowIfCancellationRequested();
         Beat();
         DrainInbox(inbox);
-        if (!compactionFailed)
+        if (!autoCompactBlocked)
         {
-          compactionFailed = await TryCompactIfNeededAsync(callbacks, ct).ConfigureAwait(false);
-        }
+          bool shrinkObserved = SetShrankIfObserved();
+          if (shrinkObserved)
+          {
+            callbacks?.OnContextShrunk?.Invoke();
+          }
 
+          bool compacted = !shrinkObserved && await TryCompactIfNeededAsync(callbacks, ct).ConfigureAwait(false);
+          autoCompactBlocked = compacted || shrinkObserved;
+        }
         // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
         // list, so handing it out directly would let every consumer of this request
         // (retries, logging, tests) read messages added by later iterations.
@@ -138,6 +160,18 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
   /// <summary>Beats the wired heartbeat at a loop safe point, or no-op when none is
   ///     wired (legacy wiring beats nothing: byte-identical behavior).</summary>
+  /// <summary>Consumes the mid-turn shrink observation: reads whether a tool
+  ///     result carried the sentinel and propagates it to the public property.</summary>
+  private bool SetShrankIfObserved()
+  {
+    if (_shrankThisTurnObserved)
+    {
+      ShrankThisTurn = true;
+    }
+
+    return _shrankThisTurnObserved;
+  }
+
   private void Beat()
   {
     _heartbeat?.Beat(Id);
@@ -303,6 +337,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
               ?? $"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
           : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
       Conversation.AddToolResult(call.Id, toolResult.Content);
+      if (toolResult.Content.Contains(ContextShrinkSentinel, StringComparison.Ordinal))
+      {
+        _shrankThisTurnObserved = true;
+      }
       _heartbeat?.Beat(Id);
       PublishProgress(ChildPhase.Draining, "tool-result");
       string summary = SummarizeToolResult(toolResult);

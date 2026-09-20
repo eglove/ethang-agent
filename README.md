@@ -106,7 +106,9 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   report per-request token usage; when utilization crosses 80% at a turn boundary the oldest
   conversation is summarized by a compaction model (per-workspace setting under Settings —
   default: cheapest capable) and replaced by that handoff summary, so long sessions keep
-  going without hitting the window. Compacted sessions persist and resume like any other
+  going without hitting the window. The model can also compact on its own: the `context_edit`
+  tool lists the indexed messages and removes or shortens selections at a milestone, and a
+  shrunk session persists and resumes exactly like a compacted one. Compacted sessions persist and resume like any other
 - **Sessions** entry (left menu) — resume a previous conversation: every persisted
   session is listed newest-first with its workspace, provider, start time, and status;
   sessions already open in a tab are greyed out (hover explains why). Confirming a row

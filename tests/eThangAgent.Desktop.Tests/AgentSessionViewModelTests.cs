@@ -17,12 +17,19 @@ namespace eThangAgent.Desktop.Tests;
 internal sealed class RecordingLifecycle(IAgentStore store) : RootSessionLifecycle(store)
 {
   public int _exchanges;
+  public int _replacements;
 
   public override Task AppendExchangeAsync(
       AgentId rootId, Conversation conversation, int messageCountBefore,
       Result<string> result, Action<string> reportError)
   {
     _exchanges++;
+    return Task.CompletedTask;
+  }
+
+  public override Task ReplaceTranscriptAsync(AgentId rootId, Conversation conversation, Action<string> reportError)
+  {
+    _replacements++;
     return Task.CompletedTask;
   }
 }
@@ -117,6 +124,24 @@ public class AgentSessionViewModelTests
 
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
     Assert.Contains("plain answer", notice.Text, StringComparison.Ordinal);
+  }
+
+  // ── 1c. A context-shrunk turn replaces the transcript instead of appending ──
+
+  [Fact]
+  public async Task Context_Shrunk_Turn_Replaces_Transcript_Instead_Of_Appending()
+  {
+    (AgentSessionViewModel? vm, List<string> _, RecordingLifecycle lifecycle) = Build((_, _, callbacks, _) =>
+    {
+      callbacks?.OnContextShrunk?.Invoke();
+      return Task.FromResult(Result.Success("done"));
+    });
+
+    await vm.SubmitAsync("q");
+    await vm.WaitForTurnAsync();
+
+    Assert.Equal(1, lifecycle._replacements);
+    Assert.Equal(0, lifecycle._exchanges);
   }
 
   // ── 2. Busy submissions ignored ───────────────────────────────────────────

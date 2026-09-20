@@ -105,6 +105,7 @@ internal sealed class FakeAgentStore : IAgentStore
   public System.Collections.ObjectModel.Collection<AgentRecord> Saved { get; } = [];
   public System.Collections.ObjectModel.Collection<AgentRecord> Updated { get; } = [];
   public System.Collections.ObjectModel.Collection<(AgentId AgentId, Message Message)> AppendedMessages { get; } = [];
+  public System.Collections.ObjectModel.Collection<(AgentId AgentId, IReadOnlyList<Message> Messages)> ReplacedTranscripts { get; } = [];
 
   /// <summary>When set, UpdateAsync resolves to this failure and does not touch the record map.</summary>
   public Result<string>? UpdateFailure { get; set; }
@@ -142,7 +143,10 @@ internal sealed class FakeAgentStore : IAgentStore
   }
 
   public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(id.ToString()));
+  {
+    ReplacedTranscripts.Add((id, messages));
+    return Task.FromResult(Result.Success(id.ToString()));
+  }
 
   public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
     => Task.FromResult(Result.Success<IReadOnlyList<Message>>(

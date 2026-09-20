@@ -23,6 +23,9 @@ namespace eThangAgent.AgentDomain;
 /// <param name="OnContextUpdate">Invoked after each provider response (and after any
 ///     compaction) with the current context snapshot. May fire on arbitrary threads;
 ///     observers must marshal to their own context.</param>
+/// <param name="OnContextShrunk">Invoked once per turn when a tool result carried the shrink
+///     sentinel: the conversation shrank mid-turn and persistence must replace the
+///     transcript instead of appending the turn's slice.</param>
 /// <param name="OnCompacted">Invoked after a successful automatic compaction with what
 ///     the compactor did.</param>
 /// <param name="OnSystemMessage">Invoked verbatim whenever the loop itself appends a
@@ -37,4 +40,5 @@ public sealed record TurnCallbacks(
     Action<string, string, string, bool, ToolResult?>? OnToolResult = null,
     Action<ContextSnapshot>? OnContextUpdate = null,
     Action<CompactionOutcome>? OnCompacted = null,
+    Action? OnContextShrunk = null,
     Action<string>? OnSystemMessage = null);

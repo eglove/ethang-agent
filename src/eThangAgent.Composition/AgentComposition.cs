@@ -123,6 +123,9 @@ public static class AgentComposition
                     new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
                     "Track a workspace task list."),
                 new AgentToolBinding(
+                    new ContextEditTool(sp.GetRequiredService<IConversationContextService>()),
+                    "Edit this conversation's own context (list, remove, shorten messages)."),
+                new AgentToolBinding(
                     new GitStatusTool(sp.GetRequiredService<IPathResolver>(),
                         sp.GetRequiredService<IGitQueryAccess>()),
                     "Show branch and working-tree status."),
@@ -445,6 +448,7 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentInbox>(),
             sp.GetRequiredService<RootAgentHolder>(),
             sp.GetRequiredService<RootAgentResolver>()))
+        .AddSingleton<IConversationContextService>(sp => new ConversationContextServiceAdapter(sp.GetRequiredService<Conversation>()))
         .AddSingleton<RootSessionLifecycle>()
         ;
 

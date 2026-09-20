@@ -244,12 +244,21 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
 
     if (failureReason is not null)
     {
-      // Persist the partial transcript delta beyond the hydrated baseline so a later
-      // resume continues from the real frontier - and never re-appends earlier rows.
-      IReadOnlyList<Message> partial = agent.Conversation.Messages;
-      for (int i = seed.Count; i < partial.Count; i++)
+      if (agent.ShrankThisTurn)
       {
-        _ = await _store.AppendMessageAsync(child.Id, partial[i], ct).ConfigureAwait(false);
+        // A mid-run shrink invalidates the append baseline: the whole transcript is
+        // replaced so the persisted rows match the post-shrink conversation exactly.
+        _ = await _store.ReplaceTranscriptAsync(child.Id, agent.Conversation.Messages, ct).ConfigureAwait(false);
+      }
+      else
+      {
+        // Persist the partial transcript delta beyond the hydrated baseline so a later
+        // resume continues from the real frontier - and never re-appends earlier rows.
+        IReadOnlyList<Message> partial = agent.Conversation.Messages;
+        for (int i = seed.Count; i < partial.Count; i++)
+        {
+          _ = await _store.AppendMessageAsync(child.Id, partial[i], ct).ConfigureAwait(false);
+        }
       }
 
       await PersistTerminalAsync(child with
@@ -269,16 +278,23 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
       finalReport += "\n" + ReportOverflowAnnotation;
     }
 
-    // Persist only what this run added: a resumed run's seed already sits in the store,
-    // and re-appending it would duplicate the transcript.
-    IReadOnlyList<Message> added = agent.Conversation.Messages;
-    for (int i = seed.Count; i < added.Count; i++)
+    if (agent.ShrankThisTurn)
     {
-      _ = await _store.AppendMessageAsync(child.Id, added[i], ct).ConfigureAwait(false);
+      // Same shrink rule as the failure path: replace, never append a sliced delta.
+      _ = await _store.ReplaceTranscriptAsync(child.Id, agent.Conversation.Messages, ct).ConfigureAwait(false);
     }
-
+    else
+    {
+      // Persist only what this run added: a resumed run's seed already sits in the store,
+      // and re-appending it would duplicate the transcript.
+      IReadOnlyList<Message> added = agent.Conversation.Messages;
+      for (int i = seed.Count; i < added.Count; i++)
+      {
+        _ = await _store.AppendMessageAsync(child.Id, added[i], ct).ConfigureAwait(false);
+      }
+    }
     // Structured results (step 10, approved D3): one bounded repair round; a second
-    // validation failure is Failed(InvalidResult) — invalid results never reach the
+    // validation failure is Failed(InvalidResult) - invalid results never reach the
     // parent as success.
     if (child.Contract is { } contractJson)
     {

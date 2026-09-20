@@ -340,6 +340,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     int messageCountBefore = _conversation.Messages.Count;
     bool sawStream = false;
     bool compactedThisTurn = false;
+    bool shrunkThisTurn = false;
     Result<string> result = await _runner(
           new SendMessageCommand(input),
           cts.Token,
@@ -353,6 +354,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
               OnIterationEnd: bridge.OnIterationEnd,
               OnContextUpdate: snapshot => Status.SetContext(snapshot),
               OnCompacted: _ => compactedThisTurn = true,
+                OnContextShrunk: () => shrunkThisTurn = true,
               OnToolCall: (name, args, index, count) =>
               {
                 bridge.OnToolCall(name, args);
@@ -382,7 +384,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     // A compacted turn shrank the conversation mid-turn: the slice contract would
     // double-count, so the transcript is replaced wholesale instead.
-    if (compactedThisTurn)
+    if (compactedThisTurn || shrunkThisTurn)
     {
       await _lifecycle.ReplaceTranscriptAsync(_rootId, _conversation, ReportPersistenceError);
     }
