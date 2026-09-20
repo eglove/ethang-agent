@@ -30,7 +30,7 @@ public class PartsProjectionWireTests
         OpenAiCompatRequestCore.BuildMessages(request), OpenAiCompatRequestCore.WireJson.Options);
 
     Assert.Equal(
-        """[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}],"tool_call_id":"c1"}]""",
+        /*lang=json,strict*/"""[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}],"tool_call_id":"c1"}]""",
         json);
   }
 
@@ -50,7 +50,7 @@ public class PartsProjectionWireTests
         OpenAiCompatRequestCore.WireJson.Options);
 
     Assert.Equal(
-        """[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":"see attached","tool_call_id":"c1"},{"role":"user","content":[{"type":"text","text":"[computer screenshot for tool call c1]"},{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}]""",
+        /*lang=json,strict*/"""[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":"see attached","tool_call_id":"c1"},{"role":"user","content":[{"type":"text","text":"[computer screenshot for tool call c1]"},{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}]""",
         json);
   }
 
@@ -75,7 +75,7 @@ public class PartsProjectionWireTests
         OpenAiCompatRequestCore.WireJson.Options);
 
     Assert.Equal(
-        """[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}},{"id":"c2","type":"function","function":{"name":"screenshot","arguments":"{}"}}]},{"role":"tool","content":"file body","tool_call_id":"c1"},{"role":"tool","content":"","tool_call_id":"c2"},{"role":"user","content":[{"type":"text","text":"[computer screenshot for tool call c2]"},{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}]""",
+        /*lang=json,strict*/"""[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}},{"id":"c2","type":"function","function":{"name":"screenshot","arguments":"{}"}}]},{"role":"tool","content":"file body","tool_call_id":"c1"},{"role":"tool","content":"","tool_call_id":"c2"},{"role":"user","content":[{"type":"text","text":"[computer screenshot for tool call c2]"},{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}]""",
         json);
   }
 
@@ -101,8 +101,50 @@ public class PartsProjectionWireTests
         OpenAiCompatRequestCore.WireJson.Options);
 
     Assert.Equal(
-        """[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"screenshot","arguments":"{}"}},{"id":"c2","type":"function","function":{"name":"snap","arguments":"{}"}}]},{"role":"tool","content":"first","tool_call_id":"c1"},{"role":"tool","content":"second","tool_call_id":"c2"},{"role":"user","content":[{"type":"text","text":"[computer screenshot for tool call c1]"},{"type":"image_url","image_url":{"url":"data:image/png;base64,cA=="}},{"type":"text","text":"[computer screenshot for tool call c2]"},{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,anM="}}]}]""",
+        /*lang=json,strict*/"""[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"screenshot","arguments":"{}"}},{"id":"c2","type":"function","function":{"name":"snap","arguments":"{}"}}]},{"role":"tool","content":"first","tool_call_id":"c1"},{"role":"tool","content":"second","tool_call_id":"c2"},{"role":"user","content":[{"type":"text","text":"[computer screenshot for tool call c1]"},{"type":"image_url","image_url":{"url":"data:image/png;base64,cA=="}},{"type":"text","text":"[computer screenshot for tool call c2]"},{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,anM="}}]}]""",
         json);
+  }
+
+  [Fact]
+  public void BuildMessages_PostTurnUser_TwoToolCalls_FirstHasImage_MergesIntoOneUserMessage()
+  {
+    ModelRequest request = new(
+    [
+      new Message(Role.User, "look", SentAt),
+      new Message(Role.Assistant, "", SentAt,
+      [
+        new ToolCall("c1", "screenshot", "{}"),
+        new ToolCall("c2", "read", "{}"),
+      ]),
+      new Message(Role.Tool, "", SentAt, ToolCallId: "c1",
+          Parts: [new MessagePart.ImagePart("image/png", "aGVsbG8=")]),
+      new Message(Role.Tool, "file body", SentAt, ToolCallId: "c2"),
+    ]);
+
+    string json = JsonSerializer.Serialize(
+        OpenAiCompatRequestCore.BuildMessages(request, PartsProjection.PostTurnUser),
+        OpenAiCompatRequestCore.WireJson.Options);
+
+    Assert.Equal(
+        /*lang=json,strict*/"""[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"screenshot","arguments":"{}"}},{"id":"c2","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":"","tool_call_id":"c1"},{"role":"tool","content":"file body","tool_call_id":"c2"},{"role":"user","content":[{"type":"text","text":"[computer screenshot for tool call c1]"},{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}]""",
+        json);
+  }
+
+  [Fact]
+  public void BuildMessages_PostTurnUser_ImageWithoutToolCallId_Throws()
+  {
+    // Strict validation: a null tool call id on an image-carrying tool result is
+    // programmer error - the wire could not attribute the image; never coerce.
+    ModelRequest request = new(
+    [
+      new Message(Role.User, "look", SentAt),
+      new Message(Role.Assistant, "", SentAt, [new ToolCall("c1", "read", "{}")]),
+      new Message(Role.Tool, "see attached", SentAt, ToolCallId: null,
+          Parts: [new MessagePart.ImagePart("image/png", "aGVsbG8=")]),
+    ]);
+
+    _ = Assert.Throws<ArgumentException>(
+        () => OpenAiCompatRequestCore.BuildMessages(request, PartsProjection.PostTurnUser));
   }
 
   [Fact]
@@ -119,7 +161,7 @@ public class PartsProjectionWireTests
     string json = OpenAiCompatRequestBuild(request);
 
     Assert.Equal(
-        """[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":"plain text","tool_call_id":"c1"}]""",
+        /*lang=json,strict*/"""[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":"plain text","tool_call_id":"c1"}]""",
         json);
   }
 
@@ -134,7 +176,7 @@ public class PartsProjectionWireTests
     string json = OpenAiCompatRequestBuild(request);
 
     Assert.Equal(
-        """[{"role":"user","content":[{"type":"text","text":"hello"}]}]""",
+        /*lang=json,strict*/"""[{"role":"user","content":[{"type":"text","text":"hello"}]}]""",
         json);
   }
 

@@ -21,7 +21,7 @@ public class PartsSerializationWireTests
     object translated = OpenAiCompatRequestCore.TranslateMessage(m);
 
     Assert.Equal(
-        """{"role":"user","content":[{"type":"text","text":"hello world"}]}""",
+        /*lang=json,strict*/"""{"role":"user","content":[{"type":"text","text":"hello world"}]}""",
         Serialize(translated));
   }
 
@@ -34,7 +34,7 @@ public class PartsSerializationWireTests
     object translated = OpenAiCompatRequestCore.TranslateMessage(m);
 
     Assert.Equal(
-        """{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}""",
+        /*lang=json,strict*/"""{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}""",
         Serialize(translated));
   }
 
@@ -52,7 +52,7 @@ public class PartsSerializationWireTests
     object translated = OpenAiCompatRequestCore.TranslateMessage(m);
 
     Assert.Equal(
-        """{"role":"user","content":[{"type":"text","text":"what is this?"},{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,anM="}},{"type":"text","text":"be specific"}]}""",
+        /*lang=json,strict*/"""{"role":"user","content":[{"type":"text","text":"what is this?"},{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,anM="}},{"type":"text","text":"be specific"}]}""",
         Serialize(translated));
   }
 
@@ -64,7 +64,7 @@ public class PartsSerializationWireTests
     object translated = OpenAiCompatRequestCore.TranslateMessage(m);
 
     Assert.Equal(
-        """{"role":"user","content":"plain text"}""",
+        /*lang=json,strict*/"""{"role":"user","content":"plain text"}""",
         Serialize(translated));
   }
 
@@ -83,7 +83,7 @@ public class PartsSerializationWireTests
     string json = Serialize(OpenAiCompatRequestCore.BuildMessages(request));
 
     Assert.Equal(
-        """[{"role":"system","content":"be brief"},{"role":"system","content":"sys"},{"role":"user","content":"hello"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":"file contents","tool_call_id":"c1"}]""",
+        /*lang=json,strict*/"""[{"role":"system","content":"be brief"},{"role":"system","content":"sys"},{"role":"user","content":"hello"},{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":"file contents","tool_call_id":"c1"}]""",
         json);
   }
 

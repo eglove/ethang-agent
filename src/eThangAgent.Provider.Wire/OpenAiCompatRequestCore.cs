@@ -195,7 +195,18 @@ public static class OpenAiCompatRequestCore
         {
           if (part is MessagePart.ImagePart image)
           {
-            images.Add((m.ToolCallId ?? "", image));
+            // Strict validation: a well-formed history always carries the id; a null
+            // tool call id on an image-carrying result is programmer error - the wire
+            // could not attribute the image, so coerce nothing.
+            if (string.IsNullOrEmpty(m.ToolCallId))
+            {
+              throw new ArgumentException(
+                  "A tool message carrying an image part must have a ToolCallId; "
+                  + "the projection cannot attribute the image to a tool call.",
+                  nameof(turn));
+            }
+
+            images.Add((m.ToolCallId, image));
           }
         }
       }
