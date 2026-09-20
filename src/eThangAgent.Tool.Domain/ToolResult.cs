@@ -4,4 +4,5 @@ namespace eThangAgent.ToolDomain;
 ///     tool message (Content), plus an optional display title for hosts. The title
 ///     never enters the conversation; hosts render it in the card header beside the
 ///     result (the body always shows the content — the program's output for exec).</summary>
-public sealed record ToolResult(string Content, bool IsError, string? Title = null);
+public sealed record ToolResult(string Content, bool IsError, string? Title = null,
+    IReadOnlyList<ToolResultImage>? Images = null);
