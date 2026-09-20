@@ -106,4 +106,16 @@ public class ContextEditToolTests
     Assert.True(result.IsError);
     Assert.StartsWith("Error [MissingParameter]", result.Content, StringComparison.Ordinal);
   }
+
+  [Fact]
+  public void Definition_Carries_Milestone_Timing_Guidance()
+  {
+    ContextEditTool tool = new(new FakeContextService());
+    // Grand-plan follow-up (arXiv 2606.23525, SelfCompact): the model must know
+    // WHEN to shrink - at closed sub-tasks, never mid-exploration - and what a
+    // good shrink preserves.
+    Assert.Contains("milestone", tool.Definition.Description, StringComparison.Ordinal);
+    Assert.Contains("mid-exploration", tool.Definition.Description, StringComparison.Ordinal);
+    Assert.Contains("concrete identifiers", tool.Definition.Description, StringComparison.Ordinal);
+  }
 }
