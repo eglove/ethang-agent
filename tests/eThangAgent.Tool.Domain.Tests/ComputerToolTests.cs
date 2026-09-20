@@ -93,6 +93,10 @@ public class ComputerToolTests
 
     // ranges
     Assert.Contains("0..100", d, StringComparison.Ordinal);
+
+    // positivity rules (fix round 1, F6)
+    Assert.Contains("pid must be positive", d, StringComparison.Ordinal);
+    Assert.Contains("window_id must be positive", d, StringComparison.Ordinal);
     Assert.Contains("1..100", d, StringComparison.Ordinal);
     Assert.Contains("0..30", d, StringComparison.Ordinal);
   }

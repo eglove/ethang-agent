@@ -93,7 +93,7 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
         .Append(" timeoutSeconds is mandatory. action is exactly one of ")
         .Append(string.Join(", ", ActionNames))
         .Append(" (case-sensitive).")
-        .Append(" app_ref is an object with exactly one of name (string), pid (integer), or aumid (string), optionally plus window_id (integer);")
+        .Append(" app_ref is an object with exactly one of name (string), pid (integer; pid must be positive), or aumid (string), optionally plus window_id (integer; window_id must be positive);")
         .Append(" it is required for list_windows and observe. target is an object: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>};")
         .Append(" it is required for click, scroll, set_value, select_text, and perform_action, optional for type and paste.")
         .Append(" Observe accepts include_screenshot and disable_diffing; stop accepts reason; drag takes from_target and to; perform_action takes action_name;")

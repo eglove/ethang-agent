@@ -138,11 +138,11 @@ public class ComputerToolInputTests
   public void Key_ParsesRepeatAndHold()
   {
     ComputerToolInput input = ParseOk(WithTimeout(
-        "\"action\":\"key\",\"text\":\"Return\",\"repeat\":3,\"hold_seconds\":1.5"));
+        "\"action\":\"key\",\"text\":\"Return\",\"repeat\":3,\"hold_seconds\":2"));
     ComputerCommand.Key command = Assert.IsType<ComputerCommand.Key>(input.ToCommand());
     Assert.Equal("Return", command.Text);
     Assert.Equal(3, command.Repeat);
-    Assert.Equal(1.5, command.HoldSeconds);
+    Assert.Equal(2, command.HoldSeconds);
   }
 
   [Fact]
@@ -546,5 +546,119 @@ public class ComputerToolInputTests
     ComputerToolInput input = ParseOk(WithTimeout(
         "\"action\":\"click\"," + ElementTarget + ",\"modifiers\":\"" + modifiers + "\""));
     Assert.Equal(modifiers, input.Modifiers);
+  }
+
+  // ---- fix round 1 (F1): drag modifiers validated like click's ----
+
+  [Fact]
+  public void Drag_UnknownModifierToken_Fails()
+  {
+    string json = WithTimeout("\"action\":\"drag\",\"from_target\":{\"type\":\"element\",\"index\":3},\"to\":{\"type\":\"coordinate\",\"x\":1,\"y\":2},\"modifiers\":\"ctrl+hyper\"");
+    Assert.Equal("InvalidParameterValue", ErrorCode(json));
+  }
+
+  // ---- fix round 1 (F2): interior unknown keys inside app_ref and target objects ----
+
+  [Theory]
+  [InlineData("label")]
+  [InlineData("extra")]
+  [InlineData("note")]
+  public void AppRef_InteriorUnknownKey_Fails(string junkKey)
+  {
+    string appRef = "{\"pid\":42" + junkKeyFragment(junkKey) + "}";
+    string json = WithTimeout("\"action\":\"observe\",\"app_ref\":" + appRef);
+    Assert.Equal("UnknownParameter", ErrorCode(json));
+  }
+
+  [Theory]
+  [InlineData("role")]
+  [InlineData("z")]
+  public void Target_InteriorUnknownKey_Fails(string junkKey)
+  {
+    string target = junkKey == "role"
+      ? "{\"type\":\"element\",\"index\":3" + junkKeyFragment(junkKey) + "}"
+      : "{\"type\":\"coordinate\",\"x\":1,\"y\":2" + junkKeyFragment(junkKey) + "}";
+    string json = WithTimeout("\"action\":\"click\",\"target\":" + target);
+    Assert.Equal("UnknownParameter", ErrorCode(json));
+  }
+
+  /// <summary>Builds a `,"key":"v"` fragment without a JSON-looking literal.
+  ///     (The JSON002 analyzer fires on InlineData strings that parse as JSON.)</summary>
+  private static string junkKeyFragment(string key) =>
+      "," + "\"" + key + "\":" + "\"" + "v" + "\"";
+
+  // ---- fix round 1 (F4): empty modifier tokens are rejected ----
+
+  [Theory]
+  [InlineData("ctrl++shift")]
+  [InlineData("ctrl+")]
+  [InlineData("+shift")]
+  public void Modifier_EmptyTokens_Fail(string modifiers)
+  {
+    string json = WithTimeout("\"action\":\"click\"," + ElementTarget + ",\"modifiers\":\"" + modifiers + "\"");
+    Assert.Equal("InvalidParameterValue", ErrorCode(json));
+  }
+
+  // ---- fix round 1 (F5): hold_seconds is whole seconds only ----
+
+  [Fact]
+  public void HoldSeconds_Fractional_Fails()
+  {
+    string json = WithTimeout("\"action\":\"key\",\"text\":\"a\",\"hold_seconds\":1.5");
+    Assert.Equal("InvalidParameterValue", ErrorCode(json));
+  }
+
+  [Fact]
+  public void HoldSeconds_WholeSeconds_AreAccepted()
+  {
+    ComputerToolInput input = ParseOk(WithTimeout("\"action\":\"key\",\"text\":\"a\",\"hold_seconds\":2"));
+    Assert.Equal(2, input.HoldSeconds);
+  }
+
+  // ---- fix round 1 (F7): matrix holes ----
+
+  [Fact]
+  public void MissingScrollAmount_Fails()
+  {
+    string json = WithTimeout("\"action\":\"scroll\"," + ElementTarget + ",\"scroll_direction\":\"down\"");
+    string code = ErrorCode(json);
+    Assert.Equal("MissingParameter", code);
+    Assert.Contains("'scroll_amount'", Parse(json).Error!.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void MissingSelectTextTarget_Fails()
+  {
+    string json = WithTimeout("\"action\":\"select_text\",\"text\":\"x\"");
+    string code = ErrorCode(json);
+    Assert.Equal("MissingParameter", code);
+    Assert.Contains("'target'", Parse(json).Error!.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void MissingDragFromTarget_Fails()
+  {
+    string json = WithTimeout("\"action\":\"drag\",\"to\":{\"type\":\"coordinate\",\"x\":1,\"y\":2}");
+    string code = ErrorCode(json);
+    Assert.Equal("MissingParameter", code);
+    Assert.Contains("'from_target'", Parse(json).Error!.Message, StringComparison.Ordinal);
+  }
+
+  [Theory]
+  [InlineData(1)]
+  [InlineData(100)]
+  public void Repeat_Boundaries_AreAccepted(int repeat)
+  {
+    ComputerToolInput input = ParseOk(WithTimeout("\"action\":\"key\",\"text\":\"a\",\"repeat\":" + repeat));
+    Assert.Equal(repeat, input.Repeat);
+  }
+
+  [Theory]
+  [InlineData(0)]
+  [InlineData(30)]
+  public void HoldSeconds_Boundaries_AreAccepted(int holdSeconds)
+  {
+    ComputerToolInput input = ParseOk(WithTimeout("\"action\":\"key\",\"text\":\"a\",\"hold_seconds\":" + holdSeconds));
+    Assert.Equal(holdSeconds, input.HoldSeconds);
   }
 }

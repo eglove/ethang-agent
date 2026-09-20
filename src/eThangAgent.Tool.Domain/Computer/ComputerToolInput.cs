@@ -328,6 +328,7 @@ public sealed record ComputerToolInput(
         "The 'drag' action requires from_target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
         .Bind(_ => Required(input, input.To is not null, "to",
         "The 'drag' action requires to: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}."))
+        .Bind(_ => ValidateModifiers(input))
         .Bind(_ => ReturnStateCheck(input)),
     ComputerAction.Scroll => Required(input, input.Target is not null, "target",
         "The 'scroll' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
@@ -368,7 +369,7 @@ public sealed record ComputerToolInput(
         .Bind(_ => Check(input, input.Repeat is null or (>= 1 and <= 100),
             ToolErrorCodes.InvalidParameterValue, $"'repeat' must be 1..100 (got {input.Repeat}); values are never clamped."))
         .Bind(_ => Check(input, input.HoldSeconds is null or (>= 0 and <= 30),
-            ToolErrorCodes.InvalidParameterValue, $"'hold_seconds' must be 0..30 (got {input.HoldSeconds}); values are never clamped."))
+            ToolErrorCodes.InvalidParameterValue, $"'hold_seconds' must be 0..30 whole seconds (got {input.HoldSeconds}); values are never clamped or coerced."))
         .Bind(_ => DispatchChecks(input)),
     ComputerAction.Paste => Required(input, input.Text is not null, "text",
         "The 'paste' action requires text: the content to place on the clipboard and paste, non-empty.")
@@ -435,8 +436,8 @@ public sealed record ComputerToolInput(
       return Result.Success(input);
     }
 
-    string[] tokens = input.Modifiers.Split('+', StringSplitOptions.RemoveEmptyEntries);
-    bool ok = tokens.Length > 0 && tokens.All(t => t is "ctrl" or "alt" or "shift" or "win");
+    string[] tokens = input.Modifiers.Split('+');
+    bool ok = tokens is [_, ..] && tokens.All(t => t is "ctrl" or "alt" or "shift" or "win");
     return ok
       ? Result.Success(input)
       : Result.Failure<ComputerToolInput>(new DomainError(ToolErrorCodes.InvalidParameterValue,
@@ -458,8 +459,10 @@ public sealed record ComputerToolInput(
   private static Result<string?> OptionalName(JsonElement json, string name) =>
     !Has(json, name) ? Result.Success<string?>(null) : ToolArguments.OptionalString(json, name);
 
-  /// <summary>Optional bounded number: null when absent; a typed error when
-  ///     present but not a JSON number. Range checks stay with the caller.</summary>
+  /// <summary>Optional whole-second count: null when absent; InvalidParameterType
+  ///     when present but not a JSON number, InvalidParameterValue when the number is
+  ///     fractional - whole seconds are demanded, never coerced. Range checks stay
+  ///     with the caller.</summary>
   private static Result<double?> OptionalSeconds(JsonElement json, string name)
   {
     if (!json.TryGetProperty(name, out JsonElement el))
@@ -467,11 +470,17 @@ public sealed record ComputerToolInput(
       return Result.Success<double?>(null);
     }
 
-    Result<double?> number = el.ValueKind == JsonValueKind.Number
-      ? Result.Success<double?>(el.GetDouble())
-      : Result.Failure<double?>(new DomainError(ToolErrorCodes.InvalidParameterType,
+    if (el.ValueKind != JsonValueKind.Number)
+    {
+      return Result.Failure<double?>(new DomainError(ToolErrorCodes.InvalidParameterType,
           $"'{name}' must be a number, but got {el.ValueKind}."));
-    return number;
+    }
+
+    Result<double?> whole = el.TryGetInt32(out int seconds)
+      ? Result.Success<double?>(seconds)
+      : Result.Failure<double?>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'{name}' must be a whole number of seconds (got {el.GetDouble()}); fractional values are never coerced."));
+    return whole;
   }
 
   /// <summary>App_ref: object with EXACTLY one of name / pid / aumid, optionally
@@ -485,6 +494,12 @@ public sealed record ComputerToolInput(
     {
       return Result.Failure<ComputerAppRef>(new DomainError(ToolErrorCodes.InvalidParameterType,
           $"'app_ref' must be an object with exactly one of name, pid, or aumid, but got {appRef.ValueKind}. The bare-string shorthand is not offered."));
+    }
+
+    DomainError? unknownAppRefKey = ToolArguments.RejectUnknownParameters(appRef, "name", "pid", "aumid", "window_id");
+    if (unknownAppRefKey is not null)
+    {
+      return Result.Failure<ComputerAppRef>(unknownAppRefKey);
     }
 
     bool hasName = Has(appRef, "name");
@@ -618,6 +633,12 @@ public sealed record ComputerToolInput(
 
   private static Result<ComputerTarget> ElementTarget(JsonElement target, string key)
   {
+    DomainError? unknownKey = ToolArguments.RejectUnknownParameters(target, "type", "index");
+    if (unknownKey is not null)
+    {
+      return Result.Failure<ComputerTarget>(unknownKey);
+    }
+
     if (!Has(target, "index"))
     {
       return Result.Failure<ComputerTarget>(new DomainError(ToolErrorCodes.InvalidParameterValue,
@@ -639,6 +660,12 @@ public sealed record ComputerToolInput(
 
   private static Result<ComputerTarget> CoordinateTarget(JsonElement target, string key)
   {
+    DomainError? unknownKey = ToolArguments.RejectUnknownParameters(target, "type", "x", "y");
+    if (unknownKey is not null)
+    {
+      return Result.Failure<ComputerTarget>(unknownKey);
+    }
+
     if (!Has(target, "x") || !Has(target, "y"))
     {
       return Result.Failure<ComputerTarget>(new DomainError(ToolErrorCodes.InvalidParameterValue,
