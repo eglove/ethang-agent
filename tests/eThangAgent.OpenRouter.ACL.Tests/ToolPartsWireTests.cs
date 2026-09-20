@@ -48,7 +48,7 @@ public class ToolPartsWireTests
     Assert.NotNull(capturedBody);
     using JsonDocument doc = JsonDocument.Parse(capturedBody);
     Assert.Equal(
-        """[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"call-1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}],"tool_call_id":"call-1"}]""",
+        /*lang=json,strict*/"""[{"role":"user","content":"look"},{"role":"assistant","content":"","tool_calls":[{"id":"call-1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}],"tool_call_id":"call-1"}]""",
         doc.RootElement.GetProperty("messages").GetRawText());
   }
 }

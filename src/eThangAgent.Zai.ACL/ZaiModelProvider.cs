@@ -175,7 +175,9 @@ public sealed class ZaiModelProvider(HttpClient http, ZaiConfiguration config,
     Dictionary<string, object?> bodyDict = new()
     {
       ["model"] = config.ModelId,
-      ["messages"] = OpenAiCompatRequestCore.BuildMessages(request),
+      // z.ai's OpenAI-compatible chat API takes no images on tool results; images
+      // project into a synthetic user message after the turn's last tool result.
+      ["messages"] = OpenAiCompatRequestCore.BuildMessages(request, PartsProjection.PostTurnUser),
       ["max_tokens"] = config.MaxTokens,
       ["temperature"] = config.Temperature,
     };
