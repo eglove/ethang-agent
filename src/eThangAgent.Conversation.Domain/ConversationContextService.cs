@@ -1,4 +1,6 @@
+using System.Text;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ConversationDomain;
 
@@ -135,6 +137,16 @@ public sealed class ConversationContextService(Conversation conversation)
     {
       string rendered = string.Join(" ", calls.Select(call => $"tool_call({call.Id}): {call.Name}({call.Arguments})"));
       lines[^1] += (lines[^1].EndsWith(' ') ? "" : " ") + rendered;
+    }
+
+    if (message.Parts is { Count: > 0 })
+    {
+      StringBuilder sb = new();
+      List<PartRender> parts = [.. message.Parts.Select(part => part is MessagePart.ImagePart image
+          ? PartRender.ForImage(image.MediaType, image.Base64Data)
+          : PartRender.ForText(((MessagePart.TextPart)part).Text))];
+      ImagePartMarker.AppendParts(sb, parts);
+      lines[^1] += (lines[^1].EndsWith(' ') ? "" : " ") + sb.ToString().Trim();
     }
 
     if (message.ToolCallId is not null)

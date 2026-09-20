@@ -2,6 +2,7 @@ using System.Text;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain;
 
@@ -85,6 +86,18 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
     return sb.ToString();
   }
 
+  /// <summary>Appends the message's parts render to <paramref name="sb"/> - the
+  ///     shared renderer (ImagePartMarker, Tool Domain): an image part becomes the
+  ///     text marker '[image: mediaType, N bytes]' (N = decoded byte length), a text
+  ///     part appends verbatim. Pinned by tests.</summary>
+  private static void AppendParts(StringBuilder sb, Message message)
+  {
+    List<PartRender> parts = [.. message.Parts!.Select(part => part is MessagePart.ImagePart image
+        ? PartRender.ForImage(image.MediaType, image.Base64Data)
+        : PartRender.ForText(((MessagePart.TextPart)part).Text))];
+    ImagePartMarker.AppendParts(sb, parts);
+  }
+
   private static void AppendMessage(StringBuilder sb, Message message)
   {
     _ = sb.Append('[').Append(message.Role).Append("] ").Append(message.Content);
@@ -94,6 +107,11 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
       {
         _ = sb.Append(" tool_call(").Append(call.Id).Append("): ").Append(call.Name).Append('(').Append(call.Arguments).Append(')');
       }
+    }
+
+    if (message.Parts is { Count: > 0 })
+    {
+      AppendParts(sb, message);
     }
 
     if (message.ToolCallId is not null)
