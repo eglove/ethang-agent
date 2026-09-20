@@ -32,6 +32,7 @@ public sealed class RootAgentResolver(
   private readonly float _temperature = context.Temperature;
   private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IContextWindowSource? _windowSource = context.WindowSource;
+  private readonly IModelCatalog? _catalog = context.Catalog;
 
   /// <summary>True when the caller may skip selection entirely — no selector is wired.
   ///     Exposed for diagnostics and tests.</summary>
@@ -110,7 +111,8 @@ public sealed class RootAgentResolver(
     if (window is { } resolved)
     {
       Result<ModelConfig> created = ModelConfig.Create(
-          modelId, providerName, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort);
+          modelId, providerName, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort,
+          acceptsImageInput: await AcceptsImagesAsync(modelId, providerName, ct).ConfigureAwait(false));
       if (created.IsSuccess)
       {
         return ModelPreferencesOverlay.Apply(created.Value, _preferences);
@@ -128,11 +130,29 @@ public sealed class RootAgentResolver(
     int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(_fallbackModelId, null, ct).ConfigureAwait(false);
     return window is { } resolved
         ? ModelPreferencesOverlay.Apply(
-            ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort).Value!,
+            ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort,
+                acceptsImageInput: await AcceptsImagesAsync(_fallbackModelId, null, ct).ConfigureAwait(false)).Value!,
             _preferences)
         : throw new InvalidOperationException(
             $"Fallback model '{_fallbackModelId}' has no catalog context window; the resolver cannot serve any turn. "
             + "This is a composition wiring fault: the fallback must be a model the catalog (or a curated constant) knows.");
+  }
+
+  /// <summary>The model's vision capability from the session catalog: the first entry
+  ///     matching the model (and provider, when named) that accepts image input. A
+  ///     missing or failed catalog resolves false — capability is never guessed.</summary>
+  private async Task<bool> AcceptsImagesAsync(string modelId, string? providerName, CancellationToken ct)
+  {
+    if (_catalog is null)
+    {
+      return false;
+    }
+
+    Result<IReadOnlyList<ModelProviderEntry>> entries = await _catalog.GetAsync(ct).ConfigureAwait(false);
+    return entries.IsSuccess && entries.Value.Any(e =>
+        e.ModelId == modelId
+        && (providerName is null || e.ProviderName == providerName)
+        && e.SupportsVision);
   }
 
   private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)

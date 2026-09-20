@@ -55,9 +55,10 @@ public class ZaiModelCatalogTests
     {
       Assert.Equal("z.ai", e.ProviderName);
       Assert.True(e.SupportsToolUse);
-      Assert.False(e.SupportsVision);
       Assert.False(string.IsNullOrWhiteSpace(e.Description));
     });
+    Assert.True(result.Value!.Single(e => e.ModelId == "glm-5.3").SupportsVision);
+    Assert.False(result.Value!.Single(e => e.ModelId == "glm-5.3-flash").SupportsVision);
   }
 
   [Fact]

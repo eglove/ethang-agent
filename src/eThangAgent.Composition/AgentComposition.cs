@@ -427,7 +427,8 @@ public static class AgentComposition
                 resolvedFallbackModelId ?? Providers.FallbackModelId(providerName),
                 defaultModel.MaxTokens,
                 defaultModel.Temperature,
-                sp.GetRequiredService<IContextWindowSource>()),
+                sp.GetRequiredService<IContextWindowSource>(),
+                sp.GetRequiredService<IModelCatalog>()),
             sp.GetService<IModelSelector>(),
             sp.GetRequiredService<SessionModelPreferences>()))
         .AddSingleton(sp => new ProviderFailoverResolver(
@@ -437,7 +438,8 @@ public static class AgentComposition
                 resolvedFallbackModelId ?? Providers.FallbackModelId(providerName),
                 defaultModel.MaxTokens,
                 defaultModel.Temperature,
-                sp.GetRequiredService<IContextWindowSource>()),
+                sp.GetRequiredService<IContextWindowSource>(),
+                sp.GetRequiredService<IModelCatalog>()),
             sp.GetRequiredService<IProviderExclusionStore>(),
             sp.GetService<IModelSelector>()))
         .AddSingleton(sp => new SendMessageCommandHandler(
