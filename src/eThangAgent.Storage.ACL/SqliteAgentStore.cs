@@ -19,8 +19,37 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
   private const string SpawnedEventType = "spawned";
   private const string CompletedEventType = "completed";
 
-  /// <summary>Message fields without a dedicated column, serialized into agent_messages.meta_json.</summary>
-  internal sealed record MessageMeta(DateTimeOffset Timestamp, IReadOnlyList<ToolCall>? ToolCalls, string? ToolCallId);
+  /// <summary>One persisted content part: the meta_json entry shape. Concrete by design -
+  ///     System.Text.Json cannot deserialize the abstract MessagePart.</summary>
+  internal sealed record MessageMetaPart(string MediaType, string Base64Data);
+
+  /// <summary>Message fields without a dedicated column, serialized into agent_messages.meta_json.
+  ///     Parts (content parts such as tool-produced images) ride here as a nullable entry list;
+  ///     rows written before parts existed carry no parts key and read back with Parts null.</summary>
+  internal sealed record MessageMeta(DateTimeOffset Timestamp, IReadOnlyList<ToolCall>? ToolCalls,
+      string? ToolCallId, IReadOnlyList<MessageMetaPart>? Parts = null);
+
+  /// <summary>Maps conversation parts onto the meta_json entry shape. Part kinds with no
+  ///     entry representation are a programmer error (extend the mapping with the kind),
+  ///     never a silent drop.</summary>
+  private static IReadOnlyList<MessageMetaPart>? ToMetaParts(IReadOnlyList<MessagePart>? parts)
+      => parts is not { Count: > 0 }
+          ? null
+          : [.. parts.Select(ToMetaPart)];
+
+  private static MessageMetaPart ToMetaPart(MessagePart part) => part switch
+  {
+    MessagePart.ImagePart image => new(image.MediaType, image.Base64Data),
+    _ => throw new InvalidOperationException(
+        $"message part type {part.GetType().Name} has no meta_json representation."),
+  };
+
+  /// <summary>Rebuilds conversation parts from their meta_json entries; empty stays null
+  ///     so parts-less messages keep the legacy shape.</summary>
+  private static IReadOnlyList<MessagePart>? FromMetaParts(IReadOnlyList<MessageMetaPart>? entries)
+      => entries is { Count: > 0 }
+          ? [.. entries.Select(e => (MessagePart)new MessagePart.ImagePart(e.MediaType, e.Base64Data))]
+          : null;
 
   private readonly AppDatabase _database = database ?? throw new ArgumentNullException(nameof(database));
 
@@ -133,7 +162,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
       Add(command, "@role", message.Role.ToString());
       Add(command, "@content", message.Content);
       Add(command, "@meta", JsonSerializer.Serialize(
-          new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId)));
+          new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId, ToMetaParts(message.Parts))));
       _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
       await transaction.CommitAsync(ct).ConfigureAwait(false);
       return Result.Success(id.ToString());
@@ -191,7 +220,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
         Add(command, "@role", message.Role.ToString());
         Add(command, "@content", message.Content);
         Add(command, "@meta", JsonSerializer.Serialize(
-            new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId)));
+            new MessageMeta(message.Timestamp, message.ToolCalls, message.ToolCallId, ToMetaParts(message.Parts))));
         _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
       }
 
@@ -228,7 +257,8 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
           reader.GetString(1),
           meta.Timestamp,
           meta.ToolCalls,
-          meta.ToolCallId));
+          meta.ToolCallId,
+          Parts: FromMetaParts(meta.Parts)));
     }
     return Result.Success<IReadOnlyList<Message>>(messages);
   }
