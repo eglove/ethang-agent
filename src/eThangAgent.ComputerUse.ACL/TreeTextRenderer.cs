@@ -17,8 +17,10 @@ public static class TreeTextRenderer
   /// <summary>Renders one capture_app result. Delta results (base_state_id present)
   ///     render changed rows only behind the ax_snapshot line; no_change results
   ///     render the single summary sentence; full results render the tree trimmed
-  ///     to maxElements (default 1500, the brief's cap - production never varies it;
-  ///     tests may shrink it to keep fixtures small).</summary>
+  ///     to maxElements. PRODUCTION ALWAYS CALLS WITH THE DEFAULT: 1500 is the
+  ///     brief's cap and production code must never pass another value - the
+  ///     parameter is a TEST-ONLY knob so fixtures can exercise the trim on
+  ///     small tables.</summary>
   public static string Render(CaptureAppResult capture, int maxElements = DefaultTrimCap)
   {
     ArgumentNullException.ThrowIfNull(capture);
@@ -27,7 +29,8 @@ public static class TreeTextRenderer
       "delta" => RenderDelta(capture),
       "no_change" => RenderNoChange(capture),
       "full" => RenderFull(capture, maxElements),
-      _ => throw new InvalidOperationException("unreachable: snapshot_mode is validated at the wire layer"),
+      _ => throw new InvalidOperationException(
+          $"unknown snapshot_mode '{capture.SnapshotMode}': BrokerProtocol.CaptureAppResult.From fails closed on modes outside {{full, delta, no_change}}, so this is a programmer error"),
     };
   }
 
@@ -83,7 +86,9 @@ public static class TreeTextRenderer
   private static void AppendHeader(StringBuilder sb, CaptureAppResult capture)
   {
     _ = sb.Append("state_id ").Append(capture.StateId).Append('\n');
-    string app = capture.App.Aumid ?? capture.App.Exe ?? capture.App.Name ?? "";
+    // The brief pins the app line to aumid|exe only; when neither is known the
+    // placeholder '-' stands in rather than leaking the display Name.
+    string app = capture.App.Aumid ?? capture.App.Exe ?? "-";
     _ = sb.Append("app: ").Append(app).Append(" pid=")
         .Append(CultureInfo.InvariantCulture, $"{capture.App.Pid} {Quote(capture.App.Name)}\n");
     CaptureAppWindow w = capture.Window;
@@ -337,8 +342,8 @@ public static class TreeTextRenderer
 
   private static bool IsDefaultAction(string action) => IsUbiquitousPress(action);
 
-  private static bool IsUbiquitousPress(string action) => action is "press" or "invoke"
-    || string.Equals(action, "press", StringComparison.OrdinalIgnoreCase)
+  private static bool IsUbiquitousPress(string action) =>
+    string.Equals(action, "press", StringComparison.OrdinalIgnoreCase)
     || string.Equals(action, "invoke", StringComparison.OrdinalIgnoreCase);
 
   private static bool HasChildren(CaptureAppElement e) => (e.ChildrenTotal ?? 0) > 0;

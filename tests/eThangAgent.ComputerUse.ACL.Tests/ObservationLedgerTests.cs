@@ -90,4 +90,28 @@ public class ObservationLedgerTests
     _ = ledger.Record(Window, MainWin, [], treeShownToModel: false, screenshotOnly: true);
     Assert.Null(ledger.TryGetDiffBase(Window));
   }
+
+  [Fact]
+  public void ValidateIndex_KeysRefsBySparseIndex_NotByListPosition()
+  {
+    ObservationLedger ledger = new();
+    // A sparse table: indexes 0 and 5 only (delta/partial captures).
+    _ = ledger.Record(Window, MainWin, [El(0, "window", "Doc"), El(5, "button", "OK")],
+        treeShownToModel: true, screenshotOnly: false);
+
+    // Index 5 exists even though the list has only two positions.
+    Assert.True(ledger.ValidateIndex(Window, 5).Ok);
+    // Position 1 is NOT an element - the sparse index space decides.
+    LedgerIndexCheck gap = ledger.ValidateIndex(Window, 1);
+    Assert.False(gap.Ok);
+    Assert.Equal(ToolDomain.ComputerErrorCodes.ElementUnavailable, gap.Error);
+  }
+
+  [Fact]
+  public void Record_DuplicateSparseIndexes_FailLoudly()
+  {
+    ObservationLedger ledger = new();
+    _ = Assert.Throws<ArgumentException>(() => ledger.Record(Window, MainWin,
+        [El(3, "button", "A"), El(3, "button", "B")], treeShownToModel: true, screenshotOnly: false));
+  }
 }

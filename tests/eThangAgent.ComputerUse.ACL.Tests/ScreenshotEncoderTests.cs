@@ -22,6 +22,7 @@ public class ScreenshotEncoderTests
     Assert.Equal(200, delivered.Height);
     Assert.Equal(ScreenshotEncoder.StartQuality, delivered.Quality);
     Assert.True(delivered.Base64.Length <= ScreenshotEncoder.MaxBase64Length);
+    Assert.False(delivered.OverBound, "a fitting delivery must not be flagged OverBound");
   }
 
   [Fact]
@@ -52,20 +53,64 @@ public class ScreenshotEncoderTests
   }
 
   [Fact]
-  public void Encode_QualityLadderFloorsAt40_ThenShrinks()
+  public void Encode_QualityLadderFloorsAt40_ThenShrinks_InEightTenthsSteps()
   {
     // Big worst-case raster: quality ladder exhausts, ladder shrinks 0.8x until
-    // the bound fits; final edge stays at or over the 320 floor (or the floor
-    // was reached and delivery is over-bound by design).
+    // the bound fits; the delivered width must be exactly one rung of the
+    // 0.8-step ladder floor(1280*0.8^k) (never a single straight-to-floor jump),
+    // stay at or over the 320 floor, and - when both floors exhaust - be
+    // delivered OverBound rather than silently.
     byte[] png = NoisePng(2400, 2400);
 
     DeliveredScreenshot delivered = ScreenshotEncoder.Encode(png);
 
     Assert.True(delivered.Quality >= ScreenshotEncoder.QualityFloor,
         $"quality {delivered.Quality} sank under the floor 40");
+    Assert.True(delivered.Width >= ScreenshotEncoder.MinEdge,
+        $"delivered width {delivered.Width} sank under the shrink floor 320");
+    bool onALadderRung = IsLadderRung(delivered.Width);
+    Assert.True(onALadderRung,
+        $"delivered width {delivered.Width} is not floor(1280*0.8^k) for any k");
     bool fits = delivered.Base64.Length <= ScreenshotEncoder.MaxBase64Length;
-    bool floored = Math.Min(delivered.Width, delivered.Height) <= 320;
-    Assert.True(fits || floored, "neither the bound was met nor the shrink floor reached");
+    bool atFloor = delivered.Width == LastRung();
+    if (!fits)
+    {
+      Assert.True(atFloor && delivered.OverBound,
+          $"over-bound delivery allowed only at the shrink floor with OverBound set (width {delivered.Width}, OverBound {delivered.OverBound})");
+    }
+    else
+    {
+      Assert.False(delivered.OverBound, "fitting delivery must not be flagged OverBound");
+    }
+  }
+
+  private static bool IsLadderRung(int width)
+  {
+    double edge = ScreenshotEncoder.MaxEdge;
+    while (edge >= ScreenshotEncoder.MinEdge)
+    {
+      if ((int)Math.Floor(edge) == width)
+      {
+        return true;
+      }
+
+      edge = Math.Floor(edge * ScreenshotEncoder.ShrinkFactor);
+    }
+
+    return false;
+  }
+
+  private static int LastRung()
+  {
+    double edge = ScreenshotEncoder.MaxEdge;
+    int rung = (int)edge;
+    while (Math.Floor(edge * ScreenshotEncoder.ShrinkFactor) >= ScreenshotEncoder.MinEdge)
+    {
+      edge = Math.Floor(edge * ScreenshotEncoder.ShrinkFactor);
+      rung = (int)edge;
+    }
+
+    return rung;
   }
 
   [Fact]
@@ -100,6 +145,7 @@ public class ScreenshotEncoderTests
     Assert.Empty(blank.Jpeg);
     Assert.Equal("blank raster withheld", blank.Base64);
     Assert.Equal(ScreenshotEncoder.BlankQuality, blank.Quality);
+    Assert.False(blank.OverBound, "the blank passthrough never delivers over bound");
   }
 
   // ---- fixtures ----

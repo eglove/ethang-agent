@@ -117,7 +117,9 @@ public sealed class FrameRegistry
     }
   }
 
-  /// <summary>Resolves a model coordinate target to a global screen point. The id
+  /// <summary>Resolves a model coordinate target to a global screen point. Every
+  ///     resolution ATTEMPT - failed resolves included - refreshes the touched
+  ///     frame's recency: recency means last use attempt, by design. The id
   ///     spelling 'latest' (case-insensitive) resolves against the newest frame;
   ///     anything else is a frame id. The mapping is: model pixel -> pixel-center
   ///     fraction of the delivered raster -> source window rect -> screen points

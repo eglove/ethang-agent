@@ -94,6 +94,18 @@ public class BrokerProtocolRecordTests
   }
 
   [Fact]
+  public void CaptureAppResult_UnknownSnapshotMode_FailsClosed()
+  {
+    string app = "{" + J("pid") + ":5," + J("name") + ":" + J("n") + "}";
+    string window = "{" + J("title") + ":" + J("t") + "," + J("window_id") + ":1," + J("bounds") + ":[0,0,1,1],"
+      + J("surface_kind") + ":" + J("window") + "," + J("surface_lifecycle") + ":" + J("stable") + "}";
+    string fixture = "{" + J("id") + ":7," + J("result") + ":{" + J("state_id") + ":" + J("s-1") + "," + J("snapshot_mode") + ":" + J("upside_down")
+      + "," + J("app") + ":" + app + "," + J("window") + ":" + window + "," + J("elements") + ":[]}}";
+    BrokerReply reply = BrokerReply.Parse(fixture) ?? throw new InvalidOperationException("parse failed");
+    Assert.Null(CaptureAppResult.From(reply));
+  }
+
+  [Fact]
   public void ActionReceipt_Fixture_RoundTripsAndHonorsHonesty()
   {
     string fixture = "{" + J("id") + ":3," + J("result") + ":{" + J("action_sent") + ":false," + J("dispatch_status") + ":" + J("possibly_sent")

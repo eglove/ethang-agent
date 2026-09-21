@@ -127,9 +127,9 @@ public sealed record CaptureAppResult(
 
     string? stateId = Wire.Str(root, "state_id");
     string? snapshotMode = Wire.Str(root, "snapshot_mode");
-    if (stateId is null || snapshotMode is null || !root.TryGetProperty("app", out JsonElement appEl)
-        || appEl.ValueKind != JsonValueKind.Object || !root.TryGetProperty("window", out JsonElement windowEl)
-        || windowEl.ValueKind != JsonValueKind.Object)
+    if (stateId is null || snapshotMode is not ("full" or "delta" or "no_change")
+        || !root.TryGetProperty("app", out JsonElement appEl) || appEl.ValueKind != JsonValueKind.Object
+        || !root.TryGetProperty("window", out JsonElement windowEl) || windowEl.ValueKind != JsonValueKind.Object)
     {
       return null;
     }
@@ -199,7 +199,9 @@ public sealed record CaptureAppWindow(string Title, int WindowId, int[] Bounds, 
   }
 }
 
-/// <summary>One observed element row: the spec 3.1 element table, wire-faithful.</summary>
+/// <summary>One observed element row: the spec 3.1 element table, wire-faithful.
+///     There is NO default_action flag on the wire: the renderer derives it from
+///     actions[] containing press/invoke (the ubiquitous default press).</summary>
 #pragma warning disable CA1819 // Named decision: bounds is a wire row cell, see CaptureAppWindow.
 public sealed record CaptureAppElement(
   int Index,

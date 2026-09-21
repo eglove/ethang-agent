@@ -15,7 +15,10 @@ public sealed class ObservationLedger
   private readonly Dictionary<LedgerKey, LedgerEntry> _entries = [];
 
   /// <summary>Records one capture against the window's ledger row. Returns the
-  ///     newly minted, monotonically increasing state id for that window.</summary>
+  ///     newly minted, monotonically increasing state id for that window. The
+  ///     element table is stored KEYED BY EACH ELEMENT'S sparse Index (never by
+  ///     list position), so delta-mode or sparse tables validate correctly;
+  ///     duplicate indexes are a caller contract violation and throw.</summary>
   public string Record(LedgerKey window, LedgerWindow fingerprint, IReadOnlyList<CaptureAppElement> elements,
       bool treeShownToModel, bool screenshotOnly)
   {
@@ -28,12 +31,21 @@ public sealed class ObservationLedger
       next = existing.NextStateNumber + 1;
     }
 
-    LedgerElementRef[] currentRefs = [.. elements.Select(e => new LedgerElementRef(e.Role, e.Title ?? ""))];
+    int duplicate = elements.GroupBy(static e => e.Index).FirstOrDefault(static g => g.Count() > 1)?.Key ?? -1;
+    if (duplicate >= 0)
+    {
+      throw new ArgumentException(
+        $"duplicate element index {duplicate} in the capture table; the ledger keys refs by sparse index and requires them unique.", nameof(elements));
+    }
+
+    SortedDictionary<int, LedgerElementRef> currentRefs = new(elements
+        .OrderBy(static e => e.Index)
+        .ToDictionary(static e => e.Index, static e => new LedgerElementRef(e.Role, e.Title ?? "")));
 
     // A screenshot-only observation RESETS the diff baseline: the model has no
     // tree to diff against until the next model-visible tree arrives.
     int? modelVisibleState = null;
-    LedgerElementRef[]? modelVisibleRefs = null;
+    SortedDictionary<int, LedgerElementRef>? modelVisibleRefs = null;
     LedgerWindow? baseline = null;
     if (!screenshotOnly && _entries.TryGetValue(window, out LedgerEntry? prior) && prior is not null)
     {
@@ -73,9 +85,9 @@ public sealed class ObservationLedger
         "the model has not seen this window's current element tree; observe first."),
     _ when ReplacedSinceLastLook(entry) => new LedgerIndexCheck(false, ComputerErrorCodes.StaleState,
         $"the window changed since the model's last look (state s-{entry.ModelVisibleState}); observe first."),
-    _ when index < 0 || index >= entry.CurrentRefs.Length => new LedgerIndexCheck(false,
+    _ when !entry.CurrentRefs.ContainsKey(index) => new LedgerIndexCheck(false,
         ComputerErrorCodes.ElementUnavailable,
-        $"element index {index} does not exist in the latest observation of this window (0..{entry.CurrentRefs.Length - 1})."),
+        $"element index {index} does not exist in the latest observation of this window (present: {string.Join(", ", entry.CurrentRefs.Keys)})."),
     _ => new LedgerIndexCheck(true, null, null),
   };
 
@@ -96,8 +108,8 @@ public sealed class ObservationLedger
   private static LedgerDiffBase? DiffBase(LedgerEntry? entry) => entry switch
   {
     null => null,
-    _ when entry.ModelVisibleState is int visible && entry.ModelVisibleRefs is LedgerElementRef[] refs
-        => new LedgerDiffBase(LedgerStateId(visible), refs),
+    _ when entry.ModelVisibleState is int visible && entry.ModelVisibleRefs is SortedDictionary<int, LedgerElementRef> refs
+        => new LedgerDiffBase(LedgerStateId(visible), [.. refs.Values]),
     _ => null,
   };
 
@@ -106,11 +118,11 @@ public sealed class ObservationLedger
 
   private sealed record LedgerEntry(
       int NextStateNumber,
-      LedgerElementRef[] CurrentRefs,
+      SortedDictionary<int, LedgerElementRef> CurrentRefs,
       LedgerWindow? CurrentFingerprint,
       LedgerWindow? BaselineFingerprint,
       int? ModelVisibleState,
-      LedgerElementRef[]? ModelVisibleRefs);
+      SortedDictionary<int, LedgerElementRef>? ModelVisibleRefs);
 }
 
 /// <summary>App+window ledger key: pid plus the broker's window id.</summary>

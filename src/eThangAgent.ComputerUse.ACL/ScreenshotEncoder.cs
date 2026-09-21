@@ -7,8 +7,13 @@ namespace eThangAgent.ComputerUse.ACL;
 /// <summary>A re-encoded screenshot the model receives: the delivered JPEG bytes,
 ///     their size in pixels, and the base64 text. Width/Height are the DELIVERED
 ///     raster's - the model quotes pixel coordinates against them.</summary>
+/// <summary>OverBound is true when both ladder floors were exhausted and the
+///     delivered bytes still exceed MaxBase64Length: the raster is delivered
+///     over-bound rather than dropped (delivery-state honesty) and the flag
+///     lets the caller disclose that. OverBound is false for the Blank
+///     passthrough (no encode happened, nothing was delivered over bound).</summary>
 #pragma warning disable CA1819 // Named decision: Jpeg is the delivered raster bytes, one buffer handed over, never mutated after; a copied IReadOnlyList would double the allocation per screenshot.
-public sealed record DeliveredScreenshot(int Width, int Height, byte[] Jpeg, string Base64, int Quality);
+public sealed record DeliveredScreenshot(int Width, int Height, byte[] Jpeg, string Base64, int Quality, bool OverBound = false);
 #pragma warning restore CA1819
 
 /// <summary>The screenshot-encode ladder (spec 3.5): decode the broker's PNG
@@ -46,8 +51,8 @@ public static class ScreenshotEncoder
   public const int BlankQuality = 0;
 
   /// <summary>The blank-raster passthrough the caller returns when the broker
-  ///     withheld a screenshot: no bytes, no re-encode, the reason travels in the
-  ///     Jpeg field position's place (the caller reads it as the withhold reason).
+  ///     withheld a screenshot: no bytes and no re-encode; Jpeg is EMPTY and the
+  ///     withhold reason travels in the Base64 field (Quality is BlankQuality).
   ///     </summary>
   public static DeliveredScreenshot Blank(int width, int height, string reason)
   {
@@ -96,8 +101,8 @@ public static class ScreenshotEncoder
 
       // Quality exhausted: shrink 0.8x and restart the ladder at 75 - unless the
       // shrink floor is reached, where the current raster is delivered at floor
-      // quality unconditionally (a rare oversized raster is delivered over-bound
-      // rather than dropped - delivery-state honesty).
+      // quality with OverBound set (a rare oversized raster is delivered
+      // over-bound rather than dropped - delivery-state honesty).
       int shrunkW = (int)Math.Floor(targetW * ShrinkFactor);
       int shrunkH = (int)Math.Floor(targetH * ShrinkFactor);
       if (shrunkW < MinEdge || shrunkH < MinEdge)
@@ -113,7 +118,8 @@ public static class ScreenshotEncoder
       jpeg = EncodeJpeg(pixels, targetW, targetH, quality);
     }
 
-    return new DeliveredScreenshot(targetW, targetH, jpeg, Convert.ToBase64String(jpeg), quality);
+    bool overBound = Base64Length(jpeg) > MaxBase64Length;
+    return new DeliveredScreenshot(targetW, targetH, jpeg, Convert.ToBase64String(jpeg), quality, overBound);
   }
 
   /// <summary>The largest size at or under (w, h) whose longest edge stays at or
