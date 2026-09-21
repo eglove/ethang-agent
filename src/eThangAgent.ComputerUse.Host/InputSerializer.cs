@@ -87,7 +87,7 @@ internal sealed class InputSerializer
 
 /// <summary>Ownership token for one in-flight input operation: End (or Dispose)
 ///     releases the gate. Idempotent - a double End never frees someone else's slot.</summary>
-internal sealed class InputOperation : IDisposable
+public sealed class InputOperation : IDisposable
 {
   private readonly InputSerializer _owner;
   private int _ended;

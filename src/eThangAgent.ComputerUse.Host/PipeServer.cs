@@ -295,27 +295,14 @@ public sealed class PipeServer
 
     using InputOperation? operation = InputSerializer.TryBegin(method);
     return operation is not null
-      ? InputDispatcher.Execute(id, method, parameters)
+      ? InputRouter.Execute(id, method, parameters)
       : BrokerResponse.Fail(
         "input_busy",
         $"another input operation ({InputSerializer.CurrentMethod}) is in flight; nothing was dispatched.",
         "action_sent=false");
   }
 
-  /// <summary>The task-17 dispatch seam: the skeleton answers unimplemented for every
-  ///     input method; task 17 replaces the body with SendInput/clipboard work while
-  ///     the receipt contract (action_sent true only after real dispatch; timeouts after
-  ///     write are possibly_sent) stays exactly this shape.</summary>
-  internal static class InputDispatcher
-  {
-    public static BrokerResponse Execute(int id, string method, JsonElement? parameters)
-    {
-      _ = id;
-      _ = method;
-      _ = parameters;
-      return BrokerResponse.Fail("unimplemented", "input dispatch arrives with the task 17 native surface.");
-    }
-  }
+
 
   /// <summary>The default observer: capture methods answer unimplemented until task 17
   ///     supplies the real walk/capture implementation at composition.</summary>
