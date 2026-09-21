@@ -16,7 +16,7 @@ public static class BrokerErrorMapper
 
   private static string Surface(string wireCode) => wireCode switch
   {
-    "permission_denied" => ComputerErrorCodes.AppNotFound,
+    "permission_denied" => ComputerErrorCodes.ActionUnavailable,
     "launch_failed" => ComputerErrorCodes.LaunchFailed,
     "invalid_request" => ComputerErrorCodes.InvalidApp,
     "element_unavailable" => ComputerErrorCodes.ElementUnavailable,
@@ -26,6 +26,8 @@ public static class BrokerErrorMapper
     "foreground_required" => ComputerErrorCodes.ForegroundRequired,
     "controller_busy" => ComputerErrorCodes.ControllerBusy,
     "internal" => ComputerErrorCodes.Internal,
+    "method_not_found" => ComputerErrorCodes.Internal,
+    "unimplemented" => ComputerErrorCodes.ActionUnavailable,
     "timeout" => ComputerErrorCodes.Timeout,
     "stale_state" => ComputerErrorCodes.StaleState,
     "version_mismatch" => ComputerErrorCodes.VersionMismatch,

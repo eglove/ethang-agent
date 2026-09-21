@@ -103,18 +103,27 @@ public sealed class NdjsonPipeClient : IAsyncDisposable
       throw new BrokerVersionException("hello returned no result object.");
     }
 
-    if (result.Value.TryGetProperty("protocol", out JsonElement protoEl)
-        && protoEl.ValueKind == JsonValueKind.Number && protoEl.TryGetInt32(out int brokerVersion)
-        && brokerVersion != protocolVersion)
+    // Fail closed: BOTH keys are mandatory. A hello without them is a version mismatch.
+    if (!result.Value.TryGetProperty("protocol", out JsonElement protoEl)
+        || protoEl.ValueKind != JsonValueKind.Number || !protoEl.TryGetInt32(out int brokerVersion))
+    {
+      throw new BrokerVersionException("hello result is missing the protocol version.");
+    }
+
+    if (brokerVersion != protocolVersion)
     {
       throw new BrokerVersionException($"protocol version mismatch: client {protocolVersion}, broker {brokerVersion}.");
     }
 
-    if (result.Value.TryGetProperty("platform", out JsonElement platEl)
-        && platEl.ValueKind == JsonValueKind.String && platEl.GetString() is { } brokerPlatform
-        && !string.Equals(brokerPlatform, platform, StringComparison.OrdinalIgnoreCase))
+    if (!result.Value.TryGetProperty("platform", out JsonElement platEl) || platEl.ValueKind != JsonValueKind.String)
     {
-      throw new BrokerVersionException($"platform mismatch: client {platform}, broker {brokerPlatform}.");
+      throw new BrokerVersionException("hello result is missing the platform.");
+    }
+
+    string? brokerPlatform = platEl.GetString();
+    if (brokerPlatform is null || !string.Equals(brokerPlatform, platform, StringComparison.OrdinalIgnoreCase))
+    {
+      throw new BrokerVersionException($"platform mismatch: client {platform}, broker {brokerPlatform ?? "null"}.");
     }
   }
 
@@ -190,7 +199,7 @@ public sealed class NdjsonPipeClient : IAsyncDisposable
   private async Task ReadLoopAsync()
   {
     CancellationToken ct = _readerCts.Token;
-    StringBuilder line = new();
+    List<byte> lineBytes = [];
     byte[] buffer = new byte[8192];
     try
     {
@@ -204,16 +213,18 @@ public sealed class NdjsonPipeClient : IAsyncDisposable
 
         for (int i = 0; i < read; i++)
         {
-          byte b = buffer[i];
-          if (b == (byte)'\n')
+          if (buffer[i] == (byte)'\n')
           {
-            await HandleLineAsync(line.ToString()).ConfigureAwait(false);
-            _ = line.Clear();
+            // Newline is ASCII 0x0A and never appears inside a multi-byte UTF-8 sequence or an
+            // unescaped JSON string, so byte-splitting is safe; decode the full line as UTF-8.
+            string frame = Encoding.UTF8.GetString([.. lineBytes]);
+            lineBytes.Clear();
+            await HandleLineAsync(frame).ConfigureAwait(false);
           }
           else
           {
-            _ = line.Append((char)b);
-            if (line.Length > BrokerProtocolConstants.MaxFrameBytes)
+            lineBytes.Add(buffer[i]);
+            if (lineBytes.Count > BrokerProtocolConstants.MaxFrameBytes)
             {
               throw new BrokerProtocolException($"frame exceeds the {BrokerProtocolConstants.MaxFrameBytes}-byte ceiling; closing connection.");
             }
@@ -300,7 +311,7 @@ public sealed class NdjsonPipeClient : IAsyncDisposable
   // reads via the reader loop only after it starts, so direct reads use this helper.
   private async Task<string> ReadLineAsync(CancellationToken ct)
   {
-    StringBuilder line = new();
+    List<byte> lineBytes = [];
     byte[] buffer = new byte[1];
     while (true)
     {
@@ -312,10 +323,10 @@ public sealed class NdjsonPipeClient : IAsyncDisposable
 
       if (buffer[0] == (byte)'\n')
       {
-        return line.ToString();
+        return Encoding.UTF8.GetString([.. lineBytes]);
       }
 
-      _ = line.Append((char)buffer[0]);
+      lineBytes.Add(buffer[0]);
     }
   }
 

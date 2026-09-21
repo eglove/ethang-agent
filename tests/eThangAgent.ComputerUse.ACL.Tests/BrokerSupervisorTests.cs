@@ -81,4 +81,91 @@ public class BrokerSupervisorTests
       await supervisor.DisposeAsync().ConfigureAwait(true);
     }
   }
+
+  [Fact]
+  public async Task WireReceipt_ActionSentFalse_SurvivesToOutcome()
+  {
+    string hostPath = StubHostBuilder.Build();
+    string pipeName = "ethang-test-" + Guid.NewGuid().ToString("N");
+    BrokerSupervisor supervisor = new(hostPath, pipeName, "receipt-test");
+    try
+    {
+      ComputerOutcome outcome = await supervisor.RequestAsync("deny", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      ComputerOutcome.Receipt receipt = Assert.IsType<ComputerOutcome.Receipt>(outcome);
+      Assert.False(receipt.ActionSent);
+      Assert.Equal("possibly_sent", receipt.DispatchStatus);
+      Assert.Equal("unchanged", receipt.EffectEvidence);
+    }
+    finally
+    {
+      await supervisor.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+  [Fact]
+  public async Task UnreadyPipe_YieldsTimeoutFailure_Retryable_NoException()
+  {
+    string hostPath = StubHostBuilder.Build();
+    string pipeName = "ethang-test-none-" + Guid.NewGuid().ToString("N");
+    FakeDelayer delayer = new();
+    BrokerSupervisor supervisor = new(hostPath, pipeName, "timeout-test",
+        (exe, pipe, token) => Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true })!,
+        notReady: new NotReadyPolicy(delayer));
+    try
+    {
+      ComputerOutcome outcome = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(outcome);
+      Assert.Equal(ComputerErrorCodes.Timeout, failure.Code);
+      Assert.Equal("retry", ComputerErrorCodes.RetryHint(failure.Code));
+    }
+    finally
+    {
+      await supervisor.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
+  [Fact]
+  public async Task MissingHostExe_IsHelperUnavailableFailure_WithoutRestartBudget()
+  {
+    string pipeName = "ethang-test-none-" + Guid.NewGuid().ToString("N");
+    BrokerSupervisor supervisor = new(@"C:\no\such\host.exe", pipeName, "nohost");
+    try
+    {
+      ComputerOutcome first = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      ComputerOutcome.Failure firstFailure = Assert.IsType<ComputerOutcome.Failure>(first);
+      Assert.Equal(ComputerErrorCodes.HelperUnavailable, firstFailure.Code);
+      Assert.Contains("host", firstFailure.Message, StringComparison.Ordinal);
+      ComputerOutcome second = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      ComputerOutcome.Failure secondFailure = Assert.IsType<ComputerOutcome.Failure>(second);
+      Assert.Contains("host", secondFailure.Message, StringComparison.Ordinal);
+    }
+    finally
+    {
+      await supervisor.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
+  [Fact]
+  public async Task SecondConsecutiveCrash_ReportsLostTwice()
+  {
+    string hostPath = StubHostBuilder.Build();
+    string pipeName = "ethang-test-" + Guid.NewGuid().ToString("N");
+    BrokerSupervisor supervisor = new(hostPath, pipeName, "twice-test");
+    try
+    {
+      ComputerOutcome served = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      bool servedOk = served is ComputerOutcome.Receipt;
+      Assert.True(servedOk, "first request should succeed");
+      ComputerOutcome firstCrash = await supervisor.RequestAsync("crash", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      bool firstIsFailure = firstCrash is ComputerOutcome.Failure;
+      Assert.True(firstIsFailure, "first crash should fail");
+      ComputerOutcome secondCrash = await supervisor.RequestAsync("crash", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(secondCrash);
+      Assert.Equal(ComputerErrorCodes.HelperUnavailable, failure.Code);
+      Assert.Contains("lost twice", failure.Message, StringComparison.Ordinal);
+    }
+    finally
+    {
+      await supervisor.DisposeAsync().ConfigureAwait(true);
+    }
+  }
 }

@@ -46,17 +46,29 @@ internal sealed class FakeBroker : IAsyncDisposable
       ReceivedAuth = ExtractToken(auth);
       if (_mode == "auth")
       {
-        await WriteLineAsync(Frame(0, JsonValue(new { ok = false, code = "not_authorized", message = "bad token" })), _cts.Token).ConfigureAwait(true);
+        await WriteLineAsync(JsonEncoder.Reply(0, JsonValue(new { ok = false, code = "not_authorized", message = "bad token" })), _cts.Token).ConfigureAwait(true);
         return;
       }
 
-      await WriteLineAsync(Frame(0, JsonValue(new { ok = true })), _cts.Token).ConfigureAwait(true);
+      await WriteLineAsync(JsonEncoder.Reply(0, JsonValue(new { ok = true })), _cts.Token).ConfigureAwait(true);
 
       string hello = await ReadLineAsync(_cts.Token).ConfigureAwait(true);
       int helloId = ExtractId(hello);
       if (_mode == "version")
       {
         await WriteLineAsync(JsonEncoder.Reply(helloId, JsonValue(new { protocol = 999, platform = "linux" })), _cts.Token).ConfigureAwait(true);
+        return;
+      }
+
+      if (_mode == "no-protocol")
+      {
+        await WriteLineAsync(JsonEncoder.Reply(helloId, JsonValue(new { platform = "windows" })), _cts.Token).ConfigureAwait(true);
+        return;
+      }
+
+      if (_mode == "no-platform")
+      {
+        await WriteLineAsync(JsonEncoder.Reply(helloId, JsonValue(new { protocol = 1 })), _cts.Token).ConfigureAwait(true);
         return;
       }
 
@@ -82,7 +94,18 @@ internal sealed class FakeBroker : IAsyncDisposable
         }
         else
         {
-          await WriteLineAsync(JsonEncoder.Reply(id, JsonValue(new { echo = true })), _cts.Token).ConfigureAwait(true);
+          string echoParams = "null";
+          try
+          {
+            using JsonDocument d = JsonDocument.Parse(line);
+            echoParams = d.RootElement.TryGetProperty("params", out JsonElement pe) ? pe.GetRawText() : "null";
+          }
+          catch (JsonException ex)
+          {
+            echoParams = "\"parse-error: " + ex.Message + "\"";
+          }
+
+          await WriteLineAsync(JsonEncoder.Reply(id, "{" + JsonEncoder.Q("echoed_params") + ":" + echoParams + "}"), _cts.Token).ConfigureAwait(true);
         }
       }
     }
@@ -113,7 +136,7 @@ internal sealed class FakeBroker : IAsyncDisposable
 
   private async Task<string> ReadLineAsync(CancellationToken ct)
   {
-    StringBuilder sb = new();
+    List<byte> lineBytes = [];
     byte[] one = new byte[1];
     while (true)
     {
@@ -125,10 +148,10 @@ internal sealed class FakeBroker : IAsyncDisposable
 
       if (one[0] == (byte)'\n')
       {
-        return sb.ToString();
+        return Encoding.UTF8.GetString([.. lineBytes]);
       }
 
-      _ = sb.Append((char)one[0]);
+      lineBytes.Add(one[0]);
     }
   }
 
@@ -139,9 +162,12 @@ internal sealed class FakeBroker : IAsyncDisposable
     await _server.FlushAsync(ct).ConfigureAwait(true);
   }
 
-  private static string Frame(int id, string resultJson) => "{\"id\":" + id.ToString(CultureInfo.InvariantCulture) + ",\"result\":" + resultJson + "}";
+  private static readonly JsonSerializerOptions Relaxed = new(JsonSerializerDefaults.Web)
+  {
+    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+  };
 
-  private static string JsonValue(object value) => JsonSerializer.Serialize(value);
+  private static string JsonValue(object value) => JsonSerializer.Serialize(value, Relaxed);
 
   /// <inheritdoc />
   public async ValueTask DisposeAsync()
@@ -176,6 +202,8 @@ internal sealed class FakeBroker : IAsyncDisposable
 /// <summary>Builds reply frames with exact JSON shapes for the fake broker.</summary>
 internal static class JsonEncoder
 {
+  public static string Q(string name) => "\"" + name + "\"";
+
   public static string Reply(int id, string resultJson)
     => "{" + "\"id\":" + id.ToString(CultureInfo.InvariantCulture) + ",\"result\":" + resultJson + "}";
 }

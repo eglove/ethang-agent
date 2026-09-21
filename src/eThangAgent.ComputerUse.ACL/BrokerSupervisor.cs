@@ -15,7 +15,7 @@ public delegate Process SpawnHost(string exePath, string pipeName, string token)
 ///     dies with this process), and ONE lazy restart with short backoff after a healthy
 ///     connection is lost. A second consecutive crash propagates to the caller. Dispose is a
 ///     best-effort kill.</summary>
-public sealed class BrokerSupervisor(string hostPath, string pipeName, string workspaceId, SpawnHost? spawn = null) : IAsyncDisposable
+public sealed class BrokerSupervisor(string hostPath, string pipeName, string workspaceId, SpawnHost? spawn = null, NotReadyPolicy? notReady = null) : IAsyncDisposable
 {
   private const int ProtocolVersion = 1;
   private const string Platform = "windows";
@@ -26,9 +26,11 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   private readonly string _hostPath = hostPath ?? throw new ArgumentNullException(nameof(hostPath));
   private readonly string _pipeName = pipeName ?? throw new ArgumentNullException(nameof(pipeName));
   private readonly SpawnHost _spawn = spawn ?? DefaultSpawn;
+  private readonly NotReadyPolicy? _notReady = notReady;
   private readonly Lock _gate = new();
-  private readonly List<Process> _processes = [];
+  private readonly List<(Process Process, nint Job)> _processes = [];
   private NdjsonPipeClient? _client;
+  private Task<NdjsonPipeClient>? _connecting;
   private string _token = NewToken();
   private int _crashes;
   private bool _disposed;
@@ -56,9 +58,7 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
         ["ETHANG_COMPUTER_USE_TOKEN"] = token,
       },
     };
-    Process process = Process.Start(psi) ?? throw new BrokerSupervisorException("broker host failed to start");
-    _ = JobObject.Assign(process);
-    return process;
+    return Process.Start(psi) ?? throw new BrokerSupervisorException("broker host failed to start");
   }
 
   /// <summary>Executes one broker request, spawning or restarting the broker as needed.
@@ -71,7 +71,14 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
     {
       return await RoundTripAsync(method, parameters, ct).ConfigureAwait(false);
     }
-    catch (Exception ex) when (ex is BrokerConnectionClosedException or BrokerProtocolException or IOException or BrokerSupervisorException)
+    catch (Exception ex) when (ex is BrokerSupervisorException or BrokerTimeoutException)
+    {
+      // Configuration or readiness problems: nothing was sent, no restart budget burned.
+      return ex is BrokerTimeoutException
+        ? new ComputerOutcome.Failure(ComputerErrorCodes.Timeout, "broker pipe never became ready: " + Inner(ex))
+        : new ComputerOutcome.Failure(ComputerErrorCodes.HelperUnavailable, Inner(ex));
+    }
+    catch (Exception ex) when (ex is BrokerConnectionClosedException or BrokerProtocolException or IOException)
     {
       _crashes++;
       if (_crashes > 1)
@@ -97,46 +104,52 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
     return ToOutcome(reply);
   }
 
-  private async Task<NdjsonPipeClient> GetClientAsync(CancellationToken ct)
+  private Task<NdjsonPipeClient> GetClientAsync(CancellationToken ct)
   {
     _gate.Enter();
-    NdjsonPipeClient? existing;
     try
     {
-      existing = _client;
-      if (existing is not null)
+      if (_client is not null)
       {
-        return existing;
+        return Task.FromResult(_client);
       }
+
+      // Single flight: one spawn+handshake; concurrent first requests await the winner.
+      _connecting ??= ConnectAsync(ct);
+      return _connecting;
     }
     finally
     {
       _gate.Exit();
     }
+  }
 
-    if (existing is not null)
-    {
-      return existing;
-    }
-
-    // Connect outside the lock; the pipe name arbitrates duplicate spawns between racers,
-    // and the loser's client is dropped on the next lock pass.
+  private async Task<NdjsonPipeClient> ConnectAsync(CancellationToken ct)
+  {
     Process process = _spawn(_hostPath, _pipeName, _token);
+    nint job = JobObject.Create();
+    if (job != nint.Zero && JobObject.Configure(job))
+    {
+      _ = JobObject.Attach(job, process);
+    }
+
     _gate.Enter();
     try
     {
-      _processes.Add(process);
+      _processes.Add((process, job));
     }
     finally
     {
       _gate.Exit();
     }
 
-    NdjsonPipeClient fresh = await NdjsonPipeClient.ConnectAsync(_pipeName, _token, ProtocolVersion, Platform, ct: ct).ConfigureAwait(false);
+    NdjsonPipeClient fresh = await NdjsonPipeClient
+        .ConnectAsync(_pipeName, _token, ProtocolVersion, Platform, _notReady, ct).ConfigureAwait(false);
     _gate.Enter();
     try
     {
-      _client ??= fresh;
+      _client = fresh;
+      _connecting = null;
     }
     finally
     {
@@ -146,9 +159,18 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
     return fresh;
   }
 
-  private static ComputerOutcome ToOutcome(BrokerReply reply) => reply.Error is { } error
-    ? BrokerErrorMapper.Map(error.Code, error.Message)
-    : new ComputerOutcome.Receipt(true, "accepted", null, null);
+  private static ComputerOutcome ToOutcome(BrokerReply reply)
+  {
+    if (reply.Error is { } error)
+    {
+      return BrokerErrorMapper.Map(error.Code, error.Message);
+    }
+
+    // Echo the wire receipt honestly: action_sent=false must survive to the surface.
+    return BrokerActionReceipt.From(reply) is { } receipt
+      ? new ComputerOutcome.Receipt(receipt.ActionSent, receipt.DispatchStatus, receipt.EffectEvidence, null)
+      : new ComputerOutcome.Failure(ComputerErrorCodes.Internal, "broker returned an unrecognized result shape.");
+  }
 
   private async Task KillAsync()
   {
@@ -158,6 +180,7 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
     {
       dead = _client;
       _client = null;
+      _connecting = null;
     }
     finally
     {
@@ -169,7 +192,7 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
       await dead.DisposeAsync().ConfigureAwait(false);
     }
 
-    foreach (Process process in SnapshotProcesses())
+    foreach ((Process process, nint job) in SnapshotProcesses())
     {
       try
       {
@@ -180,15 +203,20 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
       {
         // already exited - best-effort kill per the contract
       }
+
+      if (job != nint.Zero)
+      {
+        _ = JobObject.Close(job); // closing a kill-on-close job reaps any survivors
+      }
     }
   }
 
-  private Process[] SnapshotProcesses()
+  private (Process Process, nint Job)[] SnapshotProcesses()
   {
     _gate.Enter();
     try
     {
-      Process[] snapshot = [.. _processes];
+      (Process Process, nint Job)[] snapshot = [.. _processes];
       _processes.Clear();
       return snapshot;
     }
@@ -251,7 +279,7 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
 
 #pragma warning disable SYSLIB1054 // Named decision: LibraryImport needs unsafe blocks; DllImport with blittable layouts marshals identically here.
     [DllImport("kernel32.dll", EntryPoint = "CreateJobObjectW", CharSet = CharSet.Unicode, SetLastError = true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    private static extern nint CreateJobObjectW(nint lpJobAttributes, string lpName);
+    private static extern nint CreateJobObjectW(nint lpJobAttributes, string? lpName);
 #pragma warning restore SYSLIB1054
 
 #pragma warning disable SYSLIB1054 // Named decision: LibraryImport needs unsafe blocks; DllImport with blittable layouts marshals identically here.
@@ -263,22 +291,29 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
     [DllImport("kernel32.dll", SetLastError = true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern bool AssignProcessToJobObject(nint hJob, nint hProcess);
 #pragma warning restore SYSLIB1054
+    /// <summary>Creates an UNNAMED kill-on-close job (controller ruling): per-spawn
+    ///     containment, no cross-instance crosstalk.</summary>
+    public static nint Create() => CreateJobObjectW(nint.Zero, null);
 
-    /// <summary>Creates the kill-on-close job and assigns the process. True on success.
-    ///     </summary>
-    public static bool Assign(Process process)
+    public static bool Configure(nint job)
     {
-      nint job = CreateJobObjectW(nint.Zero, "ethang-computer-use-broker");
-      if (job == nint.Zero)
-      {
-        return false;
-      }
-
       ExtendedLimitInfo info = default;
       info._basic._limitFlags = KillOnJobClose;
-      return SetInformationJobObject(job, ExtendedLimitInfoClass, ref info, Marshal.SizeOf<ExtendedLimitInfo>())
-        && AssignProcessToJobObject(job, process.Handle);
+      return SetInformationJobObject(job, ExtendedLimitInfoClass, ref info, Marshal.SizeOf<ExtendedLimitInfo>());
     }
+
+    public static bool Attach(nint job, Process process) => AssignProcessToJobObject(job, process.Handle);
+
+#pragma warning disable SYSLIB1054 // Named decision: same rationale as above.
+    [DllImport("kernel32.dll", SetLastError = true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern bool CloseHandle(nint hObject);
+#pragma warning restore SYSLIB1054
+
+    /// <summary>Closes the job handle; a kill-on-close job reaps any surviving children.</summary>
+#pragma warning disable S4200 // Named decision: the guard makes this wrapper meaningful (zero handle never passed to native).
+    public static bool Close(nint job) => job != nint.Zero && CloseHandle(job);
+#pragma warning restore S4200
+
   }
 }
 

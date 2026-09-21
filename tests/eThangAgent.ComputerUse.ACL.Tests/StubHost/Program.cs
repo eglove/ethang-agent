@@ -39,7 +39,13 @@ while (true)
         return 9;
     }
 
-    await WriteAsync(server, Reply(GetId(line), "{" + Q("stub") + ":true}"));
+    if (line.Contains("deny", StringComparison.Ordinal))
+    {
+        await WriteAsync(server, Reply(GetId(line), "{" + Q("action_sent") + ":false," + Q("dispatch_status") + ":" + Q("possibly_sent") + "," + Q("effect_evidence") + ":" + Q("unchanged") + "}"));
+        continue;
+    }
+
+    await WriteAsync(server, Reply(GetId(line), "{" + Q("action_sent") + ":true," + Q("dispatch_status") + ":" + Q("accepted") + "}"));
 }
 
 static string Q(string name) => "\"" + name + "\"";
