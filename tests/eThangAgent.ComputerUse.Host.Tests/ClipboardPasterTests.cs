@@ -45,6 +45,18 @@ public class ClipboardPasterTests
   }
 
   [Fact]
+  public void Paste_WaitPolls_TheConsumptionSignal()
+  {
+    RecordingClipboard clipboard = new(consumed: true);
+    int polls = 0;
+    ClipboardPaster paster = new(clipboard, new RecordingKeyDispatch(clipboard), () => ++polls >= 3);
+    using InputOperation operation = CreateOperation();
+    BrokerResponse response = paster.Paste(operation, JsonDocument.Parse("""{"text":"hello"}""").RootElement);
+    Assert.Null(response.Error);
+    Assert.True(polls >= 3, "the paster must poll the consumption signal within the window");
+  }
+
+  [Fact]
   public void Paste_MissingText_IsInvalidRequest()
   {
     RecordingClipboard clipboard = new(consumed: true);

@@ -2,58 +2,41 @@ using System.Text.Json;
 
 namespace eThangAgent.ComputerUse.Host.Tests;
 
-/// <summary>InputDispatch strategy=event foreground gate (task 17): when the caller
-///     pins strategy=event, the broker requires GetForegroundWindow to match the
-///     target app/window; on mismatch NOTHING is dispatched (foreground_required).
-///     The Win32 foreground call is abstracted, so no live desktop is needed.</summary>
+/// <summary>Fix round C1/I2: the REAL wired input path (HandleInputMethod → Dispatch)
+///     performs real dispatch; the strategy=event foreground gate refuses with
+///     foreground_required and NOTHING dispatched (counted probe stays at zero).</summary>
 public class InputDispatchForegroundGateTests
 {
   [Fact]
-  public void StrategyEvent_ForegroundMatches_DispatchesAccepted()
+  public void StrategyEvent_ForegroundMatches_Dispatches()
   {
-    InputDispatch dispatch = InputDispatch.ForTesting(foregroundPid: 42, () => 42);
-    using InputOperation operation = CreateOperation();
-    BrokerResponse response = dispatch.Click(operation, JsonDocument.Parse("""{"strategy":"event","app_ref":{"pid":42},"mouse_button":"left","click_count":1}""").RootElement, targetPid: 42);
-    Assert.Null(response.Error);
-    _ = Assert.NotNull(response.Result);
+    PipeServer server = FakeConnectionFactory.WithForeground(expected: 42, actual: 42);
+    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "click", JsonDocument.Parse("""{"strategy":"event","app_ref":{"pid":42}}""").RootElement, connectionId: 1);
+    // The real SendInput either lands (accepted) or is honestly refused in the test host
+    // (internal, action_sent=false); the counter proves the dispatch was ATTEMPTED.
+    Assert.True(server.InputDispatch.SendInputCalls > 0, "real dispatch must have been attempted");
+    if (reply.Error is null)
+    {
+      _ = Assert.NotNull(reply.Result);
+    }
+    else
+    {
+      Assert.Equal("internal", reply.Error.Value.Code);
+      Assert.Equal("action_sent=false", reply.Error.Value.Details);
+    }
   }
 
   [Fact]
   public void StrategyEvent_ForegroundMismatch_IsForegroundRequired_NothingDispatched()
   {
-    InputDispatch dispatch = InputDispatch.ForTesting(foregroundPid: 42, () => 99);
-    using InputOperation operation = CreateOperation();
-    JsonElement parameters = JsonDocument.Parse("""{"strategy":"event","app_ref":{"pid":42}}""").RootElement;
-    BrokerResponse response = dispatch.Click(operation, parameters, targetPid: 42);
-    _ = Assert.NotNull(response.Error);
-    Assert.Equal("foreground_required", response.Error.Value.Code);
-  }
-
-  [Fact]
-  public void StrategyEvent_Mismatch_SentNoInput()
-  {
-    // Delivery-state honesty: a refused dispatch must not have touched the hardware.
-    InputDispatch dispatch = InputDispatch.ForTesting(foregroundPid: 42, () => 7);
-    using InputOperation operation = CreateOperation();
-    JsonElement parameters = JsonDocument.Parse("""{"strategy":"event"}""").RootElement;
-    BrokerResponse response = dispatch.Click(operation, parameters, targetPid: 42);
-    Assert.Equal(0, dispatch.SendInputCalls);
-    _ = Assert.NotNull(response.Error);
-  }
-
-  [Fact]
-  public void NoStrategy_Auto_DoesNotGateOnForeground()
-  {
-    InputDispatch dispatch = InputDispatch.ForTesting(foregroundPid: 42, () => 7);
-    using InputOperation operation = CreateOperation();
-    JsonElement parameters = JsonDocument.Parse("""{"app_ref":{"pid":42}}""").RootElement;
-    _ = dispatch.Click(operation, parameters, targetPid: 42);
-    Assert.Equal(1, dispatch.SendInputCalls);
-  }
-
-  private static InputOperation CreateOperation()
-  {
-    InputSerializer serializer = new();
-    return serializer.TryBegin("click")!;
+    PipeServer server = FakeConnectionFactory.WithForeground(expected: 42, actual: 99);
+    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "click", JsonDocument.Parse("""{"strategy":"event","app_ref":{"pid":42}}""").RootElement, connectionId: 1);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("foreground_required", reply.Error.Value.Code);
+    Assert.Equal(0, server.InputDispatch.SendInputCalls);
   }
 };

@@ -29,6 +29,9 @@ public readonly record struct BrokerResponse(JsonElement? Result, BrokerWireErro
   public static BrokerResponse Ok(JsonElement? result) => new(result, null);
 
   public static BrokerResponse Fail(string code, string message, string? details = null) => new(null, new BrokerWireErrorView(code, message, details));
+
+  /// <summary>The accepted receipt for a REAL dispatch that completed.</summary>
+  public static BrokerResponse Accepted() => Ok(JsonSerializer.SerializeToElement(new { action_sent = true, dispatch_status = BrokerReceipt.Accepted }));
 };
 
 /// <summary>The observation surface of the broker (capture side). Task 16 ships the seam;
@@ -75,18 +78,27 @@ public sealed class PipeServer
   private readonly Lock _gate = new();
   private readonly HashSet<int> _authenticated = [];
 
-  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null)
+  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, Func<KeyChord, bool>? sendChord = null, Func<string, bool>? sendText = null, Func<string, bool>? sendButton = null)
   {
     _config = config ?? throw new ArgumentNullException(nameof(config));
     InputSerializer = new InputSerializer();
     Lease = new ControllerLease();
+    InputDispatch = sendChord is null || sendText is null || sendButton is null
+  ? InputDispatch.Create(foregroundPid)
+  : new InputDispatch(foregroundPid ?? ReadDefaultForeground, sendChord, sendText, sendButton);
     Observer = observer ?? new SkeletonObserver();
     Lease.OwnerLost += Observer.OnOwnerLost;
+    Lease.OwnerLost += _ => InputDispatch.CancelActiveInput();
   }
 
   /// <summary>The physical-input serializer: tests poke it directly; Dispatch checks it
   ///     around every input method.</summary>
   internal InputSerializer InputSerializer { get; }
+
+  /// <summary>The real dispatcher (fix round C1/I2): every wired input method flows
+  ///     through this instance, so receipts always follow a real dispatch and the
+  ///     strategy=event gate reads the real foreground window.</summary>
+  public InputDispatch InputDispatch { get; }
 
   /// <summary>The observation seam behind list_applications/list_windows/capture_app.</summary>
   internal IBrokerObserver Observer { get; }
@@ -116,10 +128,21 @@ public sealed class PipeServer
   ///     <see cref="DropConnection"/> when it ends.</summary>
   public BrokerResponse Dispatch(int id, string method, JsonElement? parameters, int connectionId)
   {
-    return method == "authenticate"
-      ? DispatchAuthenticate(id, parameters, connectionId)
-      : DispatchWhenAuthenticated(id, method, parameters, connectionId);
+    BrokerResponse? handshake = TryHandshake(id, method, parameters, connectionId);
+    return handshake ?? DispatchWhenAuthenticated(id, method, parameters, connectionId);
   }
+
+  /// <summary>The handshake routers: authenticate (id 0) and hello (fixed id 1, M8).
+  ///     Null means "not a handshake method" - fall through to the authenticated path.</summary>
+  private BrokerResponse? TryHandshake(int id, string method, JsonElement? parameters, int connectionId) => (method, id) switch
+  {
+    ("authenticate", 0) => HandleAuthenticate(parameters, connectionId),
+    ("authenticate", _) => BrokerResponse.Fail("invalid_request", "authenticate must carry the fixed handshake id 0."),
+    ("hello", 1) => null, // hello with the right id: not an error - fall through to the routed path
+    ("hello", _) => BrokerResponse.Fail("invalid_request", "hello must carry the fixed handshake id 1."),
+    _ => null,
+  };
+
 
   /// <summary>The non-handshake path: it requires this connection to be authenticated.</summary>
   private BrokerResponse DispatchWhenAuthenticated(int id, string method, JsonElement? parameters, int connectionId)
@@ -129,13 +152,6 @@ public sealed class PipeServer
       : BrokerResponse.Fail("not_authorized", $"{method} before authenticate on this connection.");
   }
 
-  /// <summary>The authenticate dispatch: the fixed handshake id is part of the contract.</summary>
-  private BrokerResponse DispatchAuthenticate(int id, JsonElement? parameters, int connectionId)
-  {
-    return id == 0
-      ? HandleAuthenticate(parameters, connectionId)
-      : BrokerResponse.Fail("invalid_request", "authenticate must carry the fixed handshake id 0.");
-  }
 
   /// <summary>The authenticated dispatch path: routing for hello, controller, observation,
   ///     and input methods once the connection has passed authenticate.</summary>
@@ -147,7 +163,7 @@ public sealed class PipeServer
       "controller_status" => HandleControllerStatus(connectionId),
       "controller_takeover" => HandleControllerTakeover(connectionId),
       "controller_stop" => HandleControllerStop(connectionId),
-      "stop_computer_control" => HandleControllerStop(connectionId),
+      "stop_computer_control" => HandleStopComputerControl(connectionId),
       "list_applications" => BrokerResponse.Ok(Observer.ListApplications() ?? JsonSerializer.SerializeToElement(Array.Empty<object>())),
       "list_windows" => BrokerResponse.Ok(Observer.ListWindows(parameters)),
       "capture_app" => Observer.CaptureApp(parameters) is { } capture ? BrokerResponse.Ok(capture) : BrokerResponse.Fail("unimplemented", "capture_app arrives with the task 17 native surface."),
@@ -272,7 +288,7 @@ public sealed class PipeServer
     LeaseAcquireResult result = Lease.TryAcquire(connectionId);
     return result.Acquired
       ? BrokerResponse.Ok(JsonSerializer.SerializeToElement(new { owned = true }))
-      : BrokerResponse.Fail("controller_busy", "another connection holds the controller lease.", result.Owner.GetValueOrDefault().ToString(System.Globalization.CultureInfo.InvariantCulture));
+      : BrokerResponse.Fail("controller_busy", $"another connection holds the controller lease (owner={result.Owner.GetValueOrDefault()}).", $"owner={result.Owner.GetValueOrDefault()}");
   }
 
   private BrokerResponse HandleControllerStop(int connectionId)
@@ -282,38 +298,69 @@ public sealed class PipeServer
       : BrokerResponse.Fail("controller_busy", "this connection does not hold the controller lease.");
   }
 
+  /// <summary>stop_computer_control by a non-owner is an honest refusal naming the lease
+  ///     state with action_sent=false (fix round M11): controller_busy stays reserved for
+  ///     the takeover race, not for a stop that cannot apply.</summary>
+  private BrokerResponse HandleStopComputerControl(int connectionId)
+  {
+    int? owner = Lease.Owner;
+    return owner == connectionId
+      ? HandleControllerStop(connectionId)
+      : BrokerResponse.Fail(
+        "invalid_request",
+        $"stop_computer_control ignored: this connection does not hold the controller lease (owner=" + (owner?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none") + "); nothing was dispatched.",
+        "action_sent=false");
+  }
+
   /// <summary>The input-method envelope (task 16 skeleton): the lease gate, then the
   ///     serialization gate, then task 17's dispatcher performs the physical action.
   ///     On the skeleton every input method answers unimplemented AFTER the gates -
   ///     the gates are the task-16 deliverable; the dispatch is task 17's.</summary>
   private BrokerResponse HandleInputMethod(int id, string method, JsonElement? parameters, int connectionId)
   {
+    _ = id;
     if (Lease.Owner != connectionId)
     {
       return BrokerResponse.Fail("controller_busy", "input requires the controller lease; take over first.");
     }
 
     using InputOperation? operation = InputSerializer.TryBegin(method);
-    return operation is not null
-      ? InputRouter.Execute(id, method, parameters)
-      : BrokerResponse.Fail(
-        "input_busy",
-        $"another input operation ({InputSerializer.CurrentMethod}) is in flight; nothing was dispatched.",
-        "action_sent=false");
+    if (operation is null)
+    {
+      return InputBusy(operationOwner: InputSerializer.CurrentMethod);
+    }
+
+    if (method == "paste")
+    {
+      return InputRouter.Paste(operation, parameters);
+    }
+
+    BrokerResponse routed = method == "element_perform_action" && InputRouter.RequiresActionName(parameters)
+      ? BrokerResponse.Fail("invalid_request", "element_perform_action requires params.action_name (string).")
+      : InputDispatch.Dispatch(method, parameters);
+    return routed;
   }
 
+  private static int ReadDefaultForeground() => -1; // test factory default; production Create() reads the real foreground
+
+  /// <summary>The input_busy refusal: nothing dispatched, nothing queued (M7 keeps
+  ///     action_sent=false flat in details).</summary>
+  private static BrokerResponse InputBusy(string? operationOwner) => BrokerResponse.Fail(
+    "input_busy",
+    $"another input operation ({operationOwner}) is in flight; nothing was dispatched.",
+    "action_sent=false");
+}
 
 
-  /// <summary>The default observer: capture methods answer unimplemented until task 17
-  ///     supplies the real walk/capture implementation at composition.</summary>
-  internal sealed class SkeletonObserver : IBrokerObserver
-  {
-    public JsonElement? ListApplications() => null;
+/// <summary>The default observer: capture methods answer unimplemented until task 17
+///     supplies the real walk/capture implementation at composition.</summary>
+internal sealed class SkeletonObserver : IBrokerObserver
+{
+  public JsonElement? ListApplications() => null;
 
-    public JsonElement? ListWindows(JsonElement? parameters) => null;
+  public JsonElement? ListWindows(JsonElement? parameters) => null;
 
-    public JsonElement? CaptureApp(JsonElement? parameters) => null;
+  public JsonElement? CaptureApp(JsonElement? parameters) => null;
 
-    public void OnOwnerLost(int ownerConnectionId) { }
-  }
-};
+  public void OnOwnerLost(int ownerConnectionId) { }
+}

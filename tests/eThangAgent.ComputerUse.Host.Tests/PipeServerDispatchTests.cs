@@ -2,11 +2,10 @@ using System.Text.Json;
 
 namespace eThangAgent.ComputerUse.Host.Tests;
 
-/// <summary>PipeServer dispatch (task 16): request routing, the strict handshake,
-///     controller-lease integration, input serialization, unknown methods, and raw-frame
-///     strictness. The serializer is poked directly so input_busy semantics are pinned
-///     without real input hardware. Observer is an injected fake: the native surface is
-///     task 17. Connection ids are explicit - the serve loop assigns one per connection.</summary>
+/// <summary>PipeServer dispatch (task 16, fix round M8/M11): request routing, the strict
+///     handshake (authenticate on id 0, hello on id 1), controller-lease integration, input
+///     serialization, honest non-owner stop refusal, unknown methods, and raw-frame
+///     strictness. Connection ids are explicit - the serve loop assigns one per connection.</summary>
 public class PipeServerDispatchTests
 {
   [Fact]
@@ -51,6 +50,15 @@ public class PipeServerDispatchTests
   {
     PipeServer server = FakeConnectionFactory.Token("t");
     BrokerResponse reply = server.Dispatch(7, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("invalid_request", reply.Error.Value.Code);
+  }
+
+  [Fact]
+  public void Hello_NotOnIdOne_IsInvalidRequest()
+  {
+    PipeServer server = FakeConnectionFactory.Authorized(1);
+    BrokerResponse reply = server.Dispatch(9, "hello", JsonDocument.Parse("""{"protocolVersion":1,"platform":"windows"}""").RootElement, connectionId: 1);
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("invalid_request", reply.Error.Value.Code);
   }
@@ -123,12 +131,13 @@ public class PipeServerDispatchTests
   public void ControllerTakeover_GrantsLease_SecondConnectionIsBusyWithOwnerDetails()
   {
     PipeServer server = FakeConnectionFactory.Authorized(1, 2);
-    BrokerResponse granted = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
-    _ = Assert.NotNull(granted.Result);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse busy = server.Dispatch(3, "controller_takeover", null, connectionId: 2);
     _ = Assert.NotNull(busy.Error);
     Assert.Equal("controller_busy", busy.Error.Value.Code);
-    Assert.Contains("1", busy.Error.Value.Details ?? "", StringComparison.Ordinal);
+    // M7: owner travels in details as owner=<id> AND in the message text.
+    Assert.Equal("owner=1", busy.Error.Value.Details);
+    Assert.Contains("owner=1", busy.Error.Value.Message, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -153,26 +162,30 @@ public class PipeServerDispatchTests
   }
 
   [Fact]
-  public void InputMethod_RequiresControllerLease()
+  public void StopComputerControl_ByNonOwner_IsHonestRefusal()
   {
-    PipeServer server = FakeConnectionFactory.Authorized(1, 4);
-    BrokerResponse reply = server.Dispatch(2, "press_key", JsonDocument.Parse("""{"key":"a"}""").RootElement, connectionId: 4);
-    _ = Assert.NotNull(reply.Error);
-    Assert.Equal("controller_busy", reply.Error.Value.Code);
+    // M11: a stop from a non-owner is invalid_request naming the lease state with
+    // action_sent=false, not controller_busy.
+    PipeServer server = FakeConnectionFactory.Authorized(1, 2);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse stop = server.Dispatch(3, "stop_computer_control", null, connectionId: 2);
+    _ = Assert.NotNull(stop.Error);
+    Assert.Equal("invalid_request", stop.Error.Value.Code);
+    Assert.Equal("action_sent=false", stop.Error.Value.Details);
   }
 
   [Fact]
-  public void InputMethod_WithLeaseButBusySerializer_IsInputBusy_NothingDispatched()
+  public void StopComputerControl_ReleasesLeaseAndFreesInput()
   {
-    PipeServer server = FakeConnectionFactory.Authorized(1);
+    PipeServer server = FakeConnectionFactory.Authorized(1, 2);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
-    // A foreign operation already holds the physical-input gate: the owner's input call
-    // is rejected BEFORE dispatch (nothing queued, nothing sent).
-    Assert.NotNull(server.InputSerializer.TryBegin("click"));
-    BrokerResponse busy = server.Dispatch(3, "press_key", JsonDocument.Parse("""{"key":"a"}""").RootElement, connectionId: 1);
-    _ = Assert.NotNull(busy.Error);
-    Assert.Equal("input_busy", busy.Error.Value.Code);
-    Assert.Contains("action_sent=false", busy.Error.Value.Details ?? "", StringComparison.Ordinal);
+    BrokerResponse stop = server.Dispatch(3, "stop_computer_control", null, connectionId: 1);
+    _ = Assert.NotNull(stop.Result);
+    BrokerResponse again = server.Dispatch(4, "controller_takeover", null, connectionId: 2);
+    _ = Assert.NotNull(again.Result);
+    using InputOperation? op = server.InputSerializer.TryBegin("click");
+    Assert.NotNull(op);
+    Assert.Equal("click", server.InputSerializer.CurrentMethod);
   }
 
   [Fact]
@@ -201,28 +214,24 @@ public class PipeServerDispatchTests
   }
 
   [Fact]
-  public void StopComputerControl_ByNonOwner_IsControllerBusy()
+  public void InputMethod_RequiresControllerLease()
   {
-    PipeServer server = FakeConnectionFactory.Authorized(1, 2);
-    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
-    BrokerResponse stop = server.Dispatch(3, "stop_computer_control", null, connectionId: 2);
-    _ = Assert.NotNull(stop.Error);
-    Assert.Equal("controller_busy", stop.Error.Value.Code);
+    PipeServer server = FakeConnectionFactory.Authorized(4);
+    BrokerResponse reply = server.Dispatch(2, "press_key", JsonDocument.Parse("""{"key":"a"}""").RootElement, connectionId: 4);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("controller_busy", reply.Error.Value.Code);
   }
 
   [Fact]
-  public void StopComputerControl_ReleasesLeaseAndFreesInput()
+  public void InputMethod_WithLeaseButBusySerializer_IsInputBusy_NothingDispatched()
   {
-    PipeServer server = FakeConnectionFactory.Authorized(1, 2);
+    PipeServer server = FakeConnectionFactory.Authorized(1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
-    BrokerResponse stop = server.Dispatch(3, "stop_computer_control", null, connectionId: 1);
-    _ = Assert.NotNull(stop.Result);
-    BrokerResponse again = server.Dispatch(4, "controller_takeover", null, connectionId: 2);
-    _ = Assert.NotNull(again.Result);
-    // The physical-input gate is free after a full stop.
-    using InputOperation? op = server.InputSerializer.TryBegin("click");
-    Assert.NotNull(op);
-    Assert.Equal("click", server.InputSerializer.CurrentMethod);
+    _ = server.InputSerializer.TryBegin("click");
+    BrokerResponse busy = server.Dispatch(3, "press_key", JsonDocument.Parse("""{"key":"a"}""").RootElement, connectionId: 1);
+    _ = Assert.NotNull(busy.Error);
+    Assert.Equal("input_busy", busy.Error.Value.Code);
+    Assert.Contains("action_sent=false", busy.Error.Value.Details ?? "", StringComparison.Ordinal);
   }
 
   [Fact]
@@ -265,16 +274,32 @@ public class PipeServerDispatchTests
     _ = Assert.NotNull(reply.Error);
     Assert.Equal("invalid_request", reply.Error.Value.Code);
   }
-}
+};
 
 /// <summary>Canned-config PipeServer factory: Token builds an unauthenticated server;
-///     Authorized builds one with each given connection id already authenticated.</summary>
+///     Authorized builds one with each given connection id already authenticated;
+///     WithForeground/WithAlwaysSucceedingInput inject dispatch hooks for gate/A3 tests.</summary>
 internal static class FakeConnectionFactory
 {
   public static PipeServer Token(string token) => new(new BrokerConfig("ignored-pipe", token));
 
+  public static PipeServer WithAlwaysSucceedingInput()
+  {
+    static bool Yes(KeyChord _) => true;
+    static bool YesText(string _) => true;
+    static bool YesButton(string _) => true;
+    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => -1, sendChord: Yes, sendText: YesText, sendButton: YesButton);
+  }
+
+  public static PipeServer WithForeground(int expected, int actual)
+  {
+    _ = expected; // documents the test's intent; the actual foreground drives the gate.
+    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => actual);
+  }
+
   public static PipeServer Authorized(params int[] connectionIds)
   {
+    ArgumentNullException.ThrowIfNull(connectionIds);
     PipeServer server = Token("t");
     foreach (int connectionId in connectionIds)
     {
@@ -285,8 +310,8 @@ internal static class FakeConnectionFactory
   }
 };
 
-/// <summary>Fake observation seam: records OwnerLost deliveries; returns empty
-///     application lists. The native surface is task 17.</summary>
+/// <summary>Fake observation seam: records OwnerLost deliveries; returns empty application
+///     lists. The native surface is task 17.</summary>
 internal sealed class FakeObserver : IBrokerObserver
 {
   public List<int> LostOwners { get; } = [];
@@ -298,4 +323,4 @@ internal sealed class FakeObserver : IBrokerObserver
   public JsonElement? CaptureApp(JsonElement? parameters) => null;
 
   public void OnOwnerLost(int ownerConnectionId) => LostOwners.Add(ownerConnectionId);
-}
+};

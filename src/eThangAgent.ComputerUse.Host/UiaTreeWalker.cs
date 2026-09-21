@@ -35,9 +35,11 @@ public sealed record UiaElementRow(
 ///     timed-out worker is abandoned (its thread dies with the process; COM teardown on
 ///     an abandoned STA is unsafe by design, so we orphan it deliberately). The walk
 ///     itself goes through CUIAutomation (IUIAutomation, TreeWalker/FindAllBuildCache).
-///     NOT unit-testable without a live desktop - Task 18 integration exercises the
-///     real walk; the deadline mechanics here are unit-covered.</summary>
-public sealed class UiaTreeWalker(Func<string[]?>? walkCore = null)
+///     COVERAGE (fix round I3): the real walk and the element-record population are NOT
+///     unit-testable without a live desktop - they are deferred to Task 18 integration.
+///     Only the deadline join/abandon mechanics are unit-tested (injectable worker).
+/// </summary>
+public sealed partial class UiaTreeWalker(Func<string[]?>? walkCore = null)
 {
   /// <summary>The hard deadline for one walk request.</summary>
   public static readonly TimeSpan WalkDeadline = TimeSpan.FromSeconds(45);

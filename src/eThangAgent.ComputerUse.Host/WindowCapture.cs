@@ -2,14 +2,11 @@ using System.Runtime.InteropServices;
 
 namespace eThangAgent.ComputerUse.Host;
 
-/// <summary>The window-scoped capturer (task 17): PrintWindow with PW_RENDERFULLCONTENT
-///     (BitBlt fallback), blank detection (all-transparent or near-uniform frames are
-///     non-actionable), the pointer rect, and the minimized-window policy: a minimized
-///     window is restored for capture ONLY when pixels were requested
-///     (include_screenshot=true); tree observation never restores. The GDI path needs a
-///     live desktop - Task 18 integration exercises real captures; the policy and blank
-///     math below are the unit-covered parts.</summary>
-public static class WindowCapture
+/// <summary>The window-scoped capturer (task 17, fix round I3): the blank-detection math
+///     and the minimize policy are unit-tested; the REAL GDI capture path
+///     (PrintWindow/PW_RENDERFULLCONTENT/BitBlt, pointer rect, DPI note) needs a live
+///     desktop and is deferred to Task 18 integration - no unit coverage is claimed for it.</summary>
+public static partial class WindowCapture
 {
 
   /// <summary>The minimize policy: true when the caller wants pixels. Observation

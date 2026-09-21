@@ -76,5 +76,27 @@ public sealed class ClipboardPaster(IClipboardAccess clipboard, IPasteKeyDispatc
   /// <summary>The consumption signal seam: production polls the clipboard sequence
   ///     number for a change (or settles briefly); the injected signal is authoritative.
   ///     No signal means consumed (the happy path completes immediately).</summary>
-  private bool WaitConsumed() => consumptionSignal?.Invoke() ?? true;
+  /// <summary>Polls the consumption signal within the wait window (fix round I5): the
+  ///     production signal is the clipboard sequence number; the seam answer is
+  ///     authoritative per poll. Poll interval is a quarter of the window.</summary>
+  private bool WaitConsumed()
+  {
+    if (consumptionSignal is null)
+    {
+      return true; // no signal wired: the happy path completes immediately
+    }
+
+    int interval = Math.Max(1, ConsumeWaitMilliseconds / 4);
+    for (int elapsed = 0; elapsed < ConsumeWaitMilliseconds; elapsed += interval)
+    {
+      if (consumptionSignal())
+      {
+        return true;
+      }
+
+      Thread.Sleep(interval);
+    }
+
+    return consumptionSignal();
+  }
 };
