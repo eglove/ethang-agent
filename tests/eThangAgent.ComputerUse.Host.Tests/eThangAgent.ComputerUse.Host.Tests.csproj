@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.ComputerUse.Host/eThangAgent.ComputerUse.Host.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.ComputerUse.ACL/eThangAgent.ComputerUse.ACL.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>
