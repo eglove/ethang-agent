@@ -14,6 +14,7 @@ public static class AgentPreferenceKeys
   public const string MaxConcurrentAgents = "subagent_max_concurrent_agents";
   public const string DefaultModel = "subagent_default_model";
   public const string RemoteHost = "subagent_remote_host";
+  public const string ComputerUseEnabled = "computer_use_enabled";
   public const string WatchdogTickInterval = "subagent_watchdog_tick_interval";
   public const string WatchdogIdleThreshold = "subagent_watchdog_idle_threshold";
   public const string WatchdogMaxWrapUpAttempts = "subagent_watchdog_max_wrap_up_attempts";
@@ -47,17 +48,20 @@ public static class AgentSettingsLoader
     string maxConcurrent = maxConcurrentStored ??
         AgentSettingsDefaults.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture);
     string? remoteHostStored = await preferences.GetAsync(AgentPreferenceKeys.RemoteHost).ConfigureAwait(false);
+    string? computerUseStored = await preferences.GetAsync(AgentPreferenceKeys.ComputerUseEnabled).ConfigureAwait(false);
     string? tick = await preferences.GetAsync(AgentPreferenceKeys.WatchdogTickInterval).ConfigureAwait(false);
     string? idle = await preferences.GetAsync(AgentPreferenceKeys.WatchdogIdleThreshold).ConfigureAwait(false);
     string? wrapUp = await preferences.GetAsync(AgentPreferenceKeys.WatchdogMaxWrapUpAttempts).ConfigureAwait(false);
 
     bool remoteHost;
+    bool computerUse;
     SubAgentOptions subAgents;
     WatchdogSettings? watchdog;
     try
     {
       subAgents = SubAgentConfiguration.Bind(defaultModel, maxConcurrent, out remoteHost, remoteHostStored);
       watchdog = SubAgentConfiguration.BindWatchdog(tick, idle, wrapUp);
+      computerUse = ParseComputerUseEnabled(computerUseStored);
     }
     catch (InvalidOperationException ex)
     {
@@ -77,6 +81,7 @@ public static class AgentSettingsLoader
             AgentPreferenceKeys.ZaiBaseUrl, ZaiConfiguration.DefaultBaseUrl).ConfigureAwait(false)),
         subAgents,
         RemoteHost: remoteHost,
+        ComputerUse: computerUse,
         Watchdog: watchdog);
   }
 
@@ -116,6 +121,20 @@ public static class AgentSettingsLoader
     }
   }
 #pragma warning restore CA1054
+
+  /// <summary>computer_use_enabled - optional; only "true"/"false" (any case) bind;
+  ///     anything else is a startup error naming the key. Absent is legal and means false
+  ///     (the ParseRemoteHost pattern).</summary>
+  private static bool ParseComputerUseEnabled(string? stored)
+  {
+    return stored switch
+    {
+      null => false,
+      not null when bool.TryParse(stored, out bool parsed) => parsed,
+      _ => throw new InvalidOperationException(
+          $"{AgentPreferenceKeys.ComputerUseEnabled} must be 'true' or 'false', got '{stored}'."),
+    };
+  }
 
   /// <summary>Maps the binders' retired config-path key names onto this loader's
   ///     preference keys, so every surfaced error names the key that stores the

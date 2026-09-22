@@ -21,6 +21,7 @@ using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
 using eThangAgent.Zai.ACL;
+
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition;
@@ -156,6 +157,7 @@ public static class AgentComposition
                 // z.ai capability APIs surface only on z.ai-wired sessions — switching
                 // providers is a different experience by design.
                 .. ZaiToolBindings(sp, providerName),
+                .. ComputerToolBindings(sp, settings),
         ]))
         .AddSingleton(host.WorkspaceContext)
         .AddSingleton(host.PathResolver)
@@ -397,7 +399,7 @@ public static class AgentComposition
             sp.GetRequiredService<IExecOutputStore>(),
             sp.GetRequiredService<IExecActivitySink>()))
         .AddSingleton<IToolRegistry>(sp =>
-            new ToolRegistry([sp.GetRequiredService<ITool>()]))
+            new ToolRegistry([sp.GetRequiredService<ITool>(), .. ComputerLoopTools(sp, settings)]))
         .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
         [
             new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>(),
@@ -415,6 +417,7 @@ public static class AgentComposition
         // reselection) by RootAgentHolder; the root is NOT known at container build time
         // while intelligent selection is active. The holder reuses the shared
         // Conversation/provider/tools/system-prompt so a rebuild preserves all message history.
+        .AddSingleton<SessionImageInputCapability>()
         .AddSingleton<SessionModelPreferences>()
         .AddSingleton<RootSessionIdentity>()
         .AddSingleton(sp => new RootAgentHolder(
@@ -685,6 +688,42 @@ public static class AgentComposition
         new ZaiTranscriptionTool(http, config,
             sp.GetRequiredService<IPathResolver>(), sp.GetRequiredService<IFileSystemAccess>()),
         "Transcribe a short workspace audio clip.");
+  }
+
+  /// <summary>The 'computer' tool, bound only when the host's settings enable computer use
+  ///     (settings.ComputerUse from the computer_use_enabled preference). The access instance is
+  ///     the per-workspace BrokerRegistry entry; the vision capability resolves the session's
+  ///     CURRENT ModelConfig at call time, so a model-picker change applies from the next turn.</summary>
+  private static IEnumerable<AgentToolBinding> ComputerToolBindings(IServiceProvider sp, AgentSettings settings)
+  {
+    if (!settings.ComputerUse)
+    {
+      yield break;
+    }
+
+    yield return new AgentToolBinding(
+        new ComputerTool(
+            sp.GetService<IComputerAccessProvider>()?.ForWorkspace(
+                sp.GetRequiredService<IWorkspaceContext>().WorkspaceId) ?? new NullComputerAccess(),
+            new SessionImageInputCapability(sp)),
+        "Control the desktop (computer use): observe, click, type, and paste in apps.");
+  }
+
+
+  /// <summary>The loop-registry computer tools (task 19): the 'computer' tool joins the
+  ///     loop's IToolRegistry when enabled, so its tool result (and any screenshot image part)
+  ///     enters the conversation as a first-class tool message on the wire.</summary>
+  private static IEnumerable<ITool> ComputerLoopTools(IServiceProvider sp, AgentSettings settings)
+  {
+    if (!settings.ComputerUse)
+    {
+      yield break;
+    }
+
+    yield return new ComputerTool(
+        sp.GetService<IComputerAccessProvider>()?.ForWorkspace(
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId) ?? new NullComputerAccess(),
+        new SessionImageInputCapability(sp));
   }
 
   /// <summary>The capability providers every agent surface shares, parameterized by the
