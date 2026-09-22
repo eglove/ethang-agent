@@ -1,3 +1,4 @@
+using System.Text.Json;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ComputerUse.ACL.Tests;
@@ -259,24 +260,29 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     _ = Assert.IsType<ComputerOutcome.Receipt>(takeoverA); // A's action lazily took the lease
 
-    // B: a TRUE second connection to the SAME broker pipe (shared token, no new process).
-    BrokerSupervisor supervisorB = BrokerSupervisor.RivalOn(HostExePath(), supervisorA);
-    await using BrokerComputerAccess controllerB = new(supervisorB);
-    ComputerOutcome busy = await controllerB.ExecuteAsync(
-        new ComputerCommand.Key("z", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid)),
-        TestContext.Current.CancellationToken).ConfigureAwait(true);
-    ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(busy);
-    Assert.Equal(ComputerErrorCodes.ControllerBusy, failure.Code);
-    Assert.Contains("owner=", failure.Message, StringComparison.Ordinal);
+    // B: a TRUE second connection to the SAME broker pipe (authenticated rival, no new
+    // process) - RivalOn hands back a plain NdjsonPipeClient per the controller ruling.
+    NdjsonPipeClient rival = await BrokerSupervisor.RivalOn(supervisorA, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+    try
+    {
+      BrokerReply busy = await rival.RequestAsync("press_key",
+          JsonSerializer.SerializeToElement(new { key = "z" }), TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.NotNull(busy.Error);
+      Assert.Equal("controller_busy", busy.Error.Code);
+      Assert.Contains("owner=", busy.Error.Message, StringComparison.Ordinal);
 
-    // capture_app stays lease-free: B can still observe while A holds the lease.
-    ComputerOutcome observe = await controllerB.ExecuteAsync(
-        new ComputerCommand.Observe(ComputerAppRef.ByPid(_fixture.Window.Pid),
-            IncludeScreenshot: false, DisableDiffing: false),
-        TestContext.Current.CancellationToken).ConfigureAwait(true);
-    _ = Assert.IsType<ComputerOutcome.Observation>(observe);
+      // capture_app stays lease-free: B can still observe while A holds the lease.
+      BrokerReply observe = await rival.RequestAsync("capture_app",
+          JsonSerializer.SerializeToElement(new { app_ref = new { pid = _fixture.Window.Pid } }),
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.Null(observe.Error);
+    }
+    finally
+    {
+      await rival.DisposeAsync().ConfigureAwait(true);
+      await supervisorA.DisposeAsync().ConfigureAwait(true);
+    }
   }
-
   // 10. stop releases the lease; subsequent actions work.
   [Fact]
   public async Task Stop_ReleasesLease_SubsequentActionsWork()

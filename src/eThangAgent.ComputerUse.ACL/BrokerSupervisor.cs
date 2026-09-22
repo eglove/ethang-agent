@@ -15,7 +15,7 @@ public delegate Process SpawnHost(string exePath, string pipeName, string token)
 ///     dies with this process), and ONE lazy restart with short backoff after a healthy
 ///     connection is lost. A second consecutive crash propagates to the caller. Dispose is a
 ///     best-effort kill.</summary>
-public sealed class BrokerSupervisor(string hostPath, string pipeName, string workspaceId, SpawnHost? spawn = null, NotReadyPolicy? notReady = null) : IAsyncDisposable
+public sealed class BrokerSupervisor(string hostPath, string pipeName, string workspaceId, SpawnHost? spawn = null, NotReadyPolicy? notReady = null, Func<string, string>? hostPathForSpawn = null) : IAsyncDisposable
 {
   private const int ProtocolVersion = 1;
   private const string Platform = "windows";
@@ -26,6 +26,7 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   private readonly string _pipeName = pipeName ?? throw new ArgumentNullException(nameof(pipeName));
   private readonly SpawnHost _spawn = spawn ?? DefaultSpawn;
   private readonly NotReadyPolicy? _notReady = notReady;
+  private readonly Func<string, string> _hostPathForSpawn = hostPathForSpawn ?? (static path => path);
   private readonly Lock _gate = new();
   private readonly List<(Process Process, nint Job)> _processes = [];
   private NdjsonPipeClient? _client;
@@ -49,15 +50,16 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   // intervening success exhaust the budget and the next call surfaces typed HELPER_UNAVAILABLE
   // through the envelope path (never a raw exception).
 
-  /// <summary>Integration-test seam: a SECOND supervisor attached to the SAME running broker
-  ///     (same pipe, same token) models a true foreign-style rival connection - no second
-  ///     process is spawned (the spawn delegate is inert), so the rival connects to the live
-  ///     pipe with the shared token.</summary>
-  internal static BrokerSupervisor RivalOn(string hostPath, BrokerSupervisor existing)
+  /// <summary>Integration-test seam (fix round 4, controller ruling): a rival is a PLAIN
+  ///     AUTHENTICATED connection on the EXISTING broker's pipe - authenticate + hello with
+  ///     the shared token - NOT a second supervisor and never a second process. The returned
+  ///     client speaks the same wire protocol; the pipe's controller lease arbitrates rivalry.</summary>
+  public static async Task<NdjsonPipeClient> RivalOn(BrokerSupervisor existing, string? token = null, CancellationToken ct = default)
   {
-    BrokerSupervisor rival = new(hostPath, existing.TestPipeName(), existing.WorkspaceId, spawn: (_, _, _) => new Process());
-    rival.TestToken(existing.TestToken());
-    return rival;
+    ArgumentNullException.ThrowIfNull(existing);
+    return await NdjsonPipeClient
+        .ConnectAsync(existing._pipeName, token ?? existing.TestToken(), ProtocolVersion, Platform, ct: ct)
+        .ConfigureAwait(false);
   }
 
   internal async Task KillBrokerProcessForTests()
@@ -146,6 +148,14 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
       }
 
       // Single flight: one spawn+handshake; concurrent first requests await the winner.
+      // A faulted connect attempt must NOT stay cached: a failed spawn leaves no client
+      // behind, so the cached task would surface the same stale fault forever. Clear it
+      // so the next call retries (fix round 4).
+      if (_connecting is { IsFaulted: true } or { IsCanceled: true })
+      {
+        _connecting = null;
+      }
+
       _connecting ??= ConnectAsync(ct);
       return _connecting;
     }
@@ -157,7 +167,7 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
 
   private async Task<NdjsonPipeClient> ConnectAsync(CancellationToken ct)
   {
-    Process process = _spawn(_hostPath, _pipeName, _token);
+    Process process = _spawn(_hostPathForSpawn(_hostPath), _pipeName, _token);
     nint job = JobObject.Create();
     if (job != nint.Zero && JobObject.Configure(job))
     {
