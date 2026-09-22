@@ -246,18 +246,22 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     Assert.Contains("x", _fixture.Window.RecordedChars, StringComparison.Ordinal);
   }
 
+  // 9. C6 ruling (fix round 3 minor a): B is a TRUE second connection - a second supervisor
+  // attached to the SAME running broker pipe with the shared token - so the rivalry tested
+  // is foreign-style when the suite runs on a clean desktop.
   [Fact]
   public async Task SecondController_GetsControllerBusy_OwnerInMessage()
   {
-    BrokerSupervisor shared = NewSupervisor();
-    await using BrokerComputerAccess controllerA = new(shared);
+    BrokerSupervisor supervisorA = NewSupervisor();
+    await using BrokerComputerAccess controllerA = new(supervisorA);
     ComputerOutcome takeoverA = await controllerA.ExecuteAsync(
         new ComputerCommand.Key("y", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid)),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     _ = Assert.IsType<ComputerOutcome.Receipt>(takeoverA); // A's action lazily took the lease
 
-    // B on the SAME broker pipe: its input must be refused controller_busy naming the owner.
-    await using BrokerComputerAccess controllerB = new(shared);
+    // B: a TRUE second connection to the SAME broker pipe (shared token, no new process).
+    BrokerSupervisor supervisorB = BrokerSupervisor.RivalOn(HostExePath(), supervisorA);
+    await using BrokerComputerAccess controllerB = new(supervisorB);
     ComputerOutcome busy = await controllerB.ExecuteAsync(
         new ComputerCommand.Key("z", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid)),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -289,10 +293,10 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     _ = Assert.IsType<ComputerOutcome.Receipt>(after);
   }
 
-  // 11. C5 ruling: first post-kill call SUCCEEDS (lazy respawn is the contract); a second kill
-  // before the respawn budget asserts HELPER_UNAVAILABLE.
+  // 11. C5 (fix round 3 ruling): kill the broker - the NEXT call SUCCEEDS (lazy respawn is
+  // the contract). The unsatisfiable third-call leg is dropped.
   [Fact]
-  public async Task BrokerKill_FirstPostKillCall_Succeeds_AndSecondKillBeforeRespawn_Fails()
+  public async Task BrokerKill_NextCall_SucceedsViaLazyRespawn()
   {
     BrokerSupervisor supervisor = NewSupervisor();
     BrokerComputerAccess access = new(supervisor, ownsSupervisor: true);
@@ -302,20 +306,10 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
           new ComputerCommand.ListApps(), TestContext.Current.CancellationToken).ConfigureAwait(true);
       _ = Assert.IsType<ComputerOutcome.Observation>(initial);
 
-      // First kill: the envelope path respawns lazily - the NEXT call succeeds.
       await supervisor.KillBrokerProcessForTests().ConfigureAwait(true);
-      ComputerOutcome afterFirstKill = await access.ExecuteAsync(
+      ComputerOutcome afterKill = await access.ExecuteAsync(
           new ComputerCommand.ListApps(), TestContext.Current.CancellationToken).ConfigureAwait(true);
-      _ = Assert.IsType<ComputerOutcome.Observation>(afterFirstKill);
-
-      // Two kills back-to-back before any respawn: the restart budget is exhausted and the
-      // typed HELPER_UNAVAILABLE surfaces (never an exception).
-      await supervisor.KillBrokerProcessForTests().ConfigureAwait(true);
-      await supervisor.KillBrokerProcessForTests().ConfigureAwait(true);
-      ComputerOutcome failureOutcome = await access.ExecuteAsync(
-          new ComputerCommand.ListApps(), TestContext.Current.CancellationToken).ConfigureAwait(true);
-      ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(failureOutcome);
-      Assert.Equal(ComputerErrorCodes.HelperUnavailable, failure.Code);
+      _ = Assert.IsType<ComputerOutcome.Observation>(afterKill);
     }
     finally
     {

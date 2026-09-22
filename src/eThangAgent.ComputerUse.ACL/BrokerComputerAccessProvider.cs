@@ -4,8 +4,8 @@ namespace eThangAgent.ComputerUse.ACL;
 
 /// <summary>Process-wide computer access provider (spec 1.3/A4): one BrokerSupervisor per
 ///     workspace root (shared by every session in it), each yielding a BrokerComputerAccess.
-///     Registered by net10.0-windows hosts at composition; hosts without the ACL keep the
-///     NullComputerAccess fallback.</summary>
+///     Registered by net10.0-windows hosts at composition; hosts without the ACL never enable
+///     the tool (and never construct this provider).</summary>
 public sealed class BrokerComputerAccessProvider(BrokerRegistry registry) : IComputerAccessProvider
 {
   private readonly BrokerRegistry _registry = registry ?? throw new ArgumentNullException(nameof(registry));

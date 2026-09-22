@@ -131,6 +131,58 @@ internal static partial class NativeInput
     return [.. keys];
   }
 
+
+  /// <summary>C3: full drag - absolute normalized move to the start, button down, 8
+  ///     interpolated absolute moves, button up. SendInput with
+  ///     MOUSEEVENTF_ABSOLUTE|MOUSEEVENTF_VIRTUALDESK (physical-pixel normalized coordinates).
+  ///     True when SendInput accepted every event in the sequence.</summary>
+  public static bool SendDrag(string button, int fromX, int fromY, int toX, int toY)
+  {
+    const uint moveFlags = 0x8000 | 0x4000; // MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK
+    uint down = button.ToUpperInvariant() switch
+    {
+      "RIGHT" => 0x0008,
+      "MIDDLE" => 0x0020,
+      _ => 0x0002,
+    };
+    uint up = button.ToUpperInvariant() switch
+    {
+      "RIGHT" => 0x0010,
+      "MIDDLE" => 0x0040,
+      _ => 0x0004,
+    };
+
+    List<InputRow> rows = [MoveRow(fromX, fromY, moveFlags), Mouse(down)];
+    const int steps = 8;
+    for (int step = 1; step <= steps; step++)
+    {
+      int x = fromX + ((toX - fromX) * step / steps);
+      int y = fromY + ((toY - fromY) * step / steps);
+      rows.Add(MoveRow(x, y, moveFlags));
+    }
+
+    rows.Add(Mouse(up));
+    return Inject([.. rows]);
+  }
+
+  /// <summary>Absolute move row: 0..65535 normalized over the full virtual desktop.</summary>
+  private static InputRow MoveRow(int x, int y, uint moveFlags) => new()
+  {
+    _type = 0,
+    _mouseFlags = moveFlags,
+    _dx = (int)(x * 65535.0 / SystemParametersInfoScreenWidth()),
+    _dy = (int)(y * 65535.0 / SystemParametersInfoScreenHeight()),
+  };
+
+  /// <summary>Virtual-desktop width in physical pixels (SM_CXVIRTUALSCREEN = 76).</summary>
+  private static int SystemParametersInfoScreenWidth() => GetSystemMetrics(76);
+
+  /// <summary>Virtual-desktop height in physical pixels (SM_CYVIRTUALSCREEN = 77).</summary>
+  private static int SystemParametersInfoScreenHeight() => GetSystemMetrics(77);
+
+  [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [LibraryImport("user32.dll")]
+  private static partial int GetSystemMetrics(int index);
   private static bool Inject(InputRow[] rows) =>
     SendInput((uint)rows.Length, rows, Marshal.SizeOf<InputRow>()) == rows.Length;
 
@@ -139,6 +191,8 @@ internal static partial class NativeInput
   {
     public uint _type;
     public uint _mouseFlags;
+    public int _dx;
+    public int _dy;
     public ushort _vk;
     public ushort _scan;
     public uint _flags;

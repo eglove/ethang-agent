@@ -108,7 +108,6 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     return outcome;
   }
 
-
   private static string? ReturnStateOf(ComputerCommand command) => command switch
   {
     ComputerCommand.Click c => c.ReturnState,
@@ -401,7 +400,6 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
           ComputerErrorCodes.StaleState,
           "the broker's capture could not be parsed; observe again.");
     }
-
 
     bool treeShown = capture.SnapshotMode != "no_change";
     _lastObservedPid = capture.App.Pid;

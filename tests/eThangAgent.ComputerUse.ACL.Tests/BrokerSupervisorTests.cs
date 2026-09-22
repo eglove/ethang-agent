@@ -75,7 +75,6 @@ public class BrokerSupervisorTests
         () => supervisor.RequestEnvelopeAsync("crash", null, TestContext.Current.CancellationToken)).ConfigureAwait(true);
       Assert.Equal(ComputerErrorCodes.HelperUnavailable, crash.Code);
       Assert.Contains("restart", crash.Message, StringComparison.Ordinal);
-      Assert.Contains("restart", crash.Message, StringComparison.Ordinal);
     }
     finally
     {

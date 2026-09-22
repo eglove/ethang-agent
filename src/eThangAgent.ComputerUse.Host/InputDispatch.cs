@@ -24,6 +24,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   private readonly Func<KeyChord, bool> _sendChord = sendChord;
   private readonly Func<string, bool> _sendText = sendText;
   private readonly Func<string, bool> _sendButton = sendButton;
+  private readonly Func<string, int, int, int, int, bool> _sendDrag = NativeInput.SendDrag;
 
   /// <summary>Production instance: real foreground read + real NativeInput dispatch.</summary>
   public static InputDispatch Create(Func<int>? foregroundPid = null) =>
@@ -205,7 +206,8 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
         "hold_key" => HoldKey(KeyText(parameters), HoldSeconds(parameters)),
         "type_text" => TypeText(Text(parameters) ?? ""),
         "click" => Click(parameters, targetPid),
-        "scroll" or "drag" or "element_focus" or "element_set_value" or "element_perform_action"
+        "drag" => Drag(parameters, targetPid),
+        "scroll" or "element_focus" or "element_set_value" or "element_perform_action"
           or "element_select_text" or "element_press" => ElementPath(method, parameters),
         _ => BrokerResponse.Fail("method_not_found", $"unknown input method: {method}."),
       };
@@ -223,6 +225,71 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
 
   public void SetElementOps(UiaElementOps ops) => _elementOps = ops;
 
+  /// <summary>C3: drag dispatch. Coordinate targets dispatch the real pointer sequence
+  ///     (button down, interpolated absolute moves, button up); element targets resolve the
+  ///     element's bounds center through the UIA cache and dispatch the same sequence. Only a
+  ///     genuinely unresolvable target yields the honest failure. The strategy=event gate and
+  ///     the send-failure honesty match the other senders.</summary>
+  public BrokerResponse Drag(JsonElement? parameters, int targetPid)
+  {
+    string? strategy = parameters is { } p && p.TryGetProperty("strategy", out JsonElement st) && st.ValueKind == JsonValueKind.String
+      ? st.GetString()
+      : null;
+    if (!GateAllows(strategy, targetPid))
+    {
+      return BrokerResponse.Fail("foreground_required",
+        $"strategy=event requires the target window (pid {targetPid}) in the foreground; got pid {_foregroundPid()}.",
+        "action_sent=false");
+    }
+
+    string button = parameters is { } pb && pb.TryGetProperty("button", out JsonElement bt) && bt.ValueKind == JsonValueKind.String
+      ? bt.GetString()!
+      : "left";
+
+    bool fromOk = TryReadPoint(parameters, "x", "y", "element", out int fromX, out int fromY);
+    bool toOk = TryReadPoint(parameters, "to_x", "to_y", "to_element", out int toX, out int toY);
+    if (!fromOk || !toOk)
+    {
+      return BrokerResponse.Fail("invalid_request",
+        "drag requires a resolvable from (x/y or element) and to (to_x/to_y or to_element); nothing was dispatched.",
+        "action_sent=false");
+    }
+
+    bool sent = _sendDrag(button, fromX, fromY, toX, toY);
+    _ = Interlocked.Increment(ref _dispatchCount);
+    return sent
+      ? BrokerResponse.Accepted()
+      : BrokerResponse.Fail("internal", "SendInput reported failure for the drag sequence.", "action_sent=false");
+  }
+
+  /// <summary>Reads a screen point pair for drag endpoints; an element index resolves the
+  ///     bounds center through the wired element ops (UIA BoundingRectangle cache).</summary>
+  private bool TryReadPoint(JsonElement? parameters, string xName, string yName, string elementName, out int x, out int y)
+  {
+    x = 0;
+    y = 0;
+    if (parameters is { } p
+      && p.TryGetProperty(xName, out JsonElement xEl) && xEl.ValueKind == JsonValueKind.Number && xEl.TryGetInt32(out x)
+      && p.TryGetProperty(yName, out JsonElement yEl) && yEl.ValueKind == JsonValueKind.Number && yEl.TryGetInt32(out y))
+    {
+      return true;
+    }
+
+    if (parameters is { } p2
+      && p2.TryGetProperty(elementName, out JsonElement eEl) && eEl.ValueKind == JsonValueKind.Number && eEl.TryGetInt32(out int index))
+    {
+      if (_elementOps is { } ops && ops.TryResolveBoundsCenter(index, out x, out y))
+      {
+        return true;
+      }
+
+      x = 0;
+      y = 0;
+      return false;
+    }
+
+    return false;
+  }
   private BrokerResponse ElementPath(string method, JsonElement? parameters)
   {
     if (_elementOps is { } ops)

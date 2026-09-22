@@ -11,6 +11,38 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver)
 {
   private readonly Func<int, AutomationElement?> _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
 
+
+  /// <summary>C3: resolves the element's bounds center through the UIA cache for the drag
+  ///     path. False when the element is absent from the cache or its rectangle is empty
+  ///     (the honest failure the dispatcher surfaces).</summary>
+  public bool TryResolveBoundsCenter(int element, out int centerX, out int centerY)
+  {
+    centerX = 0;
+    centerY = 0;
+    AutomationElement? target = Resolve(element);
+    if (target is null)
+    {
+      return false;
+    }
+
+    try
+    {
+      System.Windows.Rect bounds = target.Current.BoundingRectangle;
+      if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0)
+      {
+        return false;
+      }
+
+      centerX = (int)(bounds.X + (bounds.Width / 2));
+      centerY = (int)(bounds.Y + (bounds.Height / 2));
+      return true;
+    }
+    catch (ElementNotAvailableException)
+    {
+      return false;
+    }
+  }
+
   public BrokerResponse Focus(int element)
   {
     AutomationElement? target = Resolve(element);

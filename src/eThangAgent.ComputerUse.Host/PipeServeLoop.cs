@@ -52,6 +52,10 @@ public static class PipeServeLoop
     {
       while (!acceptLoopCancellationToken.IsCancellationRequested)
       {
+        // C6 (production): prune completed connection tasks so the list never grows
+        // unboundedly in a long-lived broker.
+        _ = connectionTasks.RemoveAll(t => t.IsCompleted);
+
         NamedPipeServerStream stream = connectionStreamFactory();
         await stream.WaitForConnectionAsync(acceptLoopCancellationToken).ConfigureAwait(false);
         int connectionId = broker.NextConnectionId();
@@ -68,6 +72,9 @@ public static class PipeServeLoop
           finally
           {
             broker.DropConnection(connectionId);
+            // C6 (production): the per-connection stream is disposed when the connection
+            // ends (or the accept loop is cancelled) - the factory mints one per connection.
+            await stream.DisposeAsync().ConfigureAwait(false);
           }
         }, acceptLoopCancellationToken));
       }

@@ -35,4 +35,29 @@ public class ConcurrentControllerWireTests
     await clientA.DisposeAsync().ConfigureAwait(true);
     await clientB.DisposeAsync().ConfigureAwait(true);
   }
+
+  /// <summary>C6 (production path): a THIRD client connects after two are served - the
+  ///     concurrent loop keeps accepting (no serve-then-exit), each on its own connection id.</summary>
+  [Fact]
+  public async Task ThirdClient_Connects_AfterTwoAreServed()
+  {
+    string pipeName = "ethang-cu-host-test-" + Guid.NewGuid().ToString("N");
+    await using HostHarness harness = HostHarness.StartConcurrent(pipeName);
+
+    NdjsonPipeClient first = await NdjsonPipeClient.ConnectAsync(pipeName, harness.Token, 1, "windows", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+    _ = await first.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    NdjsonPipeClient second = await NdjsonPipeClient.ConnectAsync(pipeName, harness.Token, 1, "windows", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+    _ = await second.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    // The third connection proves the accept loop is still live after two served clients.
+    NdjsonPipeClient third = await NdjsonPipeClient.ConnectAsync(pipeName, harness.Token, 1, "windows", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+    BrokerReply reply = await third.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.Null(reply.Error);
+    _ = Assert.NotNull(reply.Result);
+
+    await first.DisposeAsync().ConfigureAwait(true);
+    await second.DisposeAsync().ConfigureAwait(true);
+    await third.DisposeAsync().ConfigureAwait(true);
+  }
 }

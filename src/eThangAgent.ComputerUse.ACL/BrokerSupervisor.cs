@@ -21,7 +21,6 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   private const string Platform = "windows";
   private static readonly TimeSpan RestartBackoff = TimeSpan.FromMilliseconds(250);
 
-
   public string WorkspaceId { get; } = workspaceId;
   private readonly string _hostPath = hostPath ?? throw new ArgumentNullException(nameof(hostPath));
   private readonly string _pipeName = pipeName ?? throw new ArgumentNullException(nameof(pipeName));
@@ -35,8 +34,6 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   private int _crashes;
   private bool _disposed;
 
-
-
   // ---- Integration-test seams (InternalsVisibleTo only): the second-controller test
   // needs the pipe name + token to open a rival client; the broker-kill test needs to kill
   // the spawned process while the supervisor (and its restart budget) survives.
@@ -44,9 +41,25 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
 
   internal string TestToken() => _token;
 
-  // C5 seam contract: the test kill models a REAL crash - it does NOT reset the crash
-  // counter. Two kills without a respawn exhaust the one-restart budget; the next call
-  // surfaces typed HELPER_UNAVAILABLE through the envelope path.
+  internal void TestToken(string token) => _token = token;
+
+  // C5 seam contract (fix round 3): the test kill models a REAL crash - it does NOT reset the
+  // crash counter (only a SUCCESSFUL round trip resets it, see RoundTripEnvelopeAsync). One kill
+  // leaves the budget intact, so the next call respawns lazily and SUCCEEDS; two kills without an
+  // intervening success exhaust the budget and the next call surfaces typed HELPER_UNAVAILABLE
+  // through the envelope path (never a raw exception).
+
+  /// <summary>Integration-test seam: a SECOND supervisor attached to the SAME running broker
+  ///     (same pipe, same token) models a true foreign-style rival connection - no second
+  ///     process is spawned (the spawn delegate is inert), so the rival connects to the live
+  ///     pipe with the shared token.</summary>
+  internal static BrokerSupervisor RivalOn(string hostPath, BrokerSupervisor existing)
+  {
+    BrokerSupervisor rival = new(hostPath, existing.TestPipeName(), existing.WorkspaceId, spawn: (_, _, _) => new Process());
+    rival.TestToken(existing.TestToken());
+    return rival;
+  }
+
   internal async Task KillBrokerProcessForTests()
   {
     await KillAsync().ConfigureAwait(false);

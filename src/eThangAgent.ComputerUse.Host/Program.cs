@@ -28,8 +28,23 @@ log.Write("serving pipe " + options.PipeName);
 RealBrokerObserver observer = new();
 PipeServer broker = new(new BrokerConfig(options.PipeName, options.Token), observer);
 broker.InputDispatch.SetElementOps(observer.CreateElementOps());
-using NamedPipeServerStream server = new(options.PipeName, PipeDirection.InOut, 1,
-  PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
-await PipeServeLoop.ServeOnceAsync(server, broker).ConfigureAwait(false);
-log.Write("connection ended; broker exiting");
+
+// C6 (production): one broker per workspace serves concurrent connections for the broker's
+// lifetime - no serve-then-exit. The factory mints a fresh multi-instance pipe per accepted
+// connection; the accept loop runs until cancelled (process shutdown).
+using CancellationTokenSource shutdown = new();
+Console.CancelKeyPress += (_, e) =>
+{
+  e.Cancel = true;
+  shutdown.Cancel();
+};
+AppDomain.CurrentDomain.ProcessExit += (_, _) => shutdown.Cancel();
+
+await PipeServeLoop.ServeConcurrentAsync(
+    () => new NamedPipeServerStream(options.PipeName, PipeDirection.InOut,
+        NamedPipeServerStream.MaxAllowedServerInstances,
+        PipeTransmissionMode.Byte, PipeOptions.Asynchronous),
+    broker,
+    shutdown.Token).ConfigureAwait(false);
+log.Write("shutdown; broker exiting");
 return 0;
