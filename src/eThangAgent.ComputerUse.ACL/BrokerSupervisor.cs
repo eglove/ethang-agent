@@ -126,6 +126,14 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
       _token = NewToken();
       throw new BrokerEnvelopeException(ComputerErrorCodes.HelperUnavailable, "broker connection lost; retry the request (one restart budgeted): " + Inner(ex), ex);
     }
+    catch (Exception ex) when (ex is not BrokerEnvelopeException and not OperationCanceledException)
+    {
+      // Fix round 4 (finding 4): ANY raw failure on the connect path - the committed
+      // crash class was JobObject.Attach's InvalidOperationException on an inert
+      // Process - is wrapped typed so it can never escape the envelope boundary and
+      // never leaves an unexpected exception shape in the turn loop.
+      throw new BrokerEnvelopeException(ComputerErrorCodes.HelperUnavailable, "broker connect failed: " + Inner(ex), ex);
+    }
   }
 
   private static string Inner(Exception ex) => ex.InnerException?.Message ?? ex.Message;

@@ -11,7 +11,7 @@ namespace eThangAgent.ComputerUse.Host;
 ///     BEFORE anything is dispatched. A3: the dispatcher carries the hold bookkeeping and
 ///     synthetic-modifier state and is cancelled by the broker on lease-owner loss. M6:
 ///     a failed send maps to the honest internal error with action_sent=false.</summary>
-public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord, bool> sendChord, Func<string, bool> sendText, Func<string, bool> sendButton)
+public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord, bool> sendChord, Func<string, bool> sendText, Func<string, bool> sendButton, Func<string, int, int, int, int, bool>? sendDrag = null)
 {
   private readonly List<HoldRecord> _activeHolds = [];
   private readonly Lock _holdGate = new();
@@ -24,7 +24,10 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   private readonly Func<KeyChord, bool> _sendChord = sendChord;
   private readonly Func<string, bool> _sendText = sendText;
   private readonly Func<string, bool> _sendButton = sendButton;
-  private readonly Func<string, int, int, int, int, bool> _sendDrag = NativeInput.SendDrag;
+  private readonly Func<string, int, int, int, int, bool> _sendDrag = sendDrag ?? NativeInput.SendDrag;
+  private int _dragCalls;
+  private (int X, int Y) _lastDragFrom;
+  private (int X, int Y) _lastDragTo;
 
   /// <summary>Production instance: real foreground read + real NativeInput dispatch.</summary>
   public static InputDispatch Create(Func<int>? foregroundPid = null) =>
@@ -32,13 +35,23 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
 
   /// <summary>Production: real foreground read + real NativeInput dispatch.</summary>
   public InputDispatch(Func<int>? foregroundPid = null)
-    : this(foregroundPid ?? ReadForegroundPid, NativeInput.SendChord, NativeInput.SendText, NativeInput.SendMouseButton)
+    : this(foregroundPid ?? ReadForegroundPid, NativeInput.SendChord, NativeInput.SendText, NativeInput.SendMouseButton, sendDrag: NativeInput.SendDrag)
   {
   }
 
   /// <summary>How many dispatch operations were issued (delivery honesty: a refused
   ///     action must have issued zero; an accepted action more than zero).</summary>
   public int SendInputCalls => _dispatchCount;
+
+  /// <summary>How many drag dispatches reached the drag sink (C3 wire pins; a refused
+  ///     or unresolvable drag must have issued zero).</summary>
+  public int DragCalls => _dragCalls;
+
+  /// <summary>The last drag's from-point.</summary>
+  public (int X, int Y) LastDragFrom => _lastDragFrom;
+
+  /// <summary>The last drag's to-point.</summary>
+  public (int X, int Y) LastDragTo => _lastDragTo;
 
   /// <summary>A3: true while a hold_key is ACTIVE (key down, key-up pending).</summary>
   public bool HasActiveHold
@@ -221,9 +234,9 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
 
   /// <summary>The element resolver + real UIA ops (R1): set at broker composition from
   ///     the observer's last-walk cache; null keeps the legacy pulse (tests).</summary>
-  private UiaElementOps? _elementOps;
+  private IElementBoundsResolver? _elementOps;
 
-  public void SetElementOps(UiaElementOps ops) => _elementOps = ops;
+  public void SetElementOps(IElementBoundsResolver ops) => _elementOps = ops;
 
   /// <summary>C3: drag dispatch. Coordinate targets dispatch the real pointer sequence
   ///     (button down, interpolated absolute moves, button up); element targets resolve the
@@ -257,6 +270,9 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
 
     bool sent = _sendDrag(button, fromX, fromY, toX, toY);
     _ = Interlocked.Increment(ref _dispatchCount);
+    _ = Interlocked.Increment(ref _dragCalls);
+    _lastDragFrom = (fromX, fromY);
+    _lastDragTo = (toX, toY);
     return sent
       ? BrokerResponse.Accepted()
       : BrokerResponse.Fail("internal", "SendInput reported failure for the drag sequence.", "action_sent=false");
@@ -292,7 +308,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   }
   private BrokerResponse ElementPath(string method, JsonElement? parameters)
   {
-    if (_elementOps is { } ops)
+    if (_elementOps is UiaElementOps ops)
     {
       return DispatchElementOps(ops, method, parameters);
     }

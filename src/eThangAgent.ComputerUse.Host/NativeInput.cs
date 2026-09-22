@@ -15,8 +15,8 @@ internal static partial class NativeInput
   private const uint MouseMove = 0x0001;
   private const uint MouseAbsolute = 0x8000;
   private const uint MouseVirtualDesk = 0x4000;
-  private const int ExtentWidthMetric = 78;  // SM_CXVIRTUALSCREEN - the EXTENT, not the origin (76)
-  private const int ExtentHeightMetric = 79; // SM_CYVIRTUALSCREEN - the EXTENT, not the origin (77)
+  internal const int ExtentWidthMetric = 78;  // SM_CXVIRTUALSCREEN - the EXTENT, not the origin (76)
+  internal const int ExtentHeightMetric = 79; // SM_CYVIRTUALSCREEN - the EXTENT, not the origin (77)
 
   /// <summary>The dispatcher's call-counter probe (test surface only): real input goes
   ///     through <see cref="SendChord"/>; tests count dispatches on InputDispatch.
@@ -150,40 +150,15 @@ internal static partial class NativeInput
 
   /// <summary>C3/fix round 4: full drag - absolute normalized move to the start (with
   ///     MOUSEEVENTF_MOVE: ABSOLUTE|VIRTUALDESK alone is a no-op event), button down, 8
-  ///     interpolated absolute moves, button up. Coordinates normalize against the
-  ///     virtual-desktop EXTENTS (SM_CX/CYVIRTUALSCREEN); zero extents refuse the send
+  ///     interpolated absolute moves, button up. The row SHAPE is built by
+  ///     <see cref="BuildDragRows"/> over extents the caller passes - the injected-metrics
+  ///     seam the pins exercise with fake values - so this method only fetches the real
+  ///     virtual-desktop extents and injects the built rows. Coordinates normalize
+  ///     against the extents (SM_CX/CYVIRTUALSCREEN); zero extents refuse the send
   ///     honestly instead of dividing by zero. True when SendInput accepted every event.</summary>
-  public static bool SendDrag(string button, int fromX, int fromY, int toX, int toY)
-  {
-    if (!TryExtents(out int cx, out int cy))
-    {
-      return false;
-    }
-
-    uint down = button.ToUpperInvariant() switch
-    {
-      "RIGHT" => 0x0008,
-      "MIDDLE" => 0x0020,
-      _ => 0x0002,
-    };
-    uint up = button.ToUpperInvariant() switch
-    {
-      "RIGHT" => 0x0010,
-      "MIDDLE" => 0x0040,
-      _ => 0x0004,
-    };
-
-    List<Input> rows = [MoveRow(fromX, fromY, cx, cy), Mouse(down)];
-    const int steps = 8;
-    for (int step = 1; step <= steps; step++)
-    {
-      (int x, int y) = StepPoint(fromX, fromY, toX, toY, steps, step);
-      rows.Add(MoveRow(x, y, cx, cy));
-    }
-
-    rows.Add(Mouse(up));
-    return Inject([.. rows]);
-  }
+  public static bool SendDrag(string button, int fromX, int fromY, int toX, int toY) =>
+    TryExtents(out int cx, out int cy)
+    && Inject(FromDragRows(BuildDragRows(button, fromX, fromY, toX, toY, cx, cy)));
 
   /// <summary>Linear interpolation between the drag endpoints, both ends inclusive.</summary>
   internal static (int X, int Y) StepPoint(int fromX, int fromY, int toX, int toY, int steps, int step)
@@ -193,22 +168,83 @@ internal static partial class NativeInput
     return (x, y);
   }
 
-  /// <summary>Absolute move row parts: 0..65535 normalized over the virtual-desktop extents,
-  ///     clamped into the normalized range; flags carry MOVE|ABSOLUTE|VIRTUALDESK.</summary>
-  internal static (uint flags, int dx, int dy) MoveRowParts(int x, int y, int cx, int cy)
+  /// <summary>One row of the drag sequence in wire-independent terms: the INPUT type tag,
+  ///     the event flags, and the absolute normalized coordinates (button rows carry 0,0).</summary>
+  internal readonly record struct DragRow(uint Type, uint Flags, int Dx, int Dy);
+
+  /// <summary>Absolute move-row parts over the GIVEN extents (fake metrics - the injected
+  ///     seam): 0..65535 normalized, clamped into the normalized range; flags carry
+  ///     MOVE|ABSOLUTE|VIRTUALDESK. Zero or negative extents yield the honest refusal
+  ///     marker (0, 0, 0) - no NaN, no divide-by-zero.</summary>
+  internal static (uint flags, int dx, int dy) BuildMoveParts(int x, int y, int cx, int cy)
   {
+#pragma warning disable IDE0046 // Named decision: the degenerate-extents guard names the refusal; the ternary form hides it.
+    if (cx <= 0 || cy <= 0)
+    {
+      return (0, 0, 0);
+    }
+
+#pragma warning restore IDE0046
+
     double dx = Math.Clamp(x * 65535.0 / cx, 0, 65535);
     double dy = Math.Clamp(y * 65535.0 / cy, 0, 65535);
     const uint moveFlags = MouseMove | MouseAbsolute | MouseVirtualDesk;
     return (moveFlags, (int)Math.Round(dx), (int)Math.Round(dy));
   }
 
-  private static Input MoveRow(int x, int y, int cx, int cy)
+  /// <summary>The full drag row sequence over the GIVEN extents (fake metrics - the
+  ///     injected seam), pinned by DragSequencePinTests: a leading from-move
+  ///     (MOVE|ABSOLUTE|VIRTUALDESK - ABSOLUTE|VIRTUALDESK alone is a no-op event),
+  ///     button down at that position, 8 interpolated moves whose last row IS the
+  ///     to-point, button up. Zero or negative extents yield NO rows - the honest
+  ///     refusal - never a degenerate event.</summary>
+  internal static DragRow[] BuildDragRows(string button, int fromX, int fromY, int toX, int toY, int cx, int cy)
   {
-    (uint flags, int dx, int dy) = MoveRowParts(x, y, cx, cy);
-    return new Input { _type = 0, _mouse = new Input.MouseRow { _dwFlags = flags, _dx = dx, _dy = dy } };
+    string normalized = button.ToUpperInvariant();
+    uint down = normalized switch
+    {
+      "RIGHT" => 0x0008,
+      "MIDDLE" => 0x0020,
+      _ => 0x0002,
+    };
+    uint up = normalized switch
+    {
+      "RIGHT" => 0x0010,
+      "MIDDLE" => 0x0040,
+      _ => 0x0004,
+    };
+
+    if (cx <= 0 || cy <= 0)
+    {
+      return [];
+    }
+
+    // Order is the Win32 drag idiom: position the cursor at the start FIRST (a button
+    // row acts at the CURRENT cursor position), press, trace the path, release.
+    (uint fromFlags, int fromDx, int fromDy) = BuildMoveParts(fromX, fromY, cx, cy);
+    List<DragRow> rows = [new(0, fromFlags, fromDx, fromDy), new(0, down, 0, 0)];
+    const int steps = 8;
+    for (int step = 1; step <= steps; step++)
+    {
+      (int x, int y) = StepPoint(fromX, fromY, toX, toY, steps, step);
+      (uint flags, int dx, int dy) = BuildMoveParts(x, y, cx, cy);
+      rows.Add(new DragRow(0, flags, dx, dy));
+    }
+
+    rows.Add(new DragRow(0, up, 0, 0));
+    return [.. rows];
   }
 
+  private static Input[] FromDragRows(DragRow[] rows)
+  {
+    List<Input> inputs = [];
+    foreach (DragRow row in rows)
+    {
+      inputs.Add(new Input { _type = row.Type, _mouse = new Input.MouseRow { _dwFlags = row.Flags, _dx = row.Dx, _dy = row.Dy } });
+    }
+
+    return [.. inputs];
+  }
   /// <summary>Virtual-desktop extents (physical pixels); false when either is not positive
   ///     - the honest refusal for a degenerate desktop, never a divide-by-zero.</summary>
   private static bool TryExtents(out int cx, out int cy)

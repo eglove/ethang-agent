@@ -78,14 +78,14 @@ public sealed class PipeServer
   private readonly Lock _gate = new();
   private readonly HashSet<int> _authenticated = [];
 
-  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, Func<KeyChord, bool>? sendChord = null, Func<string, bool>? sendText = null, Func<string, bool>? sendButton = null)
+  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, Func<KeyChord, bool>? sendChord = null, Func<string, bool>? sendText = null, Func<string, bool>? sendButton = null, Func<string, int, int, int, int, bool>? sendDrag = null)
   {
     _config = config ?? throw new ArgumentNullException(nameof(config));
     InputSerializer = new InputSerializer();
     Lease = new ControllerLease();
     InputDispatch = sendChord is null || sendText is null || sendButton is null
   ? InputDispatch.Create(foregroundPid)
-  : new InputDispatch(foregroundPid ?? ReadDefaultForeground, sendChord, sendText, sendButton);
+  : new InputDispatch(foregroundPid ?? ReadDefaultForeground, sendChord, sendText, sendButton, sendDrag);
     Observer = observer ?? new SkeletonObserver();
     Lease.OwnerLost += Observer.OnOwnerLost;
     Lease.OwnerLost += _ => InputDispatch.CancelActiveInput();

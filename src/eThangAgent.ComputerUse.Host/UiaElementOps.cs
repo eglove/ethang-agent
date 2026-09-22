@@ -7,7 +7,7 @@ namespace eThangAgent.ComputerUse.Host;
 ///     REAL pattern operation (Value/Invoke/SetFocus). Every unsupported pattern is an
 ///     honest typed error - not_settable / not_selectable / action_unavailable - never
 ///     a faked receipt. Resolution failure answers element_unavailable.</summary>
-public sealed class UiaElementOps(Func<int, AutomationElement?> resolver)
+public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IElementBoundsResolver
 {
   private readonly Func<int, AutomationElement?> _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
 
