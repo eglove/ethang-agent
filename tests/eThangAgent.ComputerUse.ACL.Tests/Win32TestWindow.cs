@@ -367,14 +367,14 @@ public sealed partial class Win32TestWindow : IDisposable
   private const uint PmRemove = 1;
   private volatile bool _stopLoop;
 
-  [LibraryImport("kernel32.dll", EntryPoint = "GetModuleHandleW", StringMarshalling = System.Runtime.InteropServices.StringMarshalling.Utf16), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [LibraryImport("kernel32.dll", EntryPoint = "GetModuleHandleW", StringMarshalling = StringMarshalling.Utf16), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   private static partial nint GetModuleHandle(string? name);
 #pragma warning disable SYSLIB1054 // Named decision (T12-13 precedent): LibraryImport cannot marshal the WNDCLASSEX layout (function pointer member); DllImport with the blittable layout marshals identically here.
   [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   private static extern ushort RegisterClassEx(ref NativeClassEx wc);
 #pragma warning restore SYSLIB1054
 
-  [LibraryImport("user32.dll", EntryPoint = "CreateWindowExW", StringMarshalling = System.Runtime.InteropServices.StringMarshalling.Utf16, SetLastError = true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [LibraryImport("user32.dll", EntryPoint = "CreateWindowExW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   private static partial nint CreateWindowEx(uint exStyle, string className, string windowName, uint style,
     int x, int y, int width, int height, nint parent, nint menu, nint instance, nint param);
   [LibraryImport("user32.dll", EntryPoint = "GetForegroundWindow"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
@@ -437,7 +437,7 @@ public sealed partial class Win32TestWindow : IDisposable
   private static extern nint SendMessage(nint hwnd, uint msg, nint wParam, [Out] char[] text);
 #pragma warning restore SYSLIB1054
 
-  [LibraryImport("user32.dll", EntryPoint = "SetWindowTextW", StringMarshalling = System.Runtime.InteropServices.StringMarshalling.Utf16), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [LibraryImport("user32.dll", EntryPoint = "SetWindowTextW", StringMarshalling = StringMarshalling.Utf16), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   [return: MarshalAs(UnmanagedType.Bool)]
   private static partial bool SetWindowText(nint hwnd, string text);
 

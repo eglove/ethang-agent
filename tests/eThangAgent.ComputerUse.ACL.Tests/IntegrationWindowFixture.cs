@@ -1,6 +1,5 @@
-using eThangAgent.ToolDomain;
-
 using System.Runtime.InteropServices;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ComputerUse.ACL.Tests;
 

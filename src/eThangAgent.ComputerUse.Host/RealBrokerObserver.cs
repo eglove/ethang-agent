@@ -1,9 +1,8 @@
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Windows.Automation;
-
-using System.Text;
 
 namespace eThangAgent.ComputerUse.Host;
 
@@ -234,8 +233,8 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
   {
     try
     {
-      using System.Drawing.Bitmap bmp = new(rect.Width, rect.Height, PixelFormat.Format32bppArgb);
-      using System.Drawing.Graphics graphics = System.Drawing.Graphics.FromImage(bmp);
+      using Bitmap bmp = new(rect.Width, rect.Height, PixelFormat.Format32bppArgb);
+      using Graphics graphics = Graphics.FromImage(bmp);
       nint hdc = graphics.GetHdc();
       try
       {
@@ -248,7 +247,7 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
 
       bool blank;
       byte[] pixels = new byte[rect.Width * rect.Height * 4];
-      System.Drawing.Imaging.BitmapData data = bmp.LockBits(new System.Drawing.Rectangle(0, 0, rect.Width, rect.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+      BitmapData data = bmp.LockBits(new Rectangle(0, 0, rect.Width, rect.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
       try
       {
         Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
