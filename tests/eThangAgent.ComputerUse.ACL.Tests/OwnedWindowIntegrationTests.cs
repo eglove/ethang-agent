@@ -2,6 +2,7 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ComputerUse.ACL.Tests;
 
+#pragma warning disable CA2007 // Named decision: xUnit test methods, no SynchronizationContext.
 /// <summary>Task 18 integration: the REAL broker process (BrokerSupervisor spawning the
 ///     real Host exe) drives the TEST PROCESS'S OWN Win32 window through real UIA and
 ///     real SendInput. Every test touches only the window this test process created
@@ -245,26 +246,26 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     Assert.Contains("x", _fixture.Window.RecordedChars, StringComparison.Ordinal);
   }
 
-  // 9. C6 ruling: controller A takes the lease via controller_takeover; a rival B takeover
-  // fails with controller_busy naming the owner. capture_app stays lease-free.
   [Fact]
   public async Task SecondController_GetsControllerBusy_OwnerInMessage()
   {
-    await using BrokerComputerAccess controllerA = NewAccess();
-    ComputerOutcome takeover = await controllerA.ExecuteAsync(
-        new ComputerCommand.ListApps(), TestContext.Current.CancellationToken).ConfigureAwait(true);
-    _ = Assert.IsType<ComputerOutcome.Observation>(takeover); // A's lazy lease acquisition
-
-    // B's first input-path action must fail with controller_busy (A holds the lease).
-    await using BrokerComputerAccess controllerB = NewAccess();
-    ComputerOutcome busy = await controllerB.ExecuteAsync(
+    BrokerSupervisor shared = NewSupervisor();
+    await using BrokerComputerAccess controllerA = new(shared);
+    ComputerOutcome takeoverA = await controllerA.ExecuteAsync(
         new ComputerCommand.Key("y", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid)),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+    _ = Assert.IsType<ComputerOutcome.Receipt>(takeoverA); // A's action lazily took the lease
+
+    // B on the SAME broker pipe: its input must be refused controller_busy naming the owner.
+    await using BrokerComputerAccess controllerB = new(shared);
+    ComputerOutcome busy = await controllerB.ExecuteAsync(
+        new ComputerCommand.Key("z", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid)),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(busy);
     Assert.Equal(ComputerErrorCodes.ControllerBusy, failure.Code);
     Assert.Contains("owner=", failure.Message, StringComparison.Ordinal);
 
-    // capture_app (observe) stays lease-free: B can still observe while A holds the lease.
+    // capture_app stays lease-free: B can still observe while A holds the lease.
     ComputerOutcome observe = await controllerB.ExecuteAsync(
         new ComputerCommand.Observe(ComputerAppRef.ByPid(_fixture.Window.Pid),
             IncludeScreenshot: false, DisableDiffing: false),
@@ -363,3 +364,4 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     Assert.True(jpeg.Length > 100, "a real raster is never a few bytes");
   }
 }
+#pragma warning restore CA2007

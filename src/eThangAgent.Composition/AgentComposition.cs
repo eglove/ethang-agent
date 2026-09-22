@@ -708,7 +708,7 @@ public static class AgentComposition
     yield return new AgentToolBinding(
         new ComputerTool(
             sp.GetRequiredService<IComputerAccessProvider>().ForWorkspace(
-                sp.GetRequiredService<IWorkspaceContext>().WorkspaceId) ?? new NullComputerAccess(),
+                sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)!,
             new SessionImageInputCapability(sp)),
         "Control the desktop (computer use): observe, click, type, and paste in apps.");
   }
@@ -726,7 +726,7 @@ public static class AgentComposition
 
     yield return new ComputerTool(
         sp.GetRequiredService<IComputerAccessProvider>().ForWorkspace(
-            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId) ?? new NullComputerAccess(),
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)!,
         new SessionImageInputCapability(sp));
   }
 

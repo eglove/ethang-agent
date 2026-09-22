@@ -14,7 +14,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver)
   public BrokerResponse Focus(int element)
   {
     AutomationElement? target = Resolve(element);
-    return target is null ? ElementUnavailable(element) : TrySetFocus(target);
+    return target is null ? ElementUnavailable(element) : TrySetFocus(target, element);
   }
 
   public BrokerResponse SetValue(int element, string text)
@@ -121,7 +121,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver)
   private static BrokerResponse ElementUnavailable(int element) =>
     BrokerResponse.Fail("element_unavailable", $"element {element} is not in the broker's latest observation; observe first.");
 
-  private static BrokerResponse TrySetFocus(AutomationElement target)
+  private static BrokerResponse TrySetFocus(AutomationElement target, int element)
   {
     try
     {
@@ -130,7 +130,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver)
     }
     catch (ElementNotAvailableException)
     {
-      return ElementUnavailable(-1);
+      return ElementUnavailable(element);
     }
     catch (System.Runtime.InteropServices.COMException ex)
     {

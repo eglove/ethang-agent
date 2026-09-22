@@ -299,7 +299,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// Completes the root session on graceful exit (tab close or window close).
   /// Persistence failures surface as transcript notices — teardown itself never throws.
   /// </summary>
-  public Task ShutdownAsync() => _lifecycle.CompleteAsync(_rootId, ReportPersistenceError);
+  public async Task ShutdownAsync()
+  {
+    // M17: release decoded screenshot bitmaps when the tab shuts down.
+    Transcript.DisposeEntries();
+    await _lifecycle.CompleteAsync(_rootId, ReportPersistenceError).ConfigureAwait(true);
+  }
 
   private async Task ExecuteTurnAsync(string input)
   {
@@ -465,7 +470,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
             {
               decoded.Add(new TranscriptImage(Convert.FromBase64String(img.Base64Data)));
             }
-            catch (FormatException)
+            // I13 residual: ANY decode failure degrades to no-image, never aborts delivery.
+            catch (Exception ex) when (ex is FormatException or ArgumentException or InvalidOperationException)
             {
               Transcript.AddNotice("[computer] screenshot image could not be decoded and was skipped.");
             }

@@ -44,10 +44,13 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
 
   internal string TestToken() => _token;
 
+  // C5 seam contract: the test kill models a REAL crash - it does NOT reset the crash
+  // counter. Two kills without a respawn exhaust the one-restart budget; the next call
+  // surfaces typed HELPER_UNAVAILABLE through the envelope path.
   internal async Task KillBrokerProcessForTests()
   {
     await KillAsync().ConfigureAwait(false);
-    _crashes = 0; // the restart budget is judged by the supervisor itself, not the test kill
+    _crashes++;
   }
 
   private static string NewToken() => Guid.NewGuid().ToString("N");
@@ -74,18 +77,10 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
     return Process.Start(psi) ?? throw new BrokerSupervisorException("broker host failed to start");
   }
 
-  /// <summary>Executes one broker request, spawning or restarting the broker as needed.
-  ///     Transport loss maps to HELPER_UNAVAILABLE; a healthy start followed by one crash
-  ///     earns exactly one lazy restart before the failure propagates.</summary>
-  /// <summary>Executes one broker request and returns the RAW reply envelope for
-  ///     callers that parse non-receipt results (capture_app, list_*). The same
-  ///     supervision policy applies: lazy spawn, transport-loss mapping, one lazy
-  ///     restart. Errors travel IN the envelope (BrokerReply.Error), transport loss
-  ///     as the thrown typed exceptions RequestAsync also throws.</summary>
   /// <summary>Executes one broker request and returns the RAW reply envelope for callers
   ///     that parse non-receipt results (capture_app, list_*). Same supervision policy as
-  ///     RequestAsync; transport loss maps to typed failures exactly like the legacy path
-  ///     (C4) so envelope callers can never leak an exception into the turn loop.</summary>
+  ///     the legacy path; transport loss maps to typed failures (C4) so envelope callers
+  ///     can never leak an exception into the turn loop.</summary>
   public async Task<BrokerReply> RequestEnvelopeAsync(string method, JsonElement? parameters, CancellationToken ct = default)
   {
     ObjectDisposedException.ThrowIf(_disposed, this);
@@ -118,36 +113,6 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
     }
   }
 
-  public async Task<ComputerOutcome> RequestAsync(string method, JsonElement? parameters, CancellationToken ct = default)
-  {
-    ObjectDisposedException.ThrowIf(_disposed, this);
-    try
-    {
-      return await RoundTripAsync(method, parameters, ct).ConfigureAwait(false);
-    }
-    catch (Exception ex) when (ex is BrokerSupervisorException or BrokerTimeoutException)
-    {
-      // Configuration or readiness problems: nothing was sent, no restart budget burned.
-      return ex is BrokerTimeoutException
-        ? new ComputerOutcome.Failure(ComputerErrorCodes.Timeout, "broker pipe never became ready: " + Inner(ex))
-        : new ComputerOutcome.Failure(ComputerErrorCodes.HelperUnavailable, Inner(ex));
-    }
-    catch (Exception ex) when (ex is BrokerConnectionClosedException or BrokerProtocolException or IOException)
-    {
-      _crashes++;
-      if (_crashes > 1)
-      {
-        return new ComputerOutcome.Failure(ComputerErrorCodes.HelperUnavailable, "broker connection lost twice: " + Inner(ex));
-      }
-
-      // ONE lazy restart with short backoff on the NEXT request.
-      await KillAsync().ConfigureAwait(false);
-      await Task.Delay(RestartBackoff, ct).ConfigureAwait(false);
-      _token = NewToken();
-      return new ComputerOutcome.Failure(ComputerErrorCodes.HelperUnavailable, "broker connection lost; retry the request (one restart budgeted): " + Inner(ex));
-    }
-  }
-
   private static string Inner(Exception ex) => ex.InnerException?.Message ?? ex.Message;
 
   private async Task<BrokerReply> RoundTripEnvelopeAsync(string method, JsonElement? parameters, CancellationToken ct)
@@ -157,14 +122,6 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
     _crashes = 0;
     return reply;
   }
-  private async Task<ComputerOutcome> RoundTripAsync(string method, JsonElement? parameters, CancellationToken ct)
-  {
-    NdjsonPipeClient pipe = await GetClientAsync(ct).ConfigureAwait(false);
-    BrokerReply reply = await pipe.RequestAsync(method, parameters, ct).ConfigureAwait(false);
-    _crashes = 0;
-    return ToOutcome(reply);
-  }
-
   private Task<NdjsonPipeClient> GetClientAsync(CancellationToken ct)
   {
     _gate.Enter();
@@ -218,19 +175,6 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
     }
 
     return fresh;
-  }
-
-  private static ComputerOutcome ToOutcome(BrokerReply reply)
-  {
-    if (reply.Error is { } error)
-    {
-      return BrokerErrorMapper.Map(error.Code, error.Message);
-    }
-
-    // Echo the wire receipt honestly: action_sent=false must survive to the surface.
-    return BrokerActionReceipt.From(reply) is { } receipt
-      ? new ComputerOutcome.Receipt(receipt.ActionSent, receipt.DispatchStatus, receipt.EffectEvidence, null)
-      : new ComputerOutcome.Failure(ComputerErrorCodes.Internal, "broker returned an unrecognized result shape.");
   }
 
   private async Task KillAsync()

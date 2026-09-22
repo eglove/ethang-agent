@@ -17,6 +17,8 @@ public static class BrokerErrorMapper
   private static string Surface(string wireCode) => wireCode switch
   {
     "permission_denied" => ComputerErrorCodes.ActionUnavailable,
+    "app_not_found" => ComputerErrorCodes.AppNotFound,
+    "ambiguous_app" => ComputerErrorCodes.AmbiguousApp,
     "launch_failed" => ComputerErrorCodes.LaunchFailed,
     "invalid_request" => ComputerErrorCodes.InvalidApp,
     "element_unavailable" => ComputerErrorCodes.ElementUnavailable,

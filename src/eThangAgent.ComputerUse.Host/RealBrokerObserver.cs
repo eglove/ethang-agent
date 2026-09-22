@@ -204,7 +204,14 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
       string role = element.Current.ControlType?.ProgrammaticName?.Replace("ControlType.", string.Empty, StringComparison.Ordinal) ?? "unknown";
       string name = element.Current.Name ?? string.Empty;
       bool pressable = element.TryGetCurrentPattern(InvokePattern.Pattern, out _);
-      string[] actions = pressable ? ["press"] : [];
+      bool toggleable = element.TryGetCurrentPattern(TogglePattern.Pattern, out _);
+      string[] actions = (pressable, toggleable) switch
+      {
+        (true, true) => ["press", "toggle"],
+        (true, false) => ["press"],
+        (false, true) => ["toggle"],
+        _ => [],
+      };
       bool valueBacked = element.TryGetCurrentPattern(ValuePattern.Pattern, out _);
       string? value = null;
       if (valueBacked && element.TryGetCurrentPattern(ValuePattern.Pattern, out object? pattern) && pattern is ValuePattern vp)
@@ -219,7 +226,7 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
         }
       }
 
-      bool toggleable = element.TryGetCurrentPattern(TogglePattern.Pattern, out _);
+
       bool selected = element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _);
       bool hasMenu = element.Current.ControlType == ControlType.Menu;
       return new

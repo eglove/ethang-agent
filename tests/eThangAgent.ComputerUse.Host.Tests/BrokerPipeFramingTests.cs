@@ -106,7 +106,8 @@ public class BrokerPipeFramingTests
 ///     surface is task 17). Disposal stops the loop.</summary>
 internal sealed class HostHarness : IAsyncDisposable
 {
-  private readonly NamedPipeServerStream _server;
+  private readonly NamedPipeServerStream? _server;
+  private readonly CancellationTokenSource? _acceptCts;
   private readonly Task _loop;
 
   private HostHarness(NamedPipeServerStream server, Task loop, string token, PipeServer broker)
@@ -117,9 +118,16 @@ internal sealed class HostHarness : IAsyncDisposable
     Broker = broker;
   }
 
-  public string Token { get; }
-
+  private HostHarness(Task loop, string token, PipeServer broker, CancellationTokenSource? acceptCts = null)
+  {
+    _loop = loop;
+    Token = token;
+    Broker = broker;
+    _acceptCts = acceptCts;
+  }
   public PipeServer Broker { get; }
+
+  public string Token { get; }
 
   public static HostHarness Start(string pipeName, bool bigObserver = false)
   {
@@ -132,14 +140,33 @@ internal sealed class HostHarness : IAsyncDisposable
     return new HostHarness(server, loop, token, broker);
   }
 
+  /// <summary>C6: a harness that serves CONCURRENT connections via the factory loop -
+  ///     one NamedPipeServerStream minted per connection, each on its own serve task.
+  ///     The single controller lease arbitrates across every connection.</summary>
+  internal static HostHarness StartConcurrent(string pipeName)
+  {
+    string token = "test-token-" + Guid.NewGuid().ToString("N");
+    PipeServer broker = new(new BrokerConfig(pipeName, token), new FakeObserver());
+    CancellationTokenSource acceptCts = new();
+    Task loop = PipeServeLoop.ServeConcurrentAsync(
+      () => new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous),
+      broker, acceptCts.Token);
+    return new HostHarness(loop, token, broker, acceptCts);
+  }
+
   public async ValueTask DisposeAsync()
   {
-    if (_server.IsConnected)
+    await (_acceptCts?.CancelAsync() ?? Task.CompletedTask).ConfigureAwait(true);
+    if (_server is { } server)
     {
-      _server.Disconnect();
+      if (server.IsConnected)
+      {
+        server.Disconnect();
+      }
+
+      await server.DisposeAsync().ConfigureAwait(true);
     }
 
-    await _server.DisposeAsync().ConfigureAwait(true);
     try
     {
       await _loop.ConfigureAwait(true);

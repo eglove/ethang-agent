@@ -4,8 +4,10 @@ using System.Text.Json;
 
 namespace eThangAgent.ComputerUse.Host;
 
-/// <summary>The broker's NDJSON serve loop (task 16): one connection at a time on the
-///     pipe instance; newline-delimited request frames in, exactly one reply frame out
+/// <summary>The broker's NDJSON serve loop. Spec 4 arbitrates CONCURRENT controllers, so the
+///     loop serves MULTIPLE concurrent pipe connections (C6): each accepted connection gets its
+///     own serve task and connection id; the PipeServer arbitrates the single controller lease
+///     across them (first takeover wins, rivals get controller_busy with the owner id). newline-delimited request frames in, exactly one reply frame out
 ///     per request; UTF-8 both ways; frames above the ceiling are refused and the
 ///     connection closes (the wire is never trusted past a framing violation). The
 ///     loop assigns each connection a monotonically increasing connection id, which
@@ -33,6 +35,50 @@ public static class PipeServeLoop
     }
   }
 
+  /// <summary>C6: the production multi-connection serve loop. The FACTORY mints a fresh
+  ///     NamedPipeServerStream per accepted connection (a pipe instance serves exactly one
+  ///     client); the accept loop keeps creating instances until cancelled. Every connection
+  ///     runs on its own task with its own connection id; the single controller lease in the
+  ///     shared PipeServer arbitrates across all of them.</summary>
+  public static async Task ServeConcurrentAsync(
+      Func<NamedPipeServerStream> connectionStreamFactory,
+      PipeServer broker,
+      CancellationToken acceptLoopCancellationToken)
+  {
+    ArgumentNullException.ThrowIfNull(connectionStreamFactory);
+    ArgumentNullException.ThrowIfNull(broker);
+    List<Task> connectionTasks = [];
+    try
+    {
+      while (!acceptLoopCancellationToken.IsCancellationRequested)
+      {
+        NamedPipeServerStream stream = connectionStreamFactory();
+        await stream.WaitForConnectionAsync(acceptLoopCancellationToken).ConfigureAwait(false);
+        int connectionId = broker.NextConnectionId();
+        connectionTasks.Add(Task.Run(async () =>
+        {
+          try
+          {
+            await RunConnectionAsync(stream, broker, connectionId).ConfigureAwait(false);
+          }
+          catch (IOException)
+          {
+            // The client dropped mid-frame; the lease auto-expires via DropConnection.
+          }
+          finally
+          {
+            broker.DropConnection(connectionId);
+          }
+        }, acceptLoopCancellationToken));
+      }
+    }
+    catch (OperationCanceledException)
+    {
+      // The accept loop was cancelled; existing connections drain via their own tasks.
+    }
+
+    await Task.WhenAll(connectionTasks).ConfigureAwait(false);
+  }
   private static async Task RunConnectionAsync(NamedPipeServerStream server, PipeServer broker, int connectionId)
   {
     List<byte> lineBytes = [];
@@ -106,9 +152,11 @@ public static class PipeServeLoop
     string idJson = id.ToString(System.Globalization.CultureInfo.InvariantCulture);
     if (response.Error is { } error)
     {
+      // The details value renders FLAT inside the error object (standing ruling):
+      // "details":"<string>" - never a nested {details:...} object the client cannot parse.
       string details = error.Details is null
         ? string.Empty
-        : "," + JsonSerializer.Serialize(new { details = error.Details });
+        : "," + Quote("details") + ":" + JsonSerializer.Serialize(error.Details);
       return "{" + Quote("id") + ":" + idJson + "," + Quote("error") + ":{" + Quote("code") + ":" + JsonSerializer.Serialize(error.Code)
         + "," + Quote("message") + ":" + JsonSerializer.Serialize(error.Message) + details + "}}";
     }

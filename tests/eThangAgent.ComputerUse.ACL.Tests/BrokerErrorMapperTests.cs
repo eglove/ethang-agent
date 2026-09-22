@@ -60,4 +60,14 @@ public class BrokerErrorMapperTests
     Assert.Equal(ComputerErrorCodes.Timeout, failure.Code);
     Assert.Equal("retry", ComputerErrorCodes.RetryHint(failure.Code));
   }
+
+  [Theory]
+  [InlineData("app_not_found", "APP_NOT_FOUND")]
+  [InlineData("ambiguous_app", "AMBIGUOUS_APP")]
+  public void Map_AppRefFailures_MapToSurfaceCodes(string wireCode, string expectedSurface)
+  {
+    ComputerOutcome.Failure failure = BrokerErrorMapper.Map(wireCode, "the message");
+    Assert.Equal(expectedSurface, failure.Code);
+    Assert.Equal("the message", failure.Message);
+  }
 }

@@ -16,9 +16,9 @@ public class BrokerSupervisorTests
     BrokerSupervisor supervisor = new(hostPath, pipeName, "stub-workspace");
     try
     {
-      ComputerOutcome outcome = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      ComputerOutcome.Receipt receipt = Assert.IsType<ComputerOutcome.Receipt>(outcome);
-      Assert.True(receipt.ActionSent);
+      BrokerReply outcome = await supervisor.RequestEnvelopeAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.Null(outcome.Error);
+      Assert.True(outcome.Result is not null, "expected a result payload");
     }
     finally
     {
@@ -37,10 +37,10 @@ public class BrokerSupervisorTests
       spawned = SpawnForTest(exe, pipe, token);
       return spawned;
     });
-    ComputerOutcome first = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    ComputerOutcome.Receipt firstReceipt = Assert.IsType<ComputerOutcome.Receipt>(first);
-    Assert.True(firstReceipt.ActionSent);
-    await supervisor.DisposeAsync();
+    BrokerReply first = await supervisor.RequestEnvelopeAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.Null(first.Error);
+    Assert.True(first.Result is not null, "expected a result payload");
+    await supervisor.DisposeAsync().ConfigureAwait(true);
     Assert.NotNull(spawned);
     Task exitTask = spawned.WaitForExitAsync(TestContext.Current.CancellationToken);
     bool exitedInTime = await Task.WhenAny(exitTask, Task.Delay(5000, TestContext.Current.CancellationToken)).ConfigureAwait(true) == exitTask;
@@ -68,13 +68,14 @@ public class BrokerSupervisorTests
     {
       // First request: the broker serves it; then the 'crash' request kills the broker
       // without replying => HELPER_UNAVAILABLE with the one-restart note.
-      ComputerOutcome ok = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      ComputerOutcome.Receipt okReceipt = Assert.IsType<ComputerOutcome.Receipt>(ok);
-      Assert.True(okReceipt.ActionSent);
-      ComputerOutcome crash = await supervisor.RequestAsync("crash", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(crash);
-      Assert.Equal(ComputerErrorCodes.HelperUnavailable, failure.Code);
-      Assert.Contains("restart", failure.Message, StringComparison.Ordinal);
+      BrokerReply ok = await supervisor.RequestEnvelopeAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.Null(ok.Error);
+      Assert.True(ok.Result is not null, "expected a result payload");
+      BrokerEnvelopeException crash = await Assert.ThrowsAsync<BrokerEnvelopeException>(
+        () => supervisor.RequestEnvelopeAsync("crash", null, TestContext.Current.CancellationToken)).ConfigureAwait(true);
+      Assert.Equal(ComputerErrorCodes.HelperUnavailable, crash.Code);
+      Assert.Contains("restart", crash.Message, StringComparison.Ordinal);
+      Assert.Contains("restart", crash.Message, StringComparison.Ordinal);
     }
     finally
     {
@@ -90,11 +91,11 @@ public class BrokerSupervisorTests
     BrokerSupervisor supervisor = new(hostPath, pipeName, "receipt-test");
     try
     {
-      ComputerOutcome outcome = await supervisor.RequestAsync("deny", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      ComputerOutcome.Receipt receipt = Assert.IsType<ComputerOutcome.Receipt>(outcome);
-      Assert.False(receipt.ActionSent);
-      Assert.Equal("possibly_sent", receipt.DispatchStatus);
-      Assert.Equal("unchanged", receipt.EffectEvidence);
+      BrokerReply outcome = await supervisor.RequestEnvelopeAsync("deny", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.Null(outcome.Error);
+      Assert.False(BrokerActionReceipt.From(outcome)!.ActionSent);
+      Assert.Equal("possibly_sent", BrokerActionReceipt.From(outcome)!.DispatchStatus);
+      Assert.Equal("unchanged", BrokerActionReceipt.From(outcome)!.EffectEvidence);
     }
     finally
     {
@@ -112,8 +113,8 @@ public class BrokerSupervisorTests
         notReady: new NotReadyPolicy(delayer));
     try
     {
-      ComputerOutcome outcome = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(outcome);
+      BrokerEnvelopeException failure = await Assert.ThrowsAsync<BrokerEnvelopeException>(
+        () => supervisor.RequestEnvelopeAsync("list_applications", null, TestContext.Current.CancellationToken)).ConfigureAwait(true);
       Assert.Equal(ComputerErrorCodes.Timeout, failure.Code);
       Assert.Equal("retry", ComputerErrorCodes.RetryHint(failure.Code));
     }
@@ -130,13 +131,13 @@ public class BrokerSupervisorTests
     BrokerSupervisor supervisor = new(@"C:\no\such\host.exe", pipeName, "nohost");
     try
     {
-      ComputerOutcome first = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      ComputerOutcome.Failure firstFailure = Assert.IsType<ComputerOutcome.Failure>(first);
-      Assert.Equal(ComputerErrorCodes.HelperUnavailable, firstFailure.Code);
-      Assert.Contains("host", firstFailure.Message, StringComparison.Ordinal);
-      ComputerOutcome second = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      ComputerOutcome.Failure secondFailure = Assert.IsType<ComputerOutcome.Failure>(second);
-      Assert.Contains("host", secondFailure.Message, StringComparison.Ordinal);
+      BrokerEnvelopeException first = await Assert.ThrowsAsync<BrokerEnvelopeException>(
+        () => supervisor.RequestEnvelopeAsync("list_applications", null, TestContext.Current.CancellationToken)).ConfigureAwait(true);
+      Assert.Equal(ComputerErrorCodes.HelperUnavailable, first.Code);
+      Assert.Contains("host", first.Message, StringComparison.Ordinal);
+      BrokerEnvelopeException second = await Assert.ThrowsAsync<BrokerEnvelopeException>(
+        () => supervisor.RequestEnvelopeAsync("list_applications", null, TestContext.Current.CancellationToken)).ConfigureAwait(true);
+      Assert.Contains("host", second.Message, StringComparison.Ordinal);
     }
     finally
     {
@@ -152,16 +153,15 @@ public class BrokerSupervisorTests
     BrokerSupervisor supervisor = new(hostPath, pipeName, "twice-test");
     try
     {
-      ComputerOutcome served = await supervisor.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      bool servedOk = served is ComputerOutcome.Receipt;
-      Assert.True(servedOk, "first request should succeed");
-      ComputerOutcome firstCrash = await supervisor.RequestAsync("crash", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      bool firstIsFailure = firstCrash is ComputerOutcome.Failure;
-      Assert.True(firstIsFailure, "first crash should fail");
-      ComputerOutcome secondCrash = await supervisor.RequestAsync("crash", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
-      ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(secondCrash);
-      Assert.Equal(ComputerErrorCodes.HelperUnavailable, failure.Code);
-      Assert.Contains("lost twice", failure.Message, StringComparison.Ordinal);
+      BrokerReply served = await supervisor.RequestEnvelopeAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.Null(served.Error);
+      BrokerEnvelopeException firstCrash = await Assert.ThrowsAsync<BrokerEnvelopeException>(
+        () => supervisor.RequestEnvelopeAsync("crash", null, TestContext.Current.CancellationToken)).ConfigureAwait(true);
+      Assert.True(firstCrash.Code is ComputerErrorCodes.HelperUnavailable or ComputerErrorCodes.Timeout, "first crash is typed");
+      BrokerEnvelopeException secondCrash = await Assert.ThrowsAsync<BrokerEnvelopeException>(
+        () => supervisor.RequestEnvelopeAsync("crash", null, TestContext.Current.CancellationToken)).ConfigureAwait(true);
+      Assert.Equal(ComputerErrorCodes.HelperUnavailable, secondCrash.Code);
+      Assert.Contains("lost twice", secondCrash.Message, StringComparison.Ordinal);
     }
     finally
     {

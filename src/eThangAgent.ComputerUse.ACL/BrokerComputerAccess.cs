@@ -350,6 +350,19 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
       return new ComputerOutcome.Failure(ComputerErrorCodes.Timeout,
           "the call was cancelled before the broker replied; whether the action landed is unknown.");
     }
+
+    catch (BrokerEnvelopeException envelope)
+    {
+      // C4: transport failures arrive as typed envelope exceptions. HELPER_UNAVAILABLE carries
+      // the retry hint; the budget code maps to TIMEOUT. Exceptions never escape the adapter.
+      string code = envelope.Code == ComputerErrorCodes.Timeout
+        ? ComputerErrorCodes.Timeout
+        : ComputerErrorCodes.HelperUnavailable;
+      string hint = code == ComputerErrorCodes.Timeout
+        ? "the broker call exceeded its budget; whether the action landed is unknown."
+        : "the broker is unavailable; the pipe may be restarting - retry the request.";
+      return new ComputerOutcome.Failure(code, envelope.Message + " " + hint);
+    }
     if (reply.Error is { } error)
     {
       return BrokerErrorMapper.Map(error.Code, error.Message);
@@ -379,13 +392,16 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
   ///     rendered through the renderer, the state registered in the ledger, a delivered
   ///     actionable raster registered as a coordinate frame, and the screenshot
   ///     re-encoded for the model (withheld when the broker marked it blank).</summary>
-  private ComputerOutcome.Observation CaptureToObservation(BrokerReply reply)
+  internal ComputerOutcome CaptureToObservation(BrokerReply reply)
   {
     if (CaptureAppResult.From(reply) is not { } capture)
     {
-      return new ComputerOutcome.Observation(string.Empty, string.Empty, [], null,
-          "the broker's capture could not be parsed; observe again.", null);
+      // I10: an unparseable capture is a typed retryable failure - never an empty success.
+      return new ComputerOutcome.Failure(
+          ComputerErrorCodes.StaleState,
+          "the broker's capture could not be parsed; observe again.");
     }
+
 
     bool treeShown = capture.SnapshotMode != "no_change";
     _lastObservedPid = capture.App.Pid;
