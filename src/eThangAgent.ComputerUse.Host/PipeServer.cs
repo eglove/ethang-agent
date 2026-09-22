@@ -321,7 +321,13 @@ public sealed class PipeServer
     _ = id;
     if (Lease.Owner != connectionId)
     {
-      return BrokerResponse.Fail("controller_busy", "input requires the controller lease; take over first.");
+      // M7 contract (spec 4): controller_busy names the owner in BOTH the message and the
+      // details string - same format as HandleControllerTakeover's takeover race.
+      int? owner = Lease.Owner;
+      return BrokerResponse.Fail(
+        "controller_busy",
+        $"input requires the controller lease; take over first (owner={owner.GetValueOrDefault()}).",
+        $"owner={owner.GetValueOrDefault()}");
     }
 
     using InputOperation? operation = InputSerializer.TryBegin(method);
