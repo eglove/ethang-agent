@@ -5,6 +5,7 @@ using eThangAgent.Agent.Application.Nudges;
 using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.CapabilityDomain;
+using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ConversationDomain;
 using eThangAgent.FileSystem.ACL;
 using eThangAgent.Local.ACL;
@@ -21,7 +22,6 @@ using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
 using eThangAgent.Zai.ACL;
-
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition;
@@ -418,6 +418,10 @@ public static class AgentComposition
         // while intelligent selection is active. The holder reuses the shared
         // Conversation/provider/tools/system-prompt so a rebuild preserves all message history.
         .AddSingleton<SessionImageInputCapability>()
+        .AddSingleton(sp => new BrokerRegistry(
+            () => Path.Combine(AppContext.BaseDirectory, "eThangAgent.ComputerUse.Host.exe"),
+            BrokerRegistry.DefaultPipeNameFor))
+        .AddSingleton<IComputerAccessProvider, BrokerComputerAccessProvider>()
         .AddSingleton<SessionModelPreferences>()
         .AddSingleton<RootSessionIdentity>()
         .AddSingleton(sp => new RootAgentHolder(
@@ -703,7 +707,7 @@ public static class AgentComposition
 
     yield return new AgentToolBinding(
         new ComputerTool(
-            sp.GetService<IComputerAccessProvider>()?.ForWorkspace(
+            sp.GetRequiredService<IComputerAccessProvider>().ForWorkspace(
                 sp.GetRequiredService<IWorkspaceContext>().WorkspaceId) ?? new NullComputerAccess(),
             new SessionImageInputCapability(sp)),
         "Control the desktop (computer use): observe, click, type, and paste in apps.");
@@ -721,7 +725,7 @@ public static class AgentComposition
     }
 
     yield return new ComputerTool(
-        sp.GetService<IComputerAccessProvider>()?.ForWorkspace(
+        sp.GetRequiredService<IComputerAccessProvider>().ForWorkspace(
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId) ?? new NullComputerAccess(),
         new SessionImageInputCapability(sp));
   }

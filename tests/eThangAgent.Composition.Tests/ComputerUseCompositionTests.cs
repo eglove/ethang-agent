@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
+using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,13 +29,6 @@ public class ComputerUseCompositionTests
         .BuildServiceProvider();
   }
 
-  private static HashSet<string> ChildSurfaceOf(ServiceProvider services)
-  {
-    System.Reflection.BindingFlags sp = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
-    System.Reflection.MethodInfo? method = typeof(AgentComposition).GetMethod("ChildToolSurface", sp)
-        ?? throw new InvalidOperationException("ChildToolSurface not found");
-    return (HashSet<string>)(method.Invoke(null, [services.GetRequiredService<IServiceProvider>()]) ?? throw new InvalidOperationException("null surface"));
-  }
 
   // ---- loader parse matrix (strict binding, ParseRemoteHost pattern) ----
 
@@ -97,7 +91,8 @@ public class ComputerUseCompositionTests
   public void Disabled_Computer_NotInChildToolSurface()
   {
     using ServiceProvider services = Build(computerUse: false);
-    Assert.DoesNotContain("computer", ChildSurfaceOf(services));
+    Func<ICapabilityRegistry> surface = services.GetRequiredService<Func<ICapabilityRegistry>>();
+    Assert.False(surface().Resolve("computer").IsSuccess);
   }
 
   [Fact]
@@ -120,7 +115,8 @@ public class ComputerUseCompositionTests
   public void Enabled_Computer_InChildToolSurface()
   {
     using ServiceProvider services = Build(computerUse: true);
-    Assert.Contains("computer", ChildSurfaceOf(services));
+    Func<ICapabilityRegistry> surface = services.GetRequiredService<Func<ICapabilityRegistry>>();
+    Assert.True(surface().Resolve("computer").IsSuccess);
   }
 
   [Fact]
@@ -133,5 +129,15 @@ public class ComputerUseCompositionTests
     Assert.Contains("\"computerUse\":true", json, StringComparison.Ordinal);
     AgentSettings parsed = System.Text.Json.JsonSerializer.Deserialize<AgentSettings>(json, options)!;
     Assert.True(parsed.ComputerUse);
+  }
+
+  [Fact]
+  public void Enabled_ResolvedComputerAccess_IsBrokerBacked()
+  {
+    using ServiceProvider services = Build(computerUse: true);
+    IComputerAccessProvider provider = services.GetRequiredService<IComputerAccessProvider>();
+    IComputerAccess access = provider.ForWorkspace("ws")
+        ?? throw new InvalidOperationException("broker-backed access missing");
+    _ = Assert.IsType<BrokerComputerAccess>(access);
   }
 }
