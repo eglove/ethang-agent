@@ -454,8 +454,25 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         Transcript.AddToolCall(tc.Name, tc.Arguments);
         break;
       case UiStreamEvent.ToolResultEvent tr:
-        Transcript.AddToolResult(tr.Name, tr.Summary, tr.FullContent, tr.IsError, tr.Title,
-          tr.Images?.Select(img => new TranscriptImage(Convert.FromBase64String(img.Base64Data))).ToList());
+        // I13: a decode failure degrades to no-image (a notice) - never aborts stream delivery.
+        List<TranscriptImage>? decoded = null;
+        if (tr.Images is { } images && images.Count > 0)
+        {
+          decoded = [];
+          foreach (ToolResultImage img in images)
+          {
+            try
+            {
+              decoded.Add(new TranscriptImage(Convert.FromBase64String(img.Base64Data)));
+            }
+            catch (FormatException)
+            {
+              Transcript.AddNotice("[computer] screenshot image could not be decoded and was skipped.");
+            }
+          }
+        }
+
+        Transcript.AddToolResult(tr.Name, tr.Summary, tr.FullContent, tr.IsError, tr.Title, decoded);
         break;
       case UiStreamEvent.SystemMessage sm:
         // Same thread contract as notices (see below): bridge-delivered, applied on

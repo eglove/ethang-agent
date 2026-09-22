@@ -109,6 +109,24 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
 
   public void EndIteration() => CloseOpen();
 
+  /// <summary>M17: disposes the decoded bitmaps of all tool-result entries when the
+  ///     transcript is reset (session close/resume), keeping GPU/memory pressure bounded.</summary>
+  public void DisposeEntries()
+  {
+    foreach (TranscriptEntry entry in Entries)
+    {
+      if (entry is ToolResultEntry { Images: { } images })
+      {
+        foreach (TranscriptImage image in images)
+        {
+          image.Dispose();
+        }
+      }
+    }
+
+    Entries.Clear();
+  }
+
   /// <summary>
   /// Replays a persisted transcript into the entries list — the resume surface, called
   /// once on a fresh transcript. User → user entry; plain assistant → assistant entry;
