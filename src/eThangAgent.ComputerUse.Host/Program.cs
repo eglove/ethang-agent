@@ -6,6 +6,11 @@ using eThangAgent.ComputerUse.Host;
 //   env fallback); the auth token arrives via ETHANG_COMPUTER_USE_TOKEN. Logs go to a
 //   bounded file under the app data dir - NEVER stdout (the supervisor owns the
 //   process; stdout is not a log sink).
+
+// W-c: PerMonitorV2 DPI awareness - coordinate math must run on physical pixels. Called
+// BEFORE any window/capture work.
+_ = DpiAwareness.SetPerMonitorV2();
+
 BrokerLaunchOptions options = BrokerLaunchOptions.Resolve(args,
   Environment.GetEnvironmentVariable,
   Environment.GetEnvironmentVariable);

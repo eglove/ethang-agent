@@ -65,11 +65,47 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
     int pid = RequestPid(parameters);
     bool includeScreenshot = parameters is { } p && p.TryGetProperty("include_screenshot", out JsonElement shotEl)
         && shotEl.ValueKind == JsonValueKind.True;
-    nint target = FindWindowFor(pid);
-    if (target == 0)
+    string? reqName = null;
+    string? reqAumid = null;
+    int? reqWindowId = null;
+    if (parameters is { } pr && pr.TryGetProperty("app_ref", out JsonElement ar2) && ar2.ValueKind == JsonValueKind.Object)
     {
-      return null; // the caller answers app_not_found honestly
+      if (ar2.TryGetProperty("name", out JsonElement nm2) && nm2.ValueKind == JsonValueKind.String)
+      {
+        reqName = nm2.GetString();
+      }
+
+      if (ar2.TryGetProperty("aumid", out JsonElement am2) && am2.ValueKind == JsonValueKind.String)
+      {
+        reqAumid = am2.GetString();
+      }
+
+      if (ar2.TryGetProperty("window_id", out JsonElement wd2) && wd2.ValueKind == JsonValueKind.Number && wd2.TryGetInt32(out int wid2))
+      {
+        reqWindowId = wid2;
+      }
     }
+
+    List<Candidate> candidates = [.. EnumerateTopLevelWindows().Select(
+        w => new Candidate(w.Handle, w.Pid, w.Title, ResolveAumid(w.Pid)))];
+    bool resolved = AppRefResolver.TryResolve(
+        candidates, pid, reqName, reqAumid, reqWindowId,
+        out AppRefResolution resolution2, out AppRefResolutionFailure? resolutionFailure);
+    if (!resolved)
+    {
+      // Typed resolution failures answer app_not_found / ambiguous_app per spec 2.2.
+      string code = resolutionFailure!.Kind == AppRefFailureKind.Ambiguous ? "ambiguous_app" : "app_not_found";
+      // M16: a vanished app's lifecycle is Closed (the tracker forgets the handle).
+      lock (_gate)
+      {
+        _ = _surfaces.Observe(pid.ToString(System.Globalization.CultureInfo.InvariantCulture), 0,
+          SurfaceKind.Window);
+      }
+      return JsonSerializer.SerializeToElement(new { error = new { code, message = resolutionFailure.Message } });
+    }
+
+    int resolvedPid = resolution2.Pid;
+    nint target = resolution2.Window;
 
     string title = WindowTitle(target);
     NativeRect rect = WindowRect(target);
@@ -77,7 +113,7 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
     lock (_gate)
     {
       lifecycle = _surfaces.Observe(
-          pid.ToString(System.Globalization.CultureInfo.InvariantCulture), target,
+          resolvedPid.ToString(System.Globalization.CultureInfo.InvariantCulture), target,
           SurfaceClassifier.KindFor(WindowClassName(target), title));
     }
 
@@ -95,7 +131,7 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
     {
       state_id = stateId,
       snapshot_mode = "full",
-      app = AppObject(pid),
+      app = AppObject(resolvedPid),
       window = WindowObject(target, title, rect, lifecycle),
       elements = walk.Rows,
       screenshot,
@@ -183,6 +219,9 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
         }
       }
 
+      bool toggleable = element.TryGetCurrentPattern(TogglePattern.Pattern, out _);
+      bool selected = element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _);
+      bool hasMenu = element.Current.ControlType == ControlType.Menu;
       return new
       {
         index,
@@ -195,9 +234,9 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
         editable = valueBacked,
         actions,
         focused = element.Current.HasKeyboardFocus,
-        selected = false,
-        pressable,
-        has_menu = false,
+        selected,
+        pressable = pressable || toggleable,
+        has_menu = hasMenu,
         children_total = (int?)null,
         children_shown = (int?)null,
         children_offset = (int?)null,
@@ -288,6 +327,21 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
     });
   }
 
+  private static string? ResolveAumid(int pid)
+  {
+    try
+    {
+      using System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(pid);
+      return IdentityFor(pid).Aumid;
+    }
+#pragma warning disable CA1031 // Named decision: AUMID is best-effort; failure degrades to null.
+    catch
+    {
+      return null;
+    }
+#pragma warning restore CA1031
+  }
+
   private static AppIdentity IdentityFor(int pid)
   {
     string path = ProcessPath(pid);
@@ -372,12 +426,6 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
 
     _ = EnumWindows(Handler, 0);
     return windows;
-  }
-
-  private static nint FindWindowFor(int pid)
-  {
-    return EnumerateTopLevelWindows()
-        .FirstOrDefault(w => pid <= 0 || w.Pid == pid) is { } match ? match.Handle : 0;
   }
 
   private static string WindowTitle(nint hwnd)

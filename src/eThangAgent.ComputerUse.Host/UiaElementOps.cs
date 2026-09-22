@@ -35,6 +35,10 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver)
       valuePattern.SetValue(text);
       return BrokerResponse.Accepted();
     }
+    catch (ElementNotAvailableException)
+    {
+      return ElementUnavailable(element);
+    }
     catch (InvalidOperationException ex)
     {
       return BrokerResponse.Fail("not_settable", $"element {element} rejected the value: {ex.Message}");
@@ -53,23 +57,47 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver)
       return ElementUnavailable(element);
     }
 
-    bool isDefaultPress = actionName is "press" or "invoke" or "click";
-    if (target.TryGetCurrentPattern(InvokePattern.Pattern, out object? pattern) && pattern is InvokePattern invoke)
+    // I7: membership-checked honest dispatch - ONLY run the pattern the element actually
+    // supports AND the model requested. No fallback substitution: a named action the element
+    // does not advertise fails action_unavailable naming the action, never a wrong receipt.
+    try
     {
-      invoke.Invoke();
-      return BrokerResponse.Accepted();
-    }
+      switch (actionName)
+      {
+        case "press" or "invoke" or "click" when target.TryGetCurrentPattern(InvokePattern.Pattern, out object? invokePattern) && invokePattern is InvokePattern invoke:
+          invoke.Invoke();
+          return BrokerResponse.Accepted();
 
-    if (isDefaultPress && target.TryGetCurrentPattern(TogglePattern.Pattern, out object? togglePattern) && togglePattern is TogglePattern toggle)
+        case "toggle" or "press" or "click" when target.TryGetCurrentPattern(TogglePattern.Pattern, out object? togglePattern) && togglePattern is TogglePattern toggle:
+          toggle.Toggle();
+          return BrokerResponse.Accepted();
+
+        case "expand" or "collapse" or "open" when target.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out object? expandPattern) && expandPattern is ExpandCollapsePattern expandCollapse:
+          if (actionName == "collapse")
+          {
+            expandCollapse.Collapse();
+          }
+          else
+          {
+            expandCollapse.Expand();
+          }
+          return BrokerResponse.Accepted();
+
+        default:
+          return BrokerResponse.Fail("action_unavailable",
+            $"element {element} does not support the requested action '{actionName}'; nothing ran.");
+      }
+    }
+    catch (ElementNotAvailableException)
     {
-      toggle.Toggle();
-      return BrokerResponse.Accepted();
+      return ElementUnavailable(element);
     }
-
-    return BrokerResponse.Fail("action_unavailable",
-      $"element {element} advertises no UIA Invoke pattern; action '{actionName}' cannot run on it.");
+    catch (System.Runtime.InteropServices.COMException ex)
+    {
+      return BrokerResponse.Fail("action_unavailable",
+        $"element {element} rejected action '{actionName}' (COM {ex.HResult}); nothing ran.");
+    }
   }
-
   public BrokerResponse SelectText(int element)
   {
     AutomationElement? target = Resolve(element);
@@ -99,6 +127,10 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver)
     {
       target.SetFocus();
       return BrokerResponse.Accepted();
+    }
+    catch (ElementNotAvailableException)
+    {
+      return ElementUnavailable(-1);
     }
     catch (System.Runtime.InteropServices.COMException ex)
     {

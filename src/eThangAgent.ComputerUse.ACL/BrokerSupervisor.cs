@@ -82,6 +82,10 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   ///     supervision policy applies: lazy spawn, transport-loss mapping, one lazy
   ///     restart. Errors travel IN the envelope (BrokerReply.Error), transport loss
   ///     as the thrown typed exceptions RequestAsync also throws.</summary>
+  /// <summary>Executes one broker request and returns the RAW reply envelope for callers
+  ///     that parse non-receipt results (capture_app, list_*). Same supervision policy as
+  ///     RequestAsync; transport loss maps to typed failures exactly like the legacy path
+  ///     (C4) so envelope callers can never leak an exception into the turn loop.</summary>
   public async Task<BrokerReply> RequestEnvelopeAsync(string method, JsonElement? parameters, CancellationToken ct = default)
   {
     ObjectDisposedException.ThrowIf(_disposed, this);
@@ -90,25 +94,30 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
       BrokerReply reply = await RoundTripEnvelopeAsync(method, parameters, ct).ConfigureAwait(false);
       return reply;
     }
-    catch (Exception ex) when (ex is BrokerSupervisorException or BrokerTimeoutException)
+    catch (BrokerTimeoutException ex)
     {
-      throw;
+      throw new BrokerEnvelopeException(ComputerErrorCodes.Timeout, "broker pipe never became ready: " + Inner(ex), ex);
+    }
+    catch (BrokerSupervisorException ex)
+    {
+      throw new BrokerEnvelopeException(ComputerErrorCodes.HelperUnavailable, ex.Message, ex);
     }
     catch (Exception ex) when (ex is BrokerConnectionClosedException or BrokerProtocolException or IOException)
     {
       _crashes++;
       if (_crashes > 1)
       {
-        throw new BrokerSupervisorException("broker connection lost twice: " + Inner(ex), ex);
+        throw new BrokerEnvelopeException(ComputerErrorCodes.HelperUnavailable, "broker connection lost twice: " + Inner(ex), ex);
       }
 
       // ONE lazy restart with short backoff on the NEXT request.
       await KillAsync().ConfigureAwait(false);
       await Task.Delay(RestartBackoff, ct).ConfigureAwait(false);
       _token = NewToken();
-      throw new BrokerSupervisorException("broker connection lost; retry the request (one restart budgeted): " + Inner(ex), ex);
+      throw new BrokerEnvelopeException(ComputerErrorCodes.HelperUnavailable, "broker connection lost; retry the request (one restart budgeted): " + Inner(ex), ex);
     }
   }
+
   public async Task<ComputerOutcome> RequestAsync(string method, JsonElement? parameters, CancellationToken ct = default)
   {
     ObjectDisposedException.ThrowIf(_disposed, this);
@@ -376,3 +385,24 @@ public sealed class BrokerSupervisorException : Exception
   public BrokerSupervisorException(string message) : base(message) { }
   public BrokerSupervisorException(string message, Exception innerException) : base(message, innerException) { }
 }
+
+/// <summary>A typed transport failure on the envelope path (C4): callers catch this and
+///     render ComputerOutcome.Failure from Code+Message - exceptions never escape raw.</summary>
+
+public sealed class BrokerEnvelopeException : Exception
+{
+  public string Code { get; }
+
+  public BrokerEnvelopeException() : base() => Code = ComputerErrorCodes.HelperUnavailable;
+
+  public BrokerEnvelopeException(string code, string message) : base(message) => Code = code;
+
+  public BrokerEnvelopeException(string code, string message, Exception innerException)
+    : base(message, innerException) => Code = code;
+
+  public BrokerEnvelopeException(string message) : base(message) => Code = ComputerErrorCodes.HelperUnavailable;
+
+  public BrokerEnvelopeException(string message, Exception innerException)
+    : base(message, innerException) => Code = ComputerErrorCodes.HelperUnavailable;
+}
+

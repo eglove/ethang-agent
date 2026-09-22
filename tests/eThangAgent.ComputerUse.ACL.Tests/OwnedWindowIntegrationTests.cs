@@ -245,22 +245,31 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     Assert.Contains("x", _fixture.Window.RecordedChars, StringComparison.Ordinal);
   }
 
-  // 9. a second concurrent controller gets CONTROLLER_BUSY; after stop releases, actions work again.
+  // 9. C6 ruling: controller A takes the lease via controller_takeover; a rival B takeover
+  // fails with controller_busy naming the owner. capture_app stays lease-free.
   [Fact]
   public async Task SecondController_GetsControllerBusy_OwnerInMessage()
   {
-    await using BrokerComputerAccess holder = NewAccess();
-    _ = await _fixture.ObserveAsync(holder, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    await using BrokerComputerAccess second = NewAccess();
-    ComputerOutcome outcome = await second.ExecuteAsync(
+    await using BrokerComputerAccess controllerA = NewAccess();
+    ComputerOutcome takeover = await controllerA.ExecuteAsync(
         new ComputerCommand.ListApps(), TestContext.Current.CancellationToken).ConfigureAwait(true);
-    _ = Assert.IsType<ComputerOutcome.Observation>(outcome);
-    ComputerOutcome busy = await second.ExecuteAsync(
+    _ = Assert.IsType<ComputerOutcome.Observation>(takeover); // A's lazy lease acquisition
+
+    // B's first input-path action must fail with controller_busy (A holds the lease).
+    await using BrokerComputerAccess controllerB = NewAccess();
+    ComputerOutcome busy = await controllerB.ExecuteAsync(
         new ComputerCommand.Key("y", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid)),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(busy);
     Assert.Equal(ComputerErrorCodes.ControllerBusy, failure.Code);
     Assert.Contains("owner=", failure.Message, StringComparison.Ordinal);
+
+    // capture_app (observe) stays lease-free: B can still observe while A holds the lease.
+    ComputerOutcome observe = await controllerB.ExecuteAsync(
+        new ComputerCommand.Observe(ComputerAppRef.ByPid(_fixture.Window.Pid),
+            IncludeScreenshot: false, DisableDiffing: false),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+    _ = Assert.IsType<ComputerOutcome.Observation>(observe);
   }
 
   // 10. stop releases the lease; subsequent actions work.
@@ -279,23 +288,33 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     _ = Assert.IsType<ComputerOutcome.Receipt>(after);
   }
 
-  // 11. killing the broker process: next call fails HELPER_UNAVAILABLE, then one lazy restart succeeds.
+  // 11. C5 ruling: first post-kill call SUCCEEDS (lazy respawn is the contract); a second kill
+  // before the respawn budget asserts HELPER_UNAVAILABLE.
   [Fact]
-  public async Task BrokerKill_NextCallFailsHelperUnavailable_ThenLazyRestartSucceeds()
+  public async Task BrokerKill_FirstPostKillCall_Succeeds_AndSecondKillBeforeRespawn_Fails()
   {
     BrokerSupervisor supervisor = NewSupervisor();
     BrokerComputerAccess access = new(supervisor, ownsSupervisor: true);
     try
     {
-      _ = await _fixture.ObserveAsync(access, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      ComputerOutcome initial = await access.ExecuteAsync(
+          new ComputerCommand.ListApps(), TestContext.Current.CancellationToken).ConfigureAwait(true);
+      _ = Assert.IsType<ComputerOutcome.Observation>(initial);
+
+      // First kill: the envelope path respawns lazily - the NEXT call succeeds.
       await supervisor.KillBrokerProcessForTests().ConfigureAwait(true);
-      ComputerOutcome outcome = await access.ExecuteAsync(
+      ComputerOutcome afterFirstKill = await access.ExecuteAsync(
           new ComputerCommand.ListApps(), TestContext.Current.CancellationToken).ConfigureAwait(true);
-      ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(outcome);
+      _ = Assert.IsType<ComputerOutcome.Observation>(afterFirstKill);
+
+      // Two kills back-to-back before any respawn: the restart budget is exhausted and the
+      // typed HELPER_UNAVAILABLE surfaces (never an exception).
+      await supervisor.KillBrokerProcessForTests().ConfigureAwait(true);
+      await supervisor.KillBrokerProcessForTests().ConfigureAwait(true);
+      ComputerOutcome failureOutcome = await access.ExecuteAsync(
+          new ComputerCommand.ListApps(), TestContext.Current.CancellationToken).ConfigureAwait(true);
+      ComputerOutcome.Failure failure = Assert.IsType<ComputerOutcome.Failure>(failureOutcome);
       Assert.Equal(ComputerErrorCodes.HelperUnavailable, failure.Code);
-      ComputerOutcome recovered = await access.ExecuteAsync(
-          new ComputerCommand.ListApps(), TestContext.Current.CancellationToken).ConfigureAwait(true);
-      _ = Assert.IsType<ComputerOutcome.Observation>(recovered);
     }
     finally
     {

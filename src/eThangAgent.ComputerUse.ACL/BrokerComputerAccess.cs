@@ -46,6 +46,7 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     {
       app_ref = AppRef(command.App),
       include_screenshot = command.IncludeScreenshot,
+      snapshot_mode = command.DisableDiffing ? "force_full" : "auto",
     }, BrokerWire.Options);
     return await RequestAsync("capture_app", parameters, ct).ConfigureAwait(false);
   }
@@ -72,7 +73,9 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
   ///     then dispatch the method with its parameters.</summary>
   private async Task<ComputerOutcome> ActionAsync(ComputerCommand command, CancellationToken ct)
   {
-    if (TargetOf(command) is { } target && ResolveTarget(target, AppOf(command)) is { } failure)
+    (ComputerOutcome.Failure? failure, FrameCoordinateResult.Hit? primaryHit, FrameCoordinateResult.Hit? toHit) =
+      ResolveTargets(command);
+    if (failure is not null)
     {
       return failure;
     }
@@ -83,9 +86,42 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
       return leaseFailure;
     }
 
-    JsonElement parameters = ParametersFor(command);
-    return await RequestAsync(MethodFor(command), parameters, ct).ConfigureAwait(false);
+    JsonElement parameters = ParametersFor(command, primaryHit, toHit);
+    ComputerOutcome outcome = await RequestAsync(MethodFor(command), parameters, ct).ConfigureAwait(false);
+
+    // I9: return_state=compact|full drives a post-action re-observe so the option is
+    // never silently dropped. Failures of the re-observe ride the Receipt's TreeText slot.
+    if (ReturnStateOf(command) is { } returnState && returnState != "none" && outcome is ComputerOutcome.Receipt receipt)
+    {
+      ComputerAppRef? app = AppOf(command);
+      if (app is not null)
+      {
+        ComputerOutcome postState = await ObserveAsync(
+            new ComputerCommand.Observe(app, IncludeScreenshot: false, DisableDiffing: false), ct).ConfigureAwait(false);
+        if (postState is ComputerOutcome.Observation postObservation)
+        {
+          outcome = receipt with { TreeText = postObservation.TreeText };
+        }
+      }
+    }
+
+    return outcome;
   }
+
+
+  private static string? ReturnStateOf(ComputerCommand command) => command switch
+  {
+    ComputerCommand.Click c => c.ReturnState,
+    ComputerCommand.Drag d => d.ReturnState,
+    ComputerCommand.Scroll s => s.ReturnState,
+    ComputerCommand.TypeText t => t.ReturnState,
+    ComputerCommand.SetValue v => v.ReturnState,
+    ComputerCommand.SelectText s => s.ReturnState,
+    ComputerCommand.Key k => k.ReturnState,
+    ComputerCommand.Paste p => p.ReturnState,
+    ComputerCommand.PerformAction a => a.ReturnState,
+    _ => null,
+  };
 
   private static ComputerTarget? TargetOf(ComputerCommand command) => command switch
   {
@@ -99,6 +135,81 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     ComputerCommand.Paste p => p.Target,
     _ => null,
   };
+
+  /// <summary>Resolves every target the command carries (drag: from AND to) in ONE pass;
+  ///     the returned hits travel to ParametersFor so coordinates resolve exactly once (I11).
+  ///     Null failure means every present target resolved.</summary>
+  private (ComputerOutcome.Failure? Failure, FrameCoordinateResult.Hit? PrimaryHit, FrameCoordinateResult.Hit? ToHit) ResolveTargets(
+      ComputerCommand command)
+  {
+    ComputerTarget? primary = TargetOf(command);
+    ComputerTarget? to = command is ComputerCommand.Drag d ? d.To : null;
+
+    FrameCoordinateResult.Hit? primaryHit = null;
+    FrameCoordinateResult.Hit? toHit = null;
+
+    if (primary is { } p)
+    {
+      if (p.ElementIndex is { } index)
+      {
+        LedgerIndexCheck check = _ledger.ValidateIndex(LedgerKeyFor(AppOf(command)), index);
+        if (!check.Ok)
+        {
+          return (new ComputerOutcome.Failure(
+              check.Error ?? ComputerErrorCodes.ElementUnavailable,
+              check.Message ?? "element target does not resolve; observe first."), null, null);
+        }
+      }
+      else if (p.X is { } px && p.Y is { } py)
+      {
+        if (_frames.ResolveForCoordinate(FrameRegistry.LatestToken, px, py) is not FrameCoordinateResult.Hit ph)
+        {
+          return (new ComputerOutcome.Failure(
+              ComputerErrorCodes.StaleState,
+              "the coordinate target does not resolve against a delivered screenshot frame; observe with include_screenshot first."), null, null);
+        }
+
+        primaryHit = ph;
+      }
+      else
+      {
+        return (new ComputerOutcome.Failure(
+            ComputerErrorCodes.InvalidApp, "target carries neither element index nor coordinates."), null, null);
+      }
+    }
+
+    if (to is { } toTarget)
+    {
+      if (toTarget.ElementIndex is { } toIndex)
+      {
+        LedgerIndexCheck toCheck = _ledger.ValidateIndex(LedgerKeyFor(AppOf(command)), toIndex);
+        if (!toCheck.Ok)
+        {
+          return (new ComputerOutcome.Failure(
+              toCheck.Error ?? ComputerErrorCodes.ElementUnavailable,
+              toCheck.Message ?? "drag 'to' element target does not resolve; observe first."), null, null);
+        }
+      }
+      else if (toTarget.X is { } tx && toTarget.Y is { } ty)
+      {
+        if (_frames.ResolveForCoordinate(FrameRegistry.LatestToken, tx, ty) is not FrameCoordinateResult.Hit th)
+        {
+          return (new ComputerOutcome.Failure(
+              ComputerErrorCodes.StaleState,
+              "the drag 'to' coordinate does not resolve against a delivered screenshot frame; observe with include_screenshot first."), null, null);
+        }
+
+        toHit = th;
+      }
+      else
+      {
+        return (new ComputerOutcome.Failure(
+            ComputerErrorCodes.InvalidApp, "drag 'to' carries neither element index nor coordinates."), null, null);
+      }
+    }
+
+    return (null, primaryHit, toHit);
+  }
 
   private static ComputerAppRef? AppOf(ComputerCommand command) => command switch
   {
@@ -114,33 +225,6 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     _ => null,
   };
 
-  /// <summary>Resolves one command target against the local ledger/frames. Null means
-  ///     the target resolved; a failure value is returned to the caller verbatim and
-  ///     nothing is dispatched.</summary>
-  private ComputerOutcome.Failure? ResolveTarget(ComputerTarget target, ComputerAppRef? app)
-  {
-    if (target.ElementIndex is { } index)
-    {
-      LedgerKey key = LedgerKeyFor(app);
-      LedgerIndexCheck check = _ledger.ValidateIndex(key, index);
-      return check.Ok
-        ? null
-        : new ComputerOutcome.Failure(check.Error ?? ComputerErrorCodes.ElementUnavailable,
-            check.Message ?? "element target does not resolve; observe first.");
-    }
-
-    if (target.X is { } x && target.Y is { } y)
-    {
-      FrameCoordinateResult resolved = _frames.ResolveForCoordinate(FrameRegistry.LatestToken, x, y);
-      return resolved is FrameCoordinateResult.Hit
-        ? null
-        : new ComputerOutcome.Failure(ComputerErrorCodes.StaleState,
-            "the coordinate target does not resolve against a delivered screenshot frame; observe with include_screenshot first.");
-    }
-
-    return new ComputerOutcome.Failure(ComputerErrorCodes.InvalidApp, "target carries neither element index nor coordinates.");
-  }
-
   private static string MethodFor(ComputerCommand command) => command switch
   {
     ComputerCommand.Click => "click",
@@ -155,9 +239,9 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     _ => throw new InvalidOperationException("unreachable: ActionAsync only sees input commands"),
   };
 
-  private JsonElement ParametersFor(ComputerCommand command)
+  private static JsonElement ParametersFor(ComputerCommand command,
+      FrameCoordinateResult.Hit? primaryHit, FrameCoordinateResult.Hit? toHit)
   {
-    ComputerTarget? primary = TargetOf(command);
     Dictionary<string, object?> map = command switch
     {
       ComputerCommand.Click c => new()
@@ -195,22 +279,32 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
       _ => [],
     };
 
-    if (primary is { } primaryTarget)
+    // The primary target resolves client-side once (I11): the broker receives the
+    // resolved global screen point or the observation element index.
+    if (TargetOf(command) is { } primaryTarget)
     {
       if (primaryTarget.ElementIndex is { } index)
       {
         map["element"] = index;
       }
-      else if (primaryTarget.X is { } x && primaryTarget.Y is { } y)
+      else if (primaryHit is { } hit)
       {
-        // The coordinate resolves client-side to global screen points against the
-        // registered frame; the broker receives absolute points.
-        FrameCoordinateResult resolved = _frames.ResolveForCoordinate(FrameRegistry.LatestToken, x, y);
-        if (resolved is FrameCoordinateResult.Hit hit)
-        {
-          map["x"] = (int)hit.Resolution.X;
-          map["y"] = (int)hit.Resolution.Y;
-        }
+        map["x"] = (int)hit.Resolution.X;
+        map["y"] = (int)hit.Resolution.Y;
+      }
+    }
+
+    // C3: drag carries BOTH endpoints - the 'to' target resolves identically.
+    if (command is ComputerCommand.Drag drag)
+    {
+      if (drag.To.ElementIndex is { } toIndex)
+      {
+        map["to_element"] = toIndex;
+      }
+      else if (toHit is { } toPoint)
+      {
+        map["to_x"] = (int)toPoint.Resolution.X;
+        map["to_y"] = (int)toPoint.Resolution.Y;
       }
     }
 
@@ -294,7 +388,9 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     }
 
     bool treeShown = capture.SnapshotMode != "no_change";
+    _lastObservedPid = capture.App.Pid;
     string stateId = _ledger.Record(
+
         new LedgerKey(capture.App.Pid, capture.Window.WindowId),
         new LedgerWindow(capture.Window.Title, capture.Window.Bounds[0], capture.Window.Bounds[1],
             capture.Window.Bounds[2], capture.Window.Bounds[3]),
@@ -328,7 +424,28 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     return new ComputerOutcome.Observation(treeText, stateId, elements, frame, withheld, screenshot);
   }
 
-  private static LedgerKey LedgerKeyFor(ComputerAppRef? app) => new(app?.Pid ?? 0, app?.WindowId ?? 0);
+  /// <summary>M14: for name/aumid refs the broker resolves the pid; the ledger key derives
+  ///     from the pid of the LAST observed capture (fail-closed stays: no observation means
+  ///     pid 0, and ValidateIndex answers ELEMENT_UNAVAILABLE).</summary>
+  private LedgerKey LedgerKeyFor(ComputerAppRef? app)
+  {
+    // M14: explicit pid wins; name/aumid refs fall back to the last observed capture pid.
+    if (app is { } reference && reference.Pid is { } explicitPid)
+    {
+      return new LedgerKey(explicitPid, reference.WindowId ?? 0);
+    }
+
+#pragma warning disable IDE0046 // Named decision: two typed returns read clearer than nested ternaries here.
+    if (_lastObservedPid is not { } observedPid)
+    {
+      return new LedgerKey(0, 0);
+    }
+
+    return new LedgerKey(observedPid, 0);
+  }
+#pragma warning restore IDE0046 // Named decision: two typed returns read clearer than nested ternaries here.
+
+  private int? _lastObservedPid;
 
   private static object AppRef(ComputerAppRef app) => new
   {
