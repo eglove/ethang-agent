@@ -39,11 +39,11 @@ public sealed partial class DoctrineTests
   ///     push delivery); timed waits appear only in the named allowlist — the
   ///     watchdog's bounded settle poll, transport/retry ACLs owning real backoff
   ///     behind an injected delay seam, and the remote supervisor's bounded host
-  ///     startup handshake. The computer-use broker ACL joins the transport/retry
-  ///     category (spec 1.3 cold-start backoff schedule, ONE restart backoff), and
-  ///     the native broker Host owns two bounded waits of its own (clipboard-sequence
-  ///     consumption poll, hold_key key-up schedule). The ComputerUse broker's bounded handshake/retry/paste waits are allowlisted the same way. Anything else fails the
-  ///     doctrine.</summary>
+  ///     startup handshake. The ComputerUse broker ACL and the native broker Host join
+  ///     the same allowlist: the ACL's spec 1.3 cold-start backoff schedule and one
+  ///     restart backoff after a lost connection, the broker's bounded clipboard-sequence
+  ///     consumption poll, and hold_key's one-shot key-up schedule. Anything else fails
+  ///     the doctrine.</summary>
   [Fact]
   public void NoNewPolling_TimedWaits_AppearOnlyInAllowlistedFiles()
   {
@@ -55,12 +55,8 @@ public sealed partial class DoctrineTests
         "src/eThangAgent.OpenRouter.ACL/OpenRouterModelProvider.cs",
         "src/eThangAgent.Zai.ACL/ZaiModelProvider.cs",
         "src/eThangAgent.Local.ACL/LocalModelProvider.cs", // same injected-delay-seam retry backoff as its two sibling provider ACLs
-        "src/eThangAgent.ComputerUse.ACL/BrokerSupervisor.cs", // bounded broker startup handshake
-        "src/eThangAgent.ComputerUse.ACL/NotReadyPolicy.cs", // bounded broker not-ready retry
-        "src/eThangAgent.ComputerUse.Host/ClipboardPaster.cs", // bounded clipboard-sequence consumption poll
-        "src/eThangAgent.ComputerUse.Host/InputDispatch.cs", // bounded paste consumption-window poll
-        "src/eThangAgent.ComputerUse.ACL/NotReadyPolicy.cs", // production half of the INotReadyDelayer seam - the spec 1.3 cold-start backoff schedule
         "src/eThangAgent.ComputerUse.ACL/BrokerSupervisor.cs", // ONE bounded restart backoff after a lost broker connection (transport/retry ACL)
+        "src/eThangAgent.ComputerUse.ACL/NotReadyPolicy.cs", // production half of the INotReadyDelayer seam - the spec 1.3 cold-start backoff schedule
         "src/eThangAgent.ComputerUse.Host/ClipboardPaster.cs", // native broker process: bounded clipboard-sequence consumption poll
         "src/eThangAgent.ComputerUse.Host/InputDispatch.cs", // native broker process: hold_key's one-shot key-up schedule, not a poll
     ];
