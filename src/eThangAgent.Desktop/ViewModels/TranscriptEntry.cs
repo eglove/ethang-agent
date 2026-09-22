@@ -1,4 +1,5 @@
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -10,6 +11,24 @@ namespace eThangAgent.Desktop.ViewModels;
 #pragma warning disable S2094 // Deliberate empty base: entry variants are data for DataTemplates.
 internal abstract record TranscriptEntry;
 #pragma warning restore S2094
+
+/// <summary>One pre-decoded image attached to a tool result (task 20): the bitmap is
+/// decoded once in the view-model from the tool-result bytes; the AXAML binds the Image
+/// control to it with a bounded height. The entry owns the bitmap's lifetime.</summary>
+internal sealed record TranscriptImage : IDisposable
+{
+  public Bitmap Bitmap { get; }
+
+  public TranscriptImage(byte[] pngBytes)
+  {
+    using MemoryStream ms = new(pngBytes);
+    Bitmap = new Bitmap(ms);
+  }
+
+
+
+  public void Dispose() => Bitmap.Dispose();
+}
 
 internal sealed record UserMessageEntry(string Text) : TranscriptEntry;
 
@@ -113,7 +132,7 @@ internal sealed record ExecCallShape(string? Title, string Program, string Budge
 // restored transcripts render unchanged): the call card counts up while the tool
 // runs, the result card freezes the total; both render it in the card header.
 internal sealed record ToolResultEntry(string Name, string Summary, string FullContent, bool IsError, string ElapsedDisplay = "",
-    string? Title = null) : TranscriptEntry
+    string? Title = null, IReadOnlyList<TranscriptImage>? Images = null) : TranscriptEntry
 {
   public IBrush SummaryBrush => IsError ? Brushes.IndianRed : Brushes.Gray;
 

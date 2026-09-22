@@ -226,6 +226,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>The z.ai endpoint mode the settings modal prefills; CodingPlan when no
   ///     settings snapshot exists.</summary>
+  public bool ConfiguredComputerUse => _settings?.ComputerUse ?? false;
+
   public ZaiEndpointMode ConfiguredZaiEndpointMode =>
       _settings?.Zai.EndpointMode ?? ZaiEndpointMode.CodingPlan;
 
@@ -574,6 +576,8 @@ internal sealed partial class MainViewModel : ObservableObject
         Normalize(update.OpenRouterBaseUrlText));
     await PersistPreferenceAsync(AgentPreferenceKeys.ZaiBaseUrl,
         Normalize(update.ZaiBaseUrlText));
+    await PersistPreferenceAsync(AgentPreferenceKeys.ComputerUseEnabled,
+        update.ComputerUse ? "true" : "false");
     ConfiguredCommitStyle = update.CommitStyle;
 
     // Compaction summarizer is per selected tab's (provider, workspace): unset means

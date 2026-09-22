@@ -125,6 +125,9 @@
                    PlaceholderText="No default — spawns pass a model explicitly"/>
           <CheckBox x:Name="RemoteHostCheck" Content="Run child agents in an out-of-process host"
                     IsChecked="{Binding RemoteHost}" Margin="0,4,0,0"/>
+          <CheckBox x:Name="ComputerUseCheck" Content="Enable computer use (desktop automation tool)"
+                    IsChecked="{Binding ComputerUse}" Margin="0,4,0,0"
+                    ToolTip.Tip="Adds the 'computer' tool to newly opened agents. Applies to sessions opened from now on."/>
           <TextBlock Text="Watchdog" FontWeight="Bold" Margin="0,6,0,0"/>
           <StackPanel Orientation="Horizontal" Spacing="6">
             <TextBox x:Name="WatchdogTickBox" Text="{Binding WatchdogTickText}" Width="140"

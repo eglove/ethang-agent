@@ -360,7 +360,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
                 bridge.OnToolCall(name, args);
               },
               OnToolResult: (name, summary, full, isError, rich) =>
-                bridge.OnToolResult(name, summary, full, isError, rich?.Title),
+                bridge.OnToolResult(name, summary, full, isError, rich),
               OnSystemMessage: bridge.OnSystemMessage),
           onNotice: bridge.OnNotice);
 
@@ -454,7 +454,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         Transcript.AddToolCall(tc.Name, tc.Arguments);
         break;
       case UiStreamEvent.ToolResultEvent tr:
-        Transcript.AddToolResult(tr.Name, tr.Summary, tr.FullContent, tr.IsError, tr.Title);
+        Transcript.AddToolResult(tr.Name, tr.Summary, tr.FullContent, tr.IsError, tr.Title,
+          tr.Images?.Select(img => new TranscriptImage(Convert.FromBase64String(img.Base64Data))).ToList());
         break;
       case UiStreamEvent.SystemMessage sm:
         // Same thread contract as notices (see below): bridge-delivered, applied on

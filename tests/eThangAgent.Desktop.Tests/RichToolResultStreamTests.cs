@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -16,7 +17,7 @@ public class RichToolResultStreamTests
     StreamBridge bridge = new(evt => channel.Writer.WriteAsync(evt).AsTask());
     bridge.Start();
 
-    bridge.OnToolResult("exec", "ok", "42", false, "parse names");
+    bridge.OnToolResult("exec", "ok", "42", false, new ToolResult("42", false, "parse names"));
     bridge.MarkTurnComplete();
     await bridge.DrainUntilIdleAsync();
 
