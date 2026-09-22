@@ -128,6 +128,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - Structured child results (JSON-schema validated with one repair round), fan-out/fan-in spawn graphs (`agent.fanout` parses its `children` argument strictly and fails the join fast when a start fails, surfacing the real error code), and a consent-based agent link registry — links are created in the Desktop's per-tab **Links** dialog (🔗 rail entry: pick the target agent, name the link, confirm; revoke from the same list), and `agent.route` delivers to the consented link by name — including agents opened in a
 different session of the same app (in-process or running in the ChildHost); links persist
 per workspace across restarts
+- **Computer Use** — when enabled in settings (`computer_use_enabled`, default OFF), the agent can observe and operate native Windows apps through a supervised broker: the accessibility tree as readable text, clicks and keyboard input, and screenshots that reach vision-capable models. Consent-first: the toggle is off until you switch it on.
 - Session persistence, recall, and resume via a versioned, app-owned SQLite database
 
 ## Requirements
