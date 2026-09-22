@@ -33,4 +33,24 @@ public class WiredInputPathTests
     Assert.Equal("foreground_required", reply.Error.Value.Code);
     Assert.Equal(0, server.InputDispatch.SendInputCalls);
   }
+  [Fact]
+  public void PressKey_MissingParamsKey_TypedInvalidRequest_NotCrash()
+  {
+    PipeServer server = FakeConnectionFactory.Authorized(1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "press_key", null, connectionId: 1);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("invalid_request", reply.Error.Value.Code);
+    Assert.Contains("key", reply.Error.Value.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void HoldKey_MissingParamsKey_TypedInvalidRequest_NotCrash()
+  {
+    PipeServer server = FakeConnectionFactory.Authorized(1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "hold_key", null, connectionId: 1);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("invalid_request", reply.Error.Value.Code);
+  }
 };

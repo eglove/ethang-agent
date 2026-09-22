@@ -52,4 +52,12 @@ public class BrokerErrorMapperTests
     ComputerOutcome.Failure failure = BrokerErrorMapper.Map("not_authorized", "bad token");
     Assert.Equal(ComputerErrorCodes.Internal, failure.Code);
   }
+
+  [Fact]
+  public void InputBusy_MapsToTimeoutRetryable_PerLedgeredRuling()
+  {
+    ComputerOutcome.Failure failure = BrokerErrorMapper.Map("input_busy", "another input operation is in flight.");
+    Assert.Equal(ComputerErrorCodes.Timeout, failure.Code);
+    Assert.Equal("retry", ComputerErrorCodes.RetryHint(failure.Code));
+  }
 }

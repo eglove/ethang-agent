@@ -24,6 +24,7 @@ public static class BrokerErrorMapper
     "not_selectable" => ComputerErrorCodes.NotSelectable,
     "action_unavailable" => ComputerErrorCodes.ActionUnavailable,
     "foreground_required" => ComputerErrorCodes.ForegroundRequired,
+    "input_busy" => ComputerErrorCodes.Timeout, // ledgered ruling: retryable, action_sent=false
     "controller_busy" => ComputerErrorCodes.ControllerBusy,
     "internal" => ComputerErrorCodes.Internal,
     "method_not_found" => ComputerErrorCodes.Internal,

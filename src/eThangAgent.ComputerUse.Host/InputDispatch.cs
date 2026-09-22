@@ -52,7 +52,16 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   }
 
   /// <summary>A3: the synthetic modifier state held across a chord's down/up window.</summary>
-  public bool HasSyntheticModifiers => _syntheticModifiers != KeyModifiers.None;
+  public bool HasSyntheticModifiers
+  {
+    get
+    {
+      lock (_holdGate)
+      {
+        return _syntheticModifiers != KeyModifiers.None;
+      }
+    }
+  }
 
   /// <summary>A3: owner lost - cancel every ACTIVE hold (immediate key-ups) and clear
   ///     the synthetic modifier state.</summary>
@@ -175,33 +184,92 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   /// <summary>The generic wired-path entry (I2): the router lands here.</summary>
   public BrokerResponse Dispatch(string method, JsonElement? parameters)
   {
-    parameters ??= JsonDocument.Parse("{}").RootElement.Clone();
-    int targetPid = Pid(parameters);
-    return method switch
+    if (parameters is null)
     {
-      "press_key" => PressKey(KeyText(parameters)),
-      "hold_key" => HoldKey(KeyText(parameters), HoldSeconds(parameters)),
-      "type_text" => TypeText(Text(parameters) ?? ""),
-      "click" => Click(parameters, targetPid),
-      "scroll" or "drag" or "element_focus" or "element_set_value" or "element_perform_action"
-        or "element_select_text" or "element_press" => ElementPath(method),
-      _ => BrokerResponse.Fail("method_not_found", $"unknown input method: {method}."),
-    };
+      // R4: a borrowed empty document leaks nothing - dispose it when the scope ends.
+      using JsonDocument empty = JsonDocument.Parse("{}");
+      return DispatchCore(method, empty.RootElement.Clone());
+    }
+
+    return DispatchCore(method, parameters);
   }
 
-  private BrokerResponse ElementPath(string method)
+  private BrokerResponse DispatchCore(string method, JsonElement? parameters)
   {
-    // Real dispatch through the chord hook; the element-pattern specifics (pattern
-    // invocation, cursor choreography) are the task 18 integration surface - the dispatch
-    // is real, its live assertion deferred.
+    int targetPid = Pid(parameters);
+    try
+    {
+      return method switch
+      {
+        "press_key" => PressKey(KeyText(parameters)),
+        "hold_key" => HoldKey(KeyText(parameters), HoldSeconds(parameters)),
+        "type_text" => TypeText(Text(parameters) ?? ""),
+        "click" => Click(parameters, targetPid),
+        "scroll" or "drag" or "element_focus" or "element_set_value" or "element_perform_action"
+          or "element_select_text" or "element_press" => ElementPath(method, parameters),
+        _ => BrokerResponse.Fail("method_not_found", $"unknown input method: {method}."),
+      };
+    }
+    catch (KeyChordException ex)
+    {
+      // R4: a missing/garbled chord is typed invalid_request feedback - never a crash.
+      return BrokerResponse.Fail("invalid_request", ex.Message);
+    }
+  }
+
+  /// <summary>The element resolver + real UIA ops (R1): set at broker composition from
+  ///     the observer's last-walk cache; null keeps the legacy pulse (tests).</summary>
+  private UiaElementOps? _elementOps;
+
+  public void SetElementOps(UiaElementOps ops) => _elementOps = ops;
+
+  private BrokerResponse ElementPath(string method, JsonElement? parameters)
+  {
+    if (_elementOps is { } ops)
+    {
+      return DispatchElementOps(ops, method, parameters);
+    }
+
+    // No element surface wired (unit-test doubles): the dispatch is the real chord
+    // pulse the skeleton used - never a faked receipt.
     bool sent = _sendChord(new KeyChord(0x00, KeyModifiers.None));
     _ = Interlocked.Increment(ref _dispatchCount);
-    _ = method;
     return sent
       ? BrokerResponse.Accepted()
       : BrokerResponse.Fail("internal", "SendInput reported failure.", "action_sent=false");
   }
 
+  private static BrokerResponse DispatchElementOps(UiaElementOps ops, string method, JsonElement? parameters)
+  {
+    int element = parameters is { } p && p.TryGetProperty("element", out JsonElement el)
+      && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int index) ? index : -1;
+    if (element < 0)
+    {
+      return BrokerResponse.Fail("invalid_request",
+        $"{method} requires params.element (integer index from the latest observation).");
+#pragma warning disable IDE0046 // Named decision: the guard names the refusal once; the ternary form below reads worse.
+    }
+
+    return ElementOp(ops, method, element, parameters);
+#pragma warning restore IDE0046
+  }
+
+  private static BrokerResponse ElementOp(UiaElementOps ops, string method, int element, JsonElement? parameters)
+  {
+    return method switch
+    {
+      "element_focus" => ops.Focus(element),
+      "element_press" => ops.PerformAction(element, "press"),
+      "element_perform_action" => Str(parameters, "action_name") is { } action
+        ? ops.PerformAction(element, action)
+        : BrokerResponse.Fail("invalid_request", "element_perform_action requires params.action_name (string)."),
+      "element_set_value" => Str(parameters, "value") is { } value
+        ? ops.SetValue(element, value)
+        : BrokerResponse.Fail("invalid_request", "element_set_value requires params.value (string)."),
+      "element_select_text" => ops.SelectText(element),
+      _ => BrokerResponse.Fail("unimplemented", $"{method} has no element operation."),
+    };
+  }
   private static int Pid(JsonElement? parameters) =>
     parameters is { } p && p.TryGetProperty("app_ref", out JsonElement appRef) && appRef.ValueKind == JsonValueKind.Object
       && appRef.TryGetProperty("pid", out JsonElement pidEl) && pidEl.ValueKind == JsonValueKind.Number

@@ -30,4 +30,13 @@ public class SurfaceClassificationTests
     SurfaceLifecycle lifecycle = tracker.Observe(appKey: "p1", windowHandle: 111, SurfaceKind.Window);
     Assert.Equal(SurfaceLifecycle.Stable, lifecycle);
   }
+
+  [Fact]
+  public void HandleDisappears_IsClosed()
+  {
+    SurfaceTracker tracker = new();
+    _ = tracker.Observe(appKey: "p1", windowHandle: 111, SurfaceKind.Window);
+    SurfaceLifecycle lifecycle = tracker.Observe(appKey: "p1", windowHandle: 0, SurfaceKind.Window);
+    Assert.Equal(SurfaceLifecycle.Closed, lifecycle);
+  }
 };

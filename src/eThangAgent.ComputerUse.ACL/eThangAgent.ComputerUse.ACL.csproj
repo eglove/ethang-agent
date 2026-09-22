@@ -9,4 +9,9 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The second-controller and broker-kill integration tests need the supervisor's
+         token/process seams; internals are exposed to the test assembly. -->
+    <InternalsVisibleTo Include="eThangAgent.ComputerUse.ACL.Tests" />
+  </ItemGroup>
 </Project>

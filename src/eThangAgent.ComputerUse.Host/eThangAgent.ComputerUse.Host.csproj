@@ -16,4 +16,9 @@
   <ItemGroup>
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- R1 (task 18): the element-op dispatcher runs REAL UIA patterns through
+         System.Windows.Automation (UIAutomationClient ships in the desktop WPF profile). -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+  </ItemGroup>
 </Project>

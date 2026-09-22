@@ -1,7 +1,7 @@
 using System.IO.Pipes;
 using eThangAgent.ComputerUse.Host;
 
-// ComputerUse.Host: the computer-use broker process (tasks 16-17).
+// ComputerUse.Host: the computer-use broker process (tasks 16-18).
 //   args[0] = pipe name (the ACL spawns us with it; ETHANG_COMPUTER_USE_PIPE is the
 //   env fallback); the auth token arrives via ETHANG_COMPUTER_USE_TOKEN. Logs go to a
 //   bounded file under the app data dir - NEVER stdout (the supervisor owns the
@@ -17,7 +17,12 @@ if (options.Error is not null)
 }
 
 log.Write("serving pipe " + options.PipeName);
-PipeServer broker = new(new BrokerConfig(options.PipeName, options.Token));
+
+// Task 18: the REAL observation surface (UIA walk, window list, app identity, capture)
+// plus the element-op resolver the input dispatcher uses for element_* methods (R1).
+RealBrokerObserver observer = new();
+PipeServer broker = new(new BrokerConfig(options.PipeName, options.Token), observer);
+broker.InputDispatch.SetElementOps(observer.CreateElementOps());
 using NamedPipeServerStream server = new(options.PipeName, PipeDirection.InOut, 1,
   PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 await PipeServeLoop.ServeOnceAsync(server, broker).ConfigureAwait(false);

@@ -71,6 +71,14 @@ public sealed class SurfaceTracker
     ArgumentException.ThrowIfNullOrWhiteSpace(appKey);
     if (_last.TryGetValue(appKey, out (long Handle, SurfaceKind Kind) previous))
     {
+      if (windowHandle == 0)
+      {
+        // R3 (fix round): the tracked handle disappeared - the lifecycle IS Closed and
+        // the key is forgotten so a later observe is a fresh Stable (the Forget contract).
+        _ = Forget(appKey);
+        return SurfaceLifecycle.Closed;
+      }
+
       _last[appKey] = (windowHandle, kind);
       return previous.Handle == windowHandle ? SurfaceLifecycle.Stable : SurfaceLifecycle.Replaced;
     }

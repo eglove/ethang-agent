@@ -37,6 +37,19 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
 
 
 
+  // ---- Integration-test seams (InternalsVisibleTo only): the second-controller test
+  // needs the pipe name + token to open a rival client; the broker-kill test needs to kill
+  // the spawned process while the supervisor (and its restart budget) survives.
+  internal string TestPipeName() => _pipeName;
+
+  internal string TestToken() => _token;
+
+  internal async Task KillBrokerProcessForTests()
+  {
+    await KillAsync().ConfigureAwait(false);
+    _crashes = 0; // the restart budget is judged by the supervisor itself, not the test kill
+  }
+
   private static string NewToken() => Guid.NewGuid().ToString("N");
 
   /// <summary>Default spawn: the Host exe with the pipe name as argv[1] and the per-spawn
@@ -64,6 +77,38 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   /// <summary>Executes one broker request, spawning or restarting the broker as needed.
   ///     Transport loss maps to HELPER_UNAVAILABLE; a healthy start followed by one crash
   ///     earns exactly one lazy restart before the failure propagates.</summary>
+  /// <summary>Executes one broker request and returns the RAW reply envelope for
+  ///     callers that parse non-receipt results (capture_app, list_*). The same
+  ///     supervision policy applies: lazy spawn, transport-loss mapping, one lazy
+  ///     restart. Errors travel IN the envelope (BrokerReply.Error), transport loss
+  ///     as the thrown typed exceptions RequestAsync also throws.</summary>
+  public async Task<BrokerReply> RequestEnvelopeAsync(string method, JsonElement? parameters, CancellationToken ct = default)
+  {
+    ObjectDisposedException.ThrowIf(_disposed, this);
+    try
+    {
+      BrokerReply reply = await RoundTripEnvelopeAsync(method, parameters, ct).ConfigureAwait(false);
+      return reply;
+    }
+    catch (Exception ex) when (ex is BrokerSupervisorException or BrokerTimeoutException)
+    {
+      throw;
+    }
+    catch (Exception ex) when (ex is BrokerConnectionClosedException or BrokerProtocolException or IOException)
+    {
+      _crashes++;
+      if (_crashes > 1)
+      {
+        throw new BrokerSupervisorException("broker connection lost twice: " + Inner(ex), ex);
+      }
+
+      // ONE lazy restart with short backoff on the NEXT request.
+      await KillAsync().ConfigureAwait(false);
+      await Task.Delay(RestartBackoff, ct).ConfigureAwait(false);
+      _token = NewToken();
+      throw new BrokerSupervisorException("broker connection lost; retry the request (one restart budgeted): " + Inner(ex), ex);
+    }
+  }
   public async Task<ComputerOutcome> RequestAsync(string method, JsonElement? parameters, CancellationToken ct = default)
   {
     ObjectDisposedException.ThrowIf(_disposed, this);
@@ -96,6 +141,13 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
 
   private static string Inner(Exception ex) => ex.InnerException?.Message ?? ex.Message;
 
+  private async Task<BrokerReply> RoundTripEnvelopeAsync(string method, JsonElement? parameters, CancellationToken ct)
+  {
+    NdjsonPipeClient pipe = await GetClientAsync(ct).ConfigureAwait(false);
+    BrokerReply reply = await pipe.RequestAsync(method, parameters, ct).ConfigureAwait(false);
+    _crashes = 0;
+    return reply;
+  }
   private async Task<ComputerOutcome> RoundTripAsync(string method, JsonElement? parameters, CancellationToken ct)
   {
     NdjsonPipeClient pipe = await GetClientAsync(ct).ConfigureAwait(false);

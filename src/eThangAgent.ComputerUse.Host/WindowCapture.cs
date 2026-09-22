@@ -59,9 +59,8 @@ public static partial class WindowCapture
 
     return !anyAlpha || sampled <= 1; // fully transparent, or fewer than two distinct samples
   }
-#pragma warning disable SYSLIB1054 // Named decision (T12-13 precedent): LibraryImport needs unsafe blocks; blittable signature here.
   [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-  [DllImport("user32.dll")]
-  private static extern bool PrintWindow(nint hWnd, nint hdcBlt, uint nFlags);
-#pragma warning restore SYSLIB1054
+  [LibraryImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  internal static partial bool PrintWindow(nint hWnd, nint hdcBlt, uint nFlags);
 };

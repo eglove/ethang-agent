@@ -1,0 +1,108 @@
+using System.Windows.Automation;
+
+namespace eThangAgent.ComputerUse.Host;
+
+/// <summary>Real UIA element operations (task 18, R1): the dispatcher's element path
+///     resolves the target from the broker's last-walk element cache and performs the
+///     REAL pattern operation (Value/Invoke/SetFocus). Every unsupported pattern is an
+///     honest typed error - not_settable / not_selectable / action_unavailable - never
+///     a faked receipt. Resolution failure answers element_unavailable.</summary>
+public sealed class UiaElementOps(Func<int, AutomationElement?> resolver)
+{
+  private readonly Func<int, AutomationElement?> _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+
+  public BrokerResponse Focus(int element)
+  {
+    AutomationElement? target = Resolve(element);
+    return target is null ? ElementUnavailable(element) : TrySetFocus(target);
+  }
+
+  public BrokerResponse SetValue(int element, string text)
+  {
+    AutomationElement? target = Resolve(element);
+    if (target is null)
+    {
+      return ElementUnavailable(element);
+    }
+
+    if (!target.TryGetCurrentPattern(ValuePattern.Pattern, out object? pattern) || pattern is not ValuePattern valuePattern)
+    {
+      return BrokerResponse.Fail("not_settable", $"element {element} does not support the UIA Value pattern; nothing was changed.");
+    }
+
+    try
+    {
+      valuePattern.SetValue(text);
+      return BrokerResponse.Accepted();
+    }
+    catch (InvalidOperationException ex)
+    {
+      return BrokerResponse.Fail("not_settable", $"element {element} rejected the value: {ex.Message}");
+    }
+    catch (System.Runtime.InteropServices.COMException ex)
+    {
+      return BrokerResponse.Fail("not_settable", $"element {element} rejected the value (COM {ex.HResult}).");
+    }
+  }
+
+  public BrokerResponse PerformAction(int element, string actionName)
+  {
+    AutomationElement? target = Resolve(element);
+    if (target is null)
+    {
+      return ElementUnavailable(element);
+    }
+
+    bool isDefaultPress = actionName is "press" or "invoke" or "click";
+    if (target.TryGetCurrentPattern(InvokePattern.Pattern, out object? pattern) && pattern is InvokePattern invoke)
+    {
+      invoke.Invoke();
+      return BrokerResponse.Accepted();
+    }
+
+    if (isDefaultPress && target.TryGetCurrentPattern(TogglePattern.Pattern, out object? togglePattern) && togglePattern is TogglePattern toggle)
+    {
+      toggle.Toggle();
+      return BrokerResponse.Accepted();
+    }
+
+    return BrokerResponse.Fail("action_unavailable",
+      $"element {element} advertises no UIA Invoke pattern; action '{actionName}' cannot run on it.");
+  }
+
+  public BrokerResponse SelectText(int element)
+  {
+    AutomationElement? target = Resolve(element);
+    if (target is null)
+    {
+      return ElementUnavailable(element);
+    }
+
+    if (!target.TryGetCurrentPattern(TextPattern.Pattern, out _))
+    {
+      return BrokerResponse.Fail("not_selectable", $"element {element} exposes no UIA Text pattern; no selection was made.");
+    }
+
+    // The UIA Text pattern is read-only on the client side: selection shaping needs the
+    // pattern's range APIs that the client surface does not expose. Honest refusal.
+    return BrokerResponse.Fail("not_selectable", $"element {element}'s text pattern is read-only over UIA; selection is unavailable.");
+  }
+
+  private AutomationElement? Resolve(int element) => _resolver(element);
+
+  private static BrokerResponse ElementUnavailable(int element) =>
+    BrokerResponse.Fail("element_unavailable", $"element {element} is not in the broker's latest observation; observe first.");
+
+  private static BrokerResponse TrySetFocus(AutomationElement target)
+  {
+    try
+    {
+      target.SetFocus();
+      return BrokerResponse.Accepted();
+    }
+    catch (System.Runtime.InteropServices.COMException ex)
+    {
+      return BrokerResponse.Fail("internal", $"SetFocus failed (COM {ex.HResult}).", "action_sent=false");
+    }
+  }
+}
