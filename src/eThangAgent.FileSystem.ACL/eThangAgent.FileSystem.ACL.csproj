@@ -3,6 +3,7 @@
     <ProjectReference Include="../eThangAgent.Agent.Domain/eThangAgent.Agent.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
+    <ProjectReference Include="../eThangAgent.Skill.Domain/eThangAgent.Skill.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The shell-resolution test hook is internal; tests pin it headlessly. -->
