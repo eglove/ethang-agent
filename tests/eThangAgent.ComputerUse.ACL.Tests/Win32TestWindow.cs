@@ -67,6 +67,13 @@ public sealed partial class Win32TestWindow : IDisposable
   private readonly Lock _pumpGate = new();
   private long LastPumpTicksValue { get; set; }
 
+  /// <summary>The pump thread's fault, if any (creation-phase faults rethrow;
+  /// loop-phase faults used to die silently with the thread - they are stored here).</summary>
+  private Exception? PumpFault { get; set; }
+
+  /// <summary>Human-readable pump health for assertion messages and diagnostics.</summary>
+  internal string PumpDiagnostics => PumpFault is null ? "no fault" : "pump fault: " + PumpFault;
+
 
   /// <summary>Diagnostics for the controller ruling: creation-time foreground snapshot.</summary>
   public nint CreationForeground { get; private set; }
@@ -116,7 +123,7 @@ public sealed partial class Win32TestWindow : IDisposable
 
   private void RunMessageLoop(ManualResetEventSlim created)
   {
-    _wndProcHolder = WndProc;
+    _wndProcHolder = WndProcRouter;
     NativeClassEx wc = new()
     {
       _cbSize = (uint)Marshal.SizeOf<NativeClassEx>(),
@@ -138,6 +145,7 @@ public sealed partial class Win32TestWindow : IDisposable
     {
       throw new InvalidOperationException("CreateWindowEx failed: " + Marshal.GetLastWin32Error());
     }
+    WindowsByHandle[Handle] = this;
 
     ButtonHandle = CreateWindowEx(0, "Button", ButtonCaption, WsChild | WsVisible,
       20, 20, 140, 34, Handle, 0, wc._hInstance, 0);
@@ -155,34 +163,46 @@ public sealed partial class Win32TestWindow : IDisposable
 
     while (!_stopLoop)
     {
-      // Peek-based pump: GetMessage+DispatchMessage without a quit dependency, so an external
-      // WM_DESTROY of ONE window cannot end the thread and destroy every other window on it.
-      lock (_pumpGate)
+      try
       {
-        LastPumpTicksValue = DateTime.UtcNow.Ticks;
-      }
-      lock (_pumpGate)
-      {
-        LastPumpTicksValue = DateTime.UtcNow.Ticks;
-      }
-      _ = Interlocked.Increment(ref _aliveChecks);
-      if (!IsWindowAlive(Handle))
-      {
-        // The live desktop (or another agent session's automation) closed our window: recreate
-        // it in place so the fixture keeps serving observations.
-        RecreateWindow();
-      }
+        // Peek-based pump: GetMessage+DispatchMessage without a quit dependency, so an external
+        // WM_DESTROY of ONE window cannot end the thread and destroy every other window on it.
+        lock (_pumpGate)
+        {
+          LastPumpTicksValue = DateTime.UtcNow.Ticks;
+        }
+        lock (_pumpGate)
+        {
+          LastPumpTicksValue = DateTime.UtcNow.Ticks;
+        }
+        _ = Interlocked.Increment(ref _aliveChecks);
+        if (!IsWindowAlive(Handle))
+        {
+          // The live desktop (or another agent session's automation) closed our window: recreate
+          // it in place so the fixture keeps serving observations.
+          RecreateWindow();
+        }
 
-      bool any = PeekMessage(out NativeMsg msg, 0, 0, 0, PmRemove);
-      if (any)
-      {
-        _ = TranslateMessage(msg);
-        _ = DispatchMessage(msg);
+        bool any = PeekMessage(out NativeMsg msg, 0, 0, 0, PmRemove);
+        if (any)
+        {
+          _ = TranslateMessage(msg);
+          _ = DispatchMessage(msg);
+        }
+        else
+        {
+          Thread.Sleep(10);
+        }
       }
-      else
+#pragma warning disable CA1031 // Named decision: the STA loop boundary must never crash the process; the fault is stored for diagnostics.
+      catch (Exception ex)
       {
-        Thread.Sleep(10);
+        // The STA thread must never crash the process, but its death destroys this
+        // window; store the fault so tests can name the cause instead of guessing.
+        PumpFault = ex;
+        _stopLoop = true;
       }
+#pragma warning restore CA1031
     }
   }
 
@@ -253,7 +273,13 @@ public sealed partial class Win32TestWindow : IDisposable
       return;
     }
 
+    if (Handle != 0)
+    {
+      _ = WindowsByHandle.TryRemove(Handle, out _);
+    }
+
     Handle = fresh;
+    WindowsByHandle[Handle] = this;
     ButtonHandle = CreateWindowEx(0, "Button", ButtonCaption, WsChild | WsVisible,
       20, 20, 140, 34, Handle, 0, GetModuleHandle(null), 0);
     EditHandle = CreateWindowEx(0, "Edit", InitialEditText, WsChild | WsVisible | WsBorder | EsAutoHScroll,
@@ -293,6 +319,9 @@ public sealed partial class Win32TestWindow : IDisposable
   /// <summary>Diagnostic/test: destroys the current window so the pump recreates it.</summary>
   public void SimulateDestruction() => DestroyWindow(Handle);
 
+  /// <summary>Diagnostic/test: posts WM_NULL so the pump must retrieve and dispatch a message.</summary>
+  internal void PostProbeMessage() => _ = PostMessage(Handle, 0x0000, 0, 0);
+
   /// <summary>Diagnostic/test: IsWindow from the test thread.</summary>
 
   /// <summary>Diagnostic: FindWindowW by class name.</summary>
@@ -312,12 +341,25 @@ public sealed partial class Win32TestWindow : IDisposable
     if (Handle != 0)
     {
       _ = PostMessage(Handle, WmKill, 0, 0);
+      _ = WindowsByHandle.TryRemove(Handle, out _);
     }
   }
 
   private static WndProcDelegate? _wndProcHolder;
 
   private delegate nint WndProcDelegate(nint hwnd, uint msg, nint wParam, nint lParam);
+
+  // The window class registers ONE wndproc per process, so messages of EVERY
+  // instance arrive through the first-registered delegate. Route by handle so a
+  // second instance (a regression probe) can never stop another instance's pump.
+  private static readonly System.Collections.Concurrent.ConcurrentDictionary<nint, Win32TestWindow> WindowsByHandle = new();
+
+  private static readonly WndProcDelegate WndProcRouter = RouteMessage;
+
+  private static nint RouteMessage(nint hwnd, uint msg, nint wParam, nint lParam) =>
+    WindowsByHandle.TryGetValue(hwnd, out Win32TestWindow? owner)
+      ? owner.WndProc(hwnd, msg, wParam, lParam)
+      : DefWindowProc(hwnd, msg, wParam, lParam);
 
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
   private struct NativeClassEx
@@ -418,17 +460,14 @@ public sealed partial class Win32TestWindow : IDisposable
 
   [LibraryImport("user32.dll"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   [return: MarshalAs(UnmanagedType.Bool)]
-  private static partial bool GetMessage(out NativeMsg msg, nint hwnd, uint filterMin, uint filterMax);
-
-  [LibraryImport("user32.dll"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-  [return: MarshalAs(UnmanagedType.Bool)]
   private static partial bool TranslateMessage(in NativeMsg msg);
 
-  [LibraryImport("user32.dll"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-  private static partial nint DispatchMessage(in NativeMsg msg);
 
   [LibraryImport("user32.dll", EntryPoint = "DefWindowProcW"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   private static partial nint DefWindowProc(nint hwnd, uint msg, nint wParam, nint lParam);
+
+  [LibraryImport("user32.dll", EntryPoint = "DispatchMessageW"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  private static partial nint DispatchMessage(in NativeMsg msg);
 
   [LibraryImport("user32.dll", EntryPoint = "SendMessageW"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   private static partial nint SendMessage(nint hwnd, uint msg, nint wParam, nint lParam);
@@ -443,11 +482,10 @@ public sealed partial class Win32TestWindow : IDisposable
 
   [LibraryImport("user32.dll", EntryPoint = "PostMessageW"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   [return: MarshalAs(UnmanagedType.Bool)]
-  private static partial bool PostMessage(nint hwnd, uint msg, nint wParam, nint lParam);
+  internal static partial bool PostMessage(nint hwnd, uint msg, nint wParam, nint lParam);
 
   [LibraryImport("user32.dll", EntryPoint = "GetWindowThreadProcessId"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   private static partial uint GetWindowThreadProcessId(nint hwnd, out int lpdwProcessId);
 
-  [LibraryImport("user32.dll"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-  private static partial void PostQuitMessage(int exitCode);
+
 }

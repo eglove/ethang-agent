@@ -73,7 +73,7 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
         $"no live test window; recreates={_fixture.Window.RecreateCount} err={_fixture.Window.LastRecreateError} " +
         $"creationAlive={_fixture.Window.CreationTimeIsWindow} creatorTid={_fixture.Window.CreatorThreadId} " +
         $"fg={_fixture.Window.CreationForeground} fgPid={_fixture.Window.CreationForegroundPid} " +
-        $"fgProcess={_fixture.Window.CreationForegroundProcess} pumpAliveChecks={_fixture.Window.AliveChecks} stopLoop={_fixture.Window.StopLoopRequested}");
+        $"fgProcess={_fixture.Window.CreationForegroundProcess} pumpAliveChecks={_fixture.Window.AliveChecks} stopLoop={_fixture.Window.StopLoopRequested} pump={_fixture.Window.PumpDiagnostics}");
   }
 
   // 1. list_apps finds the test window pid with a name. The desktop environment may close
