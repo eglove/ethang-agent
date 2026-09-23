@@ -1,3 +1,3 @@
 namespace eThangAgent.SkillDomain;
 
-public enum SkillSource { BuiltIn, Learned }
+public enum SkillSource { BuiltIn, File, Learned }

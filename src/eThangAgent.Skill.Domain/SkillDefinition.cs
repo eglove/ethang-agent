@@ -10,4 +10,6 @@ public sealed record SkillDefinition(
     SkillSource Source,
     string? ProvenanceSessionId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    bool Manual = false,
+    string? Origin = null);
