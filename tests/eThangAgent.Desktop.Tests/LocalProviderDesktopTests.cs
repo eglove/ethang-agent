@@ -143,6 +143,7 @@ public class LocalProviderDesktopTests
           (ZaiSettings.EndpointModePreferenceKey, "coding"),
           (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
           (AgentPreferenceKeys.RemoteHost, "false"),
+          (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
     // The cleared provider keys delete; the freshly set local key does not. The
@@ -205,6 +206,7 @@ public class LocalProviderDesktopTests
           (ZaiSettings.EndpointModePreferenceKey, "coding"),
           (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
           (AgentPreferenceKeys.RemoteHost, "false"),
+          (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
   }

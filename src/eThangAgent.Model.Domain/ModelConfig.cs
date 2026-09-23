@@ -19,7 +19,8 @@ public sealed record ModelConfig(
     int? Seed = null,
     VerbosityLevel? Verbosity = null,
     bool? ParallelToolCalls = null,
-    string? ProviderSettings = null)
+    string? ProviderSettings = null,
+    bool AcceptsImageInput = false)
 {
   public static Result<ModelConfig> Create(
       string modelId,
@@ -38,7 +39,8 @@ public sealed record ModelConfig(
       int? seed = null,
       VerbosityLevel? verbosity = null,
       bool? parallelToolCalls = null,
-      string? providerSettings = null)
+      string? providerSettings = null,
+      bool acceptsImageInput = false)
   {
     if (string.IsNullOrWhiteSpace(modelId))
     {
@@ -100,7 +102,7 @@ public sealed record ModelConfig(
     ModelConfig config = new(
         modelId, provider, maxTokens, temperature, contextWindow, effort,
         topP, topK, frequencyPenalty, presencePenalty, repetitionPenalty, minP, topA,
-        seed, verbosity, parallelToolCalls, providerSettings);
+        seed, verbosity, parallelToolCalls, providerSettings, acceptsImageInput);
     return Result.Success(config);
   }
 }

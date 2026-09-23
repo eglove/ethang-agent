@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- M10 precedent (Host project): LibraryImport's source generator emits unsafe code
+         (the Win32 test window's P/Invoke contains none); this flag exists solely so the
+         generator output compiles. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Public test classes are the xUnit norm (xUnit1000 demands public test classes),
+         so CA1515's make-internal advice cannot apply here. -->
+    <NoWarn>$(NoWarn);CA1515;SYSLIB1054;CA1838</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.ComputerUse.ACL/eThangAgent.ComputerUse.ACL.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.ComputerUse.Host/eThangAgent.ComputerUse.Host.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="StubHost/**" />
+    <None Remove="StubHost/**" />
+  </ItemGroup>
+</Project>

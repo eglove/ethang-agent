@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Streaming;
 
@@ -43,7 +44,8 @@ internal sealed class StreamWindowCoalescer(IStreamSink sink, double windowSecon
 
   public Task ToolCallAsync(string name, string arguments) => StructuralAsync(new UiStreamEvent.ToolCallEvent(name, arguments));
 
-  public Task ToolResultAsync(string name, string summary, string fullContent, bool isError, string? title = null) => StructuralAsync(new UiStreamEvent.ToolResultEvent(name, summary, fullContent, isError, title));
+  public Task ToolResultAsync(string name, string summary, string fullContent, bool isError, string? title = null,
+      IReadOnlyList<ToolResultImage>? images = null) => StructuralAsync(new UiStreamEvent.ToolResultEvent(name, summary, fullContent, isError, title, images));
 
   public Task NoticeAsync(string text) => StructuralAsync(new UiStreamEvent.Notice(text));
 

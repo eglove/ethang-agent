@@ -40,9 +40,10 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
       }
 
       List<ModelProviderEntry> entries = await ExpandEndpointsAsync(phase1.Value, ct).ConfigureAwait(false);
-      _cached = entries;
+      IReadOnlyList<ModelProviderEntry> resolved = WithCuratedEntries(UpdateEntriesFromCatalog(entries));
+      _cached = resolved;
       _fetchedAt = DateTimeOffset.UtcNow;
-      return Result.Success<IReadOnlyList<ModelProviderEntry>>(entries);
+      return Result.Success(resolved);
     }
     finally
     {
@@ -51,6 +52,46 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
   }
 
   public void Dispose() => _gate.Dispose();
+
+  /// <summary>The <c>openrouter/auto</c> routing pseudo-model has no fetched catalog
+  ///     row (it routes server-side across upstreams), so its capability facts are a
+  ///     curated entry - image input resolves TRUE: routing may reach multimodal
+  ///     upstreams. Same curated-fact pattern as <c>Providers.RoutingContextWindow</c>.
+  ///     Resolution calls <see cref="UpdateEntriesFromCatalog"/> so an entry the
+  ///     catalog fetched later re-stamps only the pseudo-model's curated facts.</summary>
+  public static ModelProviderEntry RoutingModelEntry { get; } = new(
+      "openrouter/auto", "OpenRouter", 0m, 0m, 128_000, 128_000,
+      SupportsToolUse: true, SupportsVision: true,
+      IntelligenceScore: null, CodingScore: null, AgenticScore: null,
+      LatencyMs: null, ThroughputTokensPerSec: null,
+      "Server-side routing across upstream models; image input accepted.");
+
+  /// <summary>Re-stamps curated capability facts onto catalog entries: only the
+  ///     routing pseudo-model carries one today (it never appears in a fetch, so this
+  ///     is a no-op for real entries — and lets a future curated catalog row override
+  ///     stale fetch data without touching callers).</summary>
+  public static IReadOnlyList<ModelProviderEntry> UpdateEntriesFromCatalog(
+      IReadOnlyList<ModelProviderEntry> entries)
+  {
+    ArgumentNullException.ThrowIfNull(entries);
+    return entries.Count == 0
+        ? entries
+        : [.. entries.Select(e => e.ModelId == RoutingModelEntry.ModelId ? RoutingModelEntry : e)];
+  }
+
+  /// <summary>Makes the curated entries consultable through <see cref="GetAsync"/>:
+  ///     the routing pseudo-model is appended unless the fetch already carried a row
+  ///     with its id (UpdateEntriesFromCatalog has already forced the curated facts
+  ///     onto such a row). Without this, RootAgentResolver/ProviderFailoverResolver
+  ///     resolve the fallback id's vision capability as false and an auto-routed
+  ///     session can never accept images end-to-end.</summary>
+  private static IReadOnlyList<ModelProviderEntry> WithCuratedEntries(
+      IReadOnlyList<ModelProviderEntry> entries)
+  {
+    return entries.Any(e => e.ModelId == RoutingModelEntry.ModelId)
+        ? entries
+        : [.. entries, RoutingModelEntry];
+  }
 
   private bool IsFresh()
       => _cached is not null && DateTimeOffset.UtcNow - _fetchedAt < _config.CatalogCacheTtl;
@@ -199,7 +240,9 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
     return (0m, 0m, 0m);
   }
 
-  /// <summary>Vision capability: any image input modality in the architecture block.</summary>
+  /// <summary>Vision capability: any image input modality in the architecture block.
+  ///     A MISSING architecture object (or missing modalities) resolves FALSE —
+  ///     absence is an answer, never a parse error.</summary>
   private static bool ParseSupportsVision(JsonElement item)
   {
     return item.TryGetProperty("architecture", out JsonElement arch) && arch.ValueKind == JsonValueKind.Object

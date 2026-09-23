@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -126,7 +127,7 @@ public static class OpenAiCompatRequestCore
   }
 #pragma warning restore CA1034 // Do not nest type
 
-  public static object[] BuildMessages(ModelRequest request)
+  public static object[] BuildMessages(ModelRequest request, PartsProjection projection = PartsProjection.None)
   {
     ArgumentNullException.ThrowIfNull(request);
     List<object> messages = [];
@@ -135,29 +136,154 @@ public static class OpenAiCompatRequestCore
       messages.Add(new { role = "system", content = request.SystemPrompt });
     }
 
-    messages.AddRange(request.Messages.Select(TranslateMessage));
+    if (projection == PartsProjection.PostTurnUser)
+    {
+      foreach (Message[] turn in GroupToolCallTurns(request.Messages))
+      {
+        messages.AddRange(TranslateTurn(turn, projection));
+      }
+
+      return [.. messages];
+    }
+
+    messages.AddRange(request.Messages.Select(m => TranslateMessage(m, projection)));
     return [.. messages];
   }
 
-  public static object TranslateMessage(Message m) => (m ?? throw new ArgumentNullException(nameof(m))).Role switch
+  /// <summary>Splits the request's messages into turns: each assistant tool_calls block
+  ///     groups itself with its immediately following tool results (per the OpenAI-
+  ///     compatible rule every tool result of a block stays adjacent). Messages before
+  ///     the first block, and any non-tool message after a block, form their own turns.</summary>
+  private static IEnumerable<Message[]> GroupToolCallTurns(IReadOnlyList<Message> messages)
   {
-    Role.System => new { role = "system", content = m.Content },
-    Role.User => new { role = "user", content = m.Content },
-    Role.Assistant when m.ToolCalls is { Count: > 0 } => new
+    List<Message> current = [];
+    foreach (Message m in messages)
     {
-      role = "assistant",
-      content = m.Content,
-      tool_calls = m.ToolCalls.Select(t => new
+      if (m.Role == Role.Tool && current.Count > 0)
       {
-        id = t.Id,
-        type = Function,
-        function = new { name = t.Name, arguments = t.Arguments }
-      }).ToArray()
-    },
-    Role.Assistant => new { role = "assistant", content = m.Content },
-    Role.Tool => new { role = "tool", content = m.Content, tool_call_id = m.ToolCallId },
-    _ => throw new ArgumentOutOfRangeException(nameof(m), m.Role, "Unknown role.")
-  };
+        current.Add(m);
+        continue;
+      }
+
+      if (current.Count > 0)
+      {
+        yield return [.. current];
+        current = [];
+      }
+
+      current.Add(m);
+    }
+
+    if (current.Count > 0)
+    {
+      yield return [.. current];
+    }
+  }
+
+  /// <summary>Translates one turn under the given projection. Under PostTurnUser the
+  ///     turn's tool results serialize flat text and all their image parts merge into
+  ///     at most one synthetic user message appended after the last tool result.</summary>
+  private static List<object> TranslateTurn(IReadOnlyList<Message> turn, PartsProjection projection)
+  {
+    List<object> translated = [];
+    List<(string ToolCallId, MessagePart.ImagePart Image)> images = [];
+    foreach (Message m in turn)
+    {
+      if (m.Role == Role.Tool && m.Parts is { Count: > 0 })
+      {
+        foreach (MessagePart part in m.Parts)
+        {
+          if (part is MessagePart.ImagePart image)
+          {
+            // Strict validation: a well-formed history always carries the id; a null
+            // tool call id on an image-carrying result is programmer error - the wire
+            // could not attribute the image, so coerce nothing.
+            if (string.IsNullOrEmpty(m.ToolCallId))
+            {
+              throw new ArgumentException(
+                  "A tool message carrying an image part must have a ToolCallId; "
+                  + "the projection cannot attribute the image to a tool call.",
+                  nameof(turn));
+            }
+
+            images.Add((m.ToolCallId, image));
+          }
+        }
+      }
+
+      translated.Add(TranslateMessage(m, projection));
+    }
+
+    if (images.Count > 0)
+    {
+      List<object> content = [];
+      foreach ((string toolCallId, MessagePart.ImagePart image) in images)
+      {
+        content.Add(new { type = "text", text = $"[computer screenshot for tool call {toolCallId}]" });
+        content.Add(new
+        {
+          type = "image_url",
+          image_url = new { url = $"data:{image.MediaType};base64,{image.Base64Data}" },
+        });
+      }
+
+      translated.Add(new { role = "user", content = content.ToArray() });
+    }
+
+    return translated;
+  }
+
+  public static object TranslateMessage(Message m, PartsProjection projection = PartsProjection.None) =>
+    (m ?? throw new ArgumentNullException(nameof(m))).Role switch
+    {
+      Role.System => new { role = "system", content = m.Content },
+      Role.User => new { role = "user", content = ContentFor(m, projection) },
+      Role.Assistant when m.ToolCalls is { Count: > 0 } => new
+      {
+        role = "assistant",
+        content = m.Content,
+        tool_calls = m.ToolCalls.Select(t => new
+        {
+          id = t.Id,
+          type = Function,
+          function = new { name = t.Name, arguments = t.Arguments }
+        }).ToArray()
+      },
+      Role.Assistant => new { role = "assistant", content = m.Content },
+      Role.Tool => new { role = "tool", content = ContentFor(m, projection), tool_call_id = m.ToolCallId },
+      _ => throw new ArgumentOutOfRangeException(nameof(m), m.Role, "Unknown role.")
+    };
+
+  /// <summary>Content of a user- or tool-role message: a parts array when the message
+  ///     carries non-null non-empty parts, today's flat string otherwise (absent-collaborator
+  ///     rule: Parts == null keeps the wire payload byte-identical). Under PostTurnUser
+  ///     tool-role content always serializes flat text — images ride the synthetic
+  ///     user message TranslateTurn appends after the turn's last tool result.</summary>
+  private static object ContentFor(Message m, PartsProjection projection)
+  {
+    bool projectedToUser = m.Role == Role.Tool && projection == PartsProjection.PostTurnUser;
+    return projectedToUser || m.Parts is not { Count: > 0 }
+        ? m.Content
+        : PartsContent(m.Parts);
+  }
+
+  /// <summary>Serializes parts in order: text parts as type=text with the part text;
+  ///     image parts as type=image_url with a data: URL (data:&lt;mediaType&gt;;base64,&lt;data&gt;).</summary>
+  private static object[] PartsContent(IReadOnlyList<MessagePart> parts) =>
+      [.. parts.Select(p => p switch
+      {
+        MessagePart.TextPart text => (object)new { type = "text", text = text.Text },
+        MessagePart.ImagePart image => new
+        {
+          type = "image_url",
+          image_url = new
+          {
+            url = $"data:{image.MediaType};base64,{image.Base64Data}"
+          }
+        },
+        _ => throw new InvalidOperationException(
+              $"Unhandled message part type: {p.GetType().Name}."),
+      })];
 
   public static object TranslateTool(ToolDefinition t)
   {
@@ -204,4 +330,23 @@ public static class OpenAiCompatRequestCore
       }
     };
   }
+
+  /// <summary>The request-wire JSON serializer, pinned once: camelCase property naming
+  ///     and enums as strings, so every OpenAI-compatible provider gets byte-stable
+  ///     payloads regardless of any ambient serializer configuration.</summary>
+  // Named decision (CA1034): WireJson nests inside the core it serializes for by pinned
+  // design — one serializer travels with the request builder to every provider ACL.
+#pragma warning disable CA1034 // Do not nest type
+  public static class WireJson
+  {
+    public static readonly JsonSerializerOptions Options = CreateOptions();
+
+    private static JsonSerializerOptions CreateOptions() =>
+        new()
+        {
+          PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+          Converters = { new JsonStringEnumConverter() },
+        };
+  }
+#pragma warning restore CA1034 // Do not nest type
 }

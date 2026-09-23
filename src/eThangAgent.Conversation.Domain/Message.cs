@@ -9,4 +9,5 @@ public sealed record Message(
     DateTimeOffset Timestamp,
     IReadOnlyList<ToolCall>? ToolCalls = null,
     string? ToolCallId = null,
-    bool IsSummary = false);
+    bool IsSummary = false,
+    IReadOnlyList<MessagePart>? Parts = null);

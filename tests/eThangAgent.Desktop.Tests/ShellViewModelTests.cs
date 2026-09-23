@@ -279,6 +279,7 @@ public class ShellViewModelTests
             (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
             (AgentPreferenceKeys.RemoteHost, "false"),
+            (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
     // The blank knob texts clear exactly their own preferences (blank = absent,
@@ -322,6 +323,7 @@ public class ShellViewModelTests
             (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
             (AgentPreferenceKeys.RemoteHost, "false"),
+            (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
     Assert.Empty(vm.AvailableProviders);
@@ -363,6 +365,7 @@ public class ShellViewModelTests
             (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
             (AgentPreferenceKeys.RemoteHost, "false"),
+            (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
     Assert.Equal(
@@ -389,6 +392,7 @@ public class ShellViewModelTests
             (ZaiSettings.EndpointModePreferenceKey, "general"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
             (AgentPreferenceKeys.RemoteHost, "false"),
+            (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
     Assert.Equal(ZaiEndpointMode.GeneralApi, vm.ConfiguredZaiEndpointMode);
@@ -587,6 +591,7 @@ public class ShellViewModelTests
             (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Gitmoji"),
             (AgentPreferenceKeys.RemoteHost, "false"),
+            (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
   }

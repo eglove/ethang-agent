@@ -299,7 +299,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// Completes the root session on graceful exit (tab close or window close).
   /// Persistence failures surface as transcript notices — teardown itself never throws.
   /// </summary>
-  public Task ShutdownAsync() => _lifecycle.CompleteAsync(_rootId, ReportPersistenceError);
+  public async Task ShutdownAsync()
+  {
+    // M17: release decoded screenshot bitmaps when the tab shuts down.
+    Transcript.DisposeEntries();
+    await _lifecycle.CompleteAsync(_rootId, ReportPersistenceError).ConfigureAwait(true);
+  }
 
   private async Task ExecuteTurnAsync(string input)
   {
@@ -360,7 +365,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
                 bridge.OnToolCall(name, args);
               },
               OnToolResult: (name, summary, full, isError, rich) =>
-                bridge.OnToolResult(name, summary, full, isError, rich?.Title),
+                bridge.OnToolResult(name, summary, full, isError, rich),
               OnSystemMessage: bridge.OnSystemMessage),
           onNotice: bridge.OnNotice);
 
@@ -454,7 +459,26 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         Transcript.AddToolCall(tc.Name, tc.Arguments);
         break;
       case UiStreamEvent.ToolResultEvent tr:
-        Transcript.AddToolResult(tr.Name, tr.Summary, tr.FullContent, tr.IsError, tr.Title);
+        // I13: a decode failure degrades to no-image (a notice) - never aborts stream delivery.
+        List<TranscriptImage>? decoded = null;
+        if (tr.Images is { } images && images.Count > 0)
+        {
+          decoded = [];
+          foreach (ToolResultImage img in images)
+          {
+            try
+            {
+              decoded.Add(new TranscriptImage(Convert.FromBase64String(img.Base64Data)));
+            }
+            // I13 residual: ANY decode failure degrades to no-image, never aborts delivery.
+            catch (Exception ex) when (ex is FormatException or ArgumentException or InvalidOperationException)
+            {
+              Transcript.AddNotice("[computer] screenshot image could not be decoded and was skipped.");
+            }
+          }
+        }
+
+        Transcript.AddToolResult(tr.Name, tr.Summary, tr.FullContent, tr.IsError, tr.Title, decoded);
         break;
       case UiStreamEvent.SystemMessage sm:
         // Same thread contract as notices (see below): bridge-delivered, applied on

@@ -39,6 +39,7 @@
   <Project Path="tests/eThangAgent.Agent.Application.Tests/eThangAgent.Agent.Application.Tests.csproj" />
   <Project Path="tests/eThangAgent.OpenRouter.ACL.Tests/eThangAgent.OpenRouter.ACL.Tests.csproj" />
   <Project Path="tests/eThangAgent.Zai.ACL.Tests/eThangAgent.Zai.ACL.Tests.csproj" />
+  <Project Path="tests/eThangAgent.Provider.Wire.Tests/eThangAgent.Provider.Wire.Tests.csproj" />
   <Project Path="tests/eThangAgent.Composition.Tests/eThangAgent.Composition.Tests.csproj" />
   <Project Path="tests/eThangAgent.Tool.Domain.Tests/eThangAgent.Tool.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.FileSystem.ACL.Tests/eThangAgent.FileSystem.ACL.Tests.csproj" />
@@ -47,6 +48,10 @@
   <Project Path="tests/eThangAgent.Plan.Domain.Tests/eThangAgent.Plan.Domain.Tests.csproj" />
   <Project Path="tests/eThangAgent.Storage.ACL.Tests/eThangAgent.Storage.ACL.Tests.csproj" />
   <Project Path="tests/eThangAgent.Roslyn.ACL.Tests/eThangAgent.Roslyn.ACL.Tests.csproj" />
+  <Project Path="tests/eThangAgent.ComputerUse.ACL.Tests/eThangAgent.ComputerUse.ACL.Tests.csproj" />
+  <Project Path="src/eThangAgent.ComputerUse.ACL/eThangAgent.ComputerUse.ACL.csproj" />
+  <Project Path="src/eThangAgent.ComputerUse.Host/eThangAgent.ComputerUse.Host.csproj" />
   <Project Path="src/eThangAgent.Desktop/eThangAgent.Desktop.csproj" />
+  <Project Path="tests/eThangAgent.ComputerUse.Host.Tests/eThangAgent.ComputerUse.Host.Tests.csproj" />
   <Project Path="tests/eThangAgent.Desktop.Tests/eThangAgent.Desktop.Tests.csproj" />
 </Solution>

@@ -4,7 +4,9 @@ namespace eThangAgent.ModelDomain;
 ///     <see cref="ModelConfig"/>: for every knob, a non-null preference replaces the
 ///     config's value and a null preference preserves it. Only
 ///     <see cref="ReasoningEffort"/> is NOT touched — it has its own overlay
-///     path (the effort flows through the config constructors' effort parameter).
+///     path (the effort flows through the config constructors' effort parameter) -
+///     and capability facts (<see cref="ModelConfig.AcceptsImageInput"/>) are
+///     carried through untouched: an overlay rewrites knobs, never capabilities.
 ///     ProviderSettings is opaque: copied verbatim when non-null, never parsed. A
 ///     config whose knobs are all overlaid by null preferences passes through
 ///     value-equal.</summary>

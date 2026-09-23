@@ -64,6 +64,8 @@ public sealed class LocalModelCatalog(HttpClient http, LocalConfiguration config
           // Local servers advertise no separate completion cap: the context window IS
           // the completion ceiling, so both properties carry the probed value.
           window,
+          // Vision is always false here: a local OpenAI-compatible server cannot
+          // verify image-input support, so the capability is never advertised.
           SupportsToolUse: true, SupportsVision: false,
           IntelligenceScore: null, CodingScore: null, AgenticScore: null,
           LatencyMs: null, ThroughputTokensPerSec: null,

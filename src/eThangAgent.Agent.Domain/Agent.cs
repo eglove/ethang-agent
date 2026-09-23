@@ -288,6 +288,14 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       {
         messageChars += calls.Sum(call => call.Arguments.Length + call.Name.Length);
       }
+
+      // Image base64 lengths join the message bucket of the UI character breakdown
+      // only. Provider-scored token usage remains the sole decision input; the wire
+      // serializes images through provider-specific parts, not this estimate.
+      if (message.Parts is { Count: > 0 } parts)
+      {
+        messageChars += parts.OfType<MessagePart.ImagePart>().Sum(p => p.Base64Data.Length);
+      }
     }
 
     long toolChars = request.Tools is null ? 0 : request.Tools.Sum(ToolDefinitionChars);
@@ -336,7 +344,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
           ? new ToolResult((_tools as FilteredToolRegistry)?.ExplainsRefusal(call.Name)
               ?? $"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
           : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
-      Conversation.AddToolResult(call.Id, toolResult.Content);
+      Conversation.AddToolResult(call.Id, toolResult.Content, ToParts(toolResult.Images));
       if (toolResult.Content.Contains(ContextShrinkSentinel, StringComparison.Ordinal))
       {
         _shrankThisTurnObserved = true;
@@ -348,6 +356,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
           toolResult.Title is null ? null : toolResult);
     }
   }
+
+  /// <summary>Converts a tool result's images into conversation message parts; null
+  ///     or empty stays null so text-only results keep the legacy message shape.</summary>
+  private static IReadOnlyList<MessagePart>? ToParts(IReadOnlyList<ToolResultImage>? images)
+      => images is { Count: > 0 }
+          ? [.. images.Select(i => new MessagePart.ImagePart(i.MediaType, i.Base64Data))]
+          : null;
 
   /// <summary>Guard-style early returns: a failed result truncates its content to the
   /// first 77 characters plus an ellipsis; success summarizes as "ok".</summary>

@@ -103,7 +103,8 @@ internal partial class MainWindow : Window
         _vm.SelectedTab?.Container.WorkspaceRoot,
         _vm.ConfiguredMaxConcurrentAgents, _vm.ConfiguredDefaultModel, _vm.ConfiguredRemoteHost,
         _vm.ConfiguredWatchdogTick, _vm.ConfiguredWatchdogIdle, _vm.ConfiguredWatchdogWrapUp,
-        _vm.ConfiguredOpenRouterBaseUrl, _vm.ConfiguredZaiBaseUrl);
+        _vm.ConfiguredOpenRouterBaseUrl, _vm.ConfiguredZaiBaseUrl,
+        _vm.ConfiguredComputerUse);
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {

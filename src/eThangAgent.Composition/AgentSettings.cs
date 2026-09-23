@@ -73,6 +73,7 @@ public sealed record AgentSettings(
     ZaiSettings Zai,
     SubAgentOptions SubAgents,
     bool RemoteHost = false,
+    bool ComputerUse = false,
     WatchdogSettings? Watchdog = null,
     LocalSettings? Local = null,
     string? WorkspaceRoot = null,

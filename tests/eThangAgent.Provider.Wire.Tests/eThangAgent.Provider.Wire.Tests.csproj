@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Provider.Wire/eThangAgent.Provider.Wire.csproj" />
+  </ItemGroup>
+</Project>

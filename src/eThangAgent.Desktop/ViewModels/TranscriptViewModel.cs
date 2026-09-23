@@ -52,12 +52,13 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     _runningTool = (Entries.Count - 1, SecondsNow(), elapsed);
   }
 
-  public void AddToolResult(string name, string summary, string fullContent, bool isError, string? title = null)
+  public void AddToolResult(string name, string summary, string fullContent, bool isError, string? title = null,
+      IReadOnlyList<TranscriptImage>? images = null)
   {
     CloseOpen();
     double elapsed = _runningTool is { } running ? SecondsNow() - running.StartSeconds : 0;
     _runningTool = null;
-    Entries.Add(new ToolResultEntry(name, summary, fullContent, isError, ToolElapsed.Format(elapsed, isError), title));
+    Entries.Add(new ToolResultEntry(name, summary, fullContent, isError, ToolElapsed.Format(elapsed, isError), title, images));
   }
 
   public void AddNotice(string text)
@@ -107,6 +108,24 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   }
 
   public void EndIteration() => CloseOpen();
+
+  /// <summary>M17: disposes the decoded bitmaps of all tool-result entries when the
+  ///     transcript is reset (session close/resume), keeping GPU/memory pressure bounded.</summary>
+  public void DisposeEntries()
+  {
+    foreach (TranscriptEntry entry in Entries)
+    {
+      if (entry is ToolResultEntry { Images: { } images })
+      {
+        foreach (TranscriptImage image in images)
+        {
+          image.Dispose();
+        }
+      }
+    }
+
+    Entries.Clear();
+  }
 
   /// <summary>
   /// Replays a persisted transcript into the entries list — the resume surface, called

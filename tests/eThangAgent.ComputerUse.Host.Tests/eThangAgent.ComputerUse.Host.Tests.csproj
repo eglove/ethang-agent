@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- M10 precedent (Host/ACL projects + tests): LibraryImport's source generator emits
+         unsafe code (the probes contain none); this flag exists solely so generator output
+         compiles. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.ComputerUse.Host/eThangAgent.ComputerUse.Host.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.ComputerUse.ACL/eThangAgent.ComputerUse.ACL.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

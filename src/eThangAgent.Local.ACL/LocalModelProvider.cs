@@ -187,7 +187,9 @@ public sealed class LocalModelProvider(HttpClient http, LocalConfiguration confi
     Dictionary<string, object?> bodyDict = new()
     {
       ["model"] = config.ModelId,
-      ["messages"] = OpenAiCompatRequestCore.BuildMessages(request),
+      // Local OpenAI-compatible servers take no images on tool results; images
+      // project into a synthetic user message after the turn's last tool result.
+      ["messages"] = OpenAiCompatRequestCore.BuildMessages(request, PartsProjection.PostTurnUser),
       ["max_tokens"] = config.MaxTokens,
       ["temperature"] = config.Temperature,
     };

@@ -41,7 +41,7 @@ public sealed class CompactionModelResolver(IAppPreferenceStore preferences, IMo
         ?? entries.Value[0];
 
     Result<ModelConfig> created = ModelConfig.Create(chosen.ModelId, chosen.ProviderName,
-        maxTokens, temperature, chosen.ContextLength);
+        maxTokens, temperature, chosen.ContextLength, acceptsImageInput: chosen.SupportsVision);
     return created.IsSuccess ? created.Value : null;
   }
 }

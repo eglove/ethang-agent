@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
-using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.Provider.Wire;
 using eThangAgent.SharedKernel;
@@ -180,7 +179,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     Dictionary<string, object?> bodyDict = new()
     {
       ["model"] = config.ModelId,
-      ["messages"] = BuildMessages(request),
+      ["messages"] = OpenAiCompatRequestCore.BuildMessages(request),
       ["max_tokens"] = config.MaxTokens,
       ["temperature"] = config.Temperature,
     };
@@ -562,38 +561,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     public static AttemptOutcome Final(Result<ModelResponse> result) =>
         new(result, Retryable: false, RetryAfter: null);
   }
-
-  private static object[] BuildMessages(ModelRequest request)
-  {
-    List<object> messages = [];
-    if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
-    {
-      messages.Add(new { role = "system", content = request.SystemPrompt });
-    }
-
-    messages.AddRange(request.Messages.Select(TranslateMessage));
-    return [.. messages];
-  }
-
-  private static object TranslateMessage(Message m) => m.Role switch
-  {
-    Role.System => new { role = "system", content = m.Content },
-    Role.User => new { role = "user", content = m.Content },
-    Role.Assistant when m.ToolCalls is { Count: > 0 } => new
-    {
-      role = "assistant",
-      content = m.Content,
-      tool_calls = m.ToolCalls.Select(t => new
-      {
-        id = t.Id,
-        type = Function,
-        function = new { name = t.Name, arguments = t.Arguments }
-      }).ToArray()
-    },
-    Role.Assistant => new { role = "assistant", content = m.Content },
-    Role.Tool => new { role = "tool", content = m.Content, tool_call_id = m.ToolCallId },
-    _ => throw new ArgumentOutOfRangeException(nameof(m), m.Role, "Unknown role.")
-  };
 
   private static object TranslateTool(ToolDefinition t) => new Dictionary<string, object?>
   {

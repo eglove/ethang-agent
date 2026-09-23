@@ -21,7 +21,7 @@ public sealed class ZaiModelCatalog : IModelCatalog
   private static readonly IReadOnlyList<ModelProviderEntry> Entries =
   [
     new("glm-5.3", ProviderName, 0.0000014m, 0.0000044m, 1_000_000, 131_072,
-        SupportsToolUse: true, SupportsVision: false,
+        SupportsToolUse: true, SupportsVision: true,
         IntelligenceScore: null, CodingScore: null, AgenticScore: null,
         LatencyMs: null, ThroughputTokensPerSec: null,
         "Current GLM flagship: forced deep thinking, 1M context, strongest coding and agentic option."),

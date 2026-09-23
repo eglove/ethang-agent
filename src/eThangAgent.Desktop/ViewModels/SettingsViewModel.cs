@@ -55,7 +55,8 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, string? ZaiApiKe
     string? WorkspaceRoot = null,
     string? MaxConcurrentAgentsText = null, string? DefaultModelText = null, bool RemoteHost = false,
     string? WatchdogTickText = null, string? WatchdogIdleText = null, string? WatchdogWrapUpText = null,
-    string? OpenRouterBaseUrlText = null, string? ZaiBaseUrlText = null);
+    string? OpenRouterBaseUrlText = null, string? ZaiBaseUrlText = null,
+    bool ComputerUse = false);
 
 /// <summary>View-model behind the settings modal: the API-key fields for the
 ///     providers, the local provider's base URL, a reveal toggle, the z.ai endpoint
@@ -127,6 +128,12 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(ValidationError))]
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial bool RemoteHost { get; set; }
+
+  /// <summary>True enables the 'computer' tool (desktop automation) for newly opened agents.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial bool ComputerUse { get; set; }
 
   /// <summary>The watchdog tick interval as raw text — blank means the watchdog
   ///     default; a non-blank value must be a positive constant-format duration
@@ -257,7 +264,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
       string? workspaceRoot = null,
       string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
       string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
-      string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null)
+      string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null,
+      bool computerUse = false)
   {
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
@@ -277,7 +285,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 WorkspaceRoot: WorkspaceRoot,
                 Normalize(MaxConcurrentAgentsText), Normalize(DefaultModelText), RemoteHost,
                 Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
-                Normalize(OpenRouterBaseUrlText), Normalize(ZaiBaseUrlText)));
+                Normalize(OpenRouterBaseUrlText), Normalize(ZaiBaseUrlText), ComputerUse));
           }
         },
         () => CanSave);
@@ -289,6 +297,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
     MaxConcurrentAgentsText = maxConcurrentAgentsText ?? string.Empty;
     DefaultModelText = defaultModelText ?? string.Empty;
     RemoteHost = remoteHost;
+    ComputerUse = computerUse;
     WatchdogTickText = watchdogTickText ?? string.Empty;
     WatchdogIdleText = watchdogIdleText ?? string.Empty;
     WatchdogWrapUpText = watchdogWrapUpText ?? string.Empty;

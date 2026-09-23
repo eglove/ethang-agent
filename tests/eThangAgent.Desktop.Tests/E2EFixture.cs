@@ -46,6 +46,11 @@ internal static class E2E
     ///     sampling settings) the production open path restores.</summary>
     public IAppPreferenceStore Store { get; private set; } = null!;
 
+    /// <summary>Test seam: the factory producing the computer-use access provider. Set it
+    ///     before StartAsync; default throws so missing wiring surfaces loudly.</summary>
+    public Func<IComputerAccessProvider> ComputerAccessProviderFactory { get; set; } =
+        () => throw new InvalidOperationException("no computer access provider registered for this harness");
+
     /// <summary>The composed session container — lets a settings E2E build a second
     ///     AgentSession over the SAME container (shared live preferences) and drive it
     ///     through a preference-store-wired shell open path.</summary>
@@ -55,10 +60,11 @@ internal static class E2E
     /// <param name="reuseDatabasePath">When set, the harness runs over THIS database file
     ///     instead of a fresh temp one — the restart-survival E2E opens two sessions over it.</param>
     /// <param name="workspaceRoot">When set, the harness binds THIS absolute workspace root:
+    /// <param name="computerUse">When true, the harness enables computer use in the composed settings.</param>
     ///     FixedWorkspaceContext, AgentSession.WorkspaceRoot, and the root-session bootstrap all
     ///     carry it, so anchored-spawn E2E can validate anchors against a real directory. When
     ///     null, behavior is unchanged: FixedWorkspaceContext("app") and WorkspaceRoot = cwd.</param>
-    public async Task<HostHarness> StartAsync(string? reuseDatabasePath = null, string? workspaceRoot = null)
+    public async Task<HostHarness> StartAsync(string? reuseDatabasePath = null, string? workspaceRoot = null, bool computerUse = false)
     {
       Mock.Start();
       // Catalog the two mock models so the session's window source resolves them;
@@ -67,7 +73,7 @@ internal static class E2E
       DatabasePath = reuseDatabasePath ?? Path.Combine(Path.GetTempPath(), $"ethang-e2e-{Guid.NewGuid():N}.db");
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", DatabasePath);
 
-      AgentSettings settings = BuildSettings();
+      AgentSettings settings = BuildSettings(computerUse: computerUse);
 
       // Byte-identical null branch (named by the brief): the harness historically wired
       // FixedWorkspaceContext("app") while the session binding carried cwd. An EXPLICIT
@@ -82,6 +88,9 @@ internal static class E2E
               new AgentHostOptions(
                   new FixedWorkspaceContext(workspaceContextId),
                   new UnrootedPathResolver()))
+          // Computer-use E2E: tests register their fake access provider here before the
+          // container seals (the composition resolves the seam lazily at tool-binding time).
+          .AddSingleton(sp => ComputerAccessProviderFactory())
           .BuildServiceProvider();
 
       Store = _services.GetRequiredService<IAppPreferenceStore>();
@@ -135,11 +144,12 @@ internal static class E2E
     ///     OpenRouter endpoint. Shared by the live container and any resume factory.
     ///     RemoteHost routes child starts through the out-of-process ChildHost (opt-in
     ///     for the remote-mode E2E; default stays in-process).</summary>
-    internal AgentSettings BuildSettings(bool remoteHost = false) => new(
+    internal AgentSettings BuildSettings(bool remoteHost = false, bool computerUse = false) => new(
         new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
         new ZaiSettings(null, new Uri("https://zai.test")),
         new SubAgentOptions(null, 2),
-        RemoteHost: remoteHost);
+        RemoteHost: remoteHost,
+        ComputerUse: computerUse);
 
     /// <summary>A factory over the SAME temp database and mock server the harness runs
     ///     on — lets tests drive the real <see cref="AgentSessionFactory.ResumeAsync"/>
@@ -176,6 +186,27 @@ internal static class E2E
     await vm.SubmitAsync(input).WaitAsync(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
     await vm.WaitForTurnAsync().WaitAsync(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
   }
+
+
+  /// <summary>Scripted assistant response performing one tool call with the given tool name.</summary>
+  public static string ToolCall(string id, string toolName, string arguments) =>
+      JsonSerializer.Serialize(new
+      {
+        choices = new[]
+          {
+                new
+                {
+                    message = new
+                    {
+                        content = (string?)null,
+                        tool_calls = new[]
+                        {
+                            new { id, type = "function", function = new { name = toolName, arguments } }
+                        }
+                    }
+                }
+          }
+      });
 
   /// <summary>Serializes an exec tool-call argument carrying one C# program and the
   ///     mandatory per-call execution budget.</summary>
