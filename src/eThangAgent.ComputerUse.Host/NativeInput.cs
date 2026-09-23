@@ -9,12 +9,18 @@ namespace eThangAgent.ComputerUse.Host;
 ///     and KEYBDINPUT at offset 0 with the type tag at offset 4, so keyboard wVk sits at
 ///     INPUT offset 8 and mouse dwFlags at INPUT offset 20 (pinned by NativeInputLayoutPinTests;
 ///     the previous shared sequential row read both fields from the wrong offsets). LibraryImport
-///     covers the P/Invoke.</summary>
+///     covers the P/Invoke. Fix round 5: targeted clicks build move+button rows and
+///     wheel scrolls build move+wheel rows over the same injected-extents seam.</summary>
 internal static partial class NativeInput
 {
   private const uint MouseMove = 0x0001;
   private const uint MouseAbsolute = 0x8000;
   private const uint MouseVirtualDesk = 0x4000;
+  private const uint MouseWheel = 0x0800;
+
+  /// <summary>Windows' wheel delta: one NOTCH of the wheel is 120 raw units; scroll
+  ///     pages are injected as signed multiples of it.</summary>
+  internal const int WheelDelta = 120;
   internal const int ExtentWidthMetric = 78;  // SM_CXVIRTUALSCREEN - the EXTENT, not the origin (76)
   internal const int ExtentHeightMetric = 79; // SM_CYVIRTUALSCREEN - the EXTENT, not the origin (77)
 
@@ -93,6 +99,29 @@ internal static partial class NativeInput
     "MIDDLE" => Inject([Mouse(0x0020), Mouse(0x0040)]),
     _ => Inject([Mouse(0x0002), Mouse(0x0004)]),
   };
+
+  /// <summary>Fix round 5 (F1): a targeted click - the built move+button rows over the
+  ///     REAL virtual-desktop extents, injected as one SendInput batch. The cursor is
+  ///     positioned FIRST (a button row acts at the current cursor position). Degenerate
+  ///     extents build no rows, and Inject of an empty batch returns false - the honest
+  ///     refusal, never a degenerate event.</summary>
+  public static bool SendMouseButtonAt(string button, int x, int y) =>
+    TryExtents(out int cx, out int cy) && Inject(FromTaggedRows(BuildClickRows(button, x, y, cx, cy)));
+
+  /// <summary>Fix round 5 (F3): a targeted vertical wheel scroll - the move row to the
+  ///     resolved point, then the wheel row(s). Horizontal directions are refused by the
+  ///     dispatcher before reaching here.</summary>
+  public static bool SendWheelAt(string direction, int pages, int x, int y)
+  {
+    if (!TryExtents(out int cx, out int cy))
+    {
+      return false;
+    }
+
+    List<TaggedMouseRow> rows = [Tag(BuildMoveParts(x, y, cx, cy))];
+    rows.AddRange(BuildWheelRows(direction, pages));
+    return Inject(FromTaggedRows([.. rows]));
+  }
 
   /// <summary>A no-op pointer pulse (relative move 0,0): the live-path dispatch for
   ///     element/scroll/drag stubs whose full behavior assertion is task 18 integration.
@@ -233,6 +262,78 @@ internal static partial class NativeInput
 
     rows.Add(new DragRow(0, up, 0, 0));
     return [.. rows];
+  }
+
+  /// <summary>One row of the click/wheel sequences in wire-independent terms: the INPUT
+  ///     type tag, the event flags, the absolute normalized coordinates, the wheel
+  ///     mouseData, and a test-facing tag naming the row's role.</summary>
+  public readonly record struct TaggedMouseRow(uint Type, uint Flags, int Dx, int Dy, uint MouseData, string Role);
+
+  /// <summary>A wheel row from direction + pages: MOUSEEVENTF_WHEEL with mouseData =
+  ///     signed pages * WHEEL_DELTA (up is positive, down is negative). Horizontal
+  ///     directions never reach this builder.</summary>
+  internal static TaggedMouseRow BuildWheelRow(string direction, int pages)
+  {
+    return direction switch
+    {
+      _ when string.Equals(direction, "up", StringComparison.OrdinalIgnoreCase) =>
+        new TaggedMouseRow(0, MouseWheel, 0, 0, (uint)(pages * WheelDelta), "wheel"),
+      _ when string.Equals(direction, "down", StringComparison.OrdinalIgnoreCase) =>
+        new TaggedMouseRow(0, MouseWheel, 0, 0, unchecked((uint)(-pages * WheelDelta)), "wheel"),
+      _ => throw new ArgumentOutOfRangeException(nameof(direction), direction, "only up/down reach the wheel builder"),
+    };
+  }
+
+  /// <summary>The wheel rows for one scroll: one row per page (pages >= 1), each a
+  ///     single notch multiple.</summary>
+  internal static TaggedMouseRow[] BuildWheelRows(string direction, int pages)
+  {
+    int count = Math.Max(1, pages);
+    TaggedMouseRow row = BuildWheelRow(direction, 1);
+    return [.. Enumerable.Repeat(row, count)];
+  }
+
+  /// <summary>The targeted click row sequence over the GIVEN extents (fake metrics -
+  ///     the injected seam): a leading MOVE|ABSOLUTE|VIRTUALDESK row to the point, then
+  ///     button down, then button up. Zero or negative extents yield NO rows - the
+  ///     honest refusal - never a degenerate event.</summary>
+  internal static TaggedMouseRow[] BuildClickRows(string button, int x, int y, int cx, int cy)
+  {
+    string normalized = button.ToUpperInvariant();
+    (uint down, uint up) = normalized switch
+    {
+      "RIGHT" => (0x0008u, 0x0010u),
+      "MIDDLE" => (0x0020u, 0x0040u),
+      _ => (0x0002u, 0x0004u),
+    };
+
+    if (cx <= 0 || cy <= 0)
+    {
+      return [];
+    }
+
+    (uint moveFlags, int dx, int dy) = BuildMoveParts(x, y, cx, cy);
+    return
+    [
+      Tag(moveFlags, dx, dy, "move"),
+      new(0, down, 0, 0, 0, "down"),
+      new(0, up, 0, 0, 0, "up"),
+    ];
+  }
+
+  private static TaggedMouseRow Tag((uint flags, int dx, int dy) parts) => new(0, parts.flags, parts.dx, parts.dy, 0, "move");
+
+  private static TaggedMouseRow Tag(uint flags, int dx, int dy, string tag) => new(0, flags, dx, dy, 0, tag);
+
+  private static Input[] FromTaggedRows(TaggedMouseRow[] rows)
+  {
+    List<Input> inputs = [];
+    foreach (TaggedMouseRow row in rows)
+    {
+      inputs.Add(new Input { _type = row.Type, _mouse = new Input.MouseRow { _dwFlags = row.Flags, _dx = row.Dx, _dy = row.Dy, _mouseData = row.MouseData } });
+    }
+
+    return [.. inputs];
   }
 
   private static Input[] FromDragRows(DragRow[] rows)

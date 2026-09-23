@@ -305,6 +305,15 @@ internal static class FakeConnectionFactory
     static bool YesDrag(string button, int fx, int fy, int tx, int ty) => true;
     return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => foreground, sendChord: Yes, sendText: YesText, sendButton: YesButton, sendDrag: YesDrag);
   }
+  public static PipeServer WithRecordingClick(int foreground)
+  {
+    static bool Yes(KeyChord _) => true;
+    static bool YesText(string _) => true;
+    static bool YesButton(string button, int x, int y) => true;
+    static bool YesWheel(string direction, int pages, int x, int y) => true;
+    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => foreground, sendChord: Yes,
+      sendText: YesText, sendMouseButtonAt: YesButton, sendWheelAt: YesWheel);
+  }
   public static PipeServer Authorized(params int[] connectionIds)
   {
     ArgumentNullException.ThrowIfNull(connectionIds);

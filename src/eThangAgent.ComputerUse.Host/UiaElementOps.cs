@@ -7,7 +7,7 @@ namespace eThangAgent.ComputerUse.Host;
 ///     REAL pattern operation (Value/Invoke/SetFocus). Every unsupported pattern is an
 ///     honest typed error - not_settable / not_selectable / action_unavailable - never
 ///     a faked receipt. Resolution failure answers element_unavailable.</summary>
-public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IElementBoundsResolver
+public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IElementBoundsResolver, IElementActionSink
 {
   private readonly Func<int, AutomationElement?> _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
 
@@ -40,6 +40,86 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     catch (ElementNotAvailableException)
     {
       return false;
+    }
+  }
+
+  /// <summary>Fix round 5 (F1): the element click - UIA Invoke when the element
+  ///     advertises it, Toggle as the honest pressable alternative, else the typed
+  ///     action_unavailable. Never a coordinate click at guessed bounds.</summary>
+  public BrokerResponse Invoke(int element)
+  {
+    AutomationElement? target = Resolve(element);
+    if (target is null)
+    {
+      return ElementUnavailable(element);
+    }
+
+    try
+    {
+      if (target.TryGetCurrentPattern(InvokePattern.Pattern, out object? invokePattern) && invokePattern is InvokePattern invoke)
+      {
+        invoke.Invoke();
+        return BrokerResponse.Accepted();
+      }
+
+      if (target.TryGetCurrentPattern(TogglePattern.Pattern, out object? togglePattern) && togglePattern is TogglePattern toggle)
+      {
+        toggle.Toggle();
+        return BrokerResponse.Accepted();
+      }
+
+      return BrokerResponse.Fail("action_unavailable",
+        $"element {element} advertises no invoke/toggle pattern; nothing ran.");
+    }
+    catch (ElementNotAvailableException)
+    {
+      return ElementUnavailable(element);
+    }
+    catch (System.Runtime.InteropServices.COMException ex)
+    {
+      return BrokerResponse.Fail("action_unavailable", $"element {element} rejected the invoke (COM {ex.HResult}); nothing ran.");
+    }
+  }
+
+  /// <summary>Fix round 5 (F3): the element scroll - the UIA ScrollPattern when the
+  ///     element supports it (per-page Scroll with the direction's sign), else the
+  ///     honest action_unavailable.</summary>
+  public BrokerResponse Scroll(int element, string direction, int pages)
+  {
+    AutomationElement? target = Resolve(element);
+    if (target is null)
+    {
+      return ElementUnavailable(element);
+    }
+
+    if (!target.TryGetCurrentPattern(ScrollPattern.Pattern, out object? pattern)
+      || pattern is not ScrollPattern scroll)
+    {
+      return BrokerResponse.Fail("action_unavailable",
+        $"element {element} exposes no UIA Scroll pattern; nothing scrolled.");
+    }
+
+    try
+    {
+      ScrollAmount vertical = direction == "up" ? ScrollAmount.LargeIncrement : ScrollAmount.LargeDecrement;
+      for (int page = 0; page < Math.Max(1, pages); page++)
+      {
+        scroll.Scroll(ScrollAmount.NoAmount, vertical);
+      }
+
+      return BrokerResponse.Accepted();
+    }
+    catch (ElementNotAvailableException)
+    {
+      return ElementUnavailable(element);
+    }
+    catch (System.Runtime.InteropServices.COMException ex)
+    {
+      return BrokerResponse.Fail("action_unavailable", $"element {element} rejected the scroll (COM {ex.HResult}); nothing scrolled.");
+    }
+    catch (InvalidOperationException ex)
+    {
+      return BrokerResponse.Fail("action_unavailable", $"element {element} cannot scroll in that direction: {ex.Message}");
     }
   }
 
