@@ -12,12 +12,14 @@ public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore lear
       "skill_view",
       "Show the full body of one methodology skill by name. timeoutSeconds and name are mandatory: " +
       "name is the exact " +
-      "skill name as listed by skill_list. Built-ins are resolved first, then learned skills. " +
-      "Output is an annotation line `[skill <name> | <builtin|learned> | v<version>]` followed " +
-      "by the skill body byte-for-byte. Each view records a usage row best-effort; if " +
-      "recording fails, a final line `[warning] usage not recorded` is appended and the view " +
-      "still succeeds. Errors begin with `Error [Code]:` — including `Error [SkillNotFound]:` " +
-      "when no skill has that name.",
+      "skill name as listed by skill_list. Built-ins are resolved first, then file skills, " +
+      "then learned skills. Output is an annotation line `[skill <name> | " +
+      "<builtin|file|learned> | v<version>]` — for file skills extended with the origin " +
+      "directory: `[skill <name> | file | v<version> | <origin>]` — followed by the skill " +
+      "body byte-for-byte. Learned-skill views record a usage row best-effort; built-in " +
+      "and file views record nothing. If recording fails, a final line `[warning] usage " +
+      "not recorded` is appended and the view still succeeds. Errors begin with " +
+      "`Error [Code]:` — including `Error [SkillNotFound]:` when no skill has that name.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("name", ToolParameterType.Text,
@@ -43,12 +45,13 @@ public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore lear
 
   private async Task<ToolResult> ViewAsync(string name, CancellationToken ct)
   {
-    // Built-ins are authoritative; names cannot collide, so any catalog
-    // miss or failure safely falls through to the learned store.
-    Result<SkillDefinition> builtIn = await _catalog.GetAsync(name, ct).ConfigureAwait(false);
-    if (builtIn.IsSuccess)
+    // The composite catalog is authoritative across built-ins and file skills
+    // (built-ins first); a miss falls through to the learned store.
+    Result<SkillDefinition> catalogHit = await _catalog.GetAsync(name, ct).ConfigureAwait(false);
+    if (catalogHit.IsSuccess)
     {
-      return await RenderAsync(builtIn.Value, ct).ConfigureAwait(false);
+      SkillDefinition skill = catalogHit.Value;
+      return new ToolResult(Annotation(skill) + "\n" + skill.Body, false);
     }
 
     Result<SkillDefinition?> learnedResult = await _learned.GetAsync(name, ct).ConfigureAwait(false);
@@ -63,19 +66,12 @@ public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore lear
           $"No skill named '{name}'. Use skill_list to see available skills."));
     }
 
-    SkillDefinition skill = learnedResult.Value;
-    return await RenderAsync(skill, ct).ConfigureAwait(false);
-  }
+    // Usage recording is learned-only analytics: a failure degrades to a
+    // warning, never to a failed view.
+    Result<int> usage = await _learned.AppendUsageAsync(name, DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
 
-  private async Task<ToolResult> RenderAsync(SkillDefinition skill, CancellationToken ct)
-  {
-    // Usage recording is analytics only: a failure degrades to a warning,
-    // never to a failed view.
-    Result<int> usage = await _learned.AppendUsageAsync(skill.Name, DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
-
-    string content =
-        $"[skill {skill.Name} | {SkillListTool.SourceLabel(skill.Source)} | v{skill.Version}]\n" +
-        skill.Body;
+    SkillDefinition learnedSkill = learnedResult.Value;
+    string content = Annotation(learnedSkill) + "\n" + learnedSkill.Body;
     if (!usage.IsSuccess)
     {
       content += "\n[warning] usage not recorded";
@@ -83,6 +79,13 @@ public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore lear
 
     return new ToolResult(content, false);
   }
+
+  /// <summary>File skills carry their origin directory in the annotation;
+  /// built-in and learned skills use the plain three-field form.</summary>
+  private static string Annotation(SkillDefinition skill) =>
+      skill.Source == SkillSource.File
+          ? $"[skill {skill.Name} | file | v{skill.Version} | {skill.Origin}]"
+          : $"[skill {skill.Name} | {SkillListTool.SourceLabel(skill.Source)} | v{skill.Version}]";
 
   private static ToolResult Err(DomainError error) => new($"Error [{error.Code}]: {error.Message}", true);
 }

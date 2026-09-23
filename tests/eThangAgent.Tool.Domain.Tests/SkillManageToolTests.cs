@@ -9,9 +9,11 @@ public class SkillManageToolTests
 
   private static SkillDefinition Def(string name, string body,
       int version = 1, SkillSource source = SkillSource.BuiltIn,
-      string? provenance = null, DateTimeOffset? createdAt = null) =>
+      string? provenance = null, DateTimeOffset? createdAt = null,
+      bool manual = false, string? origin = null) =>
       new(name, "description", body, version, source, provenance,
-          createdAt ?? DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+          createdAt ?? DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+          manual, origin);
 
   private static (SkillManageTool Tool, FakeCatalog Catalog, FakeLearnedStore Store) MakeTool(
       IReadOnlyList<SkillDefinition>? builtIns = null,
@@ -181,7 +183,26 @@ public class SkillManageToolTests
 
     Assert.True(result.IsError);
     Assert.Contains("NameCollision", result.Content, StringComparison.Ordinal);
-    Assert.Contains("authoritative", result.Content, StringComparison.Ordinal);
+    Assert.Contains("already a built-in or file skill", result.Content, StringComparison.Ordinal);
+    Assert.Equal(1, catalog.GetCalls);
+    Assert.Empty(store.GetCalls);
+    Assert.Empty(store.CreateCalls);
+  }
+
+  [Fact]
+  public async Task Create_OverFileSkill_NameCollision_ExactMessage()
+  {
+    (SkillManageTool? tool, FakeCatalog? catalog, FakeLearnedStore? store) =
+        MakeTool(builtIns: [Def("deploy-runbook", "File body.",
+            source: SkillSource.File, origin: @"C:\skills\deploy-runbook")]);
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"action":"Create","name":"deploy-runbook","description":"d","body":"b"}"""), ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Equal("Error [NameCollision]: 'deploy-runbook' is already a built-in or file skill and file skills may never be shadowed by learned skills. Choose a different name.",
+        result.Content);
     Assert.Equal(1, catalog.GetCalls);
     Assert.Empty(store.GetCalls);
     Assert.Empty(store.CreateCalls);
@@ -286,6 +307,25 @@ public class SkillManageToolTests
 
     Assert.True(result.IsError);
     Assert.Contains("BuiltInImmutable", result.Content, StringComparison.Ordinal);
+    Assert.Equal(1, catalog.GetCalls);
+    Assert.Empty(store.GetCalls);
+    Assert.Empty(store.UpdateCalls);
+  }
+
+  [Fact]
+  public async Task Update_FileOnlyName_SkillNotFound_ExactMessage()
+  {
+    (SkillManageTool? tool, FakeCatalog? catalog, FakeLearnedStore? store) =
+        MakeTool(builtIns: [Def("deploy-runbook", "File body.",
+            source: SkillSource.File, origin: @"C:\skills\deploy-runbook")]);
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"action":"Update","name":"deploy-runbook","body":"New body."}"""), ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Equal("Error [SkillNotFound]: No learned skill named 'deploy-runbook'.",
+        result.Content);
     Assert.Equal(1, catalog.GetCalls);
     Assert.Empty(store.GetCalls);
     Assert.Empty(store.UpdateCalls);
@@ -404,6 +444,25 @@ public class SkillManageToolTests
 
     Assert.True(result.IsError);
     Assert.Contains("BuiltInImmutable", result.Content, StringComparison.Ordinal);
+    Assert.Equal(1, catalog.GetCalls);
+    Assert.Empty(store.GetCalls);
+    Assert.Empty(store.DeleteCalls);
+  }
+
+  [Fact]
+  public async Task Delete_FileOnlyName_SkillNotFound_ExactMessage()
+  {
+    (SkillManageTool? tool, FakeCatalog? catalog, FakeLearnedStore? store) =
+        MakeTool(builtIns: [Def("deploy-runbook", "File body.",
+            source: SkillSource.File, origin: @"C:\skills\deploy-runbook")]);
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"action":"Delete","name":"deploy-runbook","confirm":true}"""), ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.Equal("Error [SkillNotFound]: No learned skill named 'deploy-runbook'.",
+        result.Content);
     Assert.Equal(1, catalog.GetCalls);
     Assert.Empty(store.GetCalls);
     Assert.Empty(store.DeleteCalls);

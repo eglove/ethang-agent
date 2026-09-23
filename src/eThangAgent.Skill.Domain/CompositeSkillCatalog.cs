@@ -12,7 +12,7 @@ namespace eThangAgent.SkillDomain;
 /// with the load. Source failures degrade to diagnostics, never to a whole-load
 /// failure (mirrors SkillListTool's degradation convention).</summary>
 public sealed class CompositeSkillCatalog(ISkillCatalog builtIns, ISkillDirectorySource files,
-    IReadOnlyList<SkillDirectory> directories) : ISkillCatalog
+    IReadOnlyList<SkillDirectory> directories) : ISkillCatalog, ISkillCatalogDiagnostics
 {
   private const string BuiltInLabel = "built-in";
   private const string GlobalLabel = "global directory";
