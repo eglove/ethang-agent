@@ -27,11 +27,11 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   /// <summary>The hold bookkeeping record: chord, start, and the key-up deadline.</summary>
   private sealed record HoldRecord(KeyChord Chord, DateTimeOffset StartedAt, TimeSpan Duration);
   private readonly Func<int> _foregroundPid = foregroundPid;
-  private readonly Func<KeyChord, bool> _sendChord = sendChord;
-  private readonly Func<string, bool> _sendText = sendText;
-  private readonly Func<string, int, int, bool> _sendMouseButtonAt = sendMouseButtonAt ?? NoButtonAt;
-  private readonly Func<string, int, int, int, bool> _sendWheelAt = sendWheelAt ?? NativeInput.SendWheelAt;
-  private readonly Func<string, int, int, int, int, bool> _sendDrag = sendDrag ?? NativeInput.SendDrag;
+  private Func<KeyChord, bool> ChordTarget { get; } = sendChord;
+  private Func<string, bool> TextTarget { get; } = sendText;
+  private Func<string, int, int, bool> ButtonAtTarget { get; } = sendMouseButtonAt ?? NoButtonAt;
+  private Func<string, int, int, int, bool> WheelAtTarget { get; } = sendWheelAt ?? NativeInput.SendWheelAt;
+  private Func<string, int, int, int, int, bool> DragTarget { get; } = sendDrag ?? NativeInput.SendDrag;
   private int _dragCalls;
   private (int X, int Y) _lastDragFrom;
   private (int X, int Y) _lastDragTo;
@@ -43,6 +43,23 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   ///     (Create). Final-review NEW-1: the resolution must be observable so a test
   ///     factory can prove it never silently got the real SendInput path.</summary>
   public bool IsDoubleBacked { get; } = doubleBacked;
+
+  /// <summary>Resolution-probe surface (re-review wave): the resolved hooks, exposed
+  ///     read-only so tests can pin WHICH target each hook carries (real NativeInput
+  ///     method groups vs doubles) by delegate equality - never by dispatching.</summary>
+  public Func<KeyChord, bool> ChordHook => ChordTarget;
+
+  /// <summary>The resolved text hook (see <see cref="ChordHook"/>).</summary>
+  public Func<string, bool> TextHook => TextTarget;
+
+  /// <summary>The resolved drag hook (see <see cref="ChordHook"/>).</summary>
+  public Func<string, int, int, int, int, bool> DragHook => DragTarget;
+
+  /// <summary>The resolved positioned-button hook (see <see cref="ChordHook"/>).</summary>
+  public Func<string, int, int, bool> ButtonAtHook => ButtonAtTarget;
+
+  /// <summary>The resolved wheel hook (see <see cref="ChordHook"/>).</summary>
+  public Func<string, int, int, int, bool> WheelAtHook => WheelAtTarget;
 
   /// <summary>How many targeted clicks reached the click sink (fix round 5 wire pins;
   ///     a refused or unresolvable click must have issued zero).</summary>
@@ -136,7 +153,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
 
     foreach (HoldRecord hold in holds)
     {
-      _ = _sendChord(hold.Chord);
+      _ = ChordTarget(hold.Chord);
     }
 
     _syntheticModifiers = KeyModifiers.None;
@@ -161,7 +178,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   {
     KeyChord chord = KeyChordNormalizer.Parse(keyText);
     _syntheticModifiers = chord.Modifiers;
-    bool sent = _sendChord(chord);
+    bool sent = ChordTarget(chord);
     _ = Interlocked.Increment(ref _dispatchCount);
     _syntheticModifiers = KeyModifiers.None;
     return sent
@@ -181,7 +198,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
     }
 
     _syntheticModifiers = chord.Modifiers;
-    if (!_sendChord(chord))
+    if (!ChordTarget(chord))
     {
       lock (_holdGate)
       {
@@ -204,7 +221,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
 
       if (stillHeld)
       {
-        _ = _sendChord(chord);
+        _ = ChordTarget(chord);
         _syntheticModifiers = KeyModifiers.None;
       }
     });
@@ -247,7 +264,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
       }
     }
 
-    bool sent = _sendText(text);
+    bool sent = TextTarget(text);
     _ = Interlocked.Increment(ref _dispatchCount);
     return sent
       ? BrokerResponse.Accepted()
@@ -298,7 +315,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
     // the button rows at that position.
     if (TryReadPoint(parameters, "x", "y", "element", out int x, out int y))
     {
-      bool sent = _sendMouseButtonAt(button, x, y);
+      bool sent = ButtonAtTarget(button, x, y);
       _ = Interlocked.Increment(ref _dispatchCount);
       _ = Interlocked.Increment(ref _clickCalls);
       LastClickPoint = (x, y);
@@ -374,7 +391,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
     // Coordinate target: position the cursor, then wheel.
     if (TryReadPoint(parameters, "x", "y", "element", out int x, out int y))
     {
-      bool sent = _sendWheelAt(direction, pages, x, y);
+      bool sent = WheelAtTarget(direction, pages, x, y);
       _ = Interlocked.Increment(ref _dispatchCount);
       _ = Interlocked.Increment(ref _scrollCalls);
       LastScrollPoint = (x, y);
@@ -463,7 +480,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
         "action_sent=false");
     }
 
-    bool sent = _sendDrag(button, fromX, fromY, toX, toY);
+    bool sent = DragTarget(button, fromX, fromY, toX, toY);
     _ = Interlocked.Increment(ref _dispatchCount);
     _ = Interlocked.Increment(ref _dragCalls);
     _lastDragFrom = (fromX, fromY);
@@ -515,7 +532,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
 
     // No element surface wired (unit-test doubles): the dispatch is the real chord
     // pulse the skeleton used - never a faked receipt.
-    bool sent = _sendChord(new KeyChord(0x00, KeyModifiers.None));
+    bool sent = ChordTarget(new KeyChord(0x00, KeyModifiers.None));
     _ = Interlocked.Increment(ref _dispatchCount);
     return sent
       ? BrokerResponse.Accepted()

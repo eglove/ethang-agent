@@ -283,12 +283,7 @@ internal static class FakeConnectionFactory
 {
   public static PipeServer Token(string token) => new(new BrokerConfig("ignored-pipe", token));
 
-  public static PipeServer WithAlwaysSucceedingInput()
-  {
-    static bool Yes(KeyChord _) => true;
-    static bool YesText(string _) => true;
-    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => -1, sendChord: Yes, sendText: YesText);
-  }
+  public static PipeServer WithAlwaysSucceedingInput() => WithAlwaysSucceedingDrag(foreground: -1);
 
   public static PipeServer WithForeground(int expected, int actual)
   {
@@ -301,17 +296,12 @@ internal static class FakeConnectionFactory
     static bool Yes(KeyChord _) => true;
     static bool YesText(string _) => true;
     static bool YesDrag(string button, int fx, int fy, int tx, int ty) => true;
-    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => foreground, sendChord: Yes, sendText: YesText, sendDrag: YesDrag);
-  }
-  public static PipeServer WithRecordingClick(int foreground)
-  {
-    static bool Yes(KeyChord _) => true;
-    static bool YesText(string _) => true;
-    static bool YesButton(string button, int x, int y) => true;
+    static bool YesButtonAt(string button, int x, int y) => true;
     static bool YesWheel(string direction, int pages, int x, int y) => true;
     return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => foreground, sendChord: Yes,
-      sendText: YesText, sendMouseButtonAt: YesButton, sendWheelAt: YesWheel);
+      sendText: YesText, sendDrag: YesDrag, sendMouseButtonAt: YesButtonAt, sendWheelAt: YesWheel);
   }
+  public static PipeServer WithRecordingClick(int foreground) => WithAlwaysSucceedingDrag(foreground);
   public static PipeServer Authorized(params int[] connectionIds)
   {
     ArgumentNullException.ThrowIfNull(connectionIds);

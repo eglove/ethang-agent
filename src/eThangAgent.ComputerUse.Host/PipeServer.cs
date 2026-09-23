@@ -83,19 +83,57 @@ public sealed class PipeServer
     _config = config ?? throw new ArgumentNullException(nameof(config));
     InputSerializer = new InputSerializer();
     Lease = new ControllerLease();
-    // Final-review NEW-1: NO fallback. The dispatcher is ALWAYS resolved from the
-    // injected hooks (each hook's own default keeps production real: sendChord is
-    // required, so a no-hook construction still needs every hook named here). A
-    // partial injection must never silently discard the other doubles and hand tests
-    // the real SendInput dispatcher.
+    // Re-review resolution contract: ZERO hooks => the REAL NativeInput surface on
+    // all five (the Program.cs production path). ANY hook => ALL FIVE are required -
+    // a partial set throws ArgumentException naming the missing hooks (programmer
+    // error: partial injection is what let wire tests live-fire). No honest-false
+    // defaults exist in the resolution path.
+    bool anyHook = sendChord is not null || sendText is not null || sendDrag is not null
+      || sendMouseButtonAt is not null || sendWheelAt is not null;
+    if (anyHook)
+    {
+      List<string> missing = [];
+      if (sendChord is null)
+      {
+        missing.Add(nameof(sendChord));
+      }
+
+      if (sendText is null)
+      {
+        missing.Add(nameof(sendText));
+      }
+
+      if (sendDrag is null)
+      {
+        missing.Add(nameof(sendDrag));
+      }
+
+      if (sendMouseButtonAt is null)
+      {
+        missing.Add(nameof(sendMouseButtonAt));
+      }
+
+      if (sendWheelAt is null)
+      {
+        missing.Add(nameof(sendWheelAt));
+      }
+
+      if (missing.Count > 0)
+      {
+        throw new ArgumentException(
+          "partial input-hook injection is a programmer error (it silently live-fired wire tests); inject ALL input hooks or none. missing: " + string.Join(", ", missing),
+          nameof(sendChord));
+      }
+    }
+
     InputDispatch = new InputDispatch(
         foregroundPid ?? ReadDefaultForeground,
-        sendChord ?? DefaultChord,
-        sendText ?? DefaultText,
-        sendDrag,
-        sendMouseButtonAt,
-        sendWheelAt,
-        sendChord is not null || sendText is not null || sendDrag is not null || sendMouseButtonAt is not null || sendWheelAt is not null);
+        sendChord ?? NativeInput.SendChord,
+        sendText ?? NativeInput.SendText,
+        sendDrag ?? NativeInput.SendDrag,
+        sendMouseButtonAt ?? NativeInput.SendMouseButtonAt,
+        sendWheelAt ?? NativeInput.SendWheelAt,
+        doubleBacked: anyHook);
     Observer = observer ?? new SkeletonObserver();
     Lease.OwnerLost += Observer.OnOwnerLost;
     Lease.OwnerLost += _ => InputDispatch.CancelActiveInput();
@@ -410,21 +448,6 @@ public sealed class PipeServer
   }
 
   private static int ReadDefaultForeground() => -1; // test factory default; production Create() reads the real foreground
-
-  // Hook defaults (final-review NEW-1/NEW-2): a hook that was never injected answers
-  // an honest FALSE (SendInput-reported-failure path) - never a real untargeted
-  // injection, and never a faked success.
-  private static bool DefaultChord(KeyChord chord)
-  {
-    _ = chord;
-    return false;
-  }
-
-  private static bool DefaultText(string text)
-  {
-    _ = text;
-    return false;
-  }
 
 
 
