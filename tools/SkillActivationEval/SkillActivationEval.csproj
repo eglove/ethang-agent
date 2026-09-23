@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Headless eval console: standalone instrument, NOT in eThangAgent.slnx (the brief's
+         named decision - it must not break the solution gates). Like ChildHost it suppresses
+         the UI-host-only ConfigureAwait rule. -->
+    <NoWarn>$(NoWarn);CA2007</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.Storage.ACL/eThangAgent.Storage.ACL.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Task 1's prompt set rides the build output so the runner reads the SAME file. -->
+    <Content Include="prompts.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
