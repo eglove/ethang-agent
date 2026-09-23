@@ -215,7 +215,10 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     Win32TestWindow.Pump(500);
     Assert.Equal(before + 1, _fixture.Window.ClickCount);
   }
-  // 7. paste into the edit via element target; read back the pasted text.
+  // 7. paste into the edit via element target; read back the pasted text. F8 (fix
+  // round 5): before the REAL Ctrl+V, take the fixture window's foreground and VERIFY
+  // it (bounded ~2s). If foreground cannot be taken, assert only the honest refusal
+  // (no clipboard write, no chord) - never a blind paste into whatever has focus.
   [Fact]
   public async Task Paste_IntoEdit_ReadsBackPastedText()
   {
@@ -224,24 +227,70 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     ComputerOutcome.Observation first = await _fixture.ObserveAsync(access, TestContext.Current.CancellationToken).ConfigureAwait(true);
     int editIndex = IntegrationWindowFixture.IndexOf(first, e => e.Editable);
     Assert.True(editIndex >= 0, "an editable element (the Edit) must appear in the tree");
-    ComputerOutcome paste = await access.ExecuteAsync(new ComputerCommand.Paste(
-        "pasted-text", ComputerTarget.Element(editIndex), ComputerAppRef.ByPid(_fixture.Window.Pid)),
-        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    bool foregroundTaken = false;
+    for (int attempt = 0; attempt < 20 && !foregroundTaken; attempt++)
+    {
+      foregroundTaken = _fixture.TryTakeForeground();
+      if (!foregroundTaken)
+      {
+        await Task.Delay(100, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      }
+    }
+
+    ComputerCommand.Paste command = new(
+        "pasted-text", ComputerTarget.Element(editIndex), ComputerAppRef.ByPid(_fixture.Window.Pid));
+    if (!foregroundTaken)
+    {
+      // The safe path: with no verified foreground, the paste must be refused
+      // (FOREGROUND_REQUIRED, nothing dispatched) - no clipboard write, no chord.
+      ComputerOutcome refused = await access.ExecuteAsync(command, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      ComputerOutcome.Failure refusal = Assert.IsType<ComputerOutcome.Failure>(refused);
+      Assert.Equal(ComputerErrorCodes.ForegroundRequired, refusal.Code);
+      return;
+    }
+
+    ComputerOutcome paste = await access.ExecuteAsync(command, TestContext.Current.CancellationToken).ConfigureAwait(true);
     _ = Assert.IsType<ComputerOutcome.Receipt>(paste);
     Win32TestWindow.Pump(600);
     Assert.EndsWith("pasted-text", _fixture.Window.LastEditText, StringComparison.Ordinal);
   }
 
-  // 8. key action sends a chord; observed via the window's WM_CHAR tracking.
+  // 8. key action sends a chord; observed via the window's WM_CHAR tracking. F8 (fix
+  // round 5): before the REAL 'x' chord, take the fixture window's foreground and
+  // VERIFY it (bounded ~2s). If foreground cannot be taken, assert only the honest
+  // foreground_required refusal (strategy=event routes the chord through the gate) -
+  // never a blind chord into whatever has focus.
   [Fact]
   public async Task Key_SendsChord_WindowSeesIt()
   {
     await WaitForLiveWindowAsync().ConfigureAwait(true);
     await using BrokerComputerAccess access = NewAccess();
     _ = await _fixture.ObserveAsync(access, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    ComputerOutcome key = await access.ExecuteAsync(
-        new ComputerCommand.Key("x", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid)),
-        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    bool foregroundTaken = false;
+    for (int attempt = 0; attempt < 20 && !foregroundTaken; attempt++)
+    {
+      foregroundTaken = _fixture.TryTakeForeground();
+      if (!foregroundTaken)
+      {
+        await Task.Delay(100, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      }
+    }
+
+    ComputerCommand.Key command = new(
+        "x", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid), Strategy: "event");
+    if (!foregroundTaken)
+    {
+      // The safe path: with no verified foreground, the event-strategy chord must be
+      // refused by the broker's gate - nothing reaches the desktop.
+      ComputerOutcome refused = await access.ExecuteAsync(command, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      ComputerOutcome.Failure refusal = Assert.IsType<ComputerOutcome.Failure>(refused);
+      Assert.Equal(ComputerErrorCodes.ForegroundRequired, refusal.Code);
+      return;
+    }
+
+    ComputerOutcome key = await access.ExecuteAsync(command, TestContext.Current.CancellationToken).ConfigureAwait(true);
     _ = Assert.IsType<ComputerOutcome.Receipt>(key);
     Win32TestWindow.Pump(500);
     Assert.Contains("x", _fixture.Window.RecordedChars, StringComparison.Ordinal);
