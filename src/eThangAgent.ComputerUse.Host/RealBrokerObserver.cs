@@ -11,7 +11,7 @@ namespace eThangAgent.ComputerUse.Host;
 ///     walk order and cached for the element-op dispatcher), window listing, application
 ///     identity, and the PrintWindow raster with blank detection. Owner loss resets the
 ///     element cache (A3: a new controller starts from a fresh observation).</summary>
-public sealed partial class RealBrokerObserver : IBrokerObserver
+public partial class RealBrokerObserver : IBrokerObserver
 {
   private readonly Lock _gate = new();
   private readonly SurfaceTracker _surfaces = new();
@@ -86,10 +86,7 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
       }
     }
 
-    List<Candidate> candidates = [.. EnumerateTopLevelWindows().Select(
-        w => new Candidate(w.Handle, w.Pid, w.Title, ResolveAumid(w.Pid)))];
-    bool resolved = AppRefResolver.TryResolve(
-        candidates, pid, reqName, reqAumid, reqWindowId,
+    bool resolved = TryResolveAppRef(pid, reqName, reqAumid, reqWindowId,
         out AppRefResolution resolution2, out AppRefResolutionFailure? resolutionFailure);
     if (!resolved)
     {
@@ -117,7 +114,17 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
           SurfaceClassifier.KindFor(WindowClassName(target), title));
     }
 
-    WalkResult walk = WalkElements(target);
+    WalkResult? walk = WalkElements(target);
+    if (walk is null)
+    {
+      // F2 (fix round 5): a walk that hit its deadline fabricates nothing - the typed
+      // retryable timeout answers, never a valid-looking empty full snapshot.
+      return JsonSerializer.SerializeToElement(new
+      {
+        error = new { code = "timeout", message = "the accessibility walk exceeded its deadline; nothing was observed - retry." },
+      });
+    }
+
     lock (_gate)
     {
       _elementCache.Clear();
@@ -147,11 +154,23 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
     }
   }
 
+  /// <summary>The app-ref resolution seam (fix round 5): production resolves over the
+  ///     real window list; tests override to pin the resolution outcome so the walk's
+  ///     deadline behavior is reachable without a live desktop.</summary>
+  internal virtual bool TryResolveAppRef(int pid, string? name, string? aumid, int? windowId,
+      out AppRefResolution resolution, out AppRefResolutionFailure? failure)
+  {
+    List<Candidate> candidates = [.. EnumerateTopLevelWindows().Select(
+        w => new Candidate(w.Handle, w.Pid, w.Title, ResolveAumid(w.Pid)))];
+    return AppRefResolver.TryResolve(
+        candidates, pid, name, aumid, windowId, out resolution, out failure);
+  }
+
   // ---- walk ----
 
-  private sealed record WalkResult(List<object> Rows, List<AutomationElement> Cache);
+  internal sealed record WalkResult(List<object> Rows, List<AutomationElement> Cache);
 
-  private static WalkResult WalkElements(nint window)
+  internal virtual WalkResult? WalkElements(nint window)
   {
     AutomationElement root = AutomationElement.FromHandle(window);
     List<object>? rows = null;
@@ -163,8 +182,16 @@ public sealed partial class RealBrokerObserver : IBrokerObserver
       cache = result.Cache;
       return [];
     });
-    _ = walker.WalkWithDeadline();
-    return new WalkResult(rows ?? [], cache ?? []);
+    string[]? outcome = WalkOnce(window, walker);
+    return outcome is null ? null : new WalkResult(rows ?? [], cache ?? []);
+  }
+
+  /// <summary>The walk seam (fix round 5): production joins the walker's deadline;
+  ///     tests override to hand back a fixed outcome (null = the deadline won).</summary>
+  internal virtual string[]? WalkOnce(nint window, UiaTreeWalker walker)
+  {
+    _ = window;
+    return walker.WalkWithDeadline();
   }
 
   private static WalkResult WalkTree(AutomationElement root)

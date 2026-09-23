@@ -166,7 +166,7 @@ public sealed class PipeServer
       "stop_computer_control" => HandleStopComputerControl(connectionId),
       "list_applications" => BrokerResponse.Ok(Observer.ListApplications() ?? JsonSerializer.SerializeToElement(Array.Empty<object>())),
       "list_windows" => BrokerResponse.Ok(Observer.ListWindows(parameters)),
-      "capture_app" => Observer.CaptureApp(parameters) is { } capture ? BrokerResponse.Ok(capture) : BrokerResponse.Fail("unimplemented", "capture_app arrives with the task 17 native surface."),
+      "capture_app" => CaptureApp(parameters),
       _ when InputMethods.Contains(method) => HandleInputMethod(id, method, parameters, connectionId),
       _ => BrokerResponse.Fail("method_not_found", $"unknown method: {method}."),
     };
@@ -304,12 +304,49 @@ public sealed class PipeServer
   private BrokerResponse HandleStopComputerControl(int connectionId)
   {
     int? owner = Lease.Owner;
-    return owner == connectionId
-      ? HandleControllerStop(connectionId)
-      : BrokerResponse.Fail(
+    if (owner != connectionId)
+    {
+      return BrokerResponse.Fail(
         "invalid_request",
         $"stop_computer_control ignored: this connection does not hold the controller lease (owner=" + (owner?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none") + "); nothing was dispatched.",
         "action_sent=false");
+    }
+
+    // F5b (fix round 5): the owner's stop answers a REAL receipt so the ACL's
+    // StopAsync recognizes it and clears the lease flag - {owned:false} parsed as a
+    // success result but never a receipt, leaving the flag stuck on.
+    _ = Lease.Release(connectionId);
+    return BrokerResponse.Ok(JsonSerializer.SerializeToElement(new
+    {
+      action_sent = true,
+      dispatch_status = BrokerReceipt.Accepted,
+    }));
+  }
+
+  /// <summary>capture_app routing (fix round 5, F5a): an error-shaped observer result
+  ///     travels as a PROPER error envelope (app_not_found / ambiguous_app / timeout)
+  ///     so the client's BrokerErrorMapper translates it - never error-inside-a-200,
+  ///     which the ACL would misreport as STALE_STATE.</summary>
+  private BrokerResponse CaptureApp(JsonElement? parameters)
+  {
+    if (Observer.CaptureApp(parameters) is not { } capture)
+    {
+      return BrokerResponse.Fail("unimplemented", "capture_app arrives with the task 17 native surface.");
+    }
+
+    JsonElement captureValue = capture;
+    if (captureValue.ValueKind == JsonValueKind.Object
+      && captureValue.TryGetProperty("error", out JsonElement errorEl) && errorEl.ValueKind == JsonValueKind.Object
+      && errorEl.TryGetProperty("code", out JsonElement codeEl) && codeEl.ValueKind == JsonValueKind.String)
+    {
+      string code = codeEl.GetString()!;
+      string message = errorEl.TryGetProperty("message", out JsonElement messageEl) && messageEl.ValueKind == JsonValueKind.String
+        ? messageEl.GetString() ?? string.Empty
+        : string.Empty;
+      return BrokerResponse.Fail(code, message);
+    }
+
+    return BrokerResponse.Ok(capture);
   }
 
   /// <summary>The input-method envelope (task 16 skeleton): the lease gate, then the

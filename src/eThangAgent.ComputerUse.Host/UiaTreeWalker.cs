@@ -34,11 +34,15 @@ public sealed record UiaElementRow(
 ///     STA thread (COM UIA requires it), joined with the 45-second deadline cap; a
 ///     timed-out worker is abandoned (its thread dies with the process; COM teardown on
 ///     an abandoned STA is unsafe by design, so we orphan it deliberately). The walk
-///     itself goes through CUIAutomation (IUIAutomation, TreeWalker/FindAllBuildCache).
-///     COVERAGE (fix round I3): the real walk and the element-record population are NOT
-///     unit-testable without a live desktop - they are deferred to Task 18 integration.
-///     Only the deadline join/abandon mechanics are unit-tested (injectable worker).
-/// </summary>
+///     itself goes through the MANAGED System.Windows.Automation surface
+///     (AutomationElement.FindAll over TreeScope.Children, in RealBrokerObserver's
+///     WalkTree) - not CUIAutomation/FindAllBuildCache, which an earlier revision
+///     claimed here. RealBrokerObserver assigns dense walk-order indices with a 400-
+///     element cap; the ACL's TreeTextRenderer additionally tolerates sparse tables and
+///     trims for display, so the two sides only agree on the index semantics, not a
+///     density requirement. COVERAGE: the deadline join/abandon mechanics are
+///     unit-tested over the injectable worker; the live walk stays an integration
+///     concern.</summary>
 public sealed partial class UiaTreeWalker(Func<string[]?>? walkCore = null)
 {
   /// <summary>The hard deadline for one walk request.</summary>
@@ -84,5 +88,5 @@ public sealed partial class UiaTreeWalker(Func<string[]?>? walkCore = null)
     }
   }
 
-  private static string[]? RealWalkCore() => null; // task 18: the real CUIAutomation walk lands here
+  private static string[]? RealWalkCore() => null; // the injected walk seam; production resolves RealBrokerObserver's managed-UIA walk
 };
