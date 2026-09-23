@@ -467,6 +467,14 @@ public static class AgentComposition
             sp.GetRequiredService<RootAgentResolver>()))
         .AddSingleton<IConversationContextService>(sp => new ConversationContextServiceAdapter(sp.GetRequiredService<Conversation>()))
         .AddSingleton<RootSessionLifecycle>()
+        // Skill-directory config rides EVERY container (skill-routing Phase 1): the
+        // factory fills the carrier at open/resume, and the RemoteHost block below
+        // overlays the values onto the settings JSON - so BOTH containers (the app's
+        // and the remote ChildHost's) resolve the same config shape from
+        // AgentSettings. Unconditional registration: not remote resolves nulls, the
+        // empty directory list, and nothing else changes.
+        .AddSingleton<SkillDirectoriesCarrier>()
+        .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)))
         ;
 
     // Runtime selection (R3.4): in-process by default; RemoteHost = true routes child
@@ -480,7 +488,10 @@ public static class AgentComposition
               Path.Combine(Path.GetTempPath(), "ethang-agent", RemoteHostSupervisor.ScratchFolderFor(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)),
               settings.WithSessionFiles(
                   sp.GetRequiredService<SessionFilesCarrier>().Global,
-                  sp.GetRequiredService<SessionFilesCarrier>().Workspace),
+                  sp.GetRequiredService<SessionFilesCarrier>().Workspace)
+               .WithSkillDirectories(
+                  sp.GetRequiredService<SkillDirectoriesCarrier>().Global,
+                  sp.GetRequiredService<SkillDirectoriesCarrier>().Workspace),
               sp.GetRequiredService<AppDatabase>().DatabasePath,
               // Host-health notices surface on the session transcript when the host UI
               // has attached its notice sink; headless hosts drop them.
@@ -493,6 +504,21 @@ public static class AgentComposition
     }
 
     return wired;
+  }
+
+  /// <summary>Resolves skill directories from the settings-carried stored lists - the
+  ///     config shape a host built from serialized AgentSettings (the remote
+  ///     ChildHost) resolves through. App-side containers REPLACE this registration
+  ///     in AgentSessionFactory.BuildContainer, where the raw preference values were
+  ///     just read from the store. The duplicate-path rule matches the factory's
+  ///     resolution: parse validates shape only; a workspace path equal
+  ///     (case-insensitive, full-path normalized) to an already-included global path
+  ///     is skipped with no error - the global entry wins.</summary>
+  private static List<SkillDirectory> ResolveSkillDirectoriesFromSettings(AgentSettings settings)
+  {
+    return AgentSessionFactory.ResolveSkillDirectories(
+        settings.SkillDirectoriesGlobal, settings.SkillDirectoriesWorkspace,
+        settings.WorkspaceRoot ?? string.Empty);
   }
 
   /// <summary>Wires the EXCLUSIVELY selected provider's chat transport: configuration,
