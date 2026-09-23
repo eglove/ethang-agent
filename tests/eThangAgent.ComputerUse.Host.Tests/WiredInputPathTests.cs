@@ -10,16 +10,15 @@ public class WiredInputPathTests
   [Fact]
   public void PressKey_OnWiredPath_PerformsRealDispatch()
   {
-    PipeServer server = FakeConnectionFactory.Authorized(1);
+    // Hazard-rule fix: wire tests use recording doubles - the ROUTE is real
+    // (HandleInputMethod -> Dispatch -> send hook), never a real chord.
+    PipeServer server = FakeConnectionFactory.WithAlwaysSucceedingInput();
+    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "press_key", JsonDocument.Parse("""{"key":"a"}""").RootElement, connectionId: 1);
-    // Live-desktop honesty: the REAL SendInput either lands (accepted) or is refused by the
-    // injection gate (internal, action_sent=false). Both are honest; fake success is not.
-    Assert.True(
-      reply.Error is null || (reply.Error.Value.Code == "internal" && reply.Error.Value.Details == "action_sent=false"),
-      "expected accepted or an honest internal failure, got: " + (reply.Error?.Code ?? "ok"));
-    // Real dispatch: the native SendInput path must have been exercised.
-    Assert.True(server.InputDispatch.SendInputCalls > 0, "dispatch must call SendInput before reporting accepted");
+    Assert.Null(reply.Error); // the recording double succeeds: the receipt is accepted
+    Assert.True(server.InputDispatch.SendInputCalls > 0, "dispatch must reach the send hook before reporting accepted");
+    Assert.True(server.InputDispatch.IsDoubleBacked, "the wire test must run on the double-backed dispatcher, never the real SendInput path");
   }
 
   [Fact]

@@ -287,8 +287,7 @@ internal static class FakeConnectionFactory
   {
     static bool Yes(KeyChord _) => true;
     static bool YesText(string _) => true;
-    static bool YesButton(string _) => true;
-    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => -1, sendChord: Yes, sendText: YesText, sendButton: YesButton);
+    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => -1, sendChord: Yes, sendText: YesText);
   }
 
   public static PipeServer WithForeground(int expected, int actual)
@@ -301,9 +300,8 @@ internal static class FakeConnectionFactory
   {
     static bool Yes(KeyChord _) => true;
     static bool YesText(string _) => true;
-    static bool YesButton(string _) => true;
     static bool YesDrag(string button, int fx, int fy, int tx, int ty) => true;
-    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => foreground, sendChord: Yes, sendText: YesText, sendButton: YesButton, sendDrag: YesDrag);
+    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => foreground, sendChord: Yes, sendText: YesText, sendDrag: YesDrag);
   }
   public static PipeServer WithRecordingClick(int foreground)
   {

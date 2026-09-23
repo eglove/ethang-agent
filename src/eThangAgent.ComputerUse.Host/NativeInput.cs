@@ -92,14 +92,6 @@ internal static partial class NativeInput
     return Inject([.. rows]);
   }
 
-  /// <summary>click: pointer button down+up for left|right|middle.</summary>
-  public static bool SendMouseButton(string button) => button.ToUpperInvariant() switch
-  {
-    "RIGHT" => Inject([Mouse(0x0008), Mouse(0x0010)]),
-    "MIDDLE" => Inject([Mouse(0x0020), Mouse(0x0040)]),
-    _ => Inject([Mouse(0x0002), Mouse(0x0004)]),
-  };
-
   /// <summary>Fix round 5 (F1): a targeted click - the built move+button rows over the
   ///     REAL virtual-desktop extents, injected as one SendInput batch. The cursor is
   ///     positioned FIRST (a button row acts at the current cursor position). Degenerate

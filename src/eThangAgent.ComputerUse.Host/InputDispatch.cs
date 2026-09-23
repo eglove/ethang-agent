@@ -17,7 +17,7 @@ namespace eThangAgent.ComputerUse.Host;
 ///     screen point) and an element target routes through the
 ///     <see cref="IElementActionSink"/> (UIA invoke/scroll/focus); paste gates on the
 ///     foreground window like click; type_text with an element target focuses it first.</summary>
-public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord, bool> sendChord, Func<string, bool> sendText, Func<string, bool> sendButton, Func<string, int, int, int, int, bool>? sendDrag = null, Func<string, int, int, bool>? sendMouseButtonAt = null, Func<string, int, int, int, bool>? sendWheelAt = null)
+public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord, bool> sendChord, Func<string, bool> sendText, Func<string, int, int, int, int, bool>? sendDrag = null, Func<string, int, int, bool>? sendMouseButtonAt = null, Func<string, int, int, int, bool>? sendWheelAt = null, bool doubleBacked = false)
 {
   private readonly List<HoldRecord> _activeHolds = [];
   private readonly Lock _holdGate = new();
@@ -29,7 +29,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   private readonly Func<int> _foregroundPid = foregroundPid;
   private readonly Func<KeyChord, bool> _sendChord = sendChord;
   private readonly Func<string, bool> _sendText = sendText;
-  private readonly Func<string, int, int, bool> _sendMouseButtonAt = sendMouseButtonAt ?? FallbackButtonAt;
+  private readonly Func<string, int, int, bool> _sendMouseButtonAt = sendMouseButtonAt ?? NoButtonAt;
   private readonly Func<string, int, int, int, bool> _sendWheelAt = sendWheelAt ?? NativeInput.SendWheelAt;
   private readonly Func<string, int, int, int, int, bool> _sendDrag = sendDrag ?? NativeInput.SendDrag;
   private int _dragCalls;
@@ -37,6 +37,12 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   private (int X, int Y) _lastDragTo;
   private int _clickCalls;
   private int _scrollCalls;
+
+  /// <summary>True when this instance was resolved from injected send hooks (the
+  ///     double-backed wire-test surface); false means the REAL production dispatcher
+  ///     (Create). Final-review NEW-1: the resolution must be observable so a test
+  ///     factory can prove it never silently got the real SendInput path.</summary>
+  public bool IsDoubleBacked { get; } = doubleBacked;
 
   /// <summary>How many targeted clicks reached the click sink (fix round 5 wire pins;
   ///     a refused or unresolvable click must have issued zero).</summary>
@@ -57,22 +63,24 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   /// <summary>The last wheel scroll's direction and page count.</summary>
   public (string Direction, int Pages) LastScrollRequest { get; private set; }
 
-  /// <summary>Legacy fallback when no positioned-button hook is wired: an UNTARGETED
-  ///     button send (the pre-fix behavior) is only used by legacy test factories.</summary>
-  private static bool FallbackButtonAt(string button, int x, int y)
+  /// <summary>Final-review NEW-2: there is NO untargeted real button path. A targeted
+  ///     click with no positioned-button sink wired answers false - the dispatcher's
+  ///     send-failure honesty (internal, action_sent=false) - never a real injection at
+  ///     the current cursor.</summary>
+  private static bool NoButtonAt(string button, int x, int y)
   {
-    _ = (x, y);
-    return NativeInput.SendMouseButton(button);
+    _ = (button, x, y);
+    return false;
   }
 
   /// <summary>Production instance: real foreground read + real NativeInput dispatch.</summary>
   public static InputDispatch Create(Func<int>? foregroundPid = null) =>
-    new(foregroundPid ?? ReadForegroundPid, NativeInput.SendChord, NativeInput.SendText, NativeInput.SendMouseButton,
+    new(foregroundPid ?? ReadForegroundPid, NativeInput.SendChord, NativeInput.SendText,
       sendDrag: NativeInput.SendDrag, sendMouseButtonAt: NativeInput.SendMouseButtonAt, sendWheelAt: NativeInput.SendWheelAt);
 
   /// <summary>Production: real foreground read + real NativeInput dispatch.</summary>
   public InputDispatch(Func<int>? foregroundPid = null)
-    : this(foregroundPid ?? ReadForegroundPid, NativeInput.SendChord, NativeInput.SendText, NativeInput.SendMouseButton,
+    : this(foregroundPid ?? ReadForegroundPid, NativeInput.SendChord, NativeInput.SendText,
       sendDrag: NativeInput.SendDrag, sendMouseButtonAt: NativeInput.SendMouseButtonAt, sendWheelAt: NativeInput.SendWheelAt)
   {
   }
@@ -264,7 +272,6 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
     }
 
     string button = Str(parameters, "mouse_button") ?? "left";
-    _ = sendButton; // legacy seam kept wired for untargeted factories; the targeted path never uses it
 
     // Element target: route through the element path (F1a) - UIA invoke, never a
     // coordinate click. A missing sink is the unresolvable-target refusal.
