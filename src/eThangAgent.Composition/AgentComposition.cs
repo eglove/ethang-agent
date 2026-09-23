@@ -204,7 +204,19 @@ public static class AgentComposition
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
             sp.GetRequiredService<AppDatabase>()))
-        .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
+        // Composite skill catalog (skill-routing Phase 1, Task 7): built-ins plus
+        // file skills loaded through the directory-source ACL from the resolved
+        // skill-directory configuration. When nothing is configured the composite
+        // is behavior-identical to the bare embedded catalog it replaced. The
+        // concrete registration stays so anything resolving the embedded catalog
+        // directly keeps doing so; the skill tools and the bootstrap prompt
+        // provider resolve ISkillCatalog and see the merged view.
+        .AddSingleton<EmbeddedSkillCatalog>()
+        .AddSingleton<ISkillDirectorySource, DirectorySkillSource>()
+        .AddSingleton<ISkillCatalog>(sp => new CompositeSkillCatalog(
+            sp.GetRequiredService<EmbeddedSkillCatalog>(),
+            sp.GetRequiredService<ISkillDirectorySource>(),
+            sp.GetRequiredService<ResolvedSkillDirectories>().List))
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
         .AddSingleton<SqliteCuratedMemoryStore>()
