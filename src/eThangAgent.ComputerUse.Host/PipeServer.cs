@@ -375,6 +375,21 @@ public sealed class PipeServer
 
     if (method == "paste")
     {
+      // F6 (fix round 5): paste gates like click - the foreground window must match
+      // the target app (or the paste must be element-targeted on the foreground
+      // element's window) BEFORE the clipboard is touched. A refused paste writes
+      // NOTHING to the clipboard.
+      int targetPid = InputRouter.TargetPid(parameters);
+      bool elementTargeted = InputRouter.ElementIndex(parameters) >= 0;
+#pragma warning disable IDE0046 // Named decision: the gate refusal names the foreground pid; the ternary form hides it.
+      if (!elementTargeted && !InputDispatch.GateAllowsForPaste(targetPid))
+      {
+        return BrokerResponse.Fail("foreground_required",
+          $"paste requires the target app (pid {targetPid}) to be foreground (foreground pid: {InputDispatch.CurrentForegroundPid}); the clipboard was not touched.",
+          "action_sent=false");
+      }
+#pragma warning restore IDE0046
+
       return InputRouter.Paste(operation, parameters);
     }
 

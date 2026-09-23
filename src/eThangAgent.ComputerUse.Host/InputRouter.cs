@@ -10,6 +10,22 @@ namespace eThangAgent.ComputerUse.Host;
 ///     No local serializer: the broker's serializer owns the operation.</summary>
 internal static class InputRouter
 {
+  /// <summary>The app_ref pid a paste targets (-1 when none). The paste gate reads
+  ///     it BEFORE the clipboard is touched (fix round 5, F6).</summary>
+  public static int TargetPid(JsonElement? parameters) =>
+    parameters is { } p && p.TryGetProperty("app_ref", out JsonElement appRef) && appRef.ValueKind == JsonValueKind.Object
+      && appRef.TryGetProperty("pid", out JsonElement pidEl) && pidEl.ValueKind == JsonValueKind.Number
+      && pidEl.TryGetInt32(out int pid)
+        ? pid
+        : -1;
+
+  /// <summary>The element index a paste targets (-1 when the target is not an
+  ///     element). An element-targeted paste is exempt from the pid foreground gate
+  ///     (fix round 5, F6).</summary>
+  public static int ElementIndex(JsonElement? parameters) =>
+    parameters is { } p && p.TryGetProperty("element", out JsonElement el)
+      && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int index) ? index : -1;
+
   /// <summary>perform_action requires params.action_name (string).</summary>
   public static bool RequiresActionName(JsonElement? parameters) =>
     parameters is not { } p

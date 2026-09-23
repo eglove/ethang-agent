@@ -138,6 +138,16 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   public bool GateAllows(string? strategy, int targetPid) =>
     strategy != "event" || _foregroundPid() == targetPid;
 
+  /// <summary>The paste gate (fix round 5, F6): the foreground window must ALREADY be
+  ///     the target app's (the paste cannot position a cursor, so it needs the app
+  ///     focused right now). Element-targeted pastes skip this gate - the element op
+  ///     focuses its own window. strategy=null means always consult the read.</summary>
+  public bool GateAllowsForPaste(int targetPid) => _foregroundPid() == targetPid;
+
+  /// <summary>The current foreground pid (the injectable read, production wires the
+  ///     real window read) - surfaced for refusal messages.</summary>
+  public int CurrentForegroundPid => _foregroundPid();
+
   /// <summary>press_key: chord down+up; M6 honesty on send failure.</summary>
   public BrokerResponse PressKey(string keyText)
   {

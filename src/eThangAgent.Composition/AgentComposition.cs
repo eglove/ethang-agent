@@ -46,7 +46,8 @@ public static class AgentComposition
       AgentSettings settings, string providerName, ModelConfig defaultModel, AgentHostOptions host,
       AppDatabase? database = null, IEnumerable<Message>? conversationSeed = null,
       ProcessMailboxLocator? mailboxLocator = null,
-      string? resolvedFallbackModelId = null)
+      string? resolvedFallbackModelId = null,
+      IComputerAccessProvider? computerAccessProvider = null)
   {
     ArgumentNullException.ThrowIfNull(settings);
     ArgumentNullException.ThrowIfNull(defaultModel);
@@ -418,10 +419,14 @@ public static class AgentComposition
         // while intelligent selection is active. The holder reuses the shared
         // Conversation/provider/tools/system-prompt so a rebuild preserves all message history.
         .AddSingleton<SessionImageInputCapability>()
-        .AddSingleton(sp => new BrokerRegistry(
-            () => Path.Combine(AppContext.BaseDirectory, "eThangAgent.ComputerUse.Host.exe"),
-            BrokerRegistry.DefaultPipeNameFor))
-        .AddSingleton<IComputerAccessProvider, BrokerComputerAccessProvider>()
+        // F4 (fix round 5): the registry + provider are PROCESS-level. A host either
+        // supplies one (the session factory mints it once) or the first container
+        // builds it - but never one per session container, or each session would own
+        // its own ObservationLedger/FrameRegistry/lease over one broker connection.
+        .AddSingleton(sp => computerAccessProvider ?? new BrokerComputerAccessProvider(
+            new BrokerRegistry(
+                () => Path.Combine(AppContext.BaseDirectory, "eThangAgent.ComputerUse.Host.exe"),
+                BrokerRegistry.DefaultPipeNameFor)))
         .AddSingleton<SessionModelPreferences>()
         .AddSingleton<RootSessionIdentity>()
         .AddSingleton(sp => new RootAgentHolder(

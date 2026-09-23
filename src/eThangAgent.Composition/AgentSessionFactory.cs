@@ -1,6 +1,7 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
+using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Local.ACL;
 using eThangAgent.ModelDomain;
@@ -36,6 +37,18 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   // contributes its live mailboxes here, so a link to another session's child resolves
   // instead of failing NotRunning. Lazily minted for single-session hosts.
   private readonly ProcessMailboxLocator _mailboxLocator = mailboxLocator ?? new();
+
+  /// <summary>F4 (fix round 5): ONE process-wide computer-use provider for every
+  ///     container this factory builds - two sessions over one workspace share the
+  ///     broker, the ObservationLedger/FrameRegistry, and the per-root access cache.
+  ///     Minted on first use: one registry + provider per FACTORY (the desktop process
+  ///     holds one factory).</summary>
+  private BrokerComputerAccessProvider? ComputerAccessProvider { get; set; }
+
+  private BrokerComputerAccessProvider ResolveComputerAccessProvider() =>
+      ComputerAccessProvider ??= new BrokerComputerAccessProvider(new BrokerRegistry(
+          () => Path.Combine(AppContext.BaseDirectory, "eThangAgent.ComputerUse.Host.exe"),
+          BrokerRegistry.DefaultPipeNameFor));
 
   /// <summary>Returns a factory over the same database serving the updated settings.
   ///     Hosts call this when credentials change (the Desktop's Settings modal);
@@ -365,7 +378,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
             _database,
             conversationSeed,
             _mailboxLocator,
-            resolvedFallbackModelId)
+            resolvedFallbackModelId,
+            ResolveComputerAccessProvider())
         .BuildServiceProvider();
     return RegisterContainerMailboxSource(services);
   }
