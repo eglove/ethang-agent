@@ -65,6 +65,8 @@ public partial class RealBrokerObserver : IBrokerObserver
     int pid = RequestPid(parameters);
     bool includeScreenshot = parameters is { } p && p.TryGetProperty("include_screenshot", out JsonElement shotEl)
         && shotEl.ValueKind == JsonValueKind.True;
+    bool forceFull = parameters is { } pf && pf.TryGetProperty("snapshot_mode", out JsonElement modeEl)
+        && modeEl.ValueKind == JsonValueKind.String && modeEl.GetString() == "force_full";
     string? reqName = null;
     string? reqAumid = null;
     int? reqWindowId = null;
@@ -134,13 +136,24 @@ public partial class RealBrokerObserver : IBrokerObserver
     string stateId = NewStateId();
     JsonElement? screenshot = includeScreenshot ? CaptureRaster(target, rect) : null;
 
+    // F9: serialize this walk's table, then diff against the last ACCEPTED one.
+    List<string> fingerprints = [.. walk.Rows.Select(row =>
+    {
+      using JsonDocument doc = JsonDocument.Parse(JsonSerializer.Serialize(row));
+      return Fingerprint(doc.RootElement);
+    })];
+
+    (string snapshotMode, string? baseStateId, List<object> rowsToSend) =
+      DecideSnapshot(target, stateId, forceFull, walk, fingerprints);
+
     var envelope = new
     {
       state_id = stateId,
-      snapshot_mode = "full",
+      snapshot_mode = snapshotMode,
+      base_state_id = baseStateId,
       app = AppObject(resolvedPid),
       window = WindowObject(target, title, rect, lifecycle),
-      elements = walk.Rows,
+      elements = rowsToSend,
       screenshot,
     };
     return JsonSerializer.SerializeToElement(envelope);
@@ -152,6 +165,81 @@ public partial class RealBrokerObserver : IBrokerObserver
     {
       _elementCache.Clear();
     }
+  }
+
+  // F9 (fix round 5): the per-window last-accepted walk table. Key = window handle;
+  // value = (state id, element fingerprints in walk order). The HOST owns diffing:
+  // first walk or disable_diffing => full; identical table => no_change; changed
+  // subset => delta; structural change => full.
+  private readonly Dictionary<nint, (string StateId, List<string> Fingerprints)> _lastAcceptedTables = [];
+
+  /// <summary>The element fingerprint compared across walks: identity (index+role+title)
+  ///     plus the value cell - the table the brief's diff contract compares.</summary>
+  private static string Fingerprint(JsonElement elementRow)
+  {
+    string title = elementRow.TryGetProperty("title", out JsonElement t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? string.Empty : string.Empty;
+    string value = elementRow.TryGetProperty("value", out JsonElement v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? string.Empty : string.Empty;
+    string role = elementRow.TryGetProperty("role", out JsonElement r) && r.ValueKind == JsonValueKind.String ? r.GetString() ?? string.Empty : string.Empty;
+    string index = elementRow.TryGetProperty("index", out JsonElement i) && i.ValueKind == JsonValueKind.Number ? i.GetRawText() : string.Empty;
+    return index + "|" + role + "|" + title + "|" + value;
+  }
+
+  /// <summary>The F9 snapshot decision over the per-window last-accepted table:
+  ///     first walk or disable_diffing => full (baseline advances); identical table =>
+  ///     no_change (baseline STAYS, no rows sent); same structure with changed values
+  ///     => delta naming the changed rows (baseline advances); structural change =>
+  ///     full (baseline advances). Serialized rows parse into fingerprints once here.</summary>
+  private (string SnapshotMode, string? BaseStateId, List<object> RowsToSend) DecideSnapshot(
+      nint window, string stateId, bool forceFull, WalkResult walk, List<string> fingerprints)
+  {
+    lock (_gate)
+    {
+      bool havePrevious = _lastAcceptedTables.TryGetValue(window, out (string StateId, List<string> Fingerprints) previous);
+      if (!havePrevious || forceFull)
+      {
+        // First walk or client disable_diffing: a full snapshot IS the new baseline.
+        _lastAcceptedTables[window] = (stateId, fingerprints);
+        return ("full", null, walk.Rows);
+      }
+
+      if (previous.Fingerprints.Count == fingerprints.Count
+        && previous.Fingerprints.Zip(fingerprints, static (a, b) => a == b).All(static equal => equal))
+      {
+        // Identical table: no_change - the renderer's single-sentence page. No table
+        // is sent; the baseline stays because the elements are the same.
+        return ("no_change", previous.StateId, []);
+      }
+
+      bool sameStructure = previous.Fingerprints.Select(StructureKey)
+          .SequenceEqual(fingerprints.Select(StructureKey));
+      if (sameStructure)
+      {
+        // Changed subset: delta naming ONLY the changed rows (indices unchanged).
+        List<object> changed = [];
+        for (int i = 0; i < walk.Rows.Count; i++)
+        {
+          if (previous.Fingerprints[i] != fingerprints[i])
+          {
+            changed.Add(walk.Rows[i]);
+          }
+        }
+
+        _lastAcceptedTables[window] = (stateId, fingerprints);
+        return ("delta", previous.StateId, changed);
+      }
+
+      // Structural change: a full snapshot IS the new baseline.
+      _lastAcceptedTables[window] = (stateId, fingerprints);
+      return ("full", null, walk.Rows);
+    }
+  }
+
+  /// <summary>The structure part of a fingerprint (index|role|title): identical
+  ///     structure keys across walks mean indices stayed valid for a delta.</summary>
+  private static string StructureKey(string fingerprint)
+  {
+    string[] parts = fingerprint.Split('|');
+    return string.Join("|", parts.Take(3));
   }
 
   /// <summary>The app-ref resolution seam (fix round 5): production resolves over the
