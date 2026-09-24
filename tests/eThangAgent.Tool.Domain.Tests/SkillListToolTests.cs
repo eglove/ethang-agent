@@ -189,6 +189,68 @@ public class SkillListToolTests
     Assert.Equal("[skills: 1 available]\n" + $"{"alpha",-20} builtin v1  first",
         result.Content);
   }
+  // ---- Learned-catalog dedup (spec #19 decision 2: presentation-layer merge) ----
+
+  [Fact]
+  public async Task LearnedSkill_WhoseNameExistsInCatalog_IsSkippedWithCollisionLine()
+  {
+    // The edge from the rework ledger's final review: a learned skill created
+    // BEFORE a colliding catalog skill arrived rendered twice. The learned row
+    // is skipped at this presentation merge, announced with a collision line.
+    ToolResult result = await MakeTool(
+            builtIns: [Def("dup", "the built-in"), Def("alpha", "other")],
+            learned:
+            [
+                Def("dup", "the learned", version: 2, source: SkillSource.Learned),
+                    Def("unique", "only learned", source: SkillSource.Learned),
+            ])
+            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal(
+        "[skills: 3 available]\n" +
+        $"{"alpha",-20} builtin v1  other\n" +
+        $"{"dup",-20} builtin v1  the built-in\n" +
+        $"{"unique",-20} learned v1  only learned\n" +
+        "[collision] dup (learned) shadowed by builtin",
+        result.Content);
+  }
+
+  [Fact]
+  public async Task LearnedSkill_DedupAgainstFileSkill_UsesFileWinnerLabel()
+  {
+    ToolResult result = await MakeTool(
+            builtIns: [Def("dup", "the file skill", source: SkillSource.File, origin: "C:\\skills")],
+            learned: [Def("dup", "the learned", source: SkillSource.Learned)])
+            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal(
+        "[skills: 1 available]\n" +
+        $"{"dup",-20} file v1  the file skill\n" +
+        "[collision] dup (learned) shadowed by file",
+        result.Content);
+  }
+
+  [Fact]
+  public async Task LearnedSkill_CatalogFailure_NoDedup_NoCollisionLine()
+  {
+    // Dedup needs the catalog's names; with the catalog down the learned rows
+    // all render (the pre-existing degradation contract) and nothing is announced.
+    ToolResult result = await MakeTool(
+            builtIns: [Def("dup", "the built-in")],
+            learned: [Def("dup", "the learned", source: SkillSource.Learned)],
+            failCatalogList: true)
+            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal(
+        "[skills: 1 available]\n" +
+        $"{"dup",-20} learned v1  the learned\n" +
+        "[warning] built-in skills unavailable: catalog down",
+        result.Content);
+  }
+
   // ---- Degradation on source failure ----
 
   [Fact]

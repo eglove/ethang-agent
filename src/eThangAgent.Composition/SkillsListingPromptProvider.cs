@@ -54,7 +54,13 @@ public static class SkillListingBudget
 ///     and 0 entries'). N/M/d/e count what was shown of the total non-manual skills
 ///     and how many descriptions/entries were dropped. A
 ///     catalog or learned load failure renders '[warning] &lt;source&gt; skills
-///     unavailable: &lt;message&gt;' and the block still succeeds; a wholly empty
+///     unavailable: &lt;message&gt;' and the block still succeeds. A learned skill
+///     whose name already exists in the catalog is SKIPPED (presentation-layer
+///     merge, spec #19 decision 2) and announced with a
+///     '[collision] &lt;name&gt; (learned) shadowed by &lt;built-in|global directory|workspace directory&gt;'
+///     line rendered among the diagnostics - the winner label follows the same
+///     Origin classification as the groups; when the catalog load fails, dedup
+///     is skipped and the Learned group renders whole. A wholly empty
 ///     result (no skills, no warnings, no collisions) renders the empty string.
 ///     The built text is memoized per provider instance: the first Build call
 ///     constructs it, subsequent calls return the cached string.</summary>
@@ -126,6 +132,25 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
     // MANUAL skills never appear anywhere in the block.
     catalogSkills = [.. catalogSkills.Where(s => !s.Manual)];
     learnedSkills = [.. learnedSkills.Where(s => !s.Manual)];
+
+    // Presentation-layer dedup (spec #19 decision 2): a learned skill whose
+    // name already exists in the catalog is skipped here and announced - the
+    // composite catalog never sees learned rows, so this presentation merge is
+    // the only site where the two sources can collide. When the catalog load
+    // failed there is nothing to dedup against: the learned group renders
+    // whole (the degradation contract).
+    List<string> learnedDedupCollisions = [];
+    if (fromCatalog.IsSuccess)
+    {
+      Dictionary<string, string> winnerLabelByName = catalogSkills
+          .GroupBy(s => s.Name, StringComparer.Ordinal)
+          .ToDictionary(g => g.Key, g => DescribeWinner(g.First()), StringComparer.Ordinal);
+      HashSet<string> shadowed = [.. winnerLabelByName.Keys];
+      learnedDedupCollisions.AddRange(learnedSkills
+          .Where(s => shadowed.Contains(s.Name))
+          .Select(s => $"[collision] {s.Name} (learned) shadowed by {winnerLabelByName[s.Name]}"));
+      learnedSkills = [.. learnedSkills.Where(s => !shadowed.Contains(s.Name))];
+    }
 
     List<SkillDefinition> builtInGroup = [];
     List<SkillDefinition> globalGroup = [];
@@ -205,6 +230,7 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
       }
 
       lines.AddRange(diagnosticLines);
+      lines.AddRange(learnedDedupCollisions);
       lines.AddRange(warnings);
 
       int shown = groups.Sum(g => g.Present.Count(p => p));
@@ -300,6 +326,19 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
     }
 
     return SkillDirectoryScope.Global;
+  }
+
+  /// <summary>The label for the dedup collision line: the source whose row wins
+  ///     over the skipped learned row - built-in, or the directory scope class.</summary>
+  private string DescribeWinner(SkillDefinition skill)
+  {
+    if (skill.Source == SkillSource.BuiltIn)
+    {
+      return "built-in";
+    }
+
+    bool global = Classify(skill.Origin) == SkillDirectoryScope.Global;
+    return global ? "global directory" : "workspace directory";
   }
 
   /// <summary>Collision lines already carry their '[collision] ' prefix and render
