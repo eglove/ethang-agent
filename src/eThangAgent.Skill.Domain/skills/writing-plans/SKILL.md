@@ -1,6 +1,6 @@
 ---
 name: writing-plans
-description: Use when you have a spec or requirements for a multi-step task, before touching code
+description: Write a detailed, bite-sized implementation plan from an approved spec, stored as a plan record. Use when requirements are settled and the work needs an executable task list.
 ---
 
 # Writing Plans

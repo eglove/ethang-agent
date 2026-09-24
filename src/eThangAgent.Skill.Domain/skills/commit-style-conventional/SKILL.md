@@ -1,6 +1,7 @@
 ---
 name: commit-style-conventional
-description: Commit message guidance for the Conventional Commits style — loaded when the host's commit-style setting selects Conventional.
+description: Commit message guidance for the Conventional Commits style — loaded when the host's commit-style setting selects Conventional. Selected by the host, not by the model.
+disable-model-invocation: true
 ---
 
 # Conventional commit style (active host setting)

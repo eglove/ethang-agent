@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+description: Find root causes before fixing symptoms: reproduce, isolate, hypothesize, verify, then fix. Use when facing any bug, test failure, or unexpected behavior.
 ---
 
 # Systematic Debugging

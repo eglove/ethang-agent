@@ -1,6 +1,6 @@
 ---
 name: grill
-description: Gather real requirements before any creative work - interview the user in rounds over a design-tree frontier when they ask a question, give a one-line request, or say "grill". Runs BEFORE brainstorming on thin input.
+description: Interview the user to extract real requirements before creative work begins. Use when a request is thin or underspecified and the real goal, constraints, and success criteria are unclear.
 ---
 
 Interview the user relentlessly until you reach a shared understanding. Map their

@@ -1,6 +1,7 @@
 ---
 name: commit-style-gitmoji
-description: Commit message guidance for the Gitmoji style — loaded when the host's commit-style setting selects Gitmoji.
+description: Commit message guidance for the Gitmoji style — loaded when the host's commit-style setting selects Gitmoji. Selected by the host, not by the model.
+disable-model-invocation: true
 ---
 
 # Gitmoji commit style (active host setting)

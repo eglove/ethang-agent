@@ -92,8 +92,9 @@ public class SkillListingE2ETests
       int persona = prompt.IndexOf("You are eThang Agent", StringComparison.Ordinal);
       string listing = prompt[listingStart..(persona > listingStart ? persona : prompt.Length)];
       Assert.Contains(BuiltInGroupName, listing, StringComparison.Ordinal);
-      // The plan mandates EVERY built-in skill name in the listing: resolve the real
-      // embedded catalog and assert each non-manual name appears (none are manual today).
+      // The plan mandates EVERY listable built-in skill name in the listing: resolve the
+      // real embedded catalog and assert each non-manual name appears. Manual built-ins
+      // (the commit-style trio) are host-selected and excluded by listing contract.
       EmbeddedSkillCatalog catalog = new();
       Result<IReadOnlyList<SkillDefinition>> builtIns =
         await catalog.ListAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -101,9 +102,13 @@ public class SkillListingE2ETests
       Assert.NotEmpty(builtIns.Value);
       foreach (SkillDefinition skill in builtIns.Value)
       {
-        Assert.False(
-          skill.Manual,
-          $"built-in '{skill.Name}' is manual; the listing excludes manual skills by contract");
+        if (skill.Manual)
+        {
+          // Manual built-ins (commit-style trio) are host-selected: never listed.
+          Assert.DoesNotContain(skill.Name, listing, StringComparison.Ordinal);
+          continue;
+        }
+
         Assert.Contains(skill.Name, listing, StringComparison.Ordinal);
       }
     }

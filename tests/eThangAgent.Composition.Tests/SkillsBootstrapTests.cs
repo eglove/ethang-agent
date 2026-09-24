@@ -11,9 +11,9 @@ namespace eThangAgent.Composition.Tests;
 public class SkillsBootstrapTests
 {
   // Distinctive sentence lifted from the body of the embedded
-  // src/eThangAgent.Skill.Domain/skills/using-skills/SKILL.md.
+  // src/eThangAgent.Skill.Domain/skills/using-skills/SKILL.md (the general session contract).
   private const string StableBodyPhrase =
-      "Invoke relevant or requested skills BEFORE any response or action";
+      "current task is better than improvising the same procedure from scratch";
 
   private static string Build() =>
       new SkillsBootstrapPromptProvider(new EmbeddedSkillCatalog()).Build();
