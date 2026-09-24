@@ -135,7 +135,6 @@ public class SkillsBootstrapTests
         => Task.FromResult(Result.Success(style));
   }
 
-
   private sealed class CatalogWithoutBootstrapSkill : ISkillCatalog
   {
     public Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default)

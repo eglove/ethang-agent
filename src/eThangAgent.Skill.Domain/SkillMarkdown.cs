@@ -64,6 +64,7 @@ public static class SkillMarkdown
     int? version = null;
     bool versionSeen = false;
     bool inMetadataBlock = false;
+    HashSet<string> warningsSeen = new(StringComparer.Ordinal);
     List<string> warnings = [];
     int close = -1;
     for (int i = 1; i < lines.Length; i++)
@@ -112,16 +113,33 @@ public static class SkillMarkdown
           break;
         case "disable-model-invocation": break; // repeat: first occurrence wins
         case "metadata": inMetadataBlock = true; break;
-        case "allowed-tools" or "license" or "compatibility":
-          warnings.Add($"ignored key {key} (known but unapplied)");
+        case "allowed-tools" or "license" or "compatibility" when !warningsSeen.Contains(key):
+          RecordKeyWarning(key, warnings, warningsSeen);
           break;
         default:
-          warnings.Add($"unknown frontmatter key {key}");
-          break;
+          if (!warningsSeen.Contains(key))
+          {
+            RecordKeyWarning(key, warnings, warningsSeen);
+          }
+
+          break; // a repeated key of either class was already warned about once
       }
     }
 
     return new FrontmatterScan(name, description, manual, version, warnings, close);
+  }
+
+  /// <summary>Records a frontmatter warning once per skill: each known-but-unapplied
+  ///     and each unknown key warns on its FIRST occurrence only (the follow-up
+  ///     cosmetics ruling - repeated lines are one fact, not several).</summary>
+  private static void RecordKeyWarning(
+      string key, List<string> warnings, HashSet<string> warningsSeen)
+  {
+    _ = warningsSeen.Add(key);
+    bool known = key is "allowed-tools" or "license" or "compatibility";
+    warnings.Add(known
+        ? $"ignored key {key} (known but unapplied)"
+        : $"unknown frontmatter key {key}");
   }
 
   /// <summary>Inside a <c>metadata:</c> block only <c>version:</c> is honored; every
