@@ -1,17 +1,19 @@
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain.Verification;
 
 namespace eThangAgent.ToolDomain;
 
 public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commits,
-    ICommitStyleProvider styleProvider) : ITool, IWorkspaceScopedTool
+    ICommitStyleProvider styleProvider, VerificationGate? gate = null) : ITool, IWorkspaceScopedTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IGitCommitAccess _commits = commits ?? throw new ArgumentNullException(nameof(commits));
   private readonly ICommitStyleProvider _styleProvider = styleProvider ?? throw new ArgumentNullException(nameof(styleProvider));
+  private readonly VerificationGate? _gate = gate;
 
   /// <inheritdoc />
   public ITool RootedAt(string workspaceRoot)
-      => new GitCommitTool(new WorkspacePathResolver(workspaceRoot), _commits, _styleProvider);
+      => new GitCommitTool(new WorkspacePathResolver(workspaceRoot), _commits, _styleProvider, _gate);
 
   public ToolDefinition Definition { get; } = new(
       "git_commit",
@@ -29,7 +31,9 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
       "body optionally adds a paragraph after a blank line. Output begins with an " +
       "annotation line `[git-commit <hash>] committed on <branch>` followed by the " +
       "committed message exactly as committed. Validation and backend errors begin with " +
-      "`Error [Code]:`.",
+      "Before committing, the verification gate may refuse with `Error [VerificationRequired]` " +
+      "when tracked or untracked files changed after the newest successful verification command; run verification and retry. " +
+      "Errors begin with `Error [Code]:`.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("type", ToolParameterType.Text,
@@ -92,6 +96,27 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
   private async Task<ToolResult> CommitAsync(string repoRoot, string message,
       IReadOnlyList<string>? files, CancellationToken ct)
   {
+    // Gate A (spec #24): refuse commits while changed files lack a fresh
+    // verification run. Status unavailability stands the gate down.
+    if (_gate is { Enabled: true } activeGate)
+    {
+      // Status unavailability stands the gate down: the commit proceeds on its
+      // own merits (spec #24's stand-down rule).
+      Result<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>> status =
+          await _commits.StatusAsync(repoRoot, ct).ConfigureAwait(false);
+      if (status.IsSuccess)
+      {
+        VerificationVerdict v = activeGate.Evaluate(status.Value);
+        if (!v.Verified)
+        {
+          string lastVerification = v.LastVerificationSummary ?? "none";
+          return Err(new DomainError("VerificationRequired",
+              $"{v.ChangedCount} file(s) changed; newest change {v.NewestChangeUtc:u}; last verification: {lastVerification}. " +
+              "Run a verification command (default set: dotnet test, dotnet build, dotnet format, npm test, pytest, cargo test, go test) and retry."));
+        }
+      }
+    }
+
     if (files is not null)
     {
       Result<bool> staged = await _commits.StageAsync(repoRoot, files, ct).ConfigureAwait(false);
