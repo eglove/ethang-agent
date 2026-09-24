@@ -35,6 +35,9 @@ internal static class Program
   private const string EvalKeyVariable = "ETHANG_EVAL_KEY";
   private const string EvalDatabaseFileName = "skill-activation-eval.db";
   private const string LocalBaseUrlVariable = "ETHANG_EVAL_LOCAL_BASE_URL";
+  private const string BudgetVariable = "ETHANG_EVAL_PROMPT_BUDGET_SECONDS";
+  private const int DefaultPromptBudgetSeconds = 600;
+  private const int MinPromptBudgetSeconds = 30;
 
   /// <summary>One self-contained extraction over persisted tool-call payloads. Stored
   ///     meta_json is System.Text.Json of MessageMeta; each ToolCall.Arguments value is
@@ -177,10 +180,13 @@ internal static class Program
     AgentSettings settings = (await BuildSettingsAsync(providerId, database).ConfigureAwait(false))!;
 
     List<EvalPrompt> prompts = ReadPrompts();
+    int budgetSeconds = ResolveBudgetSeconds();
+    await Console.Out.WriteLineAsync($"per-prompt budget: {budgetSeconds}s (override with {BudgetVariable})");
     List<EvalRow> rows = [];
     foreach (EvalPrompt prompt in prompts)
     {
-      EvalRow row = await RunPromptAsync(prompt, workspaceRoot, providerId, settings, database).ConfigureAwait(false);
+      await Console.Error.WriteLineAsync($"prompt {prompt.Id} started (budget {budgetSeconds}s)");
+      EvalRow row = await RunPromptAsync(prompt, workspaceRoot, providerId, settings, database, budgetSeconds).ConfigureAwait(false);
       rows.Add(row);
       await Console.Out.WriteLineAsync(row.SummaryLine);
     }
@@ -196,11 +202,12 @@ internal static class Program
   ///     A failure on this prompt is reported per-row (empty skills plus an error field)
   ///     and never aborts the run.</summary>
   private static async Task<EvalRow> RunPromptAsync(EvalPrompt prompt, string evalRoot,
-      string providerName, AgentSettings settings, AppDatabase database)
+      string providerName, AgentSettings settings, AppDatabase database, int budgetSeconds)
   {
     string sessionWorkspace = Path.Combine(evalRoot, $"prompt-{prompt.Id}");
     _ = Directory.CreateDirectory(sessionWorkspace);
     AgentSessionFactory factory = new(settings, database);
+    using CancellationTokenSource budget = new(TimeSpan.FromSeconds(budgetSeconds));
     List<AgentSession> createdSessions = [];
     AppDatabase? sessionDatabase = null;
     string? sessionId = null;
@@ -219,7 +226,16 @@ internal static class Program
       sessionDatabase = session.Services.GetRequiredService<AppDatabase>();
       createdSessions.Add(session);
       sessionId = session.RootId.ToString();
-      Result<string> result = await session.Handler.Handle(new SendMessageCommand(prompt.Prompt)).ConfigureAwait(false);
+      Result<string> result;
+      try
+      {
+        result = await session.Handler.Handle(new SendMessageCommand(prompt.Prompt), ct: budget.Token).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        return new EvalRow(prompt.Id, Head(prompt.Prompt), [], null, sessionId,
+            $"prompt budget exhausted after {budgetSeconds}s - the turn was cancelled before completing");
+      }
       if (!result.IsSuccess)
       {
         return new EvalRow(prompt.Id, Head(prompt.Prompt), [], null, sessionId,
@@ -349,6 +365,17 @@ internal static class Program
     return parsed ?? [];
   }
 
+  /// <summary>The per-prompt hard deadline: a turn that wedges anywhere (provider,
+  ///     network, console) becomes a per-row failure instead of a silent infinite
+  ///     hang. Configurable for slow models; never unbounded.</summary>
+  private static int ResolveBudgetSeconds()
+  {
+    string? raw = Environment.GetEnvironmentVariable(BudgetVariable);
+    return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) && parsed >= MinPromptBudgetSeconds
+        ? parsed
+        : DefaultPromptBudgetSeconds;
+  }
+
   private static string Head(string text) =>
       text.Length <= PromptHeadChars ? text : text[..PromptHeadChars];
 
@@ -362,6 +389,7 @@ internal static class Program
     await Console.Out.WriteLineAsync("  outPath        path of the JSON result file to write");
     await Console.Out.WriteLineAsync($"  API key        {EvalKeyVariable} environment variable (OpenRouter/zai; Local needs none)");
     await Console.Out.WriteLineAsync($"  local server   {LocalBaseUrlVariable} environment variable (Local provider's OpenAI-compatible base URL)");
+    await Console.Out.WriteLineAsync($"  per-prompt cap {BudgetVariable} seconds (default {DefaultPromptBudgetSeconds}; minimum {MinPromptBudgetSeconds})");
   }
 
   private static JsonSerializerOptions EvalJsonOptions { get; } = new()
