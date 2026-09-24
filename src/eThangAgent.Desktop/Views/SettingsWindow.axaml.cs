@@ -31,14 +31,17 @@ internal partial class SettingsWindow : Window
       string? workspaceRoot = null,
       string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
       string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
-      string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null, bool computerUse = false) : this()
+      string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null, bool computerUse = false,
+      IReadOnlyList<SessionFileEntry>? globalSkillDirectories = null,
+      IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null) : this()
   {
     _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle,
         compactionModels, selectedCompactionModel, localBaseUrl, localApiKey,
         globalFiles, workspaceFiles, workspaceRoot,
         maxConcurrentAgentsText, defaultModelText, remoteHost,
         watchdogTickText, watchdogIdleText, watchdogWrapUpText,
-        openRouterBaseUrlText, zaiBaseUrlText, computerUse);
+        openRouterBaseUrlText, zaiBaseUrlText, computerUse,
+        globalSkillDirectories, workspaceSkillDirectories);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);
   }

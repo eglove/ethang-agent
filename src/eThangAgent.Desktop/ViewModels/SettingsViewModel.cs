@@ -56,7 +56,9 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, string? ZaiApiKe
     string? MaxConcurrentAgentsText = null, string? DefaultModelText = null, bool RemoteHost = false,
     string? WatchdogTickText = null, string? WatchdogIdleText = null, string? WatchdogWrapUpText = null,
     string? OpenRouterBaseUrlText = null, string? ZaiBaseUrlText = null,
-    bool ComputerUse = false);
+    bool ComputerUse = false,
+    IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories = null,
+    IReadOnlyList<SessionFileEntry>? WorkspaceSkillDirectories = null);
 
 /// <summary>View-model behind the settings modal: the API-key fields for the
 ///     providers, the local provider's base URL, a reveal toggle, the z.ai endpoint
@@ -196,6 +198,15 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>The workspace-scope session-file rows: what loads for THIS workspace.</summary>
   public ObservableCollection<SessionFileRow> WorkspaceFiles { get; } = [];
 
+  /// <summary>The global skill-directory rows: what the skill engine scans for every
+  ///     workspace. Editable in place - checkbox toggles, row remove.</summary>
+  public ObservableCollection<SessionFileRow> GlobalSkillDirectories { get; } = [];
+
+  /// <summary>The workspace-scope skill-directory rows: what the skill engine scans
+  ///     for THIS workspace (a directory equal to a global one is skipped at the
+  ///     factory's resolution site).</summary>
+  public ObservableCollection<SessionFileRow> WorkspaceSkillDirectories { get; } = [];
+
   /// <summary>Entry field for a new global file path; Add validates it.</summary>
   [ObservableProperty]
   public partial string NewGlobalFile { get; set; } = string.Empty;
@@ -203,6 +214,14 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>Entry field for a new workspace file path; Add validates it.</summary>
   [ObservableProperty]
   public partial string NewWorkspaceFile { get; set; } = string.Empty;
+
+  /// <summary>Entry field for a new global skill-directory path; Add validates it.</summary>
+  [ObservableProperty]
+  public partial string NewGlobalSkillDirectory { get; set; } = string.Empty;
+
+  /// <summary>Entry field for a new workspace skill-directory path; Add validates it.</summary>
+  [ObservableProperty]
+  public partial string NewWorkspaceSkillDirectory { get; set; } = string.Empty;
 
   /// <summary>Adds a validated global row. A relative path is a named, shown error -
   ///     never a silent coercion (strict boundaries).</summary>
@@ -236,6 +255,38 @@ internal sealed partial class SettingsViewModel : ObservableObject
   private void RemoveGlobalFile(SessionFileRow row) => _ = GlobalFiles.Remove(row);
   [RelayCommand]
   private void RemoveWorkspaceFile(SessionFileRow row) => _ = WorkspaceFiles.Remove(row);
+
+  /// <summary>Adds a validated global skill-directory row.</summary>
+  [RelayCommand]
+  private void AddGlobalSkillDirectory()
+  {
+    if (TryAddDirectory(NewGlobalSkillDirectory, GlobalSkillDirectories))
+    {
+      NewGlobalSkillDirectory = string.Empty;
+    }
+  }
+
+  /// <summary>Adds a validated workspace-scope skill-directory row.</summary>
+  [RelayCommand]
+  private void AddWorkspaceSkillDirectory()
+  {
+    if (!HasWorkspace)
+    {
+      FileError = null;
+      InfoMessage = "Open a workspace to configure its skill directories.";
+      return;
+    }
+
+    if (TryAddDirectory(NewWorkspaceSkillDirectory, WorkspaceSkillDirectories))
+    {
+      NewWorkspaceSkillDirectory = string.Empty;
+    }
+  }
+
+  [RelayCommand]
+  private void RemoveGlobalSkillDirectory(SessionFileRow row) => _ = GlobalSkillDirectories.Remove(row);
+  [RelayCommand]
+  private void RemoveWorkspaceSkillDirectory(SessionFileRow row) => _ = WorkspaceSkillDirectories.Remove(row);
   /// <summary>The mask the settings window applies to both key fields; null-mask char
   ///     when revealed.</summary>
   public char KeyPasswordChar => KeysVisible ? default : '•';
@@ -265,7 +316,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
       string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
       string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
       string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null,
-      bool computerUse = false)
+      bool computerUse = false,
+      IReadOnlyList<SessionFileEntry>? globalSkillDirectories = null,
+      IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null)
   {
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
@@ -285,7 +338,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 WorkspaceRoot: WorkspaceRoot,
                 Normalize(MaxConcurrentAgentsText), Normalize(DefaultModelText), RemoteHost,
                 Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
-                Normalize(OpenRouterBaseUrlText), Normalize(ZaiBaseUrlText), ComputerUse));
+                Normalize(OpenRouterBaseUrlText), Normalize(ZaiBaseUrlText), ComputerUse,
+                GlobalSkillDirectories: [.. GlobalSkillDirectories],
+                WorkspaceSkillDirectories: HasWorkspace ? [.. WorkspaceSkillDirectories] : null));
           }
         },
         () => CanSave);
@@ -313,6 +368,16 @@ internal sealed partial class SettingsViewModel : ObservableObject
     foreach (SessionFileEntry entry in workspaceRoot is null ? [] : workspaceFiles ?? [])
     {
       WorkspaceFiles.Add(new SessionFileRow(entry.Path, entry.Enabled));
+    }
+
+    foreach (SessionFileEntry entry in globalSkillDirectories ?? [])
+    {
+      GlobalSkillDirectories.Add(new SessionFileRow(entry.Path, entry.Enabled));
+    }
+
+    foreach (SessionFileEntry entry in workspaceRoot is null ? [] : workspaceSkillDirectories ?? [])
+    {
+      WorkspaceSkillDirectories.Add(new SessionFileRow(entry.Path, entry.Enabled));
     }
     SelectedEndpointMode = zaiEndpointMode == ZaiEndpointMode.GeneralApi
         ? ZaiEndpointModeOption.GeneralApi
@@ -365,6 +430,29 @@ internal sealed partial class SettingsViewModel : ObservableObject
     if (!Path.IsPathRooted(trimmed))
     {
       FileError = $"Session file paths must be absolute: '{trimmed}' is relative.";
+      return false;
+    }
+
+    FileError = null;
+    rows.Add(new SessionFileRow(trimmed, Enabled: true));
+    return true;
+  }
+
+  /// <summary>Validates one entered directory path and appends a checked row. The
+  ///     same absolute-path rule the file editor applies (the skill engine rejects
+  ///     anything else); a relative path fails into <see cref="FileError"/> - shown
+  ///     where every other validation error shows - and nothing is added.</summary>
+  private bool TryAddDirectory(string entered, ObservableCollection<SessionFileRow> rows)
+  {
+    string trimmed = entered.Trim();
+    if (trimmed.Length == 0)
+    {
+      return false;
+    }
+
+    if (!Path.IsPathRooted(trimmed))
+    {
+      FileError = $"Directory paths must be absolute: '{trimmed}' is relative.";
       return false;
     }
 
