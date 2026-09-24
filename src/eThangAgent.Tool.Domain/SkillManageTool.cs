@@ -21,7 +21,9 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
       "and history rows and refuses anything else. Built-in and file skills are authoritative: " +
       "creating a name held by a built-in or file skill fails NameCollision — file skills may " +
       "never be shadowed by learned skills; updating or deleting a name held only as a file " +
-      "skill fails SkillNotFound (nothing learned exists to change); updating or deleting a " +
+      "skill fails SkillNotFound (nothing learned exists to change); updating a truly unknown " +
+      "name fails SkillNotFound with 'No learned skill named <name> to update. Use action " +
+      "Create first.'; updating or deleting a " +
       "built-in fails BuiltInImmutable. Output is a single annotation line: " +
       "`[skill-manage] created '<name>' v1`, `[skill-manage] updated '<name>' v<N>`, or " +
       "`[skill-manage] deleted '<name>'`. Errors begin with `Error [Code]:`.",
@@ -124,7 +126,8 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
 
     if (current.ValueOrNull is null)
     {
-      return Err(FileOnlyNotFoundError(input.Name));
+      return Err(new DomainError("SkillNotFound",
+          $"No learned skill named '{input.Name}' to update. Use action Create first."));
     }
 
     // `with` preserves CreatedAt and ProvenanceSessionId by construction.

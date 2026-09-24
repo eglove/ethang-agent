@@ -334,7 +334,7 @@ public class SkillManageToolTests
   // ---- Group 9: update unknown learned / no fields ----
 
   [Fact]
-  public async Task Update_UnknownLearned_SkillNotFound()
+  public async Task Update_UnknownLearned_SkillNotFound_HintTextPinned()
   {
     (SkillManageTool? tool, FakeCatalog _, FakeLearnedStore? store) = MakeTool();
 
@@ -343,8 +343,8 @@ public class SkillManageToolTests
                                  """{"timeoutSeconds":120,"action":"Update","name":"nope","body":"New body."}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
-    Assert.Contains("SkillNotFound", result.Content, StringComparison.Ordinal);
-    Assert.Contains("nope", result.Content, StringComparison.Ordinal);
+    Assert.Equal("Error [SkillNotFound]: No learned skill named 'nope' to update. Use action Create first.",
+        result.Content);
     Assert.Empty(store.UpdateCalls);
   }
 
