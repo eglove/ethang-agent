@@ -2,6 +2,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
+using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
@@ -367,6 +368,42 @@ public class AgentSessionFactoryTests
         Assert.Equal(Providers.Zai, result.Value.ProviderName);
         _ = Assert.IsType<ZaiModelCatalog>(result.Value.Services.GetRequiredService<IModelCatalog>());
         _ = Assert.IsType<ZaiModelProvider>(result.Value.Services.GetRequiredService<IModelProvider>());
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      try
+      {
+        File.Delete(db);
+      }
+      catch { }
+    }
+  }
+
+  [Fact]
+  public async Task CreateAsync_RootRow_StampedWithTheResolvedBootstrapModel()
+  {
+    (AgentSessionFactory? factory, string? db) = CreateFactory();
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-stamp");
+      try
+      {
+        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        SqliteAgentStore store = new(new AppDatabase(db));
+        Result<AgentRecord> record = await store.GetAsync(result.Value.RootId, ct: TestContext.Current.CancellationToken);
+        Assert.True(record.IsSuccess);
+        // The model that will serve turn one is a fact on the persisted row from
+        // creation - never the 'unassigned' sentinel - so the eval runner (and the
+        // Sessions catalog) record the resolved model without waiting for a selection.
+        Assert.Equal("openrouter/auto", record.Value.ModelUsed);
       }
       finally
       {
