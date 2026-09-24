@@ -6,6 +6,9 @@ namespace eThangAgent.ToolDomain;
 
 public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore learned) : ITool
 {
+  // Keep in sync: format parity with SkillsListingPromptProvider truncation
+  // (SkillListingBudget.DescriptionLimit in eThangAgent.Composition) - Tool.Domain
+  // cannot reference Composition, so the constant is duplicated deliberately.
   private const int DescriptionLimit = 60;
 
   private readonly ISkillCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));

@@ -125,7 +125,6 @@ public class SkillsListingPromptProviderTests
 
   [Fact]
   public async Task Build_ManualSkills_Excluded()
-
   {
     FakeCatalog catalog = new(
         BuiltIn("plain"),
@@ -214,7 +213,8 @@ public class SkillsListingPromptProviderTests
     // from the END of the lowest-precedence group (Learned), so the learned
     // TAIL goes bare while the learned HEAD keeps its description, and the
     // workspace/global/built-in groups keep their descriptions entirely.
-    // No ENTRY drops at this level, so no truncation marker renders.
+    // No ENTRY drops at this level; per the never-silent rule the marker still
+    // announces the dropped descriptions with e = 0.
     List<SkillDefinition> skills = [];
     for (int i = 0; 175 > i; i++)
     {
@@ -238,8 +238,7 @@ public class SkillsListingPromptProviderTests
         directories: [new SkillDirectory(GlobalDir, SkillDirectoryScope.Global),
             new SkillDirectory(WorkspaceDir, SkillDirectoryScope.Workspace)]).BuildAsync();
 
-    Assert.DoesNotContain("[skills listing truncated", text, StringComparison.Ordinal);
-    Assert.True(text.Length <= SkillListingBudget.MaxChars, "len=" + text.Length);
+    Assert.Matches("\\[skills listing truncated: showed \\d+ of \\d+ skills; dropped \\d+ descriptions and 0 entries — call skill_list for the full catalog\\]", text);
     // stripping starts at the END of the lowest-precedence group (Learned)...
     Assert.Contains("- learned-skill-173\n- learned-skill-174", text, StringComparison.Ordinal);
     // ...so the learned HEAD still shows its description...
@@ -286,6 +285,64 @@ public class SkillsListingPromptProviderTests
     string text = await Provider(catalog).BuildAsync();
 
     Assert.Equal(string.Empty, text);
+  }
+
+  [Fact]
+  public async Task Build_StripsOnlyOverflow_MarkerAnnouncesDroppedDescriptions()
+  {
+    // 175 learned + 40 workspace + 40 global skills overflow to a strips-only
+    // fixed point: descriptions drop until the block fits, no ENTRY ever drops,
+    // and the marker must still announce the dropped descriptions (e = 0, d > 0).
+    List<SkillDefinition> skills = [];
+    for (int i = 0; 175 > i; i++)
+    {
+      skills.Add(Learned("learned-skill-" + i.ToString("d3", CultureInfo.InvariantCulture)));
+    }
+
+    for (int i = 0; 40 > i; i++)
+    {
+      skills.Add(File("ws-skill-" + i.ToString("d3", CultureInfo.InvariantCulture), WorkspaceDir));
+    }
+
+    for (int i = 0; 40 > i; i++)
+    {
+      skills.Add(File("global-skill-" + i.ToString("d3", CultureInfo.InvariantCulture), GlobalDir));
+    }
+    skills.Add(BuiltIn("the-builtin"));
+    FakeCatalog catalog = new([.. skills.Where(s => s.Source != SkillSource.Learned)]);
+    FakeLearned learned = new([.. skills.Where(s => s.Source == SkillSource.Learned)]);
+
+    string text = await Provider(catalog, learned,
+        directories: [new SkillDirectory(GlobalDir, SkillDirectoryScope.Global),
+            new SkillDirectory(WorkspaceDir, SkillDirectoryScope.Workspace)]).BuildAsync();
+
+    Assert.True(text.Length <= SkillListingBudget.MaxChars, "len=" + text.Length);
+    // every entry still shown (strips-only), so N = M
+    Assert.Matches("\\[skills listing truncated: showed \\d+ of \\d+ skills; dropped \\d+ descriptions and 0 entries — call skill_list for the full catalog\\]", text);
+    // and at least one description was actually dropped
+    Assert.Contains("- learned-skill-174\n", text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Build_NonCollisionDiagnostics_RenderAsWarningLines()
+  {
+    // The composite catalog never fails ListAsync: directory-load failures and
+    // built-in-catalog failures surface ONLY as non-collision diagnostic lines.
+    // The listing must announce them as '[warning] <text>' so a silently missing
+    // directory is never invisible. Collision lines stay verbatim (no double prefix).
+    FakeCatalog catalog = new(
+        ["directory load failed C:\\broken: DirectoryReadFailed",
+            "[collision] alpha (workspace directory) shadowed by global directory"],
+        BuiltIn("alpha"),
+        File("beta", GlobalDir));
+
+    string text = await Provider(catalog, directories:
+        [new SkillDirectory(GlobalDir, SkillDirectoryScope.Global)]).BuildAsync();
+
+    Assert.Contains("[warning] directory load failed C:\\broken: DirectoryReadFailed", text, StringComparison.Ordinal);
+    Assert.Contains("[collision] alpha (workspace directory) shadowed by global directory", text, StringComparison.Ordinal);
+    Assert.DoesNotContain("[warning] [collision]", text, StringComparison.Ordinal);
+    Assert.DoesNotContain("[warning] catalog diagnostics unavailable", text, StringComparison.Ordinal);
   }
 
   [Fact]

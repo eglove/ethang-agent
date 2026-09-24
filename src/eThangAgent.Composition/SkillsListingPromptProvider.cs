@@ -7,10 +7,15 @@ namespace eThangAgent.Composition;
 /// <summary>Budget constants for the always-on skills listing.
 ///     <see cref="MaxChars" /> covers the ENTIRE rendered block - headers,
 ///     entries, collision lines, warning lines, and the truncation marker
-///     (the marker's length is reserved before entries are fitted).</summary>
+///     (when entry drops are needed, the marker's current length is reserved
+///     before entries are fitted and re-measured each iteration).</summary>
 public static class SkillListingBudget
 {
   public const int MaxChars = 8000;
+
+  // Keep in sync: format parity with SkillListTool truncation (its private
+  // DescriptionLimit in eThangAgent.Tool.Domain) - Tool.Domain cannot reference
+  // Composition, so the constant is duplicated deliberately.
   public const int DescriptionLimit = 60;
 }
 
@@ -43,9 +48,11 @@ public static class SkillListingBudget
 ///     descriptions to bare '- &lt;name&gt;' lines lowest-precedence group first
 ///     (Learned, then Workspace, then Global; Built-in descriptions drop last),
 ///     within a group from the END of the list; while still over budget drop whole
-///     entry lines in the same order; the truncation marker ALWAYS renders (its
-///     length is reserved inside the budget). N/M/d/e count what was shown of the
-///     total non-manual skills and how many descriptions/entries were dropped. A
+///     entry lines in the same order; the truncation marker renders whenever ANY
+///     drop happened - droppedDescriptions &gt; 0 OR droppedEntries &gt; 0, the
+///     never-silent rule (a strips-only overflow announces 'dropped d descriptions
+///     and 0 entries'). N/M/d/e count what was shown of the total non-manual skills
+///     and how many descriptions/entries were dropped. A
 ///     catalog or learned load failure renders '[warning] &lt;source&gt; skills
 ///     unavailable: &lt;message&gt;' and the block still succeeds; a wholly empty
 ///     result (no skills, no warnings, no collisions) renders the empty string.
@@ -151,14 +158,20 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
         new Group("Learned", learnedSkills),
     ];
 
-    List<string> collisionLines = [];
+    List<string> diagnosticLines = [];
     if (_catalog is ISkillCatalogDiagnostics withDiagnostics)
     {
       Result<IReadOnlyList<string>> diagnostics = await withDiagnostics.GetDiagnosticsAsync(ct).ConfigureAwait(false);
-      collisionLines = diagnostics.IsSuccess
-          ? [.. diagnostics.Value.Where(l => l.StartsWith(CollisionPrefix, StringComparison.Ordinal))]
-          : [];
-      if (!diagnostics.IsSuccess)
+      if (diagnostics.IsSuccess)
+      {
+        // Collision lines already carry their '[collision] ' prefix and render
+        // verbatim; every OTHER diagnostic (directory load failures, built-in
+        // catalog unavailability) becomes '[warning] <text>' - the composite
+        // catalog never fails ListAsync, so this side-band is the ONLY signal
+        // that a configured directory failed to load.
+        diagnosticLines = [.. diagnostics.Value.Select(RenderDiagnostic)];
+      }
+      else
       {
         warnings.Add($"[warning] catalog diagnostics unavailable: {diagnostics.Error.Message}");
       }
@@ -191,13 +204,13 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
         }
       }
 
-      lines.AddRange(collisionLines);
+      lines.AddRange(diagnosticLines);
       lines.AddRange(warnings);
 
       int shown = groups.Sum(g => g.Present.Count(p => p));
       int droppedDescriptions = groups.Sum(g => g.Present.Zip(g.ShowDescription, (present, show) => present && !show ? 1 : 0).Sum());
       int droppedEntries = groups.Sum(g => g.Present.Count(p => !p));
-      if (shown < total)
+      if (droppedDescriptions > 0 || droppedEntries > 0)
       {
         lines.Add(Marker(shown, total, droppedDescriptions, droppedEntries));
       }
@@ -211,9 +224,9 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
       return text.Length == Header.Length ? string.Empty : text;
     }
 
-    // Overflow: reserve the marker's WORST-CASE length (nothing yet dropped -
-    // the digit counts only shrink as passes proceed) plus its newline, so the
-    // finished block never exceeds the budget.
+    // Overflow: the render that just exceeded the budget is not the finish line -
+    // each pass re-renders and re-measures, and the loop exits on the first render
+    // that fits, so the RETURNED block never exceeds the budget.
     while (true)
     {
       // Pass 1 - strip descriptions, lowest-precedence group first, from the END
@@ -229,7 +242,9 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
         continue;
       }
 
-      // Pass 2 - drop whole entry lines in the same order until the block fits.
+      // Pass 2 - drop whole entry lines in the same order until the block fits;
+      // the marker's CURRENT length is reserved while entries drop (re-measured
+      // every iteration), so the finished block stays inside the budget.
       if (!DropEntry(groups))
       {
         break; // pathological collision flood: nothing left to drop
@@ -239,10 +254,13 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
     return Render();
   }
 
-  /// <summary>Full-path normalization for Origin-to-directory matching (the same
-  ///     normalization the session factory applies to the configured paths):
-  ///     canonical case-insensitive form, trailing separators trimmed; an
-  ///     unresolvable path simply stays itself (uppercased, trimmed).</summary>
+  /// <summary>Full-path normalization for Origin-to-directory matching: canonical
+  ///     case-insensitive form, trailing separators trimmed; an unresolvable path
+  ///     simply stays itself (uppercased, trimmed). Deliberately NOT the session
+  ///     factory's normalization (that one resolves relative paths against the
+  ///     workspace root); production data is absolute on both sides - Origins are
+  ///     skill-folder full paths and configured directories are resolved absolute -
+  ///     so the two normalizations agree on every real input.</summary>
   private static string Normalize(string path)
   {
     try
@@ -283,6 +301,12 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
 
     return SkillDirectoryScope.Global;
   }
+
+  /// <summary>Collision lines already carry their '[collision] ' prefix and render
+  ///     verbatim; every other diagnostic is plain text that gains the '[warning] '
+  ///     prefix here (the SkillListTool convention).</summary>
+  private static string RenderDiagnostic(string line) =>
+      line.StartsWith(CollisionPrefix, StringComparison.Ordinal) ? line : "[warning] " + line;
 
   private static string Truncate(string description) =>
       description.Length <= SkillListingBudget.DescriptionLimit
