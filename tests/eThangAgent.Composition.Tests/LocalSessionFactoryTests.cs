@@ -172,6 +172,40 @@ public class LocalSessionFactoryTests
   }
 
   [Fact]
+  public async Task CreateAsync_Local_RootRowStampedWithTheServerResolvedModel()
+  {
+    using MockLocalServer server = new MockLocalServer()
+        .WithModels(/*lang=json,strict*/ """{"data":[{"id":"first-model","context_length":8192}]}""")
+        .WithLmStudio(/*lang=json,strict*/ """{"data":[{"id":"first-model","context_length":8192}]}""");
+    server.Start();
+    (AgentSessionFactory factory, string db) = CreateFactory(Settings(LocalAt(server.BaseUrl.AbsoluteUri)));
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-local-stamp");
+      try
+      {
+        Result<AgentSession> result = await factory.CreateAsync(
+            dir.FullName, Providers.Local,
+            ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+        Assert.True(result.IsSuccess);
+        SqliteAgentStore store = new(new AppDatabase(db));
+        Result<AgentRecord> record = await store.GetAsync(result.Value.RootId, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+        Assert.True(record.IsSuccess);
+        Assert.Equal("first-model", record.Value.ModelUsed);
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
+    }
+    finally
+    {
+      DeleteDb(db);
+    }
+  }
+
+  [Fact]
   public async Task CreateAsync_ZaiConfigured_StillSucceeds_AsBefore()
   {
     // Regression guard: the local arm's async detour must leave the non-local

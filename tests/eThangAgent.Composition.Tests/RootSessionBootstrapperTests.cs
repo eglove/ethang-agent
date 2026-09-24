@@ -53,6 +53,38 @@ public class RootSessionBootstrapperTests
     Assert.Empty(store.Saved);
   }
 
+  [Fact]
+  public async Task PersistRoot_DefaultModel_IsTheUnassignedSentinel()
+  {
+    FakeAgentStore store = new();
+    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", "openrouter", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    AgentRecord record = Assert.Single(store.Saved);
+    Assert.Equal("unassigned", record.ModelUsed);
+  }
+
+  [Fact]
+  public async Task PersistRoot_ExplicitModel_StampOnThePersistedRow()
+  {
+    FakeAgentStore store = new();
+    Result<AgentId> result = await RootSessionBootstrapper.PersistRootAsync(
+        store, @"C:\workspaces\demo", "openrouter", modelUsed: "glm-5.3-flash",
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    AgentRecord record = Assert.Single(store.Saved);
+    Assert.Equal("glm-5.3-flash", record.ModelUsed);
+  }
+
+  [Fact]
+  public async Task PersistRoot_WhitespaceModel_FailsStrict()
+  {
+    FakeAgentStore store = new();
+    _ = await Assert.ThrowsAsync<ArgumentException>(
+        () => RootSessionBootstrapper.PersistRootAsync(store, @"C:\workspaces\demo", "openrouter", modelUsed: "  ", ct: TestContext.Current.CancellationToken));
+  }
+
   private sealed class FakeAgentStore : IAgentStore
   {
     public bool FailOnSave { get; init; }

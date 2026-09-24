@@ -28,10 +28,13 @@ public sealed record AgentRecord(
   /// <summary>Creates the persisted root session row: the host REPL conversation itself as an
   ///     ordinary depth-0 agent with no parent, Running from creation, bound to its workspace
   ///     and provider so the Sessions catalog can list it and resume can rehydrate it.
-  ///     <para><see cref="ModelUsed"/> carries the sentinel <c>"unassigned"</c>: no model has
-  ///     served the root yet. Unlike spawned children, whose model is chosen per spawn, the
-  ///     root's exchanges run through the host's own configured model, so no assignment is
-  ///     recorded at row creation.</para></summary>
-  public static AgentRecord Root(AgentId id, DateTimeOffset createdAt, string workspaceId, string provider)
-      => new(id, null, 0, AgentStatus.Running, null, "unassigned", "root", "conversation root", createdAt, null, null, workspaceId, provider);
+  ///     <para><see cref="ModelUsed"/> stamps the model that will serve the first turn when
+  ///     the caller resolves one before persisting (the factory's bootstrap resolution —
+  ///     eval runs and the Sessions catalog then record the model as fact, not annotation).
+  ///     When no model is known at creation the sentinel <c>"unassigned"</c> carries the
+  ///     original meaning: no model has served the root yet.</para></summary>
+  public static AgentRecord Root(AgentId id, DateTimeOffset createdAt, string workspaceId, string provider,
+      string? modelUsed = null)
+      => new(id, null, 0, AgentStatus.Running, null, modelUsed ?? "unassigned", "root", "conversation root",
+          createdAt, null, null, workspaceId, provider);
 }

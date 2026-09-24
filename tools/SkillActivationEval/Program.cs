@@ -308,8 +308,10 @@ internal static class Program
     return names;
   }
 
-  /// <summary>Reads the root row's model_used stamp (the resolver writes it on selection;
-  ///     'unassigned' means no model was ever persisted for the session).</summary>
+  /// <summary>Reads the root row's model_used stamp. Session creation stamps the resolved
+  ///     bootstrap model; the root resolver updates it at selection and with a user model
+  ///     choice. The sentinel 'unassigned' appears only on rows persisted before the
+  ///     creation-time stamp or when no model was known at creation.</summary>
   private static async Task<string> ReadModelUsedAsync(AppDatabase database, AgentId sessionId)
   {
     SqliteAgentStore store = new(database);

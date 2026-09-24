@@ -93,8 +93,13 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     try
     {
       IAgentStore store = services.GetRequiredService<IAgentStore>();
+      // Creation-time model stamp (eval-runner gap fix): the bootstrap resolution already
+      // holds the model that will serve turn one, so the persisted row records it as
+      // FACT from the first read. Resume never re-stamps: a persisted ModelUsed is the
+      // record of what actually served, not what the new container resolves.
       Result<AgentId> bootstrapped = await RootSessionBootstrapper
-          .PersistRootAsync(store, full, providerName, ct).ConfigureAwait(false);
+          .PersistRootAsync(store, full, providerName, modelUsed: bootstrap.Value.Config.ModelId, ct)
+          .ConfigureAwait(false);
       if (!bootstrapped.IsSuccess)
       {
         await services.DisposeAsync().ConfigureAwait(false);

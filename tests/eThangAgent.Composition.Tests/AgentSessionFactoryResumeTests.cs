@@ -172,6 +172,40 @@ public class AgentSessionFactoryResumeTests
   }
 
   [Fact]
+  public async Task ResumeAsync_DoesNotRestamp_ModelUsedKeepsItsPersistedFact()
+  {
+    // A resume rebuilds the container on the session's ORIGINAL provider, but the
+    // persisted ModelUsed is a FACT recorded at selection or creation - resume must
+    // not overwrite it with the new container's bootstrap resolution.
+    (AgentSessionFactory factory, string db) = CreateFactory(Settings(zaiKey: "zai-test-key"));
+    try
+    {
+      SqliteAgentStore store = new(new AppDatabase(db));
+      AgentId rootId = AgentId.NewId();
+      string workspace = Directory.CreateDirectory(
+          Path.Combine(Path.GetTempPath(), $"ethang-resume-stamp-{Guid.NewGuid():N}")).FullName;
+      _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, workspace, Providers.Zai,
+          modelUsed: "glm-5.3-flash"), ct: TestContext.Current.CancellationToken);
+      // A later selection recorded a different model before the tab closed.
+      Result<AgentRecord> seeded = await store.GetAsync(rootId, ct: TestContext.Current.CancellationToken);
+      Assert.True(seeded.IsSuccess);
+      _ = await store.UpdateAsync(seeded.Value with { ModelUsed = "glm-5.3", Status = AgentStatus.Completed },
+          ct: TestContext.Current.CancellationToken);
+
+      Result<AgentSession> resumed = await factory.ResumeAsync(rootId, ct: TestContext.Current.CancellationToken);
+      Assert.True(resumed.IsSuccess);
+
+      Result<AgentRecord> after = await new SqliteAgentStore(new AppDatabase(db)).GetAsync(rootId, ct: TestContext.Current.CancellationToken);
+      Assert.True(after.IsSuccess);
+      Assert.Equal("glm-5.3", after.Value.ModelUsed);
+    }
+    finally
+    {
+      DeleteDb(db);
+    }
+  }
+
+  [Fact]
   public async Task ResumeAsync_UnconfiguredProvider_Fails_Structured()
   {
     // OpenRouter key only; the persisted session ran on z.ai.
