@@ -191,6 +191,61 @@ public class CompositeSkillCatalogTests
   }
 
   [Fact]
+  public async Task GetDiagnostics_PerFileDiagnostics_PassThroughFromSource()
+  {
+    // Characterization pin (rework ledger, Task 4 deferred minor): a directory
+    // whose load SUCCEEDS with per-file diagnostics passes those lines through
+    // GetDiagnosticsAsync - diagnostics are data, not failures.
+    FakeBuiltInCatalog builtIns = new(FakeBuiltInCatalog.Make("k"));
+    FakeSkillDirectorySource source = new();
+    source.LoadDiagnostics(GlobalDir,
+        "no SKILL.md in broken, skipped",
+        "unknown frontmatter key frobnicate");
+    source.LoadReturns(WorkspaceDir, SkillFactory.File("gamma", WorkspaceDir));
+
+    CompositeSkillCatalog catalog = new(builtIns.AsCatalog(), source.AsSource(),
+        [new SkillDirectory(GlobalDir, SkillDirectoryScope.Global),
+             new SkillDirectory(WorkspaceDir, SkillDirectoryScope.Workspace)]);
+
+    Result<IReadOnlyList<SkillDefinition>> listed = await catalog.ListAsync(TestContext.Current.CancellationToken);
+    Result<IReadOnlyList<string>> diagnostics = await catalog.GetDiagnosticsAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(listed.IsSuccess);
+    Assert.Equal(["k", "gamma"], [.. listed.Value.Select(s => s.Name)]);
+    Assert.True(diagnostics.IsSuccess);
+    Assert.Equal(
+        [
+            "no SKILL.md in broken, skipped",
+                "unknown frontmatter key frobnicate",
+            ], diagnostics.Value);
+  }
+
+  [Fact]
+  public async Task GetDiagnostics_PerFileDiagnostics_OrderBeforeDirectoryFailures()
+  {
+    // The documented order: per-source lines appear in directory iteration
+    // order (global, then workspace) - a successful directory's per-file
+    // diagnostics, then a failing directory's failure line.
+    FakeBuiltInCatalog builtIns = new(FakeBuiltInCatalog.Make("k"));
+    FakeSkillDirectorySource source = new();
+    source.LoadDiagnostics(GlobalDir, "global per-file note");
+    source.LoadFails(WorkspaceDir, new DomainError("DirectoryReadFailed", "disk on fire"));
+
+    CompositeSkillCatalog catalog = new(builtIns.AsCatalog(), source.AsSource(),
+        [new SkillDirectory(GlobalDir, SkillDirectoryScope.Global),
+             new SkillDirectory(WorkspaceDir, SkillDirectoryScope.Workspace)]);
+
+    Result<IReadOnlyList<string>> diagnostics = await catalog.GetDiagnosticsAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(diagnostics.IsSuccess);
+    Assert.Equal(
+        [
+            "global per-file note",
+                $"directory load failed {WorkspaceDir}: disk on fire",
+            ], diagnostics.Value);
+  }
+
+  [Fact]
   public async Task GetDiagnostics_Memoized()
   {
     FakeBuiltInCatalog builtIns = new(FakeBuiltInCatalog.Make("k"));
