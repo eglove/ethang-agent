@@ -4,10 +4,14 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Composition.Tests;
 
-/// <summary>Ten contract cases for SkillsBootstrapPromptProvider: the output
-/// wraps the verbatim using-skills skill (frontmatter included) plus the inline
-/// tool-mapping constant in EXTREMELY_IMPORTANT tags, each tag occurring exactly
-/// once; a catalog missing the built-in skill is a packaging defect that throws.</summary>
+/// <summary>Eleven contract cases for SkillsBootstrapPromptProvider: the output
+/// renders the verbatim using-skills skill (frontmatter header + body) plus the
+/// verbatim ethang-tools-mapping skill body — BOTH read from the skill catalog —
+/// the selected commit-style guidance, the ASD-STE100 user-message style rule,
+/// and the already-active notice as a PLAIN session contract: no emphasis tags
+/// anywhere. The always-on skill listing is a separate provider; this one
+/// injects the contract skill, tools mapping, commit style, and STE rule. A
+/// catalog missing a built-in skill is a packaging defect that throws.</summary>
 public class SkillsBootstrapTests
 {
   // Distinctive sentence lifted from the body of the embedded
@@ -19,12 +23,11 @@ public class SkillsBootstrapTests
       new SkillsBootstrapPromptProvider(new EmbeddedSkillCatalog()).Build();
 
   [Fact]
-  public void Build_WrapsOutputInExtremelyImportantTags()
+  public void Build_ContainsNoExtremelyImportantEmphasisTags()
   {
     string output = Build();
 
-    Assert.StartsWith("<EXTREMELY_IMPORTANT>", output, StringComparison.Ordinal);
-    Assert.EndsWith("</EXTREMELY_IMPORTANT>", output, StringComparison.Ordinal);
+    Assert.DoesNotContain("EXTREMELY_IMPORTANT", output, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -55,12 +58,12 @@ public class SkillsBootstrapTests
   public void Build_MarksSkillAsAlreadyActive() => Assert.Contains("ALREADY ACTIVE", Build(), StringComparison.Ordinal);
 
   [Fact]
-  public void Build_WrapperMarkersOccurExactlyOnceEach()
+  public void Build_LeadsWithSkillsFrontmatter_AndEndsWithAlreadyActiveNotice()
   {
     string output = Build();
 
-    Assert.Equal(1, CountOccurrences(output, "<EXTREMELY_IMPORTANT>"));
-    Assert.Equal(1, CountOccurrences(output, "</EXTREMELY_IMPORTANT>"));
+    Assert.StartsWith("---\nname: using-skills", output, StringComparison.Ordinal);
+    Assert.EndsWith("This bootstrap is injected once per session.", output, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -114,6 +117,7 @@ public class SkillsBootstrapTests
     Assert.Contains("Simplified Technical English", output, StringComparison.Ordinal);
     Assert.Contains("messages to the user", output, StringComparison.Ordinal);
   }
+
   [Fact]
   public void Build_MissingSelectedStyleSkill_ThrowsInvalidOperationException()
   {
@@ -131,18 +135,6 @@ public class SkillsBootstrapTests
         => Task.FromResult(Result.Success(style));
   }
 
-  private static int CountOccurrences(string text, string marker)
-  {
-    int count = 0;
-    int index = 0;
-    while ((index = text.IndexOf(marker, index, StringComparison.Ordinal)) >= 0)
-    {
-      count++;
-      index += marker.Length;
-    }
-
-    return count;
-  }
 
   private sealed class CatalogWithoutBootstrapSkill : ISkillCatalog
   {
