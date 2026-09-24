@@ -204,7 +204,19 @@ public static class AgentComposition
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
             sp.GetRequiredService<AppDatabase>()))
-        .AddSingleton<ISkillCatalog, EmbeddedSkillCatalog>()
+        // Composite skill catalog (skill-routing Phase 1, Task 7): built-ins plus
+        // file skills loaded through the directory-source ACL from the resolved
+        // skill-directory configuration. When nothing is configured the composite
+        // is behavior-identical to the bare embedded catalog it replaced. The
+        // concrete registration stays so anything resolving the embedded catalog
+        // directly keeps doing so; the skill tools and the bootstrap prompt
+        // provider resolve ISkillCatalog and see the merged view.
+        .AddSingleton<EmbeddedSkillCatalog>()
+        .AddSingleton<ISkillDirectorySource, DirectorySkillSource>()
+        .AddSingleton<ISkillCatalog>(sp => new CompositeSkillCatalog(
+            sp.GetRequiredService<EmbeddedSkillCatalog>(),
+            sp.GetRequiredService<ISkillDirectorySource>(),
+            sp.GetRequiredService<ResolvedSkillDirectories>().List))
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
         .AddSingleton<SqliteCuratedMemoryStore>()
@@ -405,6 +417,9 @@ public static class AgentComposition
         [
             new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>(),
                 sp.GetRequiredService<ICommitStyleProvider>()),
+                new SkillsListingPromptProvider(sp.GetRequiredService<ISkillCatalog>(),
+                    sp.GetRequiredService<ILearnedSkillStore>(),
+                    sp.GetRequiredService<ResolvedSkillDirectories>().List),
                 new StaticPromptProvider(
                     "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
                     "workspace, prefer the provided tools over guessing, and keep responses tight."),
@@ -467,6 +482,14 @@ public static class AgentComposition
             sp.GetRequiredService<RootAgentResolver>()))
         .AddSingleton<IConversationContextService>(sp => new ConversationContextServiceAdapter(sp.GetRequiredService<Conversation>()))
         .AddSingleton<RootSessionLifecycle>()
+        // Skill-directory config rides EVERY container (skill-routing Phase 1): the
+        // factory fills the carrier at open/resume, and the RemoteHost block below
+        // overlays the values onto the settings JSON - so BOTH containers (the app's
+        // and the remote ChildHost's) resolve the same config shape from
+        // AgentSettings. Unconditional registration: not remote resolves nulls, the
+        // empty directory list, and nothing else changes.
+        .AddSingleton<SkillDirectoriesCarrier>()
+        .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)))
         ;
 
     // Runtime selection (R3.4): in-process by default; RemoteHost = true routes child
@@ -480,7 +503,10 @@ public static class AgentComposition
               Path.Combine(Path.GetTempPath(), "ethang-agent", RemoteHostSupervisor.ScratchFolderFor(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)),
               settings.WithSessionFiles(
                   sp.GetRequiredService<SessionFilesCarrier>().Global,
-                  sp.GetRequiredService<SessionFilesCarrier>().Workspace),
+                  sp.GetRequiredService<SessionFilesCarrier>().Workspace)
+               .WithSkillDirectories(
+                  sp.GetRequiredService<SkillDirectoriesCarrier>().Global,
+                  sp.GetRequiredService<SkillDirectoriesCarrier>().Workspace),
               sp.GetRequiredService<AppDatabase>().DatabasePath,
               // Host-health notices surface on the session transcript when the host UI
               // has attached its notice sink; headless hosts drop them.
@@ -493,6 +519,26 @@ public static class AgentComposition
     }
 
     return wired;
+  }
+
+  /// <summary>Resolves skill directories from the settings-carried stored lists - the
+  ///     config shape a host built from serialized AgentSettings (the remote
+  ///     ChildHost) resolves through. App-side containers REPLACE the
+  ///     core's settings-sourced registration in AgentSessionFactory.BuildContainer,
+  ///     where the raw preference values were just read from the store; the host
+  ///     replaces it too - SessionHost calls this same resolver (shared composition
+  ///     glue, public for the cross-assembly call; ref assemblies drop internals),
+  ///     so remote children render the identical listing. The duplicate-path
+  ///     rule matches the factory's resolution: parse validates shape only; a workspace
+  ///     path equal (case-insensitive, full-path normalized) to an already-included
+  ///     global path is skipped with no error - the global entry wins.</summary>
+  public static IReadOnlyList<SkillDirectory> ResolveSkillDirectoriesFromSettings(AgentSettings settings)
+  {
+    ArgumentNullException.ThrowIfNull(settings);
+
+    return AgentSessionFactory.ResolveSkillDirectories(
+        settings.SkillDirectoriesGlobal, settings.SkillDirectoriesWorkspace,
+        settings.WorkspaceRoot ?? string.Empty);
   }
 
   /// <summary>Wires the EXCLUSIVELY selected provider's chat transport: configuration,

@@ -1,62 +1,24 @@
 ---
 name: using-skills
-description: Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including questions to the user
+description: Session contract for skill use: prefer a matching skill over improvising, announce the skill, load its body with skill_view, and follow it; user instructions always outrank skills
 ---
-
-<SUBAGENT-STOP>
-If you were dispatched as a subagent to execute a specific task, ignore this skill.
-</SUBAGENT-STOP>
 
 # Using Skills
 
-<EXTREMELY-IMPORTANT>
-If you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill.
+Skills listed in the [skills listing] block are available. A skill that matches the
+current task is better than improvising the same procedure from scratch.
 
-IF A SKILL APPLIES TO YOUR TASK, YOU DO NOT HAVE A CHOICE. YOU MUST USE IT.
+1. Before starting non-trivial work, check the listing for a skill that matches the
+   task. Match on what the task IS, not only on exact wording.
+2. Load the skill with skill_view before relying on it, even if you believe you know
+   its content: bodies evolve and details matter.
+3. Announce: "Using [skill] to [purpose]" — then follow the skill.
+4. If two skills match, run the process skill first (it sets the approach), then the
+   implementation skill.
+5. The user's explicit instructions outrank any skill. Skills the user names are
+   loaded even when they are not auto-listed.
+6. If no skill matches, proceed without one. Do not force a match.
 
-This is not negotiable. You cannot rationalize your way out of this.
-</EXTREMELY-IMPORTANT>
+This harness is eThang Agent. Tool binding lives in the ethang-tools-mapping skill.
 
-## The Rule
-
-**Invoke relevant or requested skills BEFORE any response or action** — including questions to the user, exploring the codebase, or checking files. If it turns out wrong for the situation, you don't have to use it.
-
-**Before entering plan mode:** if you haven't already brainstormed, invoke the brainstorming skill first.
-
-Then announce "Using [skill] to [purpose]" and follow the skill exactly. If it has a checklist, create a todo per item.
-
-## Skill Priority
-
-When multiple skills apply, process skills come first — they set the approach, then implementation skills (frontend-design, etc.) carry it out. Brainstorming and systematic-debugging are the most common process skills, but the rule holds for any of them.
-
-- "Let's build X" → grill first when the ask is thin (a bare question or one-liner), then brainstorming, then implementation skills.
-- "Fix this bug" → systematic-debugging first, then domain skills.
-
-## Red Flags
-
-These thoughts mean STOP—you're rationalizing:
-
-| Thought | Reality |
-|---------|---------|
-| "This is just a simple question" | Questions are tasks. Check for skills. |
-| "I need more context first" | Skill check comes BEFORE requirement gathering. |
-| "Let me explore the codebase first" | Skills tell you HOW to explore. Check first. |
-| "I can check git/files quickly" | Files lack conversation context. Check for skills. |
-| "Let me gather information first" | Skills tell you HOW to gather information. |
-| "This doesn't need a formal skill" | If a skill exists, use it. |
-| "I remember this skill" | Skills evolve. Read current version. |
-| "This doesn't count as a task" | Action = task. Check for skills. |
-| "The skill is overkill" | Simple things become complex. Use it. |
-| "I'll just do this one thing first" | Check BEFORE doing anything. |
-| "This feels productive" | Undisciplined action wastes time. Skills prevent this. |
-| "I know what that means" | Knowing the concept ≠ using the skill. Invoke it. |
-
-## Platform Adaptation
-
-This harness IS eThang Agent — there are no other platform variants. Tool
-binding lives in the session bootstrap's tool mapping and the
-ethang-tools-mapping skill.
-
-## User Instructions
-
-User instructions (AGENTS.md and direct requests) take precedence over skills, which in turn override default behavior. Only skip skill workflows or instructions when your human partner has explicitly told you to.
+Skills marked [manual] exist but are not auto-listed; the user loads them by name.

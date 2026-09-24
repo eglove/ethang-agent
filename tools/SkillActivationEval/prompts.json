@@ -1,0 +1,17 @@
+[
+  { "id": "D1", "prompt": "I found a bug: the settings window throws a NullReferenceException when opened twice. Help me fix it.", "expected": ["systematic-debugging"], "expectNone": false },
+  { "id": "D2", "prompt": "Let's build a new feature: add CSV export to the reports tab.", "expected": ["brainstorming", "grill"], "expectNone": false },
+  { "id": "D3", "prompt": "Write a new function that parses the config file, and include tests for it.", "expected": ["test-driven-development"], "expectNone": false },
+  { "id": "D4", "prompt": "Review my changes before I commit them.", "expected": ["requesting-code-review"], "expectNone": false },
+  { "id": "D5", "prompt": "Create a git worktree so I can try this risky change in isolation.", "expected": ["using-git-worktrees"], "expectNone": false },
+  { "id": "P1", "prompt": "Users say the app hangs when they open a large folder. Where do we even start looking?", "expected": ["systematic-debugging"], "expectNone": false },
+  { "id": "P2", "prompt": "I have an idea for making exports faster, but I am not sure the approach makes sense yet.", "expected": ["brainstorming"], "expectNone": false },
+  { "id": "P3", "prompt": "I want to be certain everything actually works before I tell the team this is done.", "expected": ["verification-before-completion"], "expectNone": false },
+  { "id": "P4", "prompt": "How should we split this work across several agents so it finishes faster?", "expected": ["dispatching-parallel-agents"], "expectNone": false },
+  { "id": "P5", "prompt": "The branch is done. What is left to do before this can merge?", "expected": ["finishing-a-development-branch"], "expectNone": false },
+  { "id": "G1", "prompt": "Summarize the plot of Moby-Dick in three sentences.", "expected": [], "expectNone": true },
+  { "id": "G2", "prompt": "What are the main tourist attractions in Lisbon?", "expected": [], "expectNone": true },
+  { "id": "G3", "prompt": "Draft a polite email declining a meeting invitation.", "expected": [], "expectNone": true },
+  { "id": "G4", "prompt": "Explain the difference between ballistic and cruise missiles in plain language.", "expected": [], "expectNone": true },
+  { "id": "G5", "prompt": "Convert 350 US dollars to euros and to Japanese yen at today's rough rates.", "expected": [], "expectNone": true }
+]

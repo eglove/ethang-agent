@@ -399,7 +399,8 @@ public class AgentSessionFactoryTests
         string prompt = result.Value.SystemPrompt;
         Assert.False(string.IsNullOrWhiteSpace(prompt));
         // The composite render: the skills bootstrap leads, session files follow.
-        Assert.Contains("EXTREMELY_IMPORTANT", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("EXTREMELY_IMPORTANT", prompt, StringComparison.Ordinal);
+        Assert.StartsWith("---\nname: using-skills", prompt, StringComparison.Ordinal);
         Assert.Contains("You are eThang Agent", prompt, StringComparison.Ordinal);
       }
       finally

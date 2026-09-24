@@ -6,9 +6,11 @@ namespace eThangAgent.ToolDomain.Tests;
 public class SkillListToolTests
 {
   private static SkillDefinition Def(string name, string description,
-      int version = 1, SkillSource source = SkillSource.BuiltIn) =>
+      int version = 1, SkillSource source = SkillSource.BuiltIn,
+      bool manual = false, string? origin = null) =>
       new(name, description, "BODY", version, source,
-          ProvenanceSessionId: null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+          ProvenanceSessionId: null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+          manual, origin);
 
   private static SkillListTool MakeTool(
       IReadOnlyList<SkillDefinition>? builtIns = null,
@@ -92,6 +94,101 @@ public class SkillListToolTests
         result.Content);
   }
 
+  // ---- File skills, the manual marker, and catalog diagnostics ----
+
+  [Fact]
+  public async Task FileSkill_RendersFileLabel()
+  {
+    ToolResult result = await MakeTool(
+            builtIns: [Def("alpha", "from a directory", source: SkillSource.File, origin: @"C:\skills\global")])
+            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
+    Assert.False(result.IsError);
+    Assert.Equal("[skills: 1 available]\n" + $"{"alpha",-20} file v1  from a directory",
+        result.Content);
+  }
+
+  [Fact]
+  public async Task ManualMarker_OnlyForManualSkills()
+  {
+    ToolResult result = await MakeTool(builtIns:
+            [
+                Def("auto-one", "auto", source: SkillSource.File, origin: @"C:\skills"),
+                Def("manual-one", "manual only", source: SkillSource.File, manual: true, origin: @"C:\skills"),
+            ])
+            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
+    Assert.False(result.IsError);
+    Assert.Equal(
+        "[skills: 2 available]\n" +
+        $"{"auto-one",-20} file v1  auto\n" +
+        $"{"manual-one",-20} file v1 [manual]  manual only",
+        result.Content);
+  }
+
+  [Fact]
+  public async Task ManualMarker_IsSourceIndependent()
+  {
+    ToolResult result = await MakeTool(
+            learned: [Def("learned-manual", "learned", version: 2, source: SkillSource.Learned, manual: true)])
+            .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
+    Assert.False(result.IsError);
+    Assert.Equal("[skills: 1 available]\n" +
+        $"{"learned-manual",-20} learned v2 [manual]  learned",
+        result.Content);
+  }
+
+  [Fact]
+  public async Task Diagnostics_RenderAfterRows_CollisionVerbatim_OthersPrefixed()
+  {
+    SkillListTool tool = new(
+        new FakeCatalogWithDiagnostics(
+            [Def("alpha", "first", source: SkillSource.File, origin: @"C:\skills")],
+            [
+                "no SKILL.md in broken, skipped",
+                "[collision] alpha (workspace directory) shadowed by built-in",
+            ]),
+        new FakeLearnedStore([]));
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal(
+        "[skills: 1 available]\n" +
+        $"{"alpha",-20} file v1  first\n" +
+        "[warning] no SKILL.md in broken, skipped\n" +
+        "[collision] alpha (workspace directory) shadowed by built-in",
+        result.Content);
+  }
+
+  [Fact]
+  public async Task SourceWarnings_KeepPositions_AfterDiagnostics()
+  {
+    SkillListTool tool = new(
+        new FakeCatalogWithDiagnostics([], ["directory load failed C:\\skills: disk on fire"]),
+        new FakeLearnedStore([], failList: true));
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal(
+        "[skills: 0 available]\n" +
+        "[warning] directory load failed C:\\skills: disk on fire\n" +
+        "[warning] learned skills unavailable: store down",
+        result.Content);
+  }
+
+  [Fact]
+  public async Task DiagnosticsFailure_IsSkipped_ListingStillSucceeds()
+  {
+    SkillListTool tool = new(
+        new FakeCatalogWithDiagnostics([Def("alpha", "first")], failDiagnostics: true),
+        new FakeLearnedStore([]));
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal("[skills: 1 available]\n" + $"{"alpha",-20} builtin v1  first",
+        result.Content);
+  }
   // ---- Degradation on source failure ----
 
   [Fact]
@@ -140,6 +237,29 @@ public class SkillListToolTests
     }
   }
 
+  /// <summary>A catalog fake that also carries pre-formatted diagnostics, the
+  /// shape the composite skill catalog exposes through ISkillCatalogDiagnostics.</summary>
+  private sealed class FakeCatalogWithDiagnostics(IReadOnlyList<SkillDefinition> skills,
+      IReadOnlyList<string>? diagnostics = null, bool failDiagnostics = false)
+      : ISkillCatalog, ISkillCatalogDiagnostics
+  {
+    public Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default) =>
+        Task.FromResult(Result.Success(skills));
+
+    public Task<Result<SkillDefinition>> GetAsync(string name, CancellationToken ct = default)
+    {
+      SkillDefinition? match = skills.FirstOrDefault(s => s.Name == name);
+      return Task.FromResult(match is not null
+          ? Result.Success(match)
+          : Result.Failure<SkillDefinition>(new DomainError("SkillNotFound",
+              $"No built-in skill named '{name}'.")));
+    }
+
+    public Task<Result<IReadOnlyList<string>>> GetDiagnosticsAsync(CancellationToken ct = default) =>
+        Task.FromResult(failDiagnostics
+            ? Result.Failure<IReadOnlyList<string>>(new DomainError("DiagnosticsUnavailable", "diagnostics down"))
+            : Result.Success(diagnostics ?? []));
+  }
   private sealed class FakeLearnedStore(IReadOnlyList<SkillDefinition> skills, bool failList = false) : ILearnedSkillStore
   {
     public Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default) =>

@@ -11,9 +11,12 @@ namespace eThangAgent.Composition;
 /// to drift) — plus the selected commit style's guidance skill (the user's host
 /// setting; Conventional when no provider is wired) and the ASD-STE100 user-message
 /// style rule (every user-facing message follows Simplified Technical English;
-/// internal reasoning and agent-to-agent messages are exempt) — all wrapped in
-/// EXTREMELY_IMPORTANT tags with the already-active notice. Built once per
-/// session; no caching needed.</summary>
+/// internal reasoning and agent-to-agent messages are exempt) — closed by the
+/// already-active notice. No emphasis wrapper: the contract speaks for itself.
+/// The always-on skill listing is a separate provider
+/// (SkillsListingPromptProvider); this one injects the contract skill, tools
+/// mapping, commit style, and STE rule. Built once per session; no caching
+/// needed.</summary>
 public sealed class SkillsBootstrapPromptProvider(ISkillCatalog catalog,
     ICommitStyleProvider? styleProvider = null) : ISkillCatalogDependentSystemPromptProvider
 {
@@ -61,8 +64,8 @@ public sealed class SkillsBootstrapPromptProvider(ISkillCatalog catalog,
 
     string skillsMarkdown =
         $"---\nname: {skills.Name}\ndescription: {skills.Description}\n---\n\n{skills.Body}";
-    return $"<EXTREMELY_IMPORTANT>\n\n{skillsMarkdown}\n\n{mapping.Body}\n\nActive commit style guidance (the user's host setting; the git_commit tool " +
-        $"enforces it):\n\n{commitStyle.Body}\n\n{UserMessageStyleRule}\n\n{AlreadyActiveNotice}\n\n</EXTREMELY_IMPORTANT>";
+    return $"{skillsMarkdown}\n\n{mapping.Body}\n\nActive commit style guidance (the user's host setting; the git_commit tool " +
+        $"enforces it):\n\n{commitStyle.Body}\n\n{UserMessageStyleRule}\n\n{AlreadyActiveNotice}";
   }
 
   /// <summary>Resolves which commit-style guidance skill to inject: the wired

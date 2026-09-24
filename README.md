@@ -75,8 +75,11 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   the final URL, status, content type, and size
 - Curated memory loop — `memories.search/add/update/remove/purge` over a categorized, full-text,
   versioned knowledge base, with turn-boundary nudges prompting curation
-- Skill subsystem: 18 embedded skills (development methodology plus per-style commit guidance),
-  session-start bootstrap injection, and `skill_list` / `skill_view` / `skill_manage` tools
+- Skill subsystem: 19 embedded skills (development methodology plus per-style commit guidance),
+  file skills from user-configured agentskills.io directories (precedence built-in > file >
+  learned, collisions announced), a budgeted always-on skill listing in every session's system
+  prompt, session-start bootstrap injection of the using-skills contract, and `skill_list` /
+  `skill_view` / `skill_manage` tools
 - z.ai capability tools (available only on z.ai tabs in the **General API** endpoint
   mode — the capability endpoints do not exist on the coding endpoint): `web_search` — live web search with
   bounded snippets; `web_read` — fetch one page as markdown; `count_tokens` — GLM tokenizer;
@@ -174,6 +177,41 @@ The active provider is chosen per agent in the Open-Agent dialog — switching p
 - **OpenRouter** — the picker offers **Auto (smart selection)** plus a searchable list of every OpenRouter model (deduped across provider endpoints, shown with effective pricing and context size). Auto is the default: the agent defers model selection to the first user prompt, where a two-stage LLM pipeline categorizes that prompt and selects the best model from OpenRouter's fetched catalog based on the task category and price. The pipeline re-runs on every 10th user message thereafter so the model tracks the conversation's evolving task. Sub-agent spawns similarly select models based on their task prompts. Selection failures fall back to the default model (`openrouter/auto`) and surface as a transcript notice.
 - **z.ai** — no automatic selection. The picker lists z.ai's static lineup (`glm-5.3`, `glm-5.3-flash` — z.ai exposes no models-listing endpoint); the session runs `glm-5.3-flash` until you pick one.
 - **Local (OpenAI-compatible)** — the model list shows the server's own lineup exactly as it advertises it: models come from the server's `/v1/models` listing, and each model's context window is probed from LM Studio's batch endpoint, Ollama's `show`, or a small floor fallback when neither answers. The session runs the first listed model until you pick one. Reasoning effort is not sent to local servers — the effort selector is disabled in Model Settings on a local tab.
+
+### Skills
+
+Every session's system prompt carries a budgeted skills listing so the model can prefer a
+matching skill over improvising and load the full body with `skill_view`. Skills come from
+three sources with fixed precedence: built-in > file > learned.
+
+- **Built-in skills** (19) ship with the app: the development-methodology set (debugging,
+  brainstorming, TDD, planning, code review, worktrees, sub-agent driving, verification),
+  the `using-skills` session contract, the tools-mapping skill, and one commit-guidance skill
+  per commit style.
+- **File skills** load from directories you configure in **⚙ Settings → Files → Skill
+  directories**. Global directories are scanned for every workspace; workspace directories
+  for the workspace they belong to. Each entry can be toggled on or off, and a workspace
+  directory equal to a global one is scanned once. Directories use the
+  [agentskills.io](https://agentskills.io/) layout: each immediate subdirectory holding a
+  `SKILL.md` is one skill, and a `SKILL.md` at the directory root is a single-skill directory;
+  everything else in the folder is ignored. With no directories configured, no file skills load.
+- **Frontmatter**: `name` and a non-empty `description` are required; `metadata.version`
+  (integer) and `disable-model-invocation: true` (manual skill) are honored; `allowed-tools`,
+  `license`, and `compatibility` are known but unapplied, and unknown keys load with a warning
+  instead of failing the file. One unreadable or unparseable skill degrades to a warning in
+  the listing — the rest still load.
+- **Precedence and collisions**: a file skill never shadows a built-in, and a learned skill
+  never shadows either. A same-name collision is announced as a `[collision]` line in the
+  listing and in `skill_list`, and `skill_manage` refuses to create a learned skill under an
+  existing built-in or file-skill name.
+- **Manual skills** (`disable-model-invocation: true`) are excluded from the always-on listing,
+  marked `[manual]` in `skill_list`, and load by name through `skill_view` — the user names
+  them, the model loads them.
+- **The listing budget** is 8,000 characters for the whole block, with descriptions truncated
+  at 60 characters, grouped Built-in / Global directory skills / Workspace directory skills /
+  Learned. Load failures render as `[warning]` lines; when the budget forces content out, a
+  truncation marker states what was shown and dropped — never silent. Remote (out-of-process)
+  children receive the identical listing.
 
 ### Where your data lives
 

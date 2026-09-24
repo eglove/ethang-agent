@@ -18,9 +18,13 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
       "provenanceSession optionally tags the originating session. Update changes at least one of " +
       "description/body, bumps the version by one, and preserves creation metadata. Delete " +
       "requires confirm to be exactly the boolean true \u2014 deletion permanently removes current " +
-      "and history rows and refuses anything else. Built-in skills are authoritative and " +
-      "immutable: creating a name that collides with a built-in fails NameCollision; updating or " +
-      "deleting a built-in fails BuiltInImmutable. Output is a single annotation line: " +
+      "and history rows and refuses anything else. Built-in and file skills are authoritative: " +
+      "creating a name held by a built-in or file skill fails NameCollision — file skills may " +
+      "never be shadowed by learned skills; updating or deleting a name held only as a file " +
+      "skill fails SkillNotFound (nothing learned exists to change); updating a truly unknown " +
+      "name fails SkillNotFound with 'No learned skill named <name> to update. Use action " +
+      "Create first.'; updating or deleting a " +
+      "built-in fails BuiltInImmutable. Output is a single annotation line: " +
       "`[skill-manage] created '<name>' v1`, `[skill-manage] updated '<name>' v<N>`, or " +
       "`[skill-manage] deleted '<name>'`. Errors begin with `Error [Code]:`.",
       [
@@ -68,14 +72,14 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
 
   private async Task<ToolResult> CreateAsync(SkillManageInput input, CancellationToken ct)
   {
-    // Built-ins are authoritative: the catalog check comes first so the
-    // store is never touched on a colliding name.
-    Result<SkillDefinition> builtIn = await _catalog.GetAsync(input.Name, ct).ConfigureAwait(false);
-    if (builtIn.IsSuccess)
+    // Built-ins and file skills are authoritative: the catalog check comes
+    // first so the store is never touched on a colliding name.
+    Result<SkillDefinition> held = await _catalog.GetAsync(input.Name, ct).ConfigureAwait(false);
+    if (held.IsSuccess)
     {
       return Err(new DomainError("NameCollision",
-          $"'{input.Name}' is a built-in skill and built-ins are authoritative: " +
-          "learned skills may never shadow them. Choose a different name."));
+          $"'{input.Name}' is already a built-in or file skill and file skills " +
+          "may never be shadowed by learned skills. Choose a different name."));
     }
 
     Result<SkillDefinition?> existing = await _learned.GetAsync(input.Name, ct).ConfigureAwait(false);
@@ -105,11 +109,13 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
 
   private async Task<ToolResult> UpdateAsync(SkillManageInput input, CancellationToken ct)
   {
-    // Built-ins are immutable: never consult the store for one.
-    Result<SkillDefinition> builtIn = await _catalog.GetAsync(input.Name, ct).ConfigureAwait(false);
-    if (builtIn.IsSuccess)
+    // A built-in is immutable; a file skill is not a learned skill at all.
+    Result<SkillDefinition> held = await _catalog.GetAsync(input.Name, ct).ConfigureAwait(false);
+    if (held.IsSuccess)
     {
-      return Err(BuiltInImmutableError(input.Name));
+      return Err(held.Value.Source == SkillSource.BuiltIn
+          ? BuiltInImmutableError(input.Name)
+          : FileOnlyNotFoundError(input.Name));
     }
 
     Result<SkillDefinition?> current = await _learned.GetAsync(input.Name, ct).ConfigureAwait(false);
@@ -146,11 +152,13 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
 
   private async Task<ToolResult> DeleteAsync(SkillManageInput input, CancellationToken ct)
   {
-    // Built-ins are immutable: never consult the store for one.
-    Result<SkillDefinition> builtIn = await _catalog.GetAsync(input.Name, ct).ConfigureAwait(false);
-    if (builtIn.IsSuccess)
+    // A built-in is immutable; a file skill is not a learned skill at all.
+    Result<SkillDefinition> held = await _catalog.GetAsync(input.Name, ct).ConfigureAwait(false);
+    if (held.IsSuccess)
     {
-      return Err(BuiltInImmutableError(input.Name));
+      return Err(held.Value.Source == SkillSource.BuiltIn
+          ? BuiltInImmutableError(input.Name)
+          : FileOnlyNotFoundError(input.Name));
     }
 
     Result<SkillDefinition?> existing = await _learned.GetAsync(input.Name, ct).ConfigureAwait(false);
@@ -161,7 +169,7 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
 
     if (existing.ValueOrNull is null)
     {
-      return Err(NotFoundDeleteError(input.Name));
+      return Err(FileOnlyNotFoundError(input.Name));
     }
 
     Result<bool> deleted = await _learned.DeleteAsync(input.Name, ct).ConfigureAwait(false);
@@ -172,7 +180,7 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
 
     bool notFound = !deleted.Value;
     return notFound
-        ? Err(NotFoundDeleteError(input.Name))
+        ? Err(FileOnlyNotFoundError(input.Name))
         : new ToolResult($"[skill-manage] deleted '{input.Name}'", false);
   }
 
@@ -181,8 +189,10 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
           $"'{name}' is a built-in skill and built-ins are immutable: " +
           "it cannot be updated or deleted.");
 
-  private static DomainError NotFoundDeleteError(string name) =>
-      new("SkillNotFound", $"No learned skill named '{name}' to delete.");
+  /// <summary>Update/Delete reached a name the catalog holds as a file skill —
+  /// or no learned skill at all: nothing learned exists to change.</summary>
+  private static DomainError FileOnlyNotFoundError(string name) =>
+      new("SkillNotFound", $"No learned skill named '{name}'.");
 
   private static ToolResult Err(DomainError error) => new($"Error [{error.Code}]: {error.Message}", true);
 }

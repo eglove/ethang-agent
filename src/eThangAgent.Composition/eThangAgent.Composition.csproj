@@ -30,4 +30,10 @@
     <ProjectReference Include="../eThangAgent.Model.Domain/eThangAgent.Model.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The skill-directory resolution rule matrix (duplicate paths, scope order,
+         enabled filtering) is an internal static pure seam; composition tests pin it
+         directly, like the Agent.Domain test hooks. -->
+    <InternalsVisibleTo Include="eThangAgent.Composition.Tests" />
+  </ItemGroup>
 </Project>

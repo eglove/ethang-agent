@@ -1,6 +1,7 @@
 ---
 name: commit-style-none
-description: Commit message guidance for the plain style (no prefix) — loaded when the host's commit-style setting selects None.
+description: Commit message guidance for the plain style (no prefix) — loaded when the host's commit-style setting selects None. Selected by the host, not by the model.
+disable-model-invocation: true
 ---
 
 # Plain commit style (active host setting)

@@ -1,6 +1,6 @@
 ---
 name: ethang-tools-mapping
-description: How skills name actions and how they bind to real eThang Agent tools.
+description: Resolve a skill action to the real eThang Agent tool it binds to. Use at the start of any conversation: the harness tool binding for every skill action name.
 ---
 
 # eThang Agent Tool Mapping

@@ -6,6 +6,9 @@ namespace eThangAgent.ToolDomain;
 
 public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore learned) : ITool
 {
+  // Keep in sync: format parity with SkillsListingPromptProvider truncation
+  // (SkillListingBudget.DescriptionLimit in eThangAgent.Composition) - Tool.Domain
+  // cannot reference Composition, so the constant is duplicated deliberately.
   private const int DescriptionLimit = 60;
 
   private readonly ISkillCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
@@ -13,15 +16,21 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
 
   public ToolDefinition Definition { get; } = new(
       "skill_list",
-      "List available methodology skills — built-ins shipped with the app plus skills " +
-      "learned earlier — merged and sorted by name. Takes no parameters besides the " +
-      "mandatory timeoutSeconds budget; other arguments are rejected. Output is one header line " +
-      "`[skills: N available]`, then one line per skill: `<name> <builtin|learned> " +
-      "v<version>  <description>` with the name padded to 20 characters and the description " +
-      "truncated to 60 characters with an appended … when longer. If a source cannot be " +
-      "read, its skills are omitted and a trailing line is appended — `[warning] built-in " +
-      "skills unavailable: <reason>` or `[warning] learned skills unavailable: <reason>` — " +
-      "while the listing itself still succeeds. Errors begin with `Error [Code]:`.",
+      "List available methodology skills — built-ins shipped with the app, skills loaded " +
+      "from configured skill directories, and skills learned earlier — merged and sorted " +
+      "by name. Takes no parameters besides the mandatory timeoutSeconds budget; other " +
+      "arguments are rejected. Output is one header line `[skills: N available]`, then one " +
+      "line per skill: `<name> <builtin|file|learned> v<version>[ [manual]]  <description>` — " +
+      "the name padded to 20 characters, the source label `builtin` for built-ins, `file` " +
+      "for file skills, and `learned` for learned skills, the literal ` [manual]` marker " +
+      "between the version and the description separator only for manual-invocation-only " +
+      "skills, and the description truncated to 60 characters with an appended … when " +
+      "longer. After the skill rows the catalog's diagnostics render: each collision line " +
+      "verbatim with its `[collision] ` prefix, every other diagnostic as `[warning] " +
+      "<text>`. Source-failure warnings — `[warning] built-in skills unavailable: <reason>` " +
+      "or `[warning] learned skills unavailable: <reason>` — keep their positions after the " +
+      "diagnostics: an unreadable source's skills are omitted while the listing itself " +
+      "still succeeds. Errors begin with `Error [Code]:`.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
       ],
@@ -67,23 +76,51 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
       warnings.Add($"[warning] learned skills unavailable: {learnedResult.Error.Message}");
     }
 
+    // Diagnostics are an optional catalog capability: the composite skill
+    // catalog carries them (collision + directory lines), bare catalogs do not.
+    List<string> diagnostics = [];
+    if (_catalog is ISkillCatalogDiagnostics withDiagnostics)
+    {
+      Result<IReadOnlyList<string>> reported =
+          await withDiagnostics.GetDiagnosticsAsync(ct).ConfigureAwait(false);
+      if (reported.IsSuccess)
+      {
+        diagnostics.AddRange(reported.Value.Select(RenderDiagnostic));
+      }
+    }
+
     List<string> lines =
     [
       $"[skills: {skills.Count} available]",
       .. skills
           .OrderBy(s => s.Name, StringComparer.Ordinal)
           .Select(FormatRow),
+      .. diagnostics,
       .. warnings,
     ];
 
     return new ToolResult(string.Join("\n", lines), false);
   }
 
-  internal static string SourceLabel(SkillSource source) =>
-      source == SkillSource.BuiltIn ? "builtin" : "learned";
+  internal static string SourceLabel(SkillSource source) => source switch
+  {
+    SkillSource.BuiltIn => "builtin",
+    SkillSource.File => "file",
+    SkillSource.Learned => "learned",
+    // Unnamed enum values cannot occur.
+    _ => "learned",
+  };
+
+  /// <summary>Collision lines already carry their '[collision] ' prefix and
+  /// render verbatim; every other diagnostic is plain text that gains the
+  /// '[warning] ' prefix here.</summary>
+  private static string RenderDiagnostic(string line) =>
+      line.StartsWith("[collision] ", StringComparison.Ordinal) ? line : "[warning] " + line;
 
   private static string FormatRow(SkillDefinition skill) =>
-      $"{skill.Name,-20} {SourceLabel(skill.Source)} v{skill.Version}  {Truncate(skill.Description)}";
+      $"{skill.Name,-20} {SourceLabel(skill.Source)} v{skill.Version}{ManualMarker(skill)}  {Truncate(skill.Description)}";
+
+  private static string ManualMarker(SkillDefinition skill) => skill.Manual ? " [manual]" : string.Empty;
 
   private static string Truncate(string description) =>
       description.Length <= DescriptionLimit
@@ -97,8 +134,7 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
     Result<JsonElement> baseParse = ToolArguments.ParseObject(jsonArguments);
     if (!baseParse.IsSuccess)
     {
-      return Fail(baseParse.Error)
-;
+      return Fail(baseParse.Error);
     }
 
     Result<TimeSpan> budget = ToolTimeout.Parse(baseParse.Value);

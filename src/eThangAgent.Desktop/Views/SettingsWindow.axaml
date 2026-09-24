@@ -87,6 +87,48 @@
           <TextBlock
               Text="Checked files are read at session start and injected verbatim into the system prompt (global first, then workspace). Missing or unreadable files are skipped with a note; nothing is loaded unless you configure it here. Applies to newly opened agents."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+          <Separator Margin="0,4,0,0"/>
+          <TextBlock Text="Skill directories" FontWeight="Bold" Margin="0,6,0,0"/>
+          <TextBlock Text="Global skill directories (scanned for every workspace)" Opacity="0.8"/>
+          <ItemsControl x:Name="GlobalSkillDirectoriesList" ItemsSource="{Binding GlobalSkillDirectories}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <CheckBox IsChecked="{Binding Enabled}"/>
+                  <TextBlock Text="{Binding Path}" VerticalAlignment="Center"/>
+                  <Button Content="✕" Command="{Binding $parent[ItemsControl].DataContext.RemoveGlobalSkillDirectoryCommand}"
+                          CommandParameter="{Binding}" Padding="2,0"/>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBox x:Name="NewGlobalSkillDirectoryBox" Text="{Binding NewGlobalSkillDirectory}" Width="320"
+                     PlaceholderText="C:\absolute\path\to\skills"/>
+            <Button x:Name="AddGlobalSkillDirectoryButton" Content="Add" Command="{Binding AddGlobalSkillDirectoryCommand}"/>
+          </StackPanel>
+          <TextBlock Text="Workspace skill directories (scanned for the workspace above only)"
+                   FontWeight="Bold" IsVisible="{Binding HasWorkspace}"/>
+          <ItemsControl x:Name="WorkspaceSkillDirectoriesList" ItemsSource="{Binding WorkspaceSkillDirectories}" IsVisible="{Binding HasWorkspace}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <CheckBox IsChecked="{Binding Enabled}"/>
+                  <TextBlock Text="{Binding Path}" VerticalAlignment="Center"/>
+                  <Button Content="✕" Command="{Binding $parent[ItemsControl].DataContext.RemoveWorkspaceSkillDirectoryCommand}"
+                          CommandParameter="{Binding}" Padding="2,0"/>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasWorkspace}">
+            <TextBox x:Name="NewWorkspaceSkillDirectoryBox" Text="{Binding NewWorkspaceSkillDirectory}" Width="320"
+                     PlaceholderText="C:\absolute\path\to\skills"/>
+            <Button x:Name="AddWorkspaceSkillDirectoryButton" Content="Add" Command="{Binding AddWorkspaceSkillDirectoryCommand}"/>
+          </StackPanel>
+          <TextBlock
+              Text="Checked directories are scanned at session start for file skills (agentskills.io SKILL.md folders); a workspace directory equal to a global one is scanned once. Applies to newly opened agents."
+              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>
       <TabItem Header="Models">

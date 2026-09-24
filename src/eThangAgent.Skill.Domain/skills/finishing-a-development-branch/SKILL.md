@@ -1,6 +1,6 @@
 ---
 name: finishing-a-development-branch
-description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work
+description: Complete a branch: merge, clean up worktrees, confirm the build, and hand off. Use when implementation is done and all tests pass.
 ---
 
 # Finishing a Development Branch

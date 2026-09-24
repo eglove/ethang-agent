@@ -416,6 +416,35 @@ internal sealed partial class MainViewModel : ObservableObject
     return parsedWs.IsSuccess ? parsedWs.Value : [];
   }
 
+  /// <summary>Loads the global skill-directory rows for the settings modal prefill.
+  ///     Unset preference renders as an empty list, never an error.</summary>
+  public async Task<IReadOnlyList<SessionFileEntry>> GetGlobalSkillDirectoriesAsync()
+  {
+    if (_preferences is null)
+    {
+      return [];
+    }
+
+    string? stored = await _preferences.GetAsync(SkillDirectoryPreferences.GlobalKey);
+    Result<IReadOnlyList<SessionFileEntry>> parsed = SkillDirectoryPreferences.Parse(stored);
+    return parsed.IsSuccess ? parsed.Value : [];
+  }
+
+  /// <summary>Loads the selected tab's workspace skill-directory rows for the prefill.
+  ///     No selected tab means an empty workspace scope.</summary>
+  public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSkillDirectoriesAsync()
+  {
+    if (_preferences is null || SelectedTab is not { } tab)
+    {
+      return [];
+    }
+
+    string? stored = await _preferences.GetAsync(
+        SkillDirectoryPreferences.WorkspaceKey(tab.Container.WorkspaceRoot));
+    Result<IReadOnlyList<SessionFileEntry>> parsedWs = SkillDirectoryPreferences.Parse(stored);
+    return parsedWs.IsSuccess ? parsedWs.Value : [];
+  }
+
   /// <summary>The currently-selected compaction model row for the modal's prefill.</summary>
   public Task<CompactionModelOption?> GetSelectedCompactionModelAsync()
   {
@@ -604,6 +633,24 @@ internal sealed partial class MainViewModel : ObservableObject
       _ = workspaceFiles.Count == 0
           ? _preferences?.DeleteAsync(wsKey)
           : _preferences?.SetAsync(wsKey, SessionFilePreferences.Serialize(workspaceFiles));
+    }
+
+    // Skill directories (skill-routing): serialize exactly what the dialog showed,
+    // per scope - the same DeleteAsync-on-empty / SetAsync-otherwise contract.
+    if (update.GlobalSkillDirectories is { } globalSkillDirectories)
+    {
+      _ = globalSkillDirectories.Count == 0
+          ? _preferences?.DeleteAsync(SkillDirectoryPreferences.GlobalKey)
+          : _preferences?.SetAsync(SkillDirectoryPreferences.GlobalKey,
+                SkillDirectoryPreferences.Serialize(globalSkillDirectories));
+    }
+
+    if (update.WorkspaceRoot is { } skillWorkspaceRoot && update.WorkspaceSkillDirectories is { } workspaceSkillDirectories)
+    {
+      string skillWsKey = SkillDirectoryPreferences.WorkspaceKey(skillWorkspaceRoot);
+      _ = workspaceSkillDirectories.Count == 0
+          ? _preferences?.DeleteAsync(skillWsKey)
+          : _preferences?.SetAsync(skillWsKey, SkillDirectoryPreferences.Serialize(workspaceSkillDirectories));
     }
 
     // Re-hydrate non-secrets from the store they just landed in — the loader's strict

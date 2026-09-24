@@ -300,5 +300,9 @@ dist/
 # Agent session state (ZCode harness)
 .zcode/
 
+# Eval scratch output (controller-owned; local results only)
+tools/SkillActivationEval/out-eval/
+skill-activation-eval.db
+
 # Microsoft.Testing.Platform hang dumps + diagnostic logs
 TestResults/

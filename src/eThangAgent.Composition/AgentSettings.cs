@@ -78,7 +78,9 @@ public sealed record AgentSettings(
     LocalSettings? Local = null,
     string? WorkspaceRoot = null,
     string? SessionFilesGlobal = null,
-    string? SessionFilesWorkspace = null)
+    string? SessionFilesWorkspace = null,
+    string? SkillDirectoriesGlobal = null,
+    string? SkillDirectoriesWorkspace = null)
 {
   // Local: null (the default) means unconfigured — a named decision, never silent
   // leniency: it keeps every existing construction site compiling, and hosts (the
@@ -134,6 +136,17 @@ public sealed record AgentSettings(
   {
     SessionFilesGlobal = SessionFilesGlobal ?? globalStored,
     SessionFilesWorkspace = SessionFilesWorkspace ?? workspaceStored,
+  };
+
+  /// <summary>Returns the same settings with the stored skill-directory lists overlaid
+  ///     (skill-routing Phase 1): the raw preference values travel to the host inside
+  ///     the settings JSON, so remote children receive the SAME configured skill
+  ///     directories as the app-side session. Null arguments keep whatever the caller
+  ///     already set - never a clobber.</summary>
+  public AgentSettings WithSkillDirectories(string? globalStored, string? workspaceStored) => this with
+  {
+    SkillDirectoriesGlobal = SkillDirectoriesGlobal ?? globalStored,
+    SkillDirectoriesWorkspace = SkillDirectoriesWorkspace ?? workspaceStored,
   };
 
   /// <summary>Returns the same settings with the workspace root overlaid. The

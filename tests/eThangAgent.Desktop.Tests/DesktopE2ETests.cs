@@ -45,12 +45,16 @@ public class DesktopE2ETests
         .First(m => m.GetProperty("role").GetString() == "system")
         .GetProperty("content").GetString();
     Assert.NotNull(system);
-    Assert.Contains("<EXTREMELY_IMPORTANT>", system, StringComparison.Ordinal);
+    Assert.DoesNotContain("EXTREMELY_IMPORTANT", system, StringComparison.Ordinal);
     Assert.Contains("name: using-skills", system, StringComparison.Ordinal);
     Assert.Contains("ALREADY ACTIVE", system, StringComparison.Ordinal);
     Assert.Contains("skill_view", system, StringComparison.Ordinal);
+    // The frontmatter header is the once-only structural marker for the
+    // bootstrap contract: the listing provider never renders frontmatter, and
+    // the already-active notice sentence also occurs inside the
+    // ethang-tools-mapping body, so it cannot count as once-only.
     Assert.Equal(1, System.Text.RegularExpressions.Regex.Count(system,
-        System.Text.RegularExpressions.Regex.Escape("<EXTREMELY_IMPORTANT>")));
+        System.Text.RegularExpressions.Regex.Escape("---\nname: using-skills")));
   }
 
   [Fact]

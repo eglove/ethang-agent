@@ -1,6 +1,6 @@
 ---
 name: executing-plans
-description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
+description: Execute a stored implementation plan task by task with per-task verification. Use when a written implementation plan exists and the work is starting or resuming.
 ---
 
 # Executing Plans

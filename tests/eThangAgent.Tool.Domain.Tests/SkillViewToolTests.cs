@@ -6,9 +6,11 @@ namespace eThangAgent.ToolDomain.Tests;
 public class SkillViewToolTests
 {
   private static SkillDefinition Def(string name, string body,
-      int version = 1, SkillSource source = SkillSource.BuiltIn) =>
+      int version = 1, SkillSource source = SkillSource.BuiltIn,
+      bool manual = false, string? origin = null) =>
       new(name, "description", body, version, source,
-          ProvenanceSessionId: null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+          ProvenanceSessionId: null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+          manual, origin);
 
   private static (SkillViewTool Tool, FakeLearnedStore Store) MakeTool(
       IReadOnlyList<SkillDefinition>? builtIns = null,
@@ -87,7 +89,7 @@ public class SkillViewToolTests
   // ---- Resolution & output format ----
 
   [Fact]
-  public async Task BuiltInHit_AnnotationExact_BodyVerbatim_RecordsUsage()
+  public async Task BuiltInHit_AnnotationExact_BodyVerbatim_RecordsNoUsage()
   {
     (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(builtIns: [Def("brainstorming", "First line.\nSecond line.")]);
 
@@ -98,11 +100,7 @@ public class SkillViewToolTests
     Assert.False(result.IsError);
     Assert.Equal("[skill brainstorming | builtin | v1]\nFirst line.\nSecond line.",
         result.Content);
-
-    FakeLearnedStore.UsageCall call = Assert.Single(store.UsageCalls);
-    Assert.Equal("brainstorming", call.Name);
-    Assert.True(call.ViewedAt >= DateTimeOffset.UtcNow.AddMinutes(-1),
-        "usage timestamp should be roughly now");
+    Assert.Empty(store.UsageCalls);
   }
 
   [Fact]
@@ -150,18 +148,73 @@ public class SkillViewToolTests
   // ---- Best-effort usage recording ----
 
   [Fact]
-  public async Task UsageRecordingFailure_WarningAppended_ViewStillSucceeds()
+  public async Task UsageRecordingFailure_LearnedView_WarningAppended_ViewStillSucceeds()
   {
-    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool(builtIns: [Def("brainstorming", "The body.")],
+    (SkillViewTool? tool, FakeLearnedStore _) = MakeTool(
+        learned: [Def("my-skill", "The body.", source: SkillSource.Learned)],
         failAppendUsage: true);
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"brainstorming"}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"name":"my-skill"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
-    Assert.Equal("[skill brainstorming | builtin | v1]\nThe body." +
+    Assert.Equal("[skill my-skill | learned | v1]\nThe body." +
                  "\n[warning] usage not recorded", result.Content);
+  }
+
+  // ---- File skills: origin annotation, no usage row ----
+
+  [Fact]
+  public async Task FileHit_AnnotationCarriesOrigin_RecordsNoUsage()
+  {
+    (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(
+        builtIns: [Def("deploy-runbook", "Roll out.", source: SkillSource.File,
+            manual: false, origin: @"C:\skills\global\deploy-runbook")]);
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"name":"deploy-runbook"}"""), ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal("[skill deploy-runbook | file | v1 | C:\\skills\\global\\deploy-runbook]\nRoll out.",
+        result.Content);
+    Assert.Empty(store.UsageCalls);
+  }
+
+  [Fact]
+  public async Task FileHit_UsageRecordingFailure_NoWarning_ViewStillSucceeds()
+  {
+    (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(
+        builtIns: [Def("deploy-runbook", "Roll out.", source: SkillSource.File,
+            manual: false, origin: @"C:\skills\global\deploy-runbook")],
+        failAppendUsage: true);
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"name":"deploy-runbook"}"""), ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal("[skill deploy-runbook | file | v1 | C:\\skills\\global\\deploy-runbook]\nRoll out.",
+        result.Content);
+    Assert.Empty(store.UsageCalls);
+  }
+
+  [Fact]
+  public async Task FileHit_ManualFlag_DoesNotAlterAnnotation()
+  {
+    (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(
+        builtIns: [Def("manual-skill", "Body.", source: SkillSource.File,
+            manual: true, origin: @"C:\skills\manual-skill")]);
+
+    ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
+                                 /*lang=json,strict*/
+                                 """{"timeoutSeconds":120,"name":"manual-skill"}"""), ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.Equal("[skill manual-skill | file | v1 | C:\\skills\\manual-skill]\nBody.",
+        result.Content);
+    Assert.Empty(store.UsageCalls);
   }
 
   private sealed class FakeCatalog(IReadOnlyList<SkillDefinition> skills) : ISkillCatalog

@@ -6,6 +6,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Local.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.SkillDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
@@ -84,8 +85,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     }
 
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
+    (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(full, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(full, providerName, conversationSeed: null,
-        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId, globalFiles, workspaceFiles);
+        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId, globalFiles, workspaceFiles,
+        globalDirectories, workspaceDirectories);
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
     {
@@ -175,8 +178,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     }
 
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(workspaceRoot, ct).ConfigureAwait(false);
+    (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(workspaceRoot, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(workspaceRoot, providerName, transcript.Value,
-        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId, globalFiles, workspaceFiles);
+        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId, globalFiles, workspaceFiles,
+        globalDirectories, workspaceDirectories);
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
     {
@@ -362,10 +367,101 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     return (global, workspace);
   }
 
+  /// <summary>Reads the two stored skill-directory lists (global, workspace) for one
+  ///     workspace - the same read pattern as <see cref="ReadSessionFilesAsync"/>,
+  ///     over the skill-directory preference keys. Both are optional: a store miss
+  ///     returns nulls and the session resolves no configured directories.</summary>
+  private async Task<(string? Global, string? Workspace)> ReadSkillDirectoriesAsync(
+      string workspaceRoot, CancellationToken ct)
+  {
+    SqliteAppPreferenceStore preferences = new(_database ?? new AppDatabase());
+    string? global = await preferences.GetAsync(SkillDirectoryPreferences.GlobalKey, ct).ConfigureAwait(false);
+    string? workspace = await preferences.GetAsync(SkillDirectoryPreferences.WorkspaceKey(workspaceRoot), ct).ConfigureAwait(false);
+    return (global, workspace);
+  }
+
+  /// <summary>Resolves the configured skill directories from the two raw stored
+  ///     lists (E-shape, same as session files). Both lists parse independently and
+  ///     a parse FAILURE contributes an empty list - the raw strings still ride the
+  ///     carrier, so a host overlay can re-read them (named decision: never half a
+  ///     configured surface on a bad stored value). Enabled entries become
+  ///     <see cref="SkillDirectory"/> values, global scope first, stored order kept.
+  ///     DUPLICATE PATHS: a workspace path equal (case-insensitive, full-path
+  ///     normalized) to an already-included global path is SKIPPED here with no
+  ///     error - the global entry wins (Task 4 review ruling); the parse itself
+  ///     validates shape only and never deduplicates.</summary>
+  internal static List<SkillDirectory> ResolveSkillDirectories(
+      string? globalStored, string? workspaceStored, string workspaceRoot)
+  {
+    List<SkillDirectory> resolved = [];
+    HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+
+    Result<IReadOnlyList<SessionFileEntry>> global = SkillDirectoryPreferences.Parse(globalStored);
+    if (global.IsSuccess)
+    {
+      foreach (SessionFileEntry entry in global.Value)
+      {
+        if (!entry.Enabled)
+        {
+          continue;
+        }
+
+        // Full-path normalization keeps the case-insensitive comparison on the
+        // resolved form, not on whatever text the user typed.
+        string normalized = NormalizeDirectoryPath(entry.Path, workspaceRoot);
+        if (seen.Add(normalized))
+        {
+          resolved.Add(new SkillDirectory(entry.Path, SkillDirectoryScope.Global));
+        }
+      }
+    }
+
+    Result<IReadOnlyList<SessionFileEntry>> workspace = SkillDirectoryPreferences.Parse(workspaceStored);
+    if (workspace.IsSuccess)
+    {
+      foreach (SessionFileEntry entry in workspace.Value)
+      {
+        if (!entry.Enabled)
+        {
+          continue;
+        }
+
+        string normalized = NormalizeDirectoryPath(entry.Path, workspaceRoot);
+        if (seen.Add(normalized))
+        {
+          resolved.Add(new SkillDirectory(entry.Path, SkillDirectoryScope.Workspace));
+        }
+      }
+    }
+
+    return resolved;
+  }
+
+  /// <summary>Full-path normalization for duplicate detection only: the resolved
+  ///     <see cref="SkillDirectory"/> keeps the user's configured text; an absolute
+  ///     path gets its canonical case-insensitive form, a relative path resolves
+  ///     against the workspace root (never throws - an unresolvable path simply
+  ///     stays itself, and directory existence is a load-time concern, not a
+  ///     resolution concern).</summary>
+  internal static string NormalizeDirectoryPath(string path, string workspaceRoot)
+  {
+    try
+    {
+      return Path.GetFullPath(path, string.IsNullOrWhiteSpace(workspaceRoot) ? Directory.GetCurrentDirectory() : workspaceRoot)
+          .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+          .ToUpperInvariant();
+    }
+    catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or System.Security.SecurityException)
+    {
+      return path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToUpperInvariant();
+    }
+  }
+
   private ServiceProvider BuildContainer(string workspaceRoot, string providerName,
       IReadOnlyList<Message>? conversationSeed,
       ModelConfig defaultModel, string? resolvedFallbackModelId,
-      string? globalSessionFiles, string? workspaceSessionFiles)
+      string? globalSessionFiles, string? workspaceSessionFiles,
+      string? globalSkillDirectories, string? workspaceSkillDirectories)
   {
     ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(_settings, providerName, defaultModel,
@@ -380,7 +476,17 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
             _mailboxLocator,
             resolvedFallbackModelId,
             ResolveComputerAccessProvider())
+        // Skill directories resolve HERE - the resolution site. The parse validates
+        // shape only; a workspace path equal (case-insensitive, full-path normalized)
+        // to an already-included global path is skipped with no error: the global
+        // entry wins (Task 4 review ruling; duplicate handling never lives in parse).
+        // Replaces the core's empty registration (last registration wins), and the
+        // carrier filled below is the core-registered singleton the RemoteHost block
+        // overlays onto the settings JSON.
+        .AddSingleton(new ResolvedSkillDirectories(
+            ResolveSkillDirectories(globalSkillDirectories, workspaceSkillDirectories, workspaceRoot)))
         .BuildServiceProvider();
+    services.GetRequiredService<SkillDirectoriesCarrier>().Fill(globalSkillDirectories, workspaceSkillDirectories);
     return RegisterContainerMailboxSource(services);
   }
 
