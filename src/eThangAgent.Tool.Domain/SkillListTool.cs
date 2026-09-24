@@ -30,7 +30,10 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
       "<text>`. Source-failure warnings — `[warning] built-in skills unavailable: <reason>` " +
       "or `[warning] learned skills unavailable: <reason>` — keep their positions after the " +
       "diagnostics: an unreadable source's skills are omitted while the listing itself " +
-      "still succeeds. Errors begin with `Error [Code]:`.",
+      "still succeeds. A learned skill whose name already exists in the catalog " +
+      "does not render twice: the learned row is skipped and a collision line " +
+      "`[collision] <name> (learned) shadowed by <builtin|file>` is appended after the " +
+      "catalog diagnostics. Errors begin with `Error [Code]:`.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
       ],
@@ -66,10 +69,37 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
       warnings.Add($"[warning] built-in skills unavailable: {builtIn.Error.Message}");
     }
 
+    List<string> dedupCollisions = [];
     Result<IReadOnlyList<SkillDefinition>> learnedResult = await _learned.ListAsync(ct).ConfigureAwait(false);
     if (learnedResult.IsSuccess)
     {
-      skills.AddRange(learnedResult.Value);
+      if (builtIn.IsSuccess)
+      {
+        // Presentation-layer dedup (spec #19 decision 2): a learned skill whose
+        // name already exists in the catalog is skipped here and announced —
+        // the composite catalog never sees learned rows, so this is the only
+        // site where the two sources can collide.
+        Dictionary<string, string> winnerLabelByName = builtIn.Value
+            .GroupBy(s => s.Name, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => SourceLabel(g.First().Source), StringComparer.Ordinal);
+        foreach (SkillDefinition learnedSkill in learnedResult.Value)
+        {
+          if (winnerLabelByName.TryGetValue(learnedSkill.Name, out string? winnerLabel))
+          {
+            dedupCollisions.Add($"[collision] {learnedSkill.Name} (learned) shadowed by {winnerLabel}");
+          }
+          else
+          {
+            skills.Add(learnedSkill);
+          }
+        }
+      }
+      else
+      {
+        // Dedup needs the catalog's names; with the catalog down the learned
+        // rows all render and nothing is announced.
+        skills.AddRange(learnedResult.Value);
+      }
     }
     else
     {
@@ -96,6 +126,7 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
           .OrderBy(s => s.Name, StringComparer.Ordinal)
           .Select(FormatRow),
       .. diagnostics,
+      .. dedupCollisions,
       .. warnings,
     ];
 

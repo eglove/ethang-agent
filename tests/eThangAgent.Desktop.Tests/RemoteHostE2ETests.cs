@@ -199,4 +199,106 @@ public class RemoteHostE2ETests
 
     await reopened.Value.Services.DisposeAsync();
   }
+
+  /// <summary>Follow-up pass B3: the remote child's system prompt carries the
+  ///     identical always-on skills listing - the same header and built-in
+  ///     entries, and the same configured-directory file skill (the ChildHost
+  ///     container resolves the directories from the settings JSON it is
+  ///     launched with). The recorded Task 12 deferral was environmental.
+  ///     Cleanup is unconditional: a leaked ChildHost process wedges the host.</summary>
+  [Fact]
+  public async Task RemoteSpawn_ChildSystemPrompt_CarriesIdenticalSkillsListing()
+  {
+    string? ws = null;
+    DirectoryInfo? skills = null;
+    using E2E.HostHarness host = new();
+    _ = await host.StartAsync();
+    AgentSession? session = null;
+    try
+    {
+      ws = Directory.CreateTempSubdirectory("ethang-remote-skilllist").FullName;
+      skills = Directory.CreateTempSubdirectory("ethang-remote-skilllist-dir");
+      const string fileSkillName = "e2e-remote-file-skill";
+      string skillFolder = Path.Combine(skills.FullName, fileSkillName);
+      _ = Directory.CreateDirectory(skillFolder);
+      string[] skillLines =
+      [
+        "---",
+        $"name: {fileSkillName}",
+        "description: File skill proving directory parity on remote children.",
+        "---",
+        "",
+        $"Body of {fileSkillName}.",
+        "",
+      ];
+      await File.WriteAllLinesAsync(Path.Combine(skillFolder, "SKILL.md"), skillLines,
+          TestContext.Current.CancellationToken);
+      _ = await host.Store.SetAsync(
+        SkillDirectoryPreferences.WorkspaceKey(ws),
+        SkillDirectoryPreferences.Serialize([new SessionFileEntry(skills.FullName, Enabled: true)]),
+        TestContext.Current.CancellationToken);
+
+      AgentSessionFactory factory = new(
+          host.BuildSettings(remoteHost: true),
+          new AppDatabase(host.DatabasePath));
+      Result<AgentSession> opened = await factory.CreateAsync(
+          ws, Providers.OpenRouter,
+          ct: TestContext.Current.CancellationToken);
+      Assert.True(opened.IsSuccess, opened.Error?.Message);
+      session = opened.Value;
+      session.Services.GetRequiredService<SessionModelPreferences>().ModelId = E2E.SessionModel;
+
+      AgentSessionViewModel? vmRef = null;
+      async Task Sink(UiStreamEvent evt) =>
+          await (vmRef ?? throw new InvalidOperationException("sink before view-model init"))
+              .ApplyUiStreamEventAsync(evt).ConfigureAwait(true);
+      MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session, Sink);
+      AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
+      vmRef = vm;
+
+      string spawnProgram = "var spawned = Tools.Invoke(\"agent.spawn\", new { timeoutSeconds = 60, taskPrompt = \"Say remote listing done and nothing else.\", model = \"mock/sub-model\", label = \"remote-skilllist\" }); return spawned;";
+      _ = host.Mock.ReturnsForModel(E2E.SessionModel,
+          E2E.ExecToolCall("sl_parent_1", E2E.ExecProgram(spawnProgram)),
+          E2E.ExecToolCall("sl_parent_2", E2E.ExecProgram(PollThenResult)),
+          RawCompletion("done: remote listing child reported"));
+      _ = host.Mock.ReturnsForModel("mock/sub-model",
+          RawCompletion("remote listing done"));
+
+      await vm.RunTurnAsync("delegate to a remote child")
+          .WaitAsync(TimeSpan.FromSeconds(45), TestContext.Current.CancellationToken);
+
+      // The CHILD's request bodies (model mock/sub-model) carry the listing:
+      // the identical header, built-in entries, and the configured file skill -
+      // the remote-specific claim is directory parity over the wire.
+      string childPrompt = Assert.Single(host.Mock.RequestBodies,
+          b => b.Contains("\"model\":\"mock/sub-model\"", StringComparison.Ordinal));
+      // The request body is raw JSON: the header's em-dash serializes as an
+      // escape (\u2014), so assertions pin ASCII fragments of the same lines.
+      Assert.Contains("[skills listing", childPrompt, StringComparison.Ordinal);
+      Assert.Contains("## Built-in", childPrompt, StringComparison.Ordinal);
+      Assert.Contains("systematic-debugging", childPrompt, StringComparison.Ordinal);
+      Assert.Contains(fileSkillName, childPrompt, StringComparison.Ordinal);
+    }
+    finally
+    {
+      if (session is not null)
+      {
+        await session.Services.DisposeAsync();
+      }
+
+      if (ws is not null)
+      {
+        try
+        {
+          Directory.Delete(ws, recursive: true);
+        }
+        catch (IOException)
+        {
+          // best effort: a still-draining host may pin the directory
+        }
+      }
+
+      skills?.Delete(recursive: true);
+    }
+  }
 }

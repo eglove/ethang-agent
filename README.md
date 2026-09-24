@@ -75,7 +75,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   the final URL, status, content type, and size
 - Curated memory loop — `memories.search/add/update/remove/purge` over a categorized, full-text,
   versioned knowledge base, with turn-boundary nudges prompting curation
-- Skill subsystem: 19 embedded skills (development methodology plus per-style commit guidance),
+- Skill subsystem: embedded skills (the development methodology plus per-style commit guidance),
   file skills from user-configured agentskills.io directories (precedence built-in > file >
   learned, collisions announced), a budgeted always-on skill listing in every session's system
   prompt, session-start bootstrap injection of the using-skills contract, and `skill_list` /
@@ -184,7 +184,7 @@ Every session's system prompt carries a budgeted skills listing so the model can
 matching skill over improvising and load the full body with `skill_view`. Skills come from
 three sources with fixed precedence: built-in > file > learned.
 
-- **Built-in skills** (19) ship with the app: the development-methodology set (debugging,
+- **Built-in skills** ship with the app: the development-methodology set (debugging,
   brainstorming, TDD, planning, code review, worktrees, sub-agent driving, verification),
   the `using-skills` session contract, the tools-mapping skill, and one commit-guidance skill
   per commit style.

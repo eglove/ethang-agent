@@ -365,6 +365,80 @@ public class SkillsListingPromptProviderTests
     Assert.DoesNotContain("- keep:", text, StringComparison.Ordinal);
   }
 
+  // ---- Learned-catalog dedup (spec #19 decision 2: presentation-layer merge) ----
+
+  [Fact]
+  public async Task Build_LearnedSkillShadowedByCatalog_SkippedWithCollisionLine()
+  {
+    FakeCatalog catalog = new(BuiltIn("alpha"), File("beta", GlobalDir));
+    FakeLearned learned = new(Learned("beta"), Learned("learned-ok"));
+
+    string text = await Provider(catalog, learned,
+        [new SkillDirectory(GlobalDir, SkillDirectoryScope.Global)]).BuildAsync();
+
+    Assert.Contains("## Learned\n- learned-ok: desc learned-ok", text, StringComparison.Ordinal);
+    Assert.Contains("[collision] beta (learned) shadowed by global directory", text, StringComparison.Ordinal);
+    // the shadowed learned row is gone entirely - not rendered twice
+    Assert.DoesNotContain("desc beta\n- beta", text, StringComparison.Ordinal);
+    int betaCount = text.Split("- beta:").Length - 1;
+    Assert.Equal(1, betaCount);
+  }
+
+  [Fact]
+  public async Task Build_LearnedSkillShadowedByBuiltIn_UsesBuiltInLabel()
+  {
+    FakeCatalog catalog = new(BuiltIn("alpha"));
+    FakeLearned learned = new(Learned("alpha"));
+
+    string text = await Provider(catalog, learned).BuildAsync();
+
+    Assert.Contains("[collision] alpha (learned) shadowed by built-in", text, StringComparison.Ordinal);
+    Assert.DoesNotContain("## Learned", text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Build_LearnedSkillShadowedByWorkspaceFile_UsesWorkspaceLabel()
+  {
+    FakeCatalog catalog = new(File("beta", WorkspaceDir));
+    FakeLearned learned = new(Learned("beta"));
+
+    string text = await Provider(catalog, learned,
+        [new SkillDirectory(WorkspaceDir, SkillDirectoryScope.Workspace)]).BuildAsync();
+
+    Assert.Contains("[collision] beta (learned) shadowed by workspace directory", text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Build_CatalogFailure_LearnedRendersWhole_NoDedupLines()
+  {
+    FakeCatalog catalog = new(BuiltIn("alpha"))
+    {
+      ListFailing = new DomainError("CatalogUnavailable", "catalog exploded"),
+    };
+    FakeLearned learned = new(Learned("alpha"));
+
+    string text = await Provider(catalog, learned).BuildAsync();
+
+    Assert.Contains("- alpha: desc alpha", text, StringComparison.Ordinal);
+    Assert.DoesNotContain("[collision]", text, StringComparison.Ordinal);
+    Assert.Contains("[warning] built-in skills unavailable: catalog exploded", text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Build_ManualLearnedSkipsDedupAnnouncement_WhenAlsoShadowed()
+  {
+    // A MANUAL learned skill never appears anywhere; its dedup line must not
+    // render either (nothing dropped from a block it never belonged to).
+    FakeCatalog catalog = new(BuiltIn("alpha"));
+    FakeLearned learned = new(new SkillDefinition("alpha", "d", "b", 1, SkillSource.Learned,
+        "session-1", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, Manual: true));
+
+    string text = await Provider(catalog, learned).BuildAsync();
+
+    Assert.Contains("- alpha: desc alpha", text, StringComparison.Ordinal);
+    Assert.DoesNotContain("[collision]", text, StringComparison.Ordinal);
+  }
+
   [Fact]
   public async Task Build_Memoized_SecondCallDoesNotRehitTheFakes()
   {

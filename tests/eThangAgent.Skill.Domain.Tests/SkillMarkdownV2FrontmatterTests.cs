@@ -75,6 +75,19 @@ public class SkillMarkdownV2FrontmatterTests
   }
 
   [Fact]
+  public void Parse_KnownKeyRepeated_WarnsOncePerSkill()
+  {
+    // Cosmetics fix (rework final review): each known-but-unapplied key warns
+    // once per skill, not once per occurrence.
+    Result<ParsedSkill> r = SkillMarkdown.Parse("---\nname: a\ndescription: b\nallowed-tools: Bash\nallowed-tools: Web\nlicense: MIT\nlicense: Apache\n---\nbody");
+    Assert.True(r.IsSuccess);
+    Assert.Equal((string[])
+    [
+      "ignored key allowed-tools (known but unapplied)",
+      "ignored key license (known but unapplied)",
+    ], r.Value.Warnings);
+  }
+  [Fact]
   public void Parse_UnknownKey_Warns()
   {
     Result<ParsedSkill> r = SkillMarkdown.Parse("---\nname: a\ndescription: b\nfrobnicate: yes\n---\nbody");
@@ -82,6 +95,13 @@ public class SkillMarkdownV2FrontmatterTests
     Assert.Equal("unknown frontmatter key frobnicate", Assert.Single(r.Value.Warnings));
   }
 
+  [Fact]
+  public void Parse_UnknownKeyRepeated_WarnsOncePerSkill()
+  {
+    Result<ParsedSkill> r = SkillMarkdown.Parse("---\nname: a\ndescription: b\nfrobnicate: 1\nfrobnicate: 2\n---\nbody");
+    Assert.True(r.IsSuccess);
+    Assert.Equal("unknown frontmatter key frobnicate", Assert.Single(r.Value.Warnings));
+  }
   [Fact]
   public void Parse_Warnings_DoNotFailParse()
   {
