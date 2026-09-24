@@ -24,11 +24,7 @@ public class SkillListingE2ETests
   private const string GlobalGroupName = "## Global directory skills";
   private const string WorkspaceGroupName = "## Workspace directory skills";
 
-  private static readonly string[] RequiredBuiltIns =
-  [
-      "brainstorming", "systematic-debugging", "test-driven-development", "using-skills",
-  ];
-
+  // Every built-in name is resolved from the real EmbeddedSkillCatalog at test time
   /// <summary>Asserts the listing sits BETWEEN the skills bootstrap and the
   ///     persona line: after the bootstrap's already-active notice, before the
   ///     'You are eThang Agent' persona sentence (Task 12's positional pin).</summary>
@@ -96,9 +92,19 @@ public class SkillListingE2ETests
       int persona = prompt.IndexOf("You are eThang Agent", StringComparison.Ordinal);
       string listing = prompt[listingStart..(persona > listingStart ? persona : prompt.Length)];
       Assert.Contains(BuiltInGroupName, listing, StringComparison.Ordinal);
-      foreach (string name in RequiredBuiltIns)
+      // The plan mandates EVERY built-in skill name in the listing: resolve the real
+      // embedded catalog and assert each non-manual name appears (none are manual today).
+      EmbeddedSkillCatalog catalog = new();
+      Result<IReadOnlyList<SkillDefinition>> builtIns =
+        await catalog.ListAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(builtIns.IsSuccess);
+      Assert.NotEmpty(builtIns.Value);
+      foreach (SkillDefinition skill in builtIns.Value)
       {
-        Assert.Contains(name, listing, StringComparison.Ordinal);
+        Assert.False(
+          skill.Manual,
+          $"built-in '{skill.Name}' is manual; the listing excludes manual skills by contract");
+        Assert.Contains(skill.Name, listing, StringComparison.Ordinal);
       }
     }
     finally
@@ -182,11 +188,11 @@ public class SkillListingE2ETests
       Assert.True(listingStart >= 0, "listing header missing");
       int persona = prompt.IndexOf("You are eThang Agent", StringComparison.Ordinal);
       string listing = prompt[listingStart..(persona > listingStart ? persona : prompt.Length)];
-      bool underExpectedHeader =
-        SegmentAfter(listing, GlobalGroupName).Contains(fileSkillName, StringComparison.Ordinal)
-        || SegmentAfter(listing, WorkspaceGroupName).Contains(fileSkillName, StringComparison.Ordinal);
-      Assert.True(underExpectedHeader,
-          $"'{fileSkillName}' must appear under '{GlobalGroupName}' or '{WorkspaceGroupName}'");
+      string workspaceSegment = SegmentAfter(listing, WorkspaceGroupName);
+      Assert.Contains(fileSkillName, workspaceSegment, StringComparison.Ordinal);
+      // The skill was configured under the WORKSPACE scope: the Global segment must
+      // stay empty (a misclassification into Global would fail this assertion).
+      Assert.DoesNotContain(GlobalGroupName, listing, StringComparison.Ordinal);
     }
     finally
     {
@@ -295,8 +301,10 @@ public class SkillListingE2ETests
     File.WriteAllLines(Path.Combine(skillFolder, "SKILL.md"), skillLines);
   }
 
-  /// <summary>The listing segment from one group header to the next header or the
-  ///     block's end - where a group's entries render.</summary>
+  /// <summary>The listing segment from one group header to the NEXT group header
+  ///     ('## ') or diagnostic line ([skills listing / [warning] / [collision])
+  ///     or the block's end - where ONE group's entries render. Stopping at any
+  ///     '## ' line is what keeps sibling groups out of a segment.</summary>
   private static string SegmentAfter(string listing, string header)
   {
     int start = listing.IndexOf(header, StringComparison.Ordinal);
@@ -310,7 +318,10 @@ public class SkillListingE2ETests
     {
       int lineEnd = listing.IndexOf('\n', next + 1);
       string line = listing[(next + 1)..(lineEnd < 0 ? listing.Length : lineEnd)];
-      if (line.StartsWith("[skills listing", StringComparison.Ordinal) || line.StartsWith("[warning]", StringComparison.Ordinal) || line.StartsWith("[collision]", StringComparison.Ordinal))
+      if (line.StartsWith("## ", StringComparison.Ordinal)
+          || line.StartsWith("[skills listing", StringComparison.Ordinal)
+          || line.StartsWith("[warning]", StringComparison.Ordinal)
+          || line.StartsWith("[collision]", StringComparison.Ordinal))
       {
         break;
       }
