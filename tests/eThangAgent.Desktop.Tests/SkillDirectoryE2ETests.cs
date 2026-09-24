@@ -11,10 +11,10 @@ namespace eThangAgent.Desktop.Tests;
 ///     production session factory over the SAME app database — and the resolved
 ///     ISkillCatalog lists the file skill beside the built-ins. Assertions use the
 ///     container-resolution form (no model turn runs): the composed catalog is the
-///     exact seam the skill tools and the prompt provider consume. The composed
-///     SystemPrompt must NOT carry the file skill — directory listing injection is
-///     Task 11, the phase boundary this task must not cross. With no directories
-///     configured the composite is behavior-identical: built-ins only.</summary>
+///     exact seam the skill tools and the prompt provider consume. Since Task 12
+///     registered the always-on listing, the composed SystemPrompt carries the file
+///     skill under a directory-skills header; with no directories configured the
+///     composite is behavior-identical: built-ins only, and no file skill listed.</summary>
 [Collection("Desktop E2E")]
 public class SkillDirectoryE2ETests
 {
@@ -73,9 +73,9 @@ public class SkillDirectoryE2ETests
       Assert.Equal(SkillSource.File, fileSkill.Source);
       Assert.Contains(listed.Value, s => s.Name == "using-skills" && s.Source == SkillSource.BuiltIn);
 
-      // Phase boundary: the composed SystemPrompt must NOT carry the file skill —
-      // directory listing injection is Task 11.
-      Assert.DoesNotContain(FileSkillName, session.SystemPrompt, StringComparison.Ordinal);
+      // Task 12 registered the listing: the composed SystemPrompt now carries the
+      // file skill under a directory-skills header (inverse of the old phase pin).
+      Assert.Contains(FileSkillName, session.SystemPrompt, StringComparison.Ordinal);
 
       await session.Services.DisposeAsync();
     }

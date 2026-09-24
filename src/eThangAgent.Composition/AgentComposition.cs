@@ -417,6 +417,9 @@ public static class AgentComposition
         [
             new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>(),
                 sp.GetRequiredService<ICommitStyleProvider>()),
+                new SkillsListingPromptProvider(sp.GetRequiredService<ISkillCatalog>(),
+                    sp.GetRequiredService<ILearnedSkillStore>(),
+                    sp.GetRequiredService<ResolvedSkillDirectories>().List),
                 new StaticPromptProvider(
                     "You are eThang Agent, an AI coding agent for Windows. Work in the current " +
                     "workspace, prefer the provided tools over guessing, and keep responses tight."),
@@ -520,14 +523,19 @@ public static class AgentComposition
 
   /// <summary>Resolves skill directories from the settings-carried stored lists - the
   ///     config shape a host built from serialized AgentSettings (the remote
-  ///     ChildHost) resolves through. App-side containers REPLACE this registration
-  ///     in AgentSessionFactory.BuildContainer, where the raw preference values were
-  ///     just read from the store. The duplicate-path rule matches the factory's
-  ///     resolution: parse validates shape only; a workspace path equal
-  ///     (case-insensitive, full-path normalized) to an already-included global path
-  ///     is skipped with no error - the global entry wins.</summary>
-  private static List<SkillDirectory> ResolveSkillDirectoriesFromSettings(AgentSettings settings)
+  ///     ChildHost) resolves through. App-side containers REPLACE the
+  ///     core's settings-sourced registration in AgentSessionFactory.BuildContainer,
+  ///     where the raw preference values were just read from the store; the host
+  ///     replaces it too - SessionHost calls this same resolver (shared composition
+  ///     glue, public for the cross-assembly call; ref assemblies drop internals),
+  ///     so remote children render the identical listing. The duplicate-path
+  ///     rule matches the factory's resolution: parse validates shape only; a workspace
+  ///     path equal (case-insensitive, full-path normalized) to an already-included
+  ///     global path is skipped with no error - the global entry wins.</summary>
+  public static IReadOnlyList<SkillDirectory> ResolveSkillDirectoriesFromSettings(AgentSettings settings)
   {
+    ArgumentNullException.ThrowIfNull(settings);
+
     return AgentSessionFactory.ResolveSkillDirectories(
         settings.SkillDirectoriesGlobal, settings.SkillDirectoriesWorkspace,
         settings.WorkspaceRoot ?? string.Empty);

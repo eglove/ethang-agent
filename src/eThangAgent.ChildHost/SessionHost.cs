@@ -105,6 +105,11 @@ public sealed class SessionHost
                 [new SessionFilesPromptProvider(workspace, settings.SessionFilesGlobal, settings.SessionFilesWorkspace)]),
             new AppDatabase(databasePath),
             null)
+            // Remote parity (skill-routing Task 12): the host replaces the core's
+            // settings-sourced registration the SAME way the app factory does,
+            // from the settings-carried stored lists, so remote children render
+            // the identical always-on skills listing in their system prompt.
+            .AddSingleton(new ResolvedSkillDirectories(AgentComposition.ResolveSkillDirectoriesFromSettings(settings)))
         .BuildServiceProvider();
 
     return new SessionHost(
