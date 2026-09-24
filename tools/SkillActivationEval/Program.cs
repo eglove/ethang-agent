@@ -36,14 +36,97 @@ internal static class Program
   private const string EvalDatabaseFileName = "skill-activation-eval.db";
   private const string LocalBaseUrlVariable = "ETHANG_EVAL_LOCAL_BASE_URL";
 
-  /// <summary>One self-contained extraction pattern: the first name argument after each
-  ///     skill_view invocation in an unescaped meta_json blob. Arguments are JSON text
-  ///     whose quotes may appear as ="..."= or =" : "..."= forms; both spellings match.
-  ///     Bounded so a pathological row can never hang the run.</summary>
-  private static readonly Regex SkillViewNamePattern = new(
-      "skill_view[\\s\\S]*?name\\s*[=:]\\s*['\"](?<skill>[^'\"]+)['\"]",
+  /// <summary>One self-contained extraction over persisted tool-call payloads. Stored
+  ///     meta_json is System.Text.Json of MessageMeta; each ToolCall.Arguments value is
+  ///     ITSELF a JSON string, so quotes inside it ride as multi-layer escapes
+  ///     (backslash-u0022 stacked two or more deep in real rows - a historical session
+  ///     invoked skills THROUGH exec, which nests one layer deeper). Unescape LOOPS
+  ///     until the text stops changing, then matches the invocation in the forms it
+  ///     actually takes: a JSON tool call ="name": "systematic-debugging"= (the key
+  ///     quoted, after the layers are stripped) and a C# exec call
+  ///     Tools.Invoke(="skill_view"=, new { name = ="brainstorming"= }). Sample of a
+  ///     real stored fragment, one layer stripped (backslashes elided, the = marks the
+  ///     outer string boundary): =Tools.Invoke("skill_view", new { name =
+  ///     "brainstorming" })=. Bounded so a pathological row can never hang the run.</summary>
+  private static readonly Regex JsonToolCallPattern = new(
+      "skill_view.{0,200}?[\"']?name[\"']?\\s*[=:]\\s*\"(?<skill>[A-Za-z0-9._-]+)\"",
       RegexOptions.Compiled,
       TimeSpan.FromSeconds(1));
+
+  private static readonly Regex ExecInvokePattern = new(
+      "Tools\\.Invoke\\(\\s*[\"']skill_view[\"']\\s*,\\s*new\\s*\\{[^{}]*?name\\s*=\\s*\"(?<skill>[A-Za-z0-9._-]+)\"[^{}]*\\}\\s*\\)",
+      RegexOptions.Compiled,
+      TimeSpan.FromSeconds(1));
+
+  /// <summary>Decodes one escape layer of a JSON payload: \uXXXX, the short forms
+  ///     (\\, \" and friends), and nothing else. An unrecognized sequence passes
+  ///     through verbatim - Regex.Unescape would THROW on the unknown escapes real
+  ///     rows carry (file paths such as ..\name inside exec programs), so the
+  ///     decoder here is total by construction.</summary>
+  internal static string UnescapeOneLayer(string text)
+  {
+    StringBuilder sb = new(text.Length);
+    int i = 0;
+    while (i < text.Length)
+    {
+      if (text[i] != '\\' || i + 1 >= text.Length)
+      {
+        _ = sb.Append(text[i]);
+        i++;
+        continue;
+      }
+
+      char next = text[i + 1];
+      if (next == 'u' && i + 5 < text.Length
+          && int.TryParse(text.AsSpan(i + 2, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int code))
+      {
+        _ = sb.Append((char)code);
+        i += 6;
+        continue;
+      }
+
+      if (next is '\\' or '\"' or '\'' or 'n' or 'r' or 't')
+      {
+        _ = sb.Append(next switch
+        {
+          'n' => '\n',
+          'r' => '\r',
+          't' => '\t',
+          _ => next,
+        });
+        i += 2;
+        continue;
+      }
+
+      // Unknown escape (real rows carry file paths such as ..\\name): verbatim pass.
+      _ = sb.Append(text[i]);
+      _ = sb.Append(next);
+      i += 2;
+    }
+
+    return sb.ToString();
+  }
+
+  /// <summary>Strips escape layers until the text stops changing: real rows stack
+  ///     backslash-u0022 two or more deep, and a single pass leaves inner layers
+  ///     encoded. Bounded at 8 passes - far past any real depth.</summary>
+  internal static string UnescapeLayers(string text)
+  {
+    string current = text;
+    for (int i = 0; i < 8; i++)
+    {
+      string next = UnescapeOneLayer(current);
+      if (next == current)
+      {
+        return current;
+      }
+
+      current = next;
+    }
+
+    return current;
+  }
+
 
   /// <summary>Entry point: validates the exact three-argument interface, runs every
   ///     prompt sequentially, writes the JSON array to <paramref name="args"/>[2].</summary>
@@ -195,8 +278,9 @@ internal static class Program
     using SqliteDataReader reader = command.ExecuteReader();
     while (reader.Read())
     {
-      string unescaped = Regex.Unescape(reader.GetString(0));
-      foreach (Match match in SkillViewNamePattern.Matches(unescaped))
+      string unescaped = UnescapeLayers(reader.GetString(0));
+      foreach (Match match in JsonToolCallPattern.Matches(unescaped).Cast<Match>()
+          .Concat(ExecInvokePattern.Matches(unescaped).Cast<Match>()))
       {
         string name = match.Groups["skill"].Value;
         if (!names.Contains(name))
