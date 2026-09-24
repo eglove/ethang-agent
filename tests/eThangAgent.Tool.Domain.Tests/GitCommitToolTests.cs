@@ -233,6 +233,10 @@ public class GitCommitToolTests
       Message = message;
       return Task.FromResult(outcome);
     }
+
+    public Task<Result<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>> StatusAsync(
+        string repoPath, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>([]));
   }
 }
 

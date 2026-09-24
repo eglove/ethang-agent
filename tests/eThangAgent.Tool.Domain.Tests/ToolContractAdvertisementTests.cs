@@ -204,6 +204,10 @@ internal sealed class StubCommitAccess : IGitCommitAccess
 
   public Task<Result<GitCommitOutcome>> CommitAsync(string repoPath, string message, CancellationToken ct = default) =>
       Task.FromResult(Result.Failure<GitCommitOutcome>(new DomainError("Unused", "not exercised")));
+
+  public Task<Result<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>> StatusAsync(
+      string repoPath, CancellationToken ct = default) =>
+      Task.FromResult(Result.Success<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>([]));
 }
 
 internal sealed class StubEditAccess : IFileEditAccess

@@ -6,6 +6,7 @@ using System.Text.Json;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
+using eThangAgent.ToolDomain.Verification;
 
 namespace eThangAgent.Roslyn.ACL;
 
@@ -29,12 +30,14 @@ public sealed class ScriptGlobals
   private readonly CancellationToken _ct;
 
   public ScriptGlobals(ICapabilityRegistry registry, string workspace, string temp,
-      bool captureStdout = true, CancellationToken shellToken = default)
+      bool captureStdout = true, IVerificationLedger? verificationSink = null,
+      CancellationToken shellToken = default)
   {
     Workspace = workspace;
     Temp = temp;
     _captureStdout = captureStdout;
     _ct = shellToken;
+    VerificationSink = verificationSink;
     Tools = new ScriptTools(registry, this);
   }
 
@@ -43,6 +46,10 @@ public sealed class ScriptGlobals
 
   /// <summary>Temp directory for artifacts.</summary>
   public string Temp { get; }
+
+  /// <summary>Optional sink receiving every completed Shell run (verification
+  ///     gating reads it downstream; this surface knows nothing of that purpose).</summary>
+  public IVerificationLedger? VerificationSink { get; }
 
   /// <summary>Tool-calling surface: Tools.read(...), Tools.Invoke(...), etc.</summary>
   public ScriptTools Tools { get; }
@@ -67,6 +74,7 @@ public sealed class ScriptGlobals
       return new ShellResult(-1, "", "Shell() requires an executable.");
     }
 
+    DateTimeOffset startedUtc = DateTimeOffset.UtcNow;
     ProcessStartInfo psi = new()
     {
       FileName = tokens[0],
@@ -138,6 +146,7 @@ public sealed class ScriptGlobals
       }
 
       p.WaitForExit(); // flushes output handlers so the exit code is final
+      ReportRun(tokens, p.ExitCode, startedUtc);
       return new ShellResult(p.ExitCode, stdoutTask.Result, stderrTask.Result);
     }
     catch (OperationCanceledException)
@@ -149,7 +158,32 @@ public sealed class ScriptGlobals
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)
     {
+      ReportRun(tokens, -1, startedUtc);
       return new ShellResult(-1, "", ex.Message);
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+  }
+
+  /// <summary>Reports one completed run to the optional verification sink.
+  ///     A sink fault is swallowed by named decision (spec error rule): the
+  ///     report path may never break the command run being reported.</summary>
+  private void ReportRun(IReadOnlyList<string> tokens, int exitCode, DateTimeOffset startedUtc)
+  {
+    if (VerificationSink is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): see summary - under-reporting degrades to more
+    // nudges, never to a broken run.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      VerificationSink.Append(new ShellExecutionRecord(tokens, exitCode, startedUtc, DateTimeOffset.UtcNow));
+    }
+    catch
+    {
+      // Report failures are contractually silent.
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }

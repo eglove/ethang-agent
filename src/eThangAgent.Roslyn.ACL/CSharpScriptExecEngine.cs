@@ -3,6 +3,7 @@ using System.Globalization;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
+using eThangAgent.ToolDomain.Verification;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
@@ -10,10 +11,11 @@ using Microsoft.CodeAnalysis.Scripting;
 namespace eThangAgent.Roslyn.ACL;
 
 public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
-    Func<string>? workspaceRoot = null) : IExecEngine
+    Func<string>? workspaceRoot = null, Func<IVerificationLedger>? verificationSink = null) : IExecEngine
 {
   private readonly Func<ICapabilityRegistry> _registry = registry ?? throw new ArgumentNullException(nameof(registry));
   private readonly Func<string> _workspaceRoot = workspaceRoot ?? ThrowMissingWorkspace;
+  private readonly Func<IVerificationLedger>? _verificationSink = verificationSink;
 
   private static readonly ScriptOptions ScriptOpts = ScriptOptions.Default
       .AddImports("System", "System.IO", "System.Linq",
@@ -22,8 +24,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       .AddReferences(typeof(ScriptGlobals).Assembly);
 
   public CSharpScriptExecEngine(ICapabilityRegistry registry,
-      Func<string>? workspaceRoot = null)
-      : this(() => registry, workspaceRoot) { }
+      Func<string>? workspaceRoot = null, Func<IVerificationLedger>? verificationSink = null)
+      : this(() => registry, workspaceRoot, verificationSink) { }
 
   /// <summary>Executes against the ambient workspace identity when the host supplies
   ///     none. The scripts' globals must name the agent's own workspace root; without
@@ -65,7 +67,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
         _registry(),
         _workspaceRoot(),
         Path.GetTempPath(),
-        shellToken: cts.Token);
+        shellToken: cts.Token,
+        verificationSink: _verificationSink?.Invoke());
 
     Script<object> script = CSharpScript.Create(program.Text, ScriptOpts, typeof(ScriptGlobals));
     ImmutableArray<Diagnostic> compileDiagnostics = script.Compile(ct);

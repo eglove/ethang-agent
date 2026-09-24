@@ -548,4 +548,55 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
   }
 
   public void Dispose() { }
+  /// <summary>Changed and untracked files with modification times for the
+  ///     verification gate: 'git status --porcelain -uall' parsed line by
+  ///     line; an unreadable mtime degrades to UtcNow (conservative - the
+  ///     gate then treats the file as changed right now).</summary>
+  public async Task<Result<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>> StatusAsync(
+      string repoPath, CancellationToken ct = default)
+  {
+    Result<GitRun> probe = await RunGitVerifiedAsync(repoPath, [RevParse, "--git-dir"], ct).ConfigureAwait(false);
+    if (!probe.IsSuccess)
+    {
+      return Result.Failure<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>(probe.Error);
+    }
+
+    GitRun run = await RunGitAsync(repoPath, ["status", "--porcelain", "-uall"], ct).ConfigureAwait(false);
+    if (!run.Ok)
+    {
+      return Result.Failure<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>(run.Err);
+    }
+
+    if (run.ExitCode != 0)
+    {
+      return Result.Failure<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>(ToGitFailure(repoPath, run.ExitCode, run.StdErr));
+    }
+
+    List<(string Path, DateTimeOffset ModifiedUtc)> files = [];
+    foreach (string rawLine in run.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+    {
+      string line = rawLine.TrimEnd('\r');
+      if (line.Length < 4)
+      {
+        continue;
+      }
+
+      // porcelain v1: two status chars, a space, then the path (renames carry
+      // 'orig -> new'; the NEW path is the changed one).
+      string path = line[3..];
+      int arrow = path.IndexOf(" -> ", StringComparison.Ordinal);
+      if (arrow >= 0)
+      {
+        path = path[(arrow + 4)..];
+      }
+
+      string full = Path.Combine(repoPath, path.Trim('"'));
+      DateTimeOffset modified = File.Exists(full)
+          ? new DateTimeOffset(File.GetLastWriteTimeUtc(full))
+          : DateTimeOffset.UtcNow; // deleted or unreadable: conservative 'changed now'
+      files.Add((full, modified));
+    }
+
+    return Result.Success<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>([.. files]);
+  }
 }

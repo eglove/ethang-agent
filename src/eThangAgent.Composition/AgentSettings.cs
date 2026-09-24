@@ -74,6 +74,7 @@ public sealed record AgentSettings(
     SubAgentOptions SubAgents,
     bool RemoteHost = false,
     bool ComputerUse = false,
+    bool VerificationGateEnabled = true,
     WatchdogSettings? Watchdog = null,
     LocalSettings? Local = null,
     string? WorkspaceRoot = null,
@@ -156,6 +157,11 @@ public sealed record AgentSettings(
   ///     whose workspace identity is the opened directory (the Desktop) use this to
   ///     ship that root to the host; validation lives where the value is consumed
   ///     (SessionHost), strict as everywhere else.</summary>
+  public AgentSettings WithVerificationGate(bool enabled) => this with
+  {
+    VerificationGateEnabled = enabled,
+  };
+
   public AgentSettings WithWorkspaceRoot(string? workspaceRoot) => this with
   {
     WorkspaceRoot = workspaceRoot,

@@ -19,6 +19,7 @@ using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.ToolDomain.Verification;
 using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
 using eThangAgent.Zai.ACL;
@@ -138,7 +139,8 @@ public static class AgentComposition
                 new AgentToolBinding(
                     new GitCommitTool(sp.GetRequiredService<IPathResolver>(),
                         sp.GetRequiredService<IGitCommitAccess>(),
-                        sp.GetRequiredService<ICommitStyleProvider>()),
+                        sp.GetRequiredService<ICommitStyleProvider>(),
+                        sp.GetRequiredService<VerificationGate>()),
                     "Commit the current index with a validated conventional or gitmoji message."),
                 new AgentToolBinding(
                     new WorktreeTool(sp.GetRequiredService<IPathResolver>(),
@@ -405,7 +407,10 @@ public static class AgentComposition
             // (T7), so its exec scripts resolve Workspace at the CHILD's anchor; the
             // session workspace is the fallback whenever no anchored run is ambient.
             () => sp.GetRequiredService<IWorkspaceAnchorScope>().Current
-                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+                ?? sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+            // Verification sink (spec #24): every completed Shell run lands in the
+            // session's ledger; resolved per execution like the workspace.
+            () => sp.GetRequiredService<IVerificationLedger>()))
         .AddSingleton<ITool>(sp => new ExecTool(
             sp.GetRequiredService<IExecEngine>(),
             sp.GetRequiredService<ExecOptions>(),
@@ -479,7 +484,16 @@ public static class AgentComposition
             () => sp.GetRequiredService<SessionMemoryWriteCounter>().Count,
             sp.GetRequiredService<IAgentInbox>(),
             sp.GetRequiredService<RootAgentHolder>(),
-            sp.GetRequiredService<RootAgentResolver>()))
+            sp.GetRequiredService<RootAgentResolver>(),
+            verificationGate: sp.GetRequiredService<VerificationGate>(),
+            changedFilesResolver: () =>
+            {
+              Result<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>> status =
+                  sp.GetRequiredService<IGitCommitAccess>().StatusAsync(
+                      sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)
+                      .GetAwaiter().GetResult();
+              return status.IsSuccess ? status.Value : [];
+            }))
         .AddSingleton<IConversationContextService>(sp => new ConversationContextServiceAdapter(sp.GetRequiredService<Conversation>()))
         .AddSingleton<RootSessionLifecycle>()
         // Skill-directory config rides EVERY container (skill-routing Phase 1): the
@@ -488,6 +502,14 @@ public static class AgentComposition
         // and the remote ChildHost's) resolve the same config shape from
         // AgentSettings. Unconditional registration: not remote resolves nulls, the
         // empty directory list, and nothing else changes.
+        .AddSingleton<IVerificationLedger, SessionVerificationLedger>()
+        .AddSingleton(sp => new VerificationCommandSpecification(
+            VerificationCommandSpecificationDefaults.Commands))
+        .AddSingleton<VerificationFreshnessSpecification>()
+        .AddSingleton(sp => new VerificationGate(
+            sp.GetRequiredService<IVerificationLedger>(),
+            sp.GetRequiredService<VerificationFreshnessSpecification>(),
+            settings.VerificationGateEnabled))
         .AddSingleton<SkillDirectoriesCarrier>()
         .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)))
         ;
