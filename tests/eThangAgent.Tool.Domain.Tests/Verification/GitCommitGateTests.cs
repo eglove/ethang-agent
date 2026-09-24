@@ -31,10 +31,13 @@ public class GitCommitGateTests
     }
 
     public Task<Result<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>> StatusAsync(
-        string repoPath, CancellationToken ct = default) =>
-        Task.FromResult(FailStatus
-            ? Result.Failure<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>(new DomainError("GitFailed", "down"))
-            : Result.Success<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>(Files));
+        string repoPath, CancellationToken ct = default)
+    {
+      IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)> files = Files;
+      return Task.FromResult(FailStatus
+          ? Result.Failure<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>(new DomainError("GitFailed", "down"))
+          : Result.Success(files));
+    }
   }
 
   private static VerificationCommandSpecification Classifier() => new(["dotnet test"]);

@@ -5,7 +5,7 @@ namespace eThangAgent.ToolDomain.Verification;
 ///     callers cannot corrupt the history.</summary>
 public sealed class SessionVerificationLedger : IVerificationLedger
 {
-  private readonly System.Threading.Lock _gate = new();
+  private readonly Lock _gate = new();
 
   private readonly List<ShellExecutionRecord> _records = [];
 
