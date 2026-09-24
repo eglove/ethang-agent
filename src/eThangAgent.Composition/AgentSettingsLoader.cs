@@ -15,6 +15,7 @@ public static class AgentPreferenceKeys
   public const string DefaultModel = "subagent_default_model";
   public const string RemoteHost = "subagent_remote_host";
   public const string ComputerUseEnabled = "computer_use_enabled";
+  public const string VerificationGateEnabled = "verification_gate_enabled";
   public const string WatchdogTickInterval = "subagent_watchdog_tick_interval";
   public const string WatchdogIdleThreshold = "subagent_watchdog_idle_threshold";
   public const string WatchdogMaxWrapUpAttempts = "subagent_watchdog_max_wrap_up_attempts";
@@ -49,6 +50,7 @@ public static class AgentSettingsLoader
         AgentSettingsDefaults.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture);
     string? remoteHostStored = await preferences.GetAsync(AgentPreferenceKeys.RemoteHost).ConfigureAwait(false);
     string? computerUseStored = await preferences.GetAsync(AgentPreferenceKeys.ComputerUseEnabled).ConfigureAwait(false);
+    string? verificationGateStored = await preferences.GetAsync(AgentPreferenceKeys.VerificationGateEnabled).ConfigureAwait(false);
     string? tick = await preferences.GetAsync(AgentPreferenceKeys.WatchdogTickInterval).ConfigureAwait(false);
     string? idle = await preferences.GetAsync(AgentPreferenceKeys.WatchdogIdleThreshold).ConfigureAwait(false);
     string? wrapUp = await preferences.GetAsync(AgentPreferenceKeys.WatchdogMaxWrapUpAttempts).ConfigureAwait(false);
@@ -56,12 +58,14 @@ public static class AgentSettingsLoader
     bool remoteHost;
     bool computerUse;
     SubAgentOptions subAgents;
+    bool verificationGate;
     WatchdogSettings? watchdog;
     try
     {
       subAgents = SubAgentConfiguration.Bind(defaultModel, maxConcurrent, out remoteHost, remoteHostStored);
       watchdog = SubAgentConfiguration.BindWatchdog(tick, idle, wrapUp);
       computerUse = ParseComputerUseEnabled(computerUseStored);
+      verificationGate = ParseVerificationGateEnabled(verificationGateStored);
     }
     catch (InvalidOperationException ex)
     {
@@ -82,6 +86,7 @@ public static class AgentSettingsLoader
         subAgents,
         RemoteHost: remoteHost,
         ComputerUse: computerUse,
+        VerificationGateEnabled: verificationGate,
         Watchdog: watchdog);
   }
 
@@ -133,6 +138,21 @@ public static class AgentSettingsLoader
       not null when bool.TryParse(stored, out bool parsed) => parsed,
       _ => throw new InvalidOperationException(
           $"{AgentPreferenceKeys.ComputerUseEnabled} must be 'true' or 'false', got '{stored}'."),
+    };
+  }
+
+  /// <summary>verification_gate_enabled - optional; absent means ENABLED (the
+  ///     gate's default-on decision); only "true"/"false" bind, anything else is
+  ///     a startup error naming the key.</summary>
+  private static bool ParseVerificationGateEnabled(string? stored)
+  {
+    return stored switch
+    {
+      null => true,
+      "true" => true,
+      "false" => false,
+      _ => throw new InvalidOperationException(
+          $"{AgentPreferenceKeys.VerificationGateEnabled} must be 'true' or 'false', got '{stored}'."),
     };
   }
 
