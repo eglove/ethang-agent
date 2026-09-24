@@ -49,4 +49,27 @@ public sealed class VerificationGate(
 
     return new VerificationVerdict(fresh, changedFiles.Count, newest, summary);
   }
+
+  /// <summary>The turn gate's nudge contract, verbatim: null when verified or
+  ///     nothing changed; otherwise the line the handler appends as a System
+  ///     message (one per turn, never a loop).</summary>
+  public string? NudgeLine(IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)> changedFiles)
+  {
+    if (!Enabled)
+    {
+      return null;
+    }
+
+    VerificationVerdict v = Evaluate(changedFiles);
+    if (v.Verified || v.ChangedCount == 0)
+    {
+      return null;
+    }
+
+    string lastVerification = v.LastVerificationSummary ?? "none";
+    return "[verification gate] This turn changed " + v.ChangedCount + " file(s) but no verification-class command has run successfully since the newest change ("
+        + v.NewestChangeUtc?.ToString("u", System.Globalization.CultureInfo.InvariantCulture)
+        + "). Before claiming any completion: run the verification command for these changes, confirm exit code 0, and state the claim with that evidence. Last verification: "
+        + lastVerification + ".";
+  }
 }

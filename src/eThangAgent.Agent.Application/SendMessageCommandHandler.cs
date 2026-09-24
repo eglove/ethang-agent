@@ -3,6 +3,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain.Verification;
 using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Agent.Application;
@@ -23,7 +24,9 @@ namespace eThangAgent.Agent.Application;
 /// </remarks>
 public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversation = null,
     INudgePolicy? policy = null, Func<int>? memoriesWritten = null, IAgentInbox? inbox = null,
-    RootAgentHolder? rootHolder = null, RootAgentResolver? rootResolver = null)
+    RootAgentHolder? rootHolder = null, RootAgentResolver? rootResolver = null,
+    VerificationGate? verificationGate = null,
+    Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>? changedFilesResolver = null)
 {
   private readonly Ag? _agent = agent;
   private readonly Conversation? _conversation = conversation;
@@ -32,6 +35,8 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
   private readonly IAgentInbox? _inbox = inbox;
   private readonly RootAgentHolder? _rootHolder = rootHolder;
   private readonly RootAgentResolver? _rootResolver = rootResolver;
+  private readonly VerificationGate? _verificationGate = verificationGate;
+  private readonly Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>? _changedFilesResolver = changedFilesResolver;
   private int _turnCount;
 
   public async Task<Result<string>> Handle(SendMessageCommand command,
@@ -59,6 +64,19 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
       {
         _conversation.AddSystemMessage(line);
         callbacks?.OnSystemMessage?.Invoke(line);
+      }
+    }
+
+    // Gate B (spec #24): one bounded verification nudge per turn when files
+    // changed without a fresh verification run. Both collaborators must be
+    // present; absent means byte-identical legacy behavior.
+    if (_verificationGate is { Enabled: true } gate && _changedFilesResolver is { } resolver)
+    {
+      string? nudge = gate.NudgeLine(resolver());
+      if (nudge is not null && _conversation is not null)
+      {
+        _conversation.AddSystemMessage(nudge);
+        callbacks?.OnSystemMessage?.Invoke(nudge);
       }
     }
 
