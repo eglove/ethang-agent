@@ -28,6 +28,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     interruption. Verbatim contract: tells the model why its calls produced nothing.</summary>
   public const string InterruptedToolResult = "[turn interrupted by the user; this call never ran]";
 
+  /// <summary>Verbatim prefix of the System message appended when the provider fails
+  ///     mid-turn: the persisted transcript records WHY the turn stopped instead of
+  ///     ending on a bare tool result (the failure was previously UI-notice only).</summary>
+  public const string TurnFailedPrefix = "[turn failed] ";
+
   /// <summary>Verbatim prefix a tool result carries when the conversation shrank
   ///     during this turn (the context_edit tool's contract). The loop rests
   ///     auto-compaction for the rest of the turn; persistence replaces the
@@ -129,6 +134,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
             callbacks?.OnContentDelta, callbacks?.OnReasoningDelta, ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
+          // The failure becomes part of the transcript: a turn that dies on a provider
+          // error must not leave the conversation ending on a bare tool result with no
+          // record of why — the model (and any resumed session) reads this line.
+          string failure = $"{TurnFailedPrefix}Error [{result.Error.Code}]: {result.Error.Message}";
+          Conversation.AddSystemMessage(failure);
+          callbacks?.OnSystemMessage?.Invoke(failure);
           return Result.Failure<string>(result.Error);
         }
 

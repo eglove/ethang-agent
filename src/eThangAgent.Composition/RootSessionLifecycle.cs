@@ -6,11 +6,12 @@ namespace eThangAgent.Composition;
 
 /// <summary>Persists the root session around a turn loop: appends EVERY message the turn
 ///     added (user, assistant tool-call messages, tool results, continuation prompts,
-///     nudges — the full slice from messageCountBefore) so the transcript is a lossless
-///     resume source, and marks the row Completed on graceful exit. Failed turns persist
-///     too: cancellation is protocol-repaired by the loop and a provider failure carries
-///     just the user message — both leave the transcript valid, and dropping them would
-///     make resume unfaithful. Persistence failures surface via reportError; the session
+///     nudges, turn-failure notices — the full slice from messageCountBefore) so the
+///     transcript is a lossless resume source, and marks the row Completed on graceful
+///     exit. Failed turns persist too: cancellation is protocol-repaired by the loop and
+///     a provider failure appends the loop's "[turn failed]" System line — both leave
+///     the transcript valid and self-describing, and dropping them would make resume
+///     unfaithful. Persistence failures surface via reportError; the session
 ///     continues.</summary>
 public class RootSessionLifecycle(IAgentStore store)
 {

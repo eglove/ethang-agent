@@ -108,7 +108,10 @@ public class VerificationTurnGateTests
     Result<string> result = await handler.Handle(new SendMessageCommand("go"), ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.False(result.IsSuccess);
-    Assert.DoesNotContain(h.Conversation.Messages, m => m.Role == Role.System);
+    // The gate never fires on failed turns; the only System message is the loop's
+    // own turn-failure marker, not a verification-gate line.
+    Assert.DoesNotContain(h.Conversation.Messages,
+        m => m.Role == Role.System && m.Content.Contains("[verification gate]", StringComparison.Ordinal));
   }
 
   [Fact]

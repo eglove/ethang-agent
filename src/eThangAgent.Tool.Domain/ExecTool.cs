@@ -48,7 +48,7 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutpu
       return Task.FromResult(new ToolResult($"Error [{budget.Error.Code}]: {budget.Error.Message}", true));
     }
 
-    ExecProgram exec = program.Value;
+    ExecProgram exec = program.Value with { Budget = budget.Value.Timeout };
     string title = parsed.Value.Title;
     return ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token =>
         RunAsync(exec, title, token), ct);

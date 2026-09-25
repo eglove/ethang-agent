@@ -57,9 +57,10 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
   public async Task<ExecRunResult> ExecuteAsync(ExecProgram program, CancellationToken ct = default)
   {
     // The token source exists ONLY to hand the flowing cancellation token to
-    // synchronous script surfaces (Shell). No engine-side budget is imposed:
-    // the required per-call timeoutSeconds is the sole authority, enforced by the
-    // tool layer, which also owns classification (Error [ToolTimeout]).
+    // synchronous script surfaces (Shell). No engine-side budget is imposed: the
+    // exec tool layer is the sole authority, enforced by the tool layer, which also
+    // owns classification (Error [ToolTimeout]). The stated budget flows to the
+    // globals so nested tool calls can inherit it when they omit timeoutSeconds.
     using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
     ArgumentNullException.ThrowIfNull(program);
 
@@ -68,7 +69,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
         _workspaceRoot(),
         Path.GetTempPath(),
         shellToken: cts.Token,
-        verificationSink: _verificationSink?.Invoke());
+        verificationSink: _verificationSink?.Invoke(),
+        execBudget: program.Budget);
 
     Script<object> script = CSharpScript.Create(program.Text, ScriptOpts, typeof(ScriptGlobals));
     ImmutableArray<Diagnostic> compileDiagnostics = script.Compile(ct);

@@ -79,7 +79,7 @@ public class CSharpScriptExecEngineTests
   }
 
   [Fact]
-  public async Task NestedToolMissingBudget_CarriesNestedCallAttribution()
+  public async Task NestedToolMissingBudget_BudgetlessGlobals_CarriesAttribution()
   {
     CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([new BareActionProvider()]),
         workspaceRoot: () => AppContext.BaseDirectory);
@@ -90,11 +90,30 @@ public class CSharpScriptExecEngineTests
     Assert.Equal(ExecRunStatus.Completed, run.Status);
     Assert.NotEmpty(run.ErrorLines);
     Assert.Contains("Error [MissingParameter]: nested call 'read':", run.ErrorLines[0], StringComparison.Ordinal);
-    Assert.Contains("(the exec-level timeoutSeconds does not apply to nested calls)", run.ErrorLines[0], StringComparison.Ordinal);
+    Assert.Contains("(no enclosing exec budget to inherit)", run.ErrorLines[0], StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task NestedToolMissingBudget_FormattedSurface_IsSingleWrapped_NoLeadingNewline()
+  public async Task NestedCallWithoutBudget_InheritsExecBudget()
+  {
+    BareActionProvider provider = new();
+    CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([provider]),
+        workspaceRoot: () => AppContext.BaseDirectory);
+    ExecRunResult run = await engine.ExecuteAsync(
+        new ExecProgram("return Tools.read(new { path = \"grand-plan.md\" });", TimeSpan.FromSeconds(30)),
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal(ExecRunStatus.Completed, run.Status);
+    Assert.Empty(run.ErrorLines);
+    Assert.Equal("ok", run.Output);
+    // The nested call stated no timeoutSeconds; the exec budget was inherited and,
+    // because the action's contract declares the parameter, injected into the dispatch.
+    Assert.Contains("\"timeoutSeconds\":30", provider.LastJson!, StringComparison.Ordinal);
+    Assert.Contains("\"path\":\"grand-plan.md\"", provider.LastJson!, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task NestedCall_FormattedSurface_IsSingleWrapped_NoLeadingNewline()
   {
     CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([new BareActionProvider()]),
         workspaceRoot: () => AppContext.BaseDirectory);
@@ -111,19 +130,24 @@ public class CSharpScriptExecEngineTests
     Assert.DoesNotContain("\r", result.Content, StringComparison.Ordinal);
   }
 
-  /// <summary>A provider exposing one budgetable action ("read") so nested-call
-  ///     validation can run against a real registry entry.</summary>
+  /// <summary>A provider exposing one action ("read") whose contract declares
+  ///     timeoutSeconds — the ITool-backed shape — recording its dispatched JSON.</summary>
   private sealed class BareActionProvider : ICapabilityProvider
   {
     public string Id => "bare";
+    public string? LastJson { get; private set; }
     public IReadOnlyList<ActionDescriptor> Actions { get; } =
     [
         new ActionDescriptor("read", "Reads a file.", "Contract text.",
-                [new ActionParameter("path", "String", "File path.")]),
+                [new ActionParameter("path", "String", "File path."),
+                 new ActionParameter(ToolTimeout.ParameterName, "WholeNumber", "Budget.")]),
         ];
     public Task<CapabilityInvocationResult> InvokeAsync(string actionName,
         string jsonArguments, CancellationToken ct = default)
-        => Task.FromResult(CapabilityInvocationResult.Ok("ok"));
+    {
+      LastJson = jsonArguments;
+      return Task.FromResult(CapabilityInvocationResult.Ok("ok"));
+    }
   }
 
   private static int CountOccurrences(string text, string needle)

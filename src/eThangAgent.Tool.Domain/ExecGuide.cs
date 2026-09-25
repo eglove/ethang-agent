@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.11";
+  public const string Version = "2.12";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -39,18 +39,19 @@ public static class ExecGuide
         Tools.Invoke("read", new { timeoutSeconds = 30, path = "src/App.cs", startLine = 1, endLine = 50 });
 
     ONLY `Tools.List()` and `Tools.Describe(...)` are exempt — local meta-methods that
-    never dispatch. Every other nested call without `timeoutSeconds` THROWS
-    `ScriptToolException` immediately (surfaced alongside any Output() evidence) instead
-    of returning an error string a batch script may ignore. IMPORTANT: the exec-level
-    `timeoutSeconds` budget does NOT carry into nested calls — each one needs its own:
+    never dispatch. NESTED CALL BUDGET: an explicit `timeoutSeconds` on the nested call
+    wins; when you omit it, the call INHERITS the enclosing exec call's budget — you do
+    not need to repeat it on every nested call. (Named decision: restating the budget
+    per call was dropped after it cost real sessions repeated failures.) Stating one is
+    still honored and still validated:
 
-        Tools.Invoke("state.set", new { key = "k" });        // throws: Error [MissingParameter]:
-                                                             // nested call 'state.set': Missing
-                                                             // required parameter 'timeoutSeconds'...
+        Tools.read(new { path = "src/App.cs" });                          // ok — inherits the exec budget
+        Tools.read(new { timeoutSeconds = 120, path = "big.log" });       // ok — overrides for this call
         Tools.Invoke("state.set", new { timeoutSeconds = 30, key = "k", value = "v" });   // ok
 
-    The words `nested call '<name>':` in the error text mean the problem is in THAT
-    call's anonymous object — not in the exec tool call itself.
+    Only budgetless contexts (evidence checks) require the explicit value. A nested
+    call whose explicit value is invalid fails with
+    "Error [InvalidParameterValue]: nested call '<name>': ...".
 
     Discover tools instead of guessing:
 
@@ -255,12 +256,15 @@ public static class ExecGuide
     - exec cannot call itself (no nested exec).
     - timeoutSeconds is the only execution budget; when it elapses the call fails
       with Error [ToolTimeout]. There is no other cap.
-    - Every tool call — exec and every action inside scripts — REQUIRES a timeoutSeconds
-      argument: a whole-second budget, 1..3600. A nested call without it fails with
-      "Error [MissingParameter]: nested call '<name>': ..."; add the parameter to THAT
-      nested call's anonymous object, not to the exec call. A call exceeding its budget
-      fails with Error [ToolTimeout]; re-issue with a larger budget if the work genuinely
-      needs longer. Choose generously but honestly.
+    - Every tool call — exec and every action inside scripts — is bounded by a
+      timeoutSeconds budget: a whole-second value, 1..3600. Nested calls inherit the
+      exec call's budget unless they state their own; an exceeded call fails with
+      Error [ToolTimeout]; re-issue with a larger budget if the work genuinely needs
+      longer. Choose generously but honestly.
+    - Paths resolve at the session workspace: file-tool paths, Shell commands, and the
+      script's Workspace property all root there. Directory.GetCurrentDirectory() is
+      the APP's launch directory, not the workspace — never use it to locate workspace
+      files; use relative paths or Workspace.
     - Use anonymous objects for tool args: new { path = "...", startLine = 1, timeoutSeconds = 60 }.
     """;
 }

@@ -31,13 +31,14 @@ public sealed class ScriptGlobals
 
   public ScriptGlobals(ICapabilityRegistry registry, string workspace, string temp,
       bool captureStdout = true, IVerificationLedger? verificationSink = null,
-      CancellationToken shellToken = default)
+      TimeSpan? execBudget = null, CancellationToken shellToken = default)
   {
     Workspace = workspace;
     Temp = temp;
     _captureStdout = captureStdout;
     _ct = shellToken;
     VerificationSink = verificationSink;
+    ExecBudget = execBudget;
     Tools = new ScriptTools(registry, this);
   }
 
@@ -50,6 +51,12 @@ public sealed class ScriptGlobals
   /// <summary>Optional sink receiving every completed Shell run (verification
   ///     gating reads it downstream; this surface knows nothing of that purpose).</summary>
   public IVerificationLedger? VerificationSink { get; }
+
+  /// <summary>The enclosing exec call's stated budget, when the script runs under one
+  ///     (the evidence runner constructs globals budgetless). Nested tool calls that
+  ///     omit <c>timeoutSeconds</c> inherit it — the named leniency decision documented
+  ///     in ExecGuide; explicit nested values still win and are still validated.</summary>
+  public TimeSpan? ExecBudget { get; }
 
   /// <summary>Tool-calling surface: Tools.read(...), Tools.Invoke(...), etc.</summary>
   public ScriptTools Tools { get; }
@@ -276,29 +283,34 @@ public sealed record ShellResult(int ExitCode, string Stdout, string Stderr);
 public sealed class ScriptTools
 {
   private readonly ICapabilityRegistry _registry;
-
+  private readonly ScriptGlobals _globals;
 
   public ScriptTools(ICapabilityRegistry registry, ScriptGlobals globals)
   {
     ArgumentNullException.ThrowIfNull(registry);
     ArgumentNullException.ThrowIfNull(globals);
     _registry = registry;
-
+    _globals = globals;
   }
 
   /// <summary>Invoke a tool by name and return the raw tool result text.
-  ///     Every invocation MUST carry timeoutSeconds (whole seconds, 1..3600): it is
-  ///     validated here and STRIPPED from the arguments before dispatch so providers
-  ///     never see a harness-reserved key. Pre-dispatch contract violations — missing
-  ///     or invalid budget, unknown action, malformed arguments — THROW
-  ///     <see cref="ScriptToolException"/> instead of returning an error string: batch
-  ///     scripts routinely discard result strings, and an in-band error buried among
-  ///     successes silently loses work. The exec engine surfaces the throw as
-  ///     Error [ScriptError] alongside whatever Output() evidence was already collected.
-  ///     Post-dispatch outcomes stay in-band: tool-level errors (the tool's own
-  ///     Error [Code]: text) and elapsed budgets (Error [ToolTimeout], enforced by the
-  ///     harness for EVERY action — TimeoutPolicy no longer exempts nested calls; on
-  ///     the wire SelfManaged still means the tool validates its own envelope).</summary>
+  ///     The execution budget resolves as: an explicit timeoutSeconds (whole seconds,
+  ///     1..3600) on the nested arguments, else — the named leniency decision — the
+  ///     enclosing exec call's budget (<see cref="ScriptGlobals.ExecBudget"/>) when the
+  ///     script runs under one; only budgetless globals (the evidence runner) demand
+  ///     an explicit nested value. The budget is validated here and STRIPPED from the
+  ///     arguments before dispatch (an inherited value is INJECTED for tools whose
+  ///     contract declares it) so providers never see a harness-reserved key they did
+  ///     not ask for. Pre-dispatch contract violations — missing or invalid budget,
+  ///     unknown action, malformed arguments — THROW <see cref="ScriptToolException"/>
+  ///     instead of returning an error string: batch scripts routinely discard result
+  ///     strings, and an in-band error buried among successes silently loses work. The
+  ///     exec engine surfaces the throw as Error [ScriptError] alongside whatever
+  ///     Output() evidence was already collected. Post-dispatch outcomes stay in-band:
+  ///     tool-level errors (the tool's own Error [Code]: text) and elapsed budgets
+  ///     (Error [ToolTimeout], enforced by the harness for EVERY action — TimeoutPolicy
+  ///     no longer exempts nested calls; on the wire SelfManaged still means the tool
+  ///     validates its own envelope).</summary>
   public string Invoke(string name, object? args)
   {
     Result<ResolvedCapability> resolved = _registry.Resolve(name);
@@ -329,19 +341,45 @@ public sealed class ScriptTools
       throw new ScriptToolException("Error [InvalidJsonArguments]: Arguments must be a JSON object.");
     }
 
-    Result<TimeSpan> budget = ToolTimeout.Parse(document);
-    if (!budget.IsSuccess)
+    Result<TimeSpan> parsedBudget = ToolTimeout.Parse(document);
+    TimeSpan budget;
+    bool explicitBudget = parsedBudget.IsSuccess;
+    if (parsedBudget.IsSuccess)
+    {
+      budget = parsedBudget.Value;
+    }
+    else if (parsedBudget.Error.Code == "MissingParameter" && _globals.ExecBudget is { } inherited)
+    {
+      budget = inherited;
+    }
+    else if (parsedBudget.Error.Code == "MissingParameter")
     {
       throw new ScriptToolException(
-          $"Error [{budget.Error.Code}]: nested call '{name}': {budget.Error.Message} (the exec-level timeoutSeconds does not apply to nested calls)");
+          $"Error [MissingParameter]: nested call '{name}': {parsedBudget.Error.Message} (no enclosing exec budget to inherit)");
+    }
+    else
+    {
+      throw new ScriptToolException(
+          $"Error [{parsedBudget.Error.Code}]: nested call '{name}': {parsedBudget.Error.Message}");
     }
 
     // Tools whose contract declares timeoutSeconds (ITool-backed actions) re-validate
-    // it themselves — pass arguments through untouched. Pure capability providers never
-    // declare it; strip the harness-reserved key so their strict parsers accept the rest.
+    // it themselves — they need it present: an explicit nested value passes through
+    // untouched, an inherited one is injected. Pure capability providers never declare
+    // it; strip the harness-reserved key so their strict parsers accept the rest.
     bool declaresTimeout = resolved.Value.Action.Parameters
         .Any(pr => pr.Name == ToolTimeout.ParameterName);
-    string stripped = declaresTimeout ? json : StripTimeout(document);
+    string stripped;
+    if (declaresTimeout)
+    {
+      // Explicit budget: pass through. Inherited: inject it so the tool's own
+      // strict parser sees the key its contract declares.
+      stripped = explicitBudget ? json : InjectTimeout(document, budget);
+    }
+    else
+    {
+      stripped = StripTimeout(document);
+    }
 
     // Offload to the worker pool before blocking: scripts are synchronous but the
     // registry is async, and awaiting inline deadlocks whenever this runs on a thread
@@ -359,19 +397,19 @@ public sealed class ScriptTools
         // tools that honor the token; the hard deadline below guarantees the bound
         // even for a provider that ignores it — in-process work cannot be killed, so
         // that invocation is abandoned and its result discarded.
-        cts.CancelAfter(budget.Value);
+        cts.CancelAfter(budget);
         Task<CapabilityInvocationResult> call = _registry.InvokeAsync(resolved.Value, stripped, cts.Token);
         TaskCompletionSource deadline = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using Timer timer = new(
             static state => ((TaskCompletionSource)state!).TrySetResult(),
-            deadline, budget.Value, Timeout.InfiniteTimeSpan);
+            deadline, budget, Timeout.InfiniteTimeSpan);
         Task winner = await Task.WhenAny(call, deadline.Task).ConfigureAwait(false);
         if (winner != call)
         {
           // Observe and drop the abandoned call's eventual fault so it cannot surface
           // as an unobserved task exception later in the process lifetime.
           _ = call.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-          return new CapabilityInvocationResult(ToolTimeout.TimedOut(name, budget.Value).Content, true);
+          return new CapabilityInvocationResult(ToolTimeout.TimedOut(name, budget).Content, true);
         }
         try
         {
@@ -379,7 +417,7 @@ public sealed class ScriptTools
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-          return new CapabilityInvocationResult(ToolTimeout.TimedOut(name, budget.Value).Content, true);
+          return new CapabilityInvocationResult(ToolTimeout.TimedOut(name, budget).Content, true);
         }
       });
     }
@@ -453,17 +491,60 @@ public sealed class ScriptTools
     }
     return Encoding.UTF8.GetString(buffer.ToArray());
   }
-  /// <summary>Dynamic dispatch for convenience methods generated as public methods.
-  /// Matches unknown method calls by name if the tool name is valid C#. The argument
-  /// defaults to null so zero-argument actions bind without a dummy object —
-  /// Tools.git_status() and Tools.Invoke("git_status", null) are equivalent.</summary>
+
+  /// <summary>Serializes the argument object with the inherited exec budget injected as
+  ///     the timeoutSeconds key: tools whose contract declares the parameter re-validate
+  ///     it themselves, so an inherited (not explicitly stated) budget must still reach
+  ///     them in the dispatched arguments.</summary>
+  private static string InjectTimeout(JsonElement document, TimeSpan budget)
+  {
+    MemoryStream buffer = new();
+    using (Utf8JsonWriter writer = new(buffer))
+    {
+      writer.WriteStartObject();
+      foreach (JsonProperty property in document.EnumerateObject())
+      {
+        if (property.Name == ToolTimeout.ParameterName)
+        {
+          continue;
+        }
+
+        property.WriteTo(writer);
+      }
+      writer.WriteNumber(ToolTimeout.ParameterName,
+          (int)Math.Round(budget.TotalSeconds, MidpointRounding.ToZero));
+      writer.WriteEndObject();
+    }
+    return Encoding.UTF8.GetString(buffer.ToArray());
+  }
+
+  /// <summary>Convenience one-liners for the ITool-backed actions whose names are valid
+  ///     C# identifiers — the full catalog is also reachable through Invoke (state.*,
+  ///     agent.*, plan.*, and memory.* stay Invoke-only: dots and hyphens do not bind).
+  ///     Every wrapper is Invoke(name, args) verbatim; nothing dispatches differently.</summary>
   public string read(object? args = null) => Invoke("read", args);
   public string write(object? args = null) => Invoke("write", args);
+  public string write_markdown(object? args = null) => Invoke("write_markdown", args);
   public string edit(object? args = null) => Invoke("edit", args);
   public string exec(object? args = null) => Invoke("exec", args);
   public string git_status(object? args = null) => Invoke("git_status", args);
   public string working_diff(object? args = null) => Invoke("working_diff", args);
   public string git_commit(object? args = null) => Invoke("git_commit", args);
+  public string worktree(object? args = null) => Invoke("worktree", args);
+  public string command_output(object? args = null) => Invoke("command_output", args);
+  public string web_fetch(object? args = null) => Invoke("web_fetch", args);
+  public string db_schema(object? args = null) => Invoke("db_schema", args);
+  public string db_query(object? args = null) => Invoke("db_query", args);
+  public string sqlite_query(object? args = null) => Invoke("sqlite_query", args);
+  public string todo(object? args = null) => Invoke("todo", args);
+  public string context_edit(object? args = null) => Invoke("context_edit", args);
+  public string cycle_check(object? args = null) => Invoke("cycle_check", args);
+  public string skill_list(object? args = null) => Invoke("skill_list", args);
+  public string skill_view(object? args = null) => Invoke("skill_view", args);
+  public string skill_search(object? args = null) => Invoke("skill_search", args);
+  public string skill_invoke(object? args = null) => Invoke("skill_invoke", args);
+  public string skill_manage(object? args = null) => Invoke("skill_manage", args);
+  public string skill_registry(object? args = null) => Invoke("skill_registry", args);
 
   public string List() => string.Join("\n", _registry.Providers.SelectMany(p => p.Actions)
       .Select(a => $"{a.Name}({string.Join(", ", a.Parameters.Select(p => $"{p.Name}: {p.Type}"))})"));

@@ -2,7 +2,7 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed record ExecProgram(string Text)
+public sealed record ExecProgram(string Text, TimeSpan? Budget = null)
 {
   public static Result<ExecProgram> Create(string? program, ExecOptions options)
   {

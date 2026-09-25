@@ -1,4 +1,5 @@
 using eThangAgent.CapabilityDomain;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
 
@@ -28,11 +29,11 @@ public class ScriptToolsTimeoutTests
     }
   }
 
-  private static (ScriptTools Tools, CapturingProvider Provider) Make()
+  private static (ScriptTools Tools, CapturingProvider Provider) Make(TimeSpan? execBudget = null)
   {
     CapturingProvider provider = new();
     CapabilityRegistry registry = CapabilityRegistry.Create([provider]);
-    ScriptGlobals globals = new(registry, ".", Path.GetTempPath());
+    ScriptGlobals globals = new(registry, ".", Path.GetTempPath(), execBudget: execBudget);
     return (globals.Tools, provider);
   }
 
@@ -43,8 +44,49 @@ public class ScriptToolsTimeoutTests
     Exception ex = Assert.Throws<ScriptToolException>(() => tools.Invoke("do", new { x = "y" }));
     Assert.Contains("Error [MissingParameter]:", ex.Message, StringComparison.Ordinal);
     Assert.Contains("nested call 'do':", ex.Message, StringComparison.Ordinal);
-    Assert.Contains("(the exec-level timeoutSeconds does not apply to nested calls)", ex.Message, StringComparison.Ordinal);
+    Assert.Contains("(no enclosing exec budget to inherit)", ex.Message, StringComparison.Ordinal);
     Assert.Contains("timeoutSeconds", ex.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void MissingTimeout_WithExecBudget_InheritsIt()
+  {
+    (ScriptTools? tools, CapturingProvider? provider) = Make(TimeSpan.FromSeconds(30));
+    string result = tools.Invoke("do", new { x = "y" });
+    Assert.Equal("done", result);
+    // Pure provider (no timeoutSeconds in its contract): the inherited budget is
+    // stripped, never dispatched.
+    Assert.NotNull(provider.LastJson);
+    Assert.DoesNotContain("timeoutSeconds", provider.LastJson, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void MissingTimeout_WithExecBudget_InjectedForDeclaringActions()
+  {
+    DeclaringProvider declaring = new();
+    CapabilityRegistry registry = CapabilityRegistry.Create([declaring]);
+    ScriptGlobals globals = new(registry, ".", Path.GetTempPath(), execBudget: TimeSpan.FromSeconds(45));
+
+    string result = globals.Tools.Invoke("declarer", new { x = "y" });
+
+    Assert.Equal("done", result);
+    Assert.NotNull(declaring.LastJson);
+    // The action's contract declares timeoutSeconds, so the inherited budget is
+    // injected into the dispatched arguments for the tool's own validation.
+    Assert.Contains("\"timeoutSeconds\":45", declaring.LastJson, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void ExplicitTimeout_OverridesInheritedBudget()
+  {
+    DeclaringProvider declaring = new();
+    CapabilityRegistry registry = CapabilityRegistry.Create([declaring]);
+    ScriptGlobals globals = new(registry, ".", Path.GetTempPath(), execBudget: TimeSpan.FromSeconds(45));
+
+    string result = globals.Tools.Invoke("declarer", new { x = "y", timeoutSeconds = 90 });
+
+    Assert.Equal("done", result);
+    Assert.Contains("\"timeoutSeconds\":90", declaring.LastJson!, StringComparison.Ordinal);
   }
 
   [Theory]
@@ -88,6 +130,16 @@ public class ScriptToolsTimeoutTests
     Exception ex = Assert.Throws<ScriptToolException>(() => tools.Invoke("do", /*lang=json,strict*/ """{"x":"y"}"""));
     Assert.Contains("Error [MissingParameter]:", ex.Message, StringComparison.Ordinal);
     Assert.Contains("nested call 'do':", ex.Message, StringComparison.Ordinal);
+    Assert.Contains("(no enclosing exec budget to inherit)", ex.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void InvalidExplicitTimeout_ThrowsEvenWithInheritedBudget()
+  {
+    (ScriptTools? tools, CapturingProvider _) = Make(TimeSpan.FromSeconds(30));
+    Exception ex = Assert.Throws<ScriptToolException>(() => tools.Invoke("do", new { x = "y", timeoutSeconds = 0 }));
+    Assert.Contains("Error [InvalidParameterValue]:", ex.Message, StringComparison.Ordinal);
+    Assert.Contains("nested call 'do':", ex.Message, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -115,6 +167,42 @@ public class ScriptToolsTimeoutTests
     Exception ex = Assert.Throws<ScriptToolException>(() => globals.Tools.Invoke("waiter", new { }));
     Assert.Contains("Error [MissingParameter]:", ex.Message, StringComparison.Ordinal);
     Assert.Contains("nested call 'waiter':", ex.Message, StringComparison.Ordinal);
+    Assert.Contains("(no enclosing exec budget to inherit)", ex.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task InheritedBudget_BoundsNestedAction()
+  {
+    // The exec budget flows into the globals (as ExecProgram.Budget does in
+    // production): a nested call that omits timeoutSeconds is still bounded by it.
+    DelayingProvider selfManaged = new(TimeoutPolicy.SelfManaged);
+    ScriptGlobals globals = new(
+        CapabilityRegistry.Create([selfManaged]), ".", Path.GetTempPath(),
+        execBudget: TimeSpan.FromSeconds(1));
+
+    string result = await Task.Run(() => globals.Tools.Invoke("waiter", new { })).ConfigureAwait(true);
+
+    Assert.StartsWith("Error [ToolTimeout]", result, StringComparison.Ordinal);
+  }
+
+  /// <summary>Provider whose action declares timeoutSeconds in its contract (the
+  /// ITool-backed shape): inherited budgets must be injected into its arguments.</summary>
+  private sealed class DeclaringProvider : ICapabilityProvider
+  {
+    public string Id => "declarer";
+    public string? LastJson { get; private set; }
+    public IReadOnlyList<ActionDescriptor> Actions { get; } =
+    [
+        new ActionDescriptor("declarer", "Declares a budget.", "Contract text.",
+                [new ActionParameter("x", "String", "Some value."),
+                 new ActionParameter(ToolTimeout.ParameterName, "WholeNumber", "Budget.")]),
+        ];
+    public Task<CapabilityInvocationResult> InvokeAsync(string actionName,
+        string jsonArguments, CancellationToken ct = default)
+    {
+      LastJson = jsonArguments;
+      return Task.FromResult(CapabilityInvocationResult.Ok("done"));
+    }
   }
 
   /// <summary>Completes after 1.2s — beyond any 1-second budget.</summary>

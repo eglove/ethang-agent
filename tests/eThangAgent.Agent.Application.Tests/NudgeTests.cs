@@ -108,7 +108,10 @@ public class NudgeTests
     Assert.False(result.IsSuccess);
     Assert.Equal(error, result.Error);
     Assert.Empty(policy.ContextsSeen);
-    _ = Assert.Single(conversation.Messages); // only the user message
+    // The nudge policy appends nothing on failed turns; the only System message is
+    // the loop's own turn-failure marker.
+    _ = Assert.Single(conversation.Messages, m => m.Role == Role.System);
+    Assert.StartsWith("[turn failed]", conversation.Messages[1].Content, StringComparison.Ordinal);
   }
 
   [Fact]
