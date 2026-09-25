@@ -80,6 +80,8 @@ public static class AgentComposition
         .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
         .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
         .AddSingleton<IWebAccess, HttpWebAccess>()
+        .AddSingleton<ISkillRegistryAccess, GitSkillRegistryAccess>()
+        .AddSingleton<ISkillsShAccess, HttpSkillsShAccess>()
         .AddSingleton<IHtmlToMarkdown, HtmlAgilityMarkdownConverter>()
         .AddSingleton(sp => new AgentToolsProvider("agent",
         [
@@ -122,6 +124,12 @@ public static class AgentComposition
                         sp.GetRequiredService<ILearnedSkillStore>(),
                         sp.GetRequiredService<Func<DateTimeOffset>>()),
                     "Create, update, or delete learned skills."),
+                new AgentToolBinding(
+                    sp.GetRequiredService<SkillSearchTool>(),
+                    "Search the skills.sh directory for community skills."),
+                new AgentToolBinding(
+                    sp.GetRequiredService<SkillRegistryTool>(),
+                    "Install, update, or uninstall community skills."),
                 new AgentToolBinding(
                     new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
                     "Track a workspace task list."),
@@ -230,6 +238,11 @@ public static class AgentComposition
             sp.GetRequiredService<CompositeSkillCatalog>(),
             diff => sp.GetRequiredService<SkillDirectoryReloader>().Announce(diff),
             sp.GetRequiredService<ResolvedSkillDirectories>().List))
+        // Skill registry (plan #29): one service per container; the resolvers
+        // read the same settings and resolved-directories the watcher uses.
+        .AddSingleton(sp => CreateSkillRegistryService(sp, settings)).AddSingleton(sp => new SkillSearchTool(sp.GetRequiredService<SkillRegistryService>()))
+        .AddSingleton(sp => new SkillRegistryTool(sp.GetRequiredService<SkillRegistryService>()))
+        .AddSingleton(sp => new SkillRegistryTool(sp.GetRequiredService<SkillRegistryService>()))
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
@@ -840,4 +853,13 @@ public static class AgentComposition
           ? new SubAgentOptions(rootModelId,
               settings.SubAgents.MaxConcurrentAgents, settings.SubAgents.MaxDepth)
           : settings.SubAgents;
+  /// <summary>Skill registry (plan #29): one service per container; the resolvers
+  ///     read the same settings and resolved-directories the watcher uses.</summary>
+  private static SkillRegistryService CreateSkillRegistryService(IServiceProvider sp, AgentSettings settings) =>
+      new(
+          sp.GetRequiredService<ISkillRegistryAccess>(),
+          sp.GetRequiredService<ISkillsShAccess>(),
+          sp.GetRequiredService<ISkillCatalog>(),
+          () => settings.SkillRegistryDefaultTarget,
+          () => [.. sp.GetRequiredService<ResolvedSkillDirectories>().List.Select(d => d.Path)]);
 }
