@@ -97,7 +97,9 @@ public class CSharpScriptExecEngineTests
   [Fact]
   public async Task CallerCancellation_KillsHungShellProcessTree()
   {
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(3));
+    // A generous budget: the token must cover compile + spawn + kill under a loaded
+    // parallel run too; the pin is the OCE, not the duration.
+    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(30));
     CSharpScriptExecEngine engine = CreateEngine();
 
     // Cancellation propagates for classification at the tool layer.
@@ -110,8 +112,10 @@ public class CSharpScriptExecEngineTests
   [Fact]
   public async Task ElapsedBudget_KillsHungShellProcessTree()
   {
-    // The budget arrives through the caller's token - ExecOptions carries none.
-    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(2));
+    // The budget arrives through the caller's token - ExecOptions carries none. The
+    // window stays load-tolerant but distinct from the cancellation twin's, and the
+    // pin is the OCE, not the duration.
+    using CancellationTokenSource cts = new(TimeSpan.FromSeconds(15));
     CSharpScriptExecEngine engine = CreateEngine();
 
     _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(

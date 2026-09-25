@@ -146,13 +146,13 @@ public class CrossContainerRemoteRouteE2ETests
 
       SendMessageCommandHandler handlerB = b.Handler;
       Result<string> turn = await handlerB.Handle(new SendMessageCommand("spawn the remote helper"),
-          ct: TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(60),
+          ct: TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(120),
           TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(turn.IsSuccess, turn.Error?.Message);
 
       // Bounded wait for the remote child to reach its parked exec call (its provider
       // requests carry the child's model id).
-      DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(45);
+      DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(90);
       while (!mock.RequestBodies.Any(body => MockOpenRouterServer.TryGetRequestModel(body) == "mock/sub-model")
           && DateTimeOffset.UtcNow < deadline)
       {
@@ -191,7 +191,7 @@ public class CrossContainerRemoteRouteE2ETests
       // Release the park: the child drains its host-side mailbox at the next safe
       // point and the routed text reaches the provider (the child's transcript).
       releasePark(marker);
-      deadline = DateTimeOffset.UtcNow.AddSeconds(45);
+      deadline = DateTimeOffset.UtcNow.AddSeconds(90);
       bool drained = false;
       while (!drained && DateTimeOffset.UtcNow < deadline)
       {

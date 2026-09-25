@@ -77,10 +77,12 @@ public sealed class PipeServer
   private readonly BrokerConfig _config;
   private readonly Lock _gate = new();
   private readonly HashSet<int> _authenticated = [];
+  private readonly bool _targetedInput;
 
-  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, Func<KeyChord, bool>? sendChord = null, Func<string, bool>? sendText = null, Func<string, int, int, int, int, bool>? sendDrag = null, Func<string, int, int, bool>? sendMouseButtonAt = null, Func<string, int, int, int, bool>? sendWheelAt = null)
+  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, Func<KeyChord, bool>? sendChord = null, Func<string, bool>? sendText = null, Func<string, int, int, int, int, bool>? sendDrag = null, Func<string, int, int, bool>? sendMouseButtonAt = null, Func<string, int, int, int, bool>? sendWheelAt = null, bool targetedInput = false)
   {
     _config = config ?? throw new ArgumentNullException(nameof(config));
+    _targetedInput = targetedInput;
     InputSerializer = new InputSerializer();
     Lease = new ControllerLease();
     // Re-review resolution contract: ZERO hooks => the REAL NativeInput surface on
@@ -126,14 +128,19 @@ public sealed class PipeServer
       }
     }
 
+    // The DEFAULT foreground read is the REAL one: production (Program.cs) wires no
+    // explicit read, and the strategy=event / paste / targeted gates must consult the
+    // actual foreground window. The -1 fake was the test factory's default and leaked
+    // into the production path, refusing every gated dispatch forever.
     InputDispatch = new InputDispatch(
-        foregroundPid ?? ReadDefaultForeground,
+        foregroundPid ?? InputDispatch.ReadForegroundPid,
         sendChord ?? NativeInput.SendChord,
         sendText ?? NativeInput.SendText,
         sendDrag ?? NativeInput.SendDrag,
         sendMouseButtonAt ?? NativeInput.SendMouseButtonAt,
         sendWheelAt ?? NativeInput.SendWheelAt,
-        doubleBacked: anyHook);
+        doubleBacked: anyHook,
+        targeted: targetedInput);
     Observer = observer ?? new SkeletonObserver();
     Lease.OwnerLost += Observer.OnOwnerLost;
     Lease.OwnerLost += _ => InputDispatch.CancelActiveInput();
@@ -423,20 +430,42 @@ public sealed class PipeServer
 
     if (method == "paste")
     {
-      // F6 (fix round 5): paste gates like click - the foreground window must match
-      // the target app (or the paste must be element-targeted on the foreground
-      // element's window) BEFORE the clipboard is touched. A refused paste writes
-      // NOTHING to the clipboard.
+      // F6/F8 (gate closure): paste gates like click for EVERY target - the foreground
+      // window must already be the target app BEFORE the clipboard is touched. The old
+      // element-targeted exemption was unenforceable (the element op never focused its
+      // window), so an ungated paste typed into whatever window had focus. A refused
+      // paste writes NOTHING to the clipboard and dispatches no chord.
       int targetPid = InputRouter.TargetPid(parameters);
-      bool elementTargeted = InputRouter.ElementIndex(parameters) >= 0;
-#pragma warning disable IDE0046 // Named decision: the gate refusal names the foreground pid; the ternary form hides it.
-      if (!elementTargeted && !InputDispatch.GateAllowsForPaste(targetPid))
+      if (!InputDispatch.GateAllowsForPaste(targetPid))
       {
         return BrokerResponse.Fail("foreground_required",
           $"paste requires the target app (pid {targetPid}) to be foreground (foreground pid: {InputDispatch.CurrentForegroundPid}); the clipboard was not touched.",
           "action_sent=false");
       }
-#pragma warning restore IDE0046
+
+      // An element-targeted paste focuses the element first (the type_text F7 pattern)
+      // so the delivered text lands in the target field; a focus failure is the honest
+      // refusal - nothing dispatched.
+      int element = InputRouter.ElementIndex(parameters);
+      if (element >= 0)
+      {
+        BrokerResponse focused = InputDispatch.FocusElement(element);
+        if (focused.Error is not null)
+        {
+          return focused;
+        }
+      }
+
+      // Targeted delivery (integration opt-in): the text goes to the focused window as
+      // messages - the clipboard is never touched and no global chord is injected.
+      if (_targetedInput)
+      {
+        string? text = parameters is { } tp && tp.TryGetProperty("text", out JsonElement textEl)
+          && textEl.ValueKind == JsonValueKind.String ? textEl.GetString() : null;
+        return text is null
+          ? InputRouter.PasteFailure()
+          : InputDispatch.PasteTargeted(text);
+      }
 
       return InputRouter.Paste(operation, parameters);
     }
@@ -446,9 +475,6 @@ public sealed class PipeServer
       : InputDispatch.Dispatch(method, parameters);
     return routed;
   }
-
-  private static int ReadDefaultForeground() => -1; // test factory default; production Create() reads the real foreground
-
 
 
   /// <summary>The input_busy refusal: nothing dispatched, nothing queued (M7 keeps

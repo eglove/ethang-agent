@@ -50,13 +50,75 @@ public sealed partial class IntegrationWindowFixture : IDisposable
   [LibraryImport("user32.dll"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   private static partial nint GetForegroundWindow();
 
+  [LibraryImport("user32.dll"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  private static partial uint GetWindowThreadProcessId(nint hWnd, out int lpdwProcessId);
+
+  [LibraryImport("user32.dll"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static partial bool AttachThreadInput(uint idAttach, uint idAttachTo, [MarshalAs(UnmanagedType.Bool)] bool fAttach);
+
+  [LibraryImport("user32.dll"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static partial bool BringWindowToTop(nint hwnd);
+
+  [LibraryImport("user32.dll"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  private static partial nint SetFocus(nint hwnd);
+
+  [LibraryImport("kernel32.dll"), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+  private static partial uint GetCurrentThreadId();
+
   /// <summary>Controller ruling (coordinate-click safety): takes the foreground and verifies it.
-  ///     True only when GetForegroundWindow() == our window.</summary>
+  ///     True only when GetForegroundWindow() == our window. A bare SetForegroundWindow
+  ///     silently fails under Windows' foreground-lock rules (a background process cannot
+  ///     steal focus), so the standard workarounds run first: attach this thread to the
+  ///     foreground thread's input queue and bring the window to the top of the z-order
+  ///     before the call. The callers' bounded retry loop covers the residual races.</summary>
   public bool TryTakeForeground()
   {
-    _ = SetForegroundWindow(Window.Handle);
+    nint foreground = GetForegroundWindow();
+    uint currentThread = GetCurrentThreadId();
+    uint foregroundThread = foreground != nint.Zero ? GetWindowThreadProcessId(foreground, out _) : 0;
+    bool attached = foregroundThread != 0 && foregroundThread != currentThread
+        && AttachThreadInput(currentThread, foregroundThread, true);
+    try
+    {
+      _ = BringWindowToTop(Window.Handle);
+      _ = SetForegroundWindow(Window.Handle);
+    }
+    finally
+    {
+      if (attached)
+      {
+        _ = AttachThreadInput(currentThread, foregroundThread, false);
+      }
+    }
+
     Thread.Sleep(50);
     return GetForegroundWindow() == Window.Handle;
+  }
+
+  /// <summary>Moves keyboard focus to the top-level window itself (clearing any child
+  ///     focus, e.g. the edit left focused by an earlier test) so a delivered chord
+  ///     arrives at the window's own WndProc. Same thread-attach dance as
+  ///     TryTakeForeground — SetFocus must run attached to the window's input queue.</summary>
+  public void FocusTopLevel()
+  {
+    nint foreground = GetForegroundWindow();
+    uint currentThread = GetCurrentThreadId();
+    uint foregroundThread = foreground != nint.Zero ? GetWindowThreadProcessId(foreground, out _) : 0;
+    bool attached = foregroundThread != 0 && foregroundThread != currentThread
+        && AttachThreadInput(currentThread, foregroundThread, true);
+    try
+    {
+      _ = SetFocus(Window.Handle);
+    }
+    finally
+    {
+      if (attached)
+      {
+        _ = AttachThreadInput(currentThread, foregroundThread, false);
+      }
+    }
   }
 
   public void Dispose() => Window.Dispose();

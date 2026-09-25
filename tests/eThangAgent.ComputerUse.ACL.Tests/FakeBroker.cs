@@ -34,7 +34,8 @@ internal sealed class FakeBroker : IAsyncDisposable
   }
 
   public Task<NdjsonPipeClient> ConnectClientAsync()
-    => NdjsonPipeClient.ConnectAsync(PipeName, "test-token", 1, "windows", ct: TestContext.Current.CancellationToken);
+    => NdjsonPipeClient.ConnectAsync(PipeName, "test-token", 1, "windows",
+        notReady: NotReadyPolicy.LoadTolerant(), ct: TestContext.Current.CancellationToken);
 
   private async Task RunAsync()
   {
@@ -193,6 +194,10 @@ internal sealed class FakeBroker : IAsyncDisposable
     catch (IOException)
     {
       // already recorded by RunAsync's own guard
+    }
+    catch (ObjectDisposedException)
+    {
+      // same teardown race: the loop was mid-write when the pipe was disposed
     }
 
     _cts.Dispose();

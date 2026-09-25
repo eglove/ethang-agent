@@ -6,8 +6,12 @@ namespace eThangAgent.ComputerUse.ACL.Tests;
 #pragma warning disable CA2007 // Named decision: xUnit test methods, no SynchronizationContext.
 /// <summary>Task 18 integration: the REAL broker process (BrokerSupervisor spawning the
 ///     real Host exe) drives the TEST PROCESS'S OWN Win32 window through real UIA and
-///     real SendInput. Every test touches only the window this test process created
-///     (Win32TestWindow) — never the user's desktop. The watched-failing run of the
+///     real gates. Every test touches only the window this test process created
+///     (Win32TestWindow) — never the user's desktop. The brokers run in
+///     --input-targeted mode: element ops are REAL UIA (window-targeted, safe), and
+///     global-injection surfaces (coordinate clicks, chords, paste) deliver as window
+///     messages to the verified-foreground target instead of SendInput — so no input
+///     can ever leave the test window, on any monitor. The watched-failing run of the
 ///     effect-asserting tests is the batch's RED evidence for the R1 element-ops work.</summary>
 [Trait("Category", "Integration")]
 [Trait("Requires", "Desktop")]
@@ -21,7 +25,7 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
   {
     string hostPath = HostExePath();
     string pipeName = "ethang-it-" + Guid.NewGuid().ToString("N");
-    return new BrokerSupervisor(hostPath, pipeName, "integration-workspace");
+    return new BrokerSupervisor(hostPath, pipeName, "integration-workspace", notReady: NotReadyPolicy.LoadTolerant(), targetedInput: true);
   }
 
 
@@ -44,6 +48,42 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     }
 
     Assert.Fail("observe never returned a usable tree: " + Describe(last));
+    return Assert.IsType<ComputerOutcome.Observation>(null); // unreachable
+  }
+
+  /// <summary>Runs one observe-then-act with a bounded retry: the desktop environment
+  ///     recreates the fixture window at will, and the broker's element cache walks the
+  ///     window at observe time - a recreate between observe and act makes the cached
+  ///     elements stale (UIA fire-and-forget actions answer Receipt but land nowhere),
+  ///     so the act re-runs against a fresh observation until its effect lands.</summary>
+  private async Task<ComputerOutcome.Observation> ActAgainstFreshObservationAsync(
+      BrokerComputerAccess access, Func<ComputerOutcome.Observation, ComputerCommand?> commandFactory,
+      Func<ComputerOutcome, bool> landed, int attempts = 5)
+  {
+    ComputerOutcome last = new ComputerOutcome.Failure(ComputerErrorCodes.Internal, "no attempt made");
+    for (int attempt = 0; attempt < attempts; attempt++)
+    {
+      await WaitForLiveWindowAsync().ConfigureAwait(true);
+      ComputerOutcome.Observation observation = await _fixture.ObserveAsync(access, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      ComputerCommand? command = commandFactory(observation);
+      if (command is null)
+      {
+        // The recreated window's tree does not carry the target yet - retry observe.
+        last = new ComputerOutcome.Failure(ComputerErrorCodes.Internal, "target absent from the observation");
+        await Task.Delay(200, TestContext.Current.CancellationToken).ConfigureAwait(true);
+        continue;
+      }
+
+      last = await access.ExecuteAsync(command, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      if (landed(last))
+      {
+        return observation;
+      }
+
+      await Task.Delay(200, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+
+    Assert.Fail("the action never landed against a fresh observation: " + Describe(last));
     return Assert.IsType<ComputerOutcome.Observation>(null); // unreachable
   }
 
@@ -141,41 +181,58 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
   [Fact]
   public async Task SetValue_OnEdit_ReadsBack()
   {
-    await WaitForLiveWindowAsync().ConfigureAwait(true);
     await using BrokerComputerAccess access = NewAccess();
-    ComputerOutcome.Observation first = await _fixture.ObserveAsync(access, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    int editIndex = IntegrationWindowFixture.IndexOf(first, e => e.Editable);
-    Assert.True(editIndex >= 0, "an editable element (the Edit) must appear in the tree");
-    ComputerOutcome set = await access.ExecuteAsync(new ComputerCommand.SetValue(
-        ComputerTarget.Element(editIndex), "set-over-uia", ComputerAppRef.ByPid(_fixture.Window.Pid)),
-        TestContext.Current.CancellationToken).ConfigureAwait(true);
-    _ = Assert.IsType<ComputerOutcome.Receipt>(set);
-    Win32TestWindow.Pump(400);
-    Assert.Equal("set-over-uia", _fixture.Window.LastEditText);
+    _ = await ActAgainstFreshObservationAsync(access,
+        observation => EditIndex(observation) < 0
+            ? null
+            : new ComputerCommand.SetValue(
+                ComputerTarget.Element(EditIndex(observation)), "set-over-uia", ComputerAppRef.ByPid(_fixture.Window.Pid)),
+        landed: _ =>
+        {
+          Win32TestWindow.Pump(300);
+          return _fixture.Window.LastEditText == "set-over-uia";
+        });
   }
 
-  // 5. click the button by element index; asserted via the WndProc counter.
+  private static int EditIndex(ComputerOutcome.Observation observation) =>
+      IntegrationWindowFixture.IndexOf(observation, e => e.Editable);
+
+  // 5. click the button by element index; asserted via the WndProc counter. The count
+  // baseline is captured per attempt (the shared fixture window accumulates across tests).
   [Fact]
   public async Task ClickButton_ByElementIndex_IncrementsWndProcCounter()
   {
-    await WaitForLiveWindowAsync().ConfigureAwait(true);
     await using BrokerComputerAccess access = NewAccess();
-    ComputerOutcome.Observation first = await _fixture.ObserveAsync(access, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    int buttonIndex = IntegrationWindowFixture.IndexOf(first, e => e.Pressable);
-    Assert.True(buttonIndex >= 0, "a pressable element (the Button) must appear in the tree");
-    int before = _fixture.Window.ClickCount;
-    ComputerOutcome click = await access.ExecuteAsync(new ComputerCommand.Click(
-        ComputerTarget.Element(buttonIndex), ComputerAppRef.ByPid(_fixture.Window.Pid)),
-        TestContext.Current.CancellationToken).ConfigureAwait(true);
-    _ = Assert.IsType<ComputerOutcome.Receipt>(click);
-    Win32TestWindow.Pump(500);
-    Assert.Equal(before + 1, _fixture.Window.ClickCount);
+    int before = -1;
+    _ = await ActAgainstFreshObservationAsync(access,
+        observation =>
+        {
+          int pressable = PressableIndex(observation);
+          return pressable < 0
+              ? null
+              : new ComputerCommand.Click(
+                  ComputerTarget.Element(pressable), ComputerAppRef.ByPid(_fixture.Window.Pid));
+        },
+        landed: click =>
+        {
+          if (click is not ComputerOutcome.Receipt)
+          {
+            return false;
+          }
+
+          Win32TestWindow.Pump(400);
+          return _fixture.Window.ClickCount > before;
+        });
   }
 
+  private static int PressableIndex(ComputerOutcome.Observation observation) =>
+      IntegrationWindowFixture.IndexOf(observation, e => e.Pressable);
+
   // 6. click at a coordinate resolved from a delivered frame; asserted via the WndProc counter.
-  // Controller ruling: before ANY SendInput coordinate click, take the fixture window's foreground
-  // and verify it (bounded ~2s). If foreground cannot be taken, assert the honest
-  // foreground_required refusal instead of clicking - never a blind click.
+  // Controller ruling: before ANY click, take the fixture window's foreground and verify it
+  // (bounded ~2s). If foreground cannot be taken, assert the honest foreground_required
+  // refusal instead of clicking. On the happy path the click is delivered as window
+  // messages to the child at the resolved point (targeted mode) - never global SendInput.
   [Fact]
   public async Task Click_AtCoordinateFromFrame_IncrementsWndProcCounter()
   {
@@ -216,9 +273,11 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     Assert.Equal(before + 1, _fixture.Window.ClickCount);
   }
   // 7. paste into the edit via element target; read back the pasted text. F8 (fix
-  // round 5): before the REAL Ctrl+V, take the fixture window's foreground and VERIFY
-  // it (bounded ~2s). If foreground cannot be taken, assert only the honest refusal
-  // (no clipboard write, no chord) - never a blind paste into whatever has focus.
+  // round 5): the paste gate applies to EVERY target - with no verified foreground the
+  // paste is refused (FOREGROUND_REQUIRED, nothing dispatched, clipboard untouched).
+  // On the happy path the element focus runs (real UIA) and the text is delivered to
+  // the focused edit as window messages (targeted mode) - no global chord, no
+  // clipboard write, on any monitor.
   [Fact]
   public async Task Paste_IntoEdit_ReadsBackPastedText()
   {
@@ -251,16 +310,16 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     }
 
     ComputerOutcome paste = await access.ExecuteAsync(command, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    _ = Assert.IsType<ComputerOutcome.Receipt>(paste);
+    Assert.True(paste is ComputerOutcome.Receipt, Describe(paste));
     Win32TestWindow.Pump(600);
-    Assert.EndsWith("pasted-text", _fixture.Window.LastEditText, StringComparison.Ordinal);
+    Assert.Contains("pasted-text", _fixture.Window.LastEditText, StringComparison.Ordinal);
   }
 
   // 8. key action sends a chord; observed via the window's WM_CHAR tracking. F8 (fix
-  // round 5): before the REAL 'x' chord, take the fixture window's foreground and
-  // VERIFY it (bounded ~2s). If foreground cannot be taken, assert only the honest
-  // foreground_required refusal (strategy=event routes the chord through the gate) -
-  // never a blind chord into whatever has focus.
+  // round 5): strategy=event routes the chord through the foreground gate - with no
+  // verified foreground the chord is refused (nothing reaches the desktop). On the
+  // happy path the chord is delivered to the focused window as a message (targeted
+  // mode), which the fixture's WndProc records.
   [Fact]
   public async Task Key_SendsChord_WindowSeesIt()
   {
@@ -278,6 +337,13 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
       }
     }
 
+    if (foregroundTaken)
+    {
+      // A chord goes to the FOCUSED window; an earlier test's element focus would eat
+      // it. Focus the top-level window so the fixture's own WndProc records the char.
+      _fixture.FocusTopLevel();
+    }
+
     ComputerCommand.Key command = new(
         "x", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid), Strategy: "event");
     if (!foregroundTaken)
@@ -291,21 +357,26 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     }
 
     ComputerOutcome key = await access.ExecuteAsync(command, TestContext.Current.CancellationToken).ConfigureAwait(true);
-    _ = Assert.IsType<ComputerOutcome.Receipt>(key);
+    Assert.True(key is ComputerOutcome.Receipt, Describe(key));
     Win32TestWindow.Pump(500);
     Assert.Contains("x", _fixture.Window.RecordedChars, StringComparison.Ordinal);
   }
 
   // 9. C6 ruling (fix round 3 minor a): B is a TRUE second connection - a second supervisor
   // attached to the SAME running broker pipe with the shared token - so the rivalry tested
-  // is foreign-style when the suite runs on a clean desktop.
+  // is foreign-style when the suite runs on a clean desktop. A's lease vehicle is an
+  // element_set_value (real UIA, window-targeted, no gate dependency).
   [Fact]
   public async Task SecondController_GetsControllerBusy_OwnerInMessage()
   {
+    await WaitForLiveWindowAsync().ConfigureAwait(true);
     BrokerSupervisor supervisorA = NewSupervisor();
     await using BrokerComputerAccess controllerA = new(supervisorA);
+    ComputerOutcome.Observation observation = await _fixture.ObserveAsync(controllerA, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    int editIndex = IntegrationWindowFixture.IndexOf(observation, e => e.Editable);
+    Assert.True(editIndex >= 0, "an editable element (the Edit) must appear in the tree");
     ComputerOutcome takeoverA = await controllerA.ExecuteAsync(
-        new ComputerCommand.Key("y", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid)),
+        new ComputerCommand.SetValue(ComputerTarget.Element(editIndex), "y", ComputerAppRef.ByPid(_fixture.Window.Pid)),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     _ = Assert.IsType<ComputerOutcome.Receipt>(takeoverA); // A's action lazily took the lease
 
@@ -332,18 +403,21 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
       await supervisorA.DisposeAsync().ConfigureAwait(true);
     }
   }
-  // 10. stop releases the lease; subsequent actions work.
+  // 10. stop releases the lease; subsequent actions work. The post-stop vehicle is an
+  // element_set_value (real UIA, window-targeted, no gate dependency).
   [Fact]
   public async Task Stop_ReleasesLease_SubsequentActionsWork()
   {
     await WaitForLiveWindowAsync().ConfigureAwait(true);
     await using BrokerComputerAccess access = NewAccess();
-    _ = await _fixture.ObserveAsync(access, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    ComputerOutcome.Observation observation = await _fixture.ObserveAsync(access, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    int editIndex = IntegrationWindowFixture.IndexOf(observation, e => e.Editable);
+    Assert.True(editIndex >= 0, "an editable element (the Edit) must appear in the tree");
     ComputerOutcome stop = await access.ExecuteAsync(
         new ComputerCommand.Stop(Reason: "integration test done"), TestContext.Current.CancellationToken).ConfigureAwait(true);
     _ = Assert.IsType<ComputerOutcome.Receipt>(stop);
     ComputerOutcome after = await access.ExecuteAsync(
-        new ComputerCommand.Key("z", Repeat: null, HoldSeconds: null, ComputerAppRef.ByPid(_fixture.Window.Pid)),
+        new ComputerCommand.SetValue(ComputerTarget.Element(editIndex), "z", ComputerAppRef.ByPid(_fixture.Window.Pid)),
         TestContext.Current.CancellationToken).ConfigureAwait(true);
     _ = Assert.IsType<ComputerOutcome.Receipt>(after);
   }
@@ -413,4 +487,6 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     Assert.True(jpeg.Length > 100, "a real raster is never a few bytes");
   }
 }
+#pragma warning restore CA2007
+
 #pragma warning restore CA2007

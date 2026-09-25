@@ -4,8 +4,11 @@ namespace eThangAgent.ComputerUse.ACL;
 ///     accepting (broker warm-up), the SAME request is retried with backoff
 ///     250/500/750/1000/1500 ms for at most 6 total attempts, then fails TIMEOUT.
 ///     The clock is injectable so tests run instantly.</summary>
-public sealed class NotReadyPolicy(INotReadyDelayer delayer)
+public sealed class NotReadyPolicy(INotReadyDelayer delayer, TimeSpan[]? schedule = null)
 {
+  private readonly INotReadyDelayer _delayer = delayer ?? throw new ArgumentNullException(nameof(delayer));
+  private readonly TimeSpan[] _schedule = schedule ?? BackoffSchedule;
+
   /// <summary>The backoff schedule, indexed by attempt (0-based, before the first retry).
   ///     Attempt 1 is immediate - the schedule applies from the second attempt.</summary>
   public static readonly TimeSpan[] BackoffSchedule =
@@ -25,20 +28,24 @@ public sealed class NotReadyPolicy(INotReadyDelayer delayer)
   ///     which the surface hint table reports retryable.</summary>
   public const string GiveUpCode = "TIMEOUT";
 
-  private readonly INotReadyDelayer _delayer = delayer ?? throw new ArgumentNullException(nameof(delayer));
-
   /// <summary>Waits the backoff for the given 0-based attempt index. True when the caller
   ///     may retry (attempt index inside the schedule), false when attempts are exhausted.</summary>
   public async Task<bool> WaitBeforeRetryAsync(int attempt, CancellationToken ct = default)
   {
-    if (attempt < 0 || attempt >= BackoffSchedule.Length)
+    if (attempt < 0 || attempt >= _schedule.Length)
     {
       return false;
     }
 
-    await _delayer.DelayAsync(BackoffSchedule[attempt], ct).ConfigureAwait(false);
+    await _delayer.DelayAsync(_schedule[attempt], ct).ConfigureAwait(false);
     return true;
   }
+
+  /// <summary>A ~60 s load-tolerant schedule for test brokers: one-second steps keep the
+  ///     wait responsive while giving a contended pipe accept ample room to win.</summary>
+  public static NotReadyPolicy LoadTolerant(INotReadyDelayer? delayer = null) =>
+    new(delayer ?? TaskDelayer.Instance,
+      [.. Enumerable.Repeat(TimeSpan.FromSeconds(1), 60)]);
 }
 
 /// <summary>The delay seam: production uses Task.Delay, tests use a fake clock.</summary>

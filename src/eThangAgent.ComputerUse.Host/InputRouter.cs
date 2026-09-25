@@ -20,8 +20,8 @@ internal static class InputRouter
         : -1;
 
   /// <summary>The element index a paste targets (-1 when the target is not an
-  ///     element). An element-targeted paste is exempt from the pid foreground gate
-  ///     (fix round 5, F6).</summary>
+  ///     element). Element-targeted pastes focus the element after the gate (F8) -
+  ///     the gate itself applies to every paste.</summary>
   public static int ElementIndex(JsonElement? parameters) =>
     parameters is { } p && p.TryGetProperty("element", out JsonElement el)
       && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int index) ? index : -1;
@@ -36,9 +36,9 @@ internal static class InputRouter
   public static BrokerResponse PasteFailure() =>
     BrokerResponse.Fail("invalid_request", "paste requires params.text (string).");
 
-  /// <summary>Paste on the wired path: the operation comes from the broker-held
-  ///     serializer; the paster completes the atomic save/set/Ctrl+V/wait/restore.
-  ///     No local serializer here (M9).</summary>
+  /// <summary>Paste on the wired path: the gate and the element-focus step live in the
+  ///     broker's paste routing (F8); the operation from the broker-held serializer
+  ///     flows into the atomic ClipboardPaster. No local serializer here (M9).</summary>
   public static BrokerResponse Paste(InputOperation operation, JsonElement? parameters)
   {
     if (parameters is not { } p || !p.TryGetProperty("text", out JsonElement textEl) || textEl.ValueKind != JsonValueKind.String)

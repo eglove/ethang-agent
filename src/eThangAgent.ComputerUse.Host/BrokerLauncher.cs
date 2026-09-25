@@ -9,19 +9,25 @@ public sealed record BrokerLaunchOptions(
   string Token,
   string LogFilePath,
   string? Error,
-  int ExitCode)
+  int ExitCode,
+  bool TargetedInput = false)
 {
   /// <summary>Resolves the launch configuration: the pipe name from argv[0] (or the
   ///     ETHANG_COMPUTER_USE_PIPE environment variable when no argv carries it), the
   ///     token from ETHANG_COMPUTER_USE_TOKEN, and the log path under the per-user app
   ///     data dir. The env lookup and argv are injected so tests never touch process state.
-  ///     The token is NEVER logged and never appears in an error message.</summary>
+  ///     The token is NEVER logged and never appears in an error message. The optional
+  ///     <c>--input-targeted</c> argument switches the send hooks to targeted window-message
+  ///     delivery (see TargetedInputDelivery) — the integration suite's opt-in against
+  ///     global input injection.</summary>
   public static BrokerLaunchOptions Resolve(string[] args, Func<string, string?> tokenEnv, Func<string, string?> anyEnv)
   {
     ArgumentNullException.ThrowIfNull(args);
     ArgumentNullException.ThrowIfNull(tokenEnv);
     ArgumentNullException.ThrowIfNull(anyEnv);
-    string pipeName = args.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a)) ?? string.Empty;
+    bool targetedInput = args.Contains(TargetedInputFlag, StringComparer.Ordinal);
+    string pipeName = args.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a) && !a.StartsWith('-'))
+        ?? string.Empty;
     if (string.IsNullOrWhiteSpace(pipeName))
     {
       pipeName = anyEnv(PipeNameEnvVar) ?? string.Empty;
@@ -36,8 +42,11 @@ public sealed record BrokerLaunchOptions(
     string token = tokenEnv(TokenEnvVar) ?? string.Empty;
     return string.IsNullOrWhiteSpace(token)
       ? new BrokerLaunchOptions(pipeName, string.Empty, DefaultLogPath(), "no auth token: set " + TokenEnvVar + ".", 2)
-      : new BrokerLaunchOptions(pipeName, token, DefaultLogPath(), null, 0);
+      : new BrokerLaunchOptions(pipeName, token, DefaultLogPath(), null, 0, targetedInput);
   }
+
+  /// <summary>The launch argument that switches the broker into targeted input delivery.</summary>
+  public const string TargetedInputFlag = "--input-targeted";
 
   /// <summary>The environment variable carrying the per-spawn auth token (wire contract).</summary>
   public const string TokenEnvVar = "ETHANG_COMPUTER_USE_TOKEN";

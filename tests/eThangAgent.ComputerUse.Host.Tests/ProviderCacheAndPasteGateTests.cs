@@ -66,6 +66,41 @@ public class BrokerComputerAccessProviderTests
   }
 
   [Fact]
+  public void Paste_ElementTarget_MismatchedForeground_IsRefusedWithNothingDispatched()
+  {
+    // F8 gate closure: element-targeted pastes pass the SAME gate as every paste -
+    // the old exemption let an ungated Ctrl+V land in whatever window had focus.
+    // No focus is consulted and nothing is dispatched on the refusal.
+    PipeServer server = FakeConnectionFactory.WithForeground(expected: 4242, actual: 1);
+    server.InputDispatch.SetElementOps(new CountingElementOps());
+    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "paste",
+      JsonDocument.Parse("{\"text\":\"hi\",\"element\":3,\"app_ref\":{\"pid\":4242}}").RootElement, connectionId: 1);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("foreground_required", reply.Error.Value.Code);
+    Assert.Equal(0, server.InputDispatch.SendInputCalls);
+  }
+
+  [Fact]
+  public void Paste_ElementTarget_GatePassed_FocusesElement_BeforeAnyDispatch()
+  {
+    // F8: with the gate passed, an element paste consults the element surface FIRST
+    // (the type_text F7 pattern); a focus failure is the honest refusal and the
+    // clipboard/chord is never touched. The bounds-only resolver cannot focus, so the
+    // paste must refuse typed with zero dispatches.
+    PipeServer server = FakeConnectionFactory.WithForeground(expected: 4242, actual: 4242);
+    server.InputDispatch.SetElementOps(new BoundsOnlyResolver());
+    _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("{\"token\":\"t\"}").RootElement, connectionId: 1);
+    _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
+    BrokerResponse reply = server.Dispatch(3, "paste",
+      JsonDocument.Parse("{\"text\":\"hi\",\"element\":3,\"app_ref\":{\"pid\":4242}}").RootElement, connectionId: 1);
+    _ = Assert.NotNull(reply.Error);
+    Assert.Equal("invalid_request", reply.Error.Value.Code);
+    Assert.Equal(0, server.InputDispatch.SendInputCalls);
+  }
+
+  [Fact]
   public void TypeText_ElementTarget_FocusesTheElementThenSendsText_NoRealInput()
   {
     // F7: type with an element target runs the element_focus path first, then the

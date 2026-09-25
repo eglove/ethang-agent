@@ -25,8 +25,19 @@ log.Write("serving pipe " + options.PipeName);
 
 // Task 18: the REAL observation surface (UIA walk, window list, app identity, capture)
 // plus the element-op resolver the input dispatcher uses for element_* methods (R1).
+// With --input-targeted the send hooks deliver input as window messages to the verified
+// foreground target (TargetedInputDelivery) instead of global SendInput — the
+// integration suite's opt-in; every gate still runs on the real foreground read.
 RealBrokerObserver observer = new();
-PipeServer broker = new(new BrokerConfig(options.PipeName, options.Token), observer);
+PipeServer broker = options.TargetedInput
+    ? new PipeServer(new BrokerConfig(options.PipeName, options.Token), observer,
+        sendChord: TargetedInputDelivery.SendChord,
+        sendText: TargetedInputDelivery.SendText,
+        sendDrag: TargetedInputDelivery.SendDrag,
+        sendMouseButtonAt: TargetedInputDelivery.SendMouseButtonAt,
+        sendWheelAt: TargetedInputDelivery.SendWheelAt,
+        targetedInput: true)
+    : new PipeServer(new BrokerConfig(options.PipeName, options.Token), observer);
 broker.InputDispatch.SetElementOps(observer.CreateElementOps());
 
 // C6 (production): one broker per workspace serves concurrent connections for the broker's

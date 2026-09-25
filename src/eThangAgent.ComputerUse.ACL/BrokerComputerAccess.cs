@@ -403,6 +403,7 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
 
     bool treeShown = capture.SnapshotMode != "no_change";
     _lastObservedPid = capture.App.Pid;
+    _lastObservedWindowId = capture.Window.WindowId;
     string stateId = _ledger.Record(
 
         new LedgerKey(capture.App.Pid, capture.Window.WindowId),
@@ -440,26 +441,38 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
 
   /// <summary>M14: for name/aumid refs the broker resolves the pid; the ledger key derives
   ///     from the pid of the LAST observed capture (fail-closed stays: no observation means
-  ///     pid 0, and ValidateIndex answers ELEMENT_UNAVAILABLE).</summary>
+  ///     pid 0, and ValidateIndex answers ELEMENT_UNAVAILABLE). WindowId resolution: the
+  ///     ledger records captures under the OBSERVED window id (the broker's window id is
+  ///     never 0), so a ref without a WindowId of its own resolves to the last observed
+  ///     window of that pid; a pid that was never observed stays (pid, 0) — fail-closed,
+  ///     observe first.</summary>
   private LedgerKey LedgerKeyFor(ComputerAppRef? app)
   {
     // M14: explicit pid wins; name/aumid refs fall back to the last observed capture pid.
-    if (app is { } reference && reference.Pid is { } explicitPid)
-    {
-      return new LedgerKey(explicitPid, reference.WindowId ?? 0);
-    }
-
-#pragma warning disable IDE0046 // Named decision: two typed returns read clearer than nested ternaries here.
-    if (_lastObservedPid is not { } observedPid)
+    int pid = app is { } reference && reference.Pid is { } explicitPid
+        ? explicitPid
+        : _lastObservedPid ?? 0;
+    // Named decision (IDE0046): the guard sequence names each resolution step; a
+    // conditional-expression nest would hide which branch answers which ref shape.
+#pragma warning disable IDE0046
+    if (pid == 0)
     {
       return new LedgerKey(0, 0);
     }
 
-    return new LedgerKey(observedPid, 0);
+    if (app is { } r && r.WindowId is { } windowId)
+    {
+      return new LedgerKey(pid, windowId);
+    }
+
+    return pid == _lastObservedPid && _lastObservedWindowId is { } observed
+        ? new LedgerKey(pid, observed)
+        : new LedgerKey(pid, 0);
+#pragma warning restore IDE0046
   }
-#pragma warning restore IDE0046 // Named decision: two typed returns read clearer than nested ternaries here.
 
   private int? _lastObservedPid;
+  private int? _lastObservedWindowId;
 
   private static object AppRef(ComputerAppRef app) => new
   {

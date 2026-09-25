@@ -221,7 +221,11 @@ public sealed partial class Win32TestWindow : IDisposable
       return 0;
     }
 
-    if (msg == WmCommand && lParam != 0 && HiWord((uint)lParam) == BnClicked)
+    // WM_COMMAND: HIWORD(wParam) is the notification code (BN_CLICKED = 0); lParam is
+    // the control's HWND. The old check read HIWORD(lParam) — the HWND's high bits —
+    // which accidentally equals zero only while HWND values fit in 16 bits; modern
+    // handle values exceed 0xFFFF and silenced every click record.
+    if (msg == WmCommand && lParam != 0 && HiWord((uint)wParam) == BnClicked)
     {
       _ = Interlocked.Increment(ref _clickCount);
     }
@@ -239,6 +243,7 @@ public sealed partial class Win32TestWindow : IDisposable
 
     return DefWindowProc(hwnd, msg, wParam, lParam);
   }
+
 
   public static void Pump(int milliseconds = 150) =>
     // The window's message loop lives on its own thread; a client-side pump only

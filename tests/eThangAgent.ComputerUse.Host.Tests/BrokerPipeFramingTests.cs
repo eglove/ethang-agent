@@ -17,7 +17,7 @@ public class BrokerPipeFramingTests
   {
     string pipeName = "ethang-cu-host-test-" + Guid.NewGuid().ToString("N");
     await using HostHarness harness = HostHarness.Start(pipeName);
-    NdjsonPipeClient client = await NdjsonPipeClient.ConnectAsync(pipeName, harness.Token, 1, "windows", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+    NdjsonPipeClient client = await NdjsonPipeClient.ConnectAsync(pipeName, harness.Token, 1, "windows", notReady: NotReadyPolicy.LoadTolerant(), ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
     BrokerReply reply = await client.RequestAsync("list_applications", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.Equal(2, reply.Id);
     _ = Assert.NotNull(reply.Result);
@@ -31,7 +31,7 @@ public class BrokerPipeFramingTests
     // server-side as UTF-8 (never per-byte chars) and routed by method name intact.
     string pipeName = "ethang-cu-host-test-" + Guid.NewGuid().ToString("N");
     await using HostHarness harness = HostHarness.Start(pipeName);
-    NdjsonPipeClient client = await NdjsonPipeClient.ConnectAsync(pipeName, harness.Token, 1, "windows", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+    NdjsonPipeClient client = await NdjsonPipeClient.ConnectAsync(pipeName, harness.Token, 1, "windows", notReady: NotReadyPolicy.LoadTolerant(), ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
     JsonElement parameters = JsonSerializer.SerializeToElement(new { note = "naïve 中文 ok" });
     // type_text is an input method (task 17 dispatch): on the skeleton it reaches the
     // input path and comes back input_busy or a receipt; either way the frame was
@@ -48,7 +48,7 @@ public class BrokerPipeFramingTests
   {
     string pipeName = "ethang-cu-host-test-" + Guid.NewGuid().ToString("N");
     await using HostHarness harness = HostHarness.Start(pipeName);
-    Task<NdjsonPipeClient> connect = NdjsonPipeClient.ConnectAsync(pipeName, "wrong-token", 1, "windows", ct: TestContext.Current.CancellationToken);
+    Task<NdjsonPipeClient> connect = NdjsonPipeClient.ConnectAsync(pipeName, "wrong-token", 1, "windows", notReady: NotReadyPolicy.LoadTolerant(), ct: TestContext.Current.CancellationToken);
     BrokerAuthException authError = await Assert.ThrowsAsync<BrokerAuthException>(() => connect).ConfigureAwait(true);
     Assert.NotNull(authError);
   }
@@ -86,7 +86,7 @@ public class BrokerPipeFramingTests
     // drop RELEASES the lease (A3), observable on the broker object itself.
     string pipeName = "ethang-cu-host-test-" + Guid.NewGuid().ToString("N");
     await using HostHarness harness = HostHarness.Start(pipeName);
-    NdjsonPipeClient first = await NdjsonPipeClient.ConnectAsync(pipeName, harness.Token, 1, "windows", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+    NdjsonPipeClient first = await NdjsonPipeClient.ConnectAsync(pipeName, harness.Token, 1, "windows", notReady: NotReadyPolicy.LoadTolerant(), ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
     _ = await first.RequestAsync("controller_takeover", null, TestContext.Current.CancellationToken).ConfigureAwait(true);
     PipeServer broker = harness.Broker;
     Assert.Equal(1, broker.Lease.Owner);
@@ -174,6 +174,12 @@ internal sealed class HostHarness : IAsyncDisposable
     catch (IOException)
     {
       // The loop ends when the pipe drops; a teardown race is fine here.
+    }
+    catch (ObjectDisposedException)
+    {
+      // Same teardown race: the loop was mid-write when the pipe was disposed. Left
+      // uncaught it faulted the harness task and xUnit attributed it to whichever test
+      // was running - the shifting "random" failures of the parallel suite run.
     }
   }
 }

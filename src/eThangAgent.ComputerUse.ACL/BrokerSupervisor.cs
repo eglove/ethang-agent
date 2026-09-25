@@ -15,7 +15,7 @@ public delegate Process SpawnHost(string exePath, string pipeName, string token)
 ///     dies with this process), and ONE lazy restart with short backoff after a healthy
 ///     connection is lost. A second consecutive crash propagates to the caller. Dispose is a
 ///     best-effort kill.</summary>
-public sealed class BrokerSupervisor(string hostPath, string pipeName, string workspaceId, SpawnHost? spawn = null, NotReadyPolicy? notReady = null, Func<string, string>? hostPathForSpawn = null) : IAsyncDisposable
+public sealed class BrokerSupervisor(string hostPath, string pipeName, string workspaceId, SpawnHost? spawn = null, NotReadyPolicy? notReady = null, Func<string, string>? hostPathForSpawn = null, bool targetedInput = false) : IAsyncDisposable
 {
   private const int ProtocolVersion = 1;
   private const string Platform = "windows";
@@ -24,7 +24,7 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   public string WorkspaceId { get; } = workspaceId;
   private readonly string _hostPath = hostPath ?? throw new ArgumentNullException(nameof(hostPath));
   private readonly string _pipeName = pipeName ?? throw new ArgumentNullException(nameof(pipeName));
-  private readonly SpawnHost _spawn = spawn ?? DefaultSpawn;
+  private readonly SpawnHost _spawn = spawn ?? ((exePath, pipe, token) => DefaultSpawn(exePath, pipe, token, targetedInput));
   private readonly NotReadyPolicy? _notReady = notReady;
   private readonly Func<string, string> _hostPathForSpawn = hostPathForSpawn ?? (static path => path);
   private readonly Lock _gate = new();
@@ -58,7 +58,8 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   {
     ArgumentNullException.ThrowIfNull(existing);
     return await NdjsonPipeClient
-        .ConnectAsync(existing._pipeName, token ?? existing.TestToken(), ProtocolVersion, Platform, ct: ct)
+        .ConnectAsync(existing._pipeName, token ?? existing.TestToken(), ProtocolVersion, Platform,
+          notReady: existing._notReady, ct: ct)
         .ConfigureAwait(false);
   }
 
@@ -70,17 +71,23 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
 
   private static string NewToken() => Guid.NewGuid().ToString("N");
 
-  /// <summary>Default spawn: the Host exe with the pipe name as argv[1] and the per-spawn
-  ///     token in ETHANG_COMPUTER_USE_TOKEN. The child joins a kill-on-close Job Object so an
-  ///     app crash or exit kills the broker (no orphaned automation process survives).</summary>
-  private static Process DefaultSpawn(string exePath, string pipeName, string token)
+  /// <summary>Default spawn: the Host exe with the pipe name as argv[1], the optional
+  ///     <c>--input-targeted</c> flag (TargetedInputDelivery — the integration suite's
+  ///     no-global-injection mode), and the per-spawn token in ETHANG_COMPUTER_USE_TOKEN.
+  ///     The child joins a kill-on-close Job Object so an app crash or exit kills the
+  ///     broker (no orphaned automation process survives).</summary>
+  private static Process DefaultSpawn(string exePath, string pipeName, string token, bool targetedInput)
   {
     if (!File.Exists(exePath))
     {
       throw new BrokerSupervisorException("broker host exe not found: " + exePath);
     }
 
-    ProcessStartInfo psi = new(exePath, pipeName)
+    // The flag literal mirrors Host's BrokerLaunchOptions.TargetedInputFlag: the Host
+    // exe is a separate process the ACL cannot type-reference (the dependency runs
+    // Host -> ACL), so the wire strings are duplicated by convention, like the token
+    // env var above.
+    ProcessStartInfo psi = new(exePath, pipeName + (targetedInput ? " --input-targeted" : string.Empty))
     {
       UseShellExecute = false,
       CreateNoWindow = true,

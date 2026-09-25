@@ -17,7 +17,7 @@ namespace eThangAgent.ComputerUse.Host;
 ///     screen point) and an element target routes through the
 ///     <see cref="IElementActionSink"/> (UIA invoke/scroll/focus); paste gates on the
 ///     foreground window like click; type_text with an element target focuses it first.</summary>
-public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord, bool> sendChord, Func<string, bool> sendText, Func<string, int, int, int, int, bool>? sendDrag = null, Func<string, int, int, bool>? sendMouseButtonAt = null, Func<string, int, int, int, bool>? sendWheelAt = null, bool doubleBacked = false)
+public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord, bool> sendChord, Func<string, bool> sendText, Func<string, int, int, int, int, bool>? sendDrag = null, Func<string, int, int, bool>? sendMouseButtonAt = null, Func<string, int, int, int, bool>? sendWheelAt = null, bool doubleBacked = false, bool targeted = false)
 {
   private readonly List<HoldRecord> _activeHolds = [];
   private readonly Lock _holdGate = new();
@@ -43,6 +43,11 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   ///     (Create). Final-review NEW-1: the resolution must be observable so a test
   ///     factory can prove it never silently got the real SendInput path.</summary>
   public bool IsDoubleBacked { get; } = doubleBacked;
+
+  /// <summary>Targeted delivery mode (--input-targeted): every dispatch that would reach
+  ///     a delivery hook gates on the target pid regardless of strategy, so injected
+  ///     input can never land outside the verified foreground target.</summary>
+  public bool Targeted { get; } = targeted;
 
   /// <summary>Resolution-probe surface (re-review wave): the resolved hooks, exposed
   ///     read-only so tests can pin WHICH target each hook carries (real NativeInput
@@ -163,15 +168,33 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   public bool GateAllows(string? strategy, int targetPid) =>
     strategy != "event" || _foregroundPid() == targetPid;
 
-  /// <summary>The paste gate (fix round 5, F6): the foreground window must ALREADY be
-  ///     the target app's (the paste cannot position a cursor, so it needs the app
-  ///     focused right now). Element-targeted pastes skip this gate - the element op
-  ///     focuses its own window. strategy=null means always consult the read.</summary>
+  /// <summary>The paste gate (fix round 5, F6; closure in F8): the foreground window
+  ///     must ALREADY be the target app's (the paste cannot position a cursor, so it
+  ///     needs the app focused right now). Every paste passes this gate; an
+  ///     element-targeted paste then focuses its element (see FocusElement).</summary>
   public bool GateAllowsForPaste(int targetPid) => _foregroundPid() == targetPid;
 
   /// <summary>The current foreground pid (the injectable read, production wires the
   ///     real window read) - surfaced for refusal messages.</summary>
   public int CurrentForegroundPid => _foregroundPid();
+
+  /// <summary>Targeted-mode paste (integration opt-in): the text flows through the text
+  ///     hook — window messages to the focused element, the clipboard untouched — and
+  ///     the receipt carries the honest evidence. Send-failure honesty matches the
+  ///     other senders.</summary>
+  public BrokerResponse PasteTargeted(string text)
+  {
+    bool sent = TextTarget(text);
+    _ = Interlocked.Increment(ref _dispatchCount);
+    return sent
+      ? BrokerResponse.Ok(JsonSerializer.SerializeToElement(new
+      {
+        action_sent = true,
+        dispatch_status = BrokerReceipt.Accepted,
+        effect_evidence = "targeted delivery: the text arrived at the focused element as window messages; the clipboard was not touched.",
+      }))
+      : BrokerResponse.Fail("internal", "the targeted text delivery reported failure.", "action_sent=false");
+  }
 
   /// <summary>press_key: chord down+up; M6 honesty on send failure.</summary>
   public BrokerResponse PressKey(string keyText)
@@ -233,6 +256,17 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
     }));
   }
 
+  /// <summary>The element-focus surface (F7/F8): focuses the element through the wired
+  ///     element sink so a subsequent keyboard action lands in it. A focus failure IS
+  ///     the honest answer - the caller dispatches nothing. Without a focus-capable
+  ///     element surface the refusal is typed, never a blind send.</summary>
+  public BrokerResponse FocusElement(int element) =>
+    _elementOps is IElementActionSink sink
+      ? sink.Focus(element)
+      : BrokerResponse.Fail("invalid_request",
+        $"element {element} has no focusable element surface wired; nothing was dispatched.",
+        "action_sent=false");
+
   /// <summary>type_text (fix round 5, F7): an element target is focused FIRST (the
   ///     element_focus path), then the real text sequence flows through the hook; no
   ///     target types at the current keyboard focus.</summary>
@@ -247,20 +281,10 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
     if (parameters is { } p && p.TryGetProperty("element", out JsonElement el)
       && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int element))
     {
-      if (_elementOps is IElementActionSink sink)
+      BrokerResponse focused = FocusElement(element);
+      if (focused.Error is not null)
       {
-        BrokerResponse focused = sink.Focus(element);
-        if (focused.Error is not null)
-        {
-          return focused; // the focus failure is the honest answer; no text is typed
-        }
-      }
-      else if (_elementOps is not IElementActionSink)
-      {
-        // A bounds-only resolver (drag math) cannot focus: the honest refusal.
-        return BrokerResponse.Fail("invalid_request",
-          $"type_text requires a focusable element target; element {element} has no element surface wired.",
-          "action_sent=false");
+        return focused; // the focus failure is the honest answer; no text is typed
       }
     }
 
@@ -422,10 +446,26 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   private BrokerResponse DispatchCore(string method, JsonElement? parameters)
   {
     int targetPid = Pid(parameters);
+    // Targeted delivery safety: any dispatch that would reach a delivery hook (chords,
+    // text, positioned clicks, drag, wheel) gates on the target pid REGARDLESS of
+    // strategy — the hook delivers to the verified foreground target, so an unverified
+    // foreground refuses. Element-path ops are real UIA (window-targeted) and stay
+    // ungated; paste gates in the broker's paste routing.
+    if (Targeted && ReachesDeliveryHook(method, parameters) && !GateAllowsForPaste(targetPid))
+    {
+      return BrokerResponse.Fail("foreground_required",
+        $"targeted delivery requires the target app (pid {targetPid}) to be foreground (foreground pid: {CurrentForegroundPid}); nothing was dispatched.");
+    }
     try
     {
       return method switch
       {
+        // strategy=event routes the chord through the same foreground gate the other
+        // senders use (F8): a background event chord would type into whatever window
+        // currently has focus. Strategy-less keys stay ungated.
+        "press_key" or "hold_key" when !GateAllows(Str(parameters, "strategy"), targetPid) =>
+          BrokerResponse.Fail("foreground_required",
+            $"strategy=event requires the target app (pid {targetPid}) to be foreground; nothing was dispatched."),
         "press_key" => PressKey(KeyText(parameters)),
         "hold_key" => HoldKey(KeyText(parameters), HoldSeconds(parameters)),
         "type_text" => TypeText(Text(parameters) ?? "", parameters),
@@ -442,6 +482,20 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
       // R4: a missing/garbled chord is typed invalid_request feedback - never a crash.
       return BrokerResponse.Fail("invalid_request", ex.Message);
     }
+  }
+
+  /// <summary>Targeted mode: true when the dispatch would route to a delivery hook
+  ///     (not the window-targeted element ops) for this method and target shape.</summary>
+  private static bool ReachesDeliveryHook(string method, JsonElement? parameters)
+  {
+    bool element = parameters is { } p && p.TryGetProperty("element", out _);
+    bool point = parameters is { } p2 && p2.TryGetProperty("x", out _) && p2.TryGetProperty("y", out _);
+    return method switch
+    {
+      "press_key" or "hold_key" or "drag" or "type_text" => true,
+      "click" or "scroll" => !element && point,
+      _ => false,
+    };
   }
 
   /// <summary>The element resolver + real UIA ops (R1): set at broker composition from
@@ -640,7 +694,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   [LibraryImport("user32.dll")]
   private static partial uint GetWindowThreadProcessId(nint hWnd, out int lpdwProcessId);
 
-  private static int ReadForegroundPid()
+  internal static int ReadForegroundPid()
   {
     nint window = GetForegroundWindow();
     _ = GetWindowThreadProcessId(window, out int pid);

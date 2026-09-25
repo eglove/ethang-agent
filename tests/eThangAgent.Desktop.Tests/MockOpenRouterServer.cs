@@ -16,6 +16,7 @@ internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/ch
   private readonly string _chatPath = chatPath;
   private readonly List<string> _chatRequestPaths = [];
   private string? _catalogResponse;
+  private int _port;
 
   public IReadOnlyList<string> RequestBodies => _requestBodies;
 
@@ -29,11 +30,9 @@ internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/ch
 
   public void Start()
   {
-    int port = GetFreePort();
     // devskim: ignore DS162092 - E2E mock provider server must bind to loopback
-    BaseUrl = new Uri($"http://127.0.0.1:{port}/");
-    _listener.Prefixes.Add(BaseUrl.AbsoluteUri);
-    _listener.Start();
+    StartListenerOnFreePort("http://127.0.0.1:");
+    BaseUrl = new Uri($"http://127.0.0.1:{_port}/");
     _ = Task.Run(LoopAsync, _cts.Token);
   }
 
@@ -332,6 +331,32 @@ internal sealed partial class MockOpenRouterServer(string chatPath = "/api/v1/ch
     using TcpListener listener = new(IPAddress.Loopback, 0);
     listener.Start();
     return ((IPEndPoint)listener.LocalEndpoint).Port;
+  }
+
+  /// <summary>Binds the HTTP listener, retrying on a stolen port: the TcpListener probe
+  ///     above closes before HttpListener binds, and a concurrently starting mock can
+  ///     win that port under a parallel run. Each retry re-probes a fresh port.</summary>
+  private void StartListenerOnFreePort(string prefix)
+  {
+    const int maxAttempts = 5;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++)
+    {
+      int port = GetFreePort();
+      _port = port;
+      _listener.Prefixes.Clear();
+      _listener.Prefixes.Add(prefix + port + "/");
+      try
+      {
+        _listener.Start();
+        return;
+      }
+      catch (HttpListenerException) when (attempt < maxAttempts)
+      {
+        // the port was stolen between probe and bind - probe a fresh one
+      }
+    }
+
+    throw new InvalidOperationException("could not bind the mock provider listener; all port attempts collided.");
   }
 
   public void Dispose()

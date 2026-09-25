@@ -18,30 +18,52 @@ public sealed class GitWorktreeAccessTests : IDisposable
   {
     _repoDir = Path.Combine(Path.GetTempPath(), "ethang-worktree-tests-" + Guid.NewGuid().ToString("N"));
     _ = Directory.CreateDirectory(_repoDir);
-    _ = RunGit("init", "-b", "main");
-    _ = RunGit("config", "user.email", "test@example.com");
-    _ = RunGit("config", "user.name", "Test");
+    // The seed is the test's foundation: a silently failed git call (spawn contention
+    // under a parallel run) would cascade every test into misleading assertions. Fail
+    // fast with the command's stderr instead.
+    Seed("init", "-b", "main");
+    Seed("config", "user.email", "test@example.com");
+    Seed("config", "user.name", "Test");
     File.WriteAllText(Path.Combine(_repoDir, "seed.txt"), "seed");
-    _ = RunGit("add", "seed.txt");
-    _ = RunGit("commit", "-m", "seed");
+    Seed("add", "seed.txt");
+    Seed("commit", "-m", "seed");
   }
 
   public void Dispose()
   {
-    try
+    // A lingering git child (spawn contention) can hold index/refs handles at this
+    // moment; a short bounded retry lets it exit before the delete gives up.
+    for (int attempt = 0; attempt < 3; attempt++)
     {
-      Directory.Delete(_repoDir, true);
-    }
-    catch (IOException)
-    {
-      // best-effort temp cleanup
-    }
-    catch (UnauthorizedAccessException)
-    {
-      // best-effort temp cleanup
+      try
+      {
+        Directory.Delete(_repoDir, true);
+        break;
+      }
+      catch (DirectoryNotFoundException)
+      {
+        break;
+      }
+      catch (IOException)
+      {
+        Thread.Sleep(500); // best-effort temp cleanup
+      }
+      catch (UnauthorizedAccessException)
+      {
+        Thread.Sleep(500); // best-effort temp cleanup
+      }
     }
 
     GC.SuppressFinalize(this);
+  }
+
+  private void Seed(params string[] args)
+  {
+    (int exitCode, _, string stderr) = RunGit(args);
+    if (exitCode != 0)
+    {
+      throw new InvalidOperationException("git seed step failed (git " + string.Join(' ', args) + "): " + stderr);
+    }
   }
 
   private (int ExitCode, string StdOut, string StdErr) RunGit(params string[] args)
@@ -62,7 +84,11 @@ public sealed class GitWorktreeAccessTests : IDisposable
     using Process p = Process.Start(psi)!;
     string stdout = p.StandardOutput.ReadToEnd();
     string stderr = p.StandardError.ReadToEnd();
-    _ = p.WaitForExit(30000);
+    if (!p.WaitForExit(60000))
+    {
+      return (-1, stdout, "git did not exit within 60s: " + string.Join(' ', args));
+    }
+
     return (p.ExitCode, stdout, stderr);
   }
 
