@@ -131,6 +131,9 @@ public static class AgentComposition
                     sp.GetRequiredService<SkillRegistryTool>(),
                     "Install, update, or uninstall community skills."),
                 new AgentToolBinding(
+                    sp.GetRequiredService<SkillInvokeTool>(),
+                    "Invoke a named catalog skill on the user's behalf (including manual skills)."),
+                new AgentToolBinding(
                     new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
                     "Track a workspace task list."),
                 new AgentToolBinding(
@@ -240,10 +243,24 @@ public static class AgentComposition
             sp.GetRequiredService<ResolvedSkillDirectories>().List))
         // Skill registry (plan #29): one service per container; the resolvers
         // read the same settings and resolved-directories the watcher uses.
-        .AddSingleton(sp => CreateSkillRegistryService(sp, settings)).AddSingleton(sp => new SkillSearchTool(sp.GetRequiredService<SkillRegistryService>()))
+        .AddSingleton(sp => CreateSkillRegistryService(sp, settings))
+        .AddSingleton(sp => new SkillSearchTool(sp.GetRequiredService<SkillRegistryService>()))
         .AddSingleton(sp => new SkillRegistryTool(sp.GetRequiredService<SkillRegistryService>()))
-        .AddSingleton(sp => new SkillRegistryTool(sp.GetRequiredService<SkillRegistryService>()))
-        .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
+        // Skill invocation channel (plan #30): ONE shared core — the Desktop's
+        // slash input and the skill_invoke tool resolve through the same
+        // SkillInvocationService; the tool reaches it through the port and
+        // appends out-of-turn through the conversation sink (both seams live in
+        // the Tool Domain; Conversation Domain references Tool Domain, never the
+        // reverse).
+        .AddSingleton<SkillInvocationService>()
+        .AddSingleton<ISkillInvocationPort>(sp => new SkillInvocationPortAdapter(
+            sp.GetRequiredService<SkillInvocationService>()))
+        .AddSingleton<IConversationSink>(sp => new ConversationSinkAdapter(
+            () => sp.GetRequiredService<Conversation>()))
+        .AddSingleton(sp => new SkillInvokeTool(
+            sp.GetRequiredService<ISkillInvocationPort>(),
+            sp.GetRequiredService<IConversationSink>(),
+            notice => sp.GetRequiredService<AgentSession>().PostNotice(notice)))
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
         .AddSingleton<SqliteCuratedMemoryStore>()

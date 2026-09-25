@@ -549,6 +549,9 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // Shell access is registered by the core composition; a bare session container
       // (test stubs) without it yields a null runner and the ! surface reports unavailable.
       CommandRunner = services.GetService<IUserCommandRunner>(),
+      // The shared invocation core (spec #28) rides the session beside the runner:
+      // the Desktop's slash input resolves through it, same object the tool uses.
+      SkillInvocation = services.GetService<SkillInvocationService>(),
       // The verbatim system prompt rides the session so hosts can show the user
       // exactly what the agent receives. Build() is a pure render (session-file
       // reads happen at container build); building it here keeps the conversation
