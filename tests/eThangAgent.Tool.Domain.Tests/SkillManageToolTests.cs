@@ -486,7 +486,7 @@ public class SkillManageToolTests
     Assert.Equal("my-skill", Assert.Single(store.DeleteCalls));
   }
 
-  private sealed class FakeCatalog(IReadOnlyList<SkillDefinition> skills) : ISkillCatalog
+  internal sealed class FakeCatalog(IReadOnlyList<SkillDefinition> skills) : ISkillCatalog
   {
     public int GetCalls { get; private set; }
 
@@ -504,7 +504,7 @@ public class SkillManageToolTests
     }
   }
 
-  private sealed class FakeLearnedStore(IReadOnlyList<SkillDefinition> skills) : ILearnedSkillStore
+  internal sealed class FakeLearnedStore(IReadOnlyList<SkillDefinition> skills) : ILearnedSkillStore
   {
     private readonly Dictionary<string, SkillDefinition> _skills = skills.ToDictionary(s => s.Name, StringComparer.Ordinal);
 
