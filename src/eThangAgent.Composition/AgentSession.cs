@@ -39,6 +39,11 @@ public sealed record AgentSession(
   ///     did not wire shell access (headless stubs).</summary>
   public IUserCommandRunner? CommandRunner { get; init; }
 
+  /// <summary>The shared skill invocation core (spec #28): the Desktop's slash
+  ///     input resolves through it exactly as the skill_invoke tool does. Null
+  ///     when the host did not wire the skill catalog (headless stubs).</summary>
+  public SkillInvocationService? SkillInvocation { get; init; }
+
   /// <summary>Sink for out-of-band session notices (host health, orphan repair),
   ///     populated by the host UI after the session is constructed: the VM owns the
   ///     transcript, the session does not. Null = notices are dropped (headless hosts).

@@ -42,6 +42,15 @@ internal sealed record AgentSessionViewModelOptions
   ///     commands unavailable.</summary>
   public IUserCommandRunner? CommandRunner { get; init; }
 
+  /// <summary>The session's shared skill invocation core (spec #28): slash submit
+  ///     resolves through the same object the skill_invoke tool uses. Null = the
+  ///     slash surface reports unavailable.</summary>
+  public SkillInvocationService? SkillInvocation { get; init; }
+
+  /// <summary>The autocomplete popup's catalog source. Null = no popup (headless
+  ///     stubs without the skill catalog).</summary>
+  public Func<IReadOnlyList<SkillOption>>? SkillCatalogSource { get; init; }
+
   /// <summary>The session's rendered system prompt, shown verbatim (collapsed) in the
   ///     bootstrap entry so nothing the agent receives is hidden. Empty = nothing to
   ///     surface (headless stubs); production always passes the session's prompt.</summary>
@@ -100,6 +109,18 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     Null = the ! surface is unavailable (headless stubs).</summary>
   private readonly IUserCommandRunner? _commandRunner;
 
+  /// <summary>The shared skill invocation core (slash resolution) — null when the
+  ///     session did not wire the skill catalog.</summary>
+  private readonly SkillInvocationService? _skillInvocation;
+
+  /// <summary>The '/' autocomplete popup. Null when the session has no catalog
+  ///     source (headless stubs); the view routes keys only while it is open.</summary>
+  public SkillAutocompleteViewModel? Autocomplete { get; }
+
+  /// <summary>Feeds the popup from the input box's current text; the view calls
+  ///     this on every input change.</summary>
+  public void UpdateAutocomplete(string input) => Autocomplete?.Update(input);
+
   private readonly IAgentInbox? _inbox;
   private readonly IAgentRuntime? _childRuntime;
 
@@ -140,6 +161,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Status = new StatusViewModel(provider, modelId, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort));
     _sessionDefaultModelId = modelId;
     _commandRunner = options.CommandRunner;
+    _skillInvocation = options.SkillInvocation;
+    Autocomplete = options.SkillCatalogSource is null ? null : new SkillAutocompleteViewModel(options.SkillCatalogSource);
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
     // Grand-plan "show initial bootstrap/context at start of session": the first
@@ -154,21 +177,34 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>
   /// Processes one submission. Blank input is ignored. While a turn runs, input
   /// steers it. For normal turns, sets the in-flight task and returns that same
-  /// task so callers can await it directly.
+  /// task so callers can await it directly. A RAW leading '/' (no trim — the
+  /// spec's slash-detection amendment) resolves as a skill invocation BEFORE
+  /// the ! check: found injects the System line then forwards the full input
+  /// as the ordinary user message; unknown names fall through as plain
+  /// messages; ambiguous names send nothing and surface a notice.
   /// </summary>
-  public Task SubmitAsync(string rawInput)
+  public async Task SubmitAsync(string rawInput)
   {
     string input = rawInput?.Trim() ?? "";
     if (string.IsNullOrWhiteSpace(input))
     {
-      return Task.CompletedTask;
+      return;
+    }
+
+    // Slash detection reads the RAW input's first character (spec #28: no trim —
+    // leading-whitespace input is not slash input) and runs before the ! check.
+    if (rawInput!.StartsWith('/'))
+    {
+      await SubmitSlashAsync(rawInput).ConfigureAwait(true);
+      return;
     }
 
     // The ! prefix is a USER-side shell command, not an LLM turn: it runs against the
     // workspace directly — even while a turn is in flight (it never steers the model).
     if (input.StartsWith('!'))
     {
-      return RunCommandAsync(input[1..].Trim());
+      await RunCommandAsync(input[1..].Trim()).ConfigureAwait(true);
+      return;
     }
 
     // While a turn runs, input steers it: posted to the session inbox for delivery at the
@@ -176,12 +212,65 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     if (IsBusy)
     {
       Steer(input);
-      return Task.CompletedTask;
+      return;
     }
 
     // Real turn — start and track it.
     _runningTurn = ExecuteTurnAsync(input);
-    return _runningTurn;
+    await _runningTurn.ConfigureAwait(true);
+  }
+
+  /// <summary>Resolves a slash input through the shared invocation core (the same
+  ///     object the skill_invoke tool uses). Found: the System line goes into the
+  ///     conversation (out-of-turn, the UserCommandRunner precedent) AND onto the
+  ///     transcript (live parity with the ! command surface), then the FULL
+  ///     original input forwards as the ordinary user message. Unknown: not slash
+  ///     input — a plain message. Ambiguous: nothing is sent; a transcript notice
+  ///     lists the matches (spec amendment).</summary>
+  private async Task SubmitSlashAsync(string rawInput)
+  {
+    if (_skillInvocation is null)
+    {
+      Transcript.AddNotice("Skill invocation is unavailable in this session (no catalog wired).");
+      return;
+    }
+
+    string token = rawInput[1..];
+    int space = token.IndexOf(' ', StringComparison.Ordinal);
+    string name = space < 0 ? token : token[..space];
+    string? args = space < 0 ? null : token[(space + 1)..].Trim();
+
+    Result<SkillInvocation> r = await _skillInvocation.InvokeAsync(name, args, CancellationToken.None).ConfigureAwait(true);
+    if (r.IsSuccess)
+    {
+      _conversation.AddSystemMessage(r.Value.SystemLine);
+      Transcript.AddSystemMessage(r.Value.SystemLine);
+      if (IsBusy)
+      {
+        Steer(rawInput);
+        return;
+      }
+
+      _runningTurn = ExecuteTurnAsync(rawInput);
+      await _runningTurn.ConfigureAwait(true);
+      return;
+    }
+
+    if (r.Error.Code == "AmbiguousSkill")
+    {
+      Transcript.AddNotice(r.Error.Message);
+      return;
+    }
+
+    // Unknown name: not slash input — an ordinary message.
+    if (IsBusy)
+    {
+      Steer(rawInput);
+      return;
+    }
+
+    _runningTurn = ExecuteTurnAsync(rawInput);
+    await _runningTurn.ConfigureAwait(true);
   }
 
   /// <summary>Runs one ! command: echoes a command entry, executes through the

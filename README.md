@@ -80,6 +80,20 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   learned, collisions announced), a budgeted always-on skill listing in every session's system
   prompt, session-start bootstrap injection of the using-skills contract, and `skill_list` /
   `skill_view` / `skill_manage` tools
+- Skill registry: search the skills.sh directory (`skill_search`) and install/update/uninstall
+  community skills into a configured skill directory (`skill_registry`) — GitHub repos,
+  `owner/repo/skill` addresses, `file:///` fixture URLs, or skills.sh entries; every install is
+  gated by a deterministic content scan (BLOCK findings abort unconditionally; advisory
+  findings require explicit confirmation), name collisions are refused against authoritative
+  built-ins and learned skills, and installed skills surface immediately through hot reload
+- Skill invocation channel: type `/` in the chat input for an autocomplete popup (manual
+  skills marked and listed first, case-insensitive filter, arrow-key navigation, Tab or Enter
+  to complete) and submit `/skill-name arguments` — or ask the agent, which calls
+  `skill_invoke`. Both resolve through one shared core; the skill's content enters the
+  conversation as a system message (bodies over 4,000 characters fall back to
+  `skill_view`), manual skills resolve exactly like the rest, and unknown `/names` send
+  as ordinary messages
+
 - z.ai capability tools (available only on z.ai tabs in the **General API** endpoint
   mode — the capability endpoints do not exist on the coding endpoint): `web_search` — live web search with
   bounded snippets; `web_read` — fetch one page as markdown; `count_tokens` — GLM tokenizer;
@@ -207,6 +221,14 @@ three sources with fixed precedence: built-in > file > learned.
 - **Manual skills** (`disable-model-invocation: true`) are excluded from the always-on listing,
   marked `[manual]` in `skill_list`, and load by name through `skill_view` — the user names
   them, the model loads them.
+- **Invocation channel**: type `/` as the first character of the chat input to open the
+  autocomplete popup — skills list manual-first, filter as you type, ArrowUp/Down to move,
+  Tab or Enter to complete the name, Esc to close. Submitting `/skill-name arguments`
+  injects the skill as a system message ahead of your message; an unknown name sends as an
+  ordinary message, and an ambiguous one sends nothing and lists the matches in a notice.
+  The agent can invoke skills the same way through the `skill_invoke` tool. Skills invoked
+  through either channel record no usage rows — viewing with `skill_view` remains the only
+  usage signal.
 - **The listing budget** is 8,000 characters for the whole block, with descriptions truncated
   at 60 characters, grouped Built-in / Global directory skills / Workspace directory skills /
   Learned. Load failures render as `[warning]` lines; when the budget forces content out, a

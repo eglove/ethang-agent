@@ -16,6 +16,7 @@ public static class AgentPreferenceKeys
   public const string RemoteHost = "subagent_remote_host";
   public const string ComputerUseEnabled = "computer_use_enabled";
   public const string VerificationGateEnabled = "verification_gate_enabled";
+  public const string SkillRegistryDefaultTarget = "skill_registry:default_target";
   public const string WatchdogTickInterval = "subagent_watchdog_tick_interval";
   public const string WatchdogIdleThreshold = "subagent_watchdog_idle_threshold";
   public const string WatchdogMaxWrapUpAttempts = "subagent_watchdog_max_wrap_up_attempts";
@@ -51,6 +52,7 @@ public static class AgentSettingsLoader
     string? remoteHostStored = await preferences.GetAsync(AgentPreferenceKeys.RemoteHost).ConfigureAwait(false);
     string? computerUseStored = await preferences.GetAsync(AgentPreferenceKeys.ComputerUseEnabled).ConfigureAwait(false);
     string? verificationGateStored = await preferences.GetAsync(AgentPreferenceKeys.VerificationGateEnabled).ConfigureAwait(false);
+    string? registryTargetStored = await preferences.GetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget).ConfigureAwait(false);
     string? tick = await preferences.GetAsync(AgentPreferenceKeys.WatchdogTickInterval).ConfigureAwait(false);
     string? idle = await preferences.GetAsync(AgentPreferenceKeys.WatchdogIdleThreshold).ConfigureAwait(false);
     string? wrapUp = await preferences.GetAsync(AgentPreferenceKeys.WatchdogMaxWrapUpAttempts).ConfigureAwait(false);
@@ -59,6 +61,7 @@ public static class AgentSettingsLoader
     bool computerUse;
     SubAgentOptions subAgents;
     bool verificationGate;
+    string? registryTarget;
     WatchdogSettings? watchdog;
     try
     {
@@ -66,6 +69,7 @@ public static class AgentSettingsLoader
       watchdog = SubAgentConfiguration.BindWatchdog(tick, idle, wrapUp);
       computerUse = ParseComputerUseEnabled(computerUseStored);
       verificationGate = ParseVerificationGateEnabled(verificationGateStored);
+      registryTarget = ParseRegistryDefaultTarget(registryTargetStored);
     }
     catch (InvalidOperationException ex)
     {
@@ -87,7 +91,8 @@ public static class AgentSettingsLoader
         RemoteHost: remoteHost,
         ComputerUse: computerUse,
         VerificationGateEnabled: verificationGate,
-        Watchdog: watchdog);
+        Watchdog: watchdog,
+        SkillRegistryDefaultTarget: registryTarget);
   }
 
   /// <summary>Re-surfaces a binder error with this loader's preference-key names —
@@ -156,6 +161,21 @@ public static class AgentSettingsLoader
     };
   }
 
+  /// <summary>skill_registry:default_target - optional; absent means unset (installs
+  ///     then demand an explicit target and error NoTarget); present must be exactly
+  ///     'global' or 'workspace' (trimmed), anything else is a startup error naming
+  ///     the key (the watchdog-knob pattern).</summary>
+  private static string? ParseRegistryDefaultTarget(string? stored)
+  {
+    return stored switch
+    {
+      null => null,
+      "global" => "global",
+      "workspace" => "workspace",
+      _ => throw new InvalidOperationException(
+          $"{AgentPreferenceKeys.SkillRegistryDefaultTarget} must be 'global' or 'workspace', got '{stored}'."),
+    };
+  }
   /// <summary>Maps the binders' retired config-path key names onto this loader's
   ///     preference keys, so every surfaced error names the key that stores the
   ///     value. Unknown text passes through unchanged.</summary>

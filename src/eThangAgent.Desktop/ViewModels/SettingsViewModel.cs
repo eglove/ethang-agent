@@ -58,7 +58,8 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, string? ZaiApiKe
     string? OpenRouterBaseUrlText = null, string? ZaiBaseUrlText = null,
     bool ComputerUse = false,
     IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories = null,
-    IReadOnlyList<SessionFileEntry>? WorkspaceSkillDirectories = null);
+    IReadOnlyList<SessionFileEntry>? WorkspaceSkillDirectories = null,
+    string? SkillRegistryDefaultTarget = null);
 
 /// <summary>View-model behind the settings modal: the API-key fields for the
 ///     providers, the local provider's base URL, a reveal toggle, the z.ai endpoint
@@ -136,6 +137,31 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(ValidationError))]
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial bool ComputerUse { get; set; }
+
+  /// <summary>The skill-registry default install target: unset / global / workspace.
+  ///     Raw tri-state; strict parsing happens in AgentSettingsLoader at load.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string SkillRegistryTarget { get; set; } = string.Empty;
+
+  /// <summary>ComboBox index mirror of <see cref="SkillRegistryTarget"/>:
+  ///     0 = unset, 1 = global, 2 = workspace; anything else renders as unset.</summary>
+  public int SkillRegistryTargetIndex
+  {
+    get => SkillRegistryTarget switch
+    {
+      "global" => 1,
+      "workspace" => 2,
+      _ => 0,
+    };
+    set => SkillRegistryTarget = value switch
+    {
+      1 => "global",
+      2 => "workspace",
+      _ => string.Empty,
+    };
+  }
 
   /// <summary>The watchdog tick interval as raw text — blank means the watchdog
   ///     default; a non-blank value must be a positive constant-format duration
@@ -318,7 +344,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
       string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null,
       bool computerUse = false,
       IReadOnlyList<SessionFileEntry>? globalSkillDirectories = null,
-      IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null)
+      IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null,
+      string? skillRegistryDefaultTarget = null)
   {
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
@@ -340,7 +367,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
                 Normalize(OpenRouterBaseUrlText), Normalize(ZaiBaseUrlText), ComputerUse,
                 GlobalSkillDirectories: [.. GlobalSkillDirectories],
-                WorkspaceSkillDirectories: HasWorkspace ? [.. WorkspaceSkillDirectories] : null));
+                WorkspaceSkillDirectories: HasWorkspace ? [.. WorkspaceSkillDirectories] : null,
+                SkillRegistryDefaultTarget: SkillRegistryTarget));
           }
         },
         () => CanSave);
@@ -353,6 +381,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
     DefaultModelText = defaultModelText ?? string.Empty;
     RemoteHost = remoteHost;
     ComputerUse = computerUse;
+    SkillRegistryTarget = skillRegistryDefaultTarget ?? string.Empty;
     WatchdogTickText = watchdogTickText ?? string.Empty;
     WatchdogIdleText = watchdogIdleText ?? string.Empty;
     WatchdogWrapUpText = watchdogWrapUpText ?? string.Empty;
