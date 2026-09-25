@@ -19,6 +19,7 @@ public sealed class SkillInvokeTool(ISkillInvocationPort invocation, IConversati
       "'[skill invoked: <name>] (no args)'; the skill's content enters the conversation as a System message. " +
       "Errors begin with `Error [Code]:` — SkillNotFound, AmbiguousSkill.",
       [
+        new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
         new ToolParameter("name", ToolParameterType.Text, "The skill's catalog name."),
         new ToolParameter("args", ToolParameterType.Text, "Optional free-text arguments for the invocation."),
       ],
