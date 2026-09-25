@@ -81,7 +81,8 @@ public sealed record AgentSettings(
     string? SessionFilesGlobal = null,
     string? SessionFilesWorkspace = null,
     string? SkillDirectoriesGlobal = null,
-    string? SkillDirectoriesWorkspace = null)
+    string? SkillDirectoriesWorkspace = null,
+    string? SkillRegistryDefaultTarget = null)
 {
   // Local: null (the default) means unconfigured — a named decision, never silent
   // leniency: it keeps every existing construction site compiling, and hosts (the
@@ -160,6 +161,11 @@ public sealed record AgentSettings(
   public AgentSettings WithVerificationGate(bool enabled) => this with
   {
     VerificationGateEnabled = enabled,
+  };
+
+  public AgentSettings WithSkillRegistryDefaultTarget(string? target) => this with
+  {
+    SkillRegistryDefaultTarget = target,
   };
 
   public AgentSettings WithWorkspaceRoot(string? workspaceRoot) => this with
