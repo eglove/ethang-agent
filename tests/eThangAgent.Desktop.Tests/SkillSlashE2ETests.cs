@@ -20,25 +20,55 @@ public class SkillSlashE2ETests
   private const string SkillName = "e2e-invoke-skill";
   private const string SkillBody = "Body of the e2e invocation skill: verify the deploy checklist.";
 
-  private static string RawCompletion(string content) => JsonSerializer.Serialize(new
-  {
-    choices = new[]
-      {
-        new { message = new { content } },
-      },
-  });
+  private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
-  /// <summary>Decodes one chat request body into its (role, content) list.</summary>
+  /// <summary>Decodes one responses request body into its (role, content) list: message
+  ///     input items map to their role and joined content-part text; tool results
+  ///     (function_call_output items) map to the "tool" role.</summary>
   private static List<(string Role, string Content)> MessagesOf(string body)
   {
     List<(string, string)> messages = [];
     using JsonDocument doc = JsonDocument.Parse(body);
-    foreach (JsonElement message in doc.RootElement.GetProperty("messages").EnumerateArray())
+    foreach (JsonElement item in doc.RootElement.GetProperty("input").EnumerateArray())
     {
-      messages.Add((message.GetProperty("role").GetString() ?? "", message.GetProperty("content").GetString() ?? ""));
+      string type = item.TryGetProperty("type", out JsonElement itemType) ? itemType.GetString() ?? "" : "";
+      if (type == "message")
+      {
+        messages.Add((
+            item.GetProperty("role").GetString() ?? "",
+            JoinedContentText(item.GetProperty("content"))));
+      }
+      else if (type == "function_call_output")
+      {
+        JsonElement output = item.GetProperty("output");
+        messages.Add(("tool", output.ValueKind == JsonValueKind.String
+            ? output.GetString() ?? ""
+            : JoinedContentText(output)));
+      }
     }
 
     return messages;
+  }
+
+  /// <summary>Joins a content-part array's text parts (input_text on the request wire).</summary>
+  private static string JoinedContentText(JsonElement content)
+  {
+    if (content.ValueKind == JsonValueKind.String)
+    {
+      return content.GetString() ?? "";
+    }
+
+    System.Text.StringBuilder joined = new();
+    foreach (JsonElement part in content.EnumerateArray())
+    {
+      if (part.TryGetProperty("text", out JsonElement text)
+          && text.ValueKind == JsonValueKind.String)
+      {
+        _ = joined.Append(text.GetString());
+      }
+    }
+
+    return joined.ToString();
   }
 
   private static bool IsInvocationSystem((string Role, string Content) m) =>

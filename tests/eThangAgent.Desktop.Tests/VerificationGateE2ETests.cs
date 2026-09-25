@@ -7,9 +7,7 @@ namespace eThangAgent.Desktop.Tests;
 [Collection("Desktop E2E")]
 public class VerificationGateE2ETests
 {
-  private static string RawCompletion(string content) =>
-      System.Text.Json.JsonSerializer.Serialize(
-          new { choices = new[] { new { message = new { content } } } });
+  private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
   [Fact]
   public async Task TurnGate_NudgeAppears_AfterUnverifiedEditTurn()

@@ -101,7 +101,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   low, minimal, none. The **Sampling** section carries the twelve knobs
   (top-p, top-k, frequency/presence/repetition penalties, min-p, top-a,
   seed, verbosity, parallel tool calls, temperature and max-tokens caps); the OpenRouter
-  section adds provider routing, the twelve server tools, plugins, and loop budgets.
+  section adds provider routing, the eleven server tools (the responses API's available set), plugins, and loop budgets.
   Choices apply from the next turn, root and children alike, and are persisted per
   workspace + provider — no config files
 - **Context accounting + auto-compaction** — the status bar shows a live `CTX 148.2K/1M, 15%`

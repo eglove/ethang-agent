@@ -7,6 +7,10 @@ namespace eThangAgent.OpenRouter.ACL.Tests;
 
 public class OpenRouterRequestSettingsTests
 {
+  /// <summary>Every server-tool wire type string EXCEPT web_search (used as the
+  ///     enabled-tool subject of the exclusion assertions) — including
+  ///     openrouter:bash, which must never appear: the tool does not exist on the
+  ///     responses API.</summary>
   private static readonly string[] OtherServerToolWireTypes =
   [
     "openrouter:web_fetch",
@@ -22,11 +26,30 @@ public class OpenRouterRequestSettingsTests
     "openrouter:tool_search"
   ];
 
+  /// <summary>All eleven server tools' wire type strings, in declared order.</summary>
+  private static readonly string[] AllServerToolWireTypes =
+  [
+    "openrouter:web_search",
+    "openrouter:web_fetch",
+    "openrouter:datetime",
+    "openrouter:image_generation",
+    "openrouter:shell",
+    "openrouter:apply_patch",
+    "openrouter:fusion",
+    "openrouter:advisor",
+    "openrouter:subagent",
+    "openrouter:experimental__search_models",
+    "openrouter:tool_search"
+  ];
+
   private static readonly string[] ServerToolBudgetWireKeys =
   [
     "max_tool_calls",
     "stop_server_tools_when"
   ];
+
+  private static ServerToolStopCondition Condition(string type, object? value) =>
+      ServerToolStopCondition.Create(type, value).Value!;
 
   private static OpenRouterRequestSettings FullyPopulated() => new()
   {
@@ -48,14 +71,20 @@ public class OpenRouterRequestSettingsTests
       ImageGeneration: true,
       Shell: true,
       ApplyPatch: true,
-      Bash: true,
       Fusion: true,
       Advisor: true,
       Subagent: true,
       SearchModels: true,
       ToolSearch: true,
       MaxToolCalls: 5,
-      StopServerToolsWhen: ["number_of_tool_calls"]),
+      StopServerToolsWhen:
+      [
+        Condition(ServerToolStopCondition.StepCountIs, 12),
+        Condition(ServerToolStopCondition.HasToolCall, "web_search"),
+        Condition(ServerToolStopCondition.MaxTokensUsed, 4096),
+        Condition(ServerToolStopCondition.MaxCost, 0.5m),
+        Condition(ServerToolStopCondition.FinishReasonIs, "stop"),
+      ]),
     Plugins = new Plugins(
       WebGrounding: true,
       ResponseHealing: true,
@@ -69,6 +98,29 @@ public class OpenRouterRequestSettingsTests
 
     string emptyObject = JsonSerializer.Serialize(new { });
     Assert.Equal(emptyObject, OpenRouterRequestSettings.Serialize(new OpenRouterRequestSettings()));
+  }
+
+  [Fact]
+  public void Serialize_EveryEnabledTool_EmitsAllElevenWireTypesAndNoBash()
+  {
+    OpenRouterRequestSettings settings = new()
+    {
+      ServerTools = new ServerTools(
+        WebSearch: true, WebFetch: true, Datetime: true, ImageGeneration: true, Shell: true,
+        ApplyPatch: true, Fusion: true, Advisor: true, Subagent: true, SearchModels: true,
+        ToolSearch: true)
+    };
+
+    string json = OpenRouterRequestSettings.Serialize(settings)!;
+
+    foreach (string wireType in AllServerToolWireTypes)
+    {
+      Assert.Contains(wireType, json, StringComparison.Ordinal);
+    }
+
+    // openrouter:bash was removed with the responses-API migration: it is not one of
+    // the eleven tools and is never serialized, even fully populated.
+    Assert.DoesNotContain("openrouter:bash", json, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -107,6 +159,57 @@ public class OpenRouterRequestSettingsTests
 
     Assert.NotNull(parsed);
     Assert.Equal(settings, parsed);
+  }
+
+  [Fact]
+  public void Parse_StopConditions_RoundTripAsDiscriminatedUnionObjects()
+  {
+    const string json = /*lang=json,strict*/
+        """{"server_tools":{"stop_server_tools_when":[{"type":"step_count_is","step_count":3},{"type":"has_tool_call","tool_name":"web_search"},{"type":"max_tokens_used","max_tokens":1000},{"type":"max_cost","max_cost_in_dollars":1.5},{"type":"finish_reason_is","reason":"length"}]}}""";
+
+    OpenRouterRequestSettings? parsed = OpenRouterRequestSettings.Parse(json);
+
+    Assert.NotNull(parsed);
+    ServerToolStopCondition[] conditions = parsed.ServerTools.StopServerToolsWhen!;
+    Assert.Equal(5, conditions.Length);
+    Assert.Equal(ServerToolStopCondition.StepCountIs, conditions[0].Type);
+    Assert.Equal(3, conditions[0].StepCount);
+    Assert.Equal(ServerToolStopCondition.HasToolCall, conditions[1].Type);
+    Assert.Equal("web_search", conditions[1].ToolName);
+    Assert.Equal(ServerToolStopCondition.MaxTokensUsed, conditions[2].Type);
+    Assert.Equal(1000, conditions[2].MaxTokens);
+    Assert.Equal(ServerToolStopCondition.MaxCost, conditions[3].Type);
+    Assert.Equal(1.5m, conditions[3].MaxCostInDollars);
+    Assert.Equal(ServerToolStopCondition.FinishReasonIs, conditions[4].Type);
+    Assert.Equal("length", conditions[4].FinishReason);
+  }
+
+  [Fact]
+  public void Parse_UnknownConditionType_ThrowsJsonException()
+    => Assert.Throws<JsonException>(() => OpenRouterRequestSettings.Parse(
+        /*lang=json,strict*/ """{"server_tools":{"stop_server_tools_when":[{"type":"mystery_condition","count":1}]}}"""));
+
+  [Fact]
+  public void Parse_ConditionMissingItsField_ThrowsJsonException()
+    => Assert.Throws<JsonException>(() => OpenRouterRequestSettings.Parse(
+        /*lang=json,strict*/ """{"server_tools":{"stop_server_tools_when":[{"type":"step_count_is"}]}}"""));
+
+  [Fact]
+  public void Parse_PersistedBashToggle_IsSkippedAsUnknownKey()
+  {
+    // Settings persisted before the responses-API migration may carry
+    // "openrouter:bash": true inside server_tools. The key no longer names a member:
+    // unknown keys are skipped on read (the surface grows server-side without
+    // breaking old readers), so the load succeeds and bash is simply not enabled.
+    const string json = /*lang=json,strict*/
+        """{"server_tools":{"openrouter:bash":true,"openrouter:web_search":true,"openrouter:datetime":true}}""";
+
+    OpenRouterRequestSettings? parsed = OpenRouterRequestSettings.Parse(json);
+
+    Assert.NotNull(parsed);
+    Assert.True(parsed.ServerTools.WebSearch);
+    Assert.True(parsed.ServerTools.Datetime);
+    Assert.DoesNotContain("openrouter:bash", OpenRouterRequestSettings.Serialize(parsed), StringComparison.Ordinal);
   }
 
   [Fact]

@@ -1,10 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using eThangAgent.SharedKernel;
 
 namespace eThangAgent.OpenRouter.ACL;
 
-/// <summary>Typed OpenRouter-side request settings: provider routing, the twelve
-///     server-side tools, plugins, and server-tool budgets, as one record the ACL
+/// <summary>Typed OpenRouter-side request settings: provider routing, the eleven
+///     server-side tools available on the responses API, plugins, and server-tool budgets, as one record the ACL
 ///     serializes to the opaque ProviderSettings JSON the Model Domain carries
 ///     (never exposed as a type outside this project). All members are optional;
 ///     disabled toggles and unset members are omitted, so the serialized form of an
@@ -23,7 +24,8 @@ public sealed record OpenRouterRequestSettings
   [JsonIgnore]
   public Routing Routing { get; init; } = new();
 
-  /// <summary>The twelve OpenRouter server-side tools; an enabled tool runs on the
+  /// <summary>The eleven OpenRouter server-side tools available on the responses
+  ///     API; an enabled tool runs on the
   ///     provider side and is keyed by its wire type string when serialized.</summary>
   [JsonIgnore]
   public ServerTools ServerTools { get; init; } = new();
@@ -219,7 +221,8 @@ public sealed record Routing(
 }
 #pragma warning restore CA1819
 
-/// <summary>The twelve OpenRouter server-side tools and the server-tool budgets.
+/// <summary>The eleven OpenRouter server-side tools available on the responses
+///     API, and the server-tool budgets.
 ///     Enabled toggles serialize as the tool's wire type string; disabled toggles
 ///     and unset budgets are omitted entirely. The array budget member compares by
 ///     element sequence, so a round-trip through Serialize and Parse is
@@ -230,7 +233,6 @@ public sealed record Routing(
 /// <param name="ImageGeneration">Image generation. Wire type: openrouter:image_generation.</param>
 /// <param name="Shell">Command shell. Wire type: openrouter:shell.</param>
 /// <param name="ApplyPatch">Patch application. Wire type: openrouter:apply_patch.</param>
-/// <param name="Bash">Bash shell. Wire type: openrouter:bash.</param>
 /// <param name="Fusion">Fusion retrieval. Wire type: openrouter:fusion.</param>
 /// <param name="Advisor">Advisor. Wire type: openrouter:advisor.</param>
 /// <param name="Subagent">Sub-agent delegation. Wire type: openrouter:subagent.</param>
@@ -240,7 +242,8 @@ public sealed record Routing(
 /// <param name="MaxToolCalls">Budget: maximum server-tool calls per turn; null is
 ///     unbounded and omitted. Wire: max_tool_calls.</param>
 /// <param name="StopServerToolsWhen">Budget: conditions that stop server tools;
-///     null is omitted. Wire: stop_server_tools_when.</param>
+///     null is omitted. Wire: stop_server_tools_when — on the responses API an array
+///     of discriminated-union condition objects (verified live 2026-09).</param>
 #pragma warning disable CA1819 // By-design wire data-carrier: the OpenRouter API's own budget member is an array; this record is data, not a mutable surface.
 public sealed record ServerTools(
   [property: JsonIgnore]
@@ -256,8 +259,6 @@ public sealed record ServerTools(
   [property: JsonIgnore]
   bool ApplyPatch = false,
   [property: JsonIgnore]
-  bool Bash = false,
-  [property: JsonIgnore]
   bool Fusion = false,
   [property: JsonIgnore]
   bool Advisor = false,
@@ -272,7 +273,7 @@ public sealed record ServerTools(
   int? MaxToolCalls = null,
   [property: JsonPropertyName("stop_server_tools_when")]
   [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  string[]? StopServerToolsWhen = null)
+  ServerToolStopCondition[]? StopServerToolsWhen = null)
 {
   /// <summary>Wire view of WebSearch: serialized as its wire type string only when
   ///     the tool is enabled.</summary>
@@ -309,12 +310,6 @@ public sealed record ServerTools(
   [JsonPropertyName("openrouter:apply_patch")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public bool? ApplyPatchWire { get => ApplyPatch ? true : null; init => ApplyPatch = value.GetValueOrDefault(); }
-
-  /// <summary>Wire view of Bash: serialized as its wire type string only when the
-  ///     tool is enabled.</summary>
-  [JsonPropertyName("openrouter:bash")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public bool? BashWire { get => Bash ? true : null; init => Bash = value.GetValueOrDefault(); }
 
   /// <summary>Wire view of Fusion: serialized as its wire type string only when the
   ///     tool is enabled.</summary>
@@ -357,7 +352,6 @@ public sealed record ServerTools(
           && ImageGeneration == other.ImageGeneration
           && Shell == other.Shell
           && ApplyPatch == other.ApplyPatch
-          && Bash == other.Bash
           && Fusion == other.Fusion
           && Advisor == other.Advisor
           && Subagent == other.Subagent
@@ -376,7 +370,6 @@ public sealed record ServerTools(
     hash.Add(ImageGeneration);
     hash.Add(Shell);
     hash.Add(ApplyPatch);
-    hash.Add(Bash);
     hash.Add(Fusion);
     hash.Add(Advisor);
     hash.Add(Subagent);
@@ -386,19 +379,169 @@ public sealed record ServerTools(
     if (StopServerToolsWhen is not null)
     {
       hash.Add(StopServerToolsWhen.Length);
-      foreach (string value in StopServerToolsWhen)
+      foreach (ServerToolStopCondition condition in StopServerToolsWhen)
       {
-        hash.Add(value);
+        hash.Add(condition);
       }
     }
 
     return hash.ToHashCode();
   }
 
-  private static bool NullableSequenceEqual(string[]? left, string[]? right)
+  private static bool NullableSequenceEqual(ServerToolStopCondition[]? left, ServerToolStopCondition[]? right)
       => left is null ? right is null : right is not null && left.SequenceEqual(right);
 }
 #pragma warning restore CA1819
+
+/// <summary>One stop condition of the responses API's <c>stop_server_tools_when</c>
+///     budget: a discriminated union serialized as <c>{"type": ..., &lt;field&gt;: ...}</c>.
+///     Exactly the field named by the condition type carries the value; the other
+///     members stay null and are omitted (verified live 2026-09: step_count_is →
+///     step_count, has_tool_call → tool_name, max_tokens_used → max_tokens,
+///     max_cost → max_cost_in_dollars, finish_reason_is → reason).</summary>
+[JsonConverter(typeof(Converter))]
+public sealed record ServerToolStopCondition
+{
+  public const string StepCountIs = "step_count_is";
+  public const string HasToolCall = "has_tool_call";
+  public const string MaxTokensUsed = "max_tokens_used";
+  public const string MaxCost = "max_cost";
+  public const string FinishReasonIs = "finish_reason_is";
+
+  private ServerToolStopCondition(string type, string? toolName, int? stepCount, int? maxTokens,
+      decimal? maxCostInDollars, string? finishReason)
+  {
+    Type = type;
+    ToolName = toolName;
+    StepCount = stepCount;
+    MaxTokens = maxTokens;
+    MaxCostInDollars = maxCostInDollars;
+    FinishReason = finishReason;
+  }
+
+  public string Type { get; }
+
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? ToolName { get; }
+
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? StepCount { get; }
+
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? MaxTokens { get; }
+
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public decimal? MaxCostInDollars { get; }
+
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? FinishReason { get; }
+
+  /// <summary>The condition's value under its own type's wire field name (the parse
+  ///     contract's view); null only for a condition that failed validation.</summary>
+  public object? Value => Type switch
+  {
+    HasToolCall => ToolName,
+    StepCountIs => StepCount,
+    MaxTokensUsed => MaxTokens,
+    MaxCost => MaxCostInDollars,
+    FinishReasonIs => FinishReason,
+    _ => null,
+  };
+
+  /// <summary>Strict construction: the type must be one of the five known conditions
+  ///     and must carry exactly its own field. Returns a Result so callers (the
+  ///     settings UI) can name the fault without exception-driven control flow.</summary>
+  public static Result<ServerToolStopCondition> Create(string type, object? value) => type switch
+  {
+    HasToolCall when value is string toolName && toolName.Length > 0
+        => Result.Success(new ServerToolStopCondition(type, toolName, null, null, null, null)),
+    StepCountIs when value is int stepCount
+        => Result.Success(new ServerToolStopCondition(type, null, stepCount, null, null, null)),
+    MaxTokensUsed when value is int maxTokens
+        => Result.Success(new ServerToolStopCondition(type, null, null, maxTokens, null, null)),
+    MaxCost when value is decimal maxCost
+        => Result.Success(new ServerToolStopCondition(type, null, null, null, maxCost, null)),
+    FinishReasonIs when value is string reason && reason.Length > 0
+        => Result.Success(new ServerToolStopCondition(type, null, null, null, null, reason)),
+    _ => Result.Failure<ServerToolStopCondition>(new DomainError("InvalidStopCondition",
+        $"Unknown stop condition type '{type}'; expected one of: {StepCountIs}, {HasToolCall}, {MaxTokensUsed}, {MaxCost}, {FinishReasonIs}.")),
+  };
+
+  /// <summary>The fault a malformed condition would produce at request build; null
+  ///     when the condition is valid. Lets the provider enforce strictness at the
+  ///     send boundary without re-deriving the rules.</summary>
+  public string? DescribeFault() => Create(Type, Value).Error?.Message;
+
+  /// <summary>Reads and writes the discriminated union: dispatches on the "type"
+  ///     member, maps each condition's own field, and throws JsonException on an
+  ///     unknown type or a missing/ill-typed field — corrupt persisted settings are
+  ///     an infrastructure fault, never silently coerced.</summary>
+  // Named decision (CA1034): the converter nests inside the record it serializes by
+  // pinned design — one converter travels with its wire shape, same standing as the
+  // request-settings WireConverter beside its record.
+#pragma warning disable CA1034 // Do not nest type
+  public sealed class Converter : JsonConverter<ServerToolStopCondition>
+  {
+    public override ServerToolStopCondition Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+      using JsonDocument doc = JsonDocument.ParseValue(ref reader);
+      JsonElement root = doc.RootElement;
+      if (root.ValueKind != JsonValueKind.Object
+          || !root.TryGetProperty("type", out JsonElement typeEl)
+          || typeEl.ValueKind != JsonValueKind.String)
+      {
+        throw new JsonException("A stop_server_tools_when condition must be an object with a string 'type'.");
+      }
+
+      string type = typeEl.GetString()!;
+      try
+      {
+        return type switch
+        {
+          HasToolCall => new ServerToolStopCondition(type, RequireString(root, "tool_name", type), null, null, null, null),
+          StepCountIs => new ServerToolStopCondition(type, null, RequireInt(root, "step_count", type), null, null, null),
+          MaxTokensUsed => new ServerToolStopCondition(type, null, null, RequireInt(root, "max_tokens", type), null, null),
+          MaxCost => new ServerToolStopCondition(type, null, null, null, root.TryGetProperty("max_cost_in_dollars", out JsonElement cost) && cost.ValueKind == JsonValueKind.Number ? cost.GetDecimal() : throw new JsonException($"Stop condition '{type}' requires a number 'max_cost_in_dollars'."), null),
+          FinishReasonIs => new ServerToolStopCondition(type, null, null, null, null, RequireString(root, "reason", type)),
+          _ => throw new JsonException($"Unknown stop condition type '{type}'."),
+        };
+      }
+      catch (KeyNotFoundException ex)
+      {
+        throw new JsonException($"Malformed stop condition '{type}': {ex.Message}", ex);
+      }
+    }
+
+    public override void Write(Utf8JsonWriter writer, ServerToolStopCondition value, JsonSerializerOptions options)
+    {
+      ArgumentNullException.ThrowIfNull(writer);
+      ArgumentNullException.ThrowIfNull(value);
+      writer.WriteStartObject();
+      writer.WriteString("type", value.Type);
+      switch (value.Type)
+      {
+        case HasToolCall: writer.WriteString("tool_name", value.ToolName); break;
+        case StepCountIs: writer.WriteNumber("step_count", value.StepCount!.Value); break;
+        case MaxTokensUsed: writer.WriteNumber("max_tokens", value.MaxTokens!.Value); break;
+        case MaxCost: writer.WriteNumber("max_cost_in_dollars", value.MaxCostInDollars!.Value); break;
+        case FinishReasonIs: writer.WriteString("reason", value.FinishReason); break;
+        default: break;
+      }
+
+      writer.WriteEndObject();
+    }
+
+    private static string RequireString(JsonElement root, string name, string type)
+      => root.TryGetProperty(name, out JsonElement el) && el.ValueKind == JsonValueKind.String
+          ? el.GetString()!
+          : throw new JsonException($"Stop condition '{type}' requires a string '{name}'.");
+
+    private static int RequireInt(JsonElement root, string name, string type)
+      => root.TryGetProperty(name, out JsonElement el) && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int value)
+          ? value
+          : throw new JsonException($"Stop condition '{type}' requires a number '{name}'.");
+  }
+}
 
 /// <summary>OpenRouter plugins. Enabled plugins serialize as entries keyed by the
 ///     plugin id; disabled plugins are omitted entirely.</summary>
@@ -454,3 +597,4 @@ public sealed record WebGroundingPlugin(
 #pragma warning disable S2094 // Deliberate empty record: presence of the entry IS the plugin switch; settings extend it later.
 public sealed record ResponseHealingPlugin();
 #pragma warning restore S2094
+#pragma warning restore CA1034 // Do not nest type

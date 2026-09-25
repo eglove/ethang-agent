@@ -1,5 +1,3 @@
-using System.Net;
-using System.Text;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -21,14 +19,7 @@ public class OpenRouterModelProviderFactoryTests
       captured = req;
       Assert.NotNull(req.Content);
       body = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
-      return new HttpResponseMessage(HttpStatusCode.OK)
-      {
-        Content = new StringContent(
-                                       /*lang=json,strict*/
-                                       """{"choices":[{"message":{"content":"ok"}}]}""",
-                  Encoding.UTF8,
-                  "application/json"),
-      };
+      return Wire.Ok();
     });
     using HttpClient http = new(handler);
     OpenRouterModelProviderFactory factory = new(

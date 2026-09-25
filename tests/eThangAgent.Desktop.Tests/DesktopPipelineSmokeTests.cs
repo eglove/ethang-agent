@@ -22,9 +22,9 @@ public class DesktopPipelineSmokeTests
   {
     using MockOpenRouterServer server = new();
     server.Start();
-    // The canned completion is split across two SSE content deltas by the mock,
+    // The canned response is split across two SSE output_text deltas by the mock,
     // proving the client assembled chunks and the bridge delivered them in order.
-    _ = server.Returns(/*lang=json,strict*/ """{"choices":[{"message":{"content":"hello from the mock"}}]}""");
+    _ = server.Returns(/*lang=json,strict*/ """{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello from the mock"}]}],"status":"completed"}""");
 
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", server.BaseUrl),

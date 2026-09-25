@@ -1,4 +1,3 @@
-using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ModelDomain;
@@ -21,8 +20,7 @@ namespace eThangAgent.Desktop.Tests;
 [Collection("Desktop E2E")]
 public class LinkRestartE2ETests
 {
-  private static string RawCompletion(string content) =>
-      JsonSerializer.Serialize(new { choices = new[] { new { message = new { content } } } });
+  private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
   [Fact]
   public async Task Link_Consented_In_Session_One_Resolves_And_Delivers_In_Session_Two()

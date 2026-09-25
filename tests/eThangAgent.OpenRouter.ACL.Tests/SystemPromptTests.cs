@@ -1,5 +1,4 @@
-using System.Net;
-using System.Text;
+using System.Text.Json;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -7,61 +6,65 @@ using eThangAgent.SharedKernel;
 #pragma warning disable CA2000 // HttpClient owns the handler; provider lifetime bounds it
 namespace eThangAgent.OpenRouter.ACL.Tests;
 
+// The Responses API's system channel: a per-request system prompt travels as the
+// body's top-level "instructions" string, never as a system-role message item.
 public class SystemPromptTests
 {
-  [Fact]
-  public async Task SendAsync_WithSystemPrompt_PrefixesSystemMessage()
+  private static async Task<string> CaptureBodyAsync(ModelRequest request)
   {
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
       Assert.NotNull(req.Content);
       capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
-      return new HttpResponseMessage(HttpStatusCode.OK)
-      {
-        Content = new StringContent(/*lang=json,strict*/ """{"choices":[{"message":{"content":"ok"}}]}""",
-                  Encoding.UTF8, "application/json")
-      };
+      return Wire.Ok();
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http,
         new OpenRouterConfiguration("test-key", new Uri("https://openrouter.test")));
 
-    Message msg = new(Role.User, "hi", DateTimeOffset.UtcNow);
     Result<ModelResponse> result = await provider.SendAsync(
         ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
-        new ModelRequest([msg], SystemPrompt: "you are exec-guide"), TestContext.Current.CancellationToken);
+        request, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.True(result.IsSuccess);
-    Assert.Contains("\"role\":\"system\"", capturedBody, StringComparison.Ordinal);
-    int systemIndex = capturedBody!.IndexOf("\"role\":\"system\"", StringComparison.Ordinal);
-    int userIndex = capturedBody.IndexOf("\"role\":\"user\"", StringComparison.Ordinal);
-    Assert.True(systemIndex >= 0 && userIndex >= 0 && systemIndex < userIndex,
-        "system message must precede the user message");
+    return capturedBody!;
   }
 
   [Fact]
-  public async Task SendAsync_WithoutSystemPrompt_HasNoSystemMessage()
+  public async Task SendAsync_WithSystemPrompt_RidesInstructionsKeyBeforeInputItems()
   {
-    string? capturedBody = null;
-    FakeHttpMessageHandler handler = new(async req =>
-    {
-      Assert.NotNull(req.Content);
-      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
-      return new HttpResponseMessage(HttpStatusCode.OK)
-      {
-        Content = new StringContent(/*lang=json,strict*/ """{"choices":[{"message":{"content":"ok"}}]}""",
-                  Encoding.UTF8, "application/json")
-      };
-    });
-    using HttpClient http = new(handler);
-    OpenRouterModelProvider provider = new(http,
-        new OpenRouterConfiguration("test-key", new Uri("https://openrouter.test")));
+    Message msg = new(Role.User, "hi", DateTimeOffset.UtcNow);
 
-    _ = await provider.SendAsync(
-        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
-        new ModelRequest([new Message(Role.User, "hi", DateTimeOffset.UtcNow)]), TestContext.Current.CancellationToken);
+    string body = await CaptureBodyAsync(new ModelRequest([msg], SystemPrompt: "you are exec-guide")).ConfigureAwait(true);
 
-    Assert.DoesNotContain("\"role\":\"system\"", capturedBody, StringComparison.Ordinal);
+    using JsonDocument doc = JsonDocument.Parse(body);
+    Assert.Equal("you are exec-guide", doc.RootElement.GetProperty("instructions").GetString());
+    JsonElement input = doc.RootElement.GetProperty("input");
+    JsonElement first = input[0];
+    Assert.Equal("user", first.GetProperty("role").GetString());
+    Assert.Equal("hi", first.GetProperty("content")[0].GetProperty("text").GetString());
+  }
+
+  [Fact]
+  public async Task SendAsync_WithoutSystemPrompt_SendsNoInstructionsKey()
+  {
+    Message msg = new(Role.User, "hi", DateTimeOffset.UtcNow);
+
+    string body = await CaptureBodyAsync(new ModelRequest([msg])).ConfigureAwait(true);
+
+    using JsonDocument doc = JsonDocument.Parse(body);
+    Assert.False(doc.RootElement.TryGetProperty("instructions", out _));
+  }
+
+  [Fact]
+  public async Task SendAsync_WithBlankSystemPrompt_SendsNoInstructionsKey()
+  {
+    Message msg = new(Role.User, "hi", DateTimeOffset.UtcNow);
+
+    string body = await CaptureBodyAsync(new ModelRequest([msg], SystemPrompt: "   ")).ConfigureAwait(true);
+
+    using JsonDocument doc = JsonDocument.Parse(body);
+    Assert.False(doc.RootElement.TryGetProperty("instructions", out _));
   }
 }

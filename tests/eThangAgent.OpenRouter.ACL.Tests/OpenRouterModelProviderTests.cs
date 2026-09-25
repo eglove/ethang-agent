@@ -19,10 +19,7 @@ public class OpenRouterModelProviderTests
   [Fact]
   public async Task SendAsync_OnSuccess_ReturnsContent()
   {
-    FakeHttpMessageHandler handler = new(_ =>
-        Task.FromResult(JsonResponse(HttpStatusCode.OK,
-                                 /*lang=json,strict*/
-                                 """{"choices":[{"message":{"content":"Hello back"}}]}""")));
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Ok()));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
     ModelConfig config = ModelConfig.Create("openai/gpt-4o-mini", null, 256, 0.7f, 4096).Value!;
@@ -30,12 +27,13 @@ public class OpenRouterModelProviderTests
     Result<ModelResponse> result = await provider.SendAsync(config, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("Hello back", result.Value.Content);
+    Assert.Equal("ok", result.Value.Content);
     Assert.Empty(result.Value.ToolCalls);
+    Assert.Equal(FinishReason.Stop, result.Value.FinishReason);
   }
 
   [Fact]
-  public async Task SendAsync_SendsBearerTokenAndModel()
+  public async Task SendAsync_SendsBearerTokenAndModel_ToResponsesEndpoint()
   {
     HttpRequestMessage? captured = null;
     string? capturedBody = null;
@@ -44,9 +42,7 @@ public class OpenRouterModelProviderTests
       captured = req;
       Assert.NotNull(req.Content);
       capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
-      return JsonResponse(HttpStatusCode.OK,
-                                   /*lang=json,strict*/
-                                   """{"choices":[{"message":{"content":"ok"}}]}""");
+      return Wire.Ok();
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
@@ -57,7 +53,7 @@ public class OpenRouterModelProviderTests
 
     Assert.True(result.IsSuccess);
     Assert.Equal("Bearer test-key", captured!.Headers.Authorization?.ToString());
-    Assert.Equal("https://openrouter.test/api/v1/chat/completions", captured.RequestUri!.ToString());
+    Assert.Equal("https://openrouter.test/api/v1/responses", captured.RequestUri!.ToString());
     Assert.Contains("openai/gpt-4o-mini", capturedBody, StringComparison.Ordinal);
   }
 
@@ -71,9 +67,7 @@ public class OpenRouterModelProviderTests
     FakeHttpMessageHandler handler = new(req =>
     {
       captured = req;
-      return Task.FromResult(JsonResponse(HttpStatusCode.OK,
-                                       /*lang=json,strict*/
-                                       """{"choices":[{"message":{"content":"ok"}}]}"""));
+      return Task.FromResult(Wire.Ok());
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, config);
@@ -82,7 +76,7 @@ public class OpenRouterModelProviderTests
         ModelConfig.Create("openai/gpt-4o-mini", null, 128, 0.7f, 4096).Value!,
         new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
 
-    Assert.Equal("https://proxy.test/openrouter/api/v1/chat/completions", captured!.RequestUri!.ToString());
+    Assert.Equal("https://proxy.test/openrouter/api/v1/responses", captured!.RequestUri!.ToString());
   }
 
   [Fact]
@@ -93,9 +87,7 @@ public class OpenRouterModelProviderTests
     {
       Assert.NotNull(req.Content);
       capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
-      return JsonResponse(HttpStatusCode.OK,
-                                   /*lang=json,strict*/
-                                   """{"choices":[{"message":{"content":"ok"}}]}""");
+      return Wire.Ok();
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
@@ -119,12 +111,11 @@ public class OpenRouterModelProviderTests
   }
 
   [Fact]
-  public async Task SendAsync_ParsesToolCallsFromResponse()
+  public async Task SendAsync_ParsesToolCallsFromFunctionCallItems()
   {
-    FakeHttpMessageHandler handler = new(_ =>
-        Task.FromResult(JsonResponse(HttpStatusCode.OK,
-                                 /*lang=json,strict*/
-                                 """{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"read","arguments":"{\"path\":\"test.txt\"}"}}]}}]}""")));
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Json(HttpStatusCode.OK,
+        /*lang=json,strict*/
+        """{"status":"completed","output":[{"type":"function_call","call_id":"call_1","name":"read","arguments":"{\"path\":\"test.txt\"}"}]}""")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -134,6 +125,7 @@ public class OpenRouterModelProviderTests
 
     Assert.True(result.IsSuccess);
     Assert.Null(result.Value.Content);
+    Assert.Equal(FinishReason.ToolCalls, result.Value.FinishReason);
     _ = Assert.Single(result.Value.ToolCalls);
     Assert.Equal("call_1", result.Value.ToolCalls[0].Id);
     Assert.Equal("read", result.Value.ToolCalls[0].Name);
@@ -141,16 +133,14 @@ public class OpenRouterModelProviderTests
   }
 
   [Fact]
-  public async Task SendAsync_SendsToolMessageWithToolCallId()
+  public async Task SendAsync_SendsToolResultAsFunctionCallOutput()
   {
     string? capturedBody = null;
     FakeHttpMessageHandler handler = new(async req =>
     {
       Assert.NotNull(req.Content);
       capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
-      return JsonResponse(HttpStatusCode.OK,
-                                   /*lang=json,strict*/
-                                   """{"choices":[{"message":{"content":"final"}}]}""");
+      return Wire.Ok();
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
@@ -166,21 +156,23 @@ public class OpenRouterModelProviderTests
         ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
         new ModelRequest(messages), TestContext.Current.CancellationToken);
 
-    Assert.Contains("\"role\":\"tool\"", capturedBody, StringComparison.Ordinal);
-    Assert.Contains("\"tool_call_id\":\"call_1\"", capturedBody, StringComparison.Ordinal);
-    Assert.Contains("result content", capturedBody, StringComparison.Ordinal);
+    using JsonDocument doc = JsonDocument.Parse(capturedBody!);
+    JsonElement input = doc.RootElement.GetProperty("input");
+    JsonElement toolOutput = input.EnumerateArray()
+        .Single(item => item.GetProperty("type").GetString() == "function_call_output");
+    Assert.Equal("call_1", toolOutput.GetProperty("call_id").GetString());
+    Assert.Equal("result content", toolOutput.GetProperty("output").GetString());
   }
 
   [Theory]
   [InlineData("{}")]
-  [InlineData(/*lang=json,strict*/ "{\"choices\":[]}")]
-  [InlineData(/*lang=json,strict*/ "{\"choices\":[{}]}")]
-  [InlineData(/*lang=json,strict*/ "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"call_1\"}]}}]}")]
+  [InlineData(/*lang=json,strict*/ "{\"output\":5}")]
+  [InlineData(/*lang=json,strict*/ "{\"output\":[{\"type\":\"function_call\",\"call_id\":\"call_1\"}]}")]
   [InlineData("not json")]
   public async Task SendAsync_WhenSuccessPayloadIsMalformed_ReturnsProviderError(string payload)
   {
     FakeHttpMessageHandler handler = new(_ =>
-        Task.FromResult(JsonResponse(HttpStatusCode.OK, payload)));
+        Task.FromResult(Wire.Json(HttpStatusCode.OK, payload)));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -196,7 +188,7 @@ public class OpenRouterModelProviderTests
   public async Task SendAsync_OnRateLimit_ReturnsRateLimitedError()
   {
     FakeHttpMessageHandler handler = new(_ =>
-        Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)));
+        Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("") }));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -224,8 +216,65 @@ public class OpenRouterModelProviderTests
     Assert.Equal("ProviderTimeout", result.Error.Code);
   }
 
-  private static HttpResponseMessage JsonResponse(HttpStatusCode code, string json) =>
-      new(code) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+  // The error body — OpenRouter's JSON naming the actual fault — is information for
+  // whoever can act on it: the failure message must carry it (capped), never just
+  // the bare status code.
+  [Fact]
+  public async Task SendAsync_OnClientError_IncludesResponseBodyInMessage()
+  {
+    const string errorBody = /*lang=json,strict*/ """{"error":{"message":"Model not allowed"}}""";
+    FakeHttpMessageHandler handler = new(_ =>
+        Task.FromResult(Wire.Json(HttpStatusCode.BadRequest, errorBody)));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendAsync(
+        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("ProviderError", result.Error.Code);
+    Assert.Contains("OpenRouter returned HTTP 400:", result.Error.Message, StringComparison.Ordinal);
+    Assert.Contains(errorBody, result.Error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task SendAsync_OnClientErrorWithLongBody_TruncatesAt512Characters()
+  {
+    string errorBody = new('x', 600);
+    FakeHttpMessageHandler handler = new(_ =>
+        Task.FromResult(Wire.Json(HttpStatusCode.BadRequest, errorBody)));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendAsync(
+        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal($"OpenRouter returned HTTP 400: {new string('x', 512)}…", result.Error.Message);
+  }
+
+  [Fact]
+  public async Task SendAsync_OnClientErrorWithEmptyBody_SendsBareStatusMessage()
+  {
+    FakeHttpMessageHandler handler = new(_ =>
+        Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+          Content = new StringContent("", Encoding.UTF8, "application/json"),
+        }));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendAsync(
+        ModelConfig.Create("m", null, 100, 0.5f, 4096).Value!,
+        new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("ProviderError", result.Error.Code);
+    Assert.Equal("OpenRouter returned HTTP 400.", result.Error.Message);
+  }
+
   [Fact]
   public async Task SendAsync_WithProvider_SendsProviderOnlyInBody()
   {
@@ -234,9 +283,7 @@ public class OpenRouterModelProviderTests
     {
       Assert.NotNull(req.Content);
       capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
-      return JsonResponse(HttpStatusCode.OK,
-                           /*lang=json,strict*/
-                           """{"choices":[{"message":{"content":"ok"}}]}""");
+      return Wire.Ok();
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
@@ -258,9 +305,7 @@ public class OpenRouterModelProviderTests
     {
       Assert.NotNull(req.Content);
       capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
-      return JsonResponse(HttpStatusCode.OK,
-                           /*lang=json,strict*/
-                           """{"choices":[{"message":{"content":"ok"}}]}""");
+      return Wire.Ok();
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);

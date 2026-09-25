@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
@@ -16,17 +15,11 @@ public class ServerToolUsageTests
   private static OpenRouterConfiguration Config => new("test-key", BaseUrl);
   private static ModelConfig Model => ModelConfig.Create("m", null, 256, 0.7f, 4096).Value!;
 
-  private static HttpResponseMessage Sse(string raw) =>
-      new(HttpStatusCode.OK) { Content = new StringContent(raw, Encoding.UTF8, "text/event-stream") };
-
-  private static HttpResponseMessage JsonBody(string body) =>
-      new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
-
   [Fact]
   public async Task NonStreaming_ServerToolUse_PopulatesServerToolCalls()
   {
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(JsonBody(/*lang=json,strict*/
-        """{"choices":[{"message":{"content":"plain"}}],"usage":{"prompt_tokens":42,"completion_tokens":7,"server_tool_use":{"web_search_requests":3}}}""")));
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Json(HttpStatusCode.OK, /*lang=json,strict*/
+        """{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"plain"}]}],"usage":{"input_tokens":42,"output_tokens":7,"server_tool_use":{"web_search_requests":3}}}""")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -42,8 +35,8 @@ public class ServerToolUsageTests
   [Fact]
   public async Task NonStreaming_WithoutServerToolUse_ServerToolCallsStayNull()
   {
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(JsonBody(/*lang=json,strict*/
-        """{"choices":[{"message":{"content":"plain"}}],"usage":{"prompt_tokens":42,"completion_tokens":7}}""")));
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Json(HttpStatusCode.OK, /*lang=json,strict*/
+        """{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"plain"}]}],"usage":{"input_tokens":42,"output_tokens":7}}""")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -57,9 +50,9 @@ public class ServerToolUsageTests
   [Fact]
   public async Task Streaming_ServerToolUse_PopulatesServerToolCalls()
   {
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Sse(
-        "data: {\"choices\":[{\"delta\":{\"content\":\"He\"}}]}\n\n" +
-        "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"server_tool_use\":{\"web_search_requests\":5}}}\n\n" +
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"He\"}\n\n" +
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"server_tool_use\":{\"web_search_requests\":5}}}}\n\n" +
         "data: [DONE]\n\n")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);

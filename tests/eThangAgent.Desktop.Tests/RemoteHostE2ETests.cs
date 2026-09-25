@@ -19,9 +19,7 @@ namespace eThangAgent.Desktop.Tests;
 [Collection("Desktop E2E")]
 public class RemoteHostE2ETests
 {
-  private static string RawCompletion(string content) =>
-      System.Text.Json.JsonSerializer.Serialize(
-          new { choices = new[] { new { message = new { content } } } });
+  private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
   private const string PollThenResult = """
             var deadline = System.DateTime.UtcNow.AddSeconds(60);

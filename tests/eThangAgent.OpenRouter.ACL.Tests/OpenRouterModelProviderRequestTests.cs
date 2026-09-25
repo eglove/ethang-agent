@@ -1,5 +1,3 @@
-using System.Net;
-using System.Text;
 using System.Text.Json;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
@@ -11,11 +9,28 @@ namespace eThangAgent.OpenRouter.ACL.Tests;
 
 /// <summary>Request-body wire tests for the full configurable surface: the neutral
 ///     sampling knobs, provider routing, server-side tools, server-tool budgets, and
-///     plugins — every wire shape asserted here follows the OpenRouter API contract.</summary>
+///     plugins — every wire shape asserted here follows the OpenRouter Responses API
+///     contract (verified live 2026-09).</summary>
 public class OpenRouterModelProviderRequestTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");
   private static OpenRouterConfiguration Config => new("test-key", BaseUrl);
+
+  /// <summary>The eleven server-tool wire type strings in their declared order.</summary>
+  private static readonly string[] ServerToolWireTypesInOrder =
+  [
+    "openrouter:web_search",
+    "openrouter:web_fetch",
+    "openrouter:datetime",
+    "openrouter:image_generation",
+    "openrouter:shell",
+    "openrouter:apply_patch",
+    "openrouter:fusion",
+    "openrouter:advisor",
+    "openrouter:subagent",
+    "openrouter:experimental__search_models",
+    "openrouter:tool_search",
+  ];
 
   private static readonly string[] KnobWireKeys =
   [
@@ -33,13 +48,6 @@ public class OpenRouterModelProviderRequestTests
 
   private static Message UserMsg(string text) => new(Role.User, text, DateTimeOffset.UtcNow);
 
-  private static HttpResponseMessage Ok() => new(HttpStatusCode.OK)
-  {
-    Content = new StringContent(
-        /*lang=json,strict*/
-        """{"choices":[{"message":{"content":"ok"}}]}""", Encoding.UTF8, "application/json")
-  };
-
   private static async Task<string> CaptureBodyAsync(ModelConfig config, ModelRequest? request = null)
   {
     string? capturedBody = null;
@@ -47,7 +55,7 @@ public class OpenRouterModelProviderRequestTests
     {
       Assert.NotNull(req.Content);
       capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
-      return Ok();
+      return Wire.Ok();
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
@@ -139,7 +147,45 @@ public class OpenRouterModelProviderRequestTests
   }
 
   [Fact]
-  public async Task Body_ServerToolsAppendOpenRouterEntries()
+  public async Task Body_AllElevenServerTools_LeadTheToolsArrayInDeclaredOrder()
+  {
+    OpenRouterRequestSettings settings = new()
+    {
+      ServerTools = new ServerTools(
+        WebSearch: true, WebFetch: true, Datetime: true, ImageGeneration: true, Shell: true,
+        ApplyPatch: true, Fusion: true, Advisor: true, Subagent: true, SearchModels: true,
+        ToolSearch: true)
+    };
+    List<ToolDefinition> tools =
+      [
+        new("demo_tool", "desc",
+        [
+          new ToolParameter("options", ToolParameterType.Text, "opts"),
+        ]),
+      ];
+    string body = await CaptureBodyAsync(
+        WithSettings(settings), new ModelRequest([UserMsg("hi")], tools)).ConfigureAwait(true);
+
+    using JsonDocument doc = JsonDocument.Parse(body);
+    JsonElement toolsElement = doc.RootElement.GetProperty("tools");
+    Assert.Equal(12, toolsElement.GetArrayLength());
+    for (int i = 0; i < ServerToolWireTypesInOrder.Length; i++)
+    {
+      JsonElement entry = toolsElement[i];
+      Assert.Equal(ServerToolWireTypesInOrder[i], entry.GetProperty("type").GetString());
+      _ = Assert.Single(entry.EnumerateObject()); // v1: the type member is the whole entry
+    }
+
+    // The user-defined tool follows, in the Responses API's FLAT function shape.
+    JsonElement functionTool = toolsElement[11];
+    Assert.Equal("function", functionTool.GetProperty("type").GetString());
+    Assert.Equal("demo_tool", functionTool.GetProperty("name").GetString());
+    // openrouter:bash does not exist on the responses API — never serialized.
+    Assert.DoesNotContain("openrouter:bash", body, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Body_ServerToolsPrecedeUserDefinedTools()
   {
     OpenRouterRequestSettings settings = new()
     {
@@ -161,8 +207,7 @@ public class OpenRouterModelProviderRequestTests
     Assert.Equal("openrouter:web_search", toolsElement[0].GetProperty("type").GetString());
     Assert.Equal("openrouter:datetime", toolsElement[1].GetProperty("type").GetString());
     Assert.Equal("openrouter:experimental__search_models", toolsElement[2].GetProperty("type").GetString());
-    _ = Assert.Single(toolsElement[0].EnumerateObject());
-    Assert.Equal("demo_tool", toolsElement[3].GetProperty("function").GetProperty("name").GetString());
+    Assert.Equal("demo_tool", toolsElement[3].GetProperty("name").GetString());
   }
 
   [Fact]
@@ -184,18 +229,56 @@ public class OpenRouterModelProviderRequestTests
       Assert.False(doc.RootElement.TryGetProperty("max_tool_calls", out _));
       Assert.False(doc.RootElement.TryGetProperty("stop_server_tools_when", out _));
     }
+  }
 
-    string withStop = await CaptureBodyAsync(WithSettings(
-        new OpenRouterRequestSettings
-        {
-          ServerTools = new ServerTools(StopServerToolsWhen: ["number_of_tool_calls"])
-        })).ConfigureAwait(true);
-    using (JsonDocument doc = JsonDocument.Parse(withStop))
+  [Fact]
+  public async Task Body_StopConditions_SerializeAsDiscriminatedUnionObjects()
+  {
+    OpenRouterRequestSettings settings = new()
     {
-      JsonElement stop = doc.RootElement.GetProperty("stop_server_tools_when");
-      Assert.Equal(1, stop.GetArrayLength());
-      Assert.Equal("number_of_tool_calls", stop[0].GetString());
-    }
+      ServerTools = new ServerTools(WebSearch: true, StopServerToolsWhen:
+      [
+        ServerToolStopCondition.Create(ServerToolStopCondition.StepCountIs, 3).Value!,
+        ServerToolStopCondition.Create(ServerToolStopCondition.HasToolCall, "web_search").Value!,
+        ServerToolStopCondition.Create(ServerToolStopCondition.MaxTokensUsed, 1000).Value!,
+        ServerToolStopCondition.Create(ServerToolStopCondition.MaxCost, 0.25m).Value!,
+        ServerToolStopCondition.Create(ServerToolStopCondition.FinishReasonIs, "stop").Value!,
+      ])
+    };
+    string body = await CaptureBodyAsync(WithSettings(settings)).ConfigureAwait(true);
+
+    using JsonDocument doc = JsonDocument.Parse(body);
+    JsonElement stop = doc.RootElement.GetProperty("stop_server_tools_when");
+    Assert.Equal(5, stop.GetArrayLength());
+    Assert.Equal(/*lang=json,strict*/ """{"type":"step_count_is","step_count":3}""", stop[0].GetRawText());
+    Assert.Equal(/*lang=json,strict*/ """{"type":"has_tool_call","tool_name":"web_search"}""", stop[1].GetRawText());
+    Assert.Equal(/*lang=json,strict*/ """{"type":"max_tokens_used","max_tokens":1000}""", stop[2].GetRawText());
+    Assert.Equal(/*lang=json,strict*/ """{"type":"max_cost","max_cost_in_dollars":0.25}""", stop[3].GetRawText());
+    Assert.Equal(/*lang=json,strict*/ """{"type":"finish_reason_is","reason":"stop"}""", stop[4].GetRawText());
+  }
+
+  [Fact]
+  public async Task Send_MalformedStopCondition_FailsBeforeAnyHttpSend()
+  {
+    // A condition whose own field is empty parses from persisted JSON (the wire
+    // parser only demands a string) but fails the provider's send-boundary
+    // validation — a named InvalidProviderSettings failure, never a request to
+    // the provider and never a silently dropped filter.
+    const string settingsJson = /*lang=json,strict*/
+        """{"server_tools":{"stop_server_tools_when":[{"type":"has_tool_call","tool_name":""}]}}""";
+    ModelConfig config = ModelConfig.Create(
+        "openai/gpt-5", null, 64, 0.7f, 4096, providerSettings: settingsJson).Value!;
+    FakeHttpMessageHandler handler = new(_ => throw new InvalidOperationException(
+        "the turn must fail before any HTTP send, not here"));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendAsync(
+        config, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("InvalidProviderSettings", result.Error.Code);
+    Assert.Contains("Malformed OpenRouter provider settings", result.Error.Message, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -224,6 +307,30 @@ public class OpenRouterModelProviderRequestTests
         ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096).Value!).ConfigureAwait(true);
 
     Assert.Equal(withoutSettings, withDefaults);
+  }
+
+  [Fact]
+  public async Task Streaming_Body_CarriesStreamAndNoStreamOptions()
+  {
+    string? capturedBody = null;
+    FakeHttpMessageHandler handler = new(async req =>
+    {
+      Assert.NotNull(req.Content);
+      capturedBody = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
+      return Wire.Ok();
+    });
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    _ = await provider.SendStreamingAsync(
+        ModelConfig.Create("openai/gpt-5", null, 64, 0.7f, 4096).Value!,
+        new ModelRequest([UserMsg("hi")]), ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.NotNull(capturedBody);
+    Assert.Contains("\"stream\":true", capturedBody, StringComparison.Ordinal);
+    // stream_options is a chat-completions key; the responses API has no such flag —
+    // usage rides the terminal response event instead.
+    Assert.DoesNotContain("stream_options", capturedBody, StringComparison.Ordinal);
   }
 
   // Corrupt ProviderSettings is an expected environmental failure: it flows through

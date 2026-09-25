@@ -1,4 +1,3 @@
-using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
@@ -13,9 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 [Collection("Desktop E2E")]
 public class SessionResumeE2ETests
 {
-  private static string RawCompletion(string content) =>
-      JsonSerializer.Serialize(
-          new { choices = new[] { new { message = new { content } } } });
+  private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
   [Fact]
   public async Task Resume_Replays_Transcript_And_Carries_History_Into_Next_Turn()

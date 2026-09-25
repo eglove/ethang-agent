@@ -46,19 +46,48 @@ public sealed class ComputerUseWireE2ETests
       app_ref = new { name = "fake" },
     });
     _ = harness.Mock.Returns(E2E.ToolCall("c1", "computer", observeArgs));
-    _ = harness.Mock.Returns(/*lang=json,strict*/ "{\"choices\":[{\"message\":{\"content\":\"seen the screenshot\"}}]}");
+    _ = harness.Mock.Returns(E2E.RawCompletion("seen the screenshot"));
 
     await E2E.RunTurnAsync(harness.Vm, "look at the screen").ConfigureAwait(true);
     await E2E.RunTurnAsync(harness.Vm, "and again").ConfigureAwait(true);
 
     IReadOnlyList<string> bodies = harness.Mock.RequestBodies;
+    // The screenshot rides as an input_image part inside the function_call_output item
+    // whose call_id matches the computer tool call that produced it.
     bool imageOnWire = false;
     foreach (string body in bodies)
     {
       using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(body);
-      if (doc.RootElement.GetRawText().Contains("data:image/png;base64,", StringComparison.Ordinal))
+      if (!doc.RootElement.TryGetProperty("input", out System.Text.Json.JsonElement input)
+          || input.ValueKind != System.Text.Json.JsonValueKind.Array)
       {
-        imageOnWire = true;
+        continue;
+      }
+
+      foreach (System.Text.Json.JsonElement item in input.EnumerateArray())
+      {
+        if (item.ValueKind != System.Text.Json.JsonValueKind.Object
+            || !item.TryGetProperty("type", out System.Text.Json.JsonElement type)
+            || type.GetString() != "function_call_output"
+            || !item.TryGetProperty("call_id", out System.Text.Json.JsonElement callId)
+            || callId.GetString() != "c1"
+            || !item.TryGetProperty("output", out System.Text.Json.JsonElement output)
+            || output.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+          continue;
+        }
+
+        foreach (System.Text.Json.JsonElement part in output.EnumerateArray())
+        {
+          if (part.TryGetProperty("type", out System.Text.Json.JsonElement partType)
+              && partType.GetString() == "input_image"
+              && part.TryGetProperty("image_url", out System.Text.Json.JsonElement url)
+              && url.GetString() is { } imageUrl
+              && imageUrl.StartsWith("data:image/png;base64,", StringComparison.Ordinal))
+          {
+            imageOnWire = true;
+          }
+        }
       }
     }
     Assert.True(imageOnWire, "the provider request must carry the screenshot image part");
@@ -81,7 +110,7 @@ public sealed class ComputerUseWireE2ETests
       app_ref = new { name = "fake" },
     });
     _ = harness.Mock.Returns(E2E.ToolCall("c1", "computer", observeArgs));
-    _ = harness.Mock.Returns(/*lang=json,strict*/ "{\"choices\":[{\"message\":{\"content\":\"seen\"}}]}");
+    _ = harness.Mock.Returns(E2E.RawCompletion("seen"));
     await E2E.RunTurnAsync(harness.Vm, "look").ConfigureAwait(true);
 
     ConversationDomain.Conversation conversation =

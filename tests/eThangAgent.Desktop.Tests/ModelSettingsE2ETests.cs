@@ -22,8 +22,7 @@ namespace eThangAgent.Desktop.Tests;
 [Collection("Desktop E2E")]
 public class ModelSettingsE2ETests
 {
-  private static string RawCompletion(string content) =>
-      JsonSerializer.Serialize(new { choices = new[] { new { message = new { content } } } });
+  private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
   [Fact]
   public async Task SavedSettings_RestoreAndReachTheWire()
@@ -65,7 +64,7 @@ public class ModelSettingsE2ETests
 
       // Configured sampling knobs present under their wire keys.
       Assert.Equal(1.25f, root.GetProperty("temperature").GetSingle());
-      Assert.Equal(999, root.GetProperty("max_tokens").GetInt32());
+      Assert.Equal(999, root.GetProperty("max_output_tokens").GetInt32());
       Assert.Equal(7, root.GetProperty("top_k").GetInt32());
       Assert.Equal(42, root.GetProperty("seed").GetInt32());
 

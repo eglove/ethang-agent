@@ -35,8 +35,8 @@ public class HungRemoteChildE2ETests
     return ChildHostExeLocator.ResolveFromRepoRoot(repo);
   }
 
-  /// <summary>A one-request provider mock: the FIRST chat request is answered with a
-  ///     completion (the child's first turn completes); every later chat request is
+  /// <summary>A one-request provider mock: the FIRST responses request is answered with a
+  ///     canned response (the child's first turn completes); every later request is
   ///     accepted and NEVER answered — the hang. The models endpoint must answer or
   ///     the host's spawn fails on an unknown context window before any call.</summary>
   private sealed class HangAfterFirstRequestServer : IDisposable
@@ -93,14 +93,14 @@ public class HungRemoteChildE2ETests
         return;
       }
 
-      if (ctx.Request.Url.AbsolutePath == "/api/v1/chat/completions")
+      if (ctx.Request.Url.AbsolutePath == "/api/v1/responses")
       {
         using StreamReader reader = new(ctx.Request.InputStream);
         _ = await reader.ReadToEndAsync(_cts.Token).ConfigureAwait(false);
         int answered = Interlocked.Increment(ref _answeredRequests);
         if (answered == 1)
         {
-          string body = /*lang=json,strict*/ "{ \"choices\": [ { \"message\": { \"content\": null, \"tool_calls\": [ { \"id\": \"call_1\", \"type\": \"function\", \"function\": { \"name\": \"web_fetch\", \"arguments\": \"{\\\"url\\\":\\\"http://example.test/\\\"}\" } } ] } } ] }";
+          string body = /*lang=json,strict*/ "{ \"output\": [ { \"type\": \"function_call\", \"call_id\": \"call_1\", \"name\": \"web_fetch\", \"arguments\": \"{\\\"url\\\":\\\"http://example.test/\\\"}\" } ], \"status\": \"completed\" }";
           await WriteAsync(ctx, 200, "application/json", body).ConfigureAwait(false);
           return;
         }

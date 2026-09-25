@@ -23,15 +23,17 @@ public class RetryTests
   {
     internal int _calls;
     public List<TimeSpan> Delays { get; } = [];
+    public List<Uri> RequestUris { get; } = [];
     public Func<int, HttpResponseMessage> Respond { get; set; } =
         _ => new HttpResponseMessage(HttpStatusCode.OK);
     public Func<int, Task<HttpResponseMessage>>? RespondAsync { get; set; }
 
     public HttpClient Client()
     {
-      FakeHttpMessageHandler handler = new(_ =>
+      FakeHttpMessageHandler handler = new(req =>
       {
         _calls++;
+        RequestUris.Add(req.RequestUri!);
         return RespondAsync is not null ? RespondAsync(_calls) : Task.FromResult(Respond(_calls));
       });
       HttpClient client = new(handler);
@@ -50,7 +52,10 @@ public class RetryTests
 
   private static HttpResponseMessage Status(HttpStatusCode code, TimeSpan? retryAfter = null)
   {
-    HttpResponseMessage response = new(code);
+    HttpResponseMessage response = new(code)
+    {
+      Content = new StringContent(""),
+    };
     if (retryAfter is { } ra)
     {
       response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(ra);
@@ -60,13 +65,20 @@ public class RetryTests
   }
 
   private static HttpResponseMessage JsonOk() =>
-      new(HttpStatusCode.OK)
-      {
-        Content = new StringContent(
-                                   /*lang=json,strict*/
-                                   """{"choices":[{"message":{"content":"ok"}}]}""",
-              System.Text.Encoding.UTF8, "application/json")
-      };
+      Wire.Json(HttpStatusCode.OK, Wire.OkBody);
+
+  // Every attempt hits the Responses API endpoint.
+  [Fact]
+  public async Task EveryAttempt_PostsToTheResponsesEndpoint()
+  {
+    Recorder rec = new() { Respond = call => call == 1 ? Status(HttpStatusCode.InternalServerError) : JsonOk() };
+    OpenRouterModelProvider provider = Provider(Config(), rec);
+
+    _ = await provider.SendAsync(Model, new ModelRequest([UserMsg("hi")]), TestContext.Current.CancellationToken);
+
+    Assert.Equal(2, rec.RequestUris.Count);
+    Assert.All(rec.RequestUris, uri => Assert.Equal("https://openrouter.test/api/v1/responses", uri.ToString()));
+  }
 
   // ---- non-streaming ----
 
@@ -189,7 +201,9 @@ public class RetryTests
     {
       RespondAsync = call => Task.FromResult(call == 1
           ? Status(HttpStatusCode.InternalServerError)
-          : SseOk("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")),
+          : SseOk("data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n" +
+                  "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n" +
+                  "data: [DONE]\n\n")),
     };
     OpenRouterModelProvider provider = Provider(Config(), rec);
     List<string> deltas = [];
@@ -229,7 +243,7 @@ public class RetryTests
   private static HttpResponseMessage SseThenThrow()
   {
     StreamContent content = new(new DyingSseStream(System.Text.Encoding.UTF8.GetBytes(
-        "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n")));
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n")));
     content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/event-stream");
     return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
   }

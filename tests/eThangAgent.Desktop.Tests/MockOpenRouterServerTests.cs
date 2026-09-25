@@ -20,11 +20,11 @@ public class MockOpenRouterServerTests
     _ = mock.Returns(ExecToolCall("call_1", Program(
         "agent.status @{ id = '{{child_id}}' }; agent.result @{ id = '{{child_id}}' }")));
 
-    // Two tool messages: the most recent one wins; both gutter forms are recognized.
+    // Two tool results: the most recent one wins; both gutter forms are recognized.
     string requestBody = ChatRequest(
         Message("system", "sys"),
-        Message("tool", $"id={OlderId} status=running"),
-        Message("tool", $"[agent] id={NewestId} status=completed"));
+        ToolOutput($"id={OlderId} status=running"),
+        ToolOutput($"[agent] id={NewestId} status=completed"));
 
     string served = await PostChatAsync(mock, requestBody);
 
@@ -55,26 +55,21 @@ public class MockOpenRouterServerTests
   private static string ExecToolCall(string id, string arguments) =>
       System.Text.Json.JsonSerializer.Serialize(new
       {
-        choices = new[]
-          {
-                new
-                {
-                    message = new
-                    {
-                        content = (string?)null,
-                        tool_calls = new[]
-                        {
-                            new { id, type = "function", function = new { name = "exec", arguments } }
-                        }
-                    }
-                }
-          }
+        output = new object[]
+        {
+          new { type = "function_call", call_id = id, name = "exec", arguments },
+        },
+        status = "completed",
       });
 
-  private static string ChatRequest(params object[] messages) =>
-      System.Text.Json.JsonSerializer.Serialize(new { model = "openrouter/auto", messages });
+  private static string ChatRequest(params object[] input) =>
+      System.Text.Json.JsonSerializer.Serialize(new { model = "openrouter/auto", input });
 
-  private static object Message(string role, string content) => new { role, content };
+  private static object Message(string role, string content) =>
+      new { type = "message", role, content = new[] { new { type = "input_text", text = content } } };
+
+  private static object ToolOutput(string content) =>
+      new { type = "function_call_output", call_id = "call_x", output = content };
 
   private static async Task<string> PostChatAsync(MockOpenRouterServer mock, string body)
   {
@@ -87,7 +82,7 @@ public class MockOpenRouterServerTests
   {
     using HttpClient client = new();
     using StringContent content = new(body, Encoding.UTF8, "application/json");
-    return await client.PostAsync(new Uri(mock.BaseUrl, "api/v1/chat/completions"), content)
+    return await client.PostAsync(new Uri(mock.BaseUrl, "api/v1/responses"), content)
         .ConfigureAwait(false);
   }
 }

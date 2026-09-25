@@ -121,10 +121,10 @@ internal sealed class RoutingSection
   private static string JoinList(string[]? values) => values is null ? string.Empty : string.Join(", ", values);
 }
 
-/// <summary>The twelve OpenRouter server-tool toggles plus the server-tool
-///     budget fields (max calls as text; stop conditions comma-separated),
-///     projected onto the ACL's typed <see cref="ServerTools"/> record at save
-///     time.</summary>
+/// <summary>The eleven OpenRouter server-tool toggles available on the responses
+///     API plus the server-tool budget fields (max calls as text; stop conditions
+///     in the strict <c>type=value</c> text form), projected onto the ACL's typed
+///     <see cref="ServerTools"/> record at save time.</summary>
 internal sealed class ServerToolsSection
 {
   public bool WebSearch { get; set; }
@@ -133,7 +133,6 @@ internal sealed class ServerToolsSection
   public bool ImageGeneration { get; set; }
   public bool Shell { get; set; }
   public bool ApplyPatch { get; set; }
-  public bool Bash { get; set; }
   public bool Fusion { get; set; }
   public bool Advisor { get; set; }
   public bool Subagent { get; set; }
@@ -149,27 +148,114 @@ internal sealed class ServerToolsSection
       ImageGeneration: ImageGeneration,
       Shell: Shell,
       ApplyPatch: ApplyPatch,
-      Bash: Bash,
       Fusion: Fusion,
       Advisor: Advisor,
       Subagent: Subagent,
       SearchModels: SearchModels,
       ToolSearch: ToolSearch,
       MaxToolCalls: ParseIntOrNull(MaxToolCallsText),
-      StopServerToolsWhen: SplitList(StopServerToolsWhenText));
+      StopServerToolsWhen: ParseStopConditions(StopServerToolsWhenText));
 
-  private static string[]? SplitList(string text)
+  /// <summary>Strict stop-condition text: comma-separated <c>type=value</c> pairs in
+  ///     the ACL's five condition types. Unknown types, missing values, or
+  ///     non-numeric values throw FormatException — the save validates first
+  ///     (ValidateBudgetTexts) and blocks, so a throw here is programmer error.</summary>
+  private static ServerToolStopCondition[]? ParseStopConditions(string text)
   {
     string trimmed = text.Trim();
-    return trimmed.Length == 0
-        ? null
-        : [.. trimmed.Split(',').Select(entry => entry.Trim()).Where(entry => entry.Length > 0)];
+    if (trimmed.Length == 0)
+    {
+      return null;
+    }
+
+    List<ServerToolStopCondition> conditions = [];
+    foreach (string entry in trimmed.Split(',').Select(part => part.Trim()).Where(part => part.Length > 0))
+    {
+      Result<ServerToolStopCondition> created = CreateCondition(entry);
+      if (created.Error is { } error)
+      {
+        throw new FormatException(error.Message);
+      }
+
+      conditions.Add(created.Value!);
+    }
+
+    return [.. conditions];
   }
+
+  /// <summary>Parses one <c>type=value</c> entry. FormatException texts are user
+  ///     facing — surfaced by ValidateBudgetTexts before a save can apply.</summary>
+  private static Result<ServerToolStopCondition> CreateCondition(string entry)
+  {
+    string[] pieces = entry.Split('=', 2);
+    string type = pieces[0].Trim();
+    string? valueText = pieces.Length > 1 ? pieces[1].Trim() : null;
+    object? value = type switch
+    {
+      ServerToolStopCondition.HasToolCall => RequireText(type, valueText),
+      ServerToolStopCondition.FinishReasonIs => RequireText(type, valueText),
+      ServerToolStopCondition.MaxCost => ParseDecimal(type, valueText),
+      _ => ParseInt(type, valueText),
+    };
+    return ServerToolStopCondition.Create(type, value);
+  }
+
+  private static string RequireText(string type, string? text) => string.IsNullOrEmpty(text)
+      ? throw new FormatException($"Stop condition '{type}' requires a value.")
+      : text;
+
+  private static int ParseInt(string type, string? text)
+      => int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
+          ? value
+          : throw new FormatException($"Stop condition '{type}' requires a whole number.");
+
+  private static decimal ParseDecimal(string type, string? text)
+      => decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal value)
+          ? value
+          : throw new FormatException($"Stop condition '{type}' requires a number.");
 
   private static int? ParseIntOrNull(string text)
   {
     string trimmed = text.Trim();
     return trimmed.Length == 0 ? null : int.Parse(trimmed, CultureInfo.InvariantCulture);
+  }
+
+  /// <summary>Validates the budget text fields without building the record: the max
+  ///     calls field must be blank or a whole number; the stop conditions must parse
+  ///     strictly. Returns the first fault message, or null.</summary>
+  internal static string? ValidateBudgetTexts(string maxToolCallsText, string stopServerToolsWhenText)
+  {
+    string trimmedCalls = maxToolCallsText.Trim();
+    if (trimmedCalls.Length > 0 && !int.TryParse(trimmedCalls, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+    {
+      return "Max server-tool calls must be a whole number.";
+    }
+
+    string trimmedConditions = stopServerToolsWhenText.Trim();
+    if (trimmedConditions.Length == 0)
+    {
+      return null;
+    }
+
+    foreach (string entry in trimmedConditions.Split(',').Select(part => part.Trim()).Where(part => part.Length > 0))
+    {
+      Result<ServerToolStopCondition> created;
+      try
+      {
+        created = CreateCondition(entry);
+      }
+      catch (FormatException ex)
+      {
+        return ex.Message;
+      }
+
+      if (created.Error is { } error)
+      {
+        return error.Message;
+      }
+    }
+
+    return null;
   }
 
   internal static ServerToolsSection From(ServerTools tools) => new()
@@ -180,14 +266,26 @@ internal sealed class ServerToolsSection
     ImageGeneration = tools.ImageGeneration,
     Shell = tools.Shell,
     ApplyPatch = tools.ApplyPatch,
-    Bash = tools.Bash,
     Fusion = tools.Fusion,
     Advisor = tools.Advisor,
     Subagent = tools.Subagent,
     SearchModels = tools.SearchModels,
     ToolSearch = tools.ToolSearch,
     MaxToolCallsText = tools.MaxToolCalls?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
-    StopServerToolsWhenText = tools.StopServerToolsWhen is null ? string.Empty : string.Join(", ", tools.StopServerToolsWhen),
+    StopServerToolsWhenText = tools.StopServerToolsWhen is null
+        ? string.Empty
+        : string.Join(", ", tools.StopServerToolsWhen.Select(ConditionText)),
+  };
+
+  /// <summary>One condition rendered back to the strict <c>type=value</c> text form.</summary>
+  private static string ConditionText(ServerToolStopCondition condition) => condition.Type switch
+  {
+    ServerToolStopCondition.StepCountIs => $"{condition.Type}={condition.StepCount}",
+    ServerToolStopCondition.HasToolCall => $"{condition.Type}={condition.ToolName}",
+    ServerToolStopCondition.MaxTokensUsed => $"{condition.Type}={condition.MaxTokens}",
+    ServerToolStopCondition.MaxCost => $"{condition.Type}={condition.MaxCostInDollars}",
+    ServerToolStopCondition.FinishReasonIs => $"{condition.Type}={condition.FinishReason}",
+    _ => condition.Type,
   };
 }
 
@@ -484,7 +582,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       new ToolToggleRow("Image generation", ServerTools.ImageGeneration, value => ServerTools.ImageGeneration = value),
       new ToolToggleRow("Shell", ServerTools.Shell, value => ServerTools.Shell = value),
       new ToolToggleRow("Apply patch", ServerTools.ApplyPatch, value => ServerTools.ApplyPatch = value),
-      new ToolToggleRow("Bash", ServerTools.Bash, value => ServerTools.Bash = value),
       new ToolToggleRow("Fusion retrieval", ServerTools.Fusion, value => ServerTools.Fusion = value),
       new ToolToggleRow("Advisor", ServerTools.Advisor, value => ServerTools.Advisor = value),
       new ToolToggleRow("Sub-agent", ServerTools.Subagent, value => ServerTools.Subagent = value),
@@ -529,10 +626,12 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
 #pragma warning restore CA1031
   }
 
-  /// <summary>The first validation problem across all knobs, or null when clean.
-  ///     Computed on demand: the window shows it after a blocked save, and the
-  ///     Save command requeries availability on every knob text edit.</summary>
-  public string? ValidationError => ValidateKnobs();
+  /// <summary>The first validation problem across all knobs and the OpenRouter
+  ///     budget fields, or null when clean. Computed on demand: the window shows
+  ///     it after a blocked save, and the Save command requeries availability on
+  ///     every knob text edit.</summary>
+  public string? ValidationError => ValidateKnobs()
+      ?? ServerToolsSection.ValidateBudgetTexts(ServerTools.MaxToolCallsText, ServerTools.StopServerToolsWhenText);
 
   /// <summary>Save is only actionable when every populated knob validates.</summary>
   public bool CanSave => ValidationError is null;

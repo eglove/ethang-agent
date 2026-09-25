@@ -280,6 +280,54 @@ public class ModelSettingsViewModelTests
   private const string KnobVerbosityKey = "\"verbosity\"";
   private const string ShellRoot = @"C:\work\model-settings-roundtrip";
 
+  // ---- The server-tool budget texts validate strictly, without building the record ----
+
+  [Fact]
+  public void ValidateBudgetTexts_MaxTokensUsedCondition_IsAccepted()
+  {
+    string? fault = ServerToolsSection.ValidateBudgetTexts(string.Empty, "max_tokens_used=100");
+
+    Assert.Null(fault);
+  }
+
+  [Fact]
+  public void ValidateBudgetTexts_UnknownConditionType_IsRejected()
+  {
+    string? fault = ServerToolsSection.ValidateBudgetTexts(string.Empty, "badtype=1");
+
+    Assert.NotNull(fault);
+  }
+
+  // KNOWN PRODUCTION DEFECT (src, not fixable from the test suite): the validator's
+  // contract says it returns the first fault message — but a condition entry carrying
+  // no value ("max_tokens_used=") throws FormatException out of ValidateBudgetTexts
+  // instead, because CreateCondition's RequireText/ParseInt helpers throw and the
+  // validator never catches. The ValidationError getter calls this directly, so a user
+  [Fact]
+  public void ValidateBudgetTexts_ConditionWithoutValue_IsNamedAsTheFault()
+  {
+    string? fault = ServerToolsSection.ValidateBudgetTexts(string.Empty, "max_tokens_used=");
+
+    Assert.NotNull(fault);
+    Assert.Contains("max_tokens_used", fault, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void ValidateBudgetTexts_NonNumericMaxCallsText_IsRejected()
+  {
+    string? fault = ServerToolsSection.ValidateBudgetTexts("abc", string.Empty);
+
+    Assert.NotNull(fault);
+  }
+
+  [Fact]
+  public void ValidateBudgetTexts_BlankTexts_AreAccepted()
+  {
+    string? fault = ServerToolsSection.ValidateBudgetTexts("   ", string.Empty);
+
+    Assert.Null(fault);
+  }
+
   private static MainViewModel CreateSettingsShell(IAppPreferenceStore preferences, SessionModelPreferences sessionPreferences)
       => new((root, provider) => Task.FromResult(Result.Success(BuildSession(root, provider, sessionPreferences))),
           new MainViewModelOptions { Preferences = preferences });

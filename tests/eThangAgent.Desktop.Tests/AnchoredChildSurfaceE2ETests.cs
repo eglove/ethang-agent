@@ -10,9 +10,7 @@ namespace eThangAgent.Desktop.Tests;
 [Collection("Desktop E2E")]
 public class AnchoredChildSurfaceE2ETests
 {
-  private static string RawCompletion(string content) =>
-      System.Text.Json.JsonSerializer.Serialize(
-          new { choices = new[] { new { message = new { content } } } });
+  private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
   [Fact]
   public async Task AnchoredChild_ExecSurfaceResolvesAtAnchor_AndRefusesEscape()

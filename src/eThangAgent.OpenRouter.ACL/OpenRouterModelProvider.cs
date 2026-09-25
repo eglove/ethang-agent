@@ -1,10 +1,10 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using eThangAgent.ModelDomain;
 using eThangAgent.Provider.Wire;
 using eThangAgent.SharedKernel;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.OpenRouter.ACL;
 
@@ -13,8 +13,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     Func<double>? jitter = null) : IModelProvider
 {
   private const string ProviderError = "ProviderError";
-  private const string ToolCalls = "tool_calls";
-  private const string Function = "function";
+  private const int MaxErrorBodyCharacters = 512;
   private static readonly Routing EmptyRouting = new();
 
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
@@ -71,7 +70,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       using HttpRequestMessage httpRequest = created.Value;
       using HttpResponseMessage response = await _http.SendAsync(httpRequest, ct).ConfigureAwait(false);
       return !response.IsSuccessStatusCode
-        ? StatusOutcome((int)response.StatusCode, response.Headers.RetryAfter?.Delta)
+        ? await StatusOutcomeAsync(response, ct).ConfigureAwait(false)
         : AttemptOutcome.Final(await ReadJsonBodyAsync(response, ct).ConfigureAwait(false));
     }
     catch (OperationCanceledException)
@@ -148,7 +147,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       using HttpResponseMessage response = await _http.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
       if (!response.IsSuccessStatusCode)
       {
-        return StatusOutcome((int)response.StatusCode, response.Headers.RetryAfter?.Delta);
+        return await StatusOutcomeAsync(response, ct).ConfigureAwait(false);
       }
 
       string? contentType = response.Content.Headers.ContentType?.MediaType;
@@ -179,16 +178,25 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     Dictionary<string, object?> bodyDict = new()
     {
       ["model"] = config.ModelId,
-      ["messages"] = OpenAiCompatRequestCore.BuildMessages(request),
-      ["max_tokens"] = config.MaxTokens,
+      ["input"] = ResponsesApiRequestCore.BuildInput(request),
+      // max_output_tokens is the responses API's generation cap; chat-completions'
+      // max_tokens is not a valid key on this surface.
+      ["max_output_tokens"] = config.MaxTokens,
       ["temperature"] = config.Temperature,
     };
+    if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
+    {
+      // The responses API's system channel: a single top-level instruction string
+      // instead of a system-role message in the array.
+      bodyDict["instructions"] = request.SystemPrompt;
+    }
+
     ApplySamplingKnobs(bodyDict, config);
     if (stream)
     {
+      // Usage rides the terminal response event on this surface; there is no
+      // stream_options include_usage flag (that key is chat-completions-only).
       bodyDict["stream"] = true;
-      // Ask the wire to send the final usage frame: accounting needs token counts.
-      bodyDict["stream_options"] = new { include_usage = true };
     }
 
     // The OR-side request settings (routing, server-side tools, plugins, budgets)
@@ -222,6 +230,12 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
 
     if (settings?.ServerTools.StopServerToolsWhen is { } stopWhen)
     {
+      if (ValidateStopConditions(stopWhen) is { } fault)
+      {
+        return Result.Failure<HttpRequestMessage>(new DomainError("InvalidProviderSettings",
+            $"Malformed OpenRouter provider settings: {fault}"));
+      }
+
       bodyDict["stop_server_tools_when"] = stopWhen;
     }
 
@@ -233,7 +247,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
 
     // The server-tool entries are computed ONCE; enablement (the tools key existing
-    // at all) derives from the entries themselves, so adding a thirteenth tool can
+    // at all) derives from the entries themselves, so adding a twelfth tool can
     // never desync the enablement check from the entries actually emitted.
     List<object> serverToolEntries = [];
     if (settings is not null)
@@ -246,7 +260,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       List<object> tools = serverToolEntries;
       if (request.Tools is { Count: > 0 })
       {
-        tools.AddRange(request.Tools.Select(TranslateTool));
+        tools.AddRange(request.Tools.Select(ResponsesApiRequestCore.TranslateTool));
       }
 
       bodyDict["tools"] = tools.ToArray();
@@ -273,13 +287,31 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     // Ownership of the request transfers through the Result to the send path, whose
     // using disposes it; CA2000 cannot see the transfer, hence the scoped deviation.
 #pragma warning disable CA2000 // Ownership transfers to the caller, which disposes it.
-    HttpRequestMessage httpRequest = new(HttpMethod.Post, _config.Endpoint("/api/v1/chat/completions"))
+    HttpRequestMessage httpRequest = new(HttpMethod.Post, _config.Endpoint("/api/v1/responses"))
     {
       Content = JsonContent.Create(bodyDict)
     };
 #pragma warning restore CA2000
     httpRequest.Headers.Add("Authorization", $"Bearer {_config.ApiKey}");
     return Result.Success(httpRequest);
+  }
+
+  /// <summary>Strict stop-condition validation at the send boundary: every condition
+  ///     must be one of the five known types carrying its own field. Returns the fault
+  ///     message for the first malformed condition, or null when all are valid — a
+  ///     malformed condition is a named InvalidProviderSettings failure, never a
+  ///     silently dropped filter, never a 400 from the provider.</summary>
+  private static string? ValidateStopConditions(IReadOnlyList<ServerToolStopCondition> conditions)
+  {
+    foreach (ServerToolStopCondition condition in conditions)
+    {
+      if (condition.DescribeFault() is { } fault)
+      {
+        return fault;
+      }
+    }
+
+    return null;
   }
 
   /// <summary>Emits each set sampling knob under its OpenRouter wire key; null knobs
@@ -444,7 +476,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     AddIf(tools.ImageGeneration, "openrouter:image_generation");
     AddIf(tools.Shell, "openrouter:shell");
     AddIf(tools.ApplyPatch, "openrouter:apply_patch");
-    AddIf(tools.Bash, "openrouter:bash");
     AddIf(tools.Fusion, "openrouter:fusion");
     AddIf(tools.Advisor, "openrouter:advisor");
     AddIf(tools.Subagent, "openrouter:subagent");
@@ -453,22 +484,44 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     return [.. entries];
   }
 
-  /// <summary>Maps an HTTP status to its error result plus retry classification: 408, 429,
-  ///     and any 5xx are transient; everything else is permanent and fails immediately.</summary>
-  private static AttemptOutcome StatusOutcome(int statusCode, TimeSpan? retryAfter)
+  /// <summary>Maps an HTTP status to its error result plus retry classification: 408,
+  ///     429, and any 5xx are transient; everything else is permanent and fails
+  ///     immediately. The response body — OpenRouter's JSON error naming the actual
+  ///     fault — is read (capped) and included in the message: an error is
+  ///     information for whoever can act on it, never a bare status code.</summary>
+  private static async Task<AttemptOutcome> StatusOutcomeAsync(HttpResponseMessage response, CancellationToken ct)
   {
-    Result<ModelResponse> failure = statusCode switch
+    string? detail = null;
+    try
+    {
+      string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+      if (body.Length > 0)
+      {
+        detail = body.Length <= MaxErrorBodyCharacters ? body : body[..MaxErrorBodyCharacters] + "…";
+      }
+    }
+    catch (Exception ex) when (ex is OperationCanceledException or IOException or InvalidOperationException
+        or NotSupportedException or ObjectDisposedException)
+    {
+      // Best effort: a body that cannot be read (disposed stream, cancelled read)
+      // leaves the message at the bare status — never replaces the failure.
+    }
+
+    Result<ModelResponse> failure = (int)response.StatusCode switch
     {
       429 => Result.Failure<ModelResponse>(new DomainError("RateLimited",
           "OpenRouter rate limit exceeded.")),
       408 => Result.Failure<ModelResponse>(new DomainError("ProviderTimeout",
           "Request timed out.")),
       _ => Result.Failure<ModelResponse>(new DomainError(ProviderError,
-          $"OpenRouter returned HTTP {statusCode}."))
+          detail is null
+              ? $"OpenRouter returned HTTP {(int)response.StatusCode}."
+              : $"OpenRouter returned HTTP {(int)response.StatusCode}: {detail}")),
     };
     return new AttemptOutcome(failure,
-        Retryable: statusCode is 408 or 429 or >= 500,
-        RetryAfter: retryAfter);
+        Retryable: response.StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests
+            or >= HttpStatusCode.InternalServerError,
+        RetryAfter: response.Headers.RetryAfter?.Delta);
   }
 
   private static async Task<Result<ModelResponse>> ReadJsonBodyAsync(HttpResponseMessage response, CancellationToken ct)
@@ -476,7 +529,7 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     try
     {
       JsonElement body = await response.Content.ReadFromJsonAsync<JsonElement>(ct).ConfigureAwait(false);
-      return ParseChatCompletion(body);
+      return ResponsesApiRequestCore.ParseResponse(body);
     }
     catch (JsonException ex)
     {
@@ -495,61 +548,15 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
   }
 
-  private static Result<ModelResponse> ParseChatCompletion(JsonElement body)
-  {
-    JsonElement choices = body.GetProperty("choices");
-    if (choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() == 0)
-    {
-      throw new InvalidOperationException("Provider response contains no choices.");
-    }
-
-    JsonElement message = choices[0].GetProperty("message");
-    string? content = message.TryGetProperty("content", out JsonElement c) && c.ValueKind == JsonValueKind.String
-        ? c.GetString()
-        : null;
-
-    List<ToolCallRequest> toolCalls = [];
-    if (message.TryGetProperty(ToolCalls, out JsonElement tc) && tc.ValueKind == JsonValueKind.Array)
-    {
-      foreach (JsonElement call in tc.EnumerateArray())
-      {
-        JsonElement fn = call.GetProperty(Function);
-        toolCalls.Add(new ToolCallRequest(
-            call.GetProperty("id").GetString()!,
-            fn.GetProperty("name").GetString()!,
-            fn.GetProperty("arguments").GetString() ?? ""));
-      }
-    }
-
-    return Result.Success(
-        new ModelResponse(content, toolCalls, ParseFinishReason(choices[0]), OpenAiCompatRequestCore.ParseUsage(body)));
-  }
-
-  /// <summary>Translates OpenRouter's finish_reason vocabulary into the provider-neutral
-  ///     enum. A missing value means the provider did not say, treated as Stop.</summary>
-  private static FinishReason ParseFinishReason(JsonElement choice)
-  {
-    return !choice.TryGetProperty("finish_reason", out JsonElement reason)
-        || reason.ValueKind != JsonValueKind.String
-      ? FinishReason.Stop
-      : reason.GetString() switch
-      {
-        "stop" => FinishReason.Stop,
-        "length" => FinishReason.Length,
-        ToolCalls => FinishReason.ToolCalls,
-        "content_filter" => FinishReason.ContentFilter,
-        _ => FinishReason.Unknown,
-      };
-  }
-
-  /// <summary>Streams the response body through the shared OpenAI-compatible stream
-  ///     core, supplying OpenRouter's vocabulary (see <see cref="OpenRouterStreamVocabulary"/>).</summary>
+  /// <summary>Streams the response body through the shared Responses-API stream core.
+  ///     The event names travel inside each data frame's "type" field (OpenRouter's
+  ///     live framing); the core tolerates both that and the canonical event-line
+  ///     framing.</summary>
   private static Task<Result<ModelResponse>> ReadSseStreamAsync(HttpResponseMessage response,
       Action<string>? onContentDelta,
       Action<string>? onReasoningDelta,
       CancellationToken ct)
-    => OpenAiCompatStreamCore.ReadSseStreamAsync(response, OpenRouterStreamVocabulary.Instance,
-        onContentDelta, onReasoningDelta, ct);
+    => ResponsesApiStreamCore.ReadSseStreamAsync(response, onContentDelta, onReasoningDelta, ct);
 
   /// <summary>One provider attempt's verdict plus what a retry decision needs: whether the
   ///     failure was transient and any server-provided Retry-After hint.</summary>
@@ -561,46 +568,4 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     public static AttemptOutcome Final(Result<ModelResponse> result) =>
         new(result, Retryable: false, RetryAfter: null);
   }
-
-  private static object TranslateTool(ToolDefinition t) => new Dictionary<string, object?>
-  {
-    ["type"] = Function,
-    [Function] = new Dictionary<string, object?>
-    {
-      ["name"] = t.Name,
-      ["description"] = t.Description,
-      ["parameters"] = new Dictionary<string, object?>
-      {
-        ["type"] = "object",
-        ["properties"] = t.Parameters.ToDictionary(
-                  p => p.Name,
-                  p =>
-                  {
-                    Dictionary<string, object?> props = new()
-                    {
-                      ["items"] = p.Type == ToolParameterType.TextArray
-                              ? new Dictionary<string, object?> { ["type"] = "string" } : null,
-                      ["type"] = p.Type switch
-                      {
-                        ToolParameterType.Text => "string",
-                        ToolParameterType.TextArray => "array",
-                        ToolParameterType.WholeNumber => "integer",
-                        ToolParameterType.Flag => "boolean",
-                        _ => throw new InvalidOperationException(
-                              $"Unhandled tool parameter type: {p.Type}"),
-                      },
-                      ["description"] = p.Description,
-                    };
-                    if (p.Minimum is { } min)
-                    {
-                      props["minimum"] = min;
-                    }
-
-                    return props;
-                  }),
-        ["required"] = t.RequiredParameters.ToArray(),
-        ["additionalProperties"] = false,
-      },
-    }
-  };
 }

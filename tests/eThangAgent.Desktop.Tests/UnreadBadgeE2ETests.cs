@@ -1,4 +1,3 @@
-using System.Text.Json;
 using eThangAgent.Desktop.ViewModels;
 
 namespace eThangAgent.Desktop.Tests;
@@ -15,8 +14,7 @@ namespace eThangAgent.Desktop.Tests;
 [Collection("Desktop E2E")]
 public class UnreadBadgeE2ETests
 {
-  private static string RawCompletion(string content) =>
-      JsonSerializer.Serialize(new { choices = new[] { new { message = new { content } } } });
+  private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
   [Fact]
   public async Task SteeredChild_RaisesAndClears_TheRealTabBadge()

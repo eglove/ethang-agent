@@ -8,11 +8,20 @@ namespace eThangAgent.Desktop.Tests;
 [Collection("Desktop E2E")]
 public class CompactionE2ETests
 {
-  private static string RawCompletionWithUsage(string content, int promptTokens, int completionTokens) =>
+  private static string RawCompletionWithUsage(string content, int inputTokens, int outputTokens) =>
       JsonSerializer.Serialize(new
       {
-        choices = new[] { new { message = new { content } } },
-        usage = new { prompt_tokens = promptTokens, completion_tokens = completionTokens },
+        output = new object[]
+        {
+          new
+          {
+            type = "message",
+            role = "assistant",
+            content = new object[] { new { type = "output_text", text = content } },
+          },
+        },
+        status = "completed",
+        usage = new { input_tokens = inputTokens, output_tokens = outputTokens },
       });
 
   [Fact]

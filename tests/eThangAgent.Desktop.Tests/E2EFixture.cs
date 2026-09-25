@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
@@ -187,24 +188,32 @@ internal static class E2E
   }
 
 
-  /// <summary>Scripted assistant response performing one tool call with the given tool name.</summary>
+  /// <summary>Scripted assistant text reply in the Responses-API body shape.</summary>
+  public static string RawCompletion(string content) =>
+      JsonSerializer.Serialize(new
+      {
+        output = new object[]
+        {
+          new
+          {
+            type = "message",
+            role = "assistant",
+            content = new object[] { new { type = "output_text", text = content } },
+          },
+        },
+        status = "completed",
+      });
+
+  /// <summary>Scripted assistant response performing one tool call with the given tool name
+  ///     (a Responses-API function_call output item).</summary>
   public static string ToolCall(string id, string toolName, string arguments) =>
       JsonSerializer.Serialize(new
       {
-        choices = new[]
-          {
-                new
-                {
-                    message = new
-                    {
-                        content = (string?)null,
-                        tool_calls = new[]
-                        {
-                            new { id, type = "function", function = new { name = toolName, arguments } }
-                        }
-                    }
-                }
-          }
+        output = new object[]
+        {
+          new { type = "function_call", call_id = id, name = toolName, arguments },
+        },
+        status = "completed",
       });
 
   /// <summary>Serializes an exec tool-call argument carrying one C# program and the
@@ -212,28 +221,21 @@ internal static class E2E
   public static string ExecProgram(string program) =>
       JsonSerializer.Serialize(new { timeoutSeconds = 120, title = "e2e", program });
 
-  /// <summary>Scripted assistant response performing one exec tool call.</summary>
+  /// <summary>Scripted assistant response performing one exec tool call (a Responses-API
+  ///     function_call output item).</summary>
   public static string ExecToolCall(string id, string arguments) =>
       JsonSerializer.Serialize(new
       {
-        choices = new[]
-          {
-                new
-                {
-                    message = new
-                    {
-                        content = (string?)null,
-                        tool_calls = new[]
-                        {
-                            new { id, type = "function", function = new { name = "exec", arguments } }
-                        }
-                    }
-                }
-          }
+        output = new object[]
+        {
+          new { type = "function_call", call_id = id, name = "exec", arguments },
+        },
+        status = "completed",
       });
 
-  /// <summary>Returns the decoded content of the first tool message containing the marker
-  ///     across all captured chat request bodies (never raw-substring on escaped bodies).</summary>
+  /// <summary>Returns the decoded content of the first tool result (function_call_output
+  ///     input item) containing the marker across all captured request bodies (never
+  ///     raw-substring on escaped bodies).</summary>
   public static string FindToolMessageContaining(IReadOnlyList<string> bodies, string marker)
   {
     ArgumentNullException.ThrowIfNull(bodies);
@@ -241,45 +243,83 @@ internal static class E2E
     foreach (string body in bodies)
     {
       using JsonDocument doc = JsonDocument.Parse(body);
-      if (!doc.RootElement.TryGetProperty("messages", out JsonElement messages))
+      if (!doc.RootElement.TryGetProperty("input", out JsonElement input))
       {
         continue;
       }
 
-      foreach (JsonElement message in messages.EnumerateArray())
+      foreach (JsonElement item in input.EnumerateArray())
       {
-        if (message.TryGetProperty("role", out JsonElement role)
-            && role.GetString() == "tool"
-            && message.TryGetProperty("content", out JsonElement content)
-            && content.GetString() is { } text
+        if (TryGetToolOutputText(item, out string? text)
             && text.Contains(marker, StringComparison.Ordinal))
         {
           return text;
         }
       }
     }
-    Assert.Fail($"no decoded tool message containing '{marker}' found in {bodies.Count} request bodies");
+    Assert.Fail($"no decoded tool result containing '{marker}' found in {bodies.Count} request bodies");
     return "";
   }
 
 
-  /// <summary>Returns the decoded content of the LAST tool-role message in a chat request
-  ///     body (never raw-substring on escaped bodies).</summary>
+  /// <summary>Returns the decoded content of the LAST tool result (function_call_output
+  ///     input item) in a request body (never raw-substring on escaped bodies).</summary>
   public static string GetLastToolMessage(string body)
   {
     using JsonDocument doc = JsonDocument.Parse(body);
     string? last = null;
-    foreach (JsonElement message in doc.RootElement.GetProperty("messages").EnumerateArray())
+    foreach (JsonElement item in doc.RootElement.GetProperty("input").EnumerateArray())
     {
-      if (message.TryGetProperty("role", out JsonElement role)
-          && role.GetString() == "tool"
-          && message.TryGetProperty("content", out JsonElement content))
+      if (TryGetToolOutputText(item, out string? text))
       {
-        last = content.GetString();
+        last = text;
       }
     }
     Assert.NotNull(last);
     return last;
+  }
+
+  /// <summary>Decodes one function_call_output item's output text: a flat string output,
+  ///     or the concatenated input_text parts when the result rode an input-part array.</summary>
+  private static bool TryGetToolOutputText(JsonElement item, [NotNullWhen(true)] out string? text)
+  {
+    text = null;
+    if (item.ValueKind != JsonValueKind.Object
+        || !item.TryGetProperty("type", out JsonElement type)
+        || type.ValueKind != JsonValueKind.String
+        || type.GetString() != "function_call_output"
+        || !item.TryGetProperty("output", out JsonElement output))
+    {
+      return false;
+    }
+
+    if (output.ValueKind == JsonValueKind.String)
+    {
+      text = output.GetString();
+      return text is not null;
+    }
+
+    if (output.ValueKind == JsonValueKind.Array)
+    {
+      System.Text.StringBuilder joined = new();
+      foreach (JsonElement part in output.EnumerateArray())
+      {
+        if (part.ValueKind == JsonValueKind.Object
+            && part.TryGetProperty("type", out JsonElement partType)
+            && partType.ValueKind == JsonValueKind.String
+            && partType.GetString() == "input_text"
+            && part.TryGetProperty("text", out JsonElement partText)
+            && partText.ValueKind == JsonValueKind.String)
+        {
+          _ = joined.Append(partText.GetString());
+        }
+      }
+
+      text = joined.ToString();
+      return text.Length > 0;
+    }
+
+    return false;
   }
 }
 

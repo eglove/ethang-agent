@@ -1,33 +1,28 @@
 using System.Net;
-using System.Text;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
 #pragma warning disable CA2000 // HttpClient owns the handler; provider lifetime bounds it
 namespace eThangAgent.OpenRouter.ACL.Tests;
 
+// The Responses API frames its SSE stream with the event name inside each data
+// frame's "type" field, and terminates with data: [DONE].
 public class StreamingTests
 {
   private static readonly Uri BaseUrl = new("https://openrouter.test");
   private static OpenRouterConfiguration Config => new("test-key", BaseUrl);
   private static ModelConfig Model => ModelConfig.Create("m", null, 256, 0.7f, 4096).Value!;
 
-  private static HttpResponseMessage Sse(string raw) =>
-      new(HttpStatusCode.OK) { Content = new StringContent(raw, Encoding.UTF8, "text/event-stream") };
-
-  private static HttpResponseMessage JsonBody(string body) =>
-      new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
-
   [Fact]
   public async Task Streams_ContentDeltas_InOrder_AndAssemblesFinalContent()
   {
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Sse(
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(
         ": OPENROUTER PROCESSING\n\n" +
-        "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n" +
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hel\"}\n\n" +
         "\n" +
-        "data: {\"choices\":[{\"delta\":{\"content\":\"lo w\"}}]}\n\n" +
-        "data: {\"choices\":[{\"delta\":{\"content\":\"orld\"}}]}\n\n" +
-        "data: {\"choices\":[],\"usage\":{\"total_tokens\":9}}\n\n" +
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"lo w\"}\n\n" +
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"orld\"}\n\n" +
+        Wire.CompletedTerminal +
         "data: [DONE]\n\n")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
@@ -45,12 +40,13 @@ public class StreamingTests
   public async Task Assembles_ToolCallFragments_ByIndex_AcrossChunks()
   {
     const string sse =
-        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"a1\",\"type\":\"function\"," +
-        "\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"pa\"}}]}}]}\n\n" +
-        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"th\\\":\\\"x\\\"}\"}}," +
-        "{\"index\":1,\"id\":\"a2\",\"type\":\"function\",\"function\":{\"name\":\"exec\",\"arguments\":\"{}\"}}]}}]}\n\n" +
+        "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"a1\",\"name\":\"read\"}}\n\n" +
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{\\\"pa\"}\n\n" +
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"th\\\":\\\"x\\\"}\"}\n\n" +
+        "data: {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"type\":\"function_call\",\"call_id\":\"a2\",\"name\":\"exec\"}}\n\n" +
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"delta\":\"{}\"}\n\n" +
         "data: [DONE]\n\n";
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Sse(sse)));
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(sse)));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -68,6 +64,25 @@ public class StreamingTests
   }
 
   [Fact]
+  public async Task FunctionCallArgumentsDone_ReplacesAccumulatedDeltas()
+  {
+    const string sse =
+        "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"a1\",\"name\":\"read\"}}\n\n" +
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{\\\"path\\\":\\\"stale\"}\n\n" +
+        "data: {\"type\":\"response.function_call_arguments.done\",\"output_index\":0,\"arguments\":\"{\\\"path\\\":\\\"final.txt\\\"}\"}\n\n" +
+        "data: [DONE]\n\n";
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(sse)));
+    using HttpClient http = new(handler);
+    OpenRouterModelProvider provider = new(http, Config);
+
+    Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    _ = Assert.Single(result.Value.ToolCalls);
+    Assert.Equal(/*lang=json,strict*/ "{\"path\":\"final.txt\"}", result.Value.ToolCalls[0].Arguments);
+  }
+
+  [Fact]
   public async Task FallsBack_ToJsonParsing_WhenServerIgnoresStreamFlag()
   {
     string? captured = null;
@@ -75,7 +90,7 @@ public class StreamingTests
     {
       Assert.NotNull(req.Content);
       captured = await req.Content.ReadAsStringAsync().ConfigureAwait(false);
-      return JsonBody(/*lang=json,strict*/ """{"choices":[{"message":{"content":"plain"}}]}""");
+      return Wire.Ok();
     });
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
@@ -84,7 +99,7 @@ public class StreamingTests
     Result<ModelResponse> result = await provider.SendStreamingAsync(Model, new ModelRequest([]), deltas.Add, ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsSuccess);
-    Assert.Equal("plain", result.Value.Content);
+    Assert.Equal("ok", result.Value.Content);
     Assert.Empty(deltas);
     Assert.NotNull(captured);
     Assert.Contains("\"stream\":true", captured, StringComparison.Ordinal);
@@ -94,7 +109,7 @@ public class StreamingTests
   public async Task Streaming_ErrorStatus_MapsLikeNonStreaming()
   {
     FakeHttpMessageHandler handler = new(_ =>
-        Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)));
+        Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("") }));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -108,7 +123,7 @@ public class StreamingTests
   public async Task MalformedChunk_Yields_ProviderError()
   {
     FakeHttpMessageHandler handler = new(_ =>
-        Task.FromResult(Sse("data: {not-json\n\ndata: [DONE]\n\n")));
+        Task.FromResult(Wire.Sse("data: {not-json\n\ndata: [DONE]\n\n")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -120,12 +135,12 @@ public class StreamingTests
   }
 
   [Fact]
-  public async Task ToolCallFragment_WithoutFunctionName_Yields_ProviderError()
+  public async Task ArgumentsDelta_BeforeItsItemAdded_Yields_MalformedStream()
   {
     const string sse =
-        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"a1\"," +
-        "\"function\":{\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n";
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Sse(sse)));
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{}\"}\n\n" +
+        "data: [DONE]\n\n";
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(sse)));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -137,13 +152,13 @@ public class StreamingTests
   }
 
   [Fact]
-  public async Task FinishReason_Length_IsSurfaced()
+  public async Task FinishReason_Length_IsSurfaced_FromIncompleteTerminal()
   {
     const string sse =
-        "data: {\"choices\":[{\"delta\":{\"content\":\"partial ans\"}}]}\n\n" +
-        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n" +
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial ans\"}\n\n" +
+        "data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"output\":[]}}\n\n" +
         "data: [DONE]\n\n";
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Sse(sse)));
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(sse)));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -154,13 +169,14 @@ public class StreamingTests
   }
 
   [Fact]
-  public async Task FinishReason_ToolCalls_IsSurfaced()
+  public async Task FinishReason_ToolCalls_OutranksCompletedStatus()
   {
     const string sse =
-        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"a1\",\"type\":\"function\"," +
-        "\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+        "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"a1\",\"name\":\"read\"}}\n\n" +
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{}\"}\n\n" +
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n" +
         "data: [DONE]\n\n";
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Sse(sse)));
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(sse)));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -171,10 +187,12 @@ public class StreamingTests
   }
 
   [Fact]
-  public async Task FinishReason_Missing_TreatsAsStop()
+  public async Task FinishReason_Completed_TreatsAsStop()
   {
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Sse(
-        "data: {\"choices\":[{\"delta\":{\"content\":\"done\"}}]}\n\ndata: [DONE]\n\n")));
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"done\"}\n\n" +
+        Wire.CompletedTerminal +
+        "data: [DONE]\n\n")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -185,11 +203,12 @@ public class StreamingTests
   }
 
   [Fact]
-  public async Task FinishReason_UnrecognizedValue_MapsToUnknown()
+  public async Task FinishReason_UnrecognizedStatusValue_MapsToUnknown()
   {
     const string sse =
-        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"weird_reason\"}]}\n\ndata: [DONE]\n\n";
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Sse(sse)));
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"weird_reason\",\"output\":[]}}\n\n" +
+        "data: [DONE]\n\n";
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(sse)));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -202,9 +221,9 @@ public class StreamingTests
   [Fact]
   public async Task JsonFallback_SurfacesFinishReason()
   {
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(JsonBody(
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Json(HttpStatusCode.OK,
                              /*lang=json,strict*/
-                             """{"choices":[{"message":{"content":"plain"},"finish_reason":"length"}]}""")));
+                             """{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[]}""")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
 
@@ -219,8 +238,8 @@ public class StreamingTests
   {
     // A dropped connection must not masquerade as a successful (truncated)
     // completion — the pre-fix bug behind turns silently stopping mid-task.
-    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Sse(
-        "data: {\"choices\":[{\"delta\":{\"content\":\"cut off mid-sen\"}}]}\n\n")));
+    FakeHttpMessageHandler handler = new(_ => Task.FromResult(Wire.Sse(
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"cut off mid-sen\"}\n\n")));
     using HttpClient http = new(handler);
     OpenRouterModelProvider provider = new(http, Config);
     List<string> deltas = [];

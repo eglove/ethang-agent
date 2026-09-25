@@ -12,9 +12,7 @@ namespace eThangAgent.Desktop.Tests;
 [Collection("Desktop E2E")]
 public class DesktopE2ETests
 {
-  private static string RawCompletion(string content) =>
-      JsonSerializer.Serialize(
-          new { choices = new[] { new { message = new { content } } } });
+  private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
   [Fact]
   public async Task Turn_SendsConfiguredDefaultModel_ToProvider()
@@ -39,11 +37,9 @@ public class DesktopE2ETests
     string? body = host.Mock.LastChatRequestBody;
     Assert.NotNull(body);
     // The wire body JSON-escapes angle brackets (\u003C/\u003E), so assertions on
-    // injected content run against the decoded system message, not the raw body.
+    // injected content run against the decoded instructions string, not the raw body.
     using JsonDocument doc = JsonDocument.Parse(body);
-    string? system = doc.RootElement.GetProperty("messages").EnumerateArray()
-        .First(m => m.GetProperty("role").GetString() == "system")
-        .GetProperty("content").GetString();
+    string? system = doc.RootElement.GetProperty("instructions").GetString();
     Assert.NotNull(system);
     Assert.DoesNotContain("EXTREMELY_IMPORTANT", system, StringComparison.Ordinal);
     Assert.Contains("name: using-skills", system, StringComparison.Ordinal);
@@ -79,7 +75,7 @@ public class DesktopE2ETests
     await host.Vm.RunTurnAsync("hi");
 
     Assert.NotNull(host.Mock.LastChatRequestBody);
-    Assert.Contains("\"role\":\"system\"", host.Mock.LastChatRequestBody, StringComparison.Ordinal);
+    Assert.Contains("\"instructions\"", host.Mock.LastChatRequestBody, StringComparison.Ordinal);
     Assert.Contains("writing C# programs", host.Mock.LastChatRequestBody, StringComparison.Ordinal);
     // Stable fragments only: parameter lists change with legitimate descriptor
     // evolution; action names and summaries are the durable contract.
@@ -122,7 +118,7 @@ public class DesktopE2ETests
         .OfType<AssistantTextEntry>().Select(a => a.Text));
     Assert.Contains("exec completed", assistant, StringComparison.OrdinalIgnoreCase);
     Assert.Equal(2, host.Mock.RequestBodies.Count);
-    Assert.Contains("\"role\":\"tool\"", host.Mock.RequestBodies[1], StringComparison.Ordinal);
+    Assert.Contains("\"type\":\"function_call_output\"", host.Mock.RequestBodies[1], StringComparison.Ordinal);
     Assert.Contains("alpha line", host.Mock.RequestBodies[1], StringComparison.Ordinal);
 
     // Named decision (CA1031): temp-file cleanup is best effort.

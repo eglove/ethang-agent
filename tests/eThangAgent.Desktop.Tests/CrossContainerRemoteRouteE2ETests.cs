@@ -22,8 +22,7 @@ namespace eThangAgent.Desktop.Tests;
 [Collection("Desktop E2E")]
 public class CrossContainerRemoteRouteE2ETests
 {
-  private static string RawCompletion(string content) =>
-      System.Text.Json.JsonSerializer.Serialize(new { choices = new[] { new { message = new { content } } } });
+  private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
   private static AgentSettings Settings(Uri openRouterBaseUrl, bool remoteHost) => new(
       new OpenRouterSettings("sk-or-test", openRouterBaseUrl),
@@ -255,19 +254,10 @@ public class CrossContainerRemoteRouteE2ETests
   private static string ExecToolCall(string id, string arguments) =>
       System.Text.Json.JsonSerializer.Serialize(new
       {
-        choices = new[]
-          {
-                new
-                {
-                    message = new
-                    {
-                        content = (string?)null,
-                        tool_calls = new[]
-                        {
-                            new { id, type = "function", function = new { name = "exec", arguments } }
-                        }
-                    }
-                }
-          }
+        output = new object[]
+        {
+          new { type = "function_call", call_id = id, name = "exec", arguments },
+        },
+        status = "completed",
       });
 }
