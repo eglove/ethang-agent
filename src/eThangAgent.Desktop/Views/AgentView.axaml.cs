@@ -32,6 +32,11 @@ internal partial class AgentView : UserControl
   private bool _restorePending;
   private double _restoreOffset;
 
+  // True only around a programmatic autofill text set: the autofill's own
+  // TextChanged must not re-open the popup the Accept just closed; the next
+  // user-driven change re-enables the feed.
+  private bool _suppressAutocompleteUpdate;
+
   public AgentView()
   {
     InitializeComponent();
@@ -220,6 +225,16 @@ internal partial class AgentView : UserControl
 
     if (e.Key == Key.Escape)
     {
+      // The popup outranks the stop shortcut: Esc closes it first (the input
+      // box's own tunnel would do this, but the view tunnel runs first in the
+      // tunnel route, so the guard lives here too).
+      if (vm.Autocomplete is { IsOpen: true } popup)
+      {
+        e.Handled = true;
+        popup.Close();
+        return;
+      }
+
       if (vm.IsBusy)
       {
         e.Handled = true;
@@ -243,6 +258,11 @@ internal partial class AgentView : UserControl
   private void OnInputTextChanged(object? sender, TextChangedEventArgs e)
   {
     string text = InputBox.Text ?? "";
+    if (!_suppressAutocompleteUpdate)
+    {
+      Vm?.UpdateAutocomplete(text);
+    }
+
     bool commandMode = text.TrimStart().StartsWith('!');
     if (commandMode)
     {
@@ -264,14 +284,128 @@ internal partial class AgentView : UserControl
       return;
     }
 
+    // The '/' autocomplete popup owns the keys while open: navigation, Esc,
+    // and Enter/Tab completion — Enter NEVER submits while the popup shows a
+    // name that still needs completing (spec #28). Any other key falls through
+    // to the TextBox's own handling.
+    if (vm.Autocomplete is { IsOpen: true } popup)
+    {
+      bool shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+      if (e.Key == Key.Down)
+      {
+        e.Handled = true;
+        popup.MoveDown();
+        return;
+      }
+
+      if (e.Key == Key.Up)
+      {
+        e.Handled = true;
+        popup.MoveUp();
+        return;
+      }
+
+      if (e.Key == Key.Escape)
+      {
+        e.Handled = true;
+        popup.Close();
+        return;
+      }
+
+      if ((e.Key == Key.Tab || e.Key == Key.Enter) && !shift)
+      {
+        e.Handled = true; // suppress newline insertion and focus navigation
+        HandlePopupAcceptKey(popup, e.Key);
+        return;
+      }
+    }
+
     if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
     {
       e.Handled = true; // suppress newline insertion
-      string text = InputBox.Text ?? "";
-      InputBox.Text = "";
-      _ = vm.SubmitAsync(text);
+      SubmitInput();
     }
     // Shift+Enter falls through: TextBox inserts the newline.
+  }
+
+  /// <summary>Applies the popup's accept key: a name that still needs completing
+  ///     autofills the full name plus a trailing space; an already-complete name
+  ///     (typed out or previously autofilled, with or without arguments after it)
+  ///     submits the input so the session resolves it (spec #28: 'subsequent
+  ///     Enter submits and resolves'). With nothing selectable, Enter falls back
+  ///     to an ordinary submit (an unknown '/zzz' stays a plain message).</summary>
+  private void HandlePopupAcceptKey(SkillAutocompleteViewModel popup, Key key)
+  {
+    if (popup.SelectedIndex < 0 || popup.SelectedIndex >= popup.Options.Count)
+    {
+      if (key == Key.Enter)
+      {
+        popup.Close();
+        SubmitInput();
+      }
+
+      return;
+    }
+
+    string name = popup.Options[popup.SelectedIndex].Name;
+    string token = NameTokenOf(InputBox.Text ?? "");
+    if (key == Key.Enter && token.Equals(name, StringComparison.OrdinalIgnoreCase))
+    {
+      popup.Close();
+      SubmitInput();
+      return;
+    }
+
+    SetAutofill(name);
+  }
+
+  /// <summary>Accepts a tapped option: same autofill as the keyboard path.</summary>
+  private void OnAutocompleteTapped(object? sender, TappedEventArgs e)
+  {
+    AgentSessionViewModel? vm = Vm;
+    if (vm?.Autocomplete is not { IsOpen: true } popup || sender is not ListBox list)
+    {
+      return;
+    }
+
+    if (list.SelectedIndex is int index && index >= 0 && index < popup.Options.Count &&
+        popup.Click(index) is { } name)
+    {
+      SetAutofill(name);
+    }
+  }
+
+  private void SetAutofill(string name)
+  {
+    _suppressAutocompleteUpdate = true;
+    try
+    {
+      InputBox.Text = "/" + name + " ";
+      InputBox.CaretIndex = InputBox.Text.Length;
+    }
+    finally
+    {
+      _suppressAutocompleteUpdate = false;
+    }
+  }
+
+  private static string NameTokenOf(string input)
+  {
+    if (!input.StartsWith('/'))
+    {
+      return "";
+    }
+
+    string rest = input[1..];
+    int space = rest.IndexOf(' ', StringComparison.Ordinal);
+    return space < 0 ? rest : rest[..space];
+  }
+
+  private void SubmitInput()
+  {
+    string text = InputBox.Text ?? "";
+    InputBox.Text = "";
+    _ = Vm?.SubmitAsync(text);
   }
 
   private void OnStopClick(object? sender, RoutedEventArgs e) => Vm?.RequestStop();

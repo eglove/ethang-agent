@@ -12,6 +12,7 @@ using eThangAgent.Desktop.Streaming;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.SharedKernel;
+using eThangAgent.SkillDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using eThangAgent.Zai.ACL;
@@ -918,9 +919,23 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     restore BEFORE the tab can take a turn, persisted-transcript replay (a no-op
   ///     for a fresh session — its conversation is empty), and
   ///     tab attach. Must run on the UI thread.</summary>
-  private async Task<AgentTabViewModel> AttachSessionAsync(AgentSession session)
+  /// <summary>Maps the session's catalog to the autocomplete popup's options
+  ///     (spec #28 task 5). The composite catalog's ListAsync is async while the
+  ///     popup's source seam is sync, so this resolves synchronously — the
+  ///     documented sync-over-async seam constraint (the SkillsListingPromptProvider
+  ///     Build() precedent). Reachable only when the session wired the invocation
+  ///     core; a catalog failure yields an empty list (the popup shows nothing).</summary>
+  private static IReadOnlyList<SkillOption> SkillOptionsOf(AgentSession session)
   {
-    // Self-referencing sink hook, the same pattern as the pre-tab window wiring:
+    ISkillCatalog catalog = session.Services.GetRequiredService<ISkillCatalog>();
+    Result<IReadOnlyList<SkillDefinition>> listed = catalog.ListAsync().GetAwaiter().GetResult();
+    return listed.IsSuccess
+        ? [.. listed.Value.Select(s => new SkillOption(s.Name, s.Description, s.Manual))]
+        : [];
+  }
+
+  private async Task<AgentTabViewModel> AttachSessionAsync(AgentSession session)
+  {    // Self-referencing sink hook, the same pattern as the pre-tab window wiring:
     // the VM is captured after construction so its own sink marshals its events
     // onto the UI thread. An injected shell-level sink (tests) takes precedence.
     AgentSessionViewModel? sessionVmRef = null;
@@ -949,6 +964,10 @@ internal sealed partial class MainViewModel : ObservableObject
           StatusModelUpdater = id => sessionVmRef!.Status.ModelId = id,
           ModelPreferences = session.Preferences,
           CommandRunner = session.CommandRunner,
+          SkillInvocation = session.SkillInvocation,
+          SkillCatalogSource = session.SkillInvocation is null
+              ? null
+              : () => SkillOptionsOf(session),
         });
     sessionVmRef = sessionVm;
 
