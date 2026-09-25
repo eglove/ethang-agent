@@ -85,6 +85,18 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
   ///     the composite catalog after its first pass.</summary>
   public string Build() => BuildAsync().GetAwaiter().GetResult();
 
+  /// <summary>Hot reload (spec #26): clears the memoized render. The next Build
+  ///     re-reads the catalog and re-memoizes; until then, Builds keep serving the
+  ///     cached text. Byte-identical behavior when never called.</summary>
+  public void Invalidate()
+  {
+    lock (_gate)
+    {
+      _built = null;
+    }
+  }
+
+
   public async Task<string> BuildAsync()
   {
     lock (_gate)

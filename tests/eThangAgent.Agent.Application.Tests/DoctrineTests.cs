@@ -59,6 +59,7 @@ public sealed partial class DoctrineTests
         "src/eThangAgent.ComputerUse.ACL/NotReadyPolicy.cs", // production half of the INotReadyDelayer seam - the spec 1.3 cold-start backoff schedule
         "src/eThangAgent.ComputerUse.Host/ClipboardPaster.cs", // native broker process: bounded clipboard-sequence consumption poll
         "src/eThangAgent.ComputerUse.Host/InputDispatch.cs", // native broker process: hold_key's one-shot key-up schedule, not a poll
+        "src/eThangAgent.Composition/SkillDirectoryWatcher.cs", // spec #26: the sweep is the NAMED polling fallback for hot reload (FSW misses buffer overflows and atomic-save renames); the debounce is an event-burst coalesce, not a poll
     ];
 
     List<string> violations = [];
