@@ -306,3 +306,6 @@ skill-activation-eval.db
 
 # Microsoft.Testing.Platform hang dumps + diagnostic logs
 TestResults/
+
+# ZCode session-local ignore
+.zcodeignore

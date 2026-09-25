@@ -22,6 +22,10 @@ public sealed class DirectShellAccess : IShellCommandAccess
 {
   private static readonly Lazy<string> ShellPath = new(ResolveShell);
 
+  /// <summary>Post-kill drain bound: how long the timeout path waits for the readers'
+  ///     tokenless tail flush before returning the partial output it has.</summary>
+  private static readonly TimeSpan PostKillDrainGrace = TimeSpan.FromSeconds(2);
+
   /// <summary>Test hook: the resolved shell path (production keeps the Lazy private;
   ///     tests pin resolution behavior without spawning a shell).</summary>
   internal static string ResolveShellForTests() => ShellPath.Value;
@@ -91,10 +95,29 @@ public sealed class DirectShellAccess : IShellCommandAccess
       }
       catch (OperationCanceledException) when (!ct.IsCancellationRequested)
       {
-        // Budget expiry (the caller's token is still live): kill the tree, drain what
-        // was captured, and report the run as timed out.
+        // Budget expiry (the caller's token is still live): kill the tree, then drain
+        // what was captured and report the run as timed out. The pumps read with the
+        // (now-cancelled) timeout token, so lines the shell already wrote can sit
+        // buffered in the readers when cancellation lands — a tokenless post-kill
+        // flush recovers them. The kill must not discard the partial output the
+        // timeout contract promises; the grace bounds the wait if a survivor holds
+        // a pipe open past the kill.
         KillProcessTree(p.Id);
-        return Result.Success(new ShellRun(ExitCode: -1, merged.ToString(), TimedOut: true));
+        Task<string> stdoutTail = p.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        Task<string> stderrTail = p.StandardError.ReadToEndAsync(CancellationToken.None);
+        string tail;
+        try
+        {
+          string[] tails = await Task.WhenAll(stdoutTail, stderrTail)
+              .WaitAsync(PostKillDrainGrace, CancellationToken.None).ConfigureAwait(false);
+          tail = tails[0] + tails[1];
+        }
+        catch (TimeoutException)
+        {
+          tail = "";
+        }
+
+        return Result.Success(new ShellRun(ExitCode: -1, merged.ToString() + tail, TimedOut: true));
       }
     }
     // Named decision (CA1031): shell transport failures (no shell, bad working dir)

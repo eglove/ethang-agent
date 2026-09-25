@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Windows.Automation;
 
 namespace eThangAgent.ComputerUse.Host;
@@ -75,7 +76,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (System.Runtime.InteropServices.COMException ex)
+    catch (COMException ex)
     {
       return BrokerResponse.Fail("action_unavailable", $"element {element} rejected the invoke (COM {ex.HResult}); nothing ran.");
     }
@@ -113,7 +114,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (System.Runtime.InteropServices.COMException ex)
+    catch (COMException ex)
     {
       return BrokerResponse.Fail("action_unavailable", $"element {element} rejected the scroll (COM {ex.HResult}); nothing scrolled.");
     }
@@ -155,7 +156,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return BrokerResponse.Fail("not_settable", $"element {element} rejected the value: {ex.Message}");
     }
-    catch (System.Runtime.InteropServices.COMException ex)
+    catch (COMException ex)
     {
       return BrokerResponse.Fail("not_settable", $"element {element} rejected the value (COM {ex.HResult}).");
     }
@@ -204,7 +205,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     {
       return ElementUnavailable(element);
     }
-    catch (System.Runtime.InteropServices.COMException ex)
+    catch (COMException ex)
     {
       return BrokerResponse.Fail("action_unavailable",
         $"element {element} rejected action '{actionName}' (COM {ex.HResult}); nothing ran.");
@@ -238,15 +239,76 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     try
     {
       target.SetFocus();
+      WaitFocusLands(target);
       return BrokerResponse.Accepted();
     }
     catch (ElementNotAvailableException)
     {
       return ElementUnavailable(element);
     }
-    catch (System.Runtime.InteropServices.COMException ex)
+    catch (COMException ex)
     {
       return BrokerResponse.Fail("internal", $"SetFocus failed (COM {ex.HResult}).", "action_sent=false");
     }
   }
+
+  /// <summary>UIA SetFocus returns before the Win32 focus state (GetGUIThreadInfo)
+  ///     reflects the move — and targeted delivery reads exactly that state, so a
+  ///     delivery racing the settle posts its characters to the stale focus target.
+  ///     Event-driven settle (R5.1): a focus-changed event handler signals when the
+  ///     element's native window becomes the focused window, bounded by a timeout —
+  ///     best-effort: an element without a native handle, or a focus that never
+  ///     lands within the bound, proceeds unchanged (delivery falls back to the
+  ///     foreground window as before).</summary>
+  private static void WaitFocusLands(AutomationElement target)
+  {
+    nint nativeWindow;
+    try
+    {
+      nativeWindow = target.Current.NativeWindowHandle;
+    }
+    catch (COMException)
+    {
+      return; // the element went stale between focus and read; nothing to settle
+    }
+
+    if (nativeWindow == 0)
+    {
+      return;
+    }
+
+    TaskCompletionSource landed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    AutomationFocusChangedEventHandler onFocus = OnFocusChanged;
+    Automation.AddAutomationFocusChangedEventHandler(onFocus);
+    try
+    {
+      landed.Task.WaitAsync(FocusSettleBound, CancellationToken.None).GetAwaiter().GetResult();
+    }
+    catch (TimeoutException)
+    {
+      // The focus never landed within the bound: deliver as before.
+    }
+    finally
+    {
+      Automation.RemoveAutomationFocusChangedEventHandler(onFocus);
+    }
+
+    void OnFocusChanged(object sender, AutomationFocusChangedEventArgs e)
+    {
+      try
+      {
+        if (sender is AutomationElement focused && focused.Current.NativeWindowHandle == nativeWindow)
+        {
+          _ = landed.TrySetResult();
+        }
+      }
+      catch (COMException)
+      {
+        // A stale sender mid-handshake cannot signal the wait.
+      }
+    }
+  }
+
+  /// <summary>Upper bound on the post-focus settle wait.</summary>
+  private static readonly TimeSpan FocusSettleBound = TimeSpan.FromMilliseconds(500);
 }

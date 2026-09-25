@@ -94,10 +94,12 @@ public sealed class DirectShellAccessTests : IDisposable
   {
     DirectShellAccess access = new();
 
-    // Start- Sleep keeps the shell alive past the budget; the preceding Write-Output
+    // Start-Sleep keeps the shell alive past the budget; the preceding Write-Output
     // must still arrive in the captured output (partial capture before the kill).
+    // The budget tolerates a cold shell start on slow runners (CI): the pipe writes
+    // land seconds after spawn there, and 5s raced them.
     Result<ShellRun> r = await access.RunAsync(
-        _workDir, "Write-Output partial; Start-Sleep -Seconds 30", TimeSpan.FromSeconds(5),
+        _workDir, "Write-Output partial; Start-Sleep -Seconds 30", TimeSpan.FromSeconds(15),
         TestContext.Current.CancellationToken);
 
     Assert.True(r.IsSuccess);

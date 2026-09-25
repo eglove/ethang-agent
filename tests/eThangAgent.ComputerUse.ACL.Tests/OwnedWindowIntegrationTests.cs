@@ -95,10 +95,44 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
     _ => "unknown outcome",
   };
 
-  private static string HostExePath() =>
-      Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src",
-          "eThangAgent.ComputerUse.Host", "bin", "Debug", "net10.0-windows",
-          "eThangAgent.ComputerUse.Host.exe");
+  private static string HostExePath() => BrokerHostExe.Resolve();
+
+
+  /// <summary>Resolves the real broker exe this worktree builds. The test run's own
+  ///     configuration is parsed from the test assembly path (…\bin\{config}\…) and
+  ///     preferred; any existing build is the fallback — CI builds/tests Release only,
+  ///     local runs use Debug, and hard-coding either broke the other side.</summary>
+  internal static class BrokerHostExe
+  {
+    public static string Resolve()
+    {
+      string binRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+          "..", "..", "..", "..", "..", "src", "eThangAgent.ComputerUse.Host", "bin"));
+      string? configuration = ExtractConfiguration(typeof(OwnedWindowIntegrationTests).Assembly.Location);
+      if (configuration is not null)
+      {
+        string candidate = Path.Combine(binRoot, configuration, "net10.0-windows", "eThangAgent.ComputerUse.Host.exe");
+        if (File.Exists(candidate))
+        {
+          return candidate;
+        }
+      }
+
+      string? newest = Directory.EnumerateFiles(binRoot, "eThangAgent.ComputerUse.Host.exe", SearchOption.AllDirectories)
+          .OrderByDescending(File.GetLastWriteTimeUtc)
+          .FirstOrDefault();
+      return newest ?? Path.Combine(binRoot, "Debug", "net10.0-windows", "eThangAgent.ComputerUse.Host.exe");
+    }
+
+    private static string? ExtractConfiguration(string assemblyLocation)
+    {
+      // The test assembly lives at …\bin\{config}\net10.0-windows\; walk up one
+      // level and take the configuration directory's name.
+      string? binConfigDir = Path.GetDirectoryName(Path.GetFullPath(assemblyLocation));
+      string? configuration = Path.GetFileName(Path.GetDirectoryName(binConfigDir));
+      return configuration is "Debug" or "Release" ? configuration : null;
+    }
+  }
 
 
   /// <summary>Waits until the fixture's process has a live window (the pump recreates destroyed
@@ -311,7 +345,15 @@ public sealed class OwnedWindowIntegrationTests(IntegrationWindowFixture fixture
 
     ComputerOutcome paste = await access.ExecuteAsync(command, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(paste is ComputerOutcome.Receipt, Describe(paste));
-    Win32TestWindow.Pump(600);
+    // The paste lands asynchronously (focus + message delivery): poll the read-back
+    // instead of trusting a fixed pump, so a loaded machine's scheduling never
+    // fails an action that simply arrived late.
+    for (int waited = 0; waited < 5_000 && !_fixture.Window.LastEditText.Contains("pasted-text", StringComparison.Ordinal); waited += 100)
+    {
+      Win32TestWindow.Pump(100);
+      await Task.Delay(100, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+
     Assert.Contains("pasted-text", _fixture.Window.LastEditText, StringComparison.Ordinal);
   }
 

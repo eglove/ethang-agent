@@ -68,9 +68,33 @@ public class RivalOnAndReconnectTests
   }
 }
 
-/// <summary>The REAL broker exe this worktree builds - the healed spawn path.</summary>
+/// <summary>The REAL broker exe this worktree builds - the healed spawn path.
+///     Resolves the test run's own configuration (parsed from the test assembly
+///     path) with any existing build as fallback: CI builds/tests Release only,
+///     local runs use Debug — hard-coding either broke the other side.</summary>
 internal static class HealedHost
 {
-  public static string RealPath() => Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src",
-    "eThangAgent.ComputerUse.Host", "bin", "Debug", "net10.0-windows", "eThangAgent.ComputerUse.Host.exe");
+  public static string RealPath()
+  {
+    string binRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+        "..", "..", "..", "..", "..", "src", "eThangAgent.ComputerUse.Host", "bin"));
+    // The test assembly lives at …\bin\{config}\net10.0-windows\; walk up one
+    // level and take the configuration directory's name.
+    string? binConfigDir = Path.GetDirectoryName(Path.GetDirectoryName(
+        Path.GetFullPath(typeof(RivalOnAndReconnectTests).Assembly.Location)));
+    string? configuration = Path.GetFileName(binConfigDir);
+    if (configuration is "Debug" or "Release")
+    {
+      string candidate = Path.Combine(binRoot, configuration, "net10.0-windows", "eThangAgent.ComputerUse.Host.exe");
+      if (File.Exists(candidate))
+      {
+        return candidate;
+      }
+    }
+
+    string? newest = Directory.EnumerateFiles(binRoot, "eThangAgent.ComputerUse.Host.exe", SearchOption.AllDirectories)
+        .OrderByDescending(File.GetLastWriteTimeUtc)
+        .FirstOrDefault();
+    return newest ?? Path.Combine(binRoot, "Debug", "net10.0-windows", "eThangAgent.ComputerUse.Host.exe");
+  }
 }
