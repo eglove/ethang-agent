@@ -53,6 +53,65 @@ public class ExecResultFormatterTests
   }
 
   [Fact]
+  public void Completed_WithErrorLines_DoesNotDoubleWrapAlreadyTaggedLine()
+  {
+    // The engine hands over ScriptToolException messages that already carry their
+    // Error [CODE] tag; the formatter's gutter must not stack a second one.
+    ExecRunResult run = new(ExecRunStatus.Completed, "",
+        ["Error [MissingParameter]: nested call 'read': Missing required parameter 'timeoutSeconds'."], null);
+
+    ToolResult result = ExecResultFormatter.Format(run, Options, null);
+
+    Assert.True(result.IsError);
+    Assert.Contains("exec error [ScriptError]: Error [MissingParameter]: nested call 'read':",
+        result.Content, StringComparison.Ordinal);
+    Assert.Equal(1, CountOccurrences(result.Content, "[ScriptError]"));
+  }
+
+  [Fact]
+  public void Completed_WithErrorLinesAndEmptyOutput_DoesNotStartWithNewline()
+  {
+    ExecRunResult run = new(ExecRunStatus.Completed, "", ["Error [MissingParameter]: boom"], null);
+
+    ToolResult result = ExecResultFormatter.Format(run, Options, null);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("exec error [ScriptError]:", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Completed_WithArtifactAndEmptyOutput_DoesNotStartWithNewline()
+  {
+    ToolResult result = ExecResultFormatter.Format(ExecRunResult.Completed(""), Options, "C:\\tmp\\a.txt");
+
+    Assert.StartsWith("[exec:artifact", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Completed_OverCap_SeparatorsAreLineFeedsOnly()
+  {
+    ExecOptions options = new() { MaxOutputChars = 20 };
+    ExecRunResult run = ExecRunResult.Completed("0123456789abcdefghijklmnopqrstuvwxyz");
+
+    ToolResult result = ExecResultFormatter.Format(run, options, null);
+
+    Assert.DoesNotContain("\r", result.Content, StringComparison.Ordinal);
+  }
+
+  private static int CountOccurrences(string text, string needle)
+  {
+    int count = 0;
+    int index = 0;
+    while ((index = text.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+    {
+      count++;
+      index += needle.Length;
+    }
+
+    return count;
+  }
+
+  [Fact]
   public void Timeout_IsError_WithGutterAndBoundedPartialOutput()
   {
     ExecRunResult run = new(ExecRunStatus.Timeout, "some output", [],

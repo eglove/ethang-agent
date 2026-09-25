@@ -73,6 +73,70 @@ public class CSharpScriptExecEngineTests
     Assert.Equal(ExecRunStatus.Completed, run.Status); // completed with error lines
     Assert.NotEmpty(run.ErrorLines);
     Assert.Contains("boom", run.ErrorLines[0], StringComparison.Ordinal);
+    // The engine does NOT pre-tag the message: the result formatter owns the
+    // "exec error [ScriptError]:" gutter — tagging here too would double-wrap.
+    Assert.DoesNotContain("[ScriptError]", run.ErrorLines[0], StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task NestedToolMissingBudget_CarriesNestedCallAttribution()
+  {
+    CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([new BareActionProvider()]),
+        workspaceRoot: () => AppContext.BaseDirectory);
+    ExecRunResult run = await engine.ExecuteAsync(
+        new ExecProgram("Tools.read(new { path = \"grand-plan.md\" });"),
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal(ExecRunStatus.Completed, run.Status);
+    Assert.NotEmpty(run.ErrorLines);
+    Assert.Contains("Error [MissingParameter]: nested call 'read':", run.ErrorLines[0], StringComparison.Ordinal);
+    Assert.Contains("(the exec-level timeoutSeconds does not apply to nested calls)", run.ErrorLines[0], StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task NestedToolMissingBudget_FormattedSurface_IsSingleWrapped_NoLeadingNewline()
+  {
+    CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([new BareActionProvider()]),
+        workspaceRoot: () => AppContext.BaseDirectory);
+    ExecRunResult run = await engine.ExecuteAsync(
+        new ExecProgram("Tools.read(new { path = \"grand-plan.md\" });"),
+        ct: TestContext.Current.CancellationToken);
+
+    ToolResult result = ExecResultFormatter.Format(run, ExecOptions.Default, null);
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("exec error [ScriptError]: Error [MissingParameter]: nested call 'read':",
+        result.Content, StringComparison.Ordinal);
+    Assert.Equal(1, CountOccurrences(result.Content, "[ScriptError]"));
+    Assert.DoesNotContain("\r", result.Content, StringComparison.Ordinal);
+  }
+
+  /// <summary>A provider exposing one budgetable action ("read") so nested-call
+  ///     validation can run against a real registry entry.</summary>
+  private sealed class BareActionProvider : ICapabilityProvider
+  {
+    public string Id => "bare";
+    public IReadOnlyList<ActionDescriptor> Actions { get; } =
+    [
+        new ActionDescriptor("read", "Reads a file.", "Contract text.",
+                [new ActionParameter("path", "String", "File path.")]),
+        ];
+    public Task<CapabilityInvocationResult> InvokeAsync(string actionName,
+        string jsonArguments, CancellationToken ct = default)
+        => Task.FromResult(CapabilityInvocationResult.Ok("ok"));
+  }
+
+  private static int CountOccurrences(string text, string needle)
+  {
+    int count = 0;
+    int index = 0;
+    while ((index = text.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+    {
+      count++;
+      index += needle.Length;
+    }
+
+    return count;
   }
 
   [Fact]

@@ -20,12 +20,13 @@ public static class ExecResultFormatter
     {
       int half = options.MaxOutputChars / 2;
       _ = sb.Append(run.Output[..half]);
-      _ = sb.AppendLine();
-      _ = sb.AppendLine(CultureInfo.InvariantCulture,
+      _ = sb.Append('\n');
+      _ = sb.Append(CultureInfo.InvariantCulture,
           $"[exec: output truncated — showing first {half} and last {half} of {run.Output.Length} characters]");
       if (artifactPath is not null)
       {
-        _ = sb.AppendLine(CultureInfo.InvariantCulture, $"[exec:artifact {artifactPath}]");
+        _ = sb.Append('\n');
+        _ = sb.Append(CultureInfo.InvariantCulture, $"[exec:artifact {artifactPath}]");
       }
 
       _ = sb.Append(run.Output[^half..]);
@@ -35,13 +36,26 @@ public static class ExecResultFormatter
       _ = sb.Append(run.Output);
       if (artifactPath is not null)
       {
-        _ = sb.AppendLine().Append(CultureInfo.InvariantCulture, $"[exec:artifact {artifactPath}]");
+        if (sb.Length > 0)
+        {
+          _ = sb.Append('\n');
+        }
+
+        _ = sb.Append(CultureInfo.InvariantCulture, $"[exec:artifact {artifactPath}]");
       }
     }
 
     foreach (string line in run.ErrorLines)
     {
-      _ = sb.AppendLine().Append(CultureInfo.InvariantCulture, $"exec error [ScriptError]: {line}");
+      // Separators only join existing content: an empty-output run must not start
+      // with a stray newline (the ^M-leading transcript rows this formatter once
+      // produced).
+      if (sb.Length > 0)
+      {
+        _ = sb.Append('\n');
+      }
+
+      _ = sb.Append(CultureInfo.InvariantCulture, $"exec error [ScriptError]: {line}");
     }
 
     return new ToolResult(sb.ToString(), run.ErrorLines.Count > 0, title);
@@ -92,7 +106,7 @@ public static class ExecResultFormatter
 
     if (run.Output.Length > 0)
     {
-      _ = sb.AppendLine();
+      _ = sb.Append('\n');
       _ = sb.Append(ClampHead(run.Output, options.MaxErrorChars));
     }
     return new ToolResult(sb.ToString(), true);

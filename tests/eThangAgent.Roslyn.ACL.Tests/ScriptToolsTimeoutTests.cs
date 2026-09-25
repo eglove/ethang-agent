@@ -42,6 +42,8 @@ public class ScriptToolsTimeoutTests
     (ScriptTools? tools, CapturingProvider _) = Make();
     Exception ex = Assert.Throws<ScriptToolException>(() => tools.Invoke("do", new { x = "y" }));
     Assert.Contains("Error [MissingParameter]:", ex.Message, StringComparison.Ordinal);
+    Assert.Contains("nested call 'do':", ex.Message, StringComparison.Ordinal);
+    Assert.Contains("(the exec-level timeoutSeconds does not apply to nested calls)", ex.Message, StringComparison.Ordinal);
     Assert.Contains("timeoutSeconds", ex.Message, StringComparison.Ordinal);
   }
 
@@ -85,6 +87,7 @@ public class ScriptToolsTimeoutTests
     (ScriptTools? tools, CapturingProvider _) = Make();
     Exception ex = Assert.Throws<ScriptToolException>(() => tools.Invoke("do", /*lang=json,strict*/ """{"x":"y"}"""));
     Assert.Contains("Error [MissingParameter]:", ex.Message, StringComparison.Ordinal);
+    Assert.Contains("nested call 'do':", ex.Message, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -111,6 +114,7 @@ public class ScriptToolsTimeoutTests
 
     Exception ex = Assert.Throws<ScriptToolException>(() => globals.Tools.Invoke("waiter", new { }));
     Assert.Contains("Error [MissingParameter]:", ex.Message, StringComparison.Ordinal);
+    Assert.Contains("nested call 'waiter':", ex.Message, StringComparison.Ordinal);
   }
 
   /// <summary>Completes after 1.2s — beyond any 1-second budget.</summary>

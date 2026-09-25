@@ -162,8 +162,10 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     catch (Exception ex)
     {
       string output = string.Join("\n", globals.OutputLines);
-      return new ExecRunResult(ExecRunStatus.Completed, output,
-          [$"Error [ScriptError]: {ex.Message}"]);
+      // No engine-side [ScriptError] tag: ScriptToolException messages already carry
+      // their Error [CODE] tag, and the result formatter owns the "exec error
+      // [ScriptError]:" gutter — tagging here too double-wraps the surface.
+      return new ExecRunResult(ExecRunStatus.Completed, output, [ex.Message]);
     }
     finally
     {

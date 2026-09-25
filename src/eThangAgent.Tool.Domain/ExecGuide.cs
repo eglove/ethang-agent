@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.10";
+  public const string Version = "2.11";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -40,11 +40,17 @@ public static class ExecGuide
 
     ONLY `Tools.List()` and `Tools.Describe(...)` are exempt — local meta-methods that
     never dispatch. Every other nested call without `timeoutSeconds` THROWS
-    `ScriptToolException` immediately (surfaced as `Error [ScriptError]` alongside any
-    Output() evidence) instead of returning an error string a batch script may ignore:
+    `ScriptToolException` immediately (surfaced alongside any Output() evidence) instead
+    of returning an error string a batch script may ignore. IMPORTANT: the exec-level
+    `timeoutSeconds` budget does NOT carry into nested calls — each one needs its own:
 
-        Tools.Invoke("state.set", new { key = "k" });        // throws: MissingParameter
+        Tools.Invoke("state.set", new { key = "k" });        // throws: Error [MissingParameter]:
+                                                             // nested call 'state.set': Missing
+                                                             // required parameter 'timeoutSeconds'...
         Tools.Invoke("state.set", new { timeoutSeconds = 30, key = "k", value = "v" });   // ok
+
+    The words `nested call '<name>':` in the error text mean the problem is in THAT
+    call's anonymous object — not in the exec tool call itself.
 
     Discover tools instead of guessing:
 
@@ -250,9 +256,11 @@ public static class ExecGuide
     - timeoutSeconds is the only execution budget; when it elapses the call fails
       with Error [ToolTimeout]. There is no other cap.
     - Every tool call — exec and every action inside scripts — REQUIRES a timeoutSeconds
-      argument: a whole-second budget, 1..3600. A call without it fails with MissingParameter,
-      and a call exceeding its budget fails with Error [ToolTimeout]; re-issue with a larger
-      budget if the work genuinely needs longer. Choose generously but honestly.
+      argument: a whole-second budget, 1..3600. A nested call without it fails with
+      "Error [MissingParameter]: nested call '<name>': ..."; add the parameter to THAT
+      nested call's anonymous object, not to the exec call. A call exceeding its budget
+      fails with Error [ToolTimeout]; re-issue with a larger budget if the work genuinely
+      needs longer. Choose generously but honestly.
     - Use anonymous objects for tool args: new { path = "...", startLine = 1, timeoutSeconds = 60 }.
     """;
 }

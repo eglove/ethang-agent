@@ -332,7 +332,8 @@ public sealed class ScriptTools
     Result<TimeSpan> budget = ToolTimeout.Parse(document);
     if (!budget.IsSuccess)
     {
-      throw new ScriptToolException($"Error [{budget.Error.Code}]: {budget.Error.Message}");
+      throw new ScriptToolException(
+          $"Error [{budget.Error.Code}]: nested call '{name}': {budget.Error.Message} (the exec-level timeoutSeconds does not apply to nested calls)");
     }
 
     // Tools whose contract declares timeoutSeconds (ITool-backed actions) re-validate
@@ -388,11 +389,24 @@ public sealed class ScriptTools
     {
       // Argument-shape violations have no legitimate continue-path: the script cannot
       // branch its way out of a malformed call, so an in-band error here is exactly the
-      // buried-failure hazard the pre-dispatch throws already prevent.
-      throw new ScriptToolException(result.Content);
+      // buried-failure hazard the pre-dispatch throws already prevent. The nested-call
+      // attribution is inserted after the Error [CODE]: prefix so the wire contract holds.
+      throw new ScriptToolException(NestError(name, result.Content));
     }
 
     return result.Content;
+  }
+
+  /// <summary>Inserts "nested call '<paramref name="name"/>'": " after the leading
+  ///     "Error [CODE]: " prefix (or prepends it when the content carries no such
+  ///     prefix), so contract violations thrown from a script name the inner
+  ///     invocation rather than reading as an exec-envelope failure.</summary>
+  private static string NestError(string name, string content)
+  {
+    int prefixEnd = content.IndexOf("]: ", StringComparison.Ordinal);
+    return prefixEnd < 0
+        ? $"nested call '{name}': {content}"
+        : $"{content[..(prefixEnd + 3)]}nested call '{name}': {content[(prefixEnd + 3)..]}";
   }
   /// <summary>Codes that identify an argument-shape contract violation: knowable from
   ///     the arguments alone, before any state changed. These throw from Invoke;

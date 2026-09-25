@@ -43,6 +43,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IAgentEvents? _events = options?.Events;
   private readonly double _compactionThreshold = options?.CompactionThreshold ?? DefaultCompactionThreshold;
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
+  private readonly ToolRepeatGuard _repeatGuard = new();
 
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
   public ModelConfig Config { get; } = config ?? throw new ArgumentNullException(nameof(config));
@@ -92,8 +93,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       LastTurnToolCalls = 0;
       ShrankThisTurn = false;
       _shrankThisTurnObserved = false;
-      ShrankThisTurn = false;
-      _shrankThisTurnObserved = false;
+      _repeatGuard.Reset();
       // Auto-continuations used by this turn only: reset here, never carried between turns.
       int autoContinuations = 0;
       DrainInbox(inbox);
@@ -348,6 +348,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       if (toolResult.Content.Contains(ContextShrinkSentinel, StringComparison.Ordinal))
       {
         _shrankThisTurnObserved = true;
+      }
+      if (_repeatGuard.Observe(call.Name, call.Arguments, toolResult.IsError, toolResult.Content) is { } guardLine)
+      {
+        Conversation.AddSystemMessage(guardLine);
+        callbacks?.OnSystemMessage?.Invoke(guardLine);
       }
       _heartbeat?.Beat(Id);
       PublishProgress(ChildPhase.Draining, "tool-result");
