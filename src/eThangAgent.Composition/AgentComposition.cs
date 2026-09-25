@@ -215,7 +215,7 @@ public static class AgentComposition
         // provider resolve ISkillCatalog and see the merged view.
         .AddSingleton<EmbeddedSkillCatalog>()
         .AddSingleton<ISkillDirectorySource, DirectorySkillSource>()
-        .AddSingleton<CompositeSkillCatalog>(sp => new CompositeSkillCatalog(
+        .AddSingleton(sp => new CompositeSkillCatalog(
             sp.GetRequiredService<EmbeddedSkillCatalog>(),
             sp.GetRequiredService<ISkillDirectorySource>(),
             sp.GetRequiredService<ResolvedSkillDirectories>().List))
