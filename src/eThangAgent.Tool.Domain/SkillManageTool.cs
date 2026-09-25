@@ -11,9 +11,9 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
 
   public ToolDefinition Definition { get; } = new(
       "skill_manage",
-      "Create, update, or delete a learned methodology skill. timeoutSeconds and action are mandatory: " +
+      "Create, update, delete, or lint a skill. timeoutSeconds and action are mandatory: " +
       "action is exactly Create, Update, " +
-      "or Delete (case-sensitive). name must be lowercase letters, digits, and hyphens, starting " +
+      "Delete, or Lint (case-sensitive). name must be lowercase letters, digits, and hyphens, starting " +
       "with a letter or digit (64 chars max). Create requires description and body; " +
       "provenanceSession optionally tags the originating session. Update changes at least one of " +
       "description/body, bumps the version by one, and preserves creation metadata. Delete " +
@@ -24,13 +24,14 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
       "skill fails SkillNotFound (nothing learned exists to change); updating a truly unknown " +
       "name fails SkillNotFound with 'No learned skill named <name> to update. Use action " +
       "Create first.'; updating or deleting a " +
-      "built-in fails BuiltInImmutable. Output is a single annotation line: " +
-      "`[skill-manage] created '<name>' v1`, `[skill-manage] updated '<name>' v<N>`, or " +
-      "`[skill-manage] deleted '<name>'`. Errors begin with `Error [Code]:`.",
+      "built-in fails BuiltInImmutable. Lint works over ANY skill (built-in, file, or learned) " +
+      "and checks its description against the documented trigger rules (third person; what it " +
+      "does AND when to use it; front-loaded key terms). Output: `[skill-lint] '<name>' clean`, " +
+      "or a `[skill-lint]` header plus one `[lint] <rule>: <message>` line per finding; " +
+      "other results are the `[skill-manage]` annotation lines. Errors begin with `Error [Code]:`.",
       [
-          new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("action", ToolParameterType.Text,
-                "Exactly Create, Update, or Delete (case-sensitive)."),
+                "Exactly Create, Update, Delete, or Lint (case-sensitive). Lint is read-only."),
             new ToolParameter("name", ToolParameterType.Text,
                 "Skill name: lowercase letters, digits, and hyphens; starts with a letter or digit; 64 chars max."),
             new ToolParameter("description", ToolParameterType.Text,
@@ -65,9 +66,61 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
       SkillManageAction.Create => CreateAsync(v, token),
       SkillManageAction.Update => UpdateAsync(v, token),
       SkillManageAction.Delete => DeleteAsync(v, token),
+      SkillManageAction.Lint => LintAsync(v, token),
       // Unnamed enum values cannot occur.
       _ => throw new InvalidOperationException("Unknown skill_manage action."),
     }, ct);
+  }
+
+  /// <summary>Lint (vault move 6b): runs the deterministic description linter over
+  ///     any skill the catalog or learned store holds (built-in, file, or learned)
+  ///     and returns the findings. Read-only: no store writes, no version bump.
+  ///     Output: one `[skill-lint]` header line, then one `[lint] &lt;rule&gt;: &lt;message&gt;`
+  ///     line per finding - or `[skill-lint] 'name' clean` when it passes.</summary>
+  private async Task<ToolResult> LintAsync(SkillManageInput input, CancellationToken ct)
+  {
+    Result<string> description = await ResolveDescriptionAsync(input.Name, ct).ConfigureAwait(false);
+    return description.IsSuccess
+        ? LintResult(input.Name, description.Value)
+        : Err(description.Error);
+  }
+
+  /// <summary>Resolves the description to lint: catalog first (built-in or file),
+  ///     then the learned store. A name held nowhere fails with the learned
+  ///     lookup's SkillNotFound.</summary>
+  private async Task<Result<string>> ResolveDescriptionAsync(string name, CancellationToken ct)
+  {
+    Result<SkillDefinition> fromCatalog = await _catalog.GetAsync(name, ct).ConfigureAwait(false);
+    if (fromCatalog.IsSuccess)
+    {
+      return Result.Success(fromCatalog.Value.Description);
+    }
+
+    Result<SkillDefinition?> fromLearned = await _learned.GetAsync(name, ct).ConfigureAwait(false);
+    return fromLearned.IsSuccess && fromLearned.Value is { } learnedSkill
+        ? Result.Success(learnedSkill.Description)
+        : Result.Failure<string>(ResolveFailure(fromCatalog, fromLearned)
+            ?? new DomainError("SkillNotFound", $"No skill named '{name}'."));
+  }
+
+  /// <summary>The learned lookup failed, or it succeeded but holds no row: pick the
+  ///     error that says which name-resolution path broke.</summary>
+  private static DomainError ResolveFailure(
+      Result<SkillDefinition> fromCatalog, Result<SkillDefinition?> fromLearned) =>
+      fromLearned.IsSuccess
+          ? fromCatalog.Error ?? new DomainError("SkillNotFound", "no catalog detail")
+          : fromLearned.Error ?? new DomainError("SkillNotFound", "no learned detail");
+
+  private static ToolResult LintResult(string name, string description)
+  {
+    IReadOnlyList<SkillDescriptionFinding> findings = SkillDescriptionLinter.Lint(description);
+    if (findings.Count == 0)
+    {
+      return new ToolResult($"[skill-lint] '{name}' clean", false);
+    }
+
+    string body = string.Join("\n", findings.Select(f => $"[lint] {f.Rule}: {f.Message}"));
+    return new ToolResult($"[skill-lint] '{name}' has {findings.Count} finding(s):\n{body}", false);
   }
 
   private async Task<ToolResult> CreateAsync(SkillManageInput input, CancellationToken ct)

@@ -4,7 +4,7 @@ using eThangAgent.SkillDomain;
 
 namespace eThangAgent.ToolDomain;
 
-public enum SkillManageAction { Create, Update, Delete }
+public enum SkillManageAction { Create, Update, Delete, Lint }
 
 public sealed record SkillManageInput(
     SkillManageAction Action,
@@ -19,13 +19,13 @@ public sealed record SkillManageInput(
   private const string BodyName = "body";
   private const string ProvenanceSessionName = "provenanceSession";
   private const string ConfirmName = "confirm";
-  private const string ActionAndNameRequirement = "This tool requires action (Create, Update, or Delete) and name.";
+  private const string ActionAndNameRequirement = "This tool requires action (Create, Update, Delete, or Lint) and name.";
 
   private static readonly string[] AllowedNames =
       [ActionName, NameName, DescriptionName, BodyName, ProvenanceSessionName, ConfirmName, ToolTimeout.ParameterName];
 
   private static readonly string[] AllowedActions =
-      [nameof(SkillManageAction.Create), nameof(SkillManageAction.Update), nameof(SkillManageAction.Delete)];
+      [nameof(SkillManageAction.Create), nameof(SkillManageAction.Update), nameof(SkillManageAction.Delete), nameof(SkillManageAction.Lint)];
 
   public static Result<SkillManageInput> Create(string jsonArguments)
   {
@@ -137,6 +137,11 @@ public sealed record SkillManageInput(
   private static DomainError? ValidateForAction(SkillManageAction action, JsonElement json,
       string? description, string? body)
   {
+    if (action == SkillManageAction.Lint)
+    {
+      return null; // read-only: name resolves the skill to lint; nothing else applies.
+    }
+
     if (action == SkillManageAction.Create)
     {
       return ValidateCreate(description, body);
