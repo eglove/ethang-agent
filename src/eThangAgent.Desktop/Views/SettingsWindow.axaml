@@ -25,17 +25,9 @@
           <TextBox x:Name="OpenRouterKeyBox" Text="{Binding OpenRouterKey}"
                    PasswordChar="{Binding KeyPasswordChar}"
                    PlaceholderText="No OpenRouter API key configured"/>
-          <TextBlock Text="z.ai" FontWeight="Bold" Margin="0,6,0,0"/>
-          <TextBox x:Name="ZaiKeyBox" Text="{Binding ZaiKey}" PasswordChar="{Binding KeyPasswordChar}"
-                   PlaceholderText="No z.ai API key configured"/>
-          <TextBlock Text="Local (OpenAI-compatible)" FontWeight="Bold" Margin="0,6,0,0"/>
-          <TextBox x:Name="LocalBaseUrlBox" Text="{Binding LocalBaseUrlText}"
-                   PlaceholderText="http://localhost:1234"/>
-          <TextBox x:Name="LocalKeyBox" Text="{Binding LocalApiKey}" PasswordChar="{Binding KeyPasswordChar}"
-                   PlaceholderText="No local API key configured"/>
           <CheckBox x:Name="ShowKeysCheck" Content="Show keys" IsChecked="{Binding KeysVisible}" Margin="0,4,0,0"/>
           <TextBlock
-              Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave a field blank to remove that key. The local server address is stored as typed (it is not a secret); a blank base URL removes the Local provider."
+              Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave the field blank to remove the key."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>
@@ -144,18 +136,7 @@
       </TabItem>
       <TabItem Header="Models">
         <StackPanel Spacing="10">
-          <TextBlock Text="z.ai endpoint" FontWeight="Bold"/>
-          <ComboBox x:Name="ZaiEndpointBox" ItemsSource="{Binding EndpointModes}" SelectedItem="{Binding SelectedEndpointMode}">
-            <ComboBox.ItemTemplate>
-              <DataTemplate>
-                <TextBlock Text="{Binding Display}"/>
-              </DataTemplate>
-            </ComboBox.ItemTemplate>
-          </ComboBox>
-          <TextBlock
-              Text="Coding plan (subscription) keys work only on the coding endpoint — against the general endpoint they are rejected as rate-limited. The z.ai capability tools (web search, reader, tokenizer, image, OCR, transcription) exist only on the general endpoint."
-              Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
-          <TextBlock Text="Compaction model" FontWeight="Bold" Margin="0,6,0,0"/>
+          <TextBlock Text="Compaction model" FontWeight="Bold"/>
           <ComboBox x:Name="CompactionModelBox" ItemsSource="{Binding CompactionModels}" SelectedItem="{Binding SelectedCompactionModel}">
             <ComboBox.ItemTemplate>
               <DataTemplate>
@@ -207,11 +188,8 @@
           <TextBlock Text="OpenRouter base URL" FontWeight="Bold"/>
           <TextBox x:Name="OpenRouterBaseUrlBox" Text="{Binding OpenRouterBaseUrlText}"
                    PlaceholderText="https://openrouter.ai (provider default)"/>
-          <TextBlock Text="z.ai base URL" FontWeight="Bold" Margin="0,6,0,0"/>
-          <TextBox x:Name="ZaiBaseUrlBox" Text="{Binding ZaiBaseUrlText}"
-                   PlaceholderText="https://api.z.ai/api (provider default)"/>
           <TextBlock
-              Text="Overrides the provider API roots — for gateways or proxies that mirror the provider's API. Leave a field blank to use the provider default. The stored address is not a secret and applies to newly opened agents."
+              Text="Overrides the provider API root — for gateways or proxies that mirror the provider's API. Leave the field blank to use the provider default. The stored address is not a secret and applies to newly opened agents."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>

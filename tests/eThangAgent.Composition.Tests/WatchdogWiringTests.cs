@@ -15,7 +15,6 @@ public class WatchdogWiringTests
       .AddEThangAgentCore(
           new AgentSettings(
               new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-              new ZaiSettings(null, new Uri("https://zai.test")),
               new SubAgentOptions(null, 2)),
           Providers.OpenRouter,
           ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,

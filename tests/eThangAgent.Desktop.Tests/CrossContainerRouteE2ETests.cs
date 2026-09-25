@@ -26,7 +26,6 @@ public class CrossContainerRouteE2ETests
 {
   private static AgentSettings Settings(Uri openRouterBaseUrl) => new(
       new OpenRouterSettings("sk-or-test", openRouterBaseUrl),
-      new ZaiSettings(null, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2));
 
   /// <summary>Subscribes a capture list to a session's event stream; the disposable

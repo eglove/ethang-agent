@@ -28,7 +28,6 @@ public class DesktopPipelineSmokeTests
 
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", server.BaseUrl),
-        new ZaiSettings(null, new Uri("https://zai.test")),
         new SubAgentOptions(null, 1));
 
     using ServiceProvider services = new ServiceCollection()

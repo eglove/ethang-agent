@@ -3,14 +3,12 @@ using Avalonia.Interactivity;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Views;
 
-/// <summary>The settings modal: six categorized tabs - API Keys (one masked field
-///     per provider plus the local base URL), Files, Models (z.ai endpoint, compaction
-///     model), Agents (sub-agent and watchdog knobs), Advanced (provider base URLs),
-///     Git (commit style) -
+/// <summary>The settings modal: six categorized tabs - API Keys (one masked key
+///     field), Files, Models (compaction model), Agents (sub-agent and watchdog
+///     knobs), Advanced (provider base URL), Git (commit style) -
 ///     with a shared validation-error + Save/Cancel footer outside the tabs.
 ///     Confirming closes the dialog with the validated <see cref="SettingsUpdate"/>;
 ///     cancelling closes it with null. The view only owns window mechanics —
@@ -21,27 +19,25 @@ internal partial class SettingsWindow : Window
 
   public SettingsWindow() => InitializeComponent();
 
-  public SettingsWindow(string? openRouterKey, string? zaiKey,
-      ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle,
+  public SettingsWindow(string? openRouterKey, CommitStyle commitStyle,
       IReadOnlyList<CompactionModelOption>? compactionModels = null,
       CompactionModelOption? selectedCompactionModel = null,
-      string? localBaseUrl = null, string? localApiKey = null,
       IReadOnlyList<SessionFileEntry>? globalFiles = null,
       IReadOnlyList<SessionFileEntry>? workspaceFiles = null,
       string? workspaceRoot = null,
       string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
       string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
-      string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null, bool computerUse = false,
+      string? openRouterBaseUrlText = null, bool computerUse = false,
       IReadOnlyList<SessionFileEntry>? globalSkillDirectories = null,
       IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null,
       string? skillRegistryDefaultTarget = null) : this()
   {
-    _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle,
-        compactionModels, selectedCompactionModel, localBaseUrl, localApiKey,
+    _vm = new SettingsViewModel(openRouterKey, commitStyle,
+        compactionModels, selectedCompactionModel,
         globalFiles, workspaceFiles, workspaceRoot,
         maxConcurrentAgentsText, defaultModelText, remoteHost,
         watchdogTickText, watchdogIdleText, watchdogWrapUpText,
-        openRouterBaseUrlText, zaiBaseUrlText, computerUse,
+        openRouterBaseUrlText, computerUse,
         globalSkillDirectories, workspaceSkillDirectories, skillRegistryDefaultTarget);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);

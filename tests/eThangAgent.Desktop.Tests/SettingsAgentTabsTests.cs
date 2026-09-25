@@ -1,5 +1,4 @@
 using eThangAgent.Desktop.ViewModels;
-using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -13,15 +12,14 @@ public class SettingsAgentTabsTests
   [Fact]
   public void Save_CarriesAgentAndAdvancedFields()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan,
+    SettingsViewModel vm = new(null,
         maxConcurrentAgentsText: " 6 ",
         defaultModelText: " glm-5.3 ",
         remoteHost: true,
         watchdogTickText: " 00:00:02 ",
         watchdogIdleText: " 00:15:00 ",
         watchdogWrapUpText: " 2 ",
-        openRouterBaseUrlText: " https://openrouter.ai ",
-        zaiBaseUrlText: " https://api.z.ai/api ");
+        openRouterBaseUrlText: " https://openrouter.ai ");
 
     SettingsUpdate? saved = null;
     vm.SaveRequested += (_, update) => saved = update;
@@ -35,13 +33,12 @@ public class SettingsAgentTabsTests
     Assert.Equal("00:15:00", saved.WatchdogIdleText);
     Assert.Equal("2", saved.WatchdogWrapUpText);
     Assert.Equal("https://openrouter.ai", saved.OpenRouterBaseUrlText);
-    Assert.Equal("https://api.z.ai/api", saved.ZaiBaseUrlText);
   }
 
   [Fact]
   public void ValidationError_RejectsBadMaxConcurrent()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan,
+    SettingsViewModel vm = new(null,
         maxConcurrentAgentsText: "0");
 
     Assert.False(vm.CanSave);
@@ -52,7 +49,7 @@ public class SettingsAgentTabsTests
   [Fact]
   public void ValidationError_RejectsBareIntegerDuration()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan,
+    SettingsViewModel vm = new(null,
         watchdogTickText: "5");
 
     Assert.NotNull(vm.ValidationError);
@@ -62,7 +59,7 @@ public class SettingsAgentTabsTests
   [Fact]
   public void ValidationError_RejectsBadAdvancedUrl()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan,
+    SettingsViewModel vm = new(null,
         openRouterBaseUrlText: "nope");
 
     Assert.NotNull(vm.ValidationError);
@@ -72,14 +69,13 @@ public class SettingsAgentTabsTests
   [Fact]
   public void Blank_Fields_Are_Legal_Defaults()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan,
+    SettingsViewModel vm = new(null,
         maxConcurrentAgentsText: "   ",
         defaultModelText: " ",
         watchdogTickText: "",
         watchdogIdleText: "  ",
         watchdogWrapUpText: " ",
-        openRouterBaseUrlText: "   ",
-        zaiBaseUrlText: " ");
+        openRouterBaseUrlText: "   ");
 
     Assert.True(vm.CanSave);
     Assert.Null(vm.ValidationError);

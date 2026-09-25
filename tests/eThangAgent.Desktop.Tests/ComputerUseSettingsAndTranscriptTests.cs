@@ -1,7 +1,6 @@
 using Avalonia.Headless.XUnit;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -12,8 +11,7 @@ public class ComputerUseSettingsAndTranscriptTests
   [Fact]
   public void ComputerUse_Toggle_Prefills_And_Saves()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
-        computerUse: true);
+    SettingsViewModel vm = new(null, CommitStyle.Conventional, computerUse: true);
     Assert.True(vm.ComputerUse);
 
     SettingsUpdate? saved = null;
@@ -28,7 +26,7 @@ public class ComputerUseSettingsAndTranscriptTests
   [Fact]
   public void ComputerUse_Default_Is_Off()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+    SettingsViewModel vm = new(null);
     SettingsUpdate? saved = null;
     vm.SaveRequested += (_, update) => saved = update;
     vm.SaveCommand.Execute(null);

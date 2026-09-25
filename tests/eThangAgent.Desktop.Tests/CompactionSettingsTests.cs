@@ -1,6 +1,5 @@
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
-using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -10,7 +9,7 @@ public class CompactionSettingsTests
   [Fact]
   public void Automatic_IsDefault_AndCarriesNullModelId()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan);
+    SettingsViewModel vm = new(null);
 
     Assert.Equal(CompactionModelOption.Automatic, vm.SelectedCompactionModel);
     Assert.Null(vm.SelectedCompactionModel.ModelId);
@@ -20,7 +19,7 @@ public class CompactionSettingsTests
   [Fact]
   public void SaveRequest_CarriesSelectedModelId_AutomaticCarriesNull()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan,
+    SettingsViewModel vm = new(null,
         compactionModels: [CompactionModelOption.Automatic, new CompactionModelOption("glm-5.3-flash", "glm-5.3-flash")],
         selectedCompactionModel: new CompactionModelOption("glm-5.3-flash", "glm-5.3-flash"));
     SettingsUpdate? received = null;

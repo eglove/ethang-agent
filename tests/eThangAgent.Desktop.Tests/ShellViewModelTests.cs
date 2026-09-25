@@ -4,7 +4,6 @@ using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -93,9 +92,8 @@ public class ShellViewModelTests
             : null;
   }
 
-  private static AgentSettings Settings(string? openRouter = null, string? zai = null) => new(
+  private static AgentSettings Settings(string? openRouter = null) => new(
       new OpenRouterSettings(openRouter, new Uri("https://openrouter.test")),
-      new ZaiSettings(zai, new Uri("https://zai.test")),
       new AgentDomain.SubAgentOptions(null, 2));
 
   private static MainViewModel CreateSettingsShell(
@@ -144,9 +142,9 @@ public class ShellViewModelTests
   {
     MainViewModel vm = CreateShell((root, provider) => FakeSession(root, provider));
 
-    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "zai");
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
-    Assert.Equal("z.ai", vm.Tabs[0].ViewModel.Status.Provider);
+    Assert.Equal("OpenRouter", vm.Tabs[0].ViewModel.Status.Provider);
   }
 
   [Fact]
@@ -160,20 +158,6 @@ public class ShellViewModelTests
     _ = Assert.Single(vm.Tabs);
     Assert.Equal(vm.Tabs[0], vm.SelectedTab);
     Assert.Equal(vm.Tabs[0], second.Value);
-  }
-
-  [Fact]
-  public async Task Opening_Same_Directory_Under_Both_Providers_Opens_Two_Tabs()
-  {
-    // Provider is part of tab identity: one workspace may run under both providers
-    // concurrently — they share workspace-scoped state by design.
-    MainViewModel vm = CreateShell((root, provider) => FakeSession(root, provider));
-
-    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
-    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "zai");
-
-    Assert.Equal(2, vm.Tabs.Count);
-    Assert.Equal("z.ai", vm.Tabs[1].ViewModel.Status.Provider);
   }
 
   [Fact]
@@ -233,11 +217,11 @@ public class ShellViewModelTests
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateShell((root, provider) => FakeSession(root, provider), preferences);
 
-    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "zai");
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
     (string key, string value) = Assert.Single(preferences.Writes);
     Assert.Equal(Providers.PreferenceKey, key);
-    Assert.Equal("zai", value);
+    Assert.Equal("openrouter", value);
   }
 
   [Fact]
@@ -263,20 +247,13 @@ public class ShellViewModelTests
     MainViewModel vm = CreateSettingsShell(Settings(), preferences, new FakeKeyProtector());
     Assert.False(vm.HasConfiguredProvider);
 
-    await vm.ApplySettingsAsync(new SettingsUpdate("  sk-or-v1-abc  ", " zai-key ",
-        ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
-        LocalBaseUrlText: "http://localhost:1234", LocalApiKey: "lm-key"));
+    await vm.ApplySettingsAsync(new SettingsUpdate("  sk-or-v1-abc  ", CommitStyle.Conventional));
 
-    // Keys land trimmed and PROTECTED — never plaintext; the mode lands plaintext
-    // (it is not a secret); the local pair (absent from this update) clears. The
-    // Agents/Advanced knobs persist in the same pass (all defaults here).
+    // Keys land trimmed and PROTECTED — never plaintext. The Agents/Advanced knobs
+    // persist in the same pass (all defaults here).
     Assert.Equal(
         [
             (OpenRouterSettings.PreferenceKey, "protected:sk-or-v1-abc"),
-            (ZaiSettings.PreferenceKey, "protected:zai-key"),
-            (LocalSettings.BaseUrlPreferenceKey, "http://localhost:1234"),
-            (LocalSettings.PreferenceKey, "protected:lm-key"),
-            (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
             (AgentPreferenceKeys.RemoteHost, "false"),
             (AgentPreferenceKeys.ComputerUseEnabled, "false"),
@@ -288,15 +265,12 @@ public class ShellViewModelTests
     Assert.Equal(
         [AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
-         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl,
-         AgentPreferenceKeys.ZaiBaseUrl],
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl],
         preferences.Deletions);
 
-    Assert.Equal(["openrouter", "zai", "local"], vm.AvailableProviders.Select(p => p.Id));
+    Assert.Equal(["openrouter"], vm.AvailableProviders.Select(p => p.Id));
     Assert.True(vm.HasConfiguredProvider);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
-    Assert.Equal("zai-key", vm.ConfiguredZaiKey);
-    Assert.Equal(ZaiEndpointMode.CodingPlan, vm.ConfiguredZaiEndpointMode);
   }
 
   [Fact]
@@ -308,19 +282,16 @@ public class ShellViewModelTests
         preferredProviderId: Providers.OpenRouter);
     Assert.Equal(["openrouter"], vm.AvailableProviders.Select(p => p.Id));
 
-    await vm.ApplySettingsAsync(new SettingsUpdate(null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional));
+    await vm.ApplySettingsAsync(new SettingsUpdate(null, CommitStyle.Conventional));
 
     Assert.Equal(
-        [OpenRouterSettings.PreferenceKey, ZaiSettings.PreferenceKey,
-         LocalSettings.BaseUrlPreferenceKey, LocalSettings.PreferenceKey,
+        [OpenRouterSettings.PreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
-         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl,
-         AgentPreferenceKeys.ZaiBaseUrl],
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl],
         preferences.Deletions);
     Assert.Equal(
         [
-            (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
             (AgentPreferenceKeys.RemoteHost, "false"),
             (AgentPreferenceKeys.ComputerUseEnabled, "false"),
@@ -333,69 +304,29 @@ public class ShellViewModelTests
   }
 
   [Fact]
-  public async Task ApplySettings_Revalidates_Preferred_Provider()
-  {
-    MainViewModel vm = CreateSettingsShell(
-        Settings(openRouter: "sk-or-v1-abc", zai: "zai-key"),
-        new FakePreferenceStore(), new FakeKeyProtector(),
-        preferredProviderId: Providers.Zai);
-    Assert.Equal("zai", vm.PreferredProviderId);
-
-    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", "", ZaiEndpointMode.CodingPlan, CommitStyle.Conventional)); // z.ai key cleared
-
-    Assert.Equal(["openrouter"], vm.AvailableProviders.Select(p => p.Id));
-    Assert.Equal("openrouter", vm.PreferredProviderId);
-  }
-
-  [Fact]
   public async Task ApplySettings_Without_Protector_Never_Persists_Plaintext()
   {
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateSettingsShell(Settings(), preferences, protector: null);
 
-    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional));
+    await vm.ApplySettingsAsync(new SettingsUpdate("sk-or-v1-abc", CommitStyle.Conventional));
 
     // Strict boundary: no protector means no durable key, ever. The in-memory
-    // surface still reflects the edit — only persistence is skipped. (The z.ai
-    // delete no-ops — the key was never stored.) The plaintext mode preference
-    // still lands: it is not a secret and needs no protector. The remote-host
-    // flag persists plaintext for the same reason.
+    // surface still reflects the edit — only persistence is skipped. The commit
+    // style and remote-host flag persist plaintext: they are not secrets.
     Assert.Equal(
         [
-            (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
             (AgentPreferenceKeys.RemoteHost, "false"),
             (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
     Assert.Equal(
-        [ZaiSettings.PreferenceKey, LocalSettings.BaseUrlPreferenceKey, LocalSettings.PreferenceKey,
-         AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
+        [AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
-         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl,
-         AgentPreferenceKeys.ZaiBaseUrl],
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl],
         preferences.Deletions);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
-  }
-
-  [Fact]
-  public async Task ApplySettings_Persists_And_Applies_Zai_Endpoint_Mode()
-  {
-    FakePreferenceStore preferences = new();
-    MainViewModel vm = CreateSettingsShell(Settings(zai: "zai-key"), preferences, new FakeKeyProtector());
-
-    await vm.ApplySettingsAsync(new SettingsUpdate(null, "zai-key", ZaiEndpointMode.GeneralApi, CommitStyle.Conventional));
-
-    Assert.Equal(
-        [
-            (ZaiSettings.PreferenceKey, "protected:zai-key"),
-            (ZaiSettings.EndpointModePreferenceKey, "general"),
-            (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
-            (AgentPreferenceKeys.RemoteHost, "false"),
-            (AgentPreferenceKeys.ComputerUseEnabled, "false"),
-        ],
-        preferences.Writes);
-    Assert.Equal(ZaiEndpointMode.GeneralApi, vm.ConfiguredZaiEndpointMode);
   }
 
   [Fact]
@@ -581,14 +512,12 @@ public class ShellViewModelTests
   public async Task ApplySettings_Persists_And_Applies_The_Commit_Style()
   {
     FakePreferenceStore preferences = new();
-    MainViewModel vm = CreateSettingsShell(Settings(zai: "zai-key"), preferences, new FakeKeyProtector());
+    MainViewModel vm = CreateSettingsShell(Settings(), preferences, new FakeKeyProtector());
 
-    await vm.ApplySettingsAsync(new SettingsUpdate(null, "zai-key", ZaiEndpointMode.CodingPlan, CommitStyle.Gitmoji));
+    await vm.ApplySettingsAsync(new SettingsUpdate(null, CommitStyle.Gitmoji));
 
     Assert.Equal(
         [
-            (ZaiSettings.PreferenceKey, "protected:zai-key"),
-            (ZaiSettings.EndpointModePreferenceKey, "coding"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Gitmoji"),
             (AgentPreferenceKeys.RemoteHost, "false"),
             (AgentPreferenceKeys.ComputerUseEnabled, "false"),

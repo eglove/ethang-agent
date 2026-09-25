@@ -220,17 +220,15 @@ internal sealed class PluginsSection
 }
 
 /// <summary>One bindable knob row for the window: wraps a <see cref="KnobEntry"/>
-///     and exposes the label and not-applicable tooltip the XAML binds. XAML
-///     compiled bindings need a concrete x:DataType; the dictionary is surfaced
-///     as this row list in fixed display order. Text writes forward to the
-///     entry, whose own change notification is the single source of truth.</summary>
-internal sealed class KnobRow(KnobEntry entry, string tooltip) : ObservableObject
+///     and exposes the label the XAML binds. XAML compiled bindings need a concrete
+///     x:DataType; the dictionary is surfaced as this row list in fixed display
+///     order. Text writes forward to the entry, whose own change notification is
+///     the single source of truth.</summary>
+internal sealed class KnobRow(KnobEntry entry) : ObservableObject
 {
   private readonly KnobEntry _entry = entry;
 
   public string Label { get; } = entry.Label;
-
-  public string Tooltip { get; } = tooltip;
 
   public bool IsEnabled => _entry.IsEnabled;
 
@@ -341,15 +339,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     [KnobParallelToolCalls] = "Parallel tool calls (true/false)",
   };
 
-  /// <summary>The knobs z.ai does not accept — visible but disabled on z.ai
-  ///     sessions (greyed, the tooltip names them not applicable), editable on
-  ///     OpenRouter. Mirrors the z.ai ACL's wire contract (only top_p,
-  ///     frequency_penalty, presence_penalty of the numeric knobs are sent).</summary>
-  private static readonly HashSet<string> ZaiNotApplicable =
-  [
-    KnobTopK, KnobRepetitionPenalty, KnobMinP, KnobTopA, KnobSeed, KnobVerbosity, KnobParallelToolCalls,
-  ];
-
   private readonly SessionModelPreferences _live;
   private readonly Action<ModelSettingsSnapshot> _persist;
   /// <summary>The embedded model section: the same searchable catalog view-model
@@ -385,17 +374,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     then persists null provider settings (never stale values).</summary>
   public bool ShowOpenRouterSection => IsOpenRouter;
 
-  /// <summary>Whether reasoning effort applies to this session's provider.
-  ///     False on local servers — reasoning effort is never sent there (the same
-  ///     named rule the old rail-entry gate enforced); the window then renders
-  ///     the effort selector disabled and a save leaves the preference unset.</summary>
-  public bool IsEffortApplicable => !IsLocal;
-
   private bool IsOpenRouter { get; }
-
-  private bool IsZai { get; }
-
-  private bool IsLocal { get; }
 
   /// <summary>The chosen reasoning effort: <see cref="EffortDefault"/> or a
   ///     <see cref="ReasoningEffort"/> name. The window binds this to its effort
@@ -451,13 +430,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     </summary>
   public IReadOnlyList<ToolToggleRow> ToolToggles { get; }
 
-  /// <summary>The tooltip naming z.ai's not-applicable knobs (visible but
-  ///     disabled there, per the provider-applicability rule).</summary>
-  private const string NotApplicableTooltip = "Not applicable to z.ai";
-
-  /// <summary>The not-applicable tooltip for a knob the provider does not take;
-  ///     empty for applicable knobs.</summary>
-  private string TooltipFor(string knob) => Knobs[knob].IsEnabled ? string.Empty : NotApplicableTooltip;
   public ModelSettingsViewModel(SessionModelPreferences current, string providerName,
       Action<ModelSettingsSnapshot> persist,
       IReadOnlyDictionary<string, string>? persistedKnobTexts = null,
@@ -471,14 +443,11 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     _live = current;
     _persist = persist;
     IsOpenRouter = string.Equals(providerName, ProvidersOpenRouter, StringComparison.Ordinal);
-    IsZai = string.Equals(providerName, ProvidersZai, StringComparison.Ordinal);
-    IsLocal = string.Equals(providerName, ProvidersLocal, StringComparison.Ordinal);
     persistedKnobTexts ??= new Dictionary<string, string>();
-    bool Editable(string knob) => !IsZai || !ZaiNotApplicable.Contains(knob);
     string Text(string knob, string? fromPreferences) =>
         persistedKnobTexts.TryGetValue(knob, out string? persisted) ? persisted : fromPreferences ?? string.Empty;
     KnobEntry CreateEntry(string knob, string? fromPreferences) =>
-        new(knob, KnobLabels[knob], Text(knob, fromPreferences), Editable(knob), OnKnobTextChanged);
+        new(knob, KnobLabels[knob], Text(knob, fromPreferences), isEnabled: true, OnKnobTextChanged);
     Knobs = new Dictionary<string, KnobEntry>
     {
       [KnobTemperature] = CreateEntry(KnobTemperature, Format(_live.Temperature)),
@@ -506,7 +475,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       };
     }
 
-    KnobRows = [.. Knobs.Values.Select(entry => new KnobRow(entry, TooltipFor(entry.Name)))];
+    KnobRows = [.. Knobs.Values.Select(entry => new KnobRow(entry))];
     ToolToggles =
     [
       new ToolToggleRow("Web search", ServerTools.WebSearch, value => ServerTools.WebSearch = value),
@@ -830,8 +799,4 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   };
 
   private const string ProvidersOpenRouter = "openrouter";
-
-  private const string ProvidersZai = "zai";
-
-  private const string ProvidersLocal = "local";
 }

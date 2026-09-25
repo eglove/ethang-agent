@@ -1,7 +1,6 @@
 using System.Globalization;
 using eThangAgent.AgentDomain;
 using eThangAgent.Storage.ACL;
-using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Composition;
 
@@ -21,7 +20,6 @@ public static class AgentPreferenceKeys
   public const string WatchdogIdleThreshold = "subagent_watchdog_idle_threshold";
   public const string WatchdogMaxWrapUpAttempts = "subagent_watchdog_max_wrap_up_attempts";
   public const string OpenRouterBaseUrl = "openrouter_base_url";
-  public const string ZaiBaseUrl = "zai_base_url";
 }
 
 /// <summary>Shipped defaults for settings the UI pre-fills. MaxConcurrentAgents is
@@ -85,8 +83,6 @@ public static class AgentSettingsLoader
 #pragma warning disable S1075 // Anchored provider default; per-host preference overrides it.
             AgentPreferenceKeys.OpenRouterBaseUrl, "https://openrouter.ai").ConfigureAwait(false)),
 #pragma warning restore S1075
-        new ZaiSettings(null, await ReadBaseUrlAsync(preferences,
-            AgentPreferenceKeys.ZaiBaseUrl, ZaiConfiguration.DefaultBaseUrl).ConfigureAwait(false)),
         subAgents,
         RemoteHost: remoteHost,
         ComputerUse: computerUse,

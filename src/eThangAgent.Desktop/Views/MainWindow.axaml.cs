@@ -88,22 +88,20 @@ internal partial class MainWindow : Window
     }
   }
 
-  /// <summary>Shows the settings modal prefilled with the current keys and z.ai
-  ///     endpoint mode. A cancelled dialog is a no-op; a confirmed one applies the
-  ///     settings (persist + factory rebind) on the shell.</summary>
+  /// <summary>Shows the settings modal prefilled with the current key. A cancelled
+  ///     dialog is a no-op; a confirmed one applies the settings (persist + factory
+  ///     rebind) on the shell.</summary>
   private async Task ShowSettingsDialogAsync()
   {
-    SettingsWindow dialog = new(_vm!.ConfiguredOpenRouterKey, _vm.ConfiguredZaiKey,
-        _vm.ConfiguredZaiEndpointMode, _vm.ConfiguredCommitStyle,
+    SettingsWindow dialog = new(_vm!.ConfiguredOpenRouterKey, _vm.ConfiguredCommitStyle,
         await _vm.GetCompactionOptionsAsync(),
         await _vm.GetSelectedCompactionModelAsync(),
-        _vm.ConfiguredLocalBaseUrl, _vm.ConfiguredLocalApiKey,
         await _vm.GetGlobalSessionFilesAsync(),
         await _vm.GetWorkspaceSessionFilesAsync(),
         _vm.SelectedTab?.Container.WorkspaceRoot,
         _vm.ConfiguredMaxConcurrentAgents, _vm.ConfiguredDefaultModel, _vm.ConfiguredRemoteHost,
         _vm.ConfiguredWatchdogTick, _vm.ConfiguredWatchdogIdle, _vm.ConfiguredWatchdogWrapUp,
-        _vm.ConfiguredOpenRouterBaseUrl, _vm.ConfiguredZaiBaseUrl,
+        _vm.ConfiguredOpenRouterBaseUrl,
         _vm.ConfiguredComputerUse,
         await _vm.GetGlobalSkillDirectoriesAsync(),
         await _vm.GetWorkspaceSkillDirectoriesAsync(),

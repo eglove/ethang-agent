@@ -6,29 +6,21 @@ public sealed record ProviderOption(string Id, string DisplayName);
 /// <summary>Provider ids plus the per-provider model identities that code paths must not
 ///     hardcode: the fallback model for failed or unavailable selection, and the selector
 ///     model that powers the two-stage selection pipeline's own LLM calls. OpenRouter's
-///     "auto" pseudo-model routes server-side; a provider without an equivalent supplies
-///     a concrete cheap model instead.</summary>
+///     "auto" pseudo-model routes server-side.</summary>
 public static class Providers
 {
   public const string OpenRouter = "openrouter";
-
-  public const string Zai = "zai";
-
-  public const string Local = "local";
 
   /// <summary>Preference key under which the last user-chosen provider is persisted
   ///     in the app database.</summary>
   public const string PreferenceKey = "active_provider";
 
-  public static bool IsKnown(string? providerName)
-      => providerName is OpenRouter or Zai or Local;
+  public static bool IsKnown(string? providerName) => providerName is OpenRouter;
 
   /// <summary>Human-facing provider name (dropdowns, status bars).</summary>
   public static string DisplayName(string providerName) => providerName switch
   {
     OpenRouter => "OpenRouter",
-    Zai => "z.ai",
-    Local => "Local (OpenAI-compatible)",
     _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id.")
   };
 
@@ -36,7 +28,6 @@ public static class Providers
   public static string FallbackModelId(string providerName) => providerName switch
   {
     OpenRouter => "openrouter/auto",
-    Zai => "glm-5.3-flash",
     _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id.")
   };
 

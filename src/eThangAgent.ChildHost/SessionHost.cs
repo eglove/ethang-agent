@@ -61,17 +61,12 @@ public sealed class SessionHost
     // even though the record declares them required — the supervisor always serializes
     // the full settings, but a hand-written file must fail with a NAMED error here,
     // never a null-reference fault deep in composition.
-    if (deserialized.OpenRouter is null || deserialized.Zai is null || deserialized.SubAgents is null)
+    if (deserialized.OpenRouter is null || deserialized.SubAgents is null)
     {
       List<string> missing = [];
       if (deserialized.OpenRouter is null)
       {
         missing.Add("OpenRouter");
-      }
-
-      if (deserialized.Zai is null)
-      {
-        missing.Add("Zai");
       }
 
       if (deserialized.SubAgents is null)
@@ -89,7 +84,7 @@ public sealed class SessionHost
     // start HostUnavailable (observed: children stuck Running attempts=0 forever).
     AgentSettings settings = deserialized with { RemoteHost = false };
 
-    string providerName = settings.OpenRouter.ApiKey is not null ? Providers.OpenRouter : Providers.Zai;
+    string providerName = Providers.OpenRouter;
     string workspace = ResolveWorkspace(settings.WorkspaceRoot, settingsJsonPath);
     ModelConfig bootstrapModel = ModelConfig.Create(
         Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f,

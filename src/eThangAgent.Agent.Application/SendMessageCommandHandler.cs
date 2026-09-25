@@ -47,7 +47,19 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
     ArgumentNullException.ThrowIfNull(command);
     int turnNumber = Interlocked.Increment(ref _turnCount);
 
-    Ag active = await ResolveAgentAsync(command.Text, onNotice, ct).ConfigureAwait(false);
+    Ag active;
+    try
+    {
+      active = await ResolveAgentAsync(command.Text, onNotice, ct).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+      // Same contract as the loop's own cancellation path (Agent.SendMessage): a budget
+      // or interrupt firing during pre-turn model resolution fails the turn as
+      // TurnCancelled — it must not escape as a raw exception across the
+      // Task<Result<string>> seam.
+      return Result.Failure<string>(new DomainError(Ag.TurnCancelledCode, RuntimeErrors.TurnCancelled));
+    }
 
     Result<string> result = await active.SendMessage(command.Text, callbacks, _inbox, ct)
         .ConfigureAwait(false);

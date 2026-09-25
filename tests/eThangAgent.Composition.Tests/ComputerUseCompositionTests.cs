@@ -15,7 +15,6 @@ public class ComputerUseCompositionTests
 {
   private static AgentSettings Settings(bool computerUse) => new(
       new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-      new ZaiSettings(null, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2),
       ComputerUse: computerUse);
 

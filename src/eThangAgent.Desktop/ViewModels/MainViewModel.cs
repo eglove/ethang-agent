@@ -15,7 +15,6 @@ using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.ViewModels;
@@ -166,29 +165,12 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     (every provider has a model picker).</summary>
   public bool HasSelectedTab => SelectedTab is not null;
 
-  /// <summary>True when the selected tab runs on the local provider. Reasoning effort
-  ///     is never sent to local servers, so the effort picker is gated OFF there — the
-  ///     command's canExecute is the ONE gating mechanism; the menu entry binds to the
-  ///     same command. The model picker stays available on every provider.</summary>
-  public bool IsLocalTab => SelectedTab is { } tab
-      && string.Equals(tab.Container.ProviderName, Providers.Local, StringComparison.Ordinal);
-
   /// <summary>True when at least one provider has a configured API key; gates Open Workspace.</summary>
   public bool HasConfiguredProvider => AvailableProviders.Count > 0;
 
   /// <summary>Keys currently configured — the settings dialog's prefill (null when
   ///     no key is set or settings editing is disabled).</summary>
   public string? ConfiguredOpenRouterKey => _settings?.OpenRouter.ApiKey;
-
-  public string? ConfiguredZaiKey => _settings?.Zai.ApiKey;
-
-  /// <summary>The local base URL the settings modal prefills (null when unset or
-  ///     settings editing is disabled) — raw text, exactly what was configured.</summary>
-  public string? ConfiguredLocalBaseUrl => _settings?.Local?.BaseUrlText;
-
-  /// <summary>The local API key the settings modal prefills (null when unset or
-  ///     settings editing is disabled).</summary>
-  public string? ConfiguredLocalApiKey => _settings?.Local?.ApiKey;
 
   /// <summary>The max-concurrent-agents text the settings modal prefills: the loaded
   ///     value (the shipped default of 4 when no preference is stored). Null when no
@@ -221,16 +203,7 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     absolute URI, or the provider default when none is stored.</summary>
   public string? ConfiguredOpenRouterBaseUrl => _settings?.OpenRouter.BaseUrl.ToString();
 
-  /// <summary>The z.ai base URL the settings modal prefills — the configured absolute
-  ///     URI, or the provider default when none is stored.</summary>
-  public string? ConfiguredZaiBaseUrl => _settings?.Zai.BaseUrl.ToString();
-
-  /// <summary>The z.ai endpoint mode the settings modal prefills; CodingPlan when no
-  ///     settings snapshot exists.</summary>
   public bool ConfiguredComputerUse => _settings?.ComputerUse ?? false;
-
-  public ZaiEndpointMode ConfiguredZaiEndpointMode =>
-      _settings?.Zai.EndpointMode ?? ZaiEndpointMode.CodingPlan;
 
   /// <summary>The commit style the settings modal prefills; the stored choice, or the
   ///     Conventional default when none is stored (matching the tool-side default).
@@ -573,8 +546,8 @@ internal sealed partial class MainViewModel : ObservableObject
     await PersistProviderSettingsAsync(providerName, workspaceRoot, snapshot.ProviderSettingsJson);
   }
 
-  /// <summary>Applies a settings-modal result: persists the keys (protected) or deletes
-  ///     the cleared ones plus the z.ai endpoint mode, rebuilds the session factory so
+  /// <summary>Applies a settings-modal result: persists the key (protected) or deletes
+  ///     the cleared one, rebuilds the session factory so
   ///     future opens use the new settings, and refreshes the provider surface.
   ///     Already-open tabs keep the wiring they were created with. The update carries
   ///     FULL field state, not a delta; values are normalized defensively here (trimmed,
@@ -591,16 +564,8 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     string? openRouterKey = Normalize(update.OpenRouterApiKey);
-    string? zaiKey = Normalize(update.ZaiApiKey);
-    string? localBaseUrl = Normalize(update.LocalBaseUrlText);
-    string? localKey = Normalize(update.LocalApiKey);
 
     await PersistApiKeyAsync(OpenRouterSettings.PreferenceKey, openRouterKey);
-    await PersistApiKeyAsync(ZaiSettings.PreferenceKey, zaiKey);
-    await PersistPreferenceAsync(LocalSettings.BaseUrlPreferenceKey, localBaseUrl);
-    await PersistApiKeyAsync(LocalSettings.PreferenceKey, localKey);
-    await PersistPreferenceAsync(ZaiSettings.EndpointModePreferenceKey,
-        update.ZaiEndpointMode.ToConfigValue());
     await PersistPreferenceAsync(AppPreferenceCommitStyleProvider.PreferenceKey,
         update.CommitStyle.ToString());
     await PersistPreferenceAsync(AgentPreferenceKeys.MaxConcurrentAgents,
@@ -617,8 +582,6 @@ internal sealed partial class MainViewModel : ObservableObject
         Normalize(update.WatchdogWrapUpText));
     await PersistPreferenceAsync(AgentPreferenceKeys.OpenRouterBaseUrl,
         Normalize(update.OpenRouterBaseUrlText));
-    await PersistPreferenceAsync(AgentPreferenceKeys.ZaiBaseUrl,
-        Normalize(update.ZaiBaseUrlText));
     await PersistPreferenceAsync(AgentPreferenceKeys.ComputerUseEnabled,
         update.ComputerUse ? "true" : "false");
     ConfiguredCommitStyle = update.CommitStyle;
@@ -687,10 +650,7 @@ internal sealed partial class MainViewModel : ObservableObject
     AgentSettings rebuilt = _preferences is not null
         ? await AgentSettingsLoader.LoadAsync(_preferences)
         : BindFromUpdate(update); // test seam: no store, same strict binders
-    _settings = rebuilt
-        .WithApiKeys(openRouterKey, zaiKey, localKey)
-        .WithZaiEndpointMode(update.ZaiEndpointMode)
-        .WithLocalSettings(localBaseUrl, localKey);
+    _settings = rebuilt.WithApiKeys(openRouterKey);
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
 
     AvailableProviders = ProvidersFrom(_settings);
@@ -740,8 +700,6 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning disable S1075 // Anchored provider default; the loader's own seam carries the same named decision.
             AgentPreferenceKeys.OpenRouterBaseUrl, "https://openrouter.ai")),
 #pragma warning restore S1075
-        new ZaiSettings(null, AgentSettingsLoader.BindBaseUrl(Normalize(update.ZaiBaseUrlText),
-            AgentPreferenceKeys.ZaiBaseUrl, ZaiConfiguration.DefaultBaseUrl)),
         subAgents,
         RemoteHost: remoteHost,
         Watchdog: watchdog);
@@ -818,14 +776,6 @@ internal sealed partial class MainViewModel : ObservableObject
     if (settings.HasOpenRouter)
     {
       providers.Add(new ProviderOption(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter)));
-    }
-    if (settings.HasZai)
-    {
-      providers.Add(new ProviderOption(Providers.Zai, Providers.DisplayName(Providers.Zai)));
-    }
-    if (settings.HasLocal)
-    {
-      providers.Add(new ProviderOption(Providers.Local, Providers.DisplayName(Providers.Local)));
     }
     return providers;
   }

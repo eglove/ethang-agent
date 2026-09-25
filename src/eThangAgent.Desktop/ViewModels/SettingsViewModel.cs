@@ -4,7 +4,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using eThangAgent.Composition;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -19,18 +18,8 @@ internal sealed record CommitStyleOption(CommitStyle Style, string Display)
       "Plain (no prefix)");
 }
 
-/// <summary>One selectable z.ai endpoint mode in the settings modal.</summary>
-internal sealed record ZaiEndpointModeOption(ZaiEndpointMode Mode, string Display)
-{
-  internal static readonly ZaiEndpointModeOption CodingPlan = new(ZaiEndpointMode.CodingPlan,
-      "Coding plan (subscription)");
-  internal static readonly ZaiEndpointModeOption GeneralApi = new(ZaiEndpointMode.GeneralApi,
-      "General API (pay-as-you-go)");
-}
-
-/// <summary>The settings confirmed in the settings modal: the API keys, the z.ai
-///     endpoint mode, and the commit style. Null keys mean "cleared" — the provider
-///     stops being configured.
+/// <summary>The settings confirmed in the settings modal: the API key and the commit
+///     style. Null keys mean "cleared" — the provider stops being configured.
 ///     (A cancelled dialog closes with no result at all, so unchanged-vs-cleared never
 ///     collides.)</summary>
 /// <summary>One choosable compaction summarizer: the Automatic row (persisted as
@@ -47,23 +36,20 @@ internal sealed record SessionFileRow(string Path, bool Enabled)
   public static implicit operator SessionFileEntry(SessionFileRow row) => new(row.Path, row.Enabled);
 }
 
-internal sealed record SettingsUpdate(string? OpenRouterApiKey, string? ZaiApiKey,
-    ZaiEndpointMode ZaiEndpointMode, CommitStyle CommitStyle,
+internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle CommitStyle,
     string? CompactionModelId = null, string? CompactionWorkspaceKey = null,
-    string? LocalBaseUrlText = null, string? LocalApiKey = null,
     IReadOnlyList<SessionFileEntry>? GlobalFiles = null, IReadOnlyList<SessionFileEntry>? WorkspaceFiles = null,
     string? WorkspaceRoot = null,
     string? MaxConcurrentAgentsText = null, string? DefaultModelText = null, bool RemoteHost = false,
     string? WatchdogTickText = null, string? WatchdogIdleText = null, string? WatchdogWrapUpText = null,
-    string? OpenRouterBaseUrlText = null, string? ZaiBaseUrlText = null,
+    string? OpenRouterBaseUrlText = null,
     bool ComputerUse = false,
     IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories = null,
     IReadOnlyList<SessionFileEntry>? WorkspaceSkillDirectories = null,
     string? SkillRegistryDefaultTarget = null);
 
-/// <summary>View-model behind the settings modal: the API-key fields for the
-///     providers, the local provider's base URL, a reveal toggle, the z.ai endpoint
-///     mode, and their shared validation.
+/// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
+///     and their shared validation.
 ///     Blank means cleared; whitespace inside a key is rejected — provider keys never
 ///     contain any. Pure state and commands; persistence and window closing belong to
 ///     the caller.</summary>
@@ -86,31 +72,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [ObservableProperty]
   public partial CompactionModelOption SelectedCompactionModel { get; set; }
 
-  /// <summary>The two endpoint modes, in display order.</summary>
-  public IReadOnlyList<ZaiEndpointModeOption> EndpointModes { get; } =
-      [ZaiEndpointModeOption.CodingPlan, ZaiEndpointModeOption.GeneralApi];
-
   [ObservableProperty]
   [NotifyPropertyChangedFor(nameof(ValidationError))]
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial string OpenRouterKey { get; set; }
-
-  [ObservableProperty]
-  [NotifyPropertyChangedFor(nameof(ValidationError))]
-  [NotifyPropertyChangedFor(nameof(CanSave))]
-  public partial string ZaiKey { get; set; }
-
-  /// <summary>The local server's base URL as raw text — hosts remember exactly what
-  ///     the user typed; a non-blank value must parse as an absolute URI.</summary>
-  [ObservableProperty]
-  [NotifyPropertyChangedFor(nameof(ValidationError))]
-  [NotifyPropertyChangedFor(nameof(CanSave))]
-  public partial string LocalBaseUrlText { get; set; }
-
-  [ObservableProperty]
-  [NotifyPropertyChangedFor(nameof(ValidationError))]
-  [NotifyPropertyChangedFor(nameof(CanSave))]
-  public partial string LocalApiKey { get; set; }
 
   /// <summary>Maximum concurrently running child agents as raw text — blank means the
   ///     shipped default (4); a non-blank value must be a positive integer.</summary>
@@ -191,16 +156,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(ValidationError))]
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial string OpenRouterBaseUrlText { get; set; }
-
-  /// <summary>The z.ai base URL as raw text — same rule as the OpenRouter base
-  ///     URL.</summary>
-  [ObservableProperty]
-  [NotifyPropertyChangedFor(nameof(ValidationError))]
-  [NotifyPropertyChangedFor(nameof(CanSave))]
-  public partial string ZaiBaseUrlText { get; set; }
-
-  [ObservableProperty]
-  public partial ZaiEndpointModeOption SelectedEndpointMode { get; set; }
 
   [ObservableProperty]
   public partial CommitStyleOption SelectedCommitStyle { get; set; }
@@ -322,26 +277,22 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
   /// <summary>The first validation problem across all fields, or null when clean.</summary>
   public string? ValidationError =>
-      FileError ?? Validate(OpenRouterKey) ?? Validate(ZaiKey) ?? Validate(LocalApiKey)
-      ?? ValidateBaseUrl(LocalBaseUrlText)
+      FileError ?? Validate(OpenRouterKey)
       ?? ValidateMaxConcurrent(MaxConcurrentAgentsText)
       ?? ValidateDuration(WatchdogTickText, "Tick interval")
       ?? ValidateDuration(WatchdogIdleText, "Idle threshold")
       ?? ValidateWrapUp(WatchdogWrapUpText)
-      ?? ValidateLabeledBaseUrl(OpenRouterBaseUrlText, "OpenRouter base URL")
-      ?? ValidateLabeledBaseUrl(ZaiBaseUrlText, "z.ai base URL");
+      ?? ValidateLabeledBaseUrl(OpenRouterBaseUrlText, "OpenRouter base URL");
 
-  public SettingsViewModel(string? openRouterKey, string? zaiKey,
-      ZaiEndpointMode zaiEndpointMode, CommitStyle commitStyle = CommitStyle.Conventional,
+  public SettingsViewModel(string? openRouterKey, CommitStyle commitStyle = CommitStyle.Conventional,
       IReadOnlyList<CompactionModelOption>? compactionModels = null,
       CompactionModelOption? selectedCompactionModel = null,
-      string? localBaseUrl = null, string? localApiKey = null,
       IReadOnlyList<SessionFileEntry>? globalFiles = null,
       IReadOnlyList<SessionFileEntry>? workspaceFiles = null,
       string? workspaceRoot = null,
       string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
       string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
-      string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null,
+      string? openRouterBaseUrlText = null,
       bool computerUse = false,
       IReadOnlyList<SessionFileEntry>? globalSkillDirectories = null,
       IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null,
@@ -357,15 +308,13 @@ internal sealed partial class SettingsViewModel : ObservableObject
           if (CanSave)
           {
             SaveRequested?.Invoke(this, new SettingsUpdate(
-                Normalize(OpenRouterKey), Normalize(ZaiKey), SelectedEndpointMode.Mode,
-                SelectedCommitStyle.Style,
+                Normalize(OpenRouterKey), SelectedCommitStyle.Style,
                 SelectedCompactionModel.ModelId, null,
-                Normalize(LocalBaseUrlText), Normalize(LocalApiKey),
                 GlobalFiles: [.. GlobalFiles], WorkspaceFiles: HasWorkspace ? [.. WorkspaceFiles] : null,
                 WorkspaceRoot: WorkspaceRoot,
                 Normalize(MaxConcurrentAgentsText), Normalize(DefaultModelText), RemoteHost,
                 Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
-                Normalize(OpenRouterBaseUrlText), Normalize(ZaiBaseUrlText), ComputerUse,
+                Normalize(OpenRouterBaseUrlText), ComputerUse,
                 GlobalSkillDirectories: [.. GlobalSkillDirectories],
                 WorkspaceSkillDirectories: HasWorkspace ? [.. WorkspaceSkillDirectories] : null,
                 SkillRegistryDefaultTarget: SkillRegistryTarget));
@@ -374,9 +323,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
         () => CanSave);
     CompactionModels = compactionModels ?? [CompactionModelOption.Automatic];
     OpenRouterKey = openRouterKey ?? string.Empty;
-    ZaiKey = zaiKey ?? string.Empty;
-    LocalBaseUrlText = localBaseUrl ?? string.Empty;
-    LocalApiKey = localApiKey ?? string.Empty;
     MaxConcurrentAgentsText = maxConcurrentAgentsText ?? string.Empty;
     DefaultModelText = defaultModelText ?? string.Empty;
     RemoteHost = remoteHost;
@@ -386,7 +332,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
     WatchdogIdleText = watchdogIdleText ?? string.Empty;
     WatchdogWrapUpText = watchdogWrapUpText ?? string.Empty;
     OpenRouterBaseUrlText = openRouterBaseUrlText ?? string.Empty;
-    ZaiBaseUrlText = zaiBaseUrlText ?? string.Empty;
     SelectedCompactionModel = selectedCompactionModel ?? CompactionModelOption.Automatic;
     foreach (SessionFileEntry entry in globalFiles ?? [])
     {
@@ -408,9 +353,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
     {
       WorkspaceSkillDirectories.Add(new SessionFileRow(entry.Path, entry.Enabled));
     }
-    SelectedEndpointMode = zaiEndpointMode == ZaiEndpointMode.GeneralApi
-        ? ZaiEndpointModeOption.GeneralApi
-        : ZaiEndpointModeOption.CodingPlan;
     SelectedCommitStyle = commitStyle switch
     {
       CommitStyle.Conventional => CommitStyleOption.Conventional,
@@ -422,12 +364,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
   // Validation edits must requery the Save button's CanExecute.
   partial void OnOpenRouterKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
-
-  partial void OnZaiKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
-
-  partial void OnLocalBaseUrlTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
-
-  partial void OnLocalApiKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnMaxConcurrentAgentsTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
@@ -442,8 +378,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
   partial void OnWatchdogWrapUpTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnOpenRouterBaseUrlTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
-
-  partial void OnZaiBaseUrlTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   /// <summary>Validates one entered path and appends a checked row. A relative path
   ///     fails into <see cref="FileError"/> - shown where every other validation
@@ -515,13 +449,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
         ? "API keys cannot contain whitespace."
         : null;
   }
-
-  /// <summary>Returns the validation problem with the local base-URL text, or null
-  ///     when it is a legal entry: blank (cleared), or an absolute URI — the same rule
-  ///     <see cref="LocalSettings.ResolveBaseUrl"/> enforces at use time, surfaced here
-  ///     so the error shows before the dialog closes.</summary>
-  private static string? ValidateBaseUrl(string text) =>
-      ValidateLabeledBaseUrl(text, "Local base URL");
 
   /// <summary>Returns the validation problem with a labeled base-URL text, or null
   ///     when it is a legal entry: blank (cleared), or an absolute URI — the same rule

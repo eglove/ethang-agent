@@ -3,7 +3,6 @@ using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -21,7 +20,7 @@ public class StorelessRebindErrorNamingTests
 
     InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(
         () => vm.ApplySettingsAsync(new SettingsUpdate(
-            null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
+            null, CommitStyle.Conventional,
             MaxConcurrentAgentsText: "0")));
 
     Assert.Contains(AgentPreferenceKeys.MaxConcurrentAgents, ex.Message, StringComparison.Ordinal);
@@ -36,7 +35,7 @@ public class StorelessRebindErrorNamingTests
 
     InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(
         () => vm.ApplySettingsAsync(new SettingsUpdate(
-            null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
+            null, CommitStyle.Conventional,
             WatchdogTickText: "5")));
 
     Assert.Contains(AgentPreferenceKeys.WatchdogTickInterval, ex.Message, StringComparison.Ordinal);
@@ -68,7 +67,6 @@ public class StorelessRebindErrorNamingTests
 
   private static AgentSettings Settings() => new(
       new OpenRouterSettings(null, new Uri("https://openrouter.test")),
-      new ZaiSettings(null, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2));
 
   private sealed class FakePreferenceStore : IAppPreferenceStore

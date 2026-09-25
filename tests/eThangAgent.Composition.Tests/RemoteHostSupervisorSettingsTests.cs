@@ -17,7 +17,6 @@ public class RemoteHostSupervisorSettingsTests
       string root = Directory.CreateTempSubdirectory("ethang-sup-root").FullName;
       AgentSettings settings = new AgentSettings(
           new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
-          new ZaiSettings(null, new Uri("https://zai.test")),
           new SubAgentOptions(null, 2)).WithWorkspaceRoot(root);
       RemoteHostSupervisor supervisor = new("ws-id", scratch,
           settings, Path.Combine(scratch, "app.db"), _ => { });

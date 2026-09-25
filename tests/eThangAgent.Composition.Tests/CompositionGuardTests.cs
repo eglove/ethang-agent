@@ -8,17 +8,14 @@ using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition.Tests;
 
 public class CompositionGuardTests
 {
-  private static AgentSettings Settings(string? openRouterKey = "sk-or-test", string? zaiKey = null,
-      ZaiEndpointMode zaiEndpointMode = ZaiEndpointMode.CodingPlan) => new(
+  private static AgentSettings Settings(string? openRouterKey = "sk-or-test") => new(
       new OpenRouterSettings(openRouterKey, new Uri("https://openrouter.test")),
-      new ZaiSettings(zaiKey, new Uri("https://zai.test"), zaiEndpointMode),
       new SubAgentOptions(null, 2));
 
   [Fact]
@@ -100,60 +97,31 @@ public class CompositionGuardTests
   public void Worktree_Tool_Is_In_The_Session_Surface()
   {
     // The worktree capability is core wiring, not provider-specific: every
-    // session's tool surface carries it, OpenRouter and z.ai alike.
-    string[] providers = [Providers.OpenRouter, Providers.Zai];
-    foreach (string provider in providers)
-    {
-      using ServiceProvider services = new ServiceCollection()
-          .AddEThangAgentCore(Settings(zaiKey: "zai-test-key"), provider,
-              ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
-              new AgentHostOptions(
-                  new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
-          .BuildServiceProvider();
-
-      AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
-      Assert.Contains(tools.Actions, a => a.Name == "worktree");
-    }
-  }
-
-  [Fact]
-  public void ZaiWiring_Resolves_ZaiProvider_Factory_AndCatalog()
-  {
-    AgentSettings settings = Settings(zaiKey: "zai-test-key");
+    // session's tool surface carries it.
     using ServiceProvider services = new ServiceCollection()
-        .AddEThangAgentCore(settings, Providers.Zai,
-            ModelConfig.Create("glm-5.3", null, 512, 0.5f, 8192).Value!,
+        .AddEThangAgentCore(Settings(), Providers.OpenRouter,
+            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
                 new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
         .BuildServiceProvider();
 
-    _ = Assert.IsType<ZaiModelProvider>(services.GetRequiredService<IModelProvider>());
-    _ = Assert.IsType<ZaiModelProviderFactory>(services.GetRequiredService<IModelProviderFactory>());
-    _ = Assert.IsType<ZaiModelCatalog>(services.GetRequiredService<IModelCatalog>());
+    AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
+    Assert.Contains(tools.Actions, a => a.Name == "worktree");
   }
 
   [Fact]
-  public void ZaiSession_WiresNoModelSelector_OpenRouterSessionDoes()
+  public void OpenRouterSession_WiresTheModelSelector()
   {
-    // z.ai's model is the user's choice (the host's model picker over its static
-    // catalog); only OpenRouter wires the two-stage automatic selector. Consumers
-    // taking an
-    // optional selector must still resolve on a selector-less container.
-    static ServiceProvider BuildFor(string provider) =>
-        new ServiceCollection()
-            .AddEThangAgentCore(Settings(zaiKey: "zai-test-key"), provider,
-                ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
-                new AgentHostOptions(
-                    new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
-            .BuildServiceProvider();
+    // OpenRouter wires the two-stage automatic selector. Consumers taking an
+    // optional selector must still resolve on a container with one.
+    using ServiceProvider openRouterServices = new ServiceCollection()
+        .AddEThangAgentCore(Settings(), Providers.OpenRouter,
+            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+            new AgentHostOptions(
+                new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
+        .BuildServiceProvider();
 
-    using ServiceProvider zaiServices = BuildFor(Providers.Zai);
-    Assert.Null(zaiServices.GetService<IModelSelector>());
-    _ = zaiServices.GetRequiredService<RootAgentResolver>();
-    _ = zaiServices.GetRequiredService<IAgentSpawnCommand>();
-
-    using ServiceProvider openRouterServices = BuildFor(Providers.OpenRouter);
-    _ = openRouterServices.GetRequiredService<IModelSelector>();
+    Assert.NotNull(openRouterServices.GetRequiredService<IModelSelector>());
   }
 
   [Fact]
@@ -182,39 +150,5 @@ public class CompositionGuardTests
 
     ArgumentException argument = Assert.IsType<ArgumentException>(ex);
     Assert.Contains("anthropic", argument.Message, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public void ZaiSession_ExposesTheZaiCapabilityTools_OnlyInGeneralApiMode_OpenRouterNeverDoes()
-  {
-    // Switching providers is a different experience by design: the z.ai capability
-    // APIs surface only on z.ai-wired sessions — and only in GeneralApi endpoint
-    // mode, because the capability endpoints do not exist on the coding endpoint.
-    static ServiceProvider BuildFor(string provider, ZaiEndpointMode mode) =>
-        new ServiceCollection()
-            .AddEThangAgentCore(Settings(zaiKey: "zai-test-key", zaiEndpointMode: mode), provider,
-                ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
-                new AgentHostOptions(
-                    new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
-            .BuildServiceProvider();
-
-    string[] zaiToolNames = ["web_search", "web_read", "count_tokens", "generate_image", "ocr_document", "transcribe_audio"];
-    using (ServiceProvider codingZaiServices = BuildFor(Providers.Zai, ZaiEndpointMode.CodingPlan))
-    {
-      AgentToolsProvider tools = codingZaiServices.GetRequiredService<AgentToolsProvider>();
-      Assert.All(zaiToolNames, name => Assert.DoesNotContain(tools.Actions, a => a.Name == name));
-    }
-
-    using (ServiceProvider generalZaiServices = BuildFor(Providers.Zai, ZaiEndpointMode.GeneralApi))
-    {
-      AgentToolsProvider tools = generalZaiServices.GetRequiredService<AgentToolsProvider>();
-      Assert.All(zaiToolNames, name => Assert.Contains(tools.Actions, a => a.Name == name));
-    }
-
-    using (ServiceProvider openRouterServices = BuildFor(Providers.OpenRouter, ZaiEndpointMode.GeneralApi))
-    {
-      AgentToolsProvider tools = openRouterServices.GetRequiredService<AgentToolsProvider>();
-      Assert.All(zaiToolNames, name => Assert.DoesNotContain(tools.Actions, a => a.Name == name));
-    }
   }
 }

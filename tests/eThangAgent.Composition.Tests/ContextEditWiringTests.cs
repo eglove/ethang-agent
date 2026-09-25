@@ -17,7 +17,6 @@ public class ContextEditWiringTests
   {
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-        new ZaiSettings(null, new Uri("https://zai.test")),
         new SubAgentOptions(null, 2));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,

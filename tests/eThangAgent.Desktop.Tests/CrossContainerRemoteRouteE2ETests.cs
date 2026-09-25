@@ -27,7 +27,6 @@ public class CrossContainerRemoteRouteE2ETests
 
   private static AgentSettings Settings(Uri openRouterBaseUrl, bool remoteHost) => new(
       new OpenRouterSettings("sk-or-test", openRouterBaseUrl),
-      new ZaiSettings(null, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2),
       RemoteHost: remoteHost);
 

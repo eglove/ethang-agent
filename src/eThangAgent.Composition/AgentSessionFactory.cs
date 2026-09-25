@@ -3,7 +3,6 @@ using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ConversationDomain;
-using eThangAgent.Local.ACL;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
@@ -75,19 +74,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     string full = validated.Value;
 
-    // The bootstrap model must exist before any container: on local it IS the server's
-    // own first listed entry (no pseudo-model exists server-side), so an unreachable
-    // server fails the open here — structured, with nothing half-built behind it.
-    Result<BootstrapModel> bootstrap = await ResolveBootstrapModelAsync(providerName, ct).ConfigureAwait(false);
-    if (!bootstrap.IsSuccess)
-    {
-      return Result.Failure<AgentSession>(bootstrap.Error);
-    }
-
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(full, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(full, providerName, conversationSeed: null,
-        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId, globalFiles, workspaceFiles,
+        ResolveBootstrapModel(providerName), globalFiles, workspaceFiles,
         globalDirectories, workspaceDirectories);
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
@@ -98,7 +88,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // FACT from the first read. Resume never re-stamps: a persisted ModelUsed is the
       // record of what actually served, not what the new container resolves.
       Result<AgentId> bootstrapped = await RootSessionBootstrapper
-          .PersistRootAsync(store, full, providerName, modelUsed: bootstrap.Value.Config.ModelId, ct)
+          .PersistRootAsync(store, full, providerName, modelUsed: ResolveBootstrapModel(providerName).ModelId, ct)
           .ConfigureAwait(false);
       if (!bootstrapped.IsSuccess)
       {
@@ -174,18 +164,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     string providerName = record.Provider;
 
-    // Same shared bootstrap as create: the transcript hydrates, but the default model
-    // still resolves from the server's own lineup when resuming a local session.
-    Result<BootstrapModel> bootstrap = await ResolveBootstrapModelAsync(providerName, ct).ConfigureAwait(false);
-    if (!bootstrap.IsSuccess)
-    {
-      return Result.Failure<AgentSession>(bootstrap.Error);
-    }
-
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(workspaceRoot, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(workspaceRoot, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(workspaceRoot, providerName, transcript.Value,
-        bootstrap.Value.Config, bootstrap.Value.ResolvedFallbackModelId, globalFiles, workspaceFiles,
+        ResolveBootstrapModel(providerName), globalFiles, workspaceFiles,
         globalDirectories, workspaceDirectories);
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
@@ -214,42 +196,24 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   }
 
   /// <summary>Guard-style validation shared by create and resume: provider known and
-  ///     configured (the local base URL text must also RESOLVE — a present-but-unusable
-  ///     URL fails here, never as a raw exception past this seam), workspace non-empty
-  ///     and existing. Returns the full workspace path.</summary>
+  ///     configured, workspace non-empty and existing. Returns the full workspace path.</summary>
   private Result<string> ValidateProvider(string workspaceRoot, string providerName)
   {
     if (!Providers.IsKnown(providerName))
     {
       return Result.Failure<string>(new DomainError("UnknownProvider",
-          $"Unknown provider '{providerName}'. Known providers: {Providers.OpenRouter}, {Providers.Zai}, {Providers.Local}."));
+          $"Unknown provider '{providerName}'. Known providers: {Providers.OpenRouter}."));
     }
 
     bool configured = providerName switch
     {
       Providers.OpenRouter => _settings.HasOpenRouter,
-      Providers.Zai => _settings.HasZai,
-      Providers.Local => _settings.HasLocal,
       _ => false,
     };
     if (!configured)
     {
       return Result.Failure<string>(new DomainError("ProviderNotConfigured",
-          $"Provider '{Providers.DisplayName(providerName)}' is not fully configured (API key, or base URL for the local provider). Complete its settings under Settings (gear icon) and open the agent again."));
-    }
-
-    // Local's base URL is raw text and can be PRESENT yet unusable — the one provider
-    // setting that slips past the configured gate. Resolving it here keeps that
-    // failure on the same structured seam as every other validation error; letting it
-    // reach composition would throw a raw InvalidOperationException across the
-    // Task<Result<AgentSession>> seam.
-    if (providerName == Providers.Local)
-    {
-      Result<Uri> resolvedBaseUrl = _settings.Local!.ResolveBaseUrl();
-      if (!resolvedBaseUrl.IsSuccess)
-      {
-        return Result.Failure<string>(resolvedBaseUrl.Error);
-      }
+          $"Provider '{Providers.DisplayName(providerName)}' is not fully configured (API key). Complete its settings under Settings (gear icon) and open the agent again."));
     }
 
     if (string.IsNullOrWhiteSpace(workspaceRoot))
@@ -299,66 +263,13 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     await repair.RepairAsync(ct).ConfigureAwait(false);
   }
 
-  /// <summary>The bootstrap model resolved for one session open: the config the
-  ///     container registers as its default, plus the fallback id threaded into spawn
-  ///     defaults and both root resolvers. Null <see cref="ResolvedFallbackModelId"/>
-  ///     keeps composition's static provider default (every non-local provider).</summary>
-  private sealed record BootstrapModel(ModelConfig Config, string? ResolvedFallbackModelId);
-
-  /// <summary>Resolves the bootstrap model BEFORE any container is built. Local
-  ///     resolves from the server's own model list — first listed entry, carrying its
-  ///     advertised context window and traveling into composition as the resolved
-  ///     fallback — because no pseudo-model exists server-side and turn one must name a
-  ///     real id. Every other provider keeps the synchronous constant bootstrap
-  ///     byte-identically: the provider's static fallback id over the curated routing
-  ///     window. Catalog failure (unreachable server, empty lineup) fails the session
-  ///     open here — structured, with nothing half-built behind it.</summary>
-  private async Task<Result<BootstrapModel>> ResolveBootstrapModelAsync(
-      string providerName, CancellationToken ct)
-  {
-    if (providerName != Providers.Local)
-    {
-      ModelConfig constant = ModelConfig.Create(
+  /// <summary>Resolves the session's bootstrap model BEFORE any container is built:
+  ///     the provider's static fallback id over the curated routing window.</summary>
+  private static ModelConfig ResolveBootstrapModel(string providerName) =>
+      ModelConfig.Create(
           Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f,
           Providers.RoutingContextWindow,
           acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.FallbackModelId(providerName))).Value!;
-      return Result.Success(new BootstrapModel(constant, ResolvedFallbackModelId: null));
-    }
-
-    LocalSettings local = _settings.Local!;
-    Result<Uri> baseUrl = local.ResolveBaseUrl();
-    if (!baseUrl.IsSuccess)
-    {
-      // Unreachable when ValidateProvider ran (it resolves the same URL) — kept
-      // total so this seam never invents a value or throws on its own.
-      return Result.Failure<BootstrapModel>(baseUrl.Error);
-    }
-
-    // The factory has no container yet, so the catalog is constructed directly over
-    // the resolved base URL; the client is disposed with this resolution, never shared.
-    using HttpClient http = new() { Timeout = TimeSpan.FromSeconds(120) };
-    LocalModelCatalog catalog = new(http, new LocalConfiguration(baseUrl.Value, local.ApiKey));
-    Result<IReadOnlyList<ModelProviderEntry>> lineup = await catalog.GetAsync(ct).ConfigureAwait(false);
-    if (!lineup.IsSuccess)
-    {
-      return Result.Failure<BootstrapModel>(lineup.Error);
-    }
-
-    if (lineup.Value.Count == 0)
-    {
-      return Result.Failure<BootstrapModel>(new DomainError("ProviderUnreachable",
-          $"The local server at {baseUrl.Value.Host} lists no models."));
-    }
-
-    ModelProviderEntry first = lineup.Value[0];
-    ModelConfig resolved = ModelConfig.Create(
-        first.ModelId, null, 32 * 1024, 0.7f,
-        // The server's own advertised window: accounting is honest from turn one.
-        first.ContextLength,
-        // Local catalogs never advertise vision (cannot verify): the entry says false.
-        acceptsImageInput: first.SupportsVision).Value!;
-    return Result.Success(new BootstrapModel(resolved, ResolvedFallbackModelId: first.ModelId));
-  }
 
   /// <summary>Reads the two stored session-file lists (global, workspace) for one
   ///     workspace. Both are optional: a store miss returns nulls and the session
@@ -464,7 +375,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
   private ServiceProvider BuildContainer(string workspaceRoot, string providerName,
       IReadOnlyList<Message>? conversationSeed,
-      ModelConfig defaultModel, string? resolvedFallbackModelId,
+      ModelConfig defaultModel,
       string? globalSessionFiles, string? workspaceSessionFiles,
       string? globalSkillDirectories, string? workspaceSkillDirectories)
   {
@@ -479,7 +390,6 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
             _database,
             conversationSeed,
             _mailboxLocator,
-            resolvedFallbackModelId,
             ResolveComputerAccessProvider())
         // Skill directories resolve HERE - the resolution site. The parse validates
         // shape only; a workspace path equal (case-insensitive, full-path normalized)

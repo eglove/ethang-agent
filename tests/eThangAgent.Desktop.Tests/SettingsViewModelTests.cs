@@ -1,21 +1,19 @@
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>The settings modal's view-model contract: prefill, blank-clears, the
-///     whitespace rejection boundary, validation-driven save gating, the masked/revealed
-///     mask char, and the z.ai endpoint-mode selection.</summary>
+///     whitespace rejection boundary, validation-driven save gating, and the
+///     masked/revealed mask char.</summary>
 public class SettingsViewModelTests
 {
   [Fact]
   public void Fields_Prefill_With_Configured_Keys()
   {
-    SettingsViewModel vm = new("sk-or-v1-abc", "zai-key", ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+    SettingsViewModel vm = new("sk-or-v1-abc");
 
     Assert.Equal("sk-or-v1-abc", vm.OpenRouterKey);
-    Assert.Equal("zai-key", vm.ZaiKey);
     Assert.True(vm.CanSave);
     Assert.Null(vm.ValidationError);
   }
@@ -23,7 +21,7 @@ public class SettingsViewModelTests
   [Fact]
   public void Save_Raises_Update_With_Trimmed_Keys()
   {
-    SettingsViewModel vm = new("  sk-or-v1-abc  ", "\tzai-key ", ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+    SettingsViewModel vm = new("  sk-or-v1-abc  ");
     SettingsUpdate? saved = null;
     vm.SaveRequested += (_, update) => saved = update;
 
@@ -31,13 +29,12 @@ public class SettingsViewModelTests
 
     Assert.NotNull(saved);
     Assert.Equal("sk-or-v1-abc", saved.OpenRouterApiKey);
-    Assert.Equal("zai-key", saved.ZaiApiKey);
   }
 
   [Fact]
   public void Blank_Field_Means_Cleared_And_Is_Legal()
   {
-    SettingsViewModel vm = new("sk-or-v1-abc", "   ", ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+    SettingsViewModel vm = new(string.Empty, CommitStyle.Conventional);
     Assert.True(vm.CanSave);
 
     SettingsUpdate? saved = null;
@@ -45,14 +42,13 @@ public class SettingsViewModelTests
     vm.SaveCommand.Execute(null);
 
     Assert.NotNull(saved);
-    Assert.Equal("sk-or-v1-abc", saved.OpenRouterApiKey);
-    Assert.Null(saved.ZaiApiKey);
+    Assert.Null(saved.OpenRouterApiKey);
   }
 
   [Fact]
   public void Internal_Whitespace_Is_Rejected_And_Blocks_Save()
   {
-    SettingsViewModel vm = new("not a valid key", "zai-key", ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+    SettingsViewModel vm = new("not a valid key");
 
     Assert.False(vm.CanSave);
     Assert.NotNull(vm.ValidationError);
@@ -67,10 +63,10 @@ public class SettingsViewModelTests
   [Fact]
   public void SaveCommand_Tracks_Validation_Changes()
   {
-    SettingsViewModel vm = new("", "bad key with spaces", ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+    SettingsViewModel vm = new("bad key with spaces");
     Assert.False(vm.SaveCommand.CanExecute(null));
 
-    vm.ZaiKey = "zai-key";
+    vm.OpenRouterKey = "sk-or-v1-abc";
 
     Assert.True(vm.SaveCommand.CanExecute(null));
     Assert.Null(vm.ValidationError);
@@ -79,7 +75,7 @@ public class SettingsViewModelTests
   [Fact]
   public void KeysVisible_Toggles_The_Mask()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+    SettingsViewModel vm = new(null);
     Assert.Equal('•', vm.KeyPasswordChar);
 
     vm.KeysVisible = true;
@@ -88,32 +84,9 @@ public class SettingsViewModelTests
   }
 
   [Fact]
-  public void Endpoint_Mode_Prefills_And_Saves_Through_The_Update()
-  {
-    SettingsViewModel vm = new("key", "zai-key", ZaiEndpointMode.GeneralApi, CommitStyle.Conventional);
-    Assert.Equal(ZaiEndpointMode.GeneralApi, vm.SelectedEndpointMode.Mode);
-
-    SettingsUpdate? saved = null;
-    vm.SaveRequested += (_, update) => saved = update;
-    vm.SaveCommand.Execute(null);
-
-    Assert.NotNull(saved);
-    Assert.Equal(ZaiEndpointMode.GeneralApi, saved.ZaiEndpointMode);
-  }
-
-  [Fact]
-  public void Endpoint_Mode_Prefill_Coding_Plan_Offers_Both_Options()
-  {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
-    Assert.Equal(ZaiEndpointMode.CodingPlan, vm.SelectedEndpointMode.Mode);
-    Assert.Same(vm.EndpointModes[0], vm.SelectedEndpointMode);
-    Assert.Equal(2, vm.EndpointModes.Count);
-    Assert.Equal(ZaiEndpointMode.GeneralApi, vm.EndpointModes[1].Mode);
-  }
-  [Fact]
   public void Commit_Style_Prefills_And_Saves_Through_The_Update()
   {
-    SettingsViewModel vm = new("key", "zai-key", ZaiEndpointMode.CodingPlan, CommitStyle.Gitmoji);
+    SettingsViewModel vm = new("key", CommitStyle.Gitmoji);
     Assert.Equal(CommitStyle.Gitmoji, vm.SelectedCommitStyle.Style);
 
     SettingsUpdate? saved = null;
@@ -127,7 +100,7 @@ public class SettingsViewModelTests
   [Fact]
   public void Commit_Style_Offers_The_Three_Options_In_Display_Order()
   {
-    SettingsViewModel vm = new(null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+    SettingsViewModel vm = new(null);
     Assert.Equal(3, vm.CommitStyles.Count);
     Assert.Equal(CommitStyle.Conventional, vm.CommitStyles[0].Style);
     Assert.Equal(CommitStyle.Gitmoji, vm.CommitStyles[1].Style);

@@ -1,5 +1,4 @@
 using eThangAgent.Storage.ACL;
-using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Composition.Tests;
 
@@ -33,7 +32,6 @@ public class AgentSettingsLoaderTests
     Assert.False(s.RemoteHost);
     Assert.Null(s.Watchdog);
     Assert.Equal("https://openrouter.ai", s.OpenRouter.BaseUrl.ToString().TrimEnd('/'));
-    Assert.Equal(ZaiConfiguration.DefaultBaseUrl, s.Zai.BaseUrl.ToString().TrimEnd('/'));
   }
 
   [Fact]
@@ -46,8 +44,7 @@ public class AgentSettingsLoaderTests
         .With(AgentPreferenceKeys.WatchdogTickInterval, "00:00:02")
         .With(AgentPreferenceKeys.WatchdogIdleThreshold, "00:10:00")
         .With(AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, "2")
-        .With(AgentPreferenceKeys.OpenRouterBaseUrl, "http://localhost:9944")
-        .With(AgentPreferenceKeys.ZaiBaseUrl, "http://localhost:9945/api");
+        .With(AgentPreferenceKeys.OpenRouterBaseUrl, "http://localhost:9944");
     AgentSettings s = await AgentSettingsLoader.LoadAsync(prefs);
     Assert.Equal(6, s.SubAgents.MaxConcurrentAgents);
     Assert.Equal("openrouter/gpt-5", s.SubAgents.DefaultModel);
@@ -57,7 +54,6 @@ public class AgentSettingsLoaderTests
     Assert.Equal(TimeSpan.FromMinutes(10), s.Watchdog.IdleThreshold);
     Assert.Equal(2, s.Watchdog.MaxWrapUpAttempts);
     Assert.Equal("http://localhost:9944/", s.OpenRouter.BaseUrl.ToString());
-    Assert.Equal("http://localhost:9945/api", s.Zai.BaseUrl.ToString().TrimEnd('/'));
   }
 
   [Theory]
@@ -69,7 +65,6 @@ public class AgentSettingsLoaderTests
   [InlineData("subagent_watchdog_idle_threshold", "not-a-time", "subagent_watchdog_idle_threshold")]
   [InlineData("subagent_watchdog_max_wrap_up_attempts", "-1", "subagent_watchdog_max_wrap_up_attempts")]
   [InlineData("openrouter_base_url", "not-a-url", "openrouter_base_url")]
-  [InlineData("zai_base_url", "not-a-url", "zai_base_url")]
   public async Task LoadAsync_RejectsInvalidStoredValue_NamingTheKey(
       string key, string value, string expectedFragment)
   {
@@ -87,7 +82,7 @@ public class AgentSettingsLoaderTests
     Uri stored = AgentSettingsLoader.BindBaseUrl("http://127.0.0.1:9", AgentPreferenceKeys.OpenRouterBaseUrl, "https://openrouter.ai");
     Assert.Equal("http://127.0.0.1:9/", stored.ToString());
     InvalidOperationException invalid = Assert.Throws<InvalidOperationException>(
-        () => AgentSettingsLoader.BindBaseUrl("nope", AgentPreferenceKeys.ZaiBaseUrl, "https://api.z.ai/api"));
-    Assert.Contains("zai_base_url", invalid.Message, StringComparison.Ordinal);
+        () => AgentSettingsLoader.BindBaseUrl("nope", AgentPreferenceKeys.OpenRouterBaseUrl, "https://openrouter.ai"));
+    Assert.Contains("openrouter_base_url", invalid.Message, StringComparison.Ordinal);
   }
 }

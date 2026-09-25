@@ -64,12 +64,12 @@ public sealed class ComputerUseWireE2ETests
     Assert.True(imageOnWire, "the provider request must carry the screenshot image part");
   }
 
-  // I12 z.ai row: with the PostTurnUser projection the image part of the tool result rides a
-  // synthetic user message. The persisted conversation is provider-neutral; assert it carries
-  // the image part (which the z.ai wire maps onto the synthetic user message - pinned in
-  // PartsProjectionWireTests).
+  // I12: with the PostTurnUser projection the image part of the tool result rides a
+  // synthetic user message. The persisted conversation is provider-neutral; assert it
+  // carries the image part (which a provider wire maps onto the synthetic user message
+  // - pinned in PartsProjectionWireTests).
   [Fact]
-  public async Task Observe_Screenshot_ConversationCarriesImagePart_ForZaiRow()
+  public async Task Observe_Screenshot_ConversationCarriesImagePart_AcrossTurnPersistence()
   {
     using E2E.HostHarness harness = new() { ComputerAccessProviderFactory = () => new FakeComputerAccessProvider() };
     _ = await harness.StartAsync(computerUse: true).ConfigureAwait(true);
@@ -88,6 +88,6 @@ public sealed class ComputerUseWireE2ETests
         harness.Services.GetRequiredService<ConversationDomain.Conversation>();
     bool hasImagePart = conversation.Messages.Any(
         m => m.Parts is { } parts && parts.OfType<ConversationDomain.MessagePart.ImagePart>().Any());
-    Assert.True(hasImagePart, "the conversation must carry the image part for the z.ai row");
+    Assert.True(hasImagePart, "the conversation must carry the image part across turn persistence");
   }
 }

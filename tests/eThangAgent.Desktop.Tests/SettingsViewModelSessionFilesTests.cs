@@ -1,7 +1,6 @@
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -52,7 +51,7 @@ public class SettingsViewModelSessionFilesTests
       IReadOnlyList<SessionFileEntry>? global = null,
       IReadOnlyList<SessionFileEntry>? workspace = null,
       string? workspaceRoot = null) => new(
-      "sk-or-test", null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
+      "sk-or-test", CommitStyle.Conventional,
       globalFiles: global, workspaceFiles: workspace,
       workspaceRoot: workspaceRoot);
 

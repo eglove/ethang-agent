@@ -16,12 +16,14 @@ namespace eThangAgent.Composition.Tests;
 ///     CancellationToken.None-equivalent (no token), so a wedged provider call hung the
 ///     whole eval forever. The budget turns the wedge into a per-row failure — the same
 ///     mechanism RunPromptAsync now drives. Pinned end-to-end over the REAL composition
-///     (real container, real local provider wire) against a server that stalls.</summary>
+///     (real container, real OpenRouter wire) against a server that stalls.</summary>
 public class HeadlessTurnBudgetTests
 {
   /// <summary>A local OpenAI-compatible server that ACCEPTS chat completions and then
   ///     goes silent: headers never arrive, the client read blocks until its token fires.
-  ///     The models endpoint answers (session open resolves a bootstrap model).</summary>
+  ///     The OpenRouter-shaped catalog endpoints answer (the turn's pre-flight crawl
+  ///     must resolve fast — the stall under test is the chat completion, and the
+  ///     crawl shares the turn's budget token).</summary>
   private sealed class StallingLocalServer : IDisposable
   {
     private readonly HttpListener _listener = new();
@@ -66,6 +68,15 @@ public class HeadlessTurnBudgetTests
           continue;
         }
 
+        // The per-model endpoints crawl: 404 lands the model on its fallback entry
+        // (the client's named degrade path) instead of hanging the pre-flight.
+        if (ctx.Request.Url.AbsolutePath.EndsWith("/endpoints", StringComparison.Ordinal))
+        {
+          ctx.Response.StatusCode = 404;
+          ctx.Response.Close();
+          continue;
+        }
+
         // Chat completions: hold the request open, answer nothing, until disposed.
         _ = Task.Delay(Timeout.Infinite, _cts.Token);
         try
@@ -95,15 +106,13 @@ public class HeadlessTurnBudgetTests
     string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-budget-{Guid.NewGuid():N}.db");
     DirectoryInfo workspace = Directory.CreateTempSubdirectory("ethang-budget-ws");
     AgentSettings settings = new(
-        new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-        new ZaiSettings(null, new Uri("https://zai.test")),
-        new SubAgentOptions(null, 2),
-        Local: new LocalSettings(server.BaseUrl.AbsoluteUri, ApiKey: null));
+        new OpenRouterSettings("sk-or-test", server.BaseUrl),
+        new SubAgentOptions(null, 2));
     AgentSessionFactory factory = new(settings, new AppDatabase(dbPath));
     try
     {
       Result<AgentSession> created = await factory.CreateAsync(
-          workspace.FullName, Providers.Local, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+          workspace.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(created.IsSuccess, created.Error?.Message);
       AgentSession session = created.Value;
 

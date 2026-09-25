@@ -44,29 +44,22 @@
                      IsVisible="{Binding ModelSection.LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
         </StackPanel>
 
-        <!-- Reasoning effort: the same vocabulary the old effort picker offered;
-             disabled on local servers (reasoning effort is never sent there). -->
+        <!-- Reasoning effort: the same vocabulary the old effort picker offered. -->
         <StackPanel Spacing="4">
           <TextBlock Text="Reasoning effort" FontWeight="SemiBold"/>
           <ComboBox x:Name="EffortBox" ItemsSource="{Binding EffortOptions}"
                     SelectedItem="{Binding SelectedEffortOption}"
-                    DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"
-                    IsEnabled="{Binding IsEffortApplicable}"/>
-          <TextBlock Text="Reasoning effort does not apply to local servers." FontSize="12" Opacity="0.7"
-                     IsVisible="{Binding IsEffortApplicable, Converter={x:Static BoolConverters.Not}}"/>
+                    DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
         </StackPanel>
 
-        <!-- The twelve sampling knobs: z.ai hides the N/A seven behind IsEnabled=false,
-             the tooltip naming them not applicable. -->
+        <!-- The twelve sampling knobs. -->
         <TextBlock Text="Sampling" FontWeight="SemiBold"/>
         <ItemsControl x:Name="KnobList" ItemsSource="{Binding KnobRows}" Margin="0,-8,0,0">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:KnobRow">
               <StackPanel Spacing="2" Margin="0,4">
-                <TextBlock Text="{Binding Label}" FontSize="12" Opacity="0.75"
-                           ToolTip.Tip="{Binding Tooltip}"/>
-                <TextBox Text="{Binding Text}" IsEnabled="{Binding IsEnabled}"
-                         ToolTip.Tip="{Binding Tooltip}"/>
+                <TextBlock Text="{Binding Label}" FontSize="12" Opacity="0.75"/>
+                <TextBox Text="{Binding Text}" IsEnabled="{Binding IsEnabled}"/>
               </StackPanel>
             </DataTemplate>
           </ItemsControl.ItemTemplate>

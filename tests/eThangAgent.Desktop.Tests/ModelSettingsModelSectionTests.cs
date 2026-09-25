@@ -117,22 +117,4 @@ public class ModelSettingsModelSectionTests
     Assert.Null(received.Model.ModelId);
     Assert.Null(live.ModelId); // auto resets the session to automatic choice
   }
-
-  [Fact]
-  public void EffortChoice_IsDisabled_OnLocalSessions_NeverSentThere()
-  {
-    ModelSettingsViewModel vm = new(new SessionModelPreferences(), "local", persist: _ => { });
-
-    Assert.False(vm.IsEffortApplicable);
-  }
-
-  [Fact]
-  public void EffortChoice_IsEnabled_OnOpenRouterAndZai()
-  {
-    ModelSettingsViewModel openRouter = new(new SessionModelPreferences(), ProvidersOpenRouter, persist: _ => { });
-    ModelSettingsViewModel zai = new(new SessionModelPreferences(), "zai", persist: _ => { });
-
-    Assert.True(openRouter.IsEffortApplicable);
-    Assert.True(zai.IsEffortApplicable);
-  }
 }

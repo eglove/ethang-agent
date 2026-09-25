@@ -146,7 +146,6 @@ internal static class E2E
     ///     for the remote-mode E2E; default stays in-process).</summary>
     internal AgentSettings BuildSettings(bool remoteHost = false, bool computerUse = false) => new(
         new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
-        new ZaiSettings(null, new Uri("https://zai.test")),
         new SubAgentOptions(null, 2),
         RemoteHost: remoteHost,
         ComputerUse: computerUse);

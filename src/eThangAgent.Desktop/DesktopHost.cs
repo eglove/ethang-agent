@@ -11,7 +11,6 @@ using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
-using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 using CommitStyle = eThangAgent.ToolDomain.CommitStyle;
 using CommitStylePreference = eThangAgent.ToolDomain.CommitStylePreference;
@@ -59,16 +58,8 @@ internal static class DesktopHost
 
     // Non-secret settings load from app preferences — the single configuration source.
     AgentSettings settings = await AgentSettingsLoader.LoadAsync(preferences);
-    string? localKey = await LoadKeyAsync(preferences, protector, LocalSettings.PreferenceKey);
-    settings = settings
-        .WithApiKeys(
-            await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey),
-            await LoadKeyAsync(preferences, protector, ZaiSettings.PreferenceKey),
-            localKey)
-        .WithZaiEndpointMode(await LoadEndpointModeAsync(preferences))
-        // Both overlays must carry the key: WithLocalSettings writes the FULL local
-        // pair, so passing null here would clear what WithApiKeys just set.
-        .WithLocalSettings(await preferences.GetAsync(LocalSettings.BaseUrlPreferenceKey), localKey);
+    settings = settings.WithApiKeys(
+        await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey));
     CommitStyle commitStyle = await LoadCommitStyleAsync(preferences);
 
     // The app-side watchdog (loop, policy, RSS monitor) runs the SAME configured knobs
@@ -82,7 +73,7 @@ internal static class DesktopHost
     return new DesktopBootstrap(
         new AgentSessionFactory(settings, database),
         settings,
-        await ResolvePreferredProviderAsync(settings, preferences),
+        ResolvePreferredProvider(),
         preferences,
         protector,
         catalog,
@@ -110,26 +101,6 @@ internal static class DesktopHost
     return key;
   }
 
-  /// <summary>Recovers the stored z.ai endpoint mode: absent stays at the CodingPlan
-  ///     default; a stored value that no longer parses (corrupted or foreign row) reads
-  ///     as absent with a stderr note, never a crash.</summary>
-  private static async Task<ZaiEndpointMode> LoadEndpointModeAsync(SqliteAppPreferenceStore preferences)
-  {
-    string? stored = await preferences.GetAsync(ZaiSettings.EndpointModePreferenceKey);
-    if (stored is null)
-    {
-      return ZaiEndpointMode.CodingPlan;
-    }
-
-    if (stored.TryParseConfigValue(out ZaiEndpointMode mode))
-    {
-      return mode;
-    }
-
-    await Console.Error.WriteLineAsync(
-        $"stored '{ZaiSettings.EndpointModePreferenceKey}' value '{stored}' is not a valid endpoint mode; using the coding-plan default");
-    return ZaiEndpointMode.CodingPlan;
-  }
   /// <summary>Recovers the stored commit style: absent stays at the Conventional
   ///     default; an unrecognized stored value logs to stderr and falls back to the
   ///     default for the PREFILL only — the tool side surfaces the typed error if a
@@ -148,31 +119,8 @@ internal static class DesktopHost
     return resolved.Value;
   }
 
-  /// <summary>The provider the new-agent dialog pre-selects: the persisted choice when it
-  ///     is still configured, else the only configured provider, else OpenRouter (the
-  ///     both-keys back-compat default).</summary>
-  private static async Task<string> ResolvePreferredProviderAsync(
-      AgentSettings settings, SqliteAppPreferenceStore preferences)
-  {
-    string? persisted = await preferences.GetAsync(Providers.PreferenceKey).ConfigureAwait(false);
-    if (persisted == Providers.OpenRouter && settings.HasOpenRouter)
-    {
-      return Providers.OpenRouter;
-    }
-
-    if (persisted == Providers.Zai && settings.HasZai)
-    {
-      return Providers.Zai;
-    }
-
-    if (persisted == Providers.Local && settings.HasLocal)
-    {
-      return Providers.Local;
-    }
-
-    bool preferOpenRouter = settings.HasOpenRouter;
-    return preferOpenRouter ? Providers.OpenRouter : Providers.Zai;
-  }
+  /// <summary>The provider the new-agent dialog pre-selects: OpenRouter, the only provider.</summary>
+  private static string ResolvePreferredProvider() => Providers.OpenRouter;
 
   /// <summary>Defers shutdown while startup runs. Between framework initialization and
   ///     the main window being shown, NO window exists yet except transient helpers (the

@@ -10,11 +10,19 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>View-model tests of the Model Settings window (VM logic only, no Avalonia
 ///     windows): knob persistence and round-trip through the OpenRouter serializer,
-///     invalid-knob save blocking, provider applicability (z.ai N/A knobs), the
-///     OpenRouter section's visibility rule, and the empty-text-means-unset rule.</summary>
+///     invalid-knob save blocking, the OpenRouter section's visibility rule, and the
+///     empty-text-means-unset rule.</summary>
 public class ModelSettingsViewModelTests
 {
   private static SessionModelPreferences Snapshot() => new();
+
+  [Fact]
+  public void AllKnobs_AreEditable_OnOpenRouter()
+  {
+    ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: _ => { });
+
+    Assert.All(vm.Knobs.Values, knob => Assert.True(knob.IsEnabled));
+  }
 
   [Fact]
   public void Save_PersistsKnobsAndProviderSettings()
@@ -61,38 +69,6 @@ public class ModelSettingsViewModelTests
     Assert.Null(live.TopP);
     Assert.Null(live.ProviderSettings);
     Assert.Contains(ModelSettingsViewModel.KnobTopP, error, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public void NaKnobsDisabledOnZai()
-  {
-    ModelSettingsViewModel vm = new(Snapshot(), ProvidersZai, persist: _ => { });
-
-    Assert.False(vm.Knobs[ModelSettingsViewModel.KnobTopK].IsEnabled);
-    Assert.False(vm.Knobs[ModelSettingsViewModel.KnobRepetitionPenalty].IsEnabled);
-    Assert.False(vm.Knobs[ModelSettingsViewModel.KnobMinP].IsEnabled);
-    Assert.False(vm.Knobs[ModelSettingsViewModel.KnobTopA].IsEnabled);
-    Assert.False(vm.Knobs[ModelSettingsViewModel.KnobSeed].IsEnabled);
-    Assert.False(vm.Knobs[ModelSettingsViewModel.KnobVerbosity].IsEnabled);
-    Assert.False(vm.Knobs[ModelSettingsViewModel.KnobParallelToolCalls].IsEnabled);
-    Assert.True(vm.Knobs[ModelSettingsViewModel.KnobTemperature].IsEnabled);
-    Assert.True(vm.Knobs[ModelSettingsViewModel.KnobTopP].IsEnabled);
-    Assert.True(vm.Knobs[ModelSettingsViewModel.KnobFrequencyPenalty].IsEnabled);
-    Assert.True(vm.Knobs[ModelSettingsViewModel.KnobPresencePenalty].IsEnabled);
-    Assert.True(vm.Knobs[ModelSettingsViewModel.KnobMaxTokens].IsEnabled);
-  }
-
-  [Fact]
-  public void OrSectionHiddenOnNonOpenRouter()
-  {
-    SessionModelPreferences live = Snapshot();
-    ModelSettingsViewModel vm = new(live, ProvidersZai, persist: _ => { });
-
-    Assert.False(vm.ShowOpenRouterSection);
-
-    bool saved = vm.TrySave(out string? _);
-    Assert.True(saved);
-    Assert.Null(live.ProviderSettings);
   }
 
   [Fact]
@@ -361,5 +337,4 @@ public class ModelSettingsViewModelTests
   }
 
   private const string ProvidersOpenRouter = "openrouter";
-  private const string ProvidersZai = "zai";
 }

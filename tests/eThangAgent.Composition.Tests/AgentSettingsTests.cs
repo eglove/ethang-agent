@@ -7,40 +7,32 @@ namespace eThangAgent.Composition.Tests;
 ///     the rest of the configuration.</summary>
 public class AgentSettingsTests
 {
-  private static AgentSettings Settings(string? openRouter = null, string? zai = null) => new(
+  private static AgentSettings Settings(string? openRouter = null) => new(
       new OpenRouterSettings(openRouter, new Uri("https://openrouter.test")),
-      new ZaiSettings(zai, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2));
 
   [Fact]
-  public void Preference_Keys_Name_The_Stored_Api_Key_Slots()
-  {
-    Assert.Equal("openrouter_api_key", OpenRouterSettings.PreferenceKey);
-    Assert.Equal("zai_api_key", ZaiSettings.PreferenceKey);
-  }
+  public void Preference_Keys_Name_The_Stored_Api_Key_Slots() =>
+      Assert.Equal("openrouter_api_key", OpenRouterSettings.PreferenceKey);
 
   [Fact]
-  public void WithApiKeys_Overlays_Both_Keys_And_Flags()
+  public void WithApiKeys_Overlays_The_Key_And_Flag()
   {
-    AgentSettings overlaid = Settings().WithApiKeys("sk-or-test", "zai-test-key");
+    AgentSettings overlaid = Settings().WithApiKeys("sk-or-test");
 
     Assert.Equal("sk-or-test", overlaid.OpenRouter.ApiKey);
-    Assert.Equal("zai-test-key", overlaid.Zai.ApiKey);
     Assert.True(overlaid.HasOpenRouter);
-    Assert.True(overlaid.HasZai);
     // Untouched members carry over.
     Assert.Equal(new Uri("https://openrouter.test"), overlaid.OpenRouter.BaseUrl);
-    Assert.Equal(new Uri("https://zai.test"), overlaid.Zai.BaseUrl);
   }
 
   [Fact]
   public void WithApiKeys_Null_Clears_A_Key()
   {
-    AgentSettings overlaid = Settings(openRouter: "sk-or-test").WithApiKeys(null, "zai-test-key");
+    AgentSettings overlaid = Settings(openRouter: "sk-or-test").WithApiKeys(null);
 
     Assert.Null(overlaid.OpenRouter.ApiKey);
     Assert.False(overlaid.HasOpenRouter);
-    Assert.True(overlaid.HasZai);
   }
 
   [Fact]
@@ -69,7 +61,7 @@ public class AgentSettingsTests
 
     // A settings JSON written before the member existed (no WorkspaceRoot key)
     // deserializes with a null root - the documented fallback, never a fault.
-    string legacy = "{\"OpenRouter\":{\"ApiKey\":null,\"BaseUrl\":\"http://openrouter.test\"},\"Zai\":{\"ApiKey\":null,\"BaseUrl\":\"http://zai.test\"},\"SubAgents\":{\"MaxConcurrentAgents\":1}}";
+    string legacy = "{\"OpenRouter\":{\"ApiKey\":null,\"BaseUrl\":\"http://openrouter.test\"},\"SubAgents\":{\"MaxConcurrentAgents\":1}}";
     AgentSettings legacyParsed = System.Text.Json.JsonSerializer.Deserialize<AgentSettings>(legacy, options)!;
     Assert.Null(legacyParsed.WorkspaceRoot);
   }
@@ -78,10 +70,9 @@ public class AgentSettingsTests
   public void WithApiKeys_Does_Not_Mutate_The_Original()
   {
     AgentSettings original = Settings(openRouter: "before");
-    _ = original.WithApiKeys("after", null);
+    _ = original.WithApiKeys("after");
 
     Assert.Equal("before", original.OpenRouter.ApiKey);
     Assert.True(original.HasOpenRouter);
-    Assert.False(original.HasZai);
   }
 }

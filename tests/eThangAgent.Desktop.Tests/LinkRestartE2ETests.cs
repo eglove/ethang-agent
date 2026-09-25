@@ -39,7 +39,6 @@ public class LinkRestartE2ETests
           .AddEThangAgentCore(
               new AgentSettings(
                   new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
-                  new ZaiSettings(null, new Uri("https://zai.test")),
                   new SubAgentOptions(null, 2)),
               Providers.OpenRouter,
               ModelConfig.Create(E2E.SessionModel, null, 32 * 1024, 0.7f, 32 * 1024).Value!,

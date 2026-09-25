@@ -5,7 +5,6 @@ using Avalonia.VisualTree;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.Views;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 
 
 namespace eThangAgent.Desktop.Tests;
@@ -41,13 +40,12 @@ public class SettingsWindowTabsTests
     tabs.SelectedIndex = 0;
     Dispatcher.UIThread.RunJobs();
     _ = window.GetControl<TextBox>("OpenRouterKeyBox");
-    _ = window.GetControl<TextBox>("ZaiKeyBox");
     _ = window.GetControl<CheckBox>("ShowKeysCheck");
     Assert.Equal(0, tabs.SelectedIndex);
   }
 
   [AvaloniaFact]
-  public void Endpoint_And_Compaction_Models_Live_In_The_Models_Tab()
+  public void Compaction_Models_Live_In_The_Models_Tab()
   {
     SettingsWindow window = new();
     window.Show();
@@ -55,7 +53,6 @@ public class SettingsWindowTabsTests
 
     tabs.SelectedIndex = 2;
     Dispatcher.UIThread.RunJobs();
-    _ = window.GetControl<ComboBox>("ZaiEndpointBox");
     _ = window.GetControl<ComboBox>("CompactionModelBox");
     Assert.Equal(2, tabs.SelectedIndex);
   }
@@ -92,7 +89,7 @@ public class SettingsWindowTabsTests
   public void Files_Tab_Shows_The_Open_Workspace_Path_And_Global_Entry()
   {
     SettingsWindow window = new(
-        null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
+        null, CommitStyle.Conventional,
         globalFiles: [new SessionFileEntry("C:\\g\\a.md", true)],
         workspaceRoot: @"C:\proj\demo");
     window.Show();
@@ -106,8 +103,7 @@ public class SettingsWindowTabsTests
   [AvaloniaFact]
   public void Files_Tab_Without_Workspace_Hides_The_Workspace_Section()
   {
-    SettingsWindow window = new(
-        null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+    SettingsWindow window = new(null, CommitStyle.Conventional);
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
     tabs.SelectedIndex = 1;

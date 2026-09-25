@@ -6,7 +6,6 @@ using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
@@ -81,11 +80,11 @@ public class SettingsViewModelSkillRegistryTests
   // ── helpers (the SettingsViewModelSkillDirectoriesTests shell shape) ──
 
   private static SettingsViewModel CreateDialog(string? stored) => new(
-      null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional,
+      null, CommitStyle.Conventional,
       skillRegistryDefaultTarget: stored);
 
   private static SettingsUpdate MinimalUpdate() =>
-      new(null, null, ZaiEndpointMode.CodingPlan, CommitStyle.Conventional);
+      new(null, CommitStyle.Conventional);
 
   private static MainViewModel CreateShell(IAppPreferenceStore? preferences)
       => new((root, provider) => Task.FromResult(Result.Success(BuildSession(root, provider))),
@@ -98,7 +97,6 @@ public class SettingsViewModelSkillRegistryTests
 
   private static AgentSettings Settings() => new(
       new OpenRouterSettings(null, new Uri("https://openrouter.test")),
-      new ZaiSettings(null, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2));
 
   private static async Task<AgentTabViewModel> OpenShellAsync(MainViewModel shell, string root)

@@ -4,7 +4,6 @@ using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
-using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 // Best-effort temp-file cleanup in finally blocks is deliberate (CA1031).
@@ -22,9 +21,8 @@ public class AgentSessionFactoryTests
 
   private static readonly Uri BaseUrl = new("https://openrouter.test");
 
-  private static AgentSettings Settings(string? openRouterKey = "sk-or-test", string? zaiKey = null) => new(
+  private static AgentSettings Settings(string? openRouterKey = "sk-or-test") => new(
       new OpenRouterSettings(openRouterKey, BaseUrl),
-      new ZaiSettings(zaiKey, new Uri("https://zai.test")),
       new SubAgentOptions(null, 2));
 
   private static (AgentSessionFactory Factory, string DbPath) CreateFactory(AgentSettings? settings = null)
@@ -148,19 +146,19 @@ public class AgentSessionFactoryTests
   [Fact]
   public async Task CreateAsync_Rejects_Unconfigured_Provider_With_Structured_Error()
   {
-    // OpenRouter key present, z.ai key absent: opening a z.ai session must fail
-    // with a structured error naming the provider.
-    (AgentSessionFactory? factory, string? db) = CreateFactory();
+    // OpenRouter key absent: opening an OpenRouter session must fail with a
+    // structured error naming the provider.
+    (AgentSessionFactory? factory, string? db) = CreateFactory(Settings(openRouterKey: null));
     try
     {
       DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-z");
       try
       {
-        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.Zai, ct: TestContext.Current.CancellationToken);
+        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
 
         Assert.False(result.IsSuccess);
         Assert.Equal("ProviderNotConfigured", result.Error.Code);
-        Assert.Contains("z.ai", result.Error.Message, StringComparison.Ordinal);
+        Assert.Contains("OpenRouter", result.Error.Message, StringComparison.Ordinal);
       }
       finally
       {
@@ -181,24 +179,25 @@ public class AgentSessionFactoryTests
   [Fact]
   public async Task WithSettings_Serves_The_Updated_Keys_On_Future_Sessions()
   {
-    // The rebind seam behind the settings modal: a factory built without a z.ai
-    // key refuses z.ai sessions; after WithSettings with the key, future sessions
-    // open — over the SAME app database — without touching the original factory.
-    (AgentSessionFactory factory, string db) = CreateFactory();
+    // The rebind seam behind the settings modal: a factory built without an
+    // OpenRouter key refuses OpenRouter sessions; after WithSettings with the key,
+    // future sessions open — over the SAME app database — without touching the
+    // original factory.
+    (AgentSessionFactory factory, string db) = CreateFactory(Settings(openRouterKey: null));
     try
     {
       DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-rebind");
       try
       {
-        Assert.False((await factory.CreateAsync(dir.FullName, Providers.Zai, ct: TestContext.Current.CancellationToken)).IsSuccess);
+        Assert.False((await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken)).IsSuccess);
 
-        AgentSessionFactory rebound = factory.WithSettings(Settings(zaiKey: "zai-test-key"));
-        Result<AgentSession> opened = await rebound.CreateAsync(dir.FullName, Providers.Zai, ct: TestContext.Current.CancellationToken);
+        AgentSessionFactory rebound = factory.WithSettings(Settings(openRouterKey: "sk-or-test"));
+        Result<AgentSession> opened = await rebound.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
         Assert.True(opened.IsSuccess);
-        Assert.Equal(Providers.Zai, opened.Value.ProviderName);
+        Assert.Equal(Providers.OpenRouter, opened.Value.ProviderName);
 
         // The original factory keeps refusing — rebind is a new instance, not a mutation.
-        Assert.False((await factory.CreateAsync(dir.FullName, Providers.Zai, ct: TestContext.Current.CancellationToken)).IsSuccess);
+        Assert.False((await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken)).IsSuccess);
       }
       finally
       {
@@ -352,38 +351,6 @@ public class AgentSessionFactoryTests
       new AgentId(Guid.NewGuid()), null, 0, AgentStatus.Running, null,
       "test/model", "root", "root task", DateTimeOffset.UtcNow, null, null,
       workspaceRoot, Providers.OpenRouter);
-
-  [Fact]
-  public async Task CreateAsync_ZaiConfigured_WiresZaiProviderAndCarriesProviderName()
-  {
-    (AgentSessionFactory? factory, string? db) = CreateFactory(Settings(zaiKey: "zai-test-key"));
-    try
-    {
-      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-zc");
-      try
-      {
-        Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.Zai, ct: TestContext.Current.CancellationToken);
-
-        Assert.True(result.IsSuccess);
-        Assert.Equal(Providers.Zai, result.Value.ProviderName);
-        _ = Assert.IsType<ZaiModelCatalog>(result.Value.Services.GetRequiredService<IModelCatalog>());
-        _ = Assert.IsType<ZaiModelProvider>(result.Value.Services.GetRequiredService<IModelProvider>());
-      }
-      finally
-      {
-        dir.Delete(true);
-      }
-    }
-    finally
-    {
-      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
-      try
-      {
-        File.Delete(db);
-      }
-      catch { }
-    }
-  }
 
   [Fact]
   public async Task CreateAsync_RootRow_StampedWithTheResolvedBootstrapModel()
