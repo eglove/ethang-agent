@@ -31,8 +31,14 @@ public sealed class SkillDirectoryWatcher(
   private readonly CancellationTokenSource _cts = new();
   private readonly List<FileSystemWatcher> _watchers = [];
   private readonly Lock _gate = new();
-  private Task? _sweepLoop;
+  // Serializes reload passes (CheckOnceAsync): the debounce, the sweep, and any
+  // explicit caller each perform their own pass, never concurrently — overlapping
+  // passes would diff against the same baseline and double-announce.
+  private readonly SemaphoreSlim _checkGate = new(1, 1);
+  // Coalesces FSW event bursts into one SCHEDULED debounce (the delay window
+  // only); the check itself rides _checkGate like every other caller.
   private int _checking;
+  private Task? _sweepLoop;
   private bool _started;
 
   /// <summary>True once <see cref="Start"/> has run; exposed for wiring tests.</summary>
@@ -129,15 +135,14 @@ public sealed class SkillDirectoryWatcher(
   }
 
   /// <summary>One reload pass: reload the catalog and announce a non-empty diff.
-  ///     Concurrent callers skip while a check is in flight (their change is
-  ///     caught by the next sweep or FSW event - never lost, only delayed).</summary>
+  ///     Concurrent callers serialize on a gate — EVERY caller performs its own
+  ///     pass, none is skipped. A skip would let a load published through the
+  ///     listing path (ListAsync's memoization) get diffed against itself by the
+  ///     scheduled check that follows, silently swallowing the announcement
+  ///     (the first-load defect the reload E2E pins).</summary>
   public async Task CheckOnceAsync(CancellationToken ct = default)
   {
-    if (Interlocked.Exchange(ref _checking, 1) == 1)
-    {
-      return;
-    }
-
+    await _checkGate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
       Result<SkillReloadDiff> diff = await _catalog.ReloadAsync(ct).ConfigureAwait(false);
@@ -149,7 +154,7 @@ public sealed class SkillDirectoryWatcher(
     }
     finally
     {
-      _ = Interlocked.Exchange(ref _checking, 0);
+      _ = _checkGate.Release();
     }
   }
 
@@ -163,6 +168,7 @@ public sealed class SkillDirectoryWatcher(
     }
 
     _watchers.Clear();
+    _checkGate.Dispose();
     await _cts.CancelAsync().ConfigureAwait(false);
     if (_sweepLoop is { } loop)
     {

@@ -51,11 +51,15 @@ public class SkillDirectoryWatcherTests
   [Fact]
   public async Task CheckOnce_ConcurrentCalls_Sequentialized()
   {
-    CountingCatalog catalog = new();
+    CountingCatalog catalog = new() { ReloadDelay = TimeSpan.FromMilliseconds(50) };
     SkillDirectoryWatcher watcher = new(catalog, _ => { });
     watcher.Start();
     try
     {
+      // Both calls overlap (each pass takes ~50 ms); under the former
+      // skip-when-in-flight interlock the second call returned without
+      // reloading — the defect the reload E2E caught. Serialized contract:
+      // EVERY caller performs its own pass.
       Task a = watcher.CheckOnceAsync(TestContext.Current.CancellationToken);
       Task b = watcher.CheckOnceAsync(TestContext.Current.CancellationToken);
       await a.ConfigureAwait(true);
@@ -77,11 +81,17 @@ public class SkillDirectoryWatcherTests
   {
     public int ReloadCalls { get; private set; }
     public SkillReloadDiff NextDiff { get; set; } = new([], [], []);
+    public TimeSpan ReloadDelay { get; set; } = TimeSpan.Zero;
 
-    public Task<Result<SkillReloadDiff>> ReloadAsync(CancellationToken ct = default)
+    public async Task<Result<SkillReloadDiff>> ReloadAsync(CancellationToken ct = default)
     {
       ReloadCalls++;
-      return Task.FromResult(Result.Success(NextDiff));
+      if (ReloadDelay > TimeSpan.Zero)
+      {
+        await Task.Delay(ReloadDelay, ct).ConfigureAwait(false);
+      }
+
+      return Result.Success(NextDiff);
     }
   }
 }
