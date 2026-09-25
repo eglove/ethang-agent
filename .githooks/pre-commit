@@ -41,6 +41,38 @@ if [ "$status" -ne 0 ]; then
     exit 1
 fi
 
+# --- jsonlint over tracked .json files -------------------------------------
+# CI evidence: MegaLinter's JSON_JSONLINT job fails the run on invalid JSON
+# (run 36192829573: a fixture with // comments). Catches that class locally.
+# Soft gate: skips with a warning when the npm-global tool is not installed.
+if command -v jsonlint >/dev/null 2>&1; then
+    echo "[pre-commit] jsonlint over tracked .json files..."
+    status=0
+    git ls-files -z -- '*.json' | xargs -0 -r -n 50 jsonlint -q || status=1
+    if [ "$status" -ne 0 ]; then
+        echo "[pre-commit] invalid JSON above - fix it (or bypass with --no-verify)." >&2
+        exit 1
+    fi
+else
+    echo "[pre-commit] jsonlint not on PATH - skipped (npm install -g jsonlint to enable)." >&2
+fi
+
+# --- secretlint over tracked files ------------------------------------------
+# Catches credential-shaped strings before they are pushed. The rule preset is
+# resolved from the global npm install; .secretlintignore records the
+# intentionally secret-SHAPED test fixtures. Soft gate like jsonlint.
+if command -v secretlint >/dev/null 2>&1; then
+    echo "[pre-commit] secretlint over tracked files..."
+    status=0
+    git ls-files -z | xargs -0 -r -n 200 secretlint || status=1
+    if [ "$status" -ne 0 ]; then
+        echo "[pre-commit] secretlint findings above - fix or extend .secretlintignore (or bypass with --no-verify)." >&2
+        exit 1
+    fi
+else
+    echo "[pre-commit] secretlint not on PATH - skipped (npm install -g secretlint @secretlint/secretlint-rule-preset-recommend to enable)." >&2
+fi
+
 if [ "${ETHANG_FULL_GATE:-0}" = "1" ]; then
     echo "[pre-commit] dotnet format verify (full gate)..."
     dotnet format eThangAgent.slnx --verify-no-changes --severity warn

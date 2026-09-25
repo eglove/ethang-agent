@@ -5,14 +5,13 @@ namespace eThangAgent.Skill.Domain.Tests;
 
 /// <summary>skills.sh JSON API parser (plan #29 task 4, adapted per ledger
 /// v57): the site exposes GET /api/search?q= returning typed skill entries;
-/// the fixture pins the captured live shape.</summary>
+/// the fixture pins the captured live shape — captured from
+/// https://www.skills.sh/api/search?q=deploy on 2026-09-25, trimmed to the
+/// envelope plus four entries. The parser reads the JSON shape; a format
+/// drift fails these tests.</summary>
 public class SkillsShSearchParserTests
 {
-  private static string FixtureJson()
-  {
-    string[] lines = File.ReadAllLines(FixturePath());
-    return string.Join('\n', lines.Where(l => !l.StartsWith("//", StringComparison.Ordinal)));
-  }
+  private static string FixtureJson() => File.ReadAllText(FixturePath());
 
   private static string FixturePath() =>
       Path.Combine(AppContext.BaseDirectory, "Fixtures", "skillssh-search.json");
