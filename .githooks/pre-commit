@@ -1,0 +1,50 @@
+#!/bin/sh
+# eThang Agent pre-commit gate - mirrors the CI-blocking lint locally.
+#
+# CI evidence (MegaLinter runs 33994802411..34069015439): the only job-blocking
+# lint class is editorconfig-checker over git-TRACKED files. This hook runs the
+# same check (tracked files only, so bin/obj build output never false-positives)
+# and refuses the commit on failure. Bypass with 'git commit --no-verify'.
+#
+# The gate lives in .githooks/ so it is versioned with the repo; it is wired up
+# via: git config core.hooksPath .githooks
+#
+# Set ETHANG_FULL_GATE=1 to also run the AGENTS.md lint gate:
+#   dotnet format eThangAgent.slnx --verify-no-changes --severity warn
+#
+# NOTE: checks run against working-tree bytes. If a file drifts from its LF blob
+# (CRLF tooling), the fix is: delete the file, then 'git checkout -- <file>'.
+
+set -e
+PATH="/usr/bin:/mingw64/bin:$PATH"
+export PATH
+REPO="$(git rev-parse --path-format=absolute --git-common-dir)"
+REPO="$(dirname "$REPO")"
+cd "$REPO"
+
+if ! command -v editorconfig-checker >/dev/null 2>&1; then
+    echo "[pre-commit] editorconfig-checker not on PATH - install it or bypass with --no-verify" >&2
+    exit 1
+fi
+
+if [ -z "$(git ls-files)" ]; then
+    echo "[pre-commit] no tracked files - nothing to check"
+    exit 0
+fi
+
+echo "[pre-commit] editorconfig-checker over tracked files..."
+status=0
+git ls-files -z | xargs -0 -n 300 sh -c 'editorconfig-checker -config .editorconfig-checker.json "$@"' _ || status=1
+
+if [ "$status" -ne 0 ]; then
+    echo "[pre-commit] editorconfig violations above - fix them (or bypass with --no-verify)." >&2
+    exit 1
+fi
+
+if [ "${ETHANG_FULL_GATE:-0}" = "1" ]; then
+    echo "[pre-commit] dotnet format verify (full gate)..."
+    dotnet format eThangAgent.slnx --verify-no-changes --severity warn
+fi
+
+echo "[pre-commit] OK"
+exit 0
