@@ -1,11 +1,13 @@
 
+using eThangAgent.AgentDomain;
+using eThangAgent.SharedKernel;
+using eThangAgent.Storage.ACL;
+using Microsoft.Extensions.DependencyInjection;
+
 // Best-effort temp-file cleanup in catch blocks is deliberate (CA1031), matching
 // the sibling session-factory test files.
 #pragma warning disable CA1031 // Do not catch general exception types
-using eThangAgent.AgentDomain;
-using Microsoft.Extensions.DependencyInjection;
-using eThangAgent.SharedKernel;
-using eThangAgent.Storage.ACL;
+
 namespace eThangAgent.Composition.Tests;
 
 /// <summary>Factory wiring (spec #26): the session factory resolves the watcher
