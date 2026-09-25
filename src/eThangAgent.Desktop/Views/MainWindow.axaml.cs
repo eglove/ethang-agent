@@ -106,7 +106,8 @@ internal partial class MainWindow : Window
         _vm.ConfiguredOpenRouterBaseUrl, _vm.ConfiguredZaiBaseUrl,
         _vm.ConfiguredComputerUse,
         await _vm.GetGlobalSkillDirectoriesAsync(),
-        await _vm.GetWorkspaceSkillDirectoriesAsync());
+        await _vm.GetWorkspaceSkillDirectoriesAsync(),
+        await _vm.GetSkillRegistryDefaultTargetAsync());
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {

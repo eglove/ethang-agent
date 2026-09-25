@@ -430,6 +430,19 @@ internal sealed partial class MainViewModel : ObservableObject
     return parsed.IsSuccess ? parsed.Value : [];
   }
 
+  /// <summary>Loads the skill-registry default target for the settings prefill.
+  ///     The raw stored value prefills; strict parsing happens at settings load.</summary>
+  public async Task<string> GetSkillRegistryDefaultTargetAsync()
+  {
+    if (_preferences is null)
+    {
+      return string.Empty;
+    }
+
+    string? stored = await _preferences.GetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget);
+    return stored ?? string.Empty;
+  }
+
   /// <summary>Loads the selected tab's workspace skill-directory rows for the prefill.
   ///     No selected tab means an empty workspace scope.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSkillDirectoriesAsync()
@@ -651,6 +664,15 @@ internal sealed partial class MainViewModel : ObservableObject
       _ = workspaceSkillDirectories.Count == 0
           ? _preferences?.DeleteAsync(skillWsKey)
           : _preferences?.SetAsync(skillWsKey, SkillDirectoryPreferences.Serialize(workspaceSkillDirectories));
+    }
+
+    // Skill-registry default target (plan #29 T12): absent text deletes the key
+    // (unset), 'global'/'workspace' store verbatim; the loader strict-parses on read.
+    if (update.SkillRegistryDefaultTarget is { } registryTarget)
+    {
+      _ = registryTarget.Length == 0
+          ? _preferences?.DeleteAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget)
+          : _preferences?.SetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget, registryTarget);
     }
 
     // Re-hydrate non-secrets from the store they just landed in — the loader's strict

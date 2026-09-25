@@ -33,7 +33,8 @@ internal partial class SettingsWindow : Window
       string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
       string? openRouterBaseUrlText = null, string? zaiBaseUrlText = null, bool computerUse = false,
       IReadOnlyList<SessionFileEntry>? globalSkillDirectories = null,
-      IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null) : this()
+      IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null,
+      string? skillRegistryDefaultTarget = null) : this()
   {
     _vm = new SettingsViewModel(openRouterKey, zaiKey, zaiEndpointMode, commitStyle,
         compactionModels, selectedCompactionModel, localBaseUrl, localApiKey,
@@ -41,7 +42,7 @@ internal partial class SettingsWindow : Window
         maxConcurrentAgentsText, defaultModelText, remoteHost,
         watchdogTickText, watchdogIdleText, watchdogWrapUpText,
         openRouterBaseUrlText, zaiBaseUrlText, computerUse,
-        globalSkillDirectories, workspaceSkillDirectories);
+        globalSkillDirectories, workspaceSkillDirectories, skillRegistryDefaultTarget);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);
   }

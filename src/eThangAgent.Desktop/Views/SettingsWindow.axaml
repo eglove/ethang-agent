@@ -88,6 +88,17 @@
               Text="Checked files are read at session start and injected verbatim into the system prompt (global first, then workspace). Missing or unreadable files are skipped with a note; nothing is loaded unless you configure it here. Applies to newly opened agents."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
           <Separator Margin="0,4,0,0"/>
+          <TextBlock Text="Skill registry" FontWeight="Bold" Margin="0,6,0,0"/>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="Default install target" VerticalAlignment="Center"/>
+            <ComboBox SelectedIndex="{Binding SkillRegistryTargetIndex}" MinWidth="120">
+              <ComboBoxItem Content="Unset (ask every install)"/>
+              <ComboBoxItem Content="Global directory"/>
+              <ComboBoxItem Content="Workspace directory"/>
+            </ComboBox>
+          </StackPanel>
+          <TextBlock Text="Where skill_registry installs go when the tool call names no target. Applies to newly opened agents." Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+          <Separator Margin="0,4,0,0"/>
           <TextBlock Text="Skill directories" FontWeight="Bold" Margin="0,6,0,0"/>
           <TextBlock Text="Global skill directories (scanned for every workspace)" Opacity="0.8"/>
           <ItemsControl x:Name="GlobalSkillDirectoriesList" ItemsSource="{Binding GlobalSkillDirectories}">
