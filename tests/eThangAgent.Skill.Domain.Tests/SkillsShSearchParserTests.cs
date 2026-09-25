@@ -39,7 +39,7 @@ public class SkillsShSearchParserTests
   [Fact]
   public void DuplicateAddresses_DedupedPreservingOrder()
   {
-    string json = "{\"skills\":[{\"id\":\"o/r/a\",\"name\":\"a\",\"installs\":1},{\"id\":\"o/r/b\",\"name\":\"b\",\"installs\":2},{\"id\":\"o/r/a\",\"name\":\"a\",\"installs\":3}]}";
+    string json = /*lang=json,strict*/ "{\"skills\":[{\"id\":\"o/r/a\",\"name\":\"a\",\"installs\":1},{\"id\":\"o/r/b\",\"name\":\"b\",\"installs\":2},{\"id\":\"o/r/a\",\"name\":\"a\",\"installs\":3}]}";
     Result<IReadOnlyList<SkillsShEntry>> r = SkillsShSearchParser.ParseSearch(json);
     Assert.True(r.IsSuccess);
     Assert.Equal(["o/r/a", "o/r/b"], [.. r.Value.Select(e => e.Address)]);
@@ -49,7 +49,7 @@ public class SkillsShSearchParserTests
   [Fact]
   public void EmptySkillsArray_Succeeds_WithNoEntries()
   {
-    Result<IReadOnlyList<SkillsShEntry>> r = SkillsShSearchParser.ParseSearch("{\"skills\":[]}");
+    Result<IReadOnlyList<SkillsShEntry>> r = SkillsShSearchParser.ParseSearch(/*lang=json,strict*/ "{\"skills\":[]}");
     Assert.True(r.IsSuccess);
     Assert.Empty(r.Value);
   }
@@ -65,7 +65,7 @@ public class SkillsShSearchParserTests
   [Fact]
   public void MissingSkillsKey_FailsParseFailed()
   {
-    Result<IReadOnlyList<SkillsShEntry>> r = SkillsShSearchParser.ParseSearch("{\"query\":\"q\"}");
+    Result<IReadOnlyList<SkillsShEntry>> r = SkillsShSearchParser.ParseSearch(/*lang=json,strict*/ "{\"query\":\"q\"}");
     Assert.False(r.IsSuccess);
     Assert.Equal("ParseFailed", r.Error.Code);
   }
@@ -73,7 +73,7 @@ public class SkillsShSearchParserTests
   [Fact]
   public void SkillsNotAnArray_FailsParseFailed()
   {
-    Result<IReadOnlyList<SkillsShEntry>> r = SkillsShSearchParser.ParseSearch("{\"skills\":\"x\"}");
+    Result<IReadOnlyList<SkillsShEntry>> r = SkillsShSearchParser.ParseSearch(/*lang=json,strict*/ "{\"skills\":\"x\"}");
     Assert.False(r.IsSuccess);
     Assert.Equal("ParseFailed", r.Error.Code);
   }
@@ -81,7 +81,7 @@ public class SkillsShSearchParserTests
   [Fact]
   public void EntryWithMissingFields_SkippedQuietly()
   {
-    string json = "{\"skills\":[{\"id\":\"o/r/ok\",\"name\":\"ok\",\"installs\":7},{\"name\":\"incomplete\"}]}";
+    string json = /*lang=json,strict*/ "{\"skills\":[{\"id\":\"o/r/ok\",\"name\":\"ok\",\"installs\":7},{\"name\":\"incomplete\"}]}";
     Result<IReadOnlyList<SkillsShEntry>> r = SkillsShSearchParser.ParseSearch(json);
     Assert.True(r.IsSuccess);
     SkillsShEntry one = Assert.Single(r.Value);

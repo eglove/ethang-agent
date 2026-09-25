@@ -193,7 +193,7 @@ public sealed class SkillRegistryServiceTests : IDisposable
   [Fact]
   public async Task Install_EntryName_ResolvesThroughSkillsSh()
   {
-    _skillsSh.Respond("my-deploy", "{\"skills\":[{\"id\":\"o/r/deploy\",\"name\":\"deploy\",\"installs\":5}]}");
+    _skillsSh.Respond("my-deploy", /*lang=json,strict*/ "{\"skills\":[{\"id\":\"o/r/deploy\",\"name\":\"deploy\",\"installs\":5}]}");
     _registry.StageSkills("o/r", ("deploy", "b"));
     Result<SkillInstallReport> r = await MakeService().InstallAsync(
         Addr("my-deploy"), "workspace", false, false, TestContext.Current.CancellationToken);
@@ -205,7 +205,7 @@ public sealed class SkillRegistryServiceTests : IDisposable
   [Fact]
   public async Task Install_EntryName_NoMatch_FailsEntryNotFound()
   {
-    _skillsSh.Respond("ghost", "{\"skills\":[]}");
+    _skillsSh.Respond("ghost", /*lang=json,strict*/ "{\"skills\":[]}");
     Result<SkillInstallReport> r = await MakeService().InstallAsync(
         Addr("ghost"), "workspace", false, false, TestContext.Current.CancellationToken);
     Assert.False(r.IsSuccess);

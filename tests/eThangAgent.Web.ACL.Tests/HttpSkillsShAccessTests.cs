@@ -33,7 +33,7 @@ public sealed class HttpSkillsShAccessTests : IDisposable
     TestServer server = Start(new TestServer(ctx =>
     {
       lastPath = ctx.Request.Url!.PathAndQuery;
-      byte[] bytes = System.Text.Encoding.UTF8.GetBytes("{\"skills\":[]}");
+      byte[] bytes = System.Text.Encoding.UTF8.GetBytes(/*lang=json,strict*/ "{\"skills\":[]}");
       ctx.Response.StatusCode = 200;
       ctx.Response.ContentType = "application/json";
       ctx.Response.ContentLength64 = bytes.Length;
@@ -43,7 +43,7 @@ public sealed class HttpSkillsShAccessTests : IDisposable
     using HttpSkillsShAccess access = new(server.BaseUrl);
     Result<string> r = await access.FetchSearchAsync("deploy", TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
-    Assert.Equal("{\"skills\":[]}", r.Value);
+    Assert.Equal(/*lang=json,strict*/ "{\"skills\":[]}", r.Value);
     Assert.Contains("/api/search", lastPath, StringComparison.Ordinal);
     Assert.Contains("q=deploy", lastPath, StringComparison.Ordinal);
   }
@@ -55,7 +55,7 @@ public sealed class HttpSkillsShAccessTests : IDisposable
     TestServer server = Start(new TestServer(ctx =>
     {
       lastPath = ctx.Request.Url!.PathAndQuery;
-      byte[] bytes = System.Text.Encoding.UTF8.GetBytes("{\"skills\":[]}");
+      byte[] bytes = System.Text.Encoding.UTF8.GetBytes(/*lang=json,strict*/ "{\"skills\":[]}");
       ctx.Response.StatusCode = 200;
       ctx.Response.ContentType = "application/json";
       ctx.Response.ContentLength64 = bytes.Length;

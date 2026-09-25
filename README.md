@@ -80,6 +80,13 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   learned, collisions announced), a budgeted always-on skill listing in every session's system
   prompt, session-start bootstrap injection of the using-skills contract, and `skill_list` /
   `skill_view` / `skill_manage` tools
+- Skill registry: search the skills.sh directory (`skill_search`) and install/update/uninstall
+  community skills into a configured skill directory (`skill_registry`) — GitHub repos,
+  `owner/repo/skill` addresses, `file:///` fixture URLs, or skills.sh entries; every install is
+  gated by a deterministic content scan (BLOCK findings abort unconditionally; advisory
+  findings require explicit confirmation), name collisions are refused against authoritative
+  built-ins and learned skills, and installed skills surface immediately through hot reload
+
 - z.ai capability tools (available only on z.ai tabs in the **General API** endpoint
   mode — the capability endpoints do not exist on the coding endpoint): `web_search` — live web search with
   bounded snippets; `web_read` — fetch one page as markdown; `count_tokens` — GLM tokenizer;

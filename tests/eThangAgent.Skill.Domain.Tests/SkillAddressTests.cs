@@ -79,6 +79,27 @@ public class SkillAddressTests
     Assert.False(string.IsNullOrWhiteSpace(r.Error.Message));
   }
 
+  [Theory]
+  [InlineData("file:///C:/repos/my-skills", "my-skills")]
+  [InlineData("file:///C:/repos/my-skills.git", "my-skills")]
+  [InlineData("file:///home/user/projects/tools-repo", "tools-repo")]
+  public void Create_FileUrl_ParsesWithRepoFolderName(string raw, string repo)
+  {
+    Result<SkillAddress> r = SkillAddress.Create(raw);
+    Assert.True(r.IsSuccess);
+    Assert.Equal(SkillAddressKind.GitUrl, r.Value.Kind);
+    Assert.Equal(string.Empty, r.Value.Host);
+    Assert.Equal(repo, r.Value.Repo);
+  }
+
+  [Fact]
+  public void ToCloneUrl_FileUrl_ReturnsRawVerbatim()
+  {
+    Result<SkillAddress> r = SkillAddress.Create("file:///C:/repos/my-skills");
+    Assert.True(r.IsSuccess);
+    Assert.Equal(new Uri("file:///C:/repos/my-skills"), r.Value.ToCloneUrl());
+  }
+
   [Fact]
   public void Create_OverlongToken_FailsInvalidAddress()
   {

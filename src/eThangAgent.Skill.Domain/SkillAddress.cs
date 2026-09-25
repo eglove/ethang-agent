@@ -44,24 +44,56 @@ public sealed record SkillAddress(SkillAddressKind Kind, string Owner, string Re
         : ToCloneUrlCore();
   }
 
-  private Uri ToCloneUrlCore() => new(Kind == SkillAddressKind.GitUrl
-      ? $"https://{Host}/{Owner}/{Repo}.git"
-      : DefaultCloneUrl());
+  private Uri ToCloneUrlCore()
+  {
+    return Kind == SkillAddressKind.GitUrl && Host.Length == 0
+        ? new Uri(Raw)
+        : HttpsCloneUri();
+  }
 
   private string DefaultCloneUrl() => $"https://{DefaultHost}/{Owner}/{Repo}.git";
 
+  private Uri HttpsCloneUri() => new(Kind == SkillAddressKind.GitUrl
+      ? $"https://{Host}/{Owner}/{Repo}.git"
+      : DefaultCloneUrl());
+
   private static bool IsUrl(string trimmed) =>
       trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-      trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+      trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+      trimmed.StartsWith("file://", StringComparison.OrdinalIgnoreCase);
 
   private static Result<SkillAddress> ParseUrl(string trimmed)
   {
     int schemeEnd = trimmed.IndexOf("://", StringComparison.Ordinal) + 3;
     string remainder = trimmed[schemeEnd..];
+    if (remainder.StartsWith('/'))
+    {
+      return FileUrlSegments(trimmed, remainder);
+    }
+
     int firstSlash = remainder.IndexOf('/', StringComparison.Ordinal);
     return firstSlash <= 0
         ? Fail("URL is missing a host or path.")
         : UrlSegments(trimmed, remainder[..firstSlash], remainder[(firstSlash + 1)..]);
+  }
+
+  /// <summary>file:/// URLs carry no host: the repository name is the last
+  /// path segment. Whole-path character validation is skipped (local paths
+  /// legitimately contain spaces, colons, and unicode); the derived repo
+  /// folder name still validates against the skill-name token rule.</summary>
+  private static Result<SkillAddress> FileUrlSegments(string trimmed, string path)
+  {
+    string[] segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+    if (segments.Length < 1)
+    {
+      return Fail("file URL path must end with a repository folder name.");
+    }
+
+    string repo = segments[^1];
+    repo = repo.EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? repo[..^4] : repo;
+    return !IsValidToken(repo)
+        ? Fail($"Repository folder '{repo}' is not a valid skill-name source.")
+        : Result.Success(new SkillAddress(SkillAddressKind.GitUrl, string.Empty, repo, SubSkill: null, string.Empty, trimmed));
   }
 
   private static Result<SkillAddress> UrlSegments(string trimmed, string host, string path)
