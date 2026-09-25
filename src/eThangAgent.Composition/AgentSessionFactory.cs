@@ -527,7 +527,13 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   }
 
   private static AgentSession BuildSession(ServiceProvider services, AgentId rootId,
-      string workspaceRoot, string providerName) => new(
+      string workspaceRoot, string providerName)
+  {
+    // Hot reload (spec #26): the watcher is idempotent-Start, so create AND resume
+    // can call it; a second call on the same container is a no-op. Headless stubs
+    // without the composition registrations skip it via GetService.
+    services.GetService<SkillDirectoryWatcher>()?.Start();
+    return new(
       services,
       rootId,
       services.GetRequiredService<Conversation>(),
@@ -539,14 +545,16 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       services.GetRequiredService<IAgentInbox>(),
       services.GetRequiredService<IAgentRuntime>(),
       services.GetRequiredService<SessionModelPreferences>())
-      {
-        // Shell access is registered by the core composition; a bare session container
-        // (test stubs) without it yields a null runner and the ! surface reports unavailable.
-        CommandRunner = services.GetService<IUserCommandRunner>(),
-        // The verbatim system prompt rides the session so hosts can show the user
-        // exactly what the agent receives. Build() is a pure render (session-file
-        // reads happen at container build); building it here keeps the conversation
-        // untouched - the prompt never enters it.
-        SystemPrompt = services.GetRequiredService<ISystemPromptProvider>().Build(),
-      };
+    {
+      // Shell access is registered by the core composition; a bare session container
+      // (test stubs) without it yields a null runner and the ! surface reports unavailable.
+      CommandRunner = services.GetService<IUserCommandRunner>(),
+      // The verbatim system prompt rides the session so hosts can show the user
+      // exactly what the agent receives. Build() is a pure render (session-file
+      // reads happen at container build); building it here keeps the conversation
+      // untouched - the prompt never enters it.
+      SystemPrompt = services.GetRequiredService<ISystemPromptProvider>().Build(),
+    };
+  }
 }
+

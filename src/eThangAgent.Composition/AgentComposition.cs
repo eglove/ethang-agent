@@ -215,10 +215,22 @@ public static class AgentComposition
         // provider resolve ISkillCatalog and see the merged view.
         .AddSingleton<EmbeddedSkillCatalog>()
         .AddSingleton<ISkillDirectorySource, DirectorySkillSource>()
-        .AddSingleton<ISkillCatalog>(sp => new CompositeSkillCatalog(
+        .AddSingleton<CompositeSkillCatalog>(sp => new CompositeSkillCatalog(
             sp.GetRequiredService<EmbeddedSkillCatalog>(),
             sp.GetRequiredService<ISkillDirectorySource>(),
             sp.GetRequiredService<ResolvedSkillDirectories>().List))
+        .AddSingleton<ISkillCatalog>(sp => sp.GetRequiredService<CompositeSkillCatalog>())
+        // Hot reload (spec #26): ONE watcher + reloader per container. The factory
+        // starts the watcher after the session exists; child containers never do,
+        // so their watchers stay inert (named limitation in the spec).
+        .AddSingleton(sp => new SkillDirectoryReloader(
+            () => sp.GetRequiredService<Conversation>(),
+            notice => sp.GetRequiredService<AgentSession>().PostNotice(notice)))
+        .AddSingleton(sp => new SkillDirectoryWatcher(
+            sp.GetRequiredService<CompositeSkillCatalog>(),
+            diff => sp.GetRequiredService<SkillDirectoryReloader>().Announce(diff),
+            sp.GetRequiredService<ResolvedSkillDirectories>().List))
+        .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
         .AddSingleton<SqliteCuratedMemoryStore>()
