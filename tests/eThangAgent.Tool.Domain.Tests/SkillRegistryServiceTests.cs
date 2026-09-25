@@ -329,7 +329,7 @@ internal sealed class FakeRegistryAccess
       }
 
       owner._clonedRoots.Add(request.StagingRoot);
-      FakeRegistryAccess.CopyAll(owner._cloneResponses[key], request.StagingRoot);
+      CopyAll(owner._cloneResponses[key], request.StagingRoot);
       return Task.FromResult(Result.Success(request.StagingRoot));
     }
 
@@ -342,7 +342,7 @@ internal sealed class FakeRegistryAccess
         return Task.FromResult(Result.Failure<string>(new DomainError("DestinationExists", dest)));
       }
 
-      FakeRegistryAccess.CopyAll(request.SourcePath, dest);
+      CopyAll(request.SourcePath, dest);
       return Task.FromResult(Result.Success(dest));
     }
 

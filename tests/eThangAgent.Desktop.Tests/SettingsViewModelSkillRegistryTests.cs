@@ -1,10 +1,10 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
-using eThangAgent.Storage.ACL;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using eThangAgent.Zai.ACL;
 using Microsoft.Extensions.DependencyInjection;
@@ -99,7 +99,7 @@ public class SettingsViewModelSkillRegistryTests
   private static AgentSettings Settings() => new(
       new OpenRouterSettings(null, new Uri("https://openrouter.test")),
       new ZaiSettings(null, new Uri("https://zai.test")),
-      new AgentDomain.SubAgentOptions(null, 2));
+      new SubAgentOptions(null, 2));
 
   private static async Task<AgentTabViewModel> OpenShellAsync(MainViewModel shell, string root)
   {
