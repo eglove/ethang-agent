@@ -18,6 +18,9 @@ internal partial class ModelSettingsWindow : Window
   {
     DataContext = vm;
     vm.SettingsSaved += (_, snapshot) => Close(snapshot);
+    // The catalog load must be kicked when the window opens — LoadAsync is
+    // idempotent per view-model, so a re-open never refetches.
+    Opened += (_, _) => _ = vm.LoadModelCatalogAsync();
   }
 
   private void OnCancel(object? sender, RoutedEventArgs e) => Close(null);
