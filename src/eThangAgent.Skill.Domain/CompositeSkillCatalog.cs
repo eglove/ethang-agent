@@ -52,6 +52,58 @@ public sealed class CompositeSkillCatalog(ISkillCatalog builtIns, ISkillDirector
     return Result.Success(load.Diagnostics);
   }
 
+  /// <summary>Hot reload (spec #26): re-performs the composite load and diffs the
+  ///     visible (winner) set against the previous load by name. A skill counts as
+  ///     CHANGED when its source label or any of description/body/version/manual/origin
+  ///     differs. The fresh load replaces the memoized one, so subsequent
+  ///     List/Get/GetDiagnostics serve the new view. Concurrency: publish-safe like
+  ///     the memoization contract - a concurrent reload may run the load twice, never
+  ///     corrupt state; the last completed load wins (the memoization precedent).</summary>
+  public async Task<Result<SkillReloadDiff>> ReloadAsync(CancellationToken ct = default)
+  {
+    CompositeLoad previous;
+    lock (_gate)
+    {
+      previous = _load ?? new CompositeLoad([], [], []);
+    }
+
+    CompositeLoad fresh = await PerformLoadAsync(ct).ConfigureAwait(false);
+    lock (_gate)
+    {
+      _load = fresh;
+    }
+
+    // The diff is the ANNOUNCEMENT view: project both sides to the visible
+    // (non-manual) winner set first. A winner that flips to manual therefore
+    // surfaces as a removal, one that flips off manual as an addition, and a
+    // purely manual edit is never announced - the listing never showed it.
+    Dictionary<string, (string Label, SkillDefinition Skill)> before = previous.Winners
+        .Where(w => !w.Skill.Manual)
+        .ToDictionary(w => w.Skill.Name, StringComparer.Ordinal);
+    Dictionary<string, (string Label, SkillDefinition Skill)> after = fresh.Winners
+        .Where(w => !w.Skill.Manual)
+        .ToDictionary(w => w.Skill.Name, StringComparer.Ordinal);
+
+    List<SkillDefinition> added = [.. after.Values
+        .Where(n => !before.ContainsKey(n.Skill.Name))
+        .Select(n => n.Skill)
+        .OrderBy(x => x.Name, StringComparer.Ordinal)];
+    List<SkillDefinition> removed = [.. before.Values
+        .Where(o => !after.ContainsKey(o.Skill.Name))
+        .Select(o => o.Skill)
+        .OrderBy(x => x.Name, StringComparer.Ordinal)];
+    List<SkillDefinition> changed = [.. after.Values
+        .Where(n => before.TryGetValue(n.Skill.Name, out (string Label, SkillDefinition Skill) o)
+            && (!string.Equals(o.Label, n.Label, StringComparison.Ordinal)
+                || !string.Equals(o.Skill.Description, n.Skill.Description, StringComparison.Ordinal)
+                || !string.Equals(o.Skill.Body, n.Skill.Body, StringComparison.Ordinal)
+                || o.Skill.Version != n.Skill.Version
+                || !string.Equals(o.Skill.Origin, n.Skill.Origin, StringComparison.Ordinal)))
+        .Select(n => n.Skill)
+        .OrderBy(x => x.Name, StringComparer.Ordinal)];
+    return Result.Success(new SkillReloadDiff(added, removed, changed));
+  }
+
   private async Task<CompositeLoad> EnsureLoadedAsync(CancellationToken ct)
   {
     lock (_gate)
@@ -127,8 +179,11 @@ public sealed class CompositeSkillCatalog(ISkillCatalog builtIns, ISkillDirector
     List<SkillDefinition> visible = [.. winners.Where(w => w.Label == BuiltInLabel).Select(w => w.Skill).OrderBy(s => s.Name, StringComparer.Ordinal)
         .Concat(winners.Where(w => w.Label != BuiltInLabel).Select(w => w.Skill).OrderBy(s => s.Name, StringComparer.Ordinal))];
     diagnostics.AddRange(collisions.OrderBy(c => c.CandidateIndex).Select(c => c.Line));
-    return new CompositeLoad(visible, [.. diagnostics]);
+    return new CompositeLoad(visible, [.. diagnostics], [.. winners]);
   }
 
-  private sealed record CompositeLoad(IReadOnlyList<SkillDefinition> Visible, IReadOnlyList<string> Diagnostics);
+  private sealed record CompositeLoad(
+      IReadOnlyList<SkillDefinition> Visible,
+      IReadOnlyList<string> Diagnostics,
+      IReadOnlyList<(string Label, SkillDefinition Skill)> Winners);
 }
