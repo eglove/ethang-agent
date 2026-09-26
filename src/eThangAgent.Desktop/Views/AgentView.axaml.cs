@@ -187,8 +187,23 @@ internal partial class AgentView : UserControl
 
   private void OnTranscriptScrollChanged(object? sender, ScrollChangedEventArgs e)
   {
-    Vm?.Transcript.Scroll.ObserveScroll(
+    TranscriptScrollController? controller = Vm?.Transcript.Scroll;
+    if (controller is null)
+    {
+      return;
+    }
+
+    controller.ObserveScroll(
         TranscriptScroll.Extent.Height, TranscriptScroll.Viewport.Height, TranscriptScroll.Offset.Y);
+
+    // Geometry drift while pinned (resize, refocus re-layout) moved the tail out of
+    // view: re-pin after layout, coalesced through the same one-shot queue as appends.
+    if (controller.ShouldRePin)
+    {
+      controller.ClearRePin();
+      _scrollToEndQueued = true;
+      Dispatcher.UIThread.Post(FlushQueuedScrollToEnd, DispatcherPriority.Loaded);
+    }
   }
 
   /// <summary>Applies the transcript's saved reading offset once layout has produced

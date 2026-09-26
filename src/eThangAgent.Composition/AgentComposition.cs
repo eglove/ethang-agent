@@ -69,6 +69,7 @@ public static class AgentComposition
         .AddSingleton<GitWorktreeAccess>()
         .AddSingleton<IGitWorktreeAccess>(sp => sp.GetRequiredService<GitWorktreeAccess>())
         .AddSingleton<IWorktreeProvisioner>(sp => new GitWorktreeProvisioner(sp.GetRequiredService<GitWorktreeAccess>()))
+        .AddSingleton<IWorkspaceCleanlinessCheck>(sp => new WorkspaceCleanlinessCheck(sp.GetRequiredService<IGitQueryAccess>()))
         .AddSingleton(ExecOptions.Default)
         .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
         .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
@@ -303,7 +304,8 @@ public static class AgentComposition
             sp.GetRequiredService<IAgentEvents>(),
             sp.GetRequiredService<IWatchdogEventStore>(),
             InboxFor: id => sp.GetRequiredService<ChildMailboxRegistry>().InboxFor(id),
-            AnchorScope: sp.GetRequiredService<IWorkspaceAnchorScope>()))
+            AnchorScope: sp.GetRequiredService<IWorkspaceAnchorScope>(),
+            Cleanliness: sp.GetRequiredService<IWorkspaceCleanlinessCheck>()))
         .AddSingleton(sp => new SubAgentSpawner(
             sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),

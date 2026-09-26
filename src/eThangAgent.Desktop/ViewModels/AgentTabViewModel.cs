@@ -19,6 +19,12 @@ internal sealed partial class AgentTabViewModel(AgentSession session, AgentSessi
 
   public string Subtitle => ViewModel.WorkspaceRoot;
 
+  /// <summary>Whether this tab is the shell's selected one. Drives the keep-alive
+  ///     content panel's visibility: every open tab's AgentView stays built; only the
+  ///     selected one is visible. Set by MainViewModel.OnSelectedTabChanged.</summary>
+  [ObservableProperty]
+  public partial bool IsSelected { get; set; }
+
   /// <summary>The tab's unread-steering badge, attached by the shell against the
   ///     session's child-event stream (W4.4). Null when no stream is wired
   ///     (headless/test hosts construct nothing).</summary>
