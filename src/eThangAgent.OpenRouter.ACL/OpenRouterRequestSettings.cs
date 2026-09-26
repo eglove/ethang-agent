@@ -24,7 +24,7 @@ public sealed record OpenRouterRequestSettings
   [JsonIgnore]
   public Routing Routing { get; init; } = new();
 
-  /// <summary>The eleven OpenRouter server-side tools available on the responses
+  /// <summary>The ten OpenRouter server-side tools available on the responses
   ///     API; an enabled tool runs on the
   ///     provider side and is keyed by its wire type string when serialized.</summary>
   [JsonIgnore]
@@ -221,7 +221,7 @@ public sealed record Routing(
 }
 #pragma warning restore CA1819
 
-/// <summary>The eleven OpenRouter server-side tools available on the responses
+/// <summary>The ten OpenRouter server-side tools available on the responses
 ///     API, and the server-tool budgets.
 ///     Enabled toggles serialize as the tool's wire type string; disabled toggles
 ///     and unset budgets are omitted entirely. The array budget member compares by
@@ -235,7 +235,6 @@ public sealed record Routing(
 /// <param name="ApplyPatch">Patch application. Wire type: openrouter:apply_patch.</param>
 /// <param name="Fusion">Fusion retrieval. Wire type: openrouter:fusion.</param>
 /// <param name="Advisor">Advisor. Wire type: openrouter:advisor.</param>
-/// <param name="Subagent">Sub-agent delegation. Wire type: openrouter:subagent.</param>
 /// <param name="SearchModels">Model search. Wire type:
 ///     openrouter:experimental__search_models.</param>
 /// <param name="ToolSearch">Tool search. Wire type: openrouter:tool_search.</param>
@@ -262,8 +261,6 @@ public sealed record ServerTools(
   bool Fusion = false,
   [property: JsonIgnore]
   bool Advisor = false,
-  [property: JsonIgnore]
-  bool Subagent = false,
   [property: JsonIgnore]
   bool SearchModels = false,
   [property: JsonIgnore]
@@ -323,12 +320,6 @@ public sealed record ServerTools(
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public bool? AdvisorWire { get => Advisor ? true : null; init => Advisor = value.GetValueOrDefault(); }
 
-  /// <summary>Wire view of Subagent: serialized as its wire type string only when
-  ///     the tool is enabled.</summary>
-  [JsonPropertyName("openrouter:subagent")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public bool? SubagentWire { get => Subagent ? true : null; init => Subagent = value.GetValueOrDefault(); }
-
   /// <summary>Wire view of SearchModels: serialized as its wire type string only
   ///     when the tool is enabled.</summary>
   [JsonPropertyName("openrouter:experimental__search_models")]
@@ -354,7 +345,6 @@ public sealed record ServerTools(
           && ApplyPatch == other.ApplyPatch
           && Fusion == other.Fusion
           && Advisor == other.Advisor
-          && Subagent == other.Subagent
           && SearchModels == other.SearchModels
           && ToolSearch == other.ToolSearch
           && MaxToolCalls == other.MaxToolCalls
@@ -372,7 +362,6 @@ public sealed record ServerTools(
     hash.Add(ApplyPatch);
     hash.Add(Fusion);
     hash.Add(Advisor);
-    hash.Add(Subagent);
     hash.Add(SearchModels);
     hash.Add(ToolSearch);
     hash.Add(MaxToolCalls);

@@ -121,7 +121,7 @@ internal sealed class RoutingSection
   private static string JoinList(string[]? values) => values is null ? string.Empty : string.Join(", ", values);
 }
 
-/// <summary>The eleven OpenRouter server-tool toggles available on the responses
+/// <summary>The ten OpenRouter server-tool toggles available on the responses
 ///     API plus the server-tool budget fields (max calls as text; stop conditions
 ///     in the strict <c>type=value</c> text form), projected onto the ACL's typed
 ///     <see cref="ServerTools"/> record at save time.</summary>
@@ -135,7 +135,6 @@ internal sealed class ServerToolsSection
   public bool ApplyPatch { get; set; }
   public bool Fusion { get; set; }
   public bool Advisor { get; set; }
-  public bool Subagent { get; set; }
   public bool SearchModels { get; set; }
   public bool ToolSearch { get; set; }
   public string MaxToolCallsText { get; set; } = string.Empty;
@@ -150,7 +149,6 @@ internal sealed class ServerToolsSection
       ApplyPatch: ApplyPatch,
       Fusion: Fusion,
       Advisor: Advisor,
-      Subagent: Subagent,
       SearchModels: SearchModels,
       ToolSearch: ToolSearch,
       MaxToolCalls: ParseIntOrNull(MaxToolCallsText),
@@ -268,7 +266,6 @@ internal sealed class ServerToolsSection
     ApplyPatch = tools.ApplyPatch,
     Fusion = tools.Fusion,
     Advisor = tools.Advisor,
-    Subagent = tools.Subagent,
     SearchModels = tools.SearchModels,
     ToolSearch = tools.ToolSearch,
     MaxToolCallsText = tools.MaxToolCalls?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
@@ -584,7 +581,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       new ToolToggleRow("Apply patch", ServerTools.ApplyPatch, value => ServerTools.ApplyPatch = value),
       new ToolToggleRow("Fusion retrieval", ServerTools.Fusion, value => ServerTools.Fusion = value),
       new ToolToggleRow("Advisor", ServerTools.Advisor, value => ServerTools.Advisor = value),
-      new ToolToggleRow("Sub-agent", ServerTools.Subagent, value => ServerTools.Subagent = value),
       new ToolToggleRow("Search models", ServerTools.SearchModels, value => ServerTools.SearchModels = value),
       new ToolToggleRow("Tool search", ServerTools.ToolSearch, value => ServerTools.ToolSearch = value),
     ];

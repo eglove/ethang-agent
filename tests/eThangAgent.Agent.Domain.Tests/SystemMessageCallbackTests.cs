@@ -46,6 +46,7 @@ public class SystemMessageCallbackTests
   public async Task CompactionFailureNotice_FiresOnSystemMessage()
   {
     Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 1000)); // believable report: >= 950 tokens at 4 chars/token
     Agent agent = new(new ScriptedModelProvider(), conversation, Config, new ToolRegistry([]),
         new AgentOptions
         {

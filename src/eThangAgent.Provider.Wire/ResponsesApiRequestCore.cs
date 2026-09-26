@@ -32,6 +32,7 @@ public static class ResponsesApiRequestCore
 
     StringBuilder content = new();
     List<ToolCallRequest> toolCalls = [];
+    List<ServerToolCall> serverToolCalls = [];
     foreach (JsonElement item in output.EnumerateArray())
     {
       string type = item.TryGetProperty("type", out JsonElement t) && t.ValueKind == JsonValueKind.String
@@ -49,6 +50,11 @@ public static class ResponsesApiRequestCore
                   ? args.GetString() ?? "" : ""));
           break;
         default:
+          if (ServerToolCallItem.TryParse(type, item, out ServerToolCall? call))
+          {
+            serverToolCalls.Add(call);
+          }
+
           break;
       }
     }
@@ -57,7 +63,8 @@ public static class ResponsesApiRequestCore
         content.Length > 0 ? content.ToString() : null,
         toolCalls,
         ParseFinishReason(body, toolCalls.Count > 0),
-        ParseUsage(body)));
+        ParseUsage(body),
+        serverToolCalls));
   }
 
   /// <summary>Maps the response status to the finish reason. "completed" (or a missing

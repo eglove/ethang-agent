@@ -11,7 +11,9 @@ current task is better than improvising the same procedure from scratch.
 1. Before starting non-trivial work, check the listing for a skill that matches the
    task. Match on what the task IS, not only on exact wording.
 2. Load the skill with skill_view before relying on it, even if you believe you know
-   its content: bodies evolve and details matter.
+   its content: bodies evolve and details matter. skill_view is an exec-bridge call —
+   invoke it inside exec (Tools.Invoke("skill_view", new { name = "<name>" })),
+   never as a direct chat tool.
 3. Announce: "Using [skill] to [purpose]" — then follow the skill.
 4. If two skills match, run the process skill first (it sets the approach), then the
    implementation skill.

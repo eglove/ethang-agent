@@ -24,7 +24,7 @@ public static class SkillListingBudget
 ///     and load bodies with skill_view (progressive disclosure: names and
 ///     descriptions only, never bodies). Render contract - implement verbatim:
 ///
-///     [skills listing — prefer a matching skill over improvising; load bodies with skill_view]
+///     [skills listing — prefer a matching skill over improvising; load bodies with skill_view (an exec-bridge call: Tools.Invoke("skill_view", new { name = "&lt;name&gt;" }) inside exec)]
 ///     ## Built-in
 ///     - &lt;name&gt;: &lt;description&gt;
 ///     ## Global directory skills
@@ -67,7 +67,7 @@ public static class SkillListingBudget
 public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedSkillStore learned,
     IReadOnlyList<SkillDirectory> directories) : ISystemPromptProvider
 {
-  private const string Header = "[skills listing — prefer a matching skill over improvising; load bodies with skill_view]";
+  private const string Header = "[skills listing — prefer a matching skill over improvising; load bodies with skill_view (an exec-bridge call: Tools.Invoke(\"skill_view\", new { name = \"<name>\" }) inside exec)]";
   private const string CollisionPrefix = "[collision] ";
 
   private readonly ISkillCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));

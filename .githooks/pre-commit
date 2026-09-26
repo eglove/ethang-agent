@@ -18,8 +18,11 @@
 set -e
 PATH="/usr/bin:/mingw64/bin:$PATH"
 export PATH
-REPO="$(git rev-parse --path-format=absolute --git-common-dir)"
-REPO="$(dirname "$REPO")"
+# Stay in the CURRENT worktree's root: git ls-files (with GIT_DIR pointing at the
+# worktree) lists the worktree's files, and the checker must read those bytes HERE.
+# cd-ing to git-common-dir's parent (the main checkout) breaks linked-worktree
+# commits: files that exist only in the worktree are not there.
+REPO="$(git rev-parse --show-toplevel)"
 cd "$REPO"
 
 if ! command -v editorconfig-checker >/dev/null 2>&1; then
