@@ -38,6 +38,12 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
    (headings, bold/italic, inline code, fenced code blocks, lists, links), and tool calls/results appear as
    expandable cards: pretty-printed JSON arguments on the call, the full result content on the result
    (errors highlighted red)
+ - Status bar branch display — a git workspace's current branch shows in the tab's status bar and
+   updates live on branch switches, checkouts, and commits (event-driven on `.git` writes; a
+   non-git workspace shows nothing)
+ - Server-side tool call surfacing — provider-executed tool calls (OpenRouter's `openrouter:web_search`
+   and the Responses API's `web_search_call` family) never enter the message history, so the
+   transcript surfaces each as a system line with its query plus the result URLs the wire carried
 - `exec` tool — in-process C# scripting via Roslyn with artifact capture and structured output
 - Every tool call carries a mandatory `timeoutSeconds` budget (1–3600): a call exceeding its
   budget is stopped and returned as `Error [ToolTimeout]` for self-correction; the agent's
