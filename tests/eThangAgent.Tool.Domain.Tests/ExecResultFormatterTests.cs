@@ -183,4 +183,38 @@ public class ExecResultFormatterTests
     Assert.DoesNotContain("line 11, col 1", result.Content, StringComparison.Ordinal);
     Assert.Contains("[5 more parse error(s) not shown]", result.Content, StringComparison.Ordinal);
   }
+
+  // ---- empty-output hint: a discarded nested-call result (session 851d...) ----
+
+  [Fact]
+  public void Completed_EmptyOutput_WithNestedDispatches_HintsDiscardedResult()
+  {
+    ExecRunResult run = new(ExecRunStatus.Completed, "", [], null, NestedDispatchCount: 1);
+
+    ToolResult result = ExecResultFormatter.Format(run, Options, null);
+
+    Assert.False(result.IsError);
+    Assert.Contains("[exec: empty output", result.Content, StringComparison.Ordinal);
+    Assert.Contains("discarded", result.Content, StringComparison.Ordinal);
+    Assert.Contains("var r = Tools.Invoke(...)", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Completed_EmptyOutput_NoNestedDispatches_StaysSilent()
+  {
+    ToolResult result = ExecResultFormatter.Format(ExecRunResult.Completed(""), Options, null);
+
+    Assert.False(result.IsError);
+    Assert.Equal("", result.Content);
+  }
+
+  [Fact]
+  public void Completed_NonEmptyOutput_WithNestedDispatches_NeverHints()
+  {
+    ExecRunResult run = new(ExecRunStatus.Completed, "ok", [], null, NestedDispatchCount: 3);
+
+    ToolResult result = ExecResultFormatter.Format(run, Options, null);
+
+    Assert.Equal("ok", result.Content);
+  }
 }

@@ -9,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.12", ExecGuide.Version);
+    Assert.Equal("2.13", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -246,5 +246,16 @@ public class ExecGuideTests
     Assert.Contains("Tools.Invoke(", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("try/catch", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("[exec:artifact", ExecGuide.Text, StringComparison.Ordinal);
+  }
+
+  // Two sessions produced empty exec output by calling Tools.Invoke(...) as a bare
+  // statement (the result was discarded); the guide must teach the capture pattern
+  // the harness now hints at.
+  [Fact]
+  public void Guide_TeachesCapturingNestedCallResults()
+  {
+    Assert.Contains("Tools.read(new { path = \"notes.txt\" });", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("var r = Tools.read(new { path = \"notes.txt\" });", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("[exec: empty output", ExecGuide.Text, StringComparison.Ordinal);
   }
 }

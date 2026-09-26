@@ -45,6 +45,22 @@ public static class ExecResultFormatter
       }
     }
 
+    // A completed run with no output is legitimate (the script returns void) — but
+    // when the script dispatched nested tool calls, the likeliest cause is a result
+    // discarded by a bare `Tools.Invoke(...);` statement. Append a visible hint so
+    // the model re-issues with the capture pattern instead of reading blank as
+    // success: two real sessions lost the nested result this way.
+    if (run.Output.Length == 0 && run.NestedDispatchCount > 0)
+    {
+      if (sb.Length > 0)
+      {
+        _ = sb.Append('\n');
+      }
+
+      _ = sb.Append(CultureInfo.InvariantCulture,
+          $"[exec: empty output — {run.NestedDispatchCount} nested tool call(s) ran; if one was a bare statement, its result was discarded. Capture it: var r = Tools.Invoke(...); then use or return r.]");
+    }
+
     foreach (string line in run.ErrorLines)
     {
       // Separators only join existing content: an empty-output run must not start

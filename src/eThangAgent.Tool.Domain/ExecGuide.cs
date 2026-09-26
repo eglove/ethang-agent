@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.12";
+  public const string Version = "2.13";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -48,6 +48,17 @@ public static class ExecGuide
         Tools.read(new { path = "src/App.cs" });                          // ok — inherits the exec budget
         Tools.read(new { timeoutSeconds = 120, path = "big.log" });       // ok — overrides for this call
         Tools.Invoke("state.set", new { timeoutSeconds = 30, key = "k", value = "v" });   // ok
+
+    CAPTURE THE RESULT. A bare statement
+
+        Tools.read(new { path = "notes.txt" });
+
+    runs the call and THROWS AWAY its result — the script's output is then empty and
+    the harness appends `[exec: empty output — N nested tool call(s) ran; ...]` to tell
+    you so. The correct form:
+
+        var r = Tools.read(new { path = "notes.txt" });   // hold the result
+        return r;                                          // use it or return it
 
     Only budgetless contexts (evidence checks) require the explicit value. A nested
     call whose explicit value is invalid fails with
@@ -251,7 +262,9 @@ public static class ExecGuide
 
     ### Rules
 
-    - Return value is the output. null/void produces empty output.
+    - Return value is the output. null/void produces empty output — including when a
+      nested tool call was a bare statement whose result was discarded; capture it:
+      `var r = Tools.Invoke(...);`
     - Output over 50,000 characters is truncated; full text saved to [exec:artifact <path>].
     - exec cannot call itself (no nested exec).
     - timeoutSeconds is the only execution budget; when it elapses the call fails

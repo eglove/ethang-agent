@@ -20,6 +20,7 @@ public sealed class ScriptGlobals
   private static readonly TimeSpan ShellDrainGrace = TimeSpan.FromSeconds(2);
 
   private readonly ConcurrentQueue<string> _outputLines = new();
+  private int _nestedDispatchCount;
   private readonly bool _captureStdout;
   private TextWriter? _originalOut;
 
@@ -57,6 +58,15 @@ public sealed class ScriptGlobals
   ///     omit <c>timeoutSeconds</c> inherit it — the named leniency decision documented
   ///     in ExecGuide; explicit nested values still win and are still validated.</summary>
   public TimeSpan? ExecBudget { get; }
+
+  /// <summary>How many capability dispatches this script made through Tools — the
+  ///     attribution signal for empty-output runs (a discarded nested-call result
+  ///     reads as empty output; the formatter uses the count to hint at it).</summary>
+  public int NestedDispatchCount => _nestedDispatchCount;
+  /// <summary>Counts one dispatched nested capability call. Called by
+  ///     ScriptTools.Invoke past every pre-dispatch contract throw, so a
+  ///     counted dispatch is one that actually reached the provider.</summary>
+  internal void CountNestedDispatch() => Interlocked.Increment(ref _nestedDispatchCount);
 
   /// <summary>Tool-calling surface: Tools.read(...), Tools.Invoke(...), etc.</summary>
   public ScriptTools Tools { get; }
@@ -362,6 +372,10 @@ public sealed class ScriptTools
       throw new ScriptToolException(
           $"Error [{parsedBudget.Error.Code}]: nested call '{name}': {parsedBudget.Error.Message}");
     }
+
+    // Counted here, past every pre-dispatch contract throw: a counted dispatch is one
+    // that actually reached the provider. The empty-output hint keys off this count.
+    _globals.CountNestedDispatch();
 
     // Tools whose contract declares timeoutSeconds (ITool-backed actions) re-validate
     // it themselves — they need it present: an explicit nested value passes through

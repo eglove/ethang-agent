@@ -4,8 +4,9 @@ public sealed record ExecRunResult(
     ExecRunStatus Status,
     string Output,
     IReadOnlyList<string> ErrorLines,
-    string? ErrorMessage = null)
+    string? ErrorMessage = null,
+    int NestedDispatchCount = 0)
 {
-  public static ExecRunResult Completed(string output)
-      => new(ExecRunStatus.Completed, output, []);
+  public static ExecRunResult Completed(string output, int nestedDispatchCount = 0)
+      => new(ExecRunStatus.Completed, output, [], NestedDispatchCount: nestedDispatchCount);
 }

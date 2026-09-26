@@ -152,7 +152,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       }
 
       string output = string.Join("\n", outputLines);
-      return new ExecRunResult(ExecRunStatus.Completed, output, []);
+      return new ExecRunResult(ExecRunStatus.Completed, output, [],
+          NestedDispatchCount: globals.NestedDispatchCount);
     }
     catch (OperationCanceledException)
     {
@@ -167,7 +168,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       // No engine-side [ScriptError] tag: ScriptToolException messages already carry
       // their Error [CODE] tag, and the result formatter owns the "exec error
       // [ScriptError]:" gutter — tagging here too double-wraps the surface.
-      return new ExecRunResult(ExecRunStatus.Completed, output, [ex.Message]);
+      return new ExecRunResult(ExecRunStatus.Completed, output, [ex.Message],
+          NestedDispatchCount: globals.NestedDispatchCount);
     }
     finally
     {

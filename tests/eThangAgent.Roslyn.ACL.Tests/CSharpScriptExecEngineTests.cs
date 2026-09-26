@@ -262,6 +262,91 @@ public class CSharpScriptExecEngineTests
     ExecRunResult second = await engine.ExecuteAsync(new ExecProgram("return Workspace;"), ct: TestContext.Current.CancellationToken);
     Assert.Equal(Path.GetTempPath(), second.Output);
   }
+
+  // ---- empty-output attribution: discarded nested-call results (two real
+  // sessions hit this: Tools.Invoke(...) as a bare statement, empty output) ----
+
+  [Fact]
+  public async Task BareStatementNestedCall_CountsDispatchAndEmptyOutput()
+  {
+    BareActionProvider provider = new();
+    CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([provider]),
+        workspaceRoot: () => AppContext.BaseDirectory);
+    // Exactly the session-851d pattern: invoke as a statement, discard the result.
+    ExecRunResult run = await engine.ExecuteAsync(
+        new ExecProgram("Tools.read(new { path = \"grand-plan.md\" });", TimeSpan.FromSeconds(30)),
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal(ExecRunStatus.Completed, run.Status);
+    Assert.Equal("", run.Output);
+    Assert.Equal(1, run.NestedDispatchCount);
+  }
+
+  [Fact]
+  public async Task CapturedNestedCalls_CountEveryDispatch()
+  {
+    BareActionProvider provider = new();
+    CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([provider]),
+        workspaceRoot: () => AppContext.BaseDirectory);
+    ExecRunResult run = await engine.ExecuteAsync(
+        new ExecProgram(
+            "var a = Tools.read(new { path = \"a.md\" });\n" +
+            "var b = Tools.read(new { path = \"b.md\" });\n" +
+            "return a + b;", TimeSpan.FromSeconds(30)),
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal(ExecRunStatus.Completed, run.Status);
+    Assert.Equal("okok", run.Output);
+    Assert.Equal(2, run.NestedDispatchCount);
+  }
+
+  [Fact]
+  public async Task ScriptWithoutNestedCalls_ReportsZeroDispatches()
+  {
+    BareActionProvider provider = new();
+    CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([provider]),
+        workspaceRoot: () => AppContext.BaseDirectory);
+    ExecRunResult run = await engine.ExecuteAsync(
+        new ExecProgram("\"plain\"", TimeSpan.FromSeconds(30)),
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal(ExecRunStatus.Completed, run.Status);
+    Assert.Equal(0, run.NestedDispatchCount);
+  }
+
+  [Fact]
+  public async Task FailedNestedCall_StillCountsDispatch()
+  {
+    ThrowingProvider throwing = new();
+    CSharpScriptExecEngine engine = new(CapabilityRegistry.Create([throwing]),
+        workspaceRoot: () => AppContext.BaseDirectory);
+    ExecRunResult run = await engine.ExecuteAsync(
+        new ExecProgram("Tools.Invoke(\"read\", new { path = \"x\" });", TimeSpan.FromSeconds(30)),
+        ct: TestContext.Current.CancellationToken);
+
+    // An in-band environmental error does not throw: the run completes, the
+    // discarded error text reads as empty output — and the dispatch still counts,
+    // which is exactly the state the formatter's empty-output hint keys off.
+    Assert.Equal(ExecRunStatus.Completed, run.Status);
+    Assert.Empty(run.ErrorLines);
+    Assert.Equal("", run.Output);
+    Assert.Equal(1, run.NestedDispatchCount);
+  }
+
+  /// <summary>A provider that records a dispatched action and then fails —
+  /// proving the counter increments before outcome classification.</summary>
+  private sealed class ThrowingProvider : ICapabilityProvider
+  {
+    public string Id => "thrower";
+    public IReadOnlyList<ActionDescriptor> Actions { get; } =
+    [
+        new ActionDescriptor("read", "Reads a file.", "Contract text.",
+                [new ActionParameter("path", "String", "File path.")]),
+    ];
+    public Task<CapabilityInvocationResult> InvokeAsync(string actionName,
+        string jsonArguments, CancellationToken ct = default)
+      => Task.FromResult(CapabilityInvocationResult.Fail("Error [FileNotFound]: no such file."));
+  }
 }
 
 public class CSharpEvidenceRunnerTests
