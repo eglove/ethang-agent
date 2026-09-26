@@ -33,7 +33,6 @@ public sealed class ContextEditTool(IConversationContextService service) : ITool
       "mutation returns '[context: shrank N message(s) ...]'; a selection naming nothing " +
       "fails with NothingSelected; an unparseable selection fails with InvalidSelection; " +
       "an out-of-bounds range fails with PositionOutOfRange. Errors begin with " +
-      "an out-of-bounds range fails with PositionOutOfRange. Errors begin with " +
       "`Error [Code]:`. The conversation is never emptied and never left " +
       "protocol-invalid. WHEN TO COMPACT (grand-plan guidance): shrink at a milestone - a sub-task that has " +
       "closed (a decision made, a file finished, a step completed) or a stretch of " +
