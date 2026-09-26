@@ -269,14 +269,107 @@ public class StreamedTextNormalizerTests
   }
 
   [Fact]
-  public void FenceLine_TrailingBreakState_EnteringFence()
+  public void EndOfLine_FenceOpener_AfterProse_StartsOwnLine()
   {
-    // Pending breaks accumulated before the fence line must resolve against the
-    // fence characters (paragraph collapse), not leak past the fence opening.
+    // The model ends a prose line with a fence opener; markdown needs the opener
+    // on its own line or the fence never opens and the code renders as prose.
     StreamedTextNormalizer n = new();
-    n.Append("para\n\n");
-    n.Append("```");
-    n.Append("\ncode");
-    Assert.Equal("para\n\n```\ncode", n.Text);
+    n.Append("some text ```csharp");
+    n.Append("\ncode line here");
+    Assert.Equal("some text\n```csharp\ncode line here", n.Text);
+  }
+
+  [Fact]
+  public void EndOfLine_FenceOpener_FirstCodeLine_NotDestroyed()
+  {
+    // Regression for the glue bug: the opener glued to the following code line
+    // produced "```csharpcode line here" - the fence AND the code were destroyed.
+    StreamedTextNormalizer n = new();
+    n.Append("some text ```csharp");
+    n.Append("\npublic class Foo");
+    Assert.Equal("some text\n```csharp\npublic class Foo", n.Text);
+  }
+
+  [Fact]
+  public void EndOfLine_TildeFenceOpener_AfterProse_StartsOwnLine()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("note ~~~ruby");
+    n.Append("\nputs 1");
+    Assert.Equal("note\n~~~ruby\nputs 1", n.Text);
+  }
+
+  [Fact]
+  public void EndOfLine_NumberedListMarker_AfterProse_StartsOwnLine()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("some text 1. first item");
+    n.Append("\n2. second item");
+    Assert.Equal("some text\n1. first item\n2. second item", n.Text);
+  }
+
+  [Fact]
+  public void EndOfLine_NumberedMarker_ViaPendingBreak_StartsOwnLine()
+  {
+    // "steps:" then a wrap then "1. one": today the digit joins with a space
+    // ("steps: 1. one"); the marker rule must force the break instead.
+    StreamedTextNormalizer n = new();
+    n.Append("steps:");
+    n.Append("\n1. one");
+    Assert.Equal("steps:\n1. one", n.Text);
+  }
+
+  [Fact]
+  public void EndOfLine_DecimalNumber_IsNotAListMarker()
+  {
+    // digit+dot+digit is a decimal, never a list marker: the closing-punctuation
+    // rule attaches the ".14" directly.
+    StreamedTextNormalizer n = new();
+    n.Append("pi is 3");
+    n.Append("\n.14 and more");
+    Assert.Equal("pi is 3.14 and more", n.Text);
+  }
+
+  [Fact]
+  public void EndOfLine_NumberDotDigit_AfterProse_JoinsNotBreaks()
+  {
+    StreamedTextNormalizer n = new();
+    n.Append("section");
+    n.Append("\n1.2 details");
+    Assert.Equal("section 1.2 details", n.Text);
+  }
+
+  [Fact]
+  public void EndOfLine_StarBullet_ViaPendingBreak_StartsOwnLine()
+  {
+    // A pending break resolving against "* first" keeps the break (existing rule);
+    // this pins that the new marker forcing does not regress the star marker.
+    StreamedTextNormalizer n = new();
+    n.Append("options");
+    n.Append("\n* first");
+    Assert.Equal("options\n* first", n.Text);
+  }
+
+  [Fact]
+  public void EndOfLine_InlineBacktick_SinglePair_IsNotAFence()
+  {
+    // A single inline-code backtick pair mid-prose must not trigger the fence
+    // forcing: only a marker RUN of three or more opens a fence.
+    StreamedTextNormalizer n = new();
+    n.Append("use the `flag` value");
+    n.Append("\nhere");
+    Assert.Equal("use the `flag` valuehere", n.Text);
+  }
+
+  [Fact]
+  public void EndOfLine_FenceOpener_ParagraphBreakBefore_StillCollapses()
+  {
+    // Two breaks after a glued fence opener: the opener is repaired onto its own
+    // line and opens the fence, so the following blank line is code-block content
+    // (CommonMark: everything after the opener line is code).
+    StreamedTextNormalizer n = new();
+    n.Append("para one ```js");
+    n.Append("\n\nlet x = 1");
+    Assert.Equal("para one\n```js\n\nlet x = 1", n.Text);
   }
 }
