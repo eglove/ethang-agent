@@ -30,9 +30,10 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
       "alone. The session bootstrap prompt carries the active style's guidance skill. " +
       "body optionally adds a paragraph after a blank line. Output begins with an " +
       "annotation line `[git-commit <hash>] committed on <branch>` followed by the " +
-      "committed message exactly as committed. Validation and backend errors begin with " +
-      "Before committing, the verification gate may refuse with `Error [VerificationRequired]` " +
-      "when tracked or untracked files changed after the newest successful verification command; run verification and retry. " +
+      "committed message exactly as committed. Before committing, the verification gate may " +
+      "append a final line starting with `[warning] verification gate:` when tracked or untracked " +
+      "files changed after the newest successful verification command; the commit still proceeds, " +
+      "and you should run a verification command before claiming completion. " +
       "Errors begin with `Error [Code]:`.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
@@ -96,12 +97,12 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
   private async Task<ToolResult> CommitAsync(string repoRoot, string message,
       IReadOnlyList<string>? files, CancellationToken ct)
   {
-    // Gate A (spec #24): refuse commits while changed files lack a fresh
-    // verification run. Status unavailability stands the gate down.
+    // Gate A (spec #24, amended): changed files without a fresh verification
+    // run append a warning; the commit proceeds. Status unavailability stands
+    // the gate down.
+    string? gateWarning = null;
     if (_gate is { Enabled: true } activeGate)
     {
-      // Status unavailability stands the gate down: the commit proceeds on its
-      // own merits (spec #24's stand-down rule).
       Result<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>> status =
           await _commits.StatusAsync(repoRoot, ct).ConfigureAwait(false);
       if (status.IsSuccess)
@@ -109,10 +110,7 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
         VerificationVerdict v = activeGate.Evaluate(status.Value);
         if (!v.Verified)
         {
-          string lastVerification = v.LastVerificationSummary ?? "none";
-          return Err(new DomainError("VerificationRequired",
-              $"{v.ChangedCount} file(s) changed; newest change {v.NewestChangeUtc:u}; last verification: {lastVerification}. " +
-              "Run a verification command (default set: dotnet test, dotnet build, dotnet format, npm test, pytest, cargo test, go test) and retry."));
+          gateWarning = VerificationGate.WarningLine(v);
         }
       }
     }
@@ -134,7 +132,8 @@ public sealed class GitCommitTool(IPathResolver resolver, IGitCommitAccess commi
 
     GitCommitOutcome o = committed.Value;
 
-    return new ToolResult($"[git-commit {o.Hash}] committed on {o.Branch}\n{o.Message}", false);
+    string content = $"[git-commit {o.Hash}] committed on {o.Branch}\n{o.Message}";
+    return new ToolResult(gateWarning is null ? content : content + gateWarning + "\n", false);
   }
 
   private static ToolResult Err(DomainError error) => new($"Error [{error.Code}]: {error.Message}", true);

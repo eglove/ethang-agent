@@ -59,7 +59,7 @@ public class GitCommitGateTests
           ct: TestContext.Current.CancellationToken);
 
   [Fact]
-  public async Task DirtyTree_StaleLedger_RefusesWithVerificationRequired()
+  public async Task DirtyTree_StaleLedger_CommitsWithWarning()
   {
     FakeLedger ledger = new();
     FakeCommits commits = new();
@@ -67,10 +67,12 @@ public class GitCommitGateTests
 
     ToolResult result = await RunCommit(tool);
 
-    Assert.True(result.IsError);
-    Assert.StartsWith("Error [VerificationRequired]:", result.Content, StringComparison.Ordinal);
+    Assert.False(result.IsError);
+    Assert.StartsWith("[git-commit abc1234]", result.Content, StringComparison.Ordinal);
+    Assert.Contains("[warning]", result.Content, StringComparison.Ordinal);
     Assert.Contains("1 file(s) changed", result.Content, StringComparison.Ordinal);
-    Assert.Equal(0, commits.CommitCalls);
+    Assert.Contains("last verification: none", result.Content, StringComparison.Ordinal);
+    Assert.Equal(1, commits.CommitCalls);
   }
 
   [Fact]
@@ -86,6 +88,22 @@ public class GitCommitGateTests
     Assert.False(result.IsError);
     Assert.StartsWith("[git-commit abc1234]", result.Content, StringComparison.Ordinal);
     Assert.Equal(1, commits.CommitCalls);
+  }
+
+  [Fact]
+  public async Task DirtyTree_StaleLedger_WarningCarriesCountsAndLastRun()
+  {
+    FakeLedger ledger = new();
+    ledger.Append(new ShellExecutionRecord(["dotnet", "build"], 0, Base.AddMinutes(-30), Base.AddMinutes(-29)));
+    FakeCommits commits = new();
+    GitCommitTool tool = MakeTool(ledger, commits);
+
+    ToolResult result = await RunCommit(tool);
+
+    Assert.False(result.IsError);
+    Assert.Equal(1, commits.CommitCalls);
+    Assert.Contains("dotnet build", result.Content, StringComparison.Ordinal);
+    Assert.Contains("No successful verification-class command started after the newest change", result.Content, StringComparison.Ordinal);
   }
 
   [Fact]

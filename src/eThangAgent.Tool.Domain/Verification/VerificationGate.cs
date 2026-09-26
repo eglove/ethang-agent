@@ -1,7 +1,7 @@
 namespace eThangAgent.ToolDomain.Verification;
 
 /// <summary>The verdict of one gate evaluation: whether the changed files are
-///     covered by a fresh verification run, with the counts the refusal text
+///     covered by a fresh verification run, with the counts the warning text
 ///     carries.</summary>
 public readonly record struct VerificationVerdict(
     bool Verified,
@@ -48,6 +48,20 @@ public sealed class VerificationGate(
     }
 
     return new VerificationVerdict(fresh, changedFiles.Count, newest, summary);
+  }
+
+  /// <summary>The commit gate's warning contract: the commit proceeds; this
+  ///     line appends to its output when changed files lack a fresh
+  ///     verification run. Callers invoke it only on an unverified verdict.</summary>
+  public static string WarningLine(VerificationVerdict v)
+  {
+    string lastVerification = v.LastVerificationSummary ?? "none";
+    string commands = string.Join(", ", VerificationCommandSpecificationDefaults.Commands);
+    return "[warning] verification gate: " + v.ChangedCount + " file(s) changed; newest change "
+        + v.NewestChangeUtc?.ToString("u", System.Globalization.CultureInfo.InvariantCulture)
+        + "; last verification: " + lastVerification
+        + ". No successful verification-class command started after the newest change (default set: "
+        + commands + "); run one before claiming completion.";
   }
 
   /// <summary>The turn gate's nudge contract, verbatim: null when verified or
