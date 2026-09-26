@@ -351,6 +351,29 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
         }
       }
     }
+    // Workspace-cleanliness check (grand-plan BUG 3): fresh implementers left scratch
+    // files behind twice; the report contract catches it at source. A completed run's
+    // report gains an annotation listing untracked files the workspace still holds.
+    // Best effort: a failed check (not a git repo, git missing) never blocks the run.
+    if (services.Cleanliness is { } cleanliness && child.Contract is { } reportContractJson)
+    {
+      string? reportAnchor = SpawnContract.Decode(reportContractJson).WorkspaceRoot;
+      if (reportAnchor is not null)
+      {
+        Result<IReadOnlyList<string>> untracked = await cleanliness.UntrackedFilesAsync(reportAnchor, ct).ConfigureAwait(false);
+        if (untracked.IsSuccess && untracked.Value.Count > 0)
+        {
+          const int MaxListed = 10;
+          List<string> listed = [.. untracked.Value.Take(MaxListed)];
+          int more = untracked.Value.Count - listed.Count;
+          string suffix = more > 0 ? $" … (+{more} more)" : string.Empty;
+          finalReport += "\n[agent] workspace check: " + untracked.Value.Count
+              + " untracked file(s) left behind: " + string.Join(", ", listed) + suffix
+              + " — remove scratch files (or commit intended changes).";
+        }
+      }
+    }
+
     await PersistTerminalAsync(child with
     {
       Status = AgentStatus.Completed,

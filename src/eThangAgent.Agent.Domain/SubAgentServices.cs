@@ -24,6 +24,9 @@ namespace eThangAgent.AgentDomain;
 ///     anchored contract is an infrastructure misconfiguration — the spawner fails
 ///     such a run loudly rather than anchoring silently nowhere; unanchored runs
 ///     never touch it.</param>
+/// <param name="Cleanliness">Optional workspace-cleanliness reader for the child-report
+///     contract: a completed run's report gains an annotation listing untracked files
+///     left behind. Null disables the check (legacy wiring, tests).</param>
 public sealed record SubAgentServices(
     IModelProviderFactory Factory,
     IAgentStore Store,
@@ -34,5 +37,6 @@ public sealed record SubAgentServices(
     IAgentEvents? Events = null,
     IWatchdogEventStore? Audit = null,
     Func<AgentId, IAgentInbox?>? InboxFor = null,
-    IWorkspaceAnchorScope? AnchorScope = null);
+    IWorkspaceAnchorScope? AnchorScope = null,
+    IWorkspaceCleanlinessCheck? Cleanliness = null);
 
