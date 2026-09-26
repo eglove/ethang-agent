@@ -72,7 +72,9 @@ public class AgentCompactionTriggerTests
   {
     ScriptedCompactor compactor = new();
     List<CompactionOutcome> compacted = [];
-    Agent agent = new(new StubProvider(), new Conversation(), Config, new ToolRegistry([]),
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800)); // believable report: 800 tokens at 4 chars/token
+    Agent agent = new(new StubProvider(), conversation, Config, new ToolRegistry([]),
         new AgentOptions
         {
           ContextMonitor = new ThresholdMonitor(80.0),
@@ -91,6 +93,7 @@ public class AgentCompactionTriggerTests
   public async Task SuccessfulCompaction_Fires_SystemMessage_With_Summary_Text()
   {
     Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800)); // believable report: 800 tokens at 4 chars/token
     ScriptedCompactingCompactor compactor = new();
     Agent agent = new(new StubProvider(), conversation, Config, new ToolRegistry([]),
         new AgentOptions
@@ -130,6 +133,7 @@ public class AgentCompactionTriggerTests
   {
     ScriptedCompactor compactor = new() { Fail = true };
     Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 1000)); // believable report: >= 950 tokens at 4 chars/token
     Agent agent = new(new StubProvider(), conversation, Config, new ToolRegistry([]),
         new AgentOptions
         {

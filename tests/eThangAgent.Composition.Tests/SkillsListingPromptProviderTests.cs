@@ -115,7 +115,7 @@ public class SkillsListingPromptProviderTests
         [new SkillDirectory(GlobalDir, SkillDirectoryScope.Global),
              new SkillDirectory(WorkspaceDir, SkillDirectoryScope.Workspace)]).BuildAsync();
 
-    Assert.StartsWith("[skills listing — prefer a matching skill over improvising; load bodies with skill_view]", text, StringComparison.Ordinal);
+    Assert.StartsWith("[skills listing — prefer a matching skill over improvising; load bodies with skill_view (an exec-bridge call: Tools.Invoke(\"skill_view\", new { name = \"<name>\" }) inside exec)]", text, StringComparison.Ordinal);
     Assert.Contains("## Built-in\n- builtin-a: desc builtin-a", text, StringComparison.Ordinal);
     Assert.Contains("## Global directory skills\n- global-skill: desc global-skill", text, StringComparison.Ordinal);
     Assert.Contains("## Workspace directory skills\n- ws-skill: desc ws-skill", text, StringComparison.Ordinal);
@@ -268,7 +268,7 @@ public class SkillsListingPromptProviderTests
 
     Assert.True(text.Length <= SkillListingBudget.MaxChars,
         "block exceeds MaxChars: " + text.Length);
-    Assert.StartsWith("[skills listing — prefer a matching skill over improvising; load bodies with skill_view]", text, StringComparison.Ordinal);
+    Assert.StartsWith("[skills listing — prefer a matching skill over improvising; load bodies with skill_view (an exec-bridge call: Tools.Invoke(\"skill_view\", new { name = \"<name>\" }) inside exec)]", text, StringComparison.Ordinal);
     int markerIndex = text.IndexOf("[skills listing truncated", StringComparison.Ordinal);
     Assert.True(markerIndex > 0, "truncation marker must render");
     Assert.EndsWith("]", text.TrimEnd(), StringComparison.Ordinal);
@@ -361,7 +361,7 @@ public class SkillsListingPromptProviderTests
 
     Assert.Contains("[warning] built-in skills unavailable: catalog exploded", text, StringComparison.Ordinal);
     Assert.Contains("[warning] learned skills unavailable: store offline", text, StringComparison.Ordinal);
-    Assert.StartsWith("[skills listing — prefer a matching skill over improvising; load bodies with skill_view]", text, StringComparison.Ordinal);
+    Assert.StartsWith("[skills listing — prefer a matching skill over improvising; load bodies with skill_view (an exec-bridge call: Tools.Invoke(\"skill_view\", new { name = \"<name>\" }) inside exec)]", text, StringComparison.Ordinal);
     Assert.DoesNotContain("- keep:", text, StringComparison.Ordinal);
   }
 

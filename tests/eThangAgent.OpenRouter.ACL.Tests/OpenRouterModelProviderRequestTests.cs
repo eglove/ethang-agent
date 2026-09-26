@@ -16,7 +16,7 @@ public class OpenRouterModelProviderRequestTests
   private static readonly Uri BaseUrl = new("https://openrouter.test");
   private static OpenRouterConfiguration Config => new("test-key", BaseUrl);
 
-  /// <summary>The eleven server-tool wire type strings in their declared order.</summary>
+  /// <summary>The ten server-tool wire type strings in their declared order.</summary>
   private static readonly string[] ServerToolWireTypesInOrder =
   [
     "openrouter:web_search",
@@ -27,7 +27,6 @@ public class OpenRouterModelProviderRequestTests
     "openrouter:apply_patch",
     "openrouter:fusion",
     "openrouter:advisor",
-    "openrouter:subagent",
     "openrouter:experimental__search_models",
     "openrouter:tool_search",
   ];
@@ -147,13 +146,13 @@ public class OpenRouterModelProviderRequestTests
   }
 
   [Fact]
-  public async Task Body_AllElevenServerTools_LeadTheToolsArrayInDeclaredOrder()
+  public async Task Body_AllTenServerTools_LeadTheToolsArrayInDeclaredOrder()
   {
     OpenRouterRequestSettings settings = new()
     {
       ServerTools = new ServerTools(
         WebSearch: true, WebFetch: true, Datetime: true, ImageGeneration: true, Shell: true,
-        ApplyPatch: true, Fusion: true, Advisor: true, Subagent: true, SearchModels: true,
+        ApplyPatch: true, Fusion: true, Advisor: true, SearchModels: true,
         ToolSearch: true)
     };
     List<ToolDefinition> tools =
@@ -168,7 +167,7 @@ public class OpenRouterModelProviderRequestTests
 
     using JsonDocument doc = JsonDocument.Parse(body);
     JsonElement toolsElement = doc.RootElement.GetProperty("tools");
-    Assert.Equal(12, toolsElement.GetArrayLength());
+    Assert.Equal(11, toolsElement.GetArrayLength());
     for (int i = 0; i < ServerToolWireTypesInOrder.Length; i++)
     {
       JsonElement entry = toolsElement[i];
@@ -177,7 +176,7 @@ public class OpenRouterModelProviderRequestTests
     }
 
     // The user-defined tool follows, in the Responses API's FLAT function shape.
-    JsonElement functionTool = toolsElement[11];
+    JsonElement functionTool = toolsElement[10];
     Assert.Equal("function", functionTool.GetProperty("type").GetString());
     Assert.Equal("demo_tool", functionTool.GetProperty("name").GetString());
     // openrouter:bash does not exist on the responses API — never serialized.

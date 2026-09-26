@@ -21,12 +21,11 @@ public class OpenRouterRequestSettingsTests
     "openrouter:bash",
     "openrouter:fusion",
     "openrouter:advisor",
-    "openrouter:subagent",
     "openrouter:experimental__search_models",
     "openrouter:tool_search"
   ];
 
-  /// <summary>All eleven server tools' wire type strings, in declared order.</summary>
+  /// <summary>All ten server tools' wire type strings, in declared order.</summary>
   private static readonly string[] AllServerToolWireTypes =
   [
     "openrouter:web_search",
@@ -37,7 +36,6 @@ public class OpenRouterRequestSettingsTests
     "openrouter:apply_patch",
     "openrouter:fusion",
     "openrouter:advisor",
-    "openrouter:subagent",
     "openrouter:experimental__search_models",
     "openrouter:tool_search"
   ];
@@ -73,7 +71,6 @@ public class OpenRouterRequestSettingsTests
       ApplyPatch: true,
       Fusion: true,
       Advisor: true,
-      Subagent: true,
       SearchModels: true,
       ToolSearch: true,
       MaxToolCalls: 5,
@@ -101,13 +98,13 @@ public class OpenRouterRequestSettingsTests
   }
 
   [Fact]
-  public void Serialize_EveryEnabledTool_EmitsAllElevenWireTypesAndNoBash()
+  public void Serialize_EveryEnabledTool_EmitsAllTenWireTypesAndNoBash()
   {
     OpenRouterRequestSettings settings = new()
     {
       ServerTools = new ServerTools(
         WebSearch: true, WebFetch: true, Datetime: true, ImageGeneration: true, Shell: true,
-        ApplyPatch: true, Fusion: true, Advisor: true, Subagent: true, SearchModels: true,
+        ApplyPatch: true, Fusion: true, Advisor: true, SearchModels: true,
         ToolSearch: true)
     };
 
@@ -119,7 +116,7 @@ public class OpenRouterRequestSettingsTests
     }
 
     // openrouter:bash was removed with the responses-API migration: it is not one of
-    // the eleven tools and is never serialized, even fully populated.
+    // the ten tools and is never serialized, even fully populated.
     Assert.DoesNotContain("openrouter:bash", json, StringComparison.Ordinal);
   }
 

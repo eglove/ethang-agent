@@ -15,6 +15,15 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   /// <summary>Default utilization percent that trips the compactor.</summary>
   public const double DefaultCompactionThreshold = 80.0;
 
+  /// <summary>How many times above the conversation's own character estimate a
+  ///     provider-reported input-token count may sit and still be believed. Server-side
+  ///     tool calls (OpenRouter web_search) ride the provider's token accounting with
+  ///     their search pages but never enter the message history, so a report far beyond
+  ///     estimate x this factor is inflation, not context — compaction must not fire on
+  ///     it. 4 is beyond any legitimate ratio: a real request's system prompt and tool
+  ///     definitions are a fraction of a genuinely full context, never 4x it.</summary>
+  public const double MaxTrustedUsageOverEstimate = 4.0;
+
   /// <summary>Appended as a System message after a length-truncated assistant response.
   ///     Verbatim contract: the model must resume exactly where it stopped.</summary>
   public const string ContinuationPrompt =
@@ -134,6 +143,17 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
             callbacks?.OnContentDelta, callbacks?.OnReasoningDelta, ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
+          // A caller stop that landed DURING the provider call arrives here as a provider
+          // failure: the ACL maps every OperationCanceledException to ProviderTimeout and
+          // cannot tell a caller stop from a genuine timeout. Our own ct is the authority
+          // for who cancelled — take the interruption path (repair + TurnCancelled), never
+          // a "[turn failed] ProviderTimeout" line for the user's own stop.
+          if (ct.IsCancellationRequested)
+          {
+            RepairInterruptedToolCalls();
+            return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
+          }
+
           // The failure becomes part of the transcript: a turn that dies on a provider
           // error must not leave the conversation ending on a bare tool result with no
           // record of why — the model (and any resumed session) reads this line.
@@ -147,6 +167,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
         ModelResponse response = result.Value;
         ReportUsage(request, response, callbacks);
+        SurfaceServerToolCalls(response, callbacks);
         if (response.ToolCalls.Count == 0)
         {
           if (FinishWithoutToolCalls(response, ref autoContinuations, callbacks) is { } outcome)
@@ -209,6 +230,27 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // Null utilization (nothing reported yet) never compacts — lifted >= semantics:
     // the original guard read utilization >= threshold, under which null falls through.
     if (monitor.Status.UtilizationPercent is not { } utilization || utilization < _compactionThreshold)
+    {
+      return false;
+    }
+
+    // Inflation guard: a provider-reported input-token count far beyond what the
+    // conversation itself could hold is server-tool accounting, not context. Running
+    // the compactor on it fails spuriously (CompactionImpossible on a tiny
+    // conversation); skipping quietly is correct — the next honest report compacts.
+    long estimateChars = _systemPrompt?.Build().Length ?? 0;
+    foreach (Message message in Conversation.Messages)
+    {
+      estimateChars += message.Content.Length;
+      if (message.ToolCalls is { Count: > 0 } calls)
+      {
+        estimateChars += calls.Sum(call => call.Arguments.Length + call.Name.Length);
+      }
+    }
+
+    long estimateTokens = estimateChars / ContextEvictionPolicy.CharsPerTokenEstimate;
+    if (monitor.Status.LastInputTokens is { } reported
+        && reported > (long)(estimateTokens * MaxTrustedUsageOverEstimate))
     {
       return false;
     }
@@ -379,6 +421,26 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       => images is { Count: > 0 }
           ? [.. images.Select(i => new MessagePart.ImagePart(i.MediaType, i.Base64Data))]
           : null;
+
+  /// <summary>Surfaces the response's server-side tool calls as System lines — one per
+  ///     call, verbatim contract "[&lt;tool&gt;] &lt;detail&gt;" (detail omitted when the wire
+  ///     carried none). Server calls execute inside the provider's response and never
+  ///     enter the message history; without this the user's transcript shows nothing.
+  ///     The lines also land in the conversation so a resumed session sees them.</summary>
+  private void SurfaceServerToolCalls(ModelResponse response, TurnCallbacks? callbacks)
+  {
+    if (response.ServerToolCalls.Count == 0)
+    {
+      return;
+    }
+
+    foreach (ServerToolCall call in response.ServerToolCalls)
+    {
+      string line = call.Detail is { } detail ? $"[{call.Tool}] {detail}" : $"[{call.Tool}]";
+      Conversation.AddSystemMessage(line);
+      callbacks?.OnSystemMessage?.Invoke(line);
+    }
+  }
 
   /// <summary>Guard-style early returns: a failed result truncates its content to the
   /// first 77 characters plus an ellipsis; success summarizes as "ok".</summary>

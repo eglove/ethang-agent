@@ -8,8 +8,16 @@ namespace eThangAgent.ModelDomain;
 /// <param name="ToolCalls">Tool calls requested by the model; empty for a plain answer.</param>
 /// <param name="FinishReason">Why the response ended.</param>
 /// <param name="Usage">Provider-reported token usage, or null when the provider reported none.</param>
+/// <param name="ServerToolCalls">Server-side tool calls the provider executed inside this
+/// response (web_search etc.); empty when none. They never enter the message history —
+/// hosts surface them from here.</param>
 public sealed record ModelResponse(
     string? Content,
     IReadOnlyList<ToolCallRequest> ToolCalls,
     FinishReason FinishReason = FinishReason.Stop,
-    TokenUsage? Usage = null);
+    TokenUsage? Usage = null,
+    IReadOnlyList<ServerToolCall>? ServerToolCalls = null)
+{
+  /// <summary>Never null: an absent list reads as empty.</summary>
+  public IReadOnlyList<ServerToolCall> ServerToolCalls { get; init; } = ServerToolCalls ?? [];
+}

@@ -478,7 +478,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     AddIf(tools.ApplyPatch, "openrouter:apply_patch");
     AddIf(tools.Fusion, "openrouter:fusion");
     AddIf(tools.Advisor, "openrouter:advisor");
-    AddIf(tools.Subagent, "openrouter:subagent");
     AddIf(tools.SearchModels, "openrouter:experimental__search_models");
     AddIf(tools.ToolSearch, "openrouter:tool_search");
     return [.. entries];

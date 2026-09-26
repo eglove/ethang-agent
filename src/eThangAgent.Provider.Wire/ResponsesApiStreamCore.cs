@@ -45,6 +45,7 @@ public static class ResponsesApiStreamCore
     ArgumentNullException.ThrowIfNull(response);
     StringBuilder content = new();
     Dictionary<string, StreamedToolCall> toolCalls = []; // keyed by output_index
+    List<ServerToolCall> serverToolCalls = [];
     FinishReason finishReason = FinishReason.Stop;
     TokenUsage? usage = null;
     bool sawDone = false;
@@ -82,7 +83,7 @@ public static class ResponsesApiStreamCore
         }
 
         using JsonDocument doc = JsonDocument.Parse(payload);
-        ApplyEvent(doc.RootElement, content, toolCalls, onContentDelta, onReasoningDelta,
+        ApplyEvent(doc.RootElement, content, toolCalls, serverToolCalls, onContentDelta, onReasoningDelta,
             ref finishReason, ref usage);
       }
 
@@ -106,7 +107,8 @@ public static class ResponsesApiStreamCore
           assembled,
           [.. toolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value.ToRequest())],
           finishReason,
-          usage));
+          usage,
+          serverToolCalls));
       return result;
     }
     catch (JsonException ex)
@@ -130,7 +132,7 @@ public static class ResponsesApiStreamCore
   /// <summary>Applies one typed event. Structural faults (malformed fragments) surface
   ///     as InvalidOperationException → the "Malformed provider stream" failure.</summary>
   private static void ApplyEvent(JsonElement evt, StringBuilder content,
-      Dictionary<string, StreamedToolCall> toolCalls,
+      Dictionary<string, StreamedToolCall> toolCalls, List<ServerToolCall> serverToolCalls,
       Action<string>? onContentDelta, Action<string>? onReasoningDelta,
       ref FinishReason finishReason, ref TokenUsage? usage)
   {
@@ -140,7 +142,7 @@ public static class ResponsesApiStreamCore
     switch (type)
     {
       case "response.output_item.added":
-        ApplyItemAdded(evt, toolCalls);
+        ApplyItemAdded(evt, toolCalls, serverToolCalls);
         return;
 
       case "response.function_call_arguments.delta":
@@ -184,13 +186,26 @@ public static class ResponsesApiStreamCore
 
   /// <summary>A new output item: function_call items register their call_id and name —
   ///     both arrive complete on the added event; arguments stream after.</summary>
-  private static void ApplyItemAdded(JsonElement evt, Dictionary<string, StreamedToolCall> toolCalls)
+  private static void ApplyItemAdded(JsonElement evt, Dictionary<string, StreamedToolCall> toolCalls,
+      List<ServerToolCall> serverToolCalls)
   {
     if (!evt.TryGetProperty("item", out JsonElement item) || item.ValueKind != JsonValueKind.Object
         || !item.TryGetProperty("type", out JsonElement itemType)
-        || itemType.ValueKind != JsonValueKind.String
-        || itemType.GetString() != "function_call")
+        || itemType.ValueKind != JsonValueKind.String)
     {
+      return;
+    }
+
+    // Server-tool call items (web_search_call etc.) register as surfaced calls —
+    // they execute server-side and never enter the message history.
+    string addedType = itemType.GetString()!;
+    if (addedType != "function_call")
+    {
+      if (ServerToolCallItem.TryParse(addedType, item, out ServerToolCall? serverCall))
+      {
+        serverToolCalls.Add(serverCall);
+      }
+
       return;
     }
 

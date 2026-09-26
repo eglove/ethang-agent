@@ -81,6 +81,15 @@ internal partial class AgentView : UserControl
       vm.Transcript.TickToolElapsed();
     };
 
+    // A turn may already be in flight when this view attaches (tab switch back to a
+    // busy workspace, or tab content materializing mid-turn): the IsBusy PropertyChanged
+    // event fired before this subscription existed, so the attach path must consult the
+    // VM's current state or the spinner freezes with the phase label showing.
+    if (vm.IsBusy)
+    {
+      _statusTimer.Start();
+    }
+
     // Tunnel so Enter is seen before TextBox class handling consumes it.
     InputBox.AddHandler(KeyDownEvent, OnInputKeyDownTunnel, RoutingStrategies.Tunnel);
 
@@ -104,6 +113,10 @@ internal partial class AgentView : UserControl
 
   // Spinner timer, recreated per wiring; stops with the VM subscription on re-wire.
   private DispatcherTimer? _statusTimer;
+
+  /// <summary>Whether the spinner timer is currently running (test observation surface:
+  ///     the attach-to-busy wiring cannot be asserted through the private timer field).</summary>
+  internal bool IsSpinnerTimerRunning => _statusTimer?.IsEnabled ?? false;
 
   /// <summary>Starts/stops the spinner timer with the busy phase.</summary>
   private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

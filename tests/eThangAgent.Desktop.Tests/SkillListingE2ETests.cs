@@ -18,7 +18,7 @@ namespace eThangAgent.Desktop.Tests;
 public class SkillListingE2ETests
 {
   private const string ListingHeader =
-      "[skills listing — prefer a matching skill over improvising; load bodies with skill_view]";
+      "[skills listing — prefer a matching skill over improvising; load bodies with skill_view (an exec-bridge call: Tools.Invoke(\"skill_view\", new { name = \"<name>\" }) inside exec)]";
   private const string BuiltInGroupName = "## Built-in";
   private const string LearnedGroupName = "## Learned";
   private const string GlobalGroupName = "## Global directory skills";
