@@ -21,7 +21,7 @@ jobs:
   build-test-coverage:
     name: Build & Test (coverage)
     runs-on: windows-latest
-    timeout-minutes: 30  # outer bound: no step may hold the runner hostage past this
+    timeout-minutes: 60  # outer bound: no step may hold the runner hostage past this (30 was exceeded by the keep-alive Desktop suite under coverage instrumentation — no hangdump fired, the testhost was progressing)
 
     steps:
       - name: Set up JDK 17
