@@ -82,6 +82,24 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
     }
   } = TurnPhase.Ready;
 
+  /// <summary>The workspace's current git branch ("feature/demo"), or "" when
+  ///     the workspace is not a git repository. Fed by the session's
+  ///     <see cref="GitBranchWatcher"/> (event-driven on .git/HEAD changes).</summary>
+  public string Branch
+  {
+    get;
+    set
+    {
+      if (field == value)
+      {
+        return;
+      }
+
+      field = value;
+      Raise(nameof(Branch));
+    }
+  } = "";
+
   /// <summary>Current spinner frame; empty whenever the turn phase is Ready.</summary>
   public string Spinner => Phase == TurnPhase.Ready ? "" : Frames[_frame];
 

@@ -149,5 +149,8 @@ public class GitStatusToolTests
 
     public Task<Result<GitDiff>> GetDiffAsync(string repoPath, string scope, string? path, CancellationToken ct = default)
         => throw new NotSupportedException("git_status never diffs.");
+
+    public Task<Result<string>> GetBranchAsync(string repoPath, CancellationToken ct = default)
+        => throw new NotSupportedException("git_status never resolves branches.");
   }
 }

@@ -975,6 +975,9 @@ internal sealed partial class MainViewModel : ObservableObject
     // W4.4: push the unread-steering badge from the session's child-event stream
     // (deliver raises, drain/settle clear) - a subscription, never a poll.
     tab.AttachBadge(session.Services.GetService<IAgentEvents>());
+    // Statusline branch (issue 1): the workspace's git branch, event-driven on
+    // .git changes. A session without the git seam (none in production) skips it.
+    tab.AttachBranchWatcher(session.Services.GetService<IGitQueryAccess>());
     Tabs.Add(tab);
     _sessionOpened?.Invoke(session);
     SelectedTab = tab;
@@ -1386,6 +1389,7 @@ internal sealed partial class MainViewModel : ObservableObject
     catch { /* teardown never throws */ }
 #pragma warning restore CA1031
     tab.Badge?.Dispose();
+    tab.DetachBranchWatcher();
     _ = Tabs.Remove(tab);
     SelectedTab = Tabs.LastOrDefault();
     await tab.Container.Services.DisposeAsync();

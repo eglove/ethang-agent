@@ -58,6 +58,7 @@ public sealed partial class DoctrineTests
         "src/eThangAgent.ComputerUse.Host/ClipboardPaster.cs", // native broker process: bounded clipboard-sequence consumption poll
         "src/eThangAgent.ComputerUse.Host/InputDispatch.cs", // native broker process: hold_key's one-shot key-up schedule, not a poll
         "src/eThangAgent.Composition/SkillDirectoryWatcher.cs", // spec #26: the sweep is the NAMED polling fallback for hot reload (FSW misses buffer overflows and atomic-save renames); the debounce is an event-burst coalesce, not a poll
+        "src/eThangAgent.Desktop/ViewModels/GitBranchWatcher.cs", // the debounce is an event-burst coalesce over FSW .git writes (one query per git gesture), not a poll — the SkillDirectoryWatcher precedent
     ];
 
     List<string> violations = [];

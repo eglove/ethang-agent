@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -41,4 +42,20 @@ internal sealed partial class AgentTabViewModel(AgentSession session, AgentSessi
     Badge = TabBadgeViewModel.Attach(events, session.RootId, apply => count =>
       Avalonia.Threading.Dispatcher.UIThread.Post(() => apply(count)));
   }
+  /// <summary>The tab's statusline branch watcher (issue 1). Attached by the shell's
+  ///     attach path when the session exposes a git query seam; disposed on close.
+  ///     Null when the shell wired none (headless/test hosts construct nothing).</summary>
+  private GitBranchWatcher? _branchWatcher;
+
+  /// <summary>Attaches the statusline branch watcher over the tab's workspace.
+  ///     Calling again disposes the prior watcher first.</summary>
+  public void AttachBranchWatcher(IGitQueryAccess? git)
+  {
+    _branchWatcher?.Dispose();
+    _branchWatcher = git is null ? null : new GitBranchWatcher(Container.WorkspaceRoot, git, ViewModel.Status);
+  }
+
+  /// <summary>Disposes the branch watcher (tab close). Safe when none was attached.</summary>
+  public void DetachBranchWatcher() => _branchWatcher?.Dispose();
+
 }

@@ -219,5 +219,8 @@ public class WorkingDiffToolTests
       Path = path;
       return Task.FromResult(diff);
     }
+
+    public Task<Result<string>> GetBranchAsync(string repoPath, CancellationToken ct = default)
+        => throw new NotSupportedException("working_diff never resolves branches.");
   }
 }

@@ -174,4 +174,47 @@ public sealed class DirectGitAccessTests : IDisposable
     Assert.True(r.IsSuccess);
     Assert.Equal(0, r.Value.Stats.Files);
   }
+  [Fact]
+  public async Task GetBranchAsync_OnBranch_ReturnsBranchName()
+  {
+    RunGit("checkout", "-b", "feature/demo");
+    DirectGitAccess access = new();
+
+    Result<string> branch = await access.GetBranchAsync(_repoDir, TestContext.Current.CancellationToken);
+
+    Assert.True(branch.IsSuccess);
+    Assert.Equal("feature/demo", branch.Value);
+  }
+
+
+  [Fact]
+  public async Task GetBranchAsync_DetachedHead_ReportsMarker()
+  {
+    RunGit("commit", "--allow-empty", "-m", "seed");
+    RunGit("checkout", "--detach");
+    DirectGitAccess access = new();
+
+    Result<string> branch = await access.GetBranchAsync(_repoDir, TestContext.Current.CancellationToken);
+
+    Assert.True(branch.IsSuccess);
+    Assert.Equal("(detached)", branch.Value);
+  }
+  [Fact]
+  public async Task GetBranchAsync_NotARepo_Fails()
+  {
+    string plain = Path.Combine(Path.GetTempPath(), "ethang-not-a-repo-" + Guid.NewGuid().ToString("N"));
+    _ = Directory.CreateDirectory(plain);
+    try
+    {
+      DirectGitAccess access = new();
+
+      Result<string> branch = await access.GetBranchAsync(plain, TestContext.Current.CancellationToken);
+
+      Assert.False(branch.IsSuccess);
+    }
+    finally
+    {
+      Directory.Delete(plain, true);
+    }
+  }
 }

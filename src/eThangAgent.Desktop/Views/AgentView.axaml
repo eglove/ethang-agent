@@ -56,6 +56,7 @@
           <TextBlock x:Name="SpinnerText" Text="{Binding Status.Spinner}"/>
           <TextBlock x:Name="PhaseText" Text="{Binding Status.PhaseLabel}"/>
           <TextBlock x:Name="ContextText" Text="{Binding Status.ContextDisplay}" ToolTip.Tip="{Binding Status.ContextBreakdownText}"/>
+          <TextBlock x:Name="BranchText" Text="{Binding Status.Branch}" IsVisible="{Binding Status.Branch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
           <TextBlock Text="{Binding Status.Provider}"/>
           <TextBlock Text="{Binding Status.ModelId}"/>
           <TextBlock Text="{Binding Status.Effort, StringFormat='effort: {0}'}"/>

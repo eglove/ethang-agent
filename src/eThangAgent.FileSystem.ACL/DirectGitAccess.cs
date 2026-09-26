@@ -59,6 +59,29 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     return Result.Success(status);
   }
 
+  /// <summary>Resolves the checked-out branch: the same symbolic-ref probe
+  ///     GetStatusAsync uses, so an unborn HEAD reports its branch and a detached
+  ///     HEAD reports the visible "(detached)" marker. Not-a-repo fails the result
+  ///     (the statusline renders nothing) instead of throwing.</summary>
+  public async Task<Result<string>> GetBranchAsync(string repoPath, CancellationToken ct = default)
+  {
+    Result<GitRun> probe = await RunGitVerifiedAsync(repoPath, [RevParse, "--is-inside-work-tree"], ct).ConfigureAwait(false);
+    if (!probe.IsSuccess)
+    {
+      return Result.Failure<string>(probe.Error);
+    }
+
+    // Raw run (no nonzero-exit guard): a detached HEAD's exit code IS the signal.
+    GitRun branchRes = await RunGitAsync(repoPath, ["symbolic-ref", "--short", "HEAD"], ct).ConfigureAwait(false);
+    if (!branchRes.Ok)
+    {
+      return Result.Failure<string>(branchRes.Err);
+    }
+
+    string branch = branchRes.ExitCode == 0 ? branchRes.StdOut.Trim() : "(detached)";
+    return Result.Success(branch);
+  }
+
   /// <summary>Splits 'git status --porcelain' output into staged, unstaged, and
   ///     untracked entries.</summary>
   private static (List<GitStatusEntry> Staged, List<GitStatusEntry> Unstaged, List<string> Untracked) ParsePorcelain(
@@ -434,9 +457,13 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
 
   private static async Task<GitRun> RunGitAsync(string repoPath, string[] args, CancellationToken ct)
   {
+    // No WorkingDirectory on the child: the -C flag anchors git at the repo root, and a
+    // child whose working directory sits inside the workspace PINS that directory —
+    // Directory.Delete over it fails 'being used by another process' while the child
+    // lives (observed: the statusline watcher's debounced refresh racing a test's
+    // temp-workspace cleanup). The parent's CWD is inherited harmlessly.
     ProcessStartInfo psi = new(GitExePath.Value)
     {
-      WorkingDirectory = repoPath,
       RedirectStandardOutput = true,
       RedirectStandardError = true,
       UseShellExecute = false,
@@ -444,7 +471,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       StandardOutputEncoding = Encoding.UTF8,
       StandardErrorEncoding = Encoding.UTF8
     };
-    // -C anchors at the repo root so no working-directory juggling is needed.
+    // -C anchors at the repo root; the child never holds the workspace as its CWD.
     psi.ArgumentList.Add("-C");
     psi.ArgumentList.Add(repoPath);
     foreach (string a in args)
