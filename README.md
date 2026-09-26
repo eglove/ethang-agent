@@ -45,7 +45,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   cancellation always honored
 - `read` tool — bounded, line-range text file reads
 - `write` tool — create/replace files behind an explicit overwrite gate
-- `edit` tool — exact literal replacements with occurrence verification, or line-range replacement (lines N..M, no anchor, endLine past EOF rejected)
+- `edit` tool — exact literal replacements with occurrence verification, or line-range replacement (lines N..M, no anchor, endLine past EOF rejected); a missed anchor quotes the file's nearest matching region (exact line numbers and content) so one retry corrects the anchor
 - `write_markdown` tool — renders a structured JSON document into well-formed markdown deterministically (headers, lists, tables, alerts, frontmatter); returns the string or writes it to a workspace file behind the same overwrite gate as `write`
 - `sqlite_query` tool — the same read-only SELECT/WITH inspection as `db_query`,
   but against any SQLite file inside the workspace (inventory databases, exports);
@@ -115,7 +115,10 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   default: cheapest capable) and replaced by that handoff summary, so long sessions keep
   going without hitting the window. The model can also compact on its own: the `context_edit`
   tool lists the indexed messages and removes or shortens selections at a milestone, and a
-  shrunk session persists and resumes exactly like a compacted one. Compacted sessions persist and resume like any other
+  shrunk session persists and resumes exactly like a compacted one. Compacted sessions persist and resume like any other.
+   Every provider request carries the session's durable id as OpenRouter's `session_id` (sticky routing
+   for prompt caching): the root uses its persisted session id, each child its own, so multi-turn
+   requests stay pinned to one provider endpoint and keep the cache warm
 - **Sessions** entry (left menu) — resume a previous conversation: every persisted
   session is listed newest-first with its workspace, provider, start time, and status;
   sessions already open in a tab are greyed out (hover explains why). Confirming a row
