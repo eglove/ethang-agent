@@ -30,6 +30,7 @@ public sealed class SkillManageTool(ISkillCatalog catalog, ILearnedSkillStore le
       "or a `[skill-lint]` header plus one `[lint] <rule>: <message>` line per finding; " +
       "other results are the `[skill-manage]` annotation lines. Errors begin with `Error [Code]:`.",
       [
+            new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("action", ToolParameterType.Text,
                 "Exactly Create, Update, Delete, or Lint (case-sensitive). Lint is read-only."),
             new ToolParameter("name", ToolParameterType.Text,

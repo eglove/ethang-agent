@@ -20,6 +20,7 @@ public sealed class SkillSearchTool(SkillRegistryService registry) : ITool
       "then '+N more (call skill_search again to refine)' when truncated; '[skill search: <query>] no results' when empty. " +
       "Errors begin with `Error [Code]:`.",
       [
+        new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
         new ToolParameter("query", ToolParameterType.Text, "Search terms (1-200 characters)."),
       ],
       ["timeoutSeconds", "query"]);

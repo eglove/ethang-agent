@@ -27,6 +27,7 @@ public sealed class SkillRegistryTool(SkillRegistryService registry) : ITool
       "BlockedContent, AdvisoryFindings, NameCollision, NotInstalled, NoTarget, AmbiguousUninstall, SkillNotFound, " +
       "InvalidAddress, EntryNotFound.",
       [
+        new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
         new ToolParameter("action", ToolParameterType.Text, "Exactly Install, Update, or Uninstall (case-sensitive)."),
         new ToolParameter("address", ToolParameterType.Text, "Install/Update: owner/repo, owner/repo/skill, an https .git URL, or a skills.sh entry name."),
         new ToolParameter("name", ToolParameterType.Text, "Update/Uninstall: the installed skill's name."),

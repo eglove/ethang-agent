@@ -547,4 +547,20 @@ public class SkillManageToolTests
     public Task<Result<int>> AppendUsageAsync(string name, DateTimeOffset viewedAt, CancellationToken ct = default) =>
         Task.FromResult(Result.Success(1));
   }
+
+  // ---- advertised contract: timeoutSeconds declared and required ----
+  // ScriptTools.Invoke (the exec bridge) branches on the DECLARATION to decide
+  // whether an inherited nested budget is injected or stripped; a required-but-
+  // undeclared contract made nested calls to this tool fail MissingParameter
+  // even when the caller stated the budget.
+
+  [Fact]
+  public void Definition_DeclaresTimeoutSeconds_AndRequiresIt()
+  {
+    (SkillManageTool tool, _, _) = MakeTool();
+    ToolDefinition d = tool.Definition;
+    Assert.Contains(d.Parameters, p => p.Name == ToolTimeout.ParameterName
+        && p.Type == ToolParameterType.WholeNumber && p.Minimum == 1);
+    Assert.Contains(ToolTimeout.ParameterName, d.RequiredParameters);
+  }
 }

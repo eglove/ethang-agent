@@ -156,4 +156,32 @@ public class SkillRegistryToolTests
       }
     }
   }
+
+  // ---- advertised contract: timeoutSeconds declared and required ----
+  // ScriptTools.Invoke (the exec bridge) branches on the DECLARATION to decide
+  // whether an inherited nested budget is injected or stripped; a required-but-
+  // undeclared contract made nested calls to these tools fail MissingParameter
+  // even when the caller stated the budget (sessions 851d… and the definition
+  // sweep that followed).
+
+
+  [Fact]
+  public void SkillRegistryTool_DeclaresTimeoutSeconds_AndRequiresIt()
+  {
+    using SkillRegistryServiceHarness h = MakeRegistryHarness();
+    ToolDefinition d = h.Tool.Definition;
+    Assert.Contains(d.Parameters, p => p.Name == ToolTimeout.ParameterName
+        && p.Type == ToolParameterType.WholeNumber && p.Minimum == 1);
+    Assert.Contains(ToolTimeout.ParameterName, d.RequiredParameters);
+  }
+
+  [Fact]
+  public void SkillSearchTool_DeclaresTimeoutSeconds_AndRequiresIt()
+  {
+    SkillSearchTool tool = MakeSearchTool(new FakeSkillsSh().AsAccess());
+    ToolDefinition d = tool.Definition;
+    Assert.Contains(d.Parameters, p => p.Name == ToolTimeout.ParameterName
+        && p.Type == ToolParameterType.WholeNumber && p.Minimum == 1);
+    Assert.Contains(ToolTimeout.ParameterName, d.RequiredParameters);
+  }
 }
