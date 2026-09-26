@@ -18,7 +18,7 @@ public sealed class WorkspaceCleanlinessCheck(IGitQueryAccess git) : IWorkspaceC
   {
     Result<GitStatus> status = await _git.GetStatusAsync(workspaceRoot, ct).ConfigureAwait(false);
     return status.IsSuccess
-        ? Result.Success<IReadOnlyList<string>>(status.Value.Untracked)
+        ? Result.Success(status.Value.Untracked)
         : Result.Failure<IReadOnlyList<string>>(status.Error);
   }
 }
