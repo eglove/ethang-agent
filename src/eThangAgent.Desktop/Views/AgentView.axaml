@@ -113,7 +113,7 @@
             <md:AgentMarkdownBlock MarkdownText="{Binding Text}" IsOpen="{Binding IsOpen}" Variant="Reasoning" Margin="8,2"/>
           </DataTemplate>
           <DataTemplate DataType="vm:ToolCallEntry">
-            <Expander Classes="tool-card" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+            <Expander Classes="tool-card" IsExpanded="True" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
               <Expander.Header>
                 <DockPanel HorizontalAlignment="Stretch">
                   <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0">
@@ -148,7 +148,7 @@
             </Expander>
           </DataTemplate>
           <DataTemplate DataType="vm:ToolResultEntry">
-            <Expander Classes="tool-card" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+            <Expander Classes="tool-card" IsExpanded="True" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
               <Expander.Header>
                 <DockPanel HorizontalAlignment="Stretch">
                   <TextBlock DockPanel.Dock="Right" Foreground="Gray" Margin="8,0,0,0"
@@ -182,7 +182,7 @@
             </SelectableTextBlock>
           </DataTemplate>
           <DataTemplate DataType="vm:CommandResultEntry">
-            <Expander Classes="tool-card" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+            <Expander Classes="tool-card" IsExpanded="True" Margin="8,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
               <Expander.Header>
                 <TextBlock TextWrapping="Wrap">
                   <Run Text="↳ "/><Run Text="{Binding Command}"/><Run Text="  "/>
@@ -206,8 +206,7 @@
                 <Expander.Header>
                   <SelectableTextBlock Text="{Binding Summary}" Foreground="#6E7B91" TextWrapping="Wrap"/>
                 </Expander.Header>
-                <SelectableTextBlock FontFamily="Consolas, Courier New" FontSize="12" Foreground="#6E7B91"
-                                     Text="{Binding SystemPrompt}" TextWrapping="Wrap"/>
+                <md:AgentMarkdownBlock MarkdownText="{Binding SystemPrompt}"/>
               </Expander>
             </Grid>
           </DataTemplate>
