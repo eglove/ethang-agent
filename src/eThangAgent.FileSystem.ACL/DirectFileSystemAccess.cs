@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
@@ -131,7 +132,7 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     if (count == 0)
     {
       return Task.FromResult(Result.Failure<ReplaceOutcome>(
-          new DomainError("AnchorNotFound", $"Anchor text (length {oldText.Length}) not found in {path}.")));
+          new DomainError("AnchorNotFound", AnchorMissMessage(path, oldText, matchText))));
     }
 
     int target = occurrences ?? count;
@@ -254,6 +255,118 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     }
 
     return lines;
+  }
+
+  /// <summary>Minimum similarity (0..1) between an anchor's first line and a file
+  ///     line for the miss message to name that line as the nearest match. Below it
+  ///     the file holds nothing close, and the bare miss message is the honest answer.</summary>
+  private const double NearestMatchThreshold = 0.6;
+
+  /// <summary>Context lines shown around the nearest match in the miss hint.</summary>
+  private const int NearestMatchContextLines = 2;
+
+  /// <summary>The anchor-miss failure message: the original bare miss line, plus —
+  ///     when the file contains a line similar to the anchor's first line — the
+  ///     nearest matching region quoted with exact line numbers and exact content
+  ///     in the read tool's gutter format. One retry then corrects the anchor
+  ///     (a missed quote, a wrong indentation depth) instead of a full re-read.</summary>
+  private static string AnchorMissMessage(string path, string anchor, string normalizedFile)
+  {
+    string message = $"Anchor text (length {anchor.Length}) not found in {path}.";
+    string normalizedAnchor = NormalizeNewlines(anchor);
+    string[] anchorLines = normalizedAnchor.Split('\n');
+    string anchorHead = anchorLines[0].Trim();
+    if (anchorHead.Length == 0)
+    {
+      return message;
+    }
+
+    List<(string Content, string Terminator)> lines = SplitLinesLikeReadLine(normalizedFile);
+    int best = -1;
+    double bestScore = 0;
+    for (int i = 0; i < lines.Count; i++)
+    {
+      double score = Similarity(lines[i].Content.Trim(), anchorHead);
+      if (score > bestScore)
+      {
+        bestScore = score;
+        best = i;
+      }
+    }
+
+    if (best < 0 || bestScore < NearestMatchThreshold)
+    {
+      return message; // nothing close in the file: the bare miss is the honest answer
+    }
+
+    int first = Math.Max(0, best - NearestMatchContextLines);
+    int last = Math.Min(lines.Count - 1, best + NearestMatchContextLines);
+    int width = (last + 1).ToString(CultureInfo.InvariantCulture).Length;
+    StringBuilder hint = new();
+    _ = hint.Append(message);
+    _ = hint.AppendLine();
+    _ = hint.Append(CultureInfo.InvariantCulture,
+        $"Nearest match at line {best + 1} (similarity {bestScore:P0}); exact content:");
+    for (int i = first; i <= last; i++)
+    {
+      _ = hint.AppendLine();
+      _ = hint.Append(CultureInfo.InvariantCulture,
+          $"{(i + 1).ToString(CultureInfo.InvariantCulture).PadLeft(width)}→ {lines[i].Content}");
+    }
+
+    return hint.ToString();
+  }
+
+  /// <summary>Similarity between two trimmed lines (0..1): 1 for equal text, else a
+  ///     Levenshtein-based ratio. Deliberately simple — the hint names a candidate,
+  ///     the model reads the quoted exact content and decides.</summary>
+  private static double Similarity(string a, string b)
+  {
+    if (a.Length == 0 && b.Length == 0)
+    {
+      return 1;
+    }
+
+    if (a.Length == 0 || b.Length == 0)
+    {
+      return 0;
+    }
+
+    if (string.Equals(a, b, StringComparison.Ordinal))
+    {
+      return 1;
+    }
+
+    int distance = LevenshteinDistance(a, b);
+    return 1.0 - ((double)distance / Math.Max(a.Length, b.Length));
+  }
+
+  /// <summary>Plain Levenshtein distance over two short strings (lines, never whole
+  ///     files — the caller compares line-by-line, so the O(n·m) table stays small).</summary>
+  private static int LevenshteinDistance(string a, string b)
+  {
+    int[] previous = new int[b.Length + 1];
+    int[] current = new int[b.Length + 1];
+    for (int j = 0; j <= b.Length; j++)
+    {
+      previous[j] = j;
+    }
+
+    for (int i = 1; i <= a.Length; i++)
+    {
+      current[0] = i;
+      for (int j = 1; j <= b.Length; j++)
+      {
+        int substitution = previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1);
+        int deletion = previous[j] + 1;
+        int insertion = current[j - 1] + 1;
+        current[j] = Math.Min(substitution, Math.Min(deletion, insertion));
+      }
+
+      (previous, current) = (current, previous);
+    }
+
+    return previous[b.Length];
   }
 
   /// <summary>Normalizes CRLF and bare CR to LF for tolerant anchor matching.</summary>

@@ -24,8 +24,10 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
       "Both modes: replacement may be empty in anchor mode (deletes matched text); the file is never created; " +
       "binary files are refused. Output is a single annotation line: `[edit <path>] replaced N occurrence(s), " +
       "file now M lines` or `[edit <path>] replaced lines N-M, file now M lines`. Errors begin with " +
-      "`Error [Code]:` and are safe to retry with corrected arguments. (The JSON parameter formerly named " +
-      "'new' is not accepted.)",
+      "`Error [Code]:` and are safe to retry with corrected arguments. On AnchorNotFound the error quotes the " +
+      "file's nearest matching region when one exists — `Nearest match at line N` plus context lines in the read " +
+      "tool's line-number→ gutter format (exact content, exact line numbers) — so correct the anchor from the " +
+      "quoted region and retry without re-reading the file. (The JSON parameter formerly named 'new' is not accepted.)",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("path", ToolParameterType.Text,
