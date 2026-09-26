@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.13";
+  public const string Version = "2.14";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -277,7 +277,9 @@ public static class ExecGuide
     - Paths resolve at the session workspace: file-tool paths, Shell commands, and the
       script's Workspace property all root there. Directory.GetCurrentDirectory() is
       the APP's launch directory, not the workspace — never use it to locate workspace
-      files; use relative paths or Workspace.
+      files; use relative paths or Workspace. When a program references
+      Directory.GetCurrentDirectory(), the result carries a
+      `[exec: workspace note — ...]` annotation stating both paths.
     - Use anonymous objects for tool args: new { path = "...", startLine = 1, timeoutSeconds = 60 }.
     """;
 }

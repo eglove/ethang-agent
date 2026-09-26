@@ -6,6 +6,10 @@ namespace eThangAgent.ToolDomain;
 public static class ExecResultFormatter
 {
   public static ToolResult Format(ExecRunResult run, ExecOptions options, string? artifactPath, string? title = null)
+      => Format(run, options, artifactPath, title, null);
+
+  public static ToolResult Format(ExecRunResult run, ExecOptions options, string? artifactPath,
+      string? title, ExecProgram? program)
   {
     ArgumentNullException.ThrowIfNull(run);
     ArgumentNullException.ThrowIfNull(options);
@@ -61,6 +65,8 @@ public static class ExecResultFormatter
           $"[exec: empty output — {run.NestedDispatchCount} nested tool call(s) ran; if one was a bare statement, its result was discarded. Capture it: var r = Tools.Invoke(...); then use or return r.]");
     }
 
+    AppendWorkspaceAnnotation(sb, run, program);
+
     foreach (string line in run.ErrorLines)
     {
       // Separators only join existing content: an empty-output run must not start
@@ -75,6 +81,44 @@ public static class ExecResultFormatter
     }
 
     return new ToolResult(sb.ToString(), run.ErrorLines.Count > 0, title);
+  }
+
+  /// <summary>Surfaces the workspace-vs-launch-directory distinction when the program
+  ///     references <c>Directory.GetCurrentDirectory()</c>: that call returns the APP's
+  ///     launch directory, not the session workspace, and a script that reads it for
+  ///     workspace files silently gets the wrong directory. The annotation states both
+  ///     paths so the model sees the mismatch instead of a silent wrong answer
+  ///     (session 4ebb01ae retrospective). Skipped when the engine supplied no snapshot
+  ///     (legacy fakes) or when the launch directory IS the workspace — there the
+  ///     distinction is moot.</summary>
+  private static void AppendWorkspaceAnnotation(StringBuilder sb, ExecRunResult run, ExecProgram? program)
+  {
+    if (program is null || run.WorkspaceRoot is null || run.LaunchDirectory is null)
+    {
+      return;
+    }
+
+    if (!program.Text.Contains("CurrentDirectory", StringComparison.Ordinal))
+    {
+      return;
+    }
+
+    bool sameDirectory = string.Equals(
+        run.WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+        run.LaunchDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+        StringComparison.OrdinalIgnoreCase);
+    if (sameDirectory)
+    {
+      return;
+    }
+
+    if (sb.Length > 0)
+    {
+      _ = sb.Append('\n');
+    }
+
+    _ = sb.Append(CultureInfo.InvariantCulture,
+        $"[exec: workspace note — this program references Directory.GetCurrentDirectory(), which returns the app's launch directory ({run.LaunchDirectory}), NOT the session workspace ({run.WorkspaceRoot}). Use Workspace or relative paths to locate workspace files.]");
   }
 
   public static ToolResult ParseErrors(IReadOnlyList<ExecParseError> errors, int maxParseErrors,

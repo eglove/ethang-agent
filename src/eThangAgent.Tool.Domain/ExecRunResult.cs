@@ -5,7 +5,9 @@ public sealed record ExecRunResult(
     string Output,
     IReadOnlyList<string> ErrorLines,
     string? ErrorMessage = null,
-    int NestedDispatchCount = 0)
+    int NestedDispatchCount = 0,
+    string? WorkspaceRoot = null,
+    string? LaunchDirectory = null)
 {
   public static ExecRunResult Completed(string output, int nestedDispatchCount = 0)
       => new(ExecRunStatus.Completed, output, [], NestedDispatchCount: nestedDispatchCount);

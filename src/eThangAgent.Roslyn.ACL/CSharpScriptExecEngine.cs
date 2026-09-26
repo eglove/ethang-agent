@@ -64,6 +64,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
     ArgumentNullException.ThrowIfNull(program);
 
+    string launchDirectory = Directory.GetCurrentDirectory();
+
     ScriptGlobals globals = new(
         _registry(),
         _workspaceRoot(),
@@ -153,7 +155,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
 
       string output = string.Join("\n", outputLines);
       return new ExecRunResult(ExecRunStatus.Completed, output, [],
-          NestedDispatchCount: globals.NestedDispatchCount);
+          NestedDispatchCount: globals.NestedDispatchCount,
+          WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
     }
     catch (OperationCanceledException)
     {
@@ -169,7 +172,8 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       // their Error [CODE] tag, and the result formatter owns the "exec error
       // [ScriptError]:" gutter — tagging here too double-wraps the surface.
       return new ExecRunResult(ExecRunStatus.Completed, output, [ex.Message],
-          NestedDispatchCount: globals.NestedDispatchCount);
+          NestedDispatchCount: globals.NestedDispatchCount,
+          WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
     }
     finally
     {

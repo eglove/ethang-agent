@@ -9,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.13", ExecGuide.Version);
+    Assert.Equal("2.14", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -32,6 +32,15 @@ public class ExecGuideTests
   public void Guide_DoesNotTeachRemovedSearchFilesTool() =>
       Assert.DoesNotContain("search_files", ExecGuide.Text, StringComparison.Ordinal);
 
+  [Fact]
+  public void Guide_DocumentsWorkspaceVsLaunchDirectoryAnnotation()
+  {
+    // The workspace-vs-launch-directory trap (session 4ebb01ae): the guide must
+    // teach the rule AND the [exec: workspace note] annotation that surfaces it.
+    Assert.Contains("Directory.GetCurrentDirectory() is", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("APP's launch directory", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("[exec: workspace note", ExecGuide.Text, StringComparison.Ordinal);
+  }
   [Fact]
   public void Guide_DocumentsDurableState()
   {
