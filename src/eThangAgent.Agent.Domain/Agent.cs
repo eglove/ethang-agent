@@ -425,7 +425,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
   /// <summary>Surfaces the response's server-side tool calls as System lines — one per
   ///     call, verbatim contract "[&lt;tool&gt;] &lt;detail&gt;" (detail omitted when the wire
-  ///     carried none). Server calls execute inside the provider's response and never
+  ///     carried none), each result URL on its own line beneath (the wire's
+  ///     action.sources). Server calls execute inside the provider's response and never
   ///     enter the message history; without this the user's transcript shows nothing.
   ///     The lines also land in the conversation so a resumed session sees them.</summary>
   private void SurfaceServerToolCalls(ModelResponse response, TurnCallbacks? callbacks)
@@ -437,10 +438,21 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
     foreach (ServerToolCall call in response.ServerToolCalls)
     {
-      string line = call.Detail is { } detail ? $"[{call.Tool}] {detail}" : $"[{call.Tool}]";
+      string line = RenderServerToolCall(call);
       Conversation.AddSystemMessage(line);
       callbacks?.OnSystemMessage?.Invoke(line);
     }
+  }
+
+  /// <summary>One surfaced line: "[&lt;tool&gt;] &lt;detail&gt;" plus one line per result URL.
+  ///     Newlines only when sources exist, so the legacy single-line contract is
+  ///     byte-identical when the wire carried none.</summary>
+  private static string RenderServerToolCall(ServerToolCall call)
+  {
+    string header = call.Detail is { } detail ? $"[{call.Tool}] {detail}" : $"[{call.Tool}]";
+    return call.Sources.Count == 0
+        ? header
+        : header + "\n" + string.Join("\n", call.Sources);
   }
 
   /// <summary>Guard-style early returns: a failed result truncates its content to the

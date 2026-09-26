@@ -58,6 +58,24 @@ public class ServerToolCallSurfacingTests
     Assert.Empty(surfaced);
   }
 
+  [Fact]
+  public async Task ServerToolCallWithSources_SurfacesSources()
+  {
+    // The user's transcript must show WHAT the search returned, not just that it
+    // ran: each result URL rides the surfaced line beneath the query.
+    ScriptedProvider provider = new(new ModelResponse("done", [],
+        ServerToolCalls: [new ServerToolCall("web_search", "best coffee grinder",
+            ["https://a.example/x", "https://b.example/y"])]));
+    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
+    List<string> surfaced = [];
+
+    _ = await agent.SendMessage("hi",
+        new TurnCallbacks(OnSystemMessage: surfaced.Add), ct: TestContext.Current.CancellationToken);
+
+    string line = Assert.Single(surfaced);
+    Assert.Equal("[web_search] best coffee grinder\nhttps://a.example/x\nhttps://b.example/y", line);
+  }
+
   private sealed class ScriptedProvider(ModelResponse response) : IModelProvider
   {
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request, CancellationToken ct = default)

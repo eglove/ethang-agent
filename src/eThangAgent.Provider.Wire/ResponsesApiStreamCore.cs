@@ -45,7 +45,7 @@ public static class ResponsesApiStreamCore
     ArgumentNullException.ThrowIfNull(response);
     StringBuilder content = new();
     Dictionary<string, StreamedToolCall> toolCalls = []; // keyed by output_index
-    List<ServerToolCall> serverToolCalls = [];
+    Dictionary<int, ServerToolCall> serverToolCalls = []; // keyed by output_index
     FinishReason finishReason = FinishReason.Stop;
     TokenUsage? usage = null;
     bool sawDone = false;
@@ -108,7 +108,7 @@ public static class ResponsesApiStreamCore
           [.. toolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value.ToRequest())],
           finishReason,
           usage,
-          serverToolCalls));
+          [.. serverToolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value)]));
       return result;
     }
     catch (JsonException ex)
@@ -132,7 +132,7 @@ public static class ResponsesApiStreamCore
   /// <summary>Applies one typed event. Structural faults (malformed fragments) surface
   ///     as InvalidOperationException → the "Malformed provider stream" failure.</summary>
   private static void ApplyEvent(JsonElement evt, StringBuilder content,
-      Dictionary<string, StreamedToolCall> toolCalls, List<ServerToolCall> serverToolCalls,
+      Dictionary<string, StreamedToolCall> toolCalls, Dictionary<int, ServerToolCall> serverToolCalls,
       Action<string>? onContentDelta, Action<string>? onReasoningDelta,
       ref FinishReason finishReason, ref TokenUsage? usage)
   {
@@ -143,6 +143,14 @@ public static class ResponsesApiStreamCore
     {
       case "response.output_item.added":
         ApplyItemAdded(evt, toolCalls, serverToolCalls);
+        return;
+
+      case "response.output_item.done":
+        // The done event carries the item's final action (query/url/sources) —
+        // OpenRouter's added event for its "openrouter:<tool>" items carries
+        // none. Done finalizes the call; a done for an unregistered item still
+        // surfaces (tolerance, same contract as unknown item types).
+        ApplyItemDone(evt, serverToolCalls);
         return;
 
       case "response.function_call_arguments.delta":
@@ -185,9 +193,12 @@ public static class ResponsesApiStreamCore
         : DeltaSink.Content;
 
   /// <summary>A new output item: function_call items register their call_id and name —
-  ///     both arrive complete on the added event; arguments stream after.</summary>
+  ///     both arrive complete on the added event; arguments stream after. Server-tool
+  ///     items (web_search_call, openrouter:web_search, ...) register as surfaced
+  ///     calls keyed by output index — they execute server-side and never enter the
+  ///     message history.</summary>
   private static void ApplyItemAdded(JsonElement evt, Dictionary<string, StreamedToolCall> toolCalls,
-      List<ServerToolCall> serverToolCalls)
+      Dictionary<int, ServerToolCall> serverToolCalls)
   {
     if (!evt.TryGetProperty("item", out JsonElement item) || item.ValueKind != JsonValueKind.Object
         || !item.TryGetProperty("type", out JsonElement itemType)
@@ -196,14 +207,15 @@ public static class ResponsesApiStreamCore
       return;
     }
 
-    // Server-tool call items (web_search_call etc.) register as surfaced calls —
-    // they execute server-side and never enter the message history.
+    // Server-tool call items register as surfaced calls — they execute server-side
+    // and never enter the message history. The added event may carry no action yet
+    // (OpenRouter's openrouter:<tool> items do not); done finalizes the detail.
     string addedType = itemType.GetString()!;
     if (addedType != "function_call")
     {
       if (ServerToolCallItem.TryParse(addedType, item, out ServerToolCall? serverCall))
       {
-        serverToolCalls.Add(serverCall);
+        serverToolCalls[OutputIndexKeyAsInt(evt)] = serverCall;
       }
 
       return;
@@ -222,6 +234,37 @@ public static class ResponsesApiStreamCore
     {
       fragment.Name = name.GetString();
     }
+  }
+
+  /// <summary>An output item's final form. For a server-tool item this carries the
+  ///     completed action (query/url/sources) the added event may have lacked: the
+  ///     registered call is replaced. A done for an item never added still surfaces —
+  ///     tolerance, the same contract the added event applies to unknown types.</summary>
+  private static void ApplyItemDone(JsonElement evt, Dictionary<int, ServerToolCall> serverToolCalls)
+  {
+    if (!evt.TryGetProperty("item", out JsonElement item) || item.ValueKind != JsonValueKind.Object
+        || !item.TryGetProperty("type", out JsonElement itemType)
+        || itemType.ValueKind != JsonValueKind.String)
+    {
+      return;
+    }
+
+    string doneType = itemType.GetString()!;
+    if (doneType == "function_call" || !ServerToolCallItem.TryParse(doneType, item, out ServerToolCall? serverCall))
+    {
+      return;
+    }
+
+    serverToolCalls[OutputIndexKeyAsInt(evt)] = serverCall;
+  }
+
+  /// <summary>The event's output_index as an int; an absent or non-numeric index
+  ///     degrades to -1 (a single unindexed call still assembles, ordered first).</summary>
+  private static int OutputIndexKeyAsInt(JsonElement evt)
+  {
+    return evt.TryGetProperty("output_index", out JsonElement index) && index.ValueKind == JsonValueKind.Number
+        ? index.GetInt32()
+        : -1;
   }
 
   private static void ApplyArgumentsDelta(JsonElement evt, Dictionary<string, StreamedToolCall> toolCalls)
