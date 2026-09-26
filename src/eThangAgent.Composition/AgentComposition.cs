@@ -623,7 +623,15 @@ public static class AgentComposition
     {
       Providers.OpenRouter => services
           .AddSingleton(new OpenRouterConfiguration(apiKey ?? MissingKey(), settings.OpenRouter.BaseUrl))
-          .AddHttpClient("OpenRouter", client => { client.Timeout = TimeSpan.FromSeconds(120); })
+          // App attribution (openrouter.ai/docs/app-attribution): every request the
+          // shared client sends — model calls and catalog fetches alike — identifies
+          // the app. One Apply point covers the root and every remote child host,
+          // which builds its container through this same composition.
+          .AddHttpClient("OpenRouter", client =>
+          {
+            client.Timeout = TimeSpan.FromSeconds(120);
+            OpenRouterAppAttribution.Apply(client);
+          })
           .Services
           .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
           {
