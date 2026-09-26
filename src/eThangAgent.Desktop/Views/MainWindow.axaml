@@ -51,57 +51,80 @@
       </DockPanel>
     </Border>
 
-    <!-- Tab host: one tab per open agent, each hosting its own AgentView. Tab
-         headers render compact (small font, tight padding). -->
-    <Grid Grid.Column="1">
-      <Panel>
-        <StackPanel x:Name="EmptyState" VerticalAlignment="Center" Spacing="10"
-                    IsVisible="{Binding !HasTabs}">
-          <TextBlock
-              Text="No agent is open.&#x0a;'Open Workspace' chooses the directory the agent works from."
-              TextWrapping="Wrap" TextAlignment="Center" Opacity="0.65" FontSize="15"/>
-          <TextBlock
-              Text="No API key configured yet — open ⚙ Settings to add one."
-              TextWrapping="Wrap" TextAlignment="Center" Opacity="0.85" FontSize="14"
-              IsVisible="{Binding !HasConfiguredProvider}"/>
-        </StackPanel>
-        <TabControl x:Name="AgentTabs" Classes="compact-tabs"
-                    ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
-          <TabControl.Styles>
-            <Style Selector="TabControl.compact-tabs TabItem">
-              <Setter Property="FontSize" Value="11"/>
-              <Setter Property="Padding" Value="8,3"/>
-              <Setter Property="MinHeight" Value="28"/>
-            </Style>
-            <Style Selector="TabControl.compact-tabs TabItem > StackPanel > Button">
-              <Setter Property="FontSize" Value="10"/>
-              <Setter Property="Padding" Value="3,0"/>
-            </Style>
-          </TabControl.Styles>
-          <TabControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:AgentTabViewModel">
-              <StackPanel Orientation="Horizontal" Spacing="6">
-                <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
-                <!-- W4.4: unread-steering badge - pushed by the session's child-event
-                     stream (deliver raises, drain/settle clear), never polled. -->
-                <Border CornerRadius="8" Padding="5,0" Background="#4C8CFF"
-                        VerticalAlignment="Center"
-                        IsVisible="{Binding Badge.HasUnread}">
-                  <TextBlock Text="{Binding Badge.UnreadCount}" FontSize="10"
-                             Foreground="White"/>
-                </Border>
-                <Button Content="✕" Padding="3,0" Background="Transparent" BorderThickness="0"
-                        Click="OnCloseTab" ToolTip.Tip="{Binding Subtitle}"/>
-              </StackPanel>
-            </DataTemplate>
-          </TabControl.ItemTemplate>
-          <TabControl.ContentTemplate>
-            <DataTemplate x:DataType="vm:AgentTabViewModel">
+    <!-- Tab host: a header strip (the TabControl renders headers only) over a
+         keep-alive content panel — one AgentView per open tab, built at open and
+         retained across selection changes (grand-plan BUG 2). IsSelected toggles
+         visibility: switches are visibility flips, no transcript re-render storm,
+         and each view's spinner/elapsed timers keep running for background tabs. -->
+    <Grid Grid.Column="1" RowDefinitions="Auto,*">
+      <TabControl x:Name="AgentTabs" Classes="compact-tabs" Grid.Row="0"
+                  ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
+        <TabControl.Styles>
+          <Style Selector="TabControl.compact-tabs TabItem">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="MinHeight" Value="28"/>
+          </Style>
+          <Style Selector="TabControl.compact-tabs TabItem > StackPanel > Button">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="Padding" Value="3,0"/>
+          </Style>
+        </TabControl.Styles>
+        <TabControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:AgentTabViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
+              <!-- W4.4: unread-steering badge - pushed by the session's child-event
+                   stream (deliver raises, drain/settle clear), never polled. -->
+              <Border CornerRadius="8" Padding="5,0" Background="#4C8CFF"
+                      VerticalAlignment="Center"
+                      IsVisible="{Binding Badge.HasUnread}">
+                <TextBlock Text="{Binding Badge.UnreadCount}" FontSize="10"
+                           Foreground="White"/>
+              </Border>
+              <Button Content="✕" Padding="3,0" Background="Transparent" BorderThickness="0"
+                      Click="OnCloseTab" ToolTip.Tip="{Binding Subtitle}"/>
+            </StackPanel>
+          </DataTemplate>
+        </TabControl.ItemTemplate>
+        <!-- Content is keep-alive in the panel below; the tab control renders
+             the header strip only. -->
+        <TabControl.ContentTemplate>
+          <DataTemplate>
+            <Panel/>
+          </DataTemplate>
+        </TabControl.ContentTemplate>
+      </TabControl>
+
+      <ItemsControl x:Name="KeepAliveHost" Grid.Row="1" ItemsSource="{Binding Tabs}"
+                    Focusable="False">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <Panel/>
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:AgentTabViewModel">
+            <!-- The wrapper owns the visibility binding (it reads the tab VM); the
+                 AgentView's DataContext switch must not re-scope it. -->
+            <Panel IsVisible="{Binding IsSelected}">
               <views:AgentView DataContext="{Binding ViewModel}"/>
-            </DataTemplate>
-          </TabControl.ContentTemplate>
-        </TabControl>
-      </Panel>
+            </Panel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <!-- Empty shell: shown when no tab is open. -->
+      <StackPanel x:Name="EmptyState" Grid.Row="1" VerticalAlignment="Center" Spacing="10"
+                  IsVisible="{Binding !HasTabs}">
+        <TextBlock
+            Text="No agent is open.&#x0a;'Open Workspace' chooses the directory the agent works from."
+            TextWrapping="Wrap" TextAlignment="Center" Opacity="0.65" FontSize="15"/>
+        <TextBlock
+            Text="No API key configured yet — open ⚙ Settings to add one."
+            TextWrapping="Wrap" TextAlignment="Center" Opacity="0.85" FontSize="14"
+            IsVisible="{Binding !HasConfiguredProvider}"/>
+      </StackPanel>
     </Grid>
   </Grid>
 </Window>
