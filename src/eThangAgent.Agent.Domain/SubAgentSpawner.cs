@@ -184,6 +184,9 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     }
 
     // Each child gets its own accountant: two children must never share totals.
+    // The child's OWN persisted id rides every request (OpenRouter sticky sessions):
+    // one sticky session per child conversation, and the child host inherits the
+    // same stamping through this same spawner in remote mode.
     Agent agent = new(_factory.Create(config), conversation, config, tools,
         new AgentOptions
         {
@@ -194,6 +197,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
           ContextCompactor = _contextCompactor,
           Heartbeat = _heartbeat,
           Events = _events,
+          SessionId = child.Id.ToString(),
         });
     PublishStarted(child);
 

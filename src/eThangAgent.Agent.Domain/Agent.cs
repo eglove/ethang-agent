@@ -57,6 +57,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IAgentEvents? _events = options?.Events;
   private readonly double _compactionThreshold = options?.CompactionThreshold ?? DefaultCompactionThreshold;
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
+  private readonly string? _sessionId = options?.SessionId;
   private readonly ToolRepeatGuard _repeatGuard = new();
 
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
@@ -138,7 +139,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         // list, so handing it out directly would let every consumer of this request
         // (retries, logging, tests) read messages added by later iterations.
         ModelRequest request = new(
-            [.. Conversation.Messages], _tools.Definitions, _systemPrompt?.Build());
+            [.. Conversation.Messages], _tools.Definitions, _systemPrompt?.Build(), _sessionId);
         Result<ModelResponse> result = await _provider.SendStreamingAsync(Config, request,
             callbacks?.OnContentDelta, callbacks?.OnReasoningDelta, ct).ConfigureAwait(false);
         if (!result.IsSuccess)

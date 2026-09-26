@@ -489,7 +489,11 @@ public static class AgentComposition
             sp.GetRequiredService<Conversation>(),
             sp.GetRequiredService<IToolRegistry>(),
             sp.GetRequiredService<ISystemPromptProvider>(),
-            contextCompactor: sp.GetRequiredService<DefaultContextCompactor>()))
+            contextCompactor: sp.GetRequiredService<DefaultContextCompactor>(),
+            // The persisted root session id keys OpenRouter sticky sessions (prompt
+            // caching): read lazily — the factory sets RootSessionIdentity AFTER the
+            // container builds, so a raw value here would always be null.
+            sessionIdSource: () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString()))
         .AddSingleton(sp => new RootAgentResolver(
             new RootModelContext(
                 sp.GetRequiredService<IAgentStore>(),

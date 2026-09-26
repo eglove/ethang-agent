@@ -14,6 +14,10 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
 {
   private const string ProviderError = "ProviderError";
   private const int MaxErrorBodyCharacters = 512;
+
+  /// <summary>OpenRouter's session_id length limit (256 characters), enforced at the
+  ///     request boundary: a longer id is a named failure, never a truncated key.</summary>
+  private const int MaxSessionIdCharacters = 256;
   private static readonly Routing EmptyRouting = new();
 
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
@@ -189,6 +193,22 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       // The responses API's system channel: a single top-level instruction string
       // instead of a system-role message in the array.
       bodyDict["instructions"] = request.SystemPrompt;
+    }
+
+    // OpenRouter sticky sessions (prompt caching): the session id rides the body's
+    // top-level "session_id" field and OpenRouter uses it directly as the sticky
+    // routing key instead of deriving one from message hashing — the right key for
+    // multi-turn agentic requests whose opening messages change every turn.
+    // https://openrouter.ai/docs/guides/best-practices/prompt-caching
+    if (request.SessionId is { } sessionId)
+    {
+      if (sessionId.ToString().Length > MaxSessionIdCharacters)
+      {
+        return Result.Failure<HttpRequestMessage>(new DomainError("InvalidRequest",
+            $"SessionId exceeds the API's {MaxSessionIdCharacters}-character limit."));
+      }
+
+      bodyDict["session_id"] = sessionId.ToString();
     }
 
     ApplySamplingKnobs(bodyDict, config);

@@ -36,4 +36,9 @@ public sealed record AgentOptions
   /// <summary>Event stream the loop publishes progress to at the same safe points.
   ///     Null (legacy wiring) publishes nothing: byte-identical legacy behavior.</summary>
   public IAgentEvents? Events { get; init; }
+
+  /// <summary>Durable session identity stamped onto every provider request this loop
+  ///     builds (OpenRouter sticky sessions / prompt caching). Null (legacy wiring)
+  ///     leaves the request's id unset: byte-identical legacy behavior.</summary>
+  public string? SessionId { get; init; }
 }

@@ -21,18 +21,32 @@ public sealed class RootAgentHolder(
     IToolRegistry tools,
     ISystemPromptProvider? systemPrompt = null,
     int? maxAutoContinuations = null,
-    IContextCompactor? contextCompactor = null)
+    IContextCompactor? contextCompactor = null,
+    string? sessionId = null,
+    Func<string?>? sessionIdSource = null)
 {
   private readonly IModelProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
   private readonly Conversation _conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
+  private readonly string? _sessionId = sessionId;
+  private readonly Func<string?>? _sessionIdSource = sessionIdSource;
+
+  /// <summary>The durable session identity stamped onto every provider request, resolved
+  ///     at build time: the explicit id when given, else the lazily-resolved source
+  ///     (the container's RootSessionIdentity, set after the container builds). Null
+  ///     (legacy wiring) means no id on the request.</summary>
+  private string? ResolveSessionId() => _sessionId ?? _sessionIdSource?.Invoke();
 
   /// <summary>The model currently serving the root, or null before the first turn resolves it.</summary>
   public ModelConfig? CurrentConfig { get; private set; }
 
   /// <summary>The current root agent, or null before the first turn builds it.</summary>
   public Ag? Current { get; private set; }
+
+  /// <summary>The session identity the current agent stamps onto its provider requests
+  ///     (OpenRouter sticky sessions), or null before the first build / legacy wiring.</summary>
+  public string? CurrentSessionId { get; private set; }
 
   /// <summary>The accountant backing the current agent — context status for display
   ///     between turns. Null before the first build.</summary>
@@ -50,6 +64,7 @@ public sealed class RootAgentHolder(
     }
 
     CurrentConfig = config;
+    CurrentSessionId = ResolveSessionId();
     // One accountant per window: a rebuild with a different model (hence window)
     // restarts accounting — mixing windows in one accumulator would lie about totals.
     Accountant = new ContextAccountant(config.ContextWindow);
@@ -60,6 +75,7 @@ public sealed class RootAgentHolder(
           MaxAutoContinuations = maxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,
           ContextMonitor = Accountant,
           ContextCompactor = _contextCompactor,
+          SessionId = ResolveSessionId(),
         });
     return Current;
   }

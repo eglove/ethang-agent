@@ -6,4 +6,5 @@ namespace eThangAgent.ModelDomain;
 public sealed record ModelRequest(
     IReadOnlyList<Message> Messages,
     IReadOnlyList<ToolDefinition>? Tools = null,
-    string? SystemPrompt = null);
+    string? SystemPrompt = null,
+    string? SessionId = null);
