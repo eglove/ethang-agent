@@ -212,4 +212,82 @@ public class TranscriptScrollControllerTests
 
     Assert.False(c.StuckToBottom, "a jitter-sized move must not restick the transcript");
   }
+  // ---- Geometry-drift re-pin (grand-plan BUG 4): a resize or refocus re-layout moves
+  // ---- the bottom out of view without any entry arriving; while stuck the view must
+  // ---- re-pin. A real offset move (user scroll) never re-pins.
+
+  [Fact]
+  public void Resize_While_Stuck_Requests_RePin()
+  {
+    TranscriptScrollController c = new();
+    c.ObserveScroll(extent: 500, viewport: 200, offset: 300); // pinned at tail
+
+    // Viewport shrinks (window resize): the offset did not move, but the bottom
+    // drifted out of view. The controller must request a re-pin.
+    c.ObserveScroll(extent: 500, viewport: 150, offset: 300);
+
+    Assert.True(c.StuckToBottom);
+    Assert.True(c.ShouldRePin);
+  }
+
+  [Fact]
+  public void RePin_Request_Clears_Once_Consumed()
+  {
+    TranscriptScrollController c = new();
+    c.ObserveScroll(500, 200, 300);
+    c.ObserveScroll(500, 150, 300);
+    Assert.True(c.ShouldRePin);
+
+    c.ClearRePin();
+
+    Assert.False(c.ShouldRePin);
+  }
+
+  [Fact]
+  public void Offset_Move_Beyond_Band_Does_Not_RePin()
+  {
+    TranscriptScrollController c = new();
+    c.ObserveScroll(500, 200, 300); // stuck
+    c.ObserveScroll(500, 150, 250); // the user scrolled during the resize
+
+    Assert.False(c.ShouldRePin);
+    Assert.False(c.StuckToBottom);
+  }
+
+  [Fact]
+  public void Content_Growth_While_Stuck_Also_Requests_RePin()
+  {
+    TranscriptScrollController c = new();
+    c.ObserveScroll(500, 200, 300); // pinned at tail
+    c.ObserveScroll(700, 200, 300); // content grew; the tail drifted out of view
+
+    Assert.True(c.StuckToBottom);
+    Assert.True(c.ShouldRePin);
+  }
+
+  [Fact]
+  public void Fits_In_Viewport_Never_Requests_RePin()
+  {
+    TranscriptScrollController c = new();
+    c.ObserveScroll(150, 200, 0); // everything fits
+    c.ObserveScroll(150, 200, 0);
+
+    Assert.False(c.ShouldRePin);
+  }
+
+  [Fact]
+  public void RePin_Not_ReRequested_While_Pending()
+  {
+    TranscriptScrollController c = new();
+    c.ObserveScroll(500, 200, 300);
+    c.ObserveScroll(500, 150, 300);
+    Assert.True(c.ShouldRePin);
+
+    // Another geometry event before the view consumed the request: still one
+    // pending request (the flag is idempotent, not a counter).
+    c.ObserveScroll(500, 150, 300);
+    Assert.True(c.ShouldRePin);
+    c.ClearRePin();
+    Assert.False(c.ShouldRePin);
+  }
 }

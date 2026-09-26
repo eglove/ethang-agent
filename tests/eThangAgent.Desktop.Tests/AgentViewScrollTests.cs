@@ -131,4 +131,31 @@ public class AgentViewScrollTests
     Assert.True(scroll2.Offset.Y > 0,
         $"rebuilt view must restore offset ~{saved}, got {scroll2.Offset.Y}");
   }
+  [AvaloniaFact]
+  public void Resize_While_Stuck_Keeps_Tail_In_View()
+  {
+    AgentSessionViewModel vm = TestFixtures.CreateViewModel(marshalToUIThread: true);
+    Window window = new() { Content = new AgentView { DataContext = vm }, Width = 600, Height = 600 };
+    window.Show();
+    AgentView view = (AgentView)window.Content;
+    ScrollViewer scroll = view.GetControl<ScrollViewer>("TranscriptScroll");
+
+    for (int i = 0; i < 300; i++)
+    {
+      vm.Transcript.AddNotice("filler " + i);
+    }
+    Dispatcher.UIThread.RunJobs();
+    Assert.True(scroll.Extent.Height > scroll.Viewport.Height, "test needs overflow");
+    Assert.True(scroll.Offset.Y >= scroll.Extent.Height - scroll.Viewport.Height - 1.0,
+        "precondition: pinned at the tail");
+
+    // Shrink the window (the resize path): the tail must stay in view - the
+    // geometry-drift re-pin, not an entry append, keeps it there.
+    window.Height = 300;
+    Dispatcher.UIThread.RunJobs();
+    Dispatcher.UIThread.RunJobs(DispatcherPriority.Loaded);
+
+    Assert.True(scroll.Offset.Y >= scroll.Extent.Height - scroll.Viewport.Height - 1.0,
+        $"resize must keep the tail in view, offset={scroll.Offset.Y}, extent={scroll.Extent.Height}, viewport={scroll.Viewport.Height}");
+  }
 }

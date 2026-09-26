@@ -22,6 +22,15 @@ internal sealed class TranscriptScrollController
   ///     precondition). Starts true: a fresh transcript hugs the bottom.</summary>
   public bool StuckToBottom { get; private set; } = true;
 
+  // The bottom line (extent - viewport) seen by the last real ObserveScroll; a change
+  // with an unmoved offset is geometry drift (resize, refocus re-layout) that moves the
+  // tail out of view while stuck — the re-pin trigger.
+  private double? _lastBottomLine;
+
+  // True while the offset was unmoved but the bottom line moved: the view must scroll
+  // the tail back into view (one-shot, cleared by the view).
+
+
   /// <summary>True while the content fits without scrolling (the bottom is on
   ///     screen, so nothing can unstick).</summary>
   public bool ExtentFits { get; private set; } = true;
@@ -52,11 +61,20 @@ internal sealed class TranscriptScrollController
 
     ExtentFits = false;
     double move = Math.Abs(offset - LastOffset);
+    double bottomLine = extent - viewport;
     if (move > TransientBand)
     {
-      StuckToBottom = extent - viewport - offset <= BottomTolerance;
+      StuckToBottom = bottomLine - offset <= BottomTolerance;
+      ShouldRePin = false; // a real scroll: the user owns the position
+    }
+    else if (StuckToBottom && _lastBottomLine is { } previous && Math.Abs(bottomLine - previous) > BottomTolerance)
+    {
+      // Geometry drift with an unmoved offset (resize, refocus re-layout): the tail
+      // drifted out of view while the user was pinned — request one re-pin.
+      ShouldRePin = true;
     }
 
+    _lastBottomLine = bottomLine;
     LastOffset = offset;
   }
 
@@ -78,4 +96,11 @@ internal sealed class TranscriptScrollController
 
   /// <summary>Clears the one-shot ScrollToEnd request once the view performed it.</summary>
   public void ClearScrollToEnd() => ShouldScrollToEnd = false;
+
+  /// <summary>The one-shot re-pin request: geometry moved the tail out of view while the
+  ///     transcript was stuck and the offset did not move (resize, refocus re-layout).</summary>
+  public bool ShouldRePin { get; private set; }
+
+  /// <summary>Clears the one-shot re-pin request once the view performed it.</summary>
+  public void ClearRePin() => ShouldRePin = false;
 }
