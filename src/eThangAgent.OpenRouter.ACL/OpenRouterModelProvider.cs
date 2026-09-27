@@ -13,6 +13,26 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     Func<double>? jitter = null) : IModelProvider
 {
   private const string ProviderError = "ProviderError";
+  private const string ContextWindowExceeded = "ContextWindowExceeded";
+
+  /// <summary>Substrings that identify a context-window overflow in an HTTP 400 body.
+  ///     OpenRouter forwards the upstream provider's error JSON verbatim, so the markers
+  ///     span the providers behind it: OpenAI ("maximum context length",
+  ///     "context_length_exceeded", "reduce the length of the messages"), Anthropic
+  ///     ("prompt is too long"), Gemini ("exceeds the maximum token count"), and the
+  ///     canonical overflow phrasing other gateways emit ("context length exceeded",
+  ///     "input length and max_tokens exceed context limit"). Matched
+  ///     case-insensitively: providers capitalize inconsistently.</summary>
+  private static readonly string[] ContextOverflowMarkers =
+  [
+      "maximum context length",
+      "context_length_exceeded",
+      "context length exceeded",
+      "reduce the length of the messages",
+      "prompt is too long",
+      "exceeds the maximum token count",
+      "input length and max_tokens exceed context limit",
+  ];
   private const int MaxErrorBodyCharacters = 512;
 
   /// <summary>OpenRouter's session_id length limit (256 characters), enforced at the
@@ -532,6 +552,14 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
           "OpenRouter rate limit exceeded.")),
       408 => Result.Failure<ModelResponse>(new DomainError("ProviderTimeout",
           "Request timed out.")),
+      // A 400 whose body names the context-length fault is its own failure: the
+      // agent loop — not the wire layer — decides what an overflow means (one
+      // forced compaction, one retry). Retryable stays false: the identical
+      // request would fail identically.
+      400 when IsContextOverflow(detail) => Result.Failure<ModelResponse>(new DomainError(ContextWindowExceeded,
+          detail is null
+              ? $"OpenRouter returned HTTP {(int)response.StatusCode}."
+              : $"OpenRouter returned HTTP {(int)response.StatusCode}: {detail}")),
       _ => Result.Failure<ModelResponse>(new DomainError(ProviderError,
           detail is null
               ? $"OpenRouter returned HTTP {(int)response.StatusCode}."
@@ -542,6 +570,12 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
             or >= HttpStatusCode.InternalServerError,
         RetryAfter: response.Headers.RetryAfter?.Delta);
   }
+
+  /// <summary>True when the (capped) error body names the context-length fault. A body
+  ///     that cannot be read is not an overflow: classification stays conservative.</summary>
+  private static bool IsContextOverflow(string? detail)
+      => detail is not null && ContextOverflowMarkers.Any(marker =>
+          detail.Contains(marker, StringComparison.OrdinalIgnoreCase));
 
   private static async Task<Result<ModelResponse>> ReadJsonBodyAsync(HttpResponseMessage response, CancellationToken ct)
   {
