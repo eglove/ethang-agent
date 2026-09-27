@@ -48,6 +48,17 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     transcript instead of appending the turn's slice.</summary>
   public const string ContextShrinkSentinel = "[context: shrank";
 
+  /// <summary>Provider error code for a context-window overflow. The provider ACL maps
+  ///     the wire-level fact (an HTTP 400 body naming the context-length fault) to this
+  ///     domain code; the domain reacts to the code and never knows HTTP exists. On it,
+  ///     the loop runs one FORCED compaction (bypassing the utilization threshold) and
+  ///     re-sends the same request once.</summary>
+  public const string ContextWindowExceededCode = "ContextWindowExceeded";
+
+  /// <summary>Failure code returned when an overflow recovery cannot run because no
+  ///     compactor is wired: retrying without compaction would fail identically.</summary>
+  public const string CompactionUnavailableCode = "CompactionUnavailable";
+
   private readonly IModelProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
   private readonly ISystemPromptProvider? _systemPrompt = options?.SystemPrompt;
@@ -111,6 +122,9 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       _repeatGuard.Reset();
       // Auto-continuations used by this turn only: reset here, never carried between turns.
       int autoContinuations = 0;
+      // Overflow recovery is turn-local (like autoContinuations): one forced compaction
+      // and one re-send per turn — a second overflow fails the turn, bounded.
+      bool overflowRecovered = false;
       DrainInbox(inbox);
       Conversation.AddUserMessage(text);
       Beat();
@@ -153,6 +167,27 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
           {
             RepairInterruptedToolCalls();
             return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
+          }
+
+          // Context-window overflow recovery: the provider ACL's distinct code is the
+          // seam — the domain knows nothing about HTTP. One forced compaction (the
+          // utilization check cannot see the drift that just overflowed) and one
+          // re-send of the SAME request; a second overflow fails the turn.
+          if (result.Error.Code is ContextWindowExceededCode && !overflowRecovered)
+          {
+            Result<string>? recovered = await RecoverFromContextOverflowAsync(
+                result.Error, callbacks, ct).ConfigureAwait(false);
+            if (recovered is null)
+            {
+              overflowRecovered = true;
+              // The monitor's utilization report predates the overflow — re-running the
+              // threshold check on it would compact again on stale state. The turn rests
+              // the backstop here exactly as a successful threshold compaction does.
+              autoCompactBlocked = true;
+              continue;
+            }
+
+            return recovered;
           }
 
           // The failure becomes part of the transcript: a turn that dies on a provider
@@ -282,6 +317,53 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     Conversation.AddSystemMessage(notice);
     callbacks?.OnSystemMessage?.Invoke(notice);
     return true;
+  }
+
+  /// <summary>Forced compaction after a ContextWindowExceeded provider failure, bypassing
+  ///     the utilization threshold: the threshold reads the LAST request's usage report —
+  ///     a snapshot that cannot see the tool-result drift that just overflowed the window.
+  ///     The eviction plan is built from the current messages directly, against the serving
+  ///     model's context window, through the same <see cref="IContextCompactor"/> seam the
+  ///     80% backstop uses. Null means recovery ran (compaction succeeded or no compactor
+  ///     is wired) and the caller may re-send the SAME request once; a non-null result is
+  ///     the turn's terminal failure — the compaction error is the actionable cause, so it
+  ///     surfaces in both the returned Result and the transcript's turn-failure line.</summary>
+  private async Task<Result<string>?> RecoverFromContextOverflowAsync(DomainError overflowError,
+      TurnCallbacks? callbacks, CancellationToken ct)
+  {
+    if (_contextCompactor is null)
+    {
+      // Nothing to compact with: re-sending would fail identically. The transcript
+      // still records the overflow (the model and any resumed session read this line).
+      string line = $"{TurnFailedPrefix}Error [{CompactionUnavailableCode}]: no compactor is wired; cannot recover from a context-window overflow. (underlying: Error [{overflowError.Code}]: {overflowError.Message})";
+      Conversation.AddSystemMessage(line);
+      callbacks?.OnSystemMessage?.Invoke(line);
+      return Result.Failure<string>(new DomainError(CompactionUnavailableCode,
+          overflowError.Message));
+    }
+
+    Beat();
+    PublishProgress(ChildPhase.ModelCall, "overflow-recovery");
+    Result<CompactionOutcome> compacted =
+        await _contextCompactor.CompactAsync(Conversation, Config, ct).ConfigureAwait(false);
+    if (!compacted.IsSuccess)
+    {
+      string line = $"{TurnFailedPrefix}Error [{compacted.Error.Code}]: {compacted.Error.Message} (underlying: Error [{overflowError.Code}]: {overflowError.Message})";
+      Conversation.AddSystemMessage(line);
+      callbacks?.OnSystemMessage?.Invoke(line);
+      return Result.Failure<string>(compacted.Error);
+    }
+
+    // Same observer surface as the threshold backstop: outcome, the summary line the
+    // compaction left in the conversation, and a re-fired context snapshot.
+    callbacks?.OnCompacted?.Invoke(compacted.Value);
+    if (Conversation.Messages.FirstOrDefault(m => m.IsSummary) is { } summary)
+    {
+      callbacks?.OnSystemMessage?.Invoke(summary.Content);
+    }
+
+    ReportUsageFromMonitor(callbacks);
+    return null;
   }
 
   /// <summary>Final-response policy for an iteration whose answer carries no tool calls.
