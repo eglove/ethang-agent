@@ -137,6 +137,11 @@ public sealed class AppDatabase
       ApplyV14(connection);
       SetVersion(connection, 14);
     }
+    if (GetVersion(connection) < 15)
+    {
+      ApplyV15(connection);
+      SetVersion(connection, 15);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -561,6 +566,51 @@ public sealed class AppDatabase
             ran_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_command_runs_ws_id ON command_runs(workspace_id, id);
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V15 adds tool_output_archive: full text of oversized tool results,
+  ///     workspace-scoped and content-addressed by the SHA-256 of the content
+  ///     (identical content stored once — the PRIMARY KEY dedupes). An FTS5 index
+  ///     over the content, kept in sync by triggers, lets lexical memory recall keep
+  ///     finding archived content after it left the context. Handles (arch: + hash
+  ///     prefix) are byte-stable; the workspace scoping means one workspace's handle
+  ///     never resolves another's content.</summary>
+  private static void ApplyV15(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS tool_output_archive (
+            workspace_id  TEXT NOT NULL,
+            handle        TEXT NOT NULL,
+            sha256        TEXT NOT NULL,
+            content       TEXT NOT NULL,
+            total_chars   INTEGER NOT NULL,
+            line_count    INTEGER NOT NULL,
+            archived_at   TEXT NOT NULL,
+            PRIMARY KEY (workspace_id, handle)
+        );
+        CREATE VIRTUAL TABLE IF NOT EXISTS tool_output_archive_fts USING fts5(
+            content, content='tool_output_archive', content_rowid='rowid'
+        );
+        CREATE TRIGGER IF NOT EXISTS tool_output_ai AFTER INSERT ON tool_output_archive BEGIN
+            INSERT INTO tool_output_archive_fts(rowid, content)
+            VALUES (new.rowid, new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS tool_output_ad AFTER DELETE ON tool_output_archive BEGIN
+            INSERT INTO tool_output_archive_fts(tool_output_archive_fts, rowid, content)
+            VALUES ('delete', old.rowid, old.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS tool_output_au AFTER UPDATE ON tool_output_archive BEGIN
+            INSERT INTO tool_output_archive_fts(tool_output_archive_fts, rowid, content)
+            VALUES ('delete', old.rowid, old.content);
+            INSERT INTO tool_output_archive_fts(rowid, content)
+            VALUES (new.rowid, new.content);
+        END;
         """;
     using SqliteCommand command = connection.CreateCommand();
 #pragma warning disable CA2100
