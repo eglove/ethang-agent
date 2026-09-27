@@ -119,7 +119,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   section adds provider routing, the eleven server tools (the responses API's available set), plugins, and loop budgets.
   Choices apply from the next turn, root and children alike, and are persisted per
   workspace + provider — no config files
-- **Context accounting + auto-compaction** — the status bar shows a live `CTX 148.2K/1M, 15%`
+- **Context accounting + auto-compaction + in-loop overflow recovery** — the status bar shows a live `CTX 148.2K/1M, 15%`
   readout (hover for the estimated system-prompt/messages/tools breakdown), plus the session id (first
   8 characters, full id on hover, click ⧉ to copy). The transcript auto-scrolls only while you rest
   at the bottom: your own messages never steal the scroll, scrolling up pauses the follow-the-tail
