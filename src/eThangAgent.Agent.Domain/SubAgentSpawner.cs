@@ -198,6 +198,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
           Heartbeat = _heartbeat,
           Events = _events,
           SessionId = child.Id.ToString(),
+          ToolOutputArchive = services.ToolOutputArchive,
         });
     PublishStarted(child);
 

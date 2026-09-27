@@ -27,6 +27,9 @@ namespace eThangAgent.AgentDomain;
 /// <param name="Cleanliness">Optional workspace-cleanliness reader for the child-report
 ///     contract: a completed run's report gains an annotation listing untracked files
 ///     left behind. Null disables the check (legacy wiring, tests).</param>
+/// <param name="ToolOutputArchive">Optional oversized-tool-result archive (the
+///     store-and-read-back context policy). Null (legacy wiring) means children's
+///     tool results enter history in full.</param>
 public sealed record SubAgentServices(
     IModelProviderFactory Factory,
     IAgentStore Store,
@@ -38,5 +41,6 @@ public sealed record SubAgentServices(
     IWatchdogEventStore? Audit = null,
     Func<AgentId, IAgentInbox?>? InboxFor = null,
     IWorkspaceAnchorScope? AnchorScope = null,
-    IWorkspaceCleanlinessCheck? Cleanliness = null);
+    IWorkspaceCleanlinessCheck? Cleanliness = null,
+    IToolOutputArchive? ToolOutputArchive = null);
 
