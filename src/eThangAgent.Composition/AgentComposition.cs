@@ -644,9 +644,13 @@ public static class AgentComposition
             OpenRouterAppAttribution.Apply(client);
           })
           .Services
+          // The typed client is a SEPARATE HttpClient instance from the named one —
+          // its defaults need the attribution too, or root-agent and selector requests
+          // reach OpenRouter unattributed (they showed there as plain "api").
           .AddHttpClient<IModelProvider, OpenRouterModelProvider>(client =>
           {
             client.Timeout = TimeSpan.FromSeconds(120);
+            OpenRouterAppAttribution.Apply(client);
           })
           .Services,
       _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id."),
