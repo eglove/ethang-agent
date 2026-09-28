@@ -14,8 +14,11 @@ namespace eThangAgent.ToolDomain;
 ///     each content line prefixed with its global line number and <c>→</c> (the read
 ///     tool's gutter format; the number and arrow are never part of the content), and
 ///     a final <c>[more content follows — pass offset N to continue]</c> notice when
-///     the page was capped. Errors begin with <c>Error [Code]:</c> — including
-///     <c>Error [ArchiveNotFound]:</c> for an unknown handle.</summary>
+///     the page was capped. A successful page sets <see
+///     cref="ToolResult.BypassesArchivePolicy"/> — the loop's store-and-read-back
+///     policy never re-archives a read-back of archived content. Errors begin with
+///     <c>Error [Code]:</c> — including <c>Error [ArchiveNotFound]:</c> for an
+///     unknown handle.</summary>
 public sealed class ToolOutputReadTool(IToolOutputArchive archive) : ITool
 {
   /// <summary>Default page size in characters (~1k tokens), matching the excerpt head.</summary>
@@ -40,7 +43,9 @@ public sealed class ToolOutputReadTool(IToolOutputArchive archive) : ITool
       "each content line prefixed with its global line number and → (metadata, never part of " +
       "the content — never reproduce line numbers or arrows when quoting the content), and a " +
       "final [more content follows — pass offset N to continue] notice when the page was " +
-      "capped. Errors begin with Error [Code]: — including Error [ArchiveNotFound]: when no " +
+      "capped. A successful read-back page is never re-archived: it is already a bounded " +
+      "read of archived content, so the loop's store-and-read-back policy passes it " +
+      "through untouched. Errors begin with Error [Code]: — including Error [ArchiveNotFound]: when no " +
       "archived content carries that handle in this workspace.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
@@ -98,7 +103,9 @@ public sealed class ToolOutputReadTool(IToolOutputArchive archive) : ITool
       sb.Length -= Environment.NewLine.Length; // trim trailing newline
     }
 
-    return new ToolResult(sb.ToString(), false);
+    // A read-back page is already a bounded read of archived content: the loop's
+    // store-and-read-back policy must pass it through untouched (no nested archive).
+    return new ToolResult(sb.ToString(), false) { BypassesArchivePolicy = true };
   }
 
   private static Result<ToolOutputReadArgs> ParseArguments(string jsonArguments)

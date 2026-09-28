@@ -529,7 +529,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   {
     if (_toolOutputArchive is null
         || toolResult.Content.Length <= _archiveThreshold
-        || (toolResult.IsError && toolResult.Content.Length <= _excerptHeadChars))
+        || (toolResult.IsError && toolResult.Content.Length <= _excerptHeadChars)
+        || toolResult.BypassesArchivePolicy)
     {
       return toolResult;
     }

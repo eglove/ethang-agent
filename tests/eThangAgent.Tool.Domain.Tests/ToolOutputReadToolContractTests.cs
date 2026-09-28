@@ -44,6 +44,30 @@ public class ToolOutputReadToolTests
   }
 
   [Fact]
+  public async Task Read_SuccessResult_BypassesArchivePolicy()
+  {
+    string content = string.Join("\n", Enumerable.Range(1, 200).Select(i => $"row-{i:000}"));
+    string handle = (await _archive.ArchiveAsync(content, TestContext.Current.CancellationToken)).Value!;
+
+    ToolResult result = await NewTool().ExecuteAsync(Args(
+        /*lang=json,strict*/ $"{{\"timeoutSeconds\":30, \"handle\":\"{handle}\", \"maxChars\":8000}}"), TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsError);
+    Assert.True(result.BypassesArchivePolicy,
+        "A read-back page is already a bounded read of archived content; it must not be re-archived.");
+  }
+
+  [Fact]
+  public async Task Read_ErrorResult_DoesNotBypass()
+  {
+    ToolResult result = await NewTool().ExecuteAsync(Args(
+        /*lang=json,strict*/ "{\"timeoutSeconds\":30, \"handle\":\"arch:0123456789abcdef\"}"), TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsError);
+    Assert.False(result.BypassesArchivePolicy);
+  }
+
+  [Fact]
   public async Task Read_UnknownHandle_TypedError()
   {
     ToolResult result = await NewTool().ExecuteAsync(Args(

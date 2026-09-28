@@ -210,6 +210,38 @@ public class AgentToolResultArchiveTests
   }
 
   [Fact]
+  public async Task ReadBackToolResult_NeverReArchived_HistoryCarriesPageVerbatim()
+  {
+    FakeToolOutputArchive archive = new();
+    string content = string.Join("\n", Enumerable.Range(1, 900).Select(i => $"row-{i:000}"));
+    FakeProvider provider = new(
+        Result.Success(new ModelResponse(null, [new ToolCallRequest("call_1", "big", "{}")], FinishReason.ToolCalls)),
+        Result.Success(new ModelResponse(null, [new ToolCallRequest("call_2", "tool_output_read", "{}")], FinishReason.ToolCalls)),
+        Result.Success(new ModelResponse("done", [])));
+    string bigHandle = ToolOutputArchiveFormat.HandleOf(content);
+    _ = archive.Archived.TryAdd(bigHandle, content);
+    // A read-back page over the threshold: the annotation line plus gutter lines.
+    string page = "[tool-output-read " + bigHandle + " chars 1-6440 of 9000 | lines 1-720]\n" +
+        string.Join("\n", Enumerable.Range(1, 720).Select(i => $"{i,3}→ row-{i:000}"));
+    Agent agent = new(provider, new Conversation(), DefaultConfig,
+        new ToolRegistry(
+        [
+            new FixedTool("big", new ToolResult(content, false)),
+            new FixedTool("tool_output_read", new ToolResult(page, false) { BypassesArchivePolicy = true }),
+        ]), ArchiveOptions(archive));
+
+    Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    List<Message> toolMessages = [.. agent.Conversation.Messages.Where(m => m.Role is Role.Tool)];
+    Assert.Equal(2, toolMessages.Count);
+    // The first (oversized) result is archived; the read-back page is NOT.
+    Assert.StartsWith("[tool-output archived: arch:", toolMessages[0].Content, StringComparison.Ordinal);
+    Assert.Equal(page, toolMessages[1].Content);
+    Assert.DoesNotContain("[tool-output archived:", toolMessages[1].Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task ReadBackThroughArchive_ReturnsPagedContent()
   {
     FakeToolOutputArchive archive = new();
