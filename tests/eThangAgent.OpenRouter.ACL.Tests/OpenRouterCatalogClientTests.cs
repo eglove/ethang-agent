@@ -24,6 +24,12 @@ public class OpenRouterCatalogClientTests
       /*lang=json,strict*/
       """[{"provider_name":"Meta","context_length":131072,"max_completion_tokens":4096,"pricing":{"prompt":"0.0000005","completion":"0.0000008"}}]""";
 
+  // The LIVE /endpoints shape (verified against the real API): an object envelope
+  // {"data": {..., "endpoints": [...]}} — NOT the legacy top-level array.
+  private const string GeminiEndpointsObjectEnvelopeJson =
+      /*lang=json,strict*/
+      """{"data":{"id":"google/gemini-2.0-flash-001","endpoints":[{"provider_name":"Google","context_length":1048576,"max_completion_tokens":8192,"pricing":{"prompt":"0.000001","completion":"0.000002","discount":0}},{"provider_name":"OpenRouter","context_length":2097152,"max_completion_tokens":4096,"pricing":{"prompt":"0.0000015","completion":"0.000003"}}]}}""";
+
   private static HttpResponseMessage JsonResponse(HttpStatusCode status, string json) =>
       new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
@@ -110,6 +116,34 @@ public class OpenRouterCatalogClientTests
     _ = await client.GetAsync(TestContext.Current.CancellationToken);
 
     Assert.Equal(6, callCount); // 2 refreshes x 3 calls each
+  }
+
+  [Fact]
+  public async Task GetAsync_ObjectEnvelopeEndpoints_ParsesProviderEntries()
+  {
+    // The live API serves /endpoints as {"data": {"endpoints": [...]}}; per-provider
+    // rows (windows and prices) must flow from that envelope like the legacy array.
+    // Only the gemini endpoints call serves the envelope; every other path rides
+    // the default fixture routing (llama keeps its legacy array).
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(
+        req.RequestUri!.AbsolutePath == "/api/v1/models/google/gemini-2.0-flash-001/endpoints"
+            ? JsonResponse(HttpStatusCode.OK, GeminiEndpointsObjectEnvelopeJson)
+            : Handler(req)));
+    using HttpClient http = new(handler);
+    OpenRouterCatalogClient client = new(http, Config);
+
+    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    // 2 from the gemini envelope + 1 from the llama legacy array
+    Assert.Equal(3, result.Value.Count);
+    ModelProviderEntry azure = Assert.Single(result.Value, e => e.ProviderName == "Google");
+    Assert.Equal(1_048_576, azure.ContextLength);
+    Assert.Equal(8192, azure.MaxCompletionTokens);
+    ModelProviderEntry second = Assert.Single(result.Value, e => e.ProviderName == "OpenRouter");
+    Assert.Equal(2_097_152, second.ContextLength);
+    // The envelope's numeric discount parses (0 here, so base price stands).
+    Assert.Equal(0.000001m, azure.PromptPricePerToken);
   }
 
   [Fact]

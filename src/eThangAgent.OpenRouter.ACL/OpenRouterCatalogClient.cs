@@ -136,18 +136,24 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
       JsonDocument doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
       using (doc)
       {
+        // Two accepted shapes: the legacy top-level array, and the LIVE object
+        // envelope {"data": {.., "endpoints": [..]}} (verified against the real
+        // API). Anything else — including an empty endpoints array — falls back to
+        // the model-level row.
         List<ModelProviderEntry> entries = [];
         if (doc.RootElement.ValueKind == JsonValueKind.Array)
         {
-          foreach (JsonElement endpoint in doc.RootElement.EnumerateArray())
-          {
-            ModelProviderEntry? entry = ParseEndpoint(endpoint, model);
-            if (entry is not null)
-            {
-              entries.Add(entry);
-            }
-          }
+          CollectEndpointEntries(doc.RootElement, model, entries);
         }
+        else if (doc.RootElement.ValueKind == JsonValueKind.Object
+            && doc.RootElement.TryGetProperty("data", out JsonElement data)
+            && data.ValueKind == JsonValueKind.Object
+            && data.TryGetProperty("endpoints", out JsonElement endpoints)
+            && endpoints.ValueKind == JsonValueKind.Array)
+        {
+          CollectEndpointEntries(endpoints, model, entries);
+        }
+
         return entries.Count > 0 ? entries : [CreateFallbackEntry(model)];
       }
     }
@@ -241,6 +247,21 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
         : null;
   }
 
+  /// <summary>Parses one endpoint array's elements into entries; shared by the
+  ///     legacy top-level array shape and the live object-envelope shape.</summary>
+  private static void CollectEndpointEntries(JsonElement endpoints, IntermediateModel model,
+      List<ModelProviderEntry> entries)
+  {
+    foreach (JsonElement endpoint in endpoints.EnumerateArray())
+    {
+      ModelProviderEntry? entry = ParseEndpoint(endpoint, model);
+      if (entry is not null)
+      {
+        entries.Add(entry);
+      }
+    }
+  }
+
   private static ModelProviderEntry? ParseEndpoint(JsonElement endpoint, IntermediateModel model)
   {
     if (!endpoint.TryGetProperty("provider_name", out JsonElement nameEl) || nameEl.ValueKind != JsonValueKind.String)
@@ -309,14 +330,22 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
 
   private static decimal ParseDiscount(JsonElement pricing)
   {
-    if (pricing.TryGetProperty("discount", out JsonElement el) && el.ValueKind == JsonValueKind.String)
+    // The live API serves discount as a JSON number; string discounts ride the
+    // legacy model-level shape. Both parse; anything else is no discount.
+    if (pricing.TryGetProperty("discount", out JsonElement el))
     {
-      string? s = el.GetString();
-      if (decimal.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal d))
+      if (el.ValueKind == JsonValueKind.Number && el.TryGetDecimal(out decimal number))
       {
-        return d;
+        return number;
+      }
+
+      if (el.ValueKind == JsonValueKind.String
+          && decimal.TryParse(el.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out decimal parsed))
+      {
+        return parsed;
       }
     }
+
     return 0m;
   }
 
