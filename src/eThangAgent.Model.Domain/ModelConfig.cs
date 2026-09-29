@@ -7,7 +7,7 @@ public sealed record ModelConfig(
     string? Provider,
     int MaxTokens,
     float Temperature,
-    int ContextWindow,
+    int? ContextWindow,
     ReasoningEffort? Effort = null,
     float? TopP = null,
     int? TopK = null,
@@ -27,7 +27,7 @@ public sealed record ModelConfig(
       string? provider,
       int maxTokens,
       float temperature,
-      int contextWindow,
+      int? contextWindow,
       ReasoningEffort? effort = null,
       float? topP = null,
       int? topK = null,
@@ -59,7 +59,9 @@ public sealed record ModelConfig(
       return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Temperature must be between 0 and 2."));
     }
 
-    if (contextWindow < 1)
+    // Null = the window is not yet known (no catalog resolution yet): allowed and
+    // distinct from unbounded. A non-null window stays strictly validated.
+    if (contextWindow is { } w && w < 1)
     {
       return Result.Failure<ModelConfig>(new DomainError("InvalidContextWindow", "Context window must be positive."));
     }

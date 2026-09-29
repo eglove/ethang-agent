@@ -116,6 +116,16 @@ public class ModelConfigTests
   }
 
   [Fact]
+  public void Create_WithNullContextWindow_Succeeds()
+  {
+    // Null = the window is not yet known (no catalog resolution yet): allowed.
+    // Non-null windows stay strictly validated; null is 'unknown', never 'unbounded'.
+    Result<ModelConfig> result = ModelConfig.Create("m", null, 100, 0.5f, null);
+    Assert.True(result.IsSuccess);
+    Assert.Null(result.Value.ContextWindow);
+  }
+
+  [Fact]
   public void Create_WithProvider_ReturnsSuccessAndCarriesProvider()
   {
     Result<ModelConfig> result = ModelConfig.Create("gpt-4o", "OpenAI", 1024, 0.7f, 2048);

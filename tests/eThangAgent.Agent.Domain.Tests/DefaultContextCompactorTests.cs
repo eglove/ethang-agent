@@ -42,6 +42,26 @@ public class DefaultContextCompactorTests
   private static Message User(string text) => new(Role.User, text, T);
 
   [Fact]
+  public async Task CompactAsync_NullWindowConfig_ReturnsUnknownContextWindowFailure()
+  {
+    // A serving model whose window is not yet catalog-resolved cannot plan an
+    // eviction: the compactor fails with a named code instead of guessing a window.
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 1500));
+    conversation.AddAssistantMessage(new string('y', 1500));
+
+    ModelConfig unknownWindow = ModelConfig.Create("serving", null, 100, 0.5f, null).Value!;
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, unknownWindow, TestContext.Current.CancellationToken);
+
+    Assert.False(outcome.IsSuccess);
+    Assert.Equal("UnknownContextWindow", outcome.Error.Code);
+  }
+
+  [Fact]
   public async Task CompactAsync_EvictsPrefix_WritesSummaryWithIsSummaryFlag()
   {
     Conversation conversation = new();

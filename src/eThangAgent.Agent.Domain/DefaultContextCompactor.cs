@@ -25,7 +25,15 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
     ArgumentNullException.ThrowIfNull(conversation);
     ArgumentNullException.ThrowIfNull(servingModel);
     IReadOnlyList<Message> messages = conversation.Messages; // snapshot, not live view
-    ContextEvictionPlan plan = ContextEvictionPolicy.Plan(messages, servingModel.ContextWindow);
+    // A serving model whose window is not yet catalog-resolved cannot plan an
+    // eviction: fail with a named code instead of guessing a window.
+    if (servingModel.ContextWindow is not { } window)
+    {
+      return Result.Failure<CompactionOutcome>(new DomainError("UnknownContextWindow",
+          "Serving model has no resolved context window; compaction cannot plan."));
+    }
+
+    ContextEvictionPlan plan = ContextEvictionPolicy.Plan(messages, window);
     if (plan.EvictCount == 0)
     {
       return Result.Failure<CompactionOutcome>(new DomainError("CompactionImpossible",
