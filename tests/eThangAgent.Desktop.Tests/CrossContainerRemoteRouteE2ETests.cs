@@ -245,8 +245,11 @@ public class CrossContainerRemoteRouteE2ETests
   ///     via the environment the harness sets (the factory was built over dbPath).</summary>
   private static string DbPathOf(AgentSession session) => session.Services.GetRequiredService<AppDatabase>().DatabasePath;
 
+  // The openrouter/auto row mirrors the LIVE API (context 2,000,000; -1 pricing;
+  // image modality; empty top_provider) so the routing pseudo-model resolves its
+  // window from the catalog like every other model.
   private static string CatalogJson() =>
-      /*lang=json,strict*/ "{ \"data\": [ { \"id\": \"mock/sub-model\", \"pricing\": { \"prompt\": \"0.000001\", \"completion\": \"0.000002\" }, \"context_length\": 32768, \"top_provider\": { \"max_completion_tokens\": 8192 }, \"architecture\": { \"modality\": \"text->text\" } } ] }";
+      /*lang=json,strict*/ """{ "data": [ { "id": "mock/sub-model", "pricing": { "prompt": "0.000001", "completion": "0.000002" }, "context_length": 32768, "top_provider": { "max_completion_tokens": 8192 }, "architecture": { "modality": "text->text" } }, { "id": "openrouter/auto", "pricing": { "prompt": "-1", "completion": "-1" }, "context_length": 2000000, "supported_parameters": ["tools"], "architecture": { "modality": "text+image->text", "input_modalities": ["text", "image"] }, "top_provider": { "context_length": null, "max_completion_tokens": null } } ] }""";
 
   private static string ExecProgram(string program) =>
       System.Text.Json.JsonSerializer.Serialize(new { timeoutSeconds = 120, title = "e2e", program });

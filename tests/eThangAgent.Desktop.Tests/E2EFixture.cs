@@ -70,7 +70,10 @@ internal static class E2E
       Mock.Start();
       // Catalog the two mock models so the session's window source resolves them;
       // a spawn of a model with no window fails by design (strict correctness).
-      _ = Mock.ReturnsCatalog(/*lang=json,strict*/ """{ "data": [ { "id": "mock/sub-model", "pricing": { "prompt": "0.000001", "completion": "0.000002" }, "context_length": 32768, "top_provider": { "max_completion_tokens": 8192 }, "architecture": { "modality": "text->text" } } ] }""");
+      // The openrouter/auto row mirrors the LIVE API (context 2,000,000; -1 pricing;
+      // image modality; empty top_provider) so the routing pseudo-model resolves its
+      // window from the catalog like every other model.
+      _ = Mock.ReturnsCatalog(/*lang=json,strict*/ """{ "data": [ { "id": "mock/sub-model", "pricing": { "prompt": "0.000001", "completion": "0.000002" }, "context_length": 32768, "top_provider": { "max_completion_tokens": 8192 }, "architecture": { "modality": "text->text" } }, { "id": "openrouter/auto", "pricing": { "prompt": "-1", "completion": "-1" }, "context_length": 2000000, "supported_parameters": ["tools"], "architecture": { "modality": "text+image->text", "input_modalities": ["text", "image"] }, "top_provider": { "context_length": null, "max_completion_tokens": null } } ] }""");
       DatabasePath = reuseDatabasePath ?? Path.Combine(Path.GetTempPath(), $"ethang-e2e-{Guid.NewGuid():N}.db");
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", DatabasePath);
 
