@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.14";
+  public const string Version = "2.15";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -111,10 +111,11 @@ public static class ExecGuide
     ### Running external commands
     Shell() runs an external command line spawned directly with native .NET process
     APIs — no shell intermediary — and returns exit code, stdout, and stderr. Every
-    argument after the exe is one token of a single native command line; the joined line
-    is re-parsed with Windows argv rules (CommandLineToArgvW semantics), so a multi-token
-    piece such as "build -c Release" becomes separate tokens instead of reaching the exe
-    as one quoted literal argument. The native exit code propagates verbatim.
+    argument after the exe is ONE native argument, passed to the process verbatim:
+    an argument containing spaces (a path, a commit message) reaches the target as a
+    single argument, and no join-and-re-split happens anywhere. Do not pack several
+    tokens into one argument — pass them as separate arguments. The native
+    exit code propagates verbatim.
 
         var r = Shell("git", "status", "--short");
         if (r.ExitCode != 0) { Output(r.Stderr); return "not a repo?"; }

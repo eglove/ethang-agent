@@ -75,26 +75,27 @@ public sealed class ScriptGlobals
   public IReadOnlyList<string> OutputLines => [.. _outputLines];
 
   /// <summary>Run an external command line and return stdout, stderr, and exit code.
-  ///     Every argument after <paramref name="exe"/> is one token of a single native
-  ///     command line: the joined line is re-parsed into argv tokens with Windows
-  ///     CommandLineToArgvW semantics (<see cref="NativeCommandLine.Split"/>), so a
-  ///     multi-token piece such as "build -c Release" reaches the exe as separate
-  ///     arguments instead of one quoted literal. The process is spawned directly
-  ///     with native .NET <see cref="Process"/> APIs — no shell intermediary — and
-  ///     the native exit code propagates verbatim.</summary>
+  ///     Every argument after <paramref name="exe"/> is ONE native argument, passed
+  ///     to the process verbatim through <see cref="ProcessStartInfo.ArgumentList"/>
+  ///     (issue #95): an argument containing spaces — a path, a commit message —
+  ///     reaches the target process as a single argument, and no join-and-re-split
+  ///     happens anywhere. The process is spawned directly with native .NET
+  ///     <see cref="Process"/> APIs — no shell intermediary — and the native exit
+  ///     code propagates verbatim.</summary>
   public ShellResult Shell(string exe, params string[] args)
   {
-    string commandLine = string.Join(" ", new[] { exe }.Concat(args));
-    IReadOnlyList<string> tokens = NativeCommandLine.Split(commandLine);
-    if (tokens.Count == 0)
+    if (string.IsNullOrWhiteSpace(exe))
     {
       return new ShellResult(-1, "", "Shell() requires an executable.");
     }
 
+    args ??= [];
+
+    string[] argv = [exe, .. args];
     DateTimeOffset startedUtc = DateTimeOffset.UtcNow;
     ProcessStartInfo psi = new()
     {
-      FileName = tokens[0],
+      FileName = exe,
       WorkingDirectory = Workspace,
       RedirectStandardOutput = true,
       RedirectStandardError = true,
@@ -103,9 +104,9 @@ public sealed class ScriptGlobals
       StandardOutputEncoding = Encoding.UTF8,
       StandardErrorEncoding = Encoding.UTF8,
     };
-    for (int i = 1; i < tokens.Count; i++)
+    foreach (string arg in args)
     {
-      psi.ArgumentList.Add(tokens[i]);
+      psi.ArgumentList.Add(arg);
     }
 
     try
@@ -163,7 +164,7 @@ public sealed class ScriptGlobals
       }
 
       p.WaitForExit(); // flushes output handlers so the exit code is final
-      ReportRun(tokens, p.ExitCode, startedUtc);
+      ReportRun(argv, p.ExitCode, startedUtc);
       return new ShellResult(p.ExitCode, stdoutTask.Result, stderrTask.Result);
     }
     catch (OperationCanceledException)
@@ -175,7 +176,7 @@ public sealed class ScriptGlobals
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)
     {
-      ReportRun(tokens, -1, startedUtc);
+      ReportRun(argv, -1, startedUtc);
       return new ShellResult(-1, "", ex.Message);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
@@ -184,7 +185,7 @@ public sealed class ScriptGlobals
   /// <summary>Reports one completed run to the optional verification sink.
   ///     A sink fault is swallowed by named decision (spec error rule): the
   ///     report path may never break the command run being reported.</summary>
-  private void ReportRun(IReadOnlyList<string> tokens, int exitCode, DateTimeOffset startedUtc)
+  private void ReportRun(IReadOnlyList<string> argv, int exitCode, DateTimeOffset startedUtc)
   {
     if (VerificationSink is null)
     {
@@ -196,7 +197,7 @@ public sealed class ScriptGlobals
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      VerificationSink.Append(new ShellExecutionRecord(tokens, exitCode, startedUtc, DateTimeOffset.UtcNow));
+      VerificationSink.Append(new ShellExecutionRecord(argv, exitCode, startedUtc, DateTimeOffset.UtcNow));
     }
     catch
     {

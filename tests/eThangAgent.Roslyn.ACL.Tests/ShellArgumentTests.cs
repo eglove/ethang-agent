@@ -1,13 +1,15 @@
 using eThangAgent.CapabilityDomain;
+using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
+using eThangAgent.ToolDomain.Verification;
 
 namespace eThangAgent.Roslyn.ACL.Tests;
 
-/// <summary>Shell() argument contract: each argument after the executable is one
-/// token of a single native command line; a multi-token piece passed as one argument
-/// is re-parsed as tokens instead of being quoted as a single literal. Pins the
-/// real-use failure where Shell("dotnet", "build -c Release") reached dotnet as one
-/// literal argument.</summary>
+/// <summary>Shell() argument contract (issue #95): every argument after the
+/// executable is ONE native argument, passed to the process verbatim through
+/// ProcessStartInfo.ArgumentList. An argument containing spaces — a path, a
+/// commit message — reaches the target process as a single argument; the
+/// joined line is never re-split.</summary>
 public class ShellArgumentTests
 {
   private readonly CSharpScriptExecEngine _engine =
@@ -15,63 +17,115 @@ public class ShellArgumentTests
           workspaceRoot: () => AppContext.BaseDirectory);
 
   [Fact]
-  public async Task MultiTokenArguments_ArePassedAsSeparateTokens()
+  public void SpacedExecutablePath_IsOneNativeToken()
   {
-    ExecRunResult run = await _engine.ExecuteAsync(new ExecProgram(
-        "var r = Shell(\"cmd\", \"/c\", \"echo\", \"hello world\"); return r.Stdout;"), ct: TestContext.Current.CancellationToken);
-    Assert.Equal(ExecRunStatus.Completed, run.Status);
-    Assert.Contains("hello world", run.Output, StringComparison.Ordinal);
+    string cmdPath = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+    DirectoryInfo tmp = Directory.CreateTempSubdirectory("shellarg spaced exe");
+    try
+    {
+      string exe = Path.Combine(tmp.FullName, "my spaced tool.exe");
+      File.Copy(cmdPath, exe);
+
+      ScriptGlobals globals = new(NoopRegistry(), tmp.FullName, tmp.FullName);
+      ShellResult result = globals.Shell(exe, "/c", "exit 0");
+
+      Assert.True(result.ExitCode == 0,
+          $"expected exit 0 from a spaced executable path; got {result.ExitCode}: {result.Stderr}");
+    }
+    finally
+    {
+      Cleanup(tmp);
+    }
   }
 
   [Fact]
-  public async Task GitStatusShort_ParsesMultiTokenFlag()
+  public async Task SpacedArgument_ReachesGitAsOneArgument()
   {
-    ExecRunResult run = await _engine.ExecuteAsync(new ExecProgram(
-        "var r = Shell(\"git\", \"status\", \"--short\"); return r.ExitCode.ToString();"), ct: TestContext.Current.CancellationToken);
-    Assert.Equal(ExecRunStatus.Completed, run.Status);
-    Assert.Equal("0", run.Output.Trim());
-  }
-
-  [Fact]
-  public async Task WholeCommandLineAsSingleArgument_IsReparsedAsTokens()
-  {
-    // Regression pin: the second Shell argument below is ONE string holding several
-    // tokens plus a quoted path; git must receive them as separate argv entries.
-    DirectoryInfo tmp = Directory.CreateTempSubdirectory("shellarg-repro");
+    DirectoryInfo tmp = Directory.CreateTempSubdirectory("shellarg-spaced-msg");
     try
     {
       string dir = tmp.FullName.Replace("\\", "/", StringComparison.Ordinal);
 
-      string initScript =
-          $"var r = Shell(\"git\", \"init \\\"{dir}\\\"\"); return r.ExitCode.ToString();";
-      ExecRunResult init = await _engine.ExecuteAsync(new ExecProgram(initScript), ct: TestContext.Current.CancellationToken);
+      ExecRunResult init = await _engine.ExecuteAsync(new ExecProgram(
+          $"var r = Shell(\"git\", \"-C\", \"{dir}\", \"init\"); return r.ExitCode.ToString();"),
+          ct: TestContext.Current.CancellationToken);
       Assert.True(init.Output.Trim() == "0",
           $"git init failed: {init.Output} {string.Join(';', init.ErrorLines)}");
 
-      string commitScript =
-          $"var r = Shell(\"git\", \"-c user.email=t@t -c user.name=t -C \\\"{dir}\\\"" +
-          $" commit --allow-empty -m x\"); return r.ExitCode.ToString();";
-      ExecRunResult commit = await _engine.ExecuteAsync(new ExecProgram(commitScript), ct: TestContext.Current.CancellationToken);
+      // The commit message "two words" is ONE Shell argument; git must receive
+      // it as one argv entry, not as the message "two" plus a "words" pathspec.
+      ExecRunResult commit = await _engine.ExecuteAsync(new ExecProgram(
+          $"var r = Shell(\"git\", \"-C\", \"{dir}\", \"-c\", \"user.email=t@t\", \"-c\", \"user.name=t\", " +
+          $"\"commit\", \"--allow-empty\", \"-m\", \"two words\"); return r.ExitCode.ToString();"),
+          ct: TestContext.Current.CancellationToken);
       Assert.True(commit.Output.Trim() == "0",
-          $"expected exit 0 from git invoked with a multi-token single argument; got: " +
+          $"expected exit 0 from git commit with a spaced -m message; got: " +
           $"{commit.Output} {string.Join(';', commit.ErrorLines)}");
+
+      ExecRunResult log = await _engine.ExecuteAsync(new ExecProgram(
+          $"var r = Shell(\"git\", \"-C\", \"{dir}\", \"log\", \"-1\", \"--format=%s\"); return r.Stdout;"),
+          ct: TestContext.Current.CancellationToken);
+      Assert.Equal("two words", log.Output.Trim());
     }
     finally
     {
-      // git marks its object files read-only; clear attributes before deleting.
-      try
-      {
-        foreach (string f in Directory.EnumerateFiles(tmp.FullName, "*", SearchOption.AllDirectories))
-        {
-          File.SetAttributes(f, FileAttributes.Normal);
-        }
-
-        tmp.Delete(recursive: true);
-      }
-      // Named decision (CA1031): temp-dir cleanup is best effort.
-#pragma warning disable CA1031 // Do not catch general exception types
-      catch { /* best effort */ }
-#pragma warning restore CA1031
+      Cleanup(tmp);
     }
+  }
+
+  [Fact]
+  public void VerificationRecord_TokensAreVerbatimArguments()
+  {
+    RecordingSink sink = new();
+    ScriptGlobals globals = new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath(),
+        verificationSink: sink);
+
+    _ = globals.Shell("cmd", "/c", "echo", "hello world");
+
+    ShellExecutionRecord record = Assert.Single(sink.Records);
+    Assert.Equal((string[])["cmd", "/c", "echo", "hello world"], record.Tokens);
+  }
+
+  private static void Cleanup(DirectoryInfo tmp)
+  {
+    // git marks its object files read-only; clear attributes before deleting.
+    try
+    {
+      foreach (string f in Directory.EnumerateFiles(tmp.FullName, "*", SearchOption.AllDirectories))
+      {
+        File.SetAttributes(f, FileAttributes.Normal);
+      }
+
+      tmp.Delete(recursive: true);
+    }
+    // Named decision (CA1031): temp-dir cleanup is best effort.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch { /* best effort */ }
+#pragma warning restore CA1031
+  }
+
+  // Shell never resolves tools or invokes capabilities; an empty registry stub
+  // satisfies ScriptTools' non-null contract.
+  private static EmptyRegistry NoopRegistry() => new();
+
+  private sealed class EmptyRegistry : ICapabilityRegistry
+  {
+    public Result<ResolvedCapability> Resolve(string nameOrRef) =>
+        Result.Failure<ResolvedCapability>(new DomainError("NotFound", "unused"));
+
+    public IReadOnlyList<ProviderCapabilities> Providers => [];
+
+    public Task<CapabilityInvocationResult> InvokeAsync(
+        ResolvedCapability capability, string jsonArguments, CancellationToken ct = default) =>
+        throw new NotSupportedException("unused");
+  }
+
+  private sealed class RecordingSink : IVerificationLedger
+  {
+    public List<ShellExecutionRecord> Records { get; } = [];
+
+    public void Append(ShellExecutionRecord record) => Records.Add(record);
+
+    public IReadOnlyList<ShellExecutionRecord> Snapshot() => [.. Records];
   }
 }

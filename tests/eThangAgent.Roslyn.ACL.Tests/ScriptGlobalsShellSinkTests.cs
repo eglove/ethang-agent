@@ -49,8 +49,7 @@ public class ScriptGlobalsShellSinkTests
     _ = globals.Shell("cmd", "/c", "exit 0");
 
     ShellExecutionRecord record = Assert.Single(sink.Records);
-    Assert.Equal(4, record.Tokens.Count);
-    Assert.Equal("cmd", record.Tokens[0]);
+    Assert.Equal((string[])["cmd", "/c", "exit 0"], record.Tokens);
     Assert.True(record.StartedUtc <= record.FinishedUtc);
   }
 

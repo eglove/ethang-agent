@@ -9,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.14", ExecGuide.Version);
+    Assert.Equal("2.15", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -209,8 +209,8 @@ public class ExecGuideTests
     // no shell intermediary anywhere.
     Assert.DoesNotContain("powershell", section, StringComparison.OrdinalIgnoreCase);
     Assert.Contains("spawned directly", section, StringComparison.Ordinal);
-    Assert.Contains("one token", section, StringComparison.Ordinal);
-    Assert.Contains("re-parsed", section, StringComparison.Ordinal);
+    Assert.Contains("ONE native argument", section, StringComparison.Ordinal);
+    Assert.Contains("no join-and-re-split", section, StringComparison.Ordinal);
     Assert.Contains("exit code propagates", section, StringComparison.Ordinal);
     // The canonical example uses pre-split tokens.
     Assert.Contains("Shell(\"git\", \"status\", \"--short\")", section, StringComparison.Ordinal);
@@ -224,7 +224,7 @@ public class ExecGuideTests
         new NullOutputStore(), NullExecActivitySink.Instance);
     Assert.DoesNotContain("powershell", tool.Definition.Description, StringComparison.OrdinalIgnoreCase);
     Assert.Contains("spawned directly", tool.Definition.Description, StringComparison.Ordinal);
-    Assert.Contains("one token", tool.Definition.Description, StringComparison.Ordinal);
+    Assert.Contains("ONE native argument", tool.Definition.Description, StringComparison.Ordinal);
   }
 
   private sealed class NullExecEngine : IExecEngine
