@@ -3,33 +3,116 @@
         xmlns:vm="using:eThangAgent.Desktop.ViewModels"
         x:Class="eThangAgent.Desktop.Views.NewAgentWindow"
         x:DataType="vm:NewAgentViewModel"
-        Title="Open Workspace" Width="480" SizeToContent="Height"
+        Title="Open Workspace" Width="520" SizeToContent="Height"
         CanResize="False" WindowStartupLocation="CenterOwner">
-  <StackPanel Margin="24" Spacing="12">
+  <ScrollViewer MaxHeight="640">
+    <StackPanel Margin="24" Spacing="12">
 
-    <TextBlock Text="AI provider" FontWeight="Bold"/>
-    <ComboBox ItemsSource="{Binding Providers}" SelectedItem="{Binding SelectedProvider}">
-      <ComboBox.ItemTemplate>
-        <DataTemplate>
-          <TextBlock Text="{Binding DisplayName}"/>
-        </DataTemplate>
-      </ComboBox.ItemTemplate>
-    </ComboBox>
+      <TextBlock Text="AI provider" FontWeight="Bold"/>
+      <ComboBox ItemsSource="{Binding Providers}" SelectedItem="{Binding SelectedProvider}">
+        <ComboBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding DisplayName}"/>
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
 
-    <TextBlock Text="Workspace" FontWeight="Bold" Margin="0,8,0,0"/>
-    <StackPanel Orientation="Horizontal" Spacing="8">
-      <Button Content="Choose Workspace…" Command="{Binding ChooseWorkspaceCommand}"/>
-      <TextBlock Text="{Binding WorkspaceRoot}" VerticalAlignment="Center"
-                 TextTrimming="CharacterEllipsis" MaxWidth="320" Opacity="0.8"
-                 ToolTip.Tip="{Binding WorkspaceRoot}"/>
+      <TextBlock Text="Workspace" FontWeight="Bold" Margin="0,8,0,0"/>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Content="Choose Workspace…" Command="{Binding ChooseWorkspaceCommand}"/>
+        <TextBlock Text="{Binding WorkspaceRoot}" VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis" MaxWidth="320" Opacity="0.8"
+                   ToolTip.Tip="{Binding WorkspaceRoot}"/>
+      </StackPanel>
+
+      <TextBlock Text="The agent stays on this provider until its tab is closed."
+                 Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
+      <TextBlock Text="Session files" FontWeight="Bold" Margin="0,8,0,0"/>
+      <TextBlock Text="Global (loaded for every workspace)" Opacity="0.8" FontSize="12"/>
+      <ItemsControl x:Name="GlobalFilesList" ItemsSource="{Binding GlobalFiles}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <CheckBox IsChecked="{Binding Enabled}"/>
+              <TextBlock Text="{Binding Path}" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" MaxWidth="330"
+                         ToolTip.Tip="{Binding Path}"/>
+              <Button Content="✕" Command="{Binding $parent[ItemsControl].DataContext.RemoveGlobalFileCommand}"
+                      CommandParameter="{Binding}" Padding="2,0"/>
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <Button x:Name="PickGlobalFileButton" Content="Add file…"
+              Command="{Binding PickGlobalFileCommand}" HorizontalAlignment="Left"/>
+      <TextBlock Text="Workspace (loaded for the chosen workspace only)" Opacity="0.8" FontSize="12"/>
+      <ItemsControl x:Name="WorkspaceFilesList" ItemsSource="{Binding WorkspaceFiles}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <CheckBox IsChecked="{Binding Enabled}"/>
+              <TextBlock Text="{Binding Path}" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" MaxWidth="330"
+                         ToolTip.Tip="{Binding Path}"/>
+              <Button Content="✕" Command="{Binding $parent[ItemsControl].DataContext.RemoveWorkspaceFileCommand}"
+                      CommandParameter="{Binding}" Padding="2,0"/>
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <Button x:Name="PickWorkspaceFileButton" Content="Add file…"
+              Command="{Binding PickWorkspaceFileCommand}" HorizontalAlignment="Left"/>
+      <TextBlock Text="{Binding FileError}" Foreground="OrangeRed" TextWrapping="Wrap" FontSize="12"
+                 IsVisible="{Binding FileError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      <TextBlock
+          Text="Checked files are read at session start and injected verbatim into the system prompt (global first, then workspace). Missing or unreadable files are skipped with a note; nothing is loaded unless configured here."
+          Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
+      <Separator Margin="0,4,0,0"/>
+      <TextBlock Text="Skill directories" FontWeight="Bold" Margin="0,4,0,0"/>
+      <TextBlock Text="Global (scanned for every workspace)" Opacity="0.8" FontSize="12"/>
+      <ItemsControl x:Name="GlobalSkillDirectoriesList" ItemsSource="{Binding GlobalSkillDirectories}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <CheckBox IsChecked="{Binding Enabled}"/>
+              <TextBlock Text="{Binding Path}" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" MaxWidth="330"
+                         ToolTip.Tip="{Binding Path}"/>
+              <Button Content="✕" Command="{Binding $parent[ItemsControl].DataContext.RemoveGlobalSkillDirectoryCommand}"
+                      CommandParameter="{Binding}" Padding="2,0"/>
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <Button x:Name="PickGlobalSkillDirectoryButton" Content="Add directory…"
+              Command="{Binding PickGlobalSkillDirectoryCommand}" HorizontalAlignment="Left"/>
+      <TextBlock Text="Workspace (scanned for the chosen workspace only)" Opacity="0.8" FontSize="12"/>
+      <ItemsControl x:Name="WorkspaceSkillDirectoriesList" ItemsSource="{Binding WorkspaceSkillDirectories}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <CheckBox IsChecked="{Binding Enabled}"/>
+              <TextBlock Text="{Binding Path}" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" MaxWidth="330"
+                         ToolTip.Tip="{Binding Path}"/>
+              <Button Content="✕" Command="{Binding $parent[ItemsControl].DataContext.RemoveWorkspaceSkillDirectoryCommand}"
+                      CommandParameter="{Binding}" Padding="2,0"/>
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <Button x:Name="PickWorkspaceSkillDirectoryButton" Content="Add directory…"
+              Command="{Binding PickWorkspaceSkillDirectoryCommand}" HorizontalAlignment="Left"/>
+      <TextBlock
+          Text="Checked directories are scanned at session start for file skills (agentskills.io SKILL.md folders); a workspace directory equal to a global one is scanned once."
+          Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
+
+      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
+        <Button Content="Cancel" Click="OnCancel"/>
+        <Button Content="Open" Command="{Binding OpenCommand}"/>
+      </StackPanel>
     </StackPanel>
-
-    <TextBlock Text="The agent stays on this provider until its tab is closed."
-               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
-
-    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
-      <Button Content="Cancel" Click="OnCancel"/>
-      <Button Content="Open" Command="{Binding OpenCommand}"/>
-    </StackPanel>
-  </StackPanel>
+  </ScrollViewer>
 </Window>

@@ -368,7 +368,7 @@ internal sealed partial class MainViewModel : ObservableObject
     return options;
   }
 
-  /// <summary>Loads the global session-file rows for the settings modal prefill (E).
+  /// <summary>Loads the global session-file rows for the launch dialog's prefill (E).
   ///     Unset preference renders as an empty list, never an error.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetGlobalSessionFilesAsync()
   {
@@ -382,22 +382,23 @@ internal sealed partial class MainViewModel : ObservableObject
     return parsed.IsSuccess ? parsed.Value : [];
   }
 
-  /// <summary>Loads the selected tab's workspace session-file rows for the prefill.
-  ///     No selected tab means an empty workspace scope.</summary>
-  public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSessionFilesAsync()
+  /// <summary>Loads the workspace session-file rows for the launch dialog's prefill.
+  ///     The launch dialog edits the workspace it is ABOUT to open, so the prefill
+  ///     comes from the caller's chosen root — null root means an empty scope.</summary>
+  public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSessionFilesAsync(string? workspaceRoot = null)
   {
-    if (_preferences is null || SelectedTab is not { } tab)
+    if (_preferences is null || workspaceRoot is null)
     {
       return [];
     }
 
     string? stored = await _preferences.GetAsync(
-        SessionFilePreferences.WorkspaceKey(tab.Container.WorkspaceRoot));
+        SessionFilePreferences.WorkspaceKey(Path.GetFullPath(workspaceRoot)));
     Result<IReadOnlyList<SessionFileEntry>> parsedWs = SessionFilePreferences.Parse(stored);
     return parsedWs.IsSuccess ? parsedWs.Value : [];
   }
 
-  /// <summary>Loads the global skill-directory rows for the settings modal prefill.
+  /// <summary>Loads the global skill-directory rows for the launch dialog's prefill.
   ///     Unset preference renders as an empty list, never an error.</summary>
   public async Task<IReadOnlyList<SessionFileEntry>> GetGlobalSkillDirectoriesAsync()
   {
@@ -411,6 +412,21 @@ internal sealed partial class MainViewModel : ObservableObject
     return parsed.IsSuccess ? parsed.Value : [];
   }
 
+  /// <summary>Loads the workspace skill-directory rows for the launch dialog's
+  ///     prefill. Null root means an empty scope.</summary>
+  public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSkillDirectoriesAsync(string? workspaceRoot = null)
+  {
+    if (_preferences is null || workspaceRoot is null)
+    {
+      return [];
+    }
+
+    string? stored = await _preferences.GetAsync(
+        SkillDirectoryPreferences.WorkspaceKey(Path.GetFullPath(workspaceRoot)));
+    Result<IReadOnlyList<SessionFileEntry>> parsedWs = SkillDirectoryPreferences.Parse(stored);
+    return parsedWs.IsSuccess ? parsedWs.Value : [];
+  }
+
   /// <summary>Loads the skill-registry default target for the settings prefill.
   ///     The raw stored value prefills; strict parsing happens at settings load.</summary>
   public async Task<string> GetSkillRegistryDefaultTargetAsync()
@@ -422,21 +438,6 @@ internal sealed partial class MainViewModel : ObservableObject
 
     string? stored = await _preferences.GetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget);
     return stored ?? string.Empty;
-  }
-
-  /// <summary>Loads the selected tab's workspace skill-directory rows for the prefill.
-  ///     No selected tab means an empty workspace scope.</summary>
-  public async Task<IReadOnlyList<SessionFileEntry>> GetWorkspaceSkillDirectoriesAsync()
-  {
-    if (_preferences is null || SelectedTab is not { } tab)
-    {
-      return [];
-    }
-
-    string? stored = await _preferences.GetAsync(
-        SkillDirectoryPreferences.WorkspaceKey(tab.Container.WorkspaceRoot));
-    Result<IReadOnlyList<SessionFileEntry>> parsedWs = SkillDirectoryPreferences.Parse(stored);
-    return parsedWs.IsSuccess ? parsedWs.Value : [];
   }
 
   /// <summary>The currently-selected compaction model row for the modal's prefill.</summary>
@@ -601,40 +602,6 @@ internal sealed partial class MainViewModel : ObservableObject
       _ = update.CompactionModelId is null
           ? _preferences?.DeleteAsync(compactionKey)
           : _preferences?.SetAsync(compactionKey, update.CompactionModelId);
-    }
-
-    // Session-start files (E): serialize exactly what the dialog showed, per scope.
-    if (update.GlobalFiles is { } globalFiles)
-    {
-      _ = globalFiles.Count == 0
-          ? _preferences?.DeleteAsync(SessionFilePreferences.GlobalKey)
-          : _preferences?.SetAsync(SessionFilePreferences.GlobalKey, SessionFilePreferences.Serialize(globalFiles));
-    }
-
-    if (update.WorkspaceRoot is { } workspaceRoot && update.WorkspaceFiles is { } workspaceFiles)
-    {
-      string wsKey = SessionFilePreferences.WorkspaceKey(workspaceRoot);
-      _ = workspaceFiles.Count == 0
-          ? _preferences?.DeleteAsync(wsKey)
-          : _preferences?.SetAsync(wsKey, SessionFilePreferences.Serialize(workspaceFiles));
-    }
-
-    // Skill directories (skill-routing): serialize exactly what the dialog showed,
-    // per scope - the same DeleteAsync-on-empty / SetAsync-otherwise contract.
-    if (update.GlobalSkillDirectories is { } globalSkillDirectories)
-    {
-      _ = globalSkillDirectories.Count == 0
-          ? _preferences?.DeleteAsync(SkillDirectoryPreferences.GlobalKey)
-          : _preferences?.SetAsync(SkillDirectoryPreferences.GlobalKey,
-                SkillDirectoryPreferences.Serialize(globalSkillDirectories));
-    }
-
-    if (update.WorkspaceRoot is { } skillWorkspaceRoot && update.WorkspaceSkillDirectories is { } workspaceSkillDirectories)
-    {
-      string skillWsKey = SkillDirectoryPreferences.WorkspaceKey(skillWorkspaceRoot);
-      _ = workspaceSkillDirectories.Count == 0
-          ? _preferences?.DeleteAsync(skillWsKey)
-          : _preferences?.SetAsync(skillWsKey, SkillDirectoryPreferences.Serialize(workspaceSkillDirectories));
     }
 
     // Skill-registry default target (plan #29 T12): absent text deletes the key
@@ -832,6 +799,62 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       IsOpeningAgent = false;
     }
+  }
+
+  /// <summary>Applies the launch dialog's file configuration (E moved out of
+  ///     Settings): persists the confirmed session-file and skill-directory lists
+  ///     to the SAME preference keys the session factory reads at container build,
+  ///     so the NEXT open of any workspace carries them. The lists carry FULL
+  ///     state — an empty list deletes its key (nothing configured), a non-empty
+  ///     one serializes verbatim. Best effort, the same named decision as every
+  ///     other preference write. Call BEFORE OpenAgentAsync so the new session's
+  ///     container build reads the just-saved lists.</summary>
+  public async Task ApplyLaunchFilesAsync(NewAgentChoice choice)
+  {
+    ArgumentNullException.ThrowIfNull(choice);
+    if (_preferences is null)
+    {
+      return; // test seam: nothing is remembered
+    }
+
+    await PersistFileListAsync(SessionFilePreferences.GlobalKey, choice.GlobalFiles,
+        SessionFilePreferences.Serialize);
+    await PersistFileListAsync(
+        SessionFilePreferences.WorkspaceKey(Path.GetFullPath(choice.WorkspaceRoot)),
+        choice.WorkspaceFiles, SessionFilePreferences.Serialize);
+    await PersistFileListAsync(SkillDirectoryPreferences.GlobalKey, choice.GlobalSkillDirectories,
+        SkillDirectoryPreferences.Serialize);
+    await PersistFileListAsync(
+        SkillDirectoryPreferences.WorkspaceKey(Path.GetFullPath(choice.WorkspaceRoot)),
+        choice.WorkspaceSkillDirectories, SkillDirectoryPreferences.Serialize);
+  }
+
+  /// <summary>Writes one file/directory list preference: an empty list deletes the
+  ///     key (nothing configured), a non-empty one serializes verbatim. Best
+  ///     effort — a failed write logs to stderr and never fails the launch
+  ///     (named decision, CA1031).</summary>
+  private async Task PersistFileListAsync(string preferenceKey,
+      IReadOnlyList<SessionFileEntry> entries, Func<IReadOnlyList<SessionFileEntry>, string> serialize)
+  {
+    IAppPreferenceStore preferences = _preferences
+        ?? throw new InvalidOperationException("PersistFileListAsync requires a preference store.");
+    // Named decision (CA1031): preference persistence must not take the launch down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      bool landed = entries.Count == 0
+          ? await preferences.DeleteAsync(preferenceKey)
+          : await preferences.SetAsync(preferenceKey, serialize(entries));
+      if (!landed)
+      {
+        await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}'");
+      }
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}': {ex.Message}");
+    }
+#pragma warning restore CA1031
   }
 
   /// <summary>Resumes a persisted root session by id: its transcript replays into the

@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -29,23 +28,12 @@ internal sealed record CompactionModelOption(string? ModelId, string Display)
   internal static readonly CompactionModelOption Automatic = new(null, "Automatic (cheapest capable)");
 }
 
-/// <summary>One editable session-file row in the settings modal: the absolute path
-///     and its checkbox state.</summary>
-internal sealed record SessionFileRow(string Path, bool Enabled)
-{
-  public static implicit operator SessionFileEntry(SessionFileRow row) => new(row.Path, row.Enabled);
-}
-
 internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle CommitStyle,
     string? CompactionModelId = null, string? CompactionWorkspaceKey = null,
-    IReadOnlyList<SessionFileEntry>? GlobalFiles = null, IReadOnlyList<SessionFileEntry>? WorkspaceFiles = null,
-    string? WorkspaceRoot = null,
     string? MaxConcurrentAgentsText = null, string? DefaultModelText = null, bool RemoteHost = false,
     string? WatchdogTickText = null, string? WatchdogIdleText = null, string? WatchdogWrapUpText = null,
     string? OpenRouterBaseUrlText = null,
     bool ComputerUse = false,
-    IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories = null,
-    IReadOnlyList<SessionFileEntry>? WorkspaceSkillDirectories = null,
     string? SkillRegistryDefaultTarget = null);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
@@ -164,110 +152,17 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(KeyPasswordChar))]
   public partial bool KeysVisible { get; set; }
 
-  /// <summary>The global session-file rows: what loads (when checked) for every
-  ///     workspace. Editable in place - checkbox toggles, row remove.</summary>
-  public ObservableCollection<SessionFileRow> GlobalFiles { get; } = [];
-
-  /// <summary>The workspace the settings dialog is editing for: null when no
-  ///     workspace is open - then the workspace scope is INERT (no rows, no add,
-  ///     nothing persisted under a blank key).</summary>
+  /// <summary>Session files and skill directories moved to the Open Workspace
+  ///     dialog (the launch surface): the settings modal no longer edits them,
+  ///     so the workspace scope (and its inert-without-workspace state) is gone
+  ///     with them.</summary>
   public string? WorkspaceRoot { get; }
 
-  /// <summary>Whether a workspace is open; drives the workspace section's visibility.</summary>
+  /// <summary>Whether a workspace is open; kept for the compaction model's
+  ///     per-workspace capture (the dialog opened from a tab edits that
+  ///     workspace's summarizer).</summary>
   public bool HasWorkspace => WorkspaceRoot is not null;
 
-  /// <summary>The workspace-scope session-file rows: what loads for THIS workspace.</summary>
-  public ObservableCollection<SessionFileRow> WorkspaceFiles { get; } = [];
-
-  /// <summary>The global skill-directory rows: what the skill engine scans for every
-  ///     workspace. Editable in place - checkbox toggles, row remove.</summary>
-  public ObservableCollection<SessionFileRow> GlobalSkillDirectories { get; } = [];
-
-  /// <summary>The workspace-scope skill-directory rows: what the skill engine scans
-  ///     for THIS workspace (a directory equal to a global one is skipped at the
-  ///     factory's resolution site).</summary>
-  public ObservableCollection<SessionFileRow> WorkspaceSkillDirectories { get; } = [];
-
-  /// <summary>Entry field for a new global file path; Add validates it.</summary>
-  [ObservableProperty]
-  public partial string NewGlobalFile { get; set; } = string.Empty;
-
-  /// <summary>Entry field for a new workspace file path; Add validates it.</summary>
-  [ObservableProperty]
-  public partial string NewWorkspaceFile { get; set; } = string.Empty;
-
-  /// <summary>Entry field for a new global skill-directory path; Add validates it.</summary>
-  [ObservableProperty]
-  public partial string NewGlobalSkillDirectory { get; set; } = string.Empty;
-
-  /// <summary>Entry field for a new workspace skill-directory path; Add validates it.</summary>
-  [ObservableProperty]
-  public partial string NewWorkspaceSkillDirectory { get; set; } = string.Empty;
-
-  /// <summary>Adds a validated global row. A relative path is a named, shown error -
-  ///     never a silent coercion (strict boundaries).</summary>
-  [RelayCommand]
-  private void AddGlobalFile()
-  {
-    if (TryAddFile(NewGlobalFile, GlobalFiles))
-    {
-      NewGlobalFile = string.Empty;
-    }
-  }
-
-  /// <summary>Adds a validated workspace-scope row.</summary>
-  [RelayCommand]
-  private void AddWorkspaceFile()
-  {
-    if (!HasWorkspace)
-    {
-      FileError = null;
-      InfoMessage = "Open a workspace to configure its session files.";
-      return;
-    }
-
-    if (TryAddFile(NewWorkspaceFile, WorkspaceFiles))
-    {
-      NewWorkspaceFile = string.Empty;
-    }
-  }
-
-  [RelayCommand]
-  private void RemoveGlobalFile(SessionFileRow row) => _ = GlobalFiles.Remove(row);
-  [RelayCommand]
-  private void RemoveWorkspaceFile(SessionFileRow row) => _ = WorkspaceFiles.Remove(row);
-
-  /// <summary>Adds a validated global skill-directory row.</summary>
-  [RelayCommand]
-  private void AddGlobalSkillDirectory()
-  {
-    if (TryAddDirectory(NewGlobalSkillDirectory, GlobalSkillDirectories))
-    {
-      NewGlobalSkillDirectory = string.Empty;
-    }
-  }
-
-  /// <summary>Adds a validated workspace-scope skill-directory row.</summary>
-  [RelayCommand]
-  private void AddWorkspaceSkillDirectory()
-  {
-    if (!HasWorkspace)
-    {
-      FileError = null;
-      InfoMessage = "Open a workspace to configure its skill directories.";
-      return;
-    }
-
-    if (TryAddDirectory(NewWorkspaceSkillDirectory, WorkspaceSkillDirectories))
-    {
-      NewWorkspaceSkillDirectory = string.Empty;
-    }
-  }
-
-  [RelayCommand]
-  private void RemoveGlobalSkillDirectory(SessionFileRow row) => _ = GlobalSkillDirectories.Remove(row);
-  [RelayCommand]
-  private void RemoveWorkspaceSkillDirectory(SessionFileRow row) => _ = WorkspaceSkillDirectories.Remove(row);
   /// <summary>The mask the settings window applies to both key fields; null-mask char
   ///     when revealed.</summary>
   public char KeyPasswordChar => KeysVisible ? default : '•';
@@ -277,7 +172,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
   /// <summary>The first validation problem across all fields, or null when clean.</summary>
   public string? ValidationError =>
-      FileError ?? Validate(OpenRouterKey)
+      Validate(OpenRouterKey)
       ?? ValidateMaxConcurrent(MaxConcurrentAgentsText)
       ?? ValidateDuration(WatchdogTickText, "Tick interval")
       ?? ValidateDuration(WatchdogIdleText, "Idle threshold")
@@ -287,15 +182,11 @@ internal sealed partial class SettingsViewModel : ObservableObject
   public SettingsViewModel(string? openRouterKey, CommitStyle commitStyle = CommitStyle.Conventional,
       IReadOnlyList<CompactionModelOption>? compactionModels = null,
       CompactionModelOption? selectedCompactionModel = null,
-      IReadOnlyList<SessionFileEntry>? globalFiles = null,
-      IReadOnlyList<SessionFileEntry>? workspaceFiles = null,
       string? workspaceRoot = null,
       string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
       string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
       string? openRouterBaseUrlText = null,
       bool computerUse = false,
-      IReadOnlyList<SessionFileEntry>? globalSkillDirectories = null,
-      IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null,
       string? skillRegistryDefaultTarget = null)
   {
     // The command exists before the observable properties: setting those raises
@@ -310,13 +201,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
             SaveRequested?.Invoke(this, new SettingsUpdate(
                 Normalize(OpenRouterKey), SelectedCommitStyle.Style,
                 SelectedCompactionModel.ModelId, null,
-                GlobalFiles: [.. GlobalFiles], WorkspaceFiles: HasWorkspace ? [.. WorkspaceFiles] : null,
-                WorkspaceRoot: WorkspaceRoot,
                 Normalize(MaxConcurrentAgentsText), Normalize(DefaultModelText), RemoteHost,
                 Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
                 Normalize(OpenRouterBaseUrlText), ComputerUse,
-                GlobalSkillDirectories: [.. GlobalSkillDirectories],
-                WorkspaceSkillDirectories: HasWorkspace ? [.. WorkspaceSkillDirectories] : null,
                 SkillRegistryDefaultTarget: SkillRegistryTarget));
           }
         },
@@ -333,26 +220,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
     WatchdogWrapUpText = watchdogWrapUpText ?? string.Empty;
     OpenRouterBaseUrlText = openRouterBaseUrlText ?? string.Empty;
     SelectedCompactionModel = selectedCompactionModel ?? CompactionModelOption.Automatic;
-    foreach (SessionFileEntry entry in globalFiles ?? [])
-    {
-      GlobalFiles.Add(new SessionFileRow(entry.Path, entry.Enabled));
-    }
-
     WorkspaceRoot = workspaceRoot;
-    foreach (SessionFileEntry entry in workspaceRoot is null ? [] : workspaceFiles ?? [])
-    {
-      WorkspaceFiles.Add(new SessionFileRow(entry.Path, entry.Enabled));
-    }
-
-    foreach (SessionFileEntry entry in globalSkillDirectories ?? [])
-    {
-      GlobalSkillDirectories.Add(new SessionFileRow(entry.Path, entry.Enabled));
-    }
-
-    foreach (SessionFileEntry entry in workspaceRoot is null ? [] : workspaceSkillDirectories ?? [])
-    {
-      WorkspaceSkillDirectories.Add(new SessionFileRow(entry.Path, entry.Enabled));
-    }
     SelectedCommitStyle = commitStyle switch
     {
       CommitStyle.Conventional => CommitStyleOption.Conventional,
@@ -378,61 +246,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
   partial void OnWatchdogWrapUpTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnOpenRouterBaseUrlTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
-
-  /// <summary>Validates one entered path and appends a checked row. A relative path
-  ///     fails into <see cref="FileError"/> - shown where every other validation
-  ///     error shows - and nothing is added.</summary>
-  private bool TryAddFile(string entered, ObservableCollection<SessionFileRow> rows)
-  {
-    string trimmed = entered.Trim();
-    if (trimmed.Length == 0)
-    {
-      return false;
-    }
-
-    if (!Path.IsPathRooted(trimmed))
-    {
-      FileError = $"Session file paths must be absolute: '{trimmed}' is relative.";
-      return false;
-    }
-
-    FileError = null;
-    rows.Add(new SessionFileRow(trimmed, Enabled: true));
-    return true;
-  }
-
-  /// <summary>Validates one entered directory path and appends a checked row. The
-  ///     same absolute-path rule the file editor applies (the skill engine rejects
-  ///     anything else); a relative path fails into <see cref="FileError"/> - shown
-  ///     where every other validation error shows - and nothing is added.</summary>
-  private bool TryAddDirectory(string entered, ObservableCollection<SessionFileRow> rows)
-  {
-    string trimmed = entered.Trim();
-    if (trimmed.Length == 0)
-    {
-      return false;
-    }
-
-    if (!Path.IsPathRooted(trimmed))
-    {
-      FileError = $"Directory paths must be absolute: '{trimmed}' is relative.";
-      return false;
-    }
-
-    FileError = null;
-    rows.Add(new SessionFileRow(trimmed, Enabled: true));
-    return true;
-  }
-
-  /// <summary>Non-blocking status for the file section (e.g. the workspace scope
-  ///     is inert because no workspace is open). Never blocks saving.</summary>
-  [ObservableProperty]
-  public partial string? InfoMessage { get; set; }
-
-  /// <summary>The named problem with the last file-add attempt, or null. Rendered
-  ///     beside the file lists so the user sees why an add was refused.</summary>
-  [ObservableProperty]
-  public partial string? FileError { get; set; }
 
   /// <summary>Returns the validation problem with <paramref name="key"/>, or null when
   ///     it is a legal entry: blank (cleared), or a trimmed non-empty value with no

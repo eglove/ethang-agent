@@ -2,7 +2,6 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using eThangAgent.Composition;
 using eThangAgent.Desktop.Views;
 using eThangAgent.ToolDomain;
 
@@ -10,8 +9,9 @@ using eThangAgent.ToolDomain;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Settings chrome: the flat settings list is a categorized TabControl
-///     (API Keys / Files / Models / Agents / Advanced / Git) with the validation error
-///     and Save/Cancel footer shared outside the tabs.</summary>
+///     (API Keys / Skills / Models / Agents / Advanced / Git) with the validation
+///     error and Save/Cancel footer shared outside the tabs. Session files and
+///     skill directories live in the Open Workspace dialog, not here.</summary>
 public class SettingsWindowTabsTests
 {
   [AvaloniaFact]
@@ -23,7 +23,7 @@ public class SettingsWindowTabsTests
     Assert.Equal(6, tabs.Items.Count);
     Assert.Collection(tabs.Items,
         item => Assert.Equal("API Keys", Assert.IsType<TabItem>(item).Header),
-        item => Assert.Equal("Files", Assert.IsType<TabItem>(item).Header),
+        item => Assert.Equal("Skills", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Models", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Agents", Assert.IsType<TabItem>(item).Header),
         item => Assert.Equal("Advanced", Assert.IsType<TabItem>(item).Header),
@@ -86,30 +86,15 @@ public class SettingsWindowTabsTests
 
 
   [AvaloniaFact]
-  public void Files_Tab_Shows_The_Open_Workspace_Path_And_Global_Entry()
-  {
-    SettingsWindow window = new(
-        null, CommitStyle.Conventional,
-        globalFiles: [new SessionFileEntry("C:\\g\\a.md", true)],
-        workspaceRoot: @"C:\proj\demo");
-    window.Show();
-    TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
-    tabs.SelectedIndex = 1;
-    Dispatcher.UIThread.RunJobs();
-    Avalonia.Controls.TextBlock root = window.GetControl<Avalonia.Controls.TextBlock>("WorkspaceRootText");
-    Assert.Contains("C:\\proj\\demo", root.Text, StringComparison.Ordinal);
-  }
-
-  [AvaloniaFact]
-  public void Files_Tab_Without_Workspace_Hides_The_Workspace_Section()
+  public void Skills_Tab_Carries_The_Registry_Target_Row()
   {
     SettingsWindow window = new(null, CommitStyle.Conventional);
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
     tabs.SelectedIndex = 1;
     Dispatcher.UIThread.RunJobs();
-    Avalonia.Controls.TextBlock root = window.GetControl<Avalonia.Controls.TextBlock>("WorkspaceRootText");
-    Assert.False(root.IsVisible);
+    ComboBox target = window.GetControl<ComboBox>("SkillRegistryTargetBox");
+    Assert.NotNull(target);
   }
 
   private static bool IsDescendantOf(Avalonia.Visual node, Avalonia.Visual ancestor)

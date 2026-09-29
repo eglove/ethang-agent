@@ -69,18 +69,26 @@ internal partial class MainWindow : Window
     }
   }
 
-  /// <summary>Shows the new-agent dialog (provider dropdown + workspace picker) and
-  ///     opens (or selects) the agent tab. A cancelled dialog is a no-op. Failures
-  ///     surface as a dialog.</summary>
+  /// <summary>Shows the new-agent dialog (provider dropdown + workspace picker +
+  ///     the session-file / skill-directory lists configured at launch) and opens
+  ///     (or selects) the agent tab. The confirmed file lists persist BEFORE the
+  ///     open, so the new session's container build reads them. A cancelled dialog
+  ///     is a no-op. Failures surface as a dialog.</summary>
   private async Task ShowNewAgentDialogAsync()
   {
-    NewAgentWindow dialog = new(_vm!.AvailableProviders, _vm.PreferredProviderId);
+    NewAgentWindow dialog = new(_vm!.AvailableProviders, _vm.PreferredProviderId,
+        await _vm.GetGlobalSessionFilesAsync(),
+        await _vm.GetGlobalSkillDirectoriesAsync(),
+        loadWorkspaceRows: async root => (
+            await _vm.GetWorkspaceSessionFilesAsync(root),
+            await _vm.GetWorkspaceSkillDirectoriesAsync(root)));
     NewAgentChoice? choice = await dialog.ShowDialog<NewAgentChoice?>(this);
     if (choice is null)
     {
       return; // user cancelled — no-op
     }
 
+    await _vm.ApplyLaunchFilesAsync(choice);
     Result<AgentTabViewModel> result = await _vm.OpenAgentAsync(choice.WorkspaceRoot, choice.ProviderId);
     if (!result.IsSuccess)
     {
@@ -96,15 +104,11 @@ internal partial class MainWindow : Window
     SettingsWindow dialog = new(_vm!.ConfiguredOpenRouterKey, _vm.ConfiguredCommitStyle,
         await _vm.GetCompactionOptionsAsync(),
         await _vm.GetSelectedCompactionModelAsync(),
-        await _vm.GetGlobalSessionFilesAsync(),
-        await _vm.GetWorkspaceSessionFilesAsync(),
         _vm.SelectedTab?.Container.WorkspaceRoot,
         _vm.ConfiguredMaxConcurrentAgents, _vm.ConfiguredDefaultModel, _vm.ConfiguredRemoteHost,
         _vm.ConfiguredWatchdogTick, _vm.ConfiguredWatchdogIdle, _vm.ConfiguredWatchdogWrapUp,
         _vm.ConfiguredOpenRouterBaseUrl,
         _vm.ConfiguredComputerUse,
-        await _vm.GetGlobalSkillDirectoriesAsync(),
-        await _vm.GetWorkspaceSkillDirectoriesAsync(),
         await _vm.GetSkillRegistryDefaultTargetAsync());
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
