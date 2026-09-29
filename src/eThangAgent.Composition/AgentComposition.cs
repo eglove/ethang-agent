@@ -180,7 +180,7 @@ public static class AgentComposition
             sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<ISelfDatabaseAccess, SqliteSelfDatabaseAccess>()
         .AddSingleton<ISqliteFileAccess, SqliteFileAccess>()
-        .AddSingleton<IContextWindowSource, SessionContextWindowSource>()
+        .AddSingleton<IContextWindowSource, CatalogContextWindowSource>()
         .AddSingleton(sp =>
         {
           // Summarizer model resolved per compaction (never pinned at startup).
@@ -291,9 +291,11 @@ public static class AgentComposition
       wired = wired.AddSingleton<IModelSelector>(sp => new IntelligentModelSelector(
           sp.GetRequiredService<IModelProvider>(),
           sp.GetRequiredService<IModelCatalog>(),
+          // Bootstrap-only selector pseudo-model; its own calls are tiny and fixed.
+          // The window is unknown until the catalog resolves it — the selector's own
+          // calls never account against it.
           ModelConfig.Create(Providers.SelectorModelId(providerName), null, 2048, 0f,
-              // Bootstrap-only selector pseudo-model; its own calls are tiny and fixed.
-              Providers.RoutingContextWindow,
+              null,
               acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.SelectorModelId(providerName))).Value!));
     }
 

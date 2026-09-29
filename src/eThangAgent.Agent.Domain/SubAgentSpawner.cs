@@ -117,8 +117,8 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
         ? ChildLegacyWindowFallback
         : await _windowSource.WindowForAsync(child.ModelUsed, null, ct).ConfigureAwait(false)
           ?? throw new InvalidOperationException(
-              $"Child model '{child.ModelUsed}' has no catalog context window; the child run cannot proceed. "
-              + "This is a composition wiring fault: every spawnable model must have a known window.");
+              $"Child model '{child.ModelUsed}' has no catalog context window (catalog unavailable or model unknown); the child run cannot proceed. "
+              + "This is a composition wiring fault: every spawnable model must have a catalog-known window.");
     ModelConfig config = ModelPreferencesOverlay.Apply(ModelConfig.Create(
         child.ModelUsed, null, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort,
         acceptsImageInput: await AcceptsImagesAsync(child.ModelUsed, ct).ConfigureAwait(false)).Value!,

@@ -264,11 +264,13 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   }
 
   /// <summary>Resolves the session's bootstrap model BEFORE any container is built:
-  ///     the provider's static fallback id over the curated routing window.</summary>
+  ///     the provider's static fallback id. The context window is unknown until the
+  ///     catalog resolves it (null); the resolver re-resolves with the real window on
+  ///     every turn, so the bootstrap config never serves a turn itself.</summary>
   private static ModelConfig ResolveBootstrapModel(string providerName) =>
       ModelConfig.Create(
           Providers.FallbackModelId(providerName), null, 32 * 1024, 0.7f,
-          Providers.RoutingContextWindow,
+          null,
           acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.FallbackModelId(providerName))).Value!;
 
   /// <summary>Reads the two stored session-file lists (global, workspace) for one

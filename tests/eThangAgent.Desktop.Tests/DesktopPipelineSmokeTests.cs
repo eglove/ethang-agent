@@ -25,6 +25,9 @@ public class DesktopPipelineSmokeTests
     // The canned response is split across two SSE output_text deltas by the mock,
     // proving the client assembled chunks and the bridge delivered them in order.
     _ = server.Returns(/*lang=json,strict*/ """{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello from the mock"}]}],"status":"completed"}""");
+    // Catalog the pinned model: the catalog is the only window source, and a pinned
+    // model with no catalog row fails the turn loudly (strict correctness).
+    _ = server.ReturnsCatalog(/*lang=json,strict*/ """{ "data": [ { "id": "mock/model", "pricing": { "prompt": "0.000001", "completion": "0.000002" }, "context_length": 8192, "architecture": { "modality": "text->text" } } ] }""");
 
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", server.BaseUrl),

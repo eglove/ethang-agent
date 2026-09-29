@@ -91,12 +91,18 @@ public class OpenRouterCatalogVisionFlagTests
   }
 
   [Fact]
-  public async Task RoutingPseudoModel_ResolvableThroughGetAsync_AcceptsImageInput()
+  public async Task RoutingPseudoModel_ImageCapability_ResolvesFromFetchedRow()
   {
-    // openrouter/auto routes server-side across upstreams and never appears in the
-    // fetched catalog: GetAsync must still serve it as a consultable entry, or a
-    // resolver resolving the fallback id cannot see its image capability.
-    FakeHttpMessageHandler handler = new(req => Task.FromResult(Handler(req)));
+    // The catalog is the only capability/window source: no curated auto entry. The
+    // LIVE API carries openrouter/auto as a fetched row with image in
+    // input_modalities — vision resolves from that fetch like any other model.
+    const string AutoModelsJson =
+        /*lang=json,strict*/
+        """{"data":[{"id":"openrouter/auto","context_length":2000000,"pricing":{"prompt":"-1","completion":"-1"},"architecture":{"input_modalities":["text","image"]},"supported_parameters":["tools"],"top_provider":{"context_length":null,"max_completion_tokens":null}}]}""";
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(
+        req.RequestUri!.AbsolutePath == "/api/v1/models"
+            ? JsonResponse(HttpStatusCode.OK, AutoModelsJson)
+            : new HttpResponseMessage(HttpStatusCode.NotFound)));
     using HttpClient http = new(handler);
     OpenRouterCatalogClient client = new(http, Config);
 
@@ -105,5 +111,6 @@ public class OpenRouterCatalogVisionFlagTests
     Assert.True(result.IsSuccess);
     ModelProviderEntry auto = Assert.Single(result.Value, e => e.ModelId == "openrouter/auto");
     Assert.True(auto.SupportsVision);
+    Assert.Equal(2_000_000, auto.ContextLength);
   }
 }

@@ -54,4 +54,14 @@ public class CatalogContextWindowSourceTests
     CatalogContextWindowSource source = new(new FailingCatalog());
     Assert.Null(await source.WindowForAsync("m", null, TestContext.Current.CancellationToken));
   }
+
+  [Fact]
+  public async Task WindowFor_RoutingPseudoModel_ResolvesFromCatalogRow()
+  {
+    // The catalog is the ONLY window source: no curated constants. The live API
+    // carries openrouter/auto with context_length 2000000; it resolves like any row.
+    CatalogContextWindowSource source = new(new FakeCatalog([Entry("openrouter/auto", "OpenRouter", 2_000_000)]));
+
+    Assert.Equal(2_000_000, await source.WindowForAsync("openrouter/auto", null, ct: TestContext.Current.CancellationToken).ConfigureAwait(true));
+  }
 }

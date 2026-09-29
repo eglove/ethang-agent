@@ -112,8 +112,8 @@ public sealed class ProviderFailoverResolver(
         ? ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature, resolved,
             acceptsImageInput: await AcceptsImagesAsync(_fallbackModelId, null, ct).ConfigureAwait(false)).Value!
         : throw new InvalidOperationException(
-            $"Fallback model '{_fallbackModelId}' has no catalog context window; the resolver cannot serve any turn. "
-            + "This is a composition wiring fault: the fallback must be a model the catalog (or a curated constant) knows.");
+            $"Fallback model '{_fallbackModelId}' has no catalog context window (catalog unavailable or model unknown); the resolver cannot serve any turn. "
+            + "This is a composition wiring fault: the fallback must be a model the catalog knows.");
   }
 
   /// <summary>The model's vision capability from the session catalog: the first entry

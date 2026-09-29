@@ -9,11 +9,10 @@ public class CompactionWiringTests
       new(model, provider, promptPrice, 0m, window, 4096, tools, false, null, null, null, null, null, "");
 
   [Fact]
-  public void Providers_ExposeRoutingWindowConstant()
-  {
-    Assert.Equal("openrouter/auto", Providers.RoutingModelId);
-    Assert.True(Providers.RoutingContextWindow > 0);
-  }
+  public void Providers_ExposeRoutingModelId_WithoutCuratedWindow() =>
+      // The routing pseudo-model id survives (fallback + bootstrap vision fact), but no
+      // context-window constant exists: the catalog is the only window source.
+      Assert.Equal("openrouter/auto", Providers.RoutingModelId);
 
   [Fact]
   public async Task CompactionModelResolver_UnsetPreference_PrefersCheapestCapableEntry()
