@@ -18,7 +18,10 @@ public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore lear
       "directory: `[skill <name> | file | v<version> | <origin>]` — followed by the skill " +
       "body byte-for-byte. Learned-skill views record a usage row best-effort; built-in " +
       "and file views record nothing. If recording fails, a final line `[warning] usage " +
-      "not recorded` is appended and the view still succeeds. Errors begin with " +
+      "not recorded` is appended and the view still succeeds. A successful view sets " +
+      "BypassesArchivePolicy: the loop's store-and-read-back policy never excerpts a " +
+      "skill body — skill bodies enter the conversation byte-for-byte at any size. " +
+      "Errors begin with " +
       "`Error [Code]:` — including `Error [SkillNotFound]:` when no skill has that name.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
@@ -51,7 +54,7 @@ public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore lear
     if (catalogHit.IsSuccess)
     {
       SkillDefinition skill = catalogHit.Value;
-      return new ToolResult(Annotation(skill) + "\n" + skill.Body, false);
+      return new ToolResult(Annotation(skill) + "\n" + skill.Body, false) { BypassesArchivePolicy = true };
     }
 
     Result<SkillDefinition?> learnedResult = await _learned.GetAsync(name, ct).ConfigureAwait(false);
@@ -77,7 +80,7 @@ public sealed class SkillViewTool(ISkillCatalog catalog, ILearnedSkillStore lear
       content += "\n[warning] usage not recorded";
     }
 
-    return new ToolResult(content, false);
+    return new ToolResult(content, false) { BypassesArchivePolicy = true };
   }
 
   /// <summary>File skills carry their origin directory in the annotation;

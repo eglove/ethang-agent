@@ -262,7 +262,55 @@ public class AgentToolResultArchiveTests
     Assert.True(page.Value.HasMore);
   }
 
+  [Fact]
+  public async Task OversizedSkillViewResult_EntersHistoryVerbatim_NeverArchived()
+  {
+    FakeToolOutputArchive archive = new();
+    // A skill body large enough to trip the 6,000-char threshold on its own.
+    string body = string.Join("\n", Enumerable.Range(1, 300).Select(i => $"line-{i:000} " + new string('x', 40)));
+    string content = "[skill big-skill | builtin | v1]\n" + body;
+    FakeProvider provider = new(
+        Result.Success(new ModelResponse(null, [new ToolCallRequest("call_1", "skill_view", "{}")], FinishReason.ToolCalls)),
+        Result.Success(new ModelResponse("done", [])));
+    Agent agent = new(provider, new Conversation(), DefaultConfig,
+        new ToolRegistry([new FixedTool("skill_view", new ToolResult(content, false) { BypassesArchivePolicy = true })]),
+        ArchiveOptions(archive));
+
+    Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Message toolMessage = agent.Conversation.Messages.Single(m => m.Role is Role.Tool);
+    // The full skill body enters history byte-for-byte: no excerpt, no marker, no archive row.
+    Assert.Equal(content, toolMessage.Content);
+    Assert.DoesNotContain("[tool-output archived:", toolMessage.Content, StringComparison.Ordinal);
+    Assert.Empty(archive.Archived);
+  }
+
+  [Fact]
+  public async Task OversizedSkillViewResult_WithoutBypass_StillArchived()
+  {
+    FakeToolOutputArchive archive = new();
+    string body = string.Join("\n", Enumerable.Range(1, 300).Select(i => $"line-{i:000} " + new string('x', 40)));
+    string content = "[skill big-skill | builtin | v1]\n" + body;
+    FakeProvider provider = new(
+        Result.Success(new ModelResponse(null, [new ToolCallRequest("call_1", "skill_view", "{}")], FinishReason.ToolCalls)),
+        Result.Success(new ModelResponse("done", [])));
+    // No bypass flag: the policy still archives a large result from a tool that
+    // does not claim the exemption.
+    Agent agent = new(provider, new Conversation(), DefaultConfig,
+        new ToolRegistry([new FixedTool("skill_view", new ToolResult(content, false))]),
+        ArchiveOptions(archive));
+
+    Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Message toolMessage = agent.Conversation.Messages.Single(m => m.Role is Role.Tool);
+    Assert.StartsWith("[tool-output archived: arch:", toolMessage.Content, StringComparison.Ordinal);
+    Assert.NotEmpty(archive.Archived);
+  }
+
   private static string ExtractHandle(string excerpt)
+
   {
     string marker = excerpt.Split('\n')[0];
     int start = marker.IndexOf("arch:", StringComparison.Ordinal);

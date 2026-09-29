@@ -7,7 +7,8 @@ namespace eThangAgent.ToolDomain;
 ///     BypassesArchivePolicy marks a result that must never be re-archived by the
 ///     loop's store-and-read-back policy — the tool_output_read tool sets it, because
 ///     a read-back page is already a bounded read of archived content and archiving
-///     it again would create a nested archive. Error results never set it.</summary>
+///     it again would create a nested archive. skill_view sets it too: a skill body
+///     must enter the conversation byte-for-byte at any size. Error results never set it.</summary>
 public sealed record ToolResult(string Content, bool IsError, string? Title = null,
     IReadOnlyList<ToolResultImage>? Images = null)
 {
