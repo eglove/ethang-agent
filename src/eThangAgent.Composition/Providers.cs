@@ -17,11 +17,14 @@ public static class Providers
 
   public static bool IsKnown(string? providerName) => providerName is OpenRouter;
 
-  /// <summary>Human-facing provider name (dropdowns, status bars).</summary>
+  /// <summary>Human-facing provider name (dropdowns, status bars). An id that is no
+  ///     longer known — a persisted row written before its provider was removed — renders
+  ///     as its raw id instead of throwing: this is a display function over historical
+  ///     data, and a list surface must never crash on a row it cannot name.</summary>
   public static string DisplayName(string providerName) => providerName switch
   {
     OpenRouter => "OpenRouter",
-    _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id.")
+    _ => providerName
   };
 
   /// <summary>Fallback model id when selection fails or no selector is wired.</summary>

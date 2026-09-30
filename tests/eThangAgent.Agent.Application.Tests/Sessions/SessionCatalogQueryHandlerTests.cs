@@ -57,6 +57,23 @@ public class SessionCatalogQueryHandlerTests
   }
 
   [Fact]
+  public async Task List_Omits_Rows_Whose_Provider_Is_No_Longer_Resumable()
+  {
+    // A session persisted under a provider this build no longer knows (the retired z.ai)
+    // cannot be resumed, so the catalog must not offer it. The gate is injected at the
+    // composition root; here it stands in for Providers.IsKnown.
+    SessionCatalogQueryHandler handler = new(_store, provider => provider == "openrouter");
+    _ = await _store.SaveAsync(AgentRecord.Root(AgentId.NewId(), At(0), "C:/ws/a", "openrouter"), ct: TestContext.Current.CancellationToken);
+    _ = await _store.SaveAsync(AgentRecord.Root(AgentId.NewId(), At(1), "C:/ws/b", "zai"), ct: TestContext.Current.CancellationToken);
+
+    Result<IReadOnlyList<SessionCatalogEntry>> listed = await handler.ListAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(listed.IsSuccess);
+    SessionCatalogEntry only = Assert.Single(listed.Value);
+    Assert.Equal("openrouter", only.Provider);
+  }
+
+  [Fact]
   public async Task List_Store_Failure_Surfaces_Untouched()
   {
     _store.ListAllFailure = new DomainError("DbDown", "nope");

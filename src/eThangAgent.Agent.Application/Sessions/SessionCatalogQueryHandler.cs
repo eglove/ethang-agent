@@ -19,11 +19,15 @@ public sealed record SessionCatalogEntry(
 /// <summary>Read-side query listing every resumable root session, newest first. Only
 ///     depth-0 records WITH a workspace + provider binding are listed — spawned children
 ///     are not sessions, and rows persisted before workspace binding cannot be resumed
-///     (their workspace is unknown). Deliberately transcript-free: listing loads record
-///     rows only, never conversation content.</summary>
-public sealed class SessionCatalogQueryHandler(IAgentStore store)
+///     (their workspace is unknown). A row bound to a provider this build no longer knows
+///     is likewise not resumable (resume would fail UnknownProvider), so the optional
+///     <c>isResumableProvider</c> gate omits it — wired at the composition root, since
+///     provider identity is a Composition concern the domain must not know. Deliberately
+///     transcript-free: listing loads record rows only, never conversation content.</summary>
+public sealed class SessionCatalogQueryHandler(IAgentStore store, Func<string, bool>? isResumableProvider = null)
 {
   private readonly IAgentStore _store = store ?? throw new ArgumentNullException(nameof(store));
+  private readonly Func<string, bool> _isResumableProvider = isResumableProvider ?? (_ => true);
 
   public async Task<Result<IReadOnlyList<SessionCatalogEntry>>> ListAsync(CancellationToken ct = default)
   {
@@ -37,7 +41,8 @@ public sealed class SessionCatalogQueryHandler(IAgentStore store)
     List<SessionCatalogEntry> entries = [.. records.Value
         .Where(record => record.Depth == 0
             && record.WorkspaceId is not null
-            && record.Provider is not null)
+            && record.Provider is not null
+            && _isResumableProvider(record.Provider))
         .OrderByDescending(record => record.CreatedAt)
         .Select(record => new SessionCatalogEntry(
             record.Id,

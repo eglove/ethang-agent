@@ -100,6 +100,18 @@ public class SessionsViewModelTests
   }
 
   [Fact]
+  public async Task Load_Unknown_Provider_Renders_Raw_Id_Without_Failing()
+  {
+    // A row written before its provider was removed must still render: the display
+    // name falls back to the raw id rather than throwing and blanking the dialog.
+    // (The catalog itself omits such rows; this pins the display function's tolerance.)
+    SessionsViewModel vm = await LoadVmAsync([Entry(AgentId.NewId(), provider: "zai")]);
+
+    Assert.Null(vm.LoadError);
+    Assert.Equal("zai", vm.Rows.Single().ProviderDisplay);
+  }
+
+  [Fact]
   public async Task Load_Failure_Lands_In_LoadError()
   {
     SessionsViewModel vm = new(

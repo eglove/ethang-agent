@@ -68,7 +68,9 @@ internal static class DesktopHost
 
     // The Sessions dialog reads the shared store directly — it must work with zero
     // tabs open, i.e. outside any per-session container.
-    SessionCatalogQueryHandler catalog = new(new SqliteAgentStore(database));
+    // Removed-provider rows (e.g. a session persisted under the retired z.ai provider)
+    // are not resumable, so the catalog omits them rather than listing a dead entry.
+    SessionCatalogQueryHandler catalog = new(new SqliteAgentStore(database), Providers.IsKnown);
 
     return new DesktopBootstrap(
         new AgentSessionFactory(settings, database),
