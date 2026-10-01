@@ -24,12 +24,6 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     IModelCatalog? catalog = null)
     : IAgentRunner
 {
-  /// <summary>Model-facing annotation appended when a child report exceeds the 50 KB storage guideline.</summary>
-  public const string ReportOverflowAnnotation =
-      "[agent] note: report exceeded 50 KB; flagged for artifact-store overflow.";
-
-  /// <summary>Maximum persisted report size before the overflow annotation is appended.</summary>
-  public const int MaxReportBytes = 50 * 1024;
 
   /// <summary>Child completion budget; matches the composition root's current root-agent settings.</summary>
   public const int ChildMaxTokens = 32 * 1024;
@@ -97,7 +91,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   }
 
   /// <summary>Runs the child's conversation loop under its timeout budget and persists the terminal
-  ///     outcome — Completed with the truncated report, or Failed with its reason — plus the child
+  ///     outcome — Completed with the final report, or Failed with its reason — plus the child
   ///     transcript delta. It never saves the initial Running row; that is the spawn command's job.
   ///     A failing terminal write is an infrastructure fault and throws. Resume contract: an
   ///     existing persisted transcript hydrates the conversation and the run receives the
@@ -198,7 +192,6 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
           Heartbeat = _heartbeat,
           Events = _events,
           SessionId = child.Id.ToString(),
-          ToolOutputArchive = services.ToolOutputArchive,
         });
     PublishStarted(child);
 
@@ -295,10 +288,6 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     }
 
     string finalReport = report!;
-    if (Encoding.UTF8.GetByteCount(finalReport) > MaxReportBytes)
-    {
-      finalReport += "\n" + ReportOverflowAnnotation;
-    }
 
     if (agent.ShrankThisTurn)
     {

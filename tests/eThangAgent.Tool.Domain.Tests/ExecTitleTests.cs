@@ -89,7 +89,7 @@ public class ExecTitleTests
   }
 
   private ExecTool CreateTool(FakeExecEngine? engine = null)
-      => new(engine ?? new FakeExecEngine(), _options, new FakeOutputStore(""), NullExecActivitySink.Instance);
+      => new(engine ?? new FakeExecEngine(), _options, NullExecActivitySink.Instance);
 
   private sealed class FakeExecEngine : IExecEngine
   {
@@ -100,18 +100,5 @@ public class ExecTitleTests
 
     public Task<ExecRunResult> ExecuteAsync(ExecProgram program, CancellationToken ct = default)
         => Task.FromResult(ExecRunResult.Completed(Output));
-  }
-
-  private sealed class FakeOutputStore(string path) : IExecOutputStore
-  {
-    private readonly string _path = path;
-
-    public string Written { get; private set; } = "";
-
-    public Task<string> WriteAsync(string content, CancellationToken ct = default)
-    {
-      Written = content;
-      return Task.FromResult(_path);
-    }
   }
 }

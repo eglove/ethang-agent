@@ -233,10 +233,8 @@ public class SubAgentSpawnerTests
         () => spawner.RunAsync(Child(), CancellationToken.None));
   }
 
-  // --- report overflow ---
-
   [Fact]
-  public async Task RunAsync_ReportOver50KB_AnnotationAppendedToPersistedReportAndOutcome()
+  public async Task RunAsync_OversizedReport_PersistedAndReportedInFull()
   {
     string bigReport = new('x', 52_000);
     FakeAgentStore store = new();
@@ -247,25 +245,9 @@ public class SubAgentSpawnerTests
     AgentRunOutcome outcome = await spawner.RunAsync(Child(taskPrompt: "big task"), CancellationToken.None);
 
     Assert.Equal(AgentStatus.Completed, outcome.Status);
-    Assert.StartsWith(bigReport, outcome.Report, StringComparison.Ordinal);
-    Assert.Contains("[agent] note: report exceeded 50 KB", outcome.Report, StringComparison.Ordinal);
+    Assert.Equal(bigReport, outcome.Report);
 
     AgentRecord updated = Assert.Single(store.Updated);
-    Assert.StartsWith(bigReport, updated.FinalReport, StringComparison.Ordinal);
-    Assert.Contains("[agent] note: report exceeded 50 KB", updated.FinalReport, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public async Task RunAsync_ReportUnder50KB_NoAnnotation()
-  {
-    FakeAgentStore store = new();
-    FakeProvider provider = new(
-        Result.Success(new ModelResponse("compact report", [])));
-    SubAgentSpawner spawner = MakeRunner(provider, store);
-
-    AgentRunOutcome outcome = await spawner.RunAsync(Child(), CancellationToken.None);
-
-    Assert.Equal(AgentStatus.Completed, outcome.Status);
-    Assert.DoesNotContain("[agent] note:", outcome.Report, StringComparison.Ordinal);
+    Assert.Equal(bigReport, updated.FinalReport);
   }
 }

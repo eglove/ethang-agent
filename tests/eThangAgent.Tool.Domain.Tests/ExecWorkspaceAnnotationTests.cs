@@ -24,7 +24,7 @@ public class ExecWorkspaceAnnotationTests
     ExecRunResult run = new(ExecRunStatus.Completed, "done", [],
         WorkspaceRoot: "C:\\ws", LaunchDirectory: "C:\\app");
 
-    ToolResult result = ExecResultFormatter.Format(run, Options, null, null, Program("var x = Directory.GetCurrentDirectory();"));
+    ToolResult result = ExecResultFormatter.Format(run, null, Program("var x = Directory.GetCurrentDirectory();"));
 
     Assert.False(result.IsError);
     Assert.Contains("[exec: workspace", result.Content, StringComparison.Ordinal);
@@ -39,7 +39,7 @@ public class ExecWorkspaceAnnotationTests
     ExecRunResult run = new(ExecRunStatus.Completed, "done", [],
         WorkspaceRoot: "C:\\ws", LaunchDirectory: "C:\\app");
 
-    ToolResult result = ExecResultFormatter.Format(run, Options, null, null, Program("return 1;"));
+    ToolResult result = ExecResultFormatter.Format(run, null, Program("return 1;"));
 
     Assert.DoesNotContain("[exec: workspace", result.Content, StringComparison.Ordinal);
   }
@@ -51,7 +51,7 @@ public class ExecWorkspaceAnnotationTests
     // byte-identical legacy behavior (the AgentOptions leniency pattern).
     ExecRunResult run = new(ExecRunStatus.Completed, "done", []);
 
-    ToolResult result = ExecResultFormatter.Format(run, Options, null, null, Program("Directory.GetCurrentDirectory();"));
+    ToolResult result = ExecResultFormatter.Format(run, null, Program("Directory.GetCurrentDirectory();"));
 
     Assert.DoesNotContain("[exec: workspace", result.Content, StringComparison.Ordinal);
   }
@@ -64,7 +64,7 @@ public class ExecWorkspaceAnnotationTests
     ExecRunResult run = new(ExecRunStatus.Completed, "done", [],
         WorkspaceRoot: "C:\\same", LaunchDirectory: "C:\\same");
 
-    ToolResult result = ExecResultFormatter.Format(run, Options, null, null, Program("Directory.GetCurrentDirectory();"));
+    ToolResult result = ExecResultFormatter.Format(run, null, Program("Directory.GetCurrentDirectory();"));
 
     Assert.DoesNotContain("[exec: workspace", result.Content, StringComparison.Ordinal);
   }
@@ -76,7 +76,7 @@ public class ExecWorkspaceAnnotationTests
     ExecRunResult run = new(ExecRunStatus.Completed, "done", [],
         WorkspaceRoot: "C:\\ws", LaunchDirectory: "C:\\app");
 
-    ToolResult result = ExecResultFormatter.Format(run, Options, null, "probe workspace", Program("Directory.GetCurrentDirectory();"));
+    ToolResult result = ExecResultFormatter.Format(run, "probe workspace", Program("Directory.GetCurrentDirectory();"));
 
     Assert.Contains("[exec: workspace", result.Content, StringComparison.Ordinal);
   }

@@ -9,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.15", ExecGuide.Version);
+    Assert.Equal("2.16", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -221,7 +221,7 @@ public class ExecGuideTests
   {
     ExecTool tool = new(
         new NullExecEngine(), ExecOptions.Default,
-        new NullOutputStore(), NullExecActivitySink.Instance);
+        NullExecActivitySink.Instance);
     Assert.DoesNotContain("powershell", tool.Definition.Description, StringComparison.OrdinalIgnoreCase);
     Assert.Contains("spawned directly", tool.Definition.Description, StringComparison.Ordinal);
     Assert.Contains("ONE native argument", tool.Definition.Description, StringComparison.Ordinal);
@@ -233,12 +233,6 @@ public class ExecGuideTests
         Task.FromResult(Result.Success<IReadOnlyList<ExecParseError>>([]));
     public Task<ExecRunResult> ExecuteAsync(ExecProgram program, CancellationToken ct = default) =>
         Task.FromResult(new ExecRunResult(ExecRunStatus.Completed, "", []));
-  }
-
-  private sealed class NullOutputStore : IExecOutputStore
-  {
-    public Task<string> WriteAsync(string content, CancellationToken ct = default) =>
-        Task.FromResult("");
   }
 
   [Fact]
@@ -254,7 +248,6 @@ public class ExecGuideTests
     Assert.Contains("Tools.read(new {", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("Tools.Invoke(", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("try/catch", ExecGuide.Text, StringComparison.Ordinal);
-    Assert.Contains("[exec:artifact", ExecGuide.Text, StringComparison.Ordinal);
   }
 
   // Two sessions produced empty exec output by calling Tools.Invoke(...) as a bare

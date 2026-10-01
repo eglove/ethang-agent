@@ -15,18 +15,6 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   /// <summary>Default utilization percent that trips the compactor.</summary>
   public const double DefaultCompactionThreshold = 80.0;
 
-  /// <summary>Tool results longer than this many characters are archived in full and
-  ///     enter history as an excerpt naming the read-back handle (the
-  ///     store-and-read-back context policy; roughly Strands' 1,500-token threshold).
-  ///     Measured over this harness's own transcripts, results this size are ~10% of
-  ///     all tool results but hold ~57% of tool-result characters.</summary>
-  public const int DefaultToolResultArchiveThreshold = 6000;
-
-  /// <summary>Head characters kept in an archived result's excerpt.</summary>
-  public const int DefaultToolResultExcerptHeadChars = 4000;
-
-  /// <summary>Tail characters kept in a successful archived result's excerpt.</summary>
-  public const int DefaultToolResultExcerptTailChars = 1000;
 
   /// <summary>How many times above the conversation's own character estimate a
   ///     provider-reported input-token count may sit and still be believed. Server-side
@@ -83,10 +71,6 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
   private readonly string? _sessionId = options?.SessionId;
   private readonly ToolRepeatGuard _repeatGuard = new();
-  private readonly IToolOutputArchive? _toolOutputArchive = options?.ToolOutputArchive;
-  private readonly int _archiveThreshold = options?.ToolResultArchiveThreshold ?? DefaultToolResultArchiveThreshold;
-  private readonly int _excerptHeadChars = options?.ToolResultExcerptHeadChars ?? DefaultToolResultExcerptHeadChars;
-  private readonly int _excerptTailChars = options?.ToolResultExcerptTailChars ?? DefaultToolResultExcerptTailChars;
 
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
   public ModelConfig Config { get; } = config ?? throw new ArgumentNullException(nameof(config));
@@ -497,8 +481,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
           ? new ToolResult((_tools as FilteredToolRegistry)?.ExplainsRefusal(call.Name)
               ?? $"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
           : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
-      ToolResult historyResult = await ApplyArchivePolicyAsync(toolResult, ct).ConfigureAwait(false);
-      Conversation.AddToolResult(call.Id, historyResult.Content, ToParts(historyResult.Images));
+      Conversation.AddToolResult(call.Id, toolResult.Content, ToParts(toolResult.Images));
       if (toolResult.Content.Contains(ContextShrinkSentinel, StringComparison.Ordinal))
       {
         _shrankThisTurnObserved = true;
@@ -511,48 +494,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       _heartbeat?.Beat(Id);
       PublishProgress(ChildPhase.Draining, "tool-result");
       string summary = SummarizeToolResult(toolResult);
-      callbacks?.OnToolResult?.Invoke(call.Name, summary, historyResult.Content, toolResult.IsError,
+      callbacks?.OnToolResult?.Invoke(call.Name, summary, toolResult.Content, toolResult.IsError,
           toolResult.Title is null ? null : toolResult);
     }
   }
 
-  /// <summary>The store-and-read-back context policy: when an archive store is wired
-  ///     and a tool result exceeds the threshold, the FULL content is stored (deduped,
-  ///     byte-stable handle) and the conversation receives a head-and-tail excerpt
-  ///     whose marker line names the handle — the model reads back pages with the
-  ///     tool_output_read tool. Images pass through untouched. Small error results
-  ///     pass through untouched; large error results ARE archived, but their excerpt
-  ///     keeps only the HEAD (the leading 'Error [Code]: ...' line carries the fault).
-  ///     An archive-store failure degrades to the legacy full-content entry: the
-  ///     policy can only shrink context, never lose a tool result.</summary>
-  private async Task<ToolResult> ApplyArchivePolicyAsync(ToolResult toolResult, CancellationToken ct)
-  {
-    if (_toolOutputArchive is null
-        || toolResult.Content.Length <= _archiveThreshold
-        || (toolResult.IsError && toolResult.Content.Length <= _excerptHeadChars)
-        || toolResult.BypassesArchivePolicy)
-    {
-      return toolResult;
-    }
-
-    Result<string> archived = await _toolOutputArchive.ArchiveAsync(toolResult.Content, ct).ConfigureAwait(false);
-    if (!archived.IsSuccess)
-    {
-      return toolResult;
-    }
-
-    int headChars = _excerptHeadChars;
-    int tailChars = toolResult.IsError ? 0 : _excerptTailChars;
-    if (ToolOutputArchiveFormat.FitsWithin(toolResult.Content, headChars, tailChars))
-    {
-      return toolResult;
-    }
-
-    int omitted = toolResult.Content.Length - headChars - tailChars;
-    string marker = ToolOutputArchiveFormat.MarkerLine(archived.Value, omitted);
-    string excerpt = marker + "\n" + ToolOutputArchiveFormat.ExcerptBody(toolResult.Content, headChars, tailChars);
-    return toolResult with { Content = excerpt };
-  }
 
   /// <summary>Converts a tool result's images into conversation message parts; null
   ///     or empty stays null so text-only results keep the legacy message shape.</summary>

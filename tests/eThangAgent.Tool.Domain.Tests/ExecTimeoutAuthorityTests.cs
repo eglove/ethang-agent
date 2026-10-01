@@ -25,7 +25,7 @@ public class ExecTimeoutAuthorityTests
   {
     string description = new ExecTool(
         new StubExecEngine(), ExecOptions.Default,
-        new StubOutputStore(), NullExecActivitySink.Instance).Definition.Description;
+        NullExecActivitySink.Instance).Definition.Description;
 
     Assert.DoesNotContain("hard cap", description, StringComparison.Ordinal);
     Assert.Contains("timeoutSeconds is the only execution budget", description, StringComparison.Ordinal);
@@ -37,11 +37,5 @@ public class ExecTimeoutAuthorityTests
         => Task.FromResult(Result.Success<IReadOnlyList<ExecParseError>>([]));
     public Task<ExecRunResult> ExecuteAsync(ExecProgram program, CancellationToken ct = default)
         => Task.FromResult(new ExecRunResult(ExecRunStatus.Completed, "", []));
-  }
-
-  private sealed class StubOutputStore : IExecOutputStore
-  {
-    public Task<string> WriteAsync(string content, CancellationToken ct = default)
-        => Task.FromResult("");
   }
 }

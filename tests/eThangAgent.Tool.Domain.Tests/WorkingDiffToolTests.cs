@@ -15,12 +15,10 @@ public class WorkingDiffToolTests
 
   private static Result<GitDiff> Ok(
       int files = 2, int additions = 3, int deletions = 1,
-      string? patch = null, bool truncated = false, int totalChars = 0) =>
+      string? patch = null) =>
       Result.Success(new GitDiff(
           new GitDiffStats(files, additions, deletions),
-          patch ?? "diff --git a/x.cs b/x.cs\nindex 111..222 100644\n--- a/x.cs\n+++ b/x.cs\n",
-          truncated,
-          totalChars == 0 ? (patch ?? "diff").Length : totalChars));
+          patch ?? "diff --git a/x.cs b/x.cs\nindex 111..222 100644\n--- a/x.cs\n+++ b/x.cs\n"));
 
   // ---- Input contract ----
 
@@ -134,17 +132,16 @@ public class WorkingDiffToolTests
   }
 
   [Fact]
-  public async Task Truncation_AppendsExactWarningLine()
+  public async Task OversizedPatch_PassesThroughInFull()
   {
-    string patch = "diff --git a/x.cs b/x.cs\n+truncated tail\n";
-    WorkingDiffTool tool = Make(Ok(patch: patch, truncated: true, totalChars: 45123), out _);
+    string patch = "diff --git a/x.cs b/x.cs\n" + new string('+', 30 * 1024) + "\n";
+    WorkingDiffTool tool = Make(Ok(patch: patch), out _);
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("working_diff",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"scope":"All"}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.EndsWith(
-        "\n[warning] truncated at 20000 chars; total 45123 — narrow with path/scope",
-        result.Content, StringComparison.Ordinal);
+    Assert.Contains(patch, result.Content, StringComparison.Ordinal);
+    Assert.DoesNotContain("[warning] truncated", result.Content, StringComparison.Ordinal);
   }
 
   [Fact]

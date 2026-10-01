@@ -1,5 +1,4 @@
 using eThangAgent.ModelDomain;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain;
 
@@ -42,24 +41,4 @@ public sealed record AgentOptions
   ///     builds (OpenRouter sticky sessions / prompt caching). Null (legacy wiring)
   ///     leaves the request's id unset: byte-identical legacy behavior.</summary>
   public string? SessionId { get; init; }
-
-  /// <summary>Archive store for oversized tool results (the store-and-read-back
-  ///     context policy). Null (legacy wiring) means tool results enter history in
-  ///     full: byte-identical legacy behavior.</summary>
-  public IToolOutputArchive? ToolOutputArchive { get; init; }
-
-  /// <summary>Tool results longer than this many characters are archived in full and
-  ///     enter history as a head-and-tail excerpt naming the read-back handle.
-  ///     Roughly Strands' 1,500-token threshold. Only read when
-  ///     <see cref="ToolOutputArchive"/> is wired.</summary>
-  public int ToolResultArchiveThreshold { get; init; } = Agent.DefaultToolResultArchiveThreshold;
-
-  /// <summary>Characters of head kept in an archived result's excerpt. Error results
-  ///     keep only the head: the leading <c>Error [Code]: ...</c> line carries the
-  ///     fault.</summary>
-  public int ToolResultExcerptHeadChars { get; init; } = Agent.DefaultToolResultExcerptHeadChars;
-
-  /// <summary>Characters of tail kept in a successful result's excerpt (the tail
-  ///     often carries the outcome line). Zero for error results.</summary>
-  public int ToolResultExcerptTailChars { get; init; } = Agent.DefaultToolResultExcerptTailChars;
 }

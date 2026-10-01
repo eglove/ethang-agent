@@ -121,7 +121,7 @@ public class CSharpScriptExecEngineTests
         new ExecProgram("Tools.read(new { path = \"grand-plan.md\" });"),
         ct: TestContext.Current.CancellationToken);
 
-    ToolResult result = ExecResultFormatter.Format(run, ExecOptions.Default, null);
+    ToolResult result = ExecResultFormatter.Format(run);
 
     Assert.True(result.IsError);
     Assert.StartsWith("exec error [ScriptError]: Error [MissingParameter]: nested call 'read':",

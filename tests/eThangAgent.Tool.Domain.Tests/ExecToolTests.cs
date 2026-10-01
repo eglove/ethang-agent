@@ -25,7 +25,6 @@ public class ExecToolTests
     ExecTool tool = CreateTool();
 
     Assert.Contains("exec error [ExecParseError]:", tool.Definition.Description, StringComparison.Ordinal);
-    Assert.Contains("[exec:artifact", tool.Definition.Description, StringComparison.Ordinal);
     Assert.Contains("Tools.Invoke(", tool.Definition.Description, StringComparison.Ordinal);
     Assert.Contains("Tools.List()", tool.Definition.Description, StringComparison.Ordinal);
     Assert.Contains("timeoutSeconds is the only execution budget", tool.Definition.Description, StringComparison.Ordinal);
@@ -114,29 +113,27 @@ public class ExecToolTests
   }
 
   [Fact]
-  public async Task Overflow_ArtifactStoreCalled_ArtifactLineInResult()
+  public async Task OversizedOutput_PassesThroughInFull()
   {
     FakeExecEngine engine = new()
     {
       Output = new string('x', 60 * 1024)
     };
-    FakeOutputStore store = new("C:\\art\\out.txt");
-    ExecTool tool = CreateTool(engine, artifacts: store);
+    ExecTool tool = CreateTool(engine);
 
     ToolResult result = await tool.ExecuteAsync(
             new RawToolInput("exec", /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"title\":\"t\",\"program\":\"x\"}"), ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal(60 * 1024, store.Written.Length);
-    Assert.Contains("[exec:artifact C:\\art\\out.txt]", result.Content, StringComparison.Ordinal);
+    Assert.False(result.IsError);
+    Assert.Equal(60 * 1024, result.Content.Length);
   }
 
   private ExecTool CreateTool(
       FakeExecEngine? engine = null,
       ExecOptions? options = null,
-      FakeOutputStore? artifacts = null,
       IExecActivitySink? activity = null)
       => new(engine ?? new FakeExecEngine(), options ?? _options,
-          artifacts ?? new FakeOutputStore(""), activity ?? NullExecActivitySink.Instance);
+          activity ?? NullExecActivitySink.Instance);
 
   private sealed class FakeExecEngine : IExecEngine
   {
@@ -155,19 +152,6 @@ public class ExecToolTests
     {
       ExecuteCalls.Add(program.Text);
       return Task.FromResult(ExecRunResult.Completed(Output));
-    }
-  }
-
-  private sealed class FakeOutputStore(string path) : IExecOutputStore
-  {
-    private readonly string _path = path;
-
-    public string Written { get; private set; } = "";
-
-    public Task<string> WriteAsync(string content, CancellationToken ct = default)
-    {
-      Written = content;
-      return Task.FromResult(_path);
     }
   }
 

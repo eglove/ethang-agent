@@ -3,20 +3,19 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutputStore artifacts,
+public sealed class ExecTool(IExecEngine engine, ExecOptions options,
     IExecActivitySink activity) : ITool
 {
   public const string ToolName = "exec";
 
   private readonly IExecEngine _engine = engine ?? throw new ArgumentNullException(nameof(engine));
   private readonly ExecOptions _options = options ?? throw new ArgumentNullException(nameof(options));
-  private readonly IExecOutputStore _artifacts = artifacts ?? throw new ArgumentNullException(nameof(artifacts));
   private readonly IExecActivitySink _activity = activity ?? throw new ArgumentNullException(nameof(activity));
 
   public ToolDefinition Definition { get; } = new(
       ToolName,
       """
-        Execute a C# program in the agent workspace. The required title names this run for the session UI: a short imperative label for the program's purpose (for example "count failing tests"), not the program text. The transcript's tool card header shows the title and the expanded body shows the program. The script runs in-process via Roslyn scripting. The return value is the result: strings verbatim, other objects as one-line JSON. Call Output() during execution for intermediate output. Console.WriteLine is also captured. Thrown exceptions mark the result as an error with exec error [ScriptError] lines. Output over 50,000 characters is truncated with both ends preserved and the full output saved to a file reported as [exec:artifact <path>] — read that file with the read tool. Compile errors report 'exec error [ExecParseError]:' followed by 'line N, col M: message' entries. timeoutSeconds is the only execution budget: when it elapses the call fails with 'Error [ToolTimeout]:'. Tools are available as methods on the Tools object taking one anonymous object: Tools.read(new { path = "file.txt", startLine = 1, endLine = 50 }). Tools.Invoke("name", args) is the generic form. Tools.List() lists available tools. Shell(exe, args...) runs an external command line spawned directly via native .NET process APIs (no shell intermediary): every argument after the exe is ONE native argument, passed verbatim — an argument containing spaces (a path, a commit message) reaches the target as a single argument; do not pack several tokens into one argument — and the native exit code propagates verbatim. Nested exec is not available. Malformed arguments to exec itself report 'Error [Code]: ...'. A program that references Directory.GetCurrentDirectory() gets the app's launch directory, not the workspace; such runs carry a '[exec: workspace note — ...]' annotation stating both paths.
+        Execute a C# program in the agent workspace. The required title names this run for the session UI: a short imperative label for the program's purpose (for example "count failing tests"), not the program text. The transcript's tool card header shows the title and the expanded body shows the program. The script runs in-process via Roslyn scripting. The return value is the result: strings verbatim, other objects as one-line JSON. Call Output() during execution for intermediate output. Console.WriteLine is also captured. Thrown exceptions mark the result as an error with exec error [ScriptError] lines. Compile errors report 'exec error [ExecParseError]:' followed by 'line N, col M: message' entries. timeoutSeconds is the only execution budget: when it elapses the call fails with 'Error [ToolTimeout]:'. Tools are available as methods on the Tools object taking one anonymous object: Tools.read(new { path = "file.txt", startLine = 1, endLine = 50 }). Tools.Invoke("name", args) is the generic form. Tools.List() lists available tools. Shell(exe, args...) runs an external command line spawned directly via native .NET process APIs (no shell intermediary): every argument after the exe is ONE native argument, passed verbatim — an argument containing spaces (a path, a commit message) reaches the target as a single argument; do not pack several tokens into one argument — and the native exit code propagates verbatim. Nested exec is not available. Malformed arguments to exec itself report 'Error [Code]: ...'. A program that references Directory.GetCurrentDirectory() gets the app's launch directory, not the workspace; such runs carry a '[exec: workspace note — ...]' annotation stating both paths.
         """,
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
@@ -65,19 +64,13 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options, IExecOutpu
     if (parse.Value.Count > 0)
     {
       IReadOnlyList<string> hints = ExecParseHints.Analyze(exec.Text);
-      return ExecResultFormatter.ParseErrors(parse.Value, _options.MaxParseErrors, hints);
+      return ExecResultFormatter.ParseErrors(parse.Value, hints);
     }
 
     long started = Stopwatch.GetTimestamp();
     ExecRunResult run = await _engine.ExecuteAsync(exec, ct).ConfigureAwait(false);
 
-    string? artifactPath = null;
-    if (run.Status == ExecRunStatus.Completed && run.Output.Length > _options.MaxOutputChars)
-    {
-      artifactPath = await _artifacts.WriteAsync(run.Output, ct).ConfigureAwait(false);
-    }
-
-    ToolResult result = ExecResultFormatter.Format(run, _options, artifactPath, title, exec);
+    ToolResult result = ExecResultFormatter.Format(run, title, exec);
     await _activity.RecordAsync(new ExecActivity(
         exec.Text.Length > 80 ? exec.Text[..80] : exec.Text,
         run.Status,

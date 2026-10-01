@@ -151,13 +151,9 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     }
 
     Result<string> patch = await RenderPatchAsync(repoPath, pathArgs, wantStaged, wantUnstaged, ct).ConfigureAwait(false);
-    if (!patch.IsSuccess)
-    {
-      return Result.Failure<GitDiff>(patch.Error);
-    }
-
-    GitDiff diff = TruncatePatch(stats.Value, patch.Value);
-    return Result.Success(diff);
+    return patch.IsSuccess
+        ? Result.Success(new GitDiff(stats.Value, patch.Value))
+        : Result.Failure<GitDiff>(patch.Error);
   }
 
   /// <summary>Runs both numstat passes in scope order, then folds them into the stats.</summary>
@@ -288,28 +284,6 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     return Result.Success(true);
   }
 
-  /// <summary>Bounds the patch at the cap, cutting at the last complete line before the
-  ///     cap. TotalChars always reports the FULL untruncated length.</summary>
-  private static GitDiff TruncatePatch(GitDiffStats stats, string fullPatch)
-  {
-    int totalChars = fullPatch.Length;
-    bool truncated = false;
-    string patch = fullPatch;
-    int cap = WorkingDiffTool.PatchCharCap;
-    if (totalChars > cap)
-    {
-      int cut = patch.LastIndexOf('\n', cap - 1);
-      if (cut < 0)
-      {
-        cut = cap - 1;
-      }
-
-      patch = patch[..(cut + 1)];
-      truncated = true;
-    }
-
-    return new GitDiff(stats, patch, truncated, totalChars);
-  }
 
   /// <summary>Stages exactly the given paths via 'git add --' with each path
   ///     is one argv token after '--', so no option or flag injection is possible.

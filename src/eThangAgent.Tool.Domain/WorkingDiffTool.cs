@@ -6,9 +6,6 @@ namespace eThangAgent.ToolDomain;
 
 public sealed class WorkingDiffTool(IPathResolver resolver, IGitQueryAccess git) : ITool, IWorkspaceScopedTool
 {
-  /// <summary>The character cap at which the access layer truncates patches. The
-  /// domain owns this contract number for display; the access layer enforces it.</summary>
-  public const int PatchCharCap = 20000;
 
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IGitQueryAccess _git = git ?? throw new ArgumentNullException(nameof(git));
@@ -19,11 +16,10 @@ public sealed class WorkingDiffTool(IPathResolver resolver, IGitQueryAccess git)
 
   public ToolDefinition Definition { get; } = new(
       "working_diff",
-      "Show the working-tree diff of the repository at the workspace root, bounded. " +
+      "Show the working-tree diff of the repository at the workspace root, in full. " +
       "timeoutSeconds and scope are mandatory; scope is exactly one of 'Staged' (index vs HEAD), 'Unstaged' " +
       "(worktree vs index), or 'All'; path optionally narrows to a single path inside " +
-      "the workspace. The patch is cut at 20000 characters with a visible [warning] " +
-      "line when anything was dropped — narrow with path/scope to see the rest. Output " +
+      "the workspace. Output " +
       "begins with an annotation line `[working-diff scope=<scope> path=<path|none>: " +
       "N file(s), +A/-D lines]` followed by the patch verbatim; no changes reports " +
       "`[working-diff ...: no differences]`. Errors begin with `Error [Code]:`.",
@@ -94,17 +90,6 @@ public sealed class WorkingDiffTool(IPathResolver resolver, IGitQueryAccess git)
     _ = sb.Append(CultureInfo.InvariantCulture, $"[working-diff scope={v.Scope} path={target}: {o.Stats.Files} file(s), " +
               $"+{o.Stats.Additions}/-{o.Stats.Deletions} lines]\n");
     _ = sb.Append(o.Patch);
-    if (o.Truncated)
-    {
-      // Exactly one separating newline between the verbatim patch and the warning.
-      if (!o.Patch.EndsWith('\n'))
-      {
-        _ = sb.Append('\n');
-      }
-
-      _ = sb.Append($"[warning] truncated at {PatchCharCap} chars; total {o.TotalChars} " +
-                "\u2014 narrow with path/scope");
-    }
     return new ToolResult(sb.ToString(), false);
   }
 

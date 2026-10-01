@@ -23,8 +23,7 @@ public sealed class RootAgentHolder(
     int? maxAutoContinuations = null,
     IContextCompactor? contextCompactor = null,
     string? sessionId = null,
-    Func<string?>? sessionIdSource = null,
-    IToolOutputArchive? toolOutputArchive = null)
+    Func<string?>? sessionIdSource = null)
 {
   private readonly IModelProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
   private readonly Conversation _conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
@@ -32,7 +31,6 @@ public sealed class RootAgentHolder(
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
   private readonly string? _sessionId = sessionId;
   private readonly Func<string?>? _sessionIdSource = sessionIdSource;
-  private readonly IToolOutputArchive? _toolOutputArchive = toolOutputArchive;
 
   /// <summary>The durable session identity stamped onto every provider request, resolved
   ///     at build time: the explicit id when given, else the lazily-resolved source
@@ -78,7 +76,6 @@ public sealed class RootAgentHolder(
           ContextMonitor = Accountant,
           ContextCompactor = _contextCompactor,
           SessionId = ResolveSessionId(),
-          ToolOutputArchive = _toolOutputArchive,
         });
     return Current;
   }

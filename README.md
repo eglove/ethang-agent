@@ -74,15 +74,6 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   (`User ran: ... (id: N, exit code M)`) plus the read-back tool:
 - `command_output` tool — reads a stored `!` command's output by id (default: the latest run),
   optionally capped to the last `tailLines` lines; ids persist per workspace across sessions
- - Oversized tool-result archive (store-and-read-back) — a tool result longer than 6,000
-   characters is stored in full in the app database (content-addressed by SHA-256 per
-   workspace, deduplicated, FTS5-indexed so memory recall still finds it) and the
-   conversation receives a short head-and-tail excerpt whose marker line names a
-   byte-stable `arch:` handle; error results keep the head (the `Error [Code]:` line
-   carries the fault), images pass through untouched
- - `tool_output_read` tool — pages an archived tool result back by its `arch:` handle
-   (from the `[tool-output archived: ...]` marker), with an offset/limit and the read
-   tool's line-number gutter format
 - `web_fetch` tool — fetch a web page or resource over HTTP(S) and return readable text:
   HTML pages are converted to markdown (headings, links with absolute URLs, lists, tables,
   fenced code); other textual responses (plain text, JSON, XML) pass through verbatim; binary

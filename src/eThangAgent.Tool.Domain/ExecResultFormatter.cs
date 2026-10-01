@@ -5,49 +5,18 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecResultFormatter
 {
-  public static ToolResult Format(ExecRunResult run, ExecOptions options, string? artifactPath, string? title = null)
-      => Format(run, options, artifactPath, title, null);
+  public static ToolResult Format(ExecRunResult run, string? title = null)
+      => Format(run, title, null);
 
-  public static ToolResult Format(ExecRunResult run, ExecOptions options, string? artifactPath,
-      string? title, ExecProgram? program)
+  public static ToolResult Format(ExecRunResult run, string? title, ExecProgram? program)
   {
     ArgumentNullException.ThrowIfNull(run);
-    ArgumentNullException.ThrowIfNull(options);
     if (run.Status != ExecRunStatus.Completed)
     {
-      return ErrorRun(run, options);
+      return ErrorRun(run);
     }
 
-    StringBuilder sb = new();
-    bool overCap = run.Output.Length > options.MaxOutputChars;
-    if (overCap)
-    {
-      int half = options.MaxOutputChars / 2;
-      _ = sb.Append(run.Output[..half]);
-      _ = sb.Append('\n');
-      _ = sb.Append(CultureInfo.InvariantCulture,
-          $"[exec: output truncated — showing first {half} and last {half} of {run.Output.Length} characters]");
-      if (artifactPath is not null)
-      {
-        _ = sb.Append('\n');
-        _ = sb.Append(CultureInfo.InvariantCulture, $"[exec:artifact {artifactPath}]");
-      }
-
-      _ = sb.Append(run.Output[^half..]);
-    }
-    else
-    {
-      _ = sb.Append(run.Output);
-      if (artifactPath is not null)
-      {
-        if (sb.Length > 0)
-        {
-          _ = sb.Append('\n');
-        }
-
-        _ = sb.Append(CultureInfo.InvariantCulture, $"[exec:artifact {artifactPath}]");
-      }
-    }
+    StringBuilder sb = new(run.Output);
 
     // A completed run with no output is legitimate (the script returns void) — but
     // when the script dispatched nested tool calls, the likeliest cause is a result
@@ -121,7 +90,7 @@ public static class ExecResultFormatter
         $"[exec: workspace note — this program references Directory.GetCurrentDirectory(), which returns the app's launch directory ({run.LaunchDirectory}), NOT the session workspace ({run.WorkspaceRoot}). Use Workspace or relative paths to locate workspace files.]");
   }
 
-  public static ToolResult ParseErrors(IReadOnlyList<ExecParseError> errors, int maxParseErrors,
+  public static ToolResult ParseErrors(IReadOnlyList<ExecParseError> errors,
       IReadOnlyList<string>? hints = null)
   {
     ArgumentNullException.ThrowIfNull(errors);
@@ -134,21 +103,15 @@ public static class ExecResultFormatter
       }
     }
 
-    foreach (ExecParseError? e in errors.Take(maxParseErrors))
+    foreach (ExecParseError? e in errors)
     {
       _ = sb.Append(CultureInfo.InvariantCulture, $"\nline {e.Line}, col {e.Column}: {e.Message}");
-    }
-
-    int hidden = errors.Count - Math.Min(errors.Count, maxParseErrors);
-    if (hidden > 0)
-    {
-      _ = sb.Append(CultureInfo.InvariantCulture, $"\n[{hidden} more parse error(s) not shown]");
     }
 
     return new ToolResult(sb.ToString(), true);
   }
 
-  private static ToolResult ErrorRun(ExecRunResult run, ExecOptions options)
+  private static ToolResult ErrorRun(ExecRunResult run)
   {
     string code = run.Status switch
     {
@@ -167,10 +130,8 @@ public static class ExecResultFormatter
     if (run.Output.Length > 0)
     {
       _ = sb.Append('\n');
-      _ = sb.Append(ClampHead(run.Output, options.MaxErrorChars));
+      _ = sb.Append(run.Output);
     }
     return new ToolResult(sb.ToString(), true);
   }
-
-  private static string ClampHead(string text, int maxChars) => text.Length <= maxChars ? text : text[..maxChars] + $"\n[exec: partial output truncated at {maxChars} characters]";
 }

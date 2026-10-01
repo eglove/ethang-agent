@@ -71,7 +71,6 @@ public static class AgentComposition
         .AddSingleton<IWorktreeProvisioner>(sp => new GitWorktreeProvisioner(sp.GetRequiredService<GitWorktreeAccess>()))
         .AddSingleton<IWorkspaceCleanlinessCheck>(sp => new WorkspaceCleanlinessCheck(sp.GetRequiredService<IGitQueryAccess>()))
         .AddSingleton(ExecOptions.Default)
-        .AddSingleton<IExecOutputStore>(_ => new ExecArtifactStore())
         .AddSingleton<IExecActivitySink>(_ => NullExecActivitySink.Instance)
         .AddSingleton<IWebAccess, HttpWebAccess>()
         .AddSingleton<ISkillRegistryAccess, GitSkillRegistryAccess>()
@@ -162,9 +161,7 @@ public static class AgentComposition
                     new WebFetchTool(sp.GetRequiredService<IWebAccess>(),
                         sp.GetRequiredService<IHtmlToMarkdown>()),
                     "Fetch a web page or resource over HTTP(S) and return readable text (HTML converted to markdown; other text verbatim)."),
-                new AgentToolBinding(
-                    new ToolOutputReadTool(sp.GetRequiredService<IToolOutputArchive>()),
-                    "Read one page of an archived tool result back (handles appear in [tool-output archived: ...] markers)."),
+
                 // Pure graph math, no external access: safe for sub-agents too.
                 new AgentToolBinding(
                     new CycleCheckTool(),
@@ -199,12 +196,7 @@ public static class AgentComposition
         .AddSingleton<ICommandRunStore>(sp => new SqliteCommandRunStore(
             sp.GetRequiredService<AppDatabase>(),
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
-        // Oversized-tool-result archive (store-and-read-back context policy): the
-        // full text of results past the loop's threshold, content-addressed per
-        // workspace, FTS5-indexed so lexical memory recall still finds them.
-        .AddSingleton<IToolOutputArchive>(sp => new SqliteToolOutputArchive(
-            sp.GetRequiredService<AppDatabase>(),
-            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+
         .AddSingleton(sp => new UserCommandRunner(
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
             sp.GetRequiredService<IShellCommandAccess>(),
@@ -316,8 +308,7 @@ public static class AgentComposition
             sp.GetRequiredService<IWatchdogEventStore>(),
             InboxFor: id => sp.GetRequiredService<ChildMailboxRegistry>().InboxFor(id),
             AnchorScope: sp.GetRequiredService<IWorkspaceAnchorScope>(),
-            Cleanliness: sp.GetRequiredService<IWorkspaceCleanlinessCheck>(),
-            ToolOutputArchive: sp.GetRequiredService<IToolOutputArchive>()))
+            Cleanliness: sp.GetRequiredService<IWorkspaceCleanlinessCheck>()))
         .AddSingleton(sp => new SubAgentSpawner(
             sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),
@@ -461,7 +452,6 @@ public static class AgentComposition
         .AddSingleton<ITool>(sp => new ExecTool(
             sp.GetRequiredService<IExecEngine>(),
             sp.GetRequiredService<ExecOptions>(),
-            sp.GetRequiredService<IExecOutputStore>(),
             sp.GetRequiredService<IExecActivitySink>()))
         .AddSingleton<IToolRegistry>(sp =>
             new ToolRegistry([sp.GetRequiredService<ITool>(), .. ComputerLoopTools(sp, settings)]))
@@ -505,8 +495,7 @@ public static class AgentComposition
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.
-            sessionIdSource: () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString(),
-            toolOutputArchive: sp.GetRequiredService<IToolOutputArchive>()))
+            sessionIdSource: () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString()))
         .AddSingleton(sp => new RootAgentResolver(
             new RootModelContext(
                 sp.GetRequiredService<IAgentStore>(),
