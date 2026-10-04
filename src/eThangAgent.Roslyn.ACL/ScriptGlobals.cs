@@ -398,13 +398,16 @@ public sealed class ScriptTools
 
     // Offload to the worker pool before blocking: scripts are synchronous but the
     // registry is async, and awaiting inline deadlocks whenever this runs on a thread
-    // whose SynchronizationContext must pump (e.g. Avalonia's UI thread). Task.Run
-    // alone still FLOWS the ambient context (.NET 6+), so the flow is suppressed —
-    // the invocation's continuation resumes on the pool, never on a blocked pump.
-    Task<CapabilityInvocationResult> scheduled;
-    using (ExecutionContext.SuppressFlow())
+    // whose SynchronizationContext must pump (e.g. Avalonia's UI thread). The caller's
+    // SynchronizationContext is shed INSIDE the delegate — continuations resume on the
+    // pool, never on a blocked pump — while ExecutionContext (AsyncLocal ambient state
+    // such as SubAgentSpawner.RunningChild) still FLOWS: suppressing it broke
+    // agent.spawn parent resolution from inside exec scripts (2026-10-04 incident).
+    Task<CapabilityInvocationResult> scheduled = Task.Run(async () =>
     {
-      scheduled = Task.Run(async () =>
+      SynchronizationContext? callerContext = SynchronizationContext.Current;
+      SynchronizationContext.SetSynchronizationContext(null);
+      try
       {
         using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
         // The stated budget bounds EVERY nested action, SelfManaged or not: a hung
@@ -434,8 +437,12 @@ public sealed class ScriptTools
         {
           return new CapabilityInvocationResult(ToolTimeout.TimedOut(name, budget).Content, true);
         }
-      });
-    }
+      }
+      finally
+      {
+        SynchronizationContext.SetSynchronizationContext(callerContext);
+      }
+    });
 
     CapabilityInvocationResult result = scheduled.GetAwaiter().GetResult();
     if (result.IsError && IsContractError(result.Content))

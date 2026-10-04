@@ -88,18 +88,28 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     {
       // Scripts are synchronous model-authored code; they may legitimately block
       // (Tools.Invoke, Shell). Schedule the submission on the worker pool with the
-      // caller's execution context suppressed: Task.Run alone still FLOWS the
-      // ambient SynchronizationContext (.NET 6+), which would make every internal
-      // await post back to a pump that synchronous script code may be blocking.
-      // Suppressed, every continuation resumes on pool threads, never on a UI pump.
-      Task<ScriptState<object>> scheduled;
-      using (ExecutionContext.SuppressFlow())
+      // caller's SynchronizationContext shed INSIDE the delegate: Task.Run alone still
+      // FLOWS the ambient SynchronizationContext (.NET 6+), which would make every
+      // internal await post back to a pump that synchronous script code may be
+      // blocking. Shedding inside keeps every continuation on pool threads, never on
+      // a UI pump — while ExecutionContext (AsyncLocal ambient state such as
+      // SubAgentSpawner.RunningChild) still flows: suppressing it broke
+      // agent.spawn parent resolution from inside exec scripts (2026-10-04 incident).
+      Task<ScriptState<object>> scheduled = Task.Run(() =>
       {
-        // The linked token on Task.Run itself: a cancellation that fires before the
-        // delegate starts yields a Canceled task instead of executing the script.
-        scheduled = Task.Run(() => script.RunAsync(globals,
-            err => err is OperationCanceledException, cts.Token), cts.Token);
-      }
+        SynchronizationContext? callerContext = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(null);
+        try
+        {
+          // The linked token on Task.Run itself: a cancellation that fires before the
+          // delegate starts yields a Canceled task instead of executing the script.
+          return script.RunAsync(globals, err => err is OperationCanceledException, cts.Token);
+        }
+        finally
+        {
+          SynchronizationContext.SetSynchronizationContext(callerContext);
+        }
+      }, cts.Token);
       // The ACL is context-free by contract: its resumptions must never depend
       // on the caller's pump, so shed the captured context here as well.
       //
