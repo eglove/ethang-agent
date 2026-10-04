@@ -5,9 +5,10 @@ using eThangAgent.Storage.ACL;
 namespace eThangAgent.Composition.Tests;
 
 /// <summary>R3.2 end-to-end through session open: a persisted Running row that no runtime
-///     owns is Failed(Interrupted) with an audit row once a session opens; rows owned by
-///     the fresh container's runtime (none at open time besides the new root, which is
-///     not registered as a child) and already-terminal rows are untouched.</summary>
+///     owns is Failed(Interrupted) with an audit row once a session opens — but ONLY
+///     rows in the OPENING session's workspace (2026-10-04 scope fix: other workspaces'
+///     Running rows are other sessions' live state). Rows owned by the fresh container's
+///     runtime and already-terminal rows are untouched.</summary>
 [Collection("EnvironmentSensitive")]
 public class SessionOpenOrphanRepairTests
 {
@@ -22,24 +23,36 @@ public class SessionOpenOrphanRepairTests
     Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
     try
     {
-      // Seed an orphaned Running child row (a record the new container cannot own).
+      string ws = Directory.CreateTempSubdirectory("ethang-ws").FullName;
+      // Seed an orphaned Running child row IN THE OPENING WORKSPACE (a record the new
+      // container cannot own). Same-workspace orphans are still repaired.
       AppDatabase seed = new(dbPath);
       SqliteAgentStore seedStore = new(seed);
       AgentRecord orphan = AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", "orphan",
-          "task", DateTimeOffset.UtcNow);
-      _ = await seedStore.SaveAsync(orphan, TestContext.Current.CancellationToken);
+          "task", DateTimeOffset.UtcNow) with
+      { WorkspaceId = ws };
+      _ = await seedStore.SaveAsync(orphan, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      // A foreign-workspace Running row (another session's live agent) must survive.
+      AgentRecord foreign = AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", "live-elsewhere",
+          "task", DateTimeOffset.UtcNow) with
+      { WorkspaceId = "C:\\other-workspace" };
+      _ = await seedStore.SaveAsync(foreign, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
       AgentSessionFactory factory = new(Settings(), new AppDatabase(dbPath));
-      string ws = Directory.CreateTempSubdirectory("ethang-ws").FullName;
       Result<AgentSession> session = await factory.CreateAsync(ws, Providers.OpenRouter,
-          ct: TestContext.Current.CancellationToken);
+          ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(session.IsSuccess);
 
       SqliteAgentStore verify = new(new AppDatabase(dbPath));
-      Result<AgentRecord> after = await verify.GetAsync(orphan.Id, TestContext.Current.CancellationToken);
-      Assert.True(after.IsSuccess);
-      Assert.Equal(AgentStatus.Failed, after.Value.Status);
-      Assert.Equal(AgentFailureReason.Interrupted, after.Value.FailureReason);
+      Result<AgentRecord> orphanAfter = await verify.GetAsync(orphan.Id, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(orphanAfter.IsSuccess);
+      Assert.Equal(AgentStatus.Failed, orphanAfter.Value.Status);
+      Assert.Equal(AgentFailureReason.Interrupted, orphanAfter.Value.FailureReason);
+
+      Result<AgentRecord> foreignAfter = await verify.GetAsync(foreign.Id, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(foreignAfter.IsSuccess);
+      Assert.Equal(AgentStatus.Running, foreignAfter.Value.Status);
 
       await session.Value.Services.DisposeAsync().ConfigureAwait(true);
     }

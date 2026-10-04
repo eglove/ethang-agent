@@ -3,7 +3,11 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application;
 
-/// <summary>Exact orphan resolution at startup (FR-L8, R3.2): a persisted Running
+/// <summary>Exact orphan resolution at startup (FR-L8, R3.2), scoped to the opening
+///     session's workspace when one is supplied: other workspaces' Running rows are
+///     OTHER sessions' live state and are never touched (2026-10-04: opening workspace
+///     B marked workspace A's live agents Failed(Interrupted)). A null scope keeps the
+///     legacy global behavior. A persisted Running
 ///     record is trusted only when its id is live in an OWNER — this container's
 ///     in-process runtime (its active map) or the remote host's declared live set.
 ///     Everything else is Failed(Interrupted) plus one audit row. The former
@@ -15,7 +19,8 @@ public sealed class OrphanRepairHandler(
     Func<IReadOnlyCollection<Guid>> inProcessLive,
     Func<IReadOnlyCollection<Guid>> declaredLive,
     IWatchdogEventStore? audit = null,
-    AgentId? exempt = null)
+    AgentId? exempt = null,
+    string? workspaceId = null)
 {
   public async Task RepairAsync(CancellationToken ct = default)
   {
@@ -26,7 +31,7 @@ public sealed class OrphanRepairHandler(
     }
 
     HashSet<Guid> owners = [.. inProcessLive(), .. declaredLive()];
-    foreach (AgentRecord record in listed.Value)
+    foreach (AgentRecord record in listed.Value.Where(r => workspaceId is null || r.WorkspaceId == workspaceId))
     {
       // The session's own root is Running by design between turns — it is not a child
       // and has no runtime owner; repair never touches it.

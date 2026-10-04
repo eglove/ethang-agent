@@ -5,6 +5,7 @@ using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.StateDomain;
 using eThangAgent.SkillDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
@@ -259,7 +260,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         () => inProcess?.ActiveChildren ?? [],
         () => remote?.DeclaredLiveChildren ?? [],
         services.GetRequiredService<IWatchdogEventStore>(),
-        exempt: rootId);
+        exempt: rootId,
+        workspaceId: services.GetRequiredService<IWorkspaceContext>().WorkspaceId);
     await repair.RepairAsync(ct).ConfigureAwait(false);
   }
 
