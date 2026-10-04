@@ -1,8 +1,8 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
-using Microsoft.Extensions.DependencyInjection;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using Microsoft.Extensions.DependencyInjection;
 
 // Best-effort temp-file cleanup in finally blocks is deliberate (CA1031).
 #pragma warning disable CA1031, S108 // Do not catch general exception types
