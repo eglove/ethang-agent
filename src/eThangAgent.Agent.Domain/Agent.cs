@@ -516,6 +516,17 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       ToolCallRequest call = calls[i];
       LastTurnToolCalls++;
       callbacks?.OnToolCall?.Invoke(call.Name, call.Arguments, i + 1, calls.Count);
+      // Suspension enforcement: a tool the repeat guard suspended for this turn is
+      // refused without executing — the model reads the refusal as its tool result
+      // and must take a different approach. The refusal itself is not observed by
+      // the guard (it cannot extend or reset the streak).
+      if (_repeatGuard.IsSuspended(call.Name))
+      {
+        string refusal = $"Error [ToolSuspended]: Tool '{call.Name}' is suspended for the rest of this turn after repeated failures. Take a different approach.";
+        Conversation.AddToolResult(call.Id, refusal);
+        callbacks?.OnToolResult?.Invoke(call.Name, refusal, refusal, true, null);
+        continue;
+      }
       ITool? tool = _tools.Find(call.Name);
       PublishProgress(ChildPhase.ToolExec, "tool:" + call.Name);
       _heartbeat?.Beat(Id);
