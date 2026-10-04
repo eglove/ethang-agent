@@ -31,13 +31,18 @@ public class ToolRepeatGuardTests
   }
 
   [Fact]
-  public void ThirdAndFourthFailures_NoFurtherNudge()
+  public void ThirdIdenticalFailure_BreakerNudgeSupersedesSilence()
   {
     ToolRepeatGuard guard = new();
     _ = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
     _ = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
 
-    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error));
+    // The 3rd failure fires the BREAKER nudge (cross-argument policy), not silence:
+    // the identical-args nudge fired at 2, the breaker takes over at 3.
+    string? breaker = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
+    Assert.NotNull(breaker);
+    Assert.Contains("any arguments", breaker, StringComparison.Ordinal);
+    // The 4th identical failure: no further nudge from either policy.
     Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error));
   }
 
