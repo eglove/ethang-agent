@@ -65,12 +65,21 @@ public sealed class RootAgentHolder(
 
     CurrentConfig = config;
     CurrentSessionId = ResolveSessionId();
+    AgentId? rootId = ResolveSessionId() is { } idText && Guid.TryParse(idText, out Guid parsed)
+        ? new AgentId(parsed)
+        : null;
     // One accountant per window: a rebuild with a different model (hence window)
     // restarts accounting — mixing windows in one accumulator would lie about totals.
     Accountant = new ContextAccountant(config.ContextWindow);
     Current = new Ag(_provider, _conversation, config, _tools,
         new AgentOptions
         {
+          // The root agent's in-memory identity IS the persisted root row id: children
+          // spawned by the root record this id as their ParentId, so a fresh random id
+          // here would phantom-parent every child (2026-10-04: all children pointed at
+          // a parent id that had no row). Legacy wiring without a session id keeps the
+          // generated-id behavior.
+          Id = rootId,
           SystemPrompt = systemPrompt,
           MaxAutoContinuations = maxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,
           ContextMonitor = Accountant,
