@@ -248,7 +248,11 @@ public class HungRemoteChildE2ETests
           .WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(outcome.IsSuccess, "the final settle envelope never reached the app runtime");
       Assert.Equal(AgentStatus.Failed, outcome.Value.Status);
-      Assert.Equal(AgentFailureReason.ProviderError, outcome.Value.Reason); // the cancelled retry attempt's classification
+      // The envelope carries the run's HONEST classification: the host watchdog's
+      // interrupt cancelled the retry attempt, so the run settled Interrupted (the
+      // pre-2026-10-04 fix mislabeled this ProviderError via the OCE crash path).
+      // The ROW below still carries the watchdog's terminal verdict: Failed(Hung).
+      Assert.Equal(AgentFailureReason.Interrupted, outcome.Value.Reason);
 
 
       // Audit rows were written by the HOST process: the test process never writes
