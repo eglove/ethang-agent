@@ -181,6 +181,11 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     // The child's OWN persisted id rides every request (OpenRouter sticky sessions):
     // one sticky session per child conversation, and the child host inherits the
     // same stamping through this same spawner in remote mode.
+    // Incremental transcript persistence: every conversation mutation lands in the
+    // store at the safe point it happens (the sink always persists with
+    // CancellationToken.None), so an interrupt or crash leaves the run's history
+    // persisted up to that point instead of destroying it.
+    ChildTranscriptStore transcriptSink = new(_store, child.Id);
     Agent agent = new(_factory.Create(config), conversation, config, tools,
         new AgentOptions
         {
@@ -191,6 +196,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
           ContextCompactor = _contextCompactor,
           Heartbeat = _heartbeat,
           Events = _events,
+          TranscriptSink = transcriptSink,
           SessionId = child.Id.ToString(),
         });
     PublishStarted(child);
@@ -259,29 +265,16 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
 
     if (failureReason is not null)
     {
-      if (agent.ShrankThisTurn)
-      {
-        // A mid-run shrink invalidates the append baseline: the whole transcript is
-        // replaced so the persisted rows match the post-shrink conversation exactly.
-        _ = await _store.ReplaceTranscriptAsync(child.Id, agent.Conversation.Messages, ct).ConfigureAwait(false);
-      }
-      else
-      {
-        // Persist the partial transcript delta beyond the hydrated baseline so a later
-        // resume continues from the real frontier - and never re-appends earlier rows.
-        IReadOnlyList<Message> partial = agent.Conversation.Messages;
-        for (int i = seed.Count; i < partial.Count; i++)
-        {
-          _ = await _store.AppendMessageAsync(child.Id, partial[i], ct).ConfigureAwait(false);
-        }
-      }
-
-      await PersistTerminalAsync(child with
+      // Incremental persistence already landed every safe-point message; the terminal
+      // block only flushes stragglers (pending queue) and persists the terminal row.
+      // All of it runs with CancellationToken.None: the run is already over, and its
+      // record plus transcript must survive the caller's interrupt that ended it.
+      await TerminalPersistAsync(child with
       {
         Status = AgentStatus.Failed,
         FailureReason = failureReason,
         CompletedAt = DateTimeOffset.UtcNow,
-      }, ct).ConfigureAwait(false);
+      }, transcriptSink).ConfigureAwait(false);
       PublishSettled(child.Id, AgentStatus.Failed, failureReason, 0);
       return new AgentRunOutcome(child.Id, AgentStatus.Failed, failureReason,
           FailureDetail(failureReason.Value), child.ModelUsed, child.Depth);
@@ -292,17 +285,13 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     if (agent.ShrankThisTurn)
     {
       // Same shrink rule as the failure path: replace, never append a sliced delta.
-      _ = await _store.ReplaceTranscriptAsync(child.Id, agent.Conversation.Messages, ct).ConfigureAwait(false);
+      // The sink's ReplaceAsync also resets its flushed baseline.
+      await transcriptSink.ReplaceAsync(agent.Conversation.Messages).ConfigureAwait(false);
     }
     else
     {
-      // Persist only what this run added: a resumed run's seed already sits in the store,
-      // and re-appending it would duplicate the transcript.
-      IReadOnlyList<Message> added = agent.Conversation.Messages;
-      for (int i = seed.Count; i < added.Count; i++)
-      {
-        _ = await _store.AppendMessageAsync(child.Id, added[i], ct).ConfigureAwait(false);
-      }
+      // Incremental persistence landed every safe-point message; flush stragglers.
+      await transcriptSink.FlushAsync().ConfigureAwait(false);
     }
     // Structured results (step 10, approved D3): one bounded repair round; a second
     // validation failure is Failed(InvalidResult) - invalid results never reach the
@@ -325,7 +314,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
             if (secondPass.IsValid)
             {
               finalReport = repairedReport;
-              _ = await _store.AppendMessageAsync(child.Id, agent.Conversation.Messages[^1], ct).ConfigureAwait(false);
+              _ = await _store.AppendMessageAsync(child.Id, agent.Conversation.Messages[^1], CancellationToken.None).ConfigureAwait(false);
             }
             else
             {
@@ -335,7 +324,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
                 FailureReason = AgentFailureReason.InvalidResult,
                 CompletedAt = DateTimeOffset.UtcNow,
                 FinalReport = "Error [InvalidResult]: " + secondPass.Error,
-              }, ct).ConfigureAwait(false);
+              }, CancellationToken.None).ConfigureAwait(false);
               PublishSettled(child.Id, AgentStatus.Failed, AgentFailureReason.InvalidResult,
                   Encoding.UTF8.GetByteCount(finalReport));
               return new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.InvalidResult,
@@ -373,11 +362,32 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
       Status = AgentStatus.Completed,
       CompletedAt = DateTimeOffset.UtcNow,
       FinalReport = finalReport,
-    }, ct).ConfigureAwait(false);
+    }, CancellationToken.None).ConfigureAwait(false);
 
     PublishSettled(child.Id, AgentStatus.Completed, null, Encoding.UTF8.GetByteCount(finalReport));
     return new AgentRunOutcome(child.Id, AgentStatus.Completed, null, finalReport,
         child.ModelUsed, child.Depth);
+  }
+
+  /// <summary>Terminal persistence for a settled run: flush the transcript sink's
+  ///     pending messages, then persist the terminal row. Everything runs with
+  ///     CancellationToken.None — the run is already over; the caller's interrupt that
+  ///     ended it must not also destroy its record. A persistence fault throws a
+  ///     dedicated exception the runtime maps honestly (never 'A task was canceled.'), so
+  ///     a broken store surfaces as Failed(ProviderError) with a truthful report.</summary>
+  private async Task TerminalPersistAsync(AgentRecord terminal,
+      ChildTranscriptStore transcriptSink)
+  {
+    try
+    {
+      await transcriptSink.FlushAsync().ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      throw new TranscriptPersistException(ex.Message);
+    }
+
+    await PersistTerminalAsync(terminal, CancellationToken.None).ConfigureAwait(false);
   }
 
   /// <summary>Best-effort grant audit (R1.4): every enforcement decision lands as a

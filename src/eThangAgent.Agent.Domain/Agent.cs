@@ -73,7 +73,52 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly ToolRepeatGuard _repeatGuard = new();
 
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
+
+  private static IDisposable SubscribeSink(Conversation conversation, IChildTranscriptStore sink)
+  {
+    return conversation.Subscribe(
+        onAdded: message => _ = PersistQuietlyAsync(sink, message),
+        onReplaced: () => _ = ReplaceQuietlyAsync(conversation, sink));
+  }
+
+  /// <summary>Incremental transcript persistence: when a sink is wired, every
+  ///     conversation mutation flows to it at the safe point where the message is
+  ///     added. A sink fault is swallowed (best-effort persistence): the loop must
+  ///     never crash because persistence hiccupped — the terminal flush retries.</summary>
+  private static async Task PersistQuietlyAsync(IChildTranscriptStore sink, Message message)
+  {
+    try
+    {
+      await sink.AppendAsync(message).ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      // Swallowed deliberately: best-effort incremental persistence; the terminal
+      // flush retries anything left pending.
+    }
+  }
+
+  private static async Task ReplaceQuietlyAsync(Conversation conversation, IChildTranscriptStore sink)
+  {
+    try
+    {
+      await sink.ReplaceAsync(conversation.Messages).ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      // Swallowed deliberately: see PersistQuietlyAsync.
+    }
+  }
   public ModelConfig Config { get; } = config ?? throw new ArgumentNullException(nameof(config));
+
+  // Incremental transcript persistence: subscribed here (after the conversation
+  // property initializer) so the subscription sees no earlier state; seed messages
+  // from resume hydration were persisted by their original run and are not re-sent.
+  /// <summary>The live transcript subscription handle; null when no sink is wired.
+  ///     Observable for hosts and tests: non-null means the loop persists incrementally.</summary>
+  internal IDisposable? TranscriptSubscription { get; } = options?.TranscriptSink is { } transcriptSink
+      ? SubscribeSink(conversation, transcriptSink)
+      : null;
 
   /// <summary>Identity of this agent. Roots generate one on construction; spawned children carry their persisted id.</summary>
   public AgentId Id { get; } = options?.Id ?? AgentId.NewId();

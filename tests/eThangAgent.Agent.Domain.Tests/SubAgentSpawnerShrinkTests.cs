@@ -6,9 +6,10 @@ using eThangAgent.ToolDomain;
 namespace eThangAgent.AgentDomain.Tests;
 
 /// <summary>Child-run persistence when the child shrinks its own context mid-run
-///     (context_edit tool): the whole transcript is REPLACED, not appended - a
-///     mid-run shrink would make the append-slice baseline double-count. The
-///     sentinel contract mirrors the root loop's.</summary>
+///     (context_edit tool): the whole transcript is REPLACED, not appended - the
+///     shrink's wholesale replacement supersedes the incremental appends that already
+///     landed during the run (the sink's ReplaceAsync resets the flushed baseline).
+///     The sentinel contract mirrors the root loop's.</summary>
 public class SubAgentSpawnerShrinkTests
 {
   private static readonly DateTimeOffset FixedNow = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
@@ -47,17 +48,13 @@ public class SubAgentSpawnerShrinkTests
     AgentRunOutcome outcome = await spawner.RunAsync(Child(), CancellationToken.None);
 
     Assert.Equal(AgentStatus.Completed, outcome.Status);
-    // Exactly one append (the final assistant answer); the shrink turn contributed
-    // ZERO appends because the transcript was replaced wholesale.
-    // Replace-everything: the shrink turn's messages AND the final answer ride in the
-    // replacement, so the append path contributes nothing.
-    Assert.Empty(store.AppendedMessages);
-    Assert.Equal("child report", store.ReplacedTranscripts[0].Messages[^1].Content);
-    Assert.NotEmpty(store.ReplacedTranscripts);
+    // Incremental appends landed during the run (pre-shrink messages included); the
+    // shrink then REPLACED the transcript wholesale, so the persisted frontier is the
+    // post-shrink conversation — no duplicates, no stale rows.
     (AgentId id, IReadOnlyList<Message> messages) = store.ReplacedTranscripts.Single();
     Assert.Equal(outcome.ChildId, id);
-    // post-shrink transcript: user task, assistant call, shrink tool result, final answer
     Assert.Equal(4, messages.Count);
+    Assert.Equal("child report", messages[^1].Content);
   }
 
   [Fact]

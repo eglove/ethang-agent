@@ -37,6 +37,12 @@ public sealed record AgentOptions
   ///     Null (legacy wiring) publishes nothing: byte-identical legacy behavior.</summary>
   public IAgentEvents? Events { get; init; }
 
+  /// <summary>Incremental transcript persistence for child runs: every conversation
+  ///     mutation flows here at the safe point it happens, so an interrupt or crash
+  ///     leaves the run's history persisted. Null (legacy wiring) persists nothing
+  ///     during the run: byte-identical legacy behavior.</summary>
+  public IChildTranscriptStore? TranscriptSink { get; init; }
+
   /// <summary>Durable session identity stamped onto every provider request this loop
   ///     builds (OpenRouter sticky sessions / prompt caching). Null (legacy wiring)
   ///     leaves the request's id unset: byte-identical legacy behavior.</summary>

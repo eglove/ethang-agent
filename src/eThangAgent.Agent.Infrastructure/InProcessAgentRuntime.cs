@@ -194,6 +194,15 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     // Named decision (CA1031): the runtime is an actor boundary - ANY runner fault must
     // become a well-formed Failed outcome for agent.result retrieval, never a crash.
 #pragma warning disable CA1031 // Do not catch general exception types
+    catch (TranscriptPersistException ex)
+    {
+      // Honest classification: the RUN succeeded or failed normally, but its terminal
+      // record could not be persisted. ProviderError with the persist-fault text keeps
+      // the well-formed outcome contract while never reporting 'A task was canceled.'
+      // for a persistence problem.
+      await TerminalUpdateAsync(record, AgentStatus.Failed, AgentFailureReason.ProviderError,
+          "Error [ProviderError]: failed to persist child transcript: " + ex.Message).ConfigureAwait(false);
+    }
     catch (Exception ex)
     {
       // Runner faults are terminal child outcomes, not crashes: persist them so the parent
