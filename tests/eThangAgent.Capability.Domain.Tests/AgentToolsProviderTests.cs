@@ -18,7 +18,7 @@ public class AgentToolsProviderTests
     Assert.Equal("read", action.Name);
     Assert.Equal("Read lines from a text file.", action.Summary);
     Assert.Contains("annotation", action.Description, StringComparison.Ordinal);
-    Assert.Equal(4, action.Parameters.Count);
+    Assert.Equal(5, action.Parameters.Count);
     Assert.Contains(action.Parameters, p => p.Name == ToolTimeout.ParameterName && p.Type == "WholeNumber");
     Assert.Contains(action.Parameters, p => p.Name == "path" && p.Type == "Text");
     Assert.Contains(action.Parameters, p => p.Name == "startLine" && p.Type == "WholeNumber");

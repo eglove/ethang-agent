@@ -85,7 +85,7 @@ public class DesktopE2ETests
         "verify(ids: String[]): Run attached evidence fail-closed and certify.",
         host.Mock.LastChatRequestBody, StringComparison.Ordinal);
     Assert.Contains(
-        "read(timeoutSeconds: WholeNumber, path: Text, startLine: WholeNumber, endLine: WholeNumber): Read lines from a text file.",
+        "read(timeoutSeconds: WholeNumber, path: Text, startLine: WholeNumber, endLine: WholeNumber, force: Flag): Read lines from a text file.",
         host.Mock.LastChatRequestBody, StringComparison.Ordinal);
     Assert.Contains(
         "db_query(timeoutSeconds: WholeNumber, sql: Text, maxRows: WholeNumber): Run one read-only SQL query",

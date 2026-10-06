@@ -49,7 +49,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   budget is stopped and returned as `Error [ToolTimeout]` for self-correction; the agent's
   tool loop itself runs uncapped until the model answers without tool calls, with per-turn
   cancellation always honored
-- `read` tool — bounded, line-range text file reads
+- `read` tool — bounded, line-range text file reads with a freshness guard: every read's annotation carries a file-version token (the (Length, LastWriteTimeUtc) pair the ACL captures at the read moment); re-reading a range the model already holds at the same version returns an elided stub naming the held span instead of the content (`force: true` returns it anyway). The ledger is turn-local and per-agent — reset at turn start and wherever history is replaced (compaction, context shrink) — so elision never hides content the model no longer holds
 - `write` tool — create/replace files behind an explicit overwrite gate
 - `edit` tool — exact literal replacements with occurrence verification, or line-range replacement (lines N..M, no anchor, endLine past EOF rejected); a missed anchor quotes the file's nearest matching region (exact line numbers and content) so one retry corrects the anchor
 - `write_markdown` tool — renders a structured JSON document into well-formed markdown deterministically (headers, lists, tables, alerts, frontmatter); returns the string or writes it to a workspace file behind the same overwrite gate as `write`
