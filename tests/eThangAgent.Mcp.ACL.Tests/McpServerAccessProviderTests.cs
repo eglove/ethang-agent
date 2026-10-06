@@ -8,13 +8,18 @@ namespace eThangAgent.Mcp.ACL.Tests;
 public class McpServerAccessProviderTests
 {
   [Fact]
-  public void ForWorkspace_Returns_Access_Bound_To_The_Workspace()
+  public async Task ForWorkspace_Returns_Access_Bound_To_The_Workspace()
   {
     AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpprov-{Guid.NewGuid():N}.db"));
     try
     {
       SqliteMcpServerStore store = new(database);
-      McpServerAccessProvider provider = new(store, new SdkMcpClientSessionFactory());
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using SdkMcpClientSessionFactory factory = new();
+#pragma warning restore CA2007
+      _ = factory;
+      McpServerAccessProvider provider = new(store, factory);
       IMcpServerAccess access = provider.ForWorkspace("ws-a");
       _ = Assert.IsType<McpServerAccess>(access);
       IMcpServerAccess again = provider.ForWorkspace("ws-a");
@@ -42,7 +47,12 @@ public class McpServerAccessProviderTests
       SqliteMcpServerStore store = new(database);
       _ = await store.AddAsync(new McpServerConfig(0, "demo", McpTransport.Stdio, "npx", "[]", "{}", "{}",
           null, McpApprovalState.Approved, null, DateTimeOffset.UtcNow), TestContext.Current.CancellationToken).ConfigureAwait(true);
-      McpServerAccessProvider provider = new(store, new SdkMcpClientSessionFactory());
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using SdkMcpClientSessionFactory factory = new();
+#pragma warning restore CA2007
+      _ = factory;
+      McpServerAccessProvider provider = new(store, factory);
       IMcpServerAccess access = provider.ForWorkspace("ws-a");
       McpOutcome outcome = await access.ExecuteAsync(new McpCommand.ListServers(),
           TestContext.Current.CancellationToken).ConfigureAwait(true);

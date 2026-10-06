@@ -7,4 +7,11 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The stub MCP server is a separate executable built on demand (the
+         ComputerUse StubHost precedent); its sources must not leak into this
+         test project's glob. -->
+    <Compile Remove="StubServer/**" />
+    <None Remove="StubServer/**" />
+  </ItemGroup>
 </Project>

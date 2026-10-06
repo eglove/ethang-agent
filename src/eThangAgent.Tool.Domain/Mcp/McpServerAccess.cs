@@ -86,6 +86,20 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
     }
 
     PoolEntry entry = _entries.GetOrAdd(call.Server, _ => new PoolEntry());
+    // Reconnect (issue #105, B4): a session whose server died mid-session is
+    // disposed and reconnected on this dispatch - a structured reconnect, never a
+    // hang or a stale-session error loop. The dead session's dispose is best-effort
+    // and detached: its failure never blocks the reconnect.
+    if (entry.Session is { HasExited: true } dead)
+    {
+      entry.Session = null;
+      entry.State = McpConnectionState.NotConnected;
+      entry.Tools = [];
+      entry.Error = null;
+      IMcpClientSession corpse = dead;
+      _ = Task.Run(() => corpse.DisposeAsync().AsTask(), CancellationToken.None);
+    }
+
     if (entry.Session is null)
     {
       McpConnectResult connect = await _pool.ConnectAsync(config, ct).ConfigureAwait(false);

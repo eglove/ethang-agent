@@ -121,9 +121,9 @@ public class SdkMcpClientSessionFactoryTests
 
     using CancellationTokenSource connectCts = new(TimeSpan.FromSeconds(15));
     File.AppendAllText(Path.Combine(Path.GetTempPath(), "mcp-trace.log"), "factory call\n");
-    McpConnectResult result = await SdkMcpClientSessionFactory.ConnectAsync(
-        StdioConfig(name: name), connectCts.Token,
-        transportOverride: clientStream).ConfigureAwait(true);
+    McpConnectResult result = await SdkMcpClientSessionFactory.ConnectOverTransportAsync(
+        () => new StreamClientTransport(clientStream, clientStream),
+        connectCts.Token).ConfigureAwait(true);
     File.AppendAllText(Path.Combine(Path.GetTempPath(), "mcp-trace.log"), "factory returned: " + (result is McpConnectResult.Success ? "success" : "failure") + "\n");
     if (result is McpConnectResult.Failure failure)
     {

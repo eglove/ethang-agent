@@ -6,6 +6,12 @@ namespace eThangAgent.ToolDomain.Mcp;
 ///     underlying session when disposed.</summary>
 public interface IMcpClientSession : IAsyncDisposable
 {
+  /// <summary>Whether the session's underlying transport is dead (a stdio server
+  ///     process that exited). The pool polls this before reusing a session and
+  ///     reconnects when it reports true; a transport without a process (in-memory,
+  ///     HTTP) never dies, so the default is false.</summary>
+  bool HasExited => false;
+
   /// <summary>Lists the server's tools. The result is the ACL's parsed view of the
   ///     server's tool metadata (names plus descriptions).</summary>
   Task<IReadOnlyList<McpToolInfo>> ListToolsAsync(CancellationToken ct = default);
