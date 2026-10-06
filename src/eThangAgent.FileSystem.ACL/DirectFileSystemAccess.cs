@@ -18,6 +18,14 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
       return Task.FromResult(Result.Failure<FileRead>(new DomainError("FileNotFound", $"File not found: {path}")));
     }
 
+    // Stat FIRST, then read: the version pair must describe the file as it stood
+    // when the content was captured. A write racing between the stat and the read
+    // makes the token OLDER than the content — the next read over-delivers (never
+    // wrongly elides), the safe direction. A stat taken after the read could see a
+    // newer write than the delivered lines and overstate freshness.
+    FileInfo stat = new(path);
+    FileVersion version = new(stat.Length, stat.LastWriteTimeUtc);
+
     List<string> allLines = [];
     using StreamReader sr = new(path, Encoding.UTF8);
     while (sr.ReadLine() is { } line)
@@ -28,7 +36,7 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     int start = Math.Max(1, startLine) - 1;
     int end = Math.Min(endLine, allLines.Count);
     List<string> slice = [.. allLines.Skip(start).Take(end - start)];
-    return Task.FromResult(Result.Success(new FileRead(slice, end, allLines.Count)));
+    return Task.FromResult(Result.Success(new FileRead(slice, end, allLines.Count, version)));
   }
 
   public Task<Result<byte[]>> ReadBytesAsync(string path, CancellationToken ct = default)
