@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.2.*" />
+    <ProjectReference Include="../../src/eThangAgent.Mcp.ACL/eThangAgent.Mcp.ACL.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.Storage.ACL/eThangAgent.Storage.ACL.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.2.*" />
+    <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The option builders and the in-memory transport hook are the test contract;
+         the option shapes are pinned directly, like the composition's internals. -->
+    <InternalsVisibleTo Include="eThangAgent.Mcp.ACL.Tests" />
+  </ItemGroup>
+</Project>

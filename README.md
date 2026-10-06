@@ -145,6 +145,7 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 different session of the same app (in-process or running in the ChildHost); links persist
 per workspace across restarts
 - **Computer Use** — when enabled in settings (`computer_use_enabled`, default OFF), the agent can observe and operate native Windows apps through a supervised broker: the accessibility tree as readable text, clicks and keyboard input, and screenshots that reach vision-capable models. Consent-first: the toggle is off until you switch it on.
+- **MCP (Model Context Protocol)** — the agent can call tools on configured MCP servers through one `mcp` dispatch tool (`list` shows configured servers with their connection state; `call` invokes a tool). Servers connect lazily on first dispatch and their tool lists cache per workspace; the definition budget stays flat no matter how many servers are configured. Trust-first: a server connects only after it is approved (the approval flow is a later increment); a failed connect is a structured error plus a status entry, and the next call retries. stdio servers spawn with environment inheritance off — they see only the SDK default set plus their configured env, never your credentials uninvited.
 - Session persistence, recall, and resume via a versioned, app-owned SQLite database
 
 ## Requirements

@@ -1,0 +1,108 @@
+using eThangAgent.AgentDomain;
+using eThangAgent.CapabilityDomain;
+using eThangAgent.ModelDomain;
+using eThangAgent.Storage.ACL;
+using eThangAgent.ToolDomain;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace eThangAgent.Composition.Tests;
+
+/// <summary>MCP composition tests (issue #104): the mcp tool joins the loop registry
+///     and the capability surface, the definition budget stays FLAT regardless of
+///     configured server count (B1), and the per-workspace access resolves through
+///     the provider seam.</summary>
+public class McpCompositionTests
+{
+  private static ServiceProvider Build()
+  {
+    AgentSettings settings = new(
+        new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
+        new SubAgentOptions(null, 2));
+    return new ServiceCollection()
+        .AddEThangAgentCore(settings, Providers.OpenRouter,
+            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
+            new AgentHostOptions(
+                new FixedWorkspaceContext("ws-mcp"), new UnrootedPathResolver()))
+        .BuildServiceProvider();
+  }
+
+  [Fact]
+  public void Loop_Registry_Carries_The_Mcp_Tool()
+  {
+    using ServiceProvider services = Build();
+    IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
+    Assert.NotNull(registry.Find("mcp"));
+  }
+
+  [Fact]
+  public async Task Definition_Count_Is_Flat_With_Ten_Configured_Servers()
+  {
+    // B1: the bootstrap's definition count is identical with zero and with ten
+    // configured servers. The mcp tool is ONE definition either way; servers are
+    // discovered through the listing action, never upfront definitions.
+    using ServiceProvider zero = Build();
+    IToolRegistry zeroRegistry = zero.GetRequiredService<IToolRegistry>();
+    int zeroCount = zeroRegistry.Definitions.Count;
+
+    AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
+    try
+    {
+      SqliteMcpServerStore store = new(database);
+      for (int i = 0; i < 10; i++)
+      {
+        _ = await store.AddAsync(new ToolDomain.Mcp.McpServerConfig(0, $"server{i}",
+            ToolDomain.Mcp.McpTransport.Stdio, "npx", "[]", "{}", "{}", null,
+            ToolDomain.Mcp.McpApprovalState.Approved, null, DateTimeOffset.UtcNow),
+            TestContext.Current.CancellationToken).ConfigureAwait(true);
+      }
+
+      using ServiceProvider ten = BuildWithStore(store);
+      IToolRegistry tenRegistry = ten.GetRequiredService<IToolRegistry>();
+      Assert.Equal(zeroCount, tenRegistry.Definitions.Count);
+      Assert.True(zeroCount > 0);
+    }
+    finally
+    {
+      try
+      {
+        File.Delete(database.DatabasePath);
+      }
+      catch (IOException)
+      {
+        // Named decision: the pooled connection may still hold the file; temp cleanup is best effort.
+      }
+    }
+  }
+
+  [Fact]
+  public void Capability_Surface_Resolves_Mcp()
+  {
+    using ServiceProvider services = Build();
+    Func<ICapabilityRegistry> surface = services.GetRequiredService<Func<ICapabilityRegistry>>();
+    Assert.True(surface().Resolve("mcp").IsSuccess);
+  }
+
+  [Fact]
+  public void Workspace_Access_Resolves_Per_Workspace()
+  {
+    using ServiceProvider services = Build();
+    ToolDomain.Mcp.IMcpServerAccessProvider provider =
+        services.GetRequiredService<ToolDomain.Mcp.IMcpServerAccessProvider>();
+    ToolDomain.Mcp.IMcpServerAccess access = provider.ForWorkspace("ws-mcp");
+    _ = Assert.IsType<ToolDomain.Mcp.McpServerAccess>(access);
+  }
+
+  private static ServiceProvider BuildWithStore(SqliteMcpServerStore store)
+  {
+    AgentSettings settings = new(
+        new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
+        new SubAgentOptions(null, 2));
+    return new ServiceCollection()
+        .AddEThangAgentCore(settings, Providers.OpenRouter,
+            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
+            new AgentHostOptions(
+                new FixedWorkspaceContext("ws-mcp"), new UnrootedPathResolver()))
+        .AddSingleton<ToolDomain.Mcp.IMcpServerStore>(store)
+        .BuildServiceProvider();
+  }
+}

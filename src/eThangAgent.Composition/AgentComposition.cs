@@ -8,6 +8,7 @@ using eThangAgent.CapabilityDomain;
 using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ConversationDomain;
 using eThangAgent.FileSystem.ACL;
+using eThangAgent.Mcp.ACL;
 using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
@@ -18,6 +19,7 @@ using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.ToolDomain.Mcp;
 using eThangAgent.ToolDomain.Verification;
 using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
@@ -166,6 +168,13 @@ public static class AgentComposition
                 new AgentToolBinding(
                     new CycleCheckTool(),
                     "Detect dependency cycles in a supplied construction graph and classify deadlock risk."),
+                // MCP dispatch (issue #104): the model's single door to configured MCP
+                // servers; the definition budget stays flat (B1). Per-workspace access
+                // through the provider seam.
+                new AgentToolBinding(
+                    new McpTool(sp.GetRequiredService<IMcpServerAccessProvider>().ForWorkspace(
+                        sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)),
+                    "Call tools on configured MCP servers through one dispatch surface (list, call)."),
                 .. ComputerToolBindings(sp, settings),
         ]))
         .AddSingleton(host.WorkspaceContext)
@@ -177,6 +186,13 @@ public static class AgentComposition
             sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<ISelfDatabaseAccess, SqliteSelfDatabaseAccess>()
         .AddSingleton<ISqliteFileAccess, SqliteFileAccess>()
+        // MCP dispatch (issue #104): the config store over the app database, the SDK
+        // pool, and the per-workspace access provider. The mcp loop tool below is the
+        // model's single door; the definition budget stays flat (B1).
+        .AddSingleton<IMcpServerStore>(sp => new SqliteMcpServerStore(
+            sp.GetRequiredService<AppDatabase>()))
+        .AddSingleton<IMcpClientSessionPool, SdkMcpClientSessionFactory>()
+        .AddSingleton<IMcpServerAccessProvider, McpServerAccessProvider>()
         .AddSingleton<IContextWindowSource, CatalogContextWindowSource>()
         .AddSingleton(sp =>
         {
@@ -454,7 +470,10 @@ public static class AgentComposition
             sp.GetRequiredService<ExecOptions>(),
             sp.GetRequiredService<IExecActivitySink>()))
         .AddSingleton<IToolRegistry>(sp =>
-            new ToolRegistry([sp.GetRequiredService<ITool>(), .. ComputerLoopTools(sp, settings)]))
+            new ToolRegistry([sp.GetRequiredService<ITool>(),
+                new McpTool(sp.GetRequiredService<IMcpServerAccessProvider>().ForWorkspace(
+                    sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)),
+                .. ComputerLoopTools(sp, settings)]))
         .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
         [
             new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>(),
