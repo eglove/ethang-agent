@@ -13,7 +13,7 @@ namespace eThangAgent.ToolDomain;
 ///     binds one per agent and resets it each turn. A ledger-less tool (legacy
 ///     wiring) annotates tokens but never elides; a version-less read is
 ///     byte-identical to the pre-guard output.</summary>
-public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files, ReadFreshnessLedger? ledger = null) : ITool, IWorkspaceScopedTool
+public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files, ReadFreshnessLedger? ledger = null) : ITool, IWorkspaceScopedTool, ILedgerBoundTool
 {
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IFileSystemAccess _files = files ?? throw new ArgumentNullException(nameof(files));
@@ -22,6 +22,13 @@ public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files, Re
   /// <inheritdoc />
   public ITool RootedAt(string workspaceRoot)
       => new ReadTool(new WorkspacePathResolver(workspaceRoot), _files, _ledger);
+
+  /// <inheritdoc />
+  public bool HasLedger => _ledger is not null;
+
+  /// <inheritdoc />
+  public ITool WithLedger(ReadFreshnessLedger ledger)
+      => _ledger is null ? new ReadTool(_resolver, _files, ledger) : this;
 
   public ToolDefinition Definition { get; } = new(
       "read",

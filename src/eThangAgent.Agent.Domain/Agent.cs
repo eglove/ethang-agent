@@ -71,6 +71,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
   private readonly string? _sessionId = options?.SessionId;
   private readonly ToolRepeatGuard _repeatGuard = new();
+  private readonly ReadFreshnessLedger _readLedger = new();
 
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
 
@@ -166,6 +167,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       ShrankThisTurn = false;
       _shrankThisTurnObserved = false;
       _repeatGuard.Reset();
+      _readLedger.Reset();
       // Auto-continuations used by this turn only: reset here, never carried between turns.
       int autoContinuations = 0;
       // Overflow recovery is turn-local (like autoContinuations): one forced compaction
@@ -341,6 +343,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         await _contextCompactor.CompactAsync(Conversation, Config, ct).ConfigureAwait(false);
     if (compacted.IsSuccess)
     {
+      _readLedger.Reset();  // history was replaced: nothing held before is held now
       callbacks?.OnCompacted?.Invoke(compacted.Value);
       // The summary message the compaction left in the conversation is surfaced
       // verbatim: nothing the agent receives stays hidden from the host surface
@@ -402,6 +405,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
     // Same observer surface as the threshold backstop: outcome, the summary line the
     // compaction left in the conversation, and a re-fired context snapshot.
+    _readLedger.Reset();  // history was replaced: nothing held before is held now
     callbacks?.OnCompacted?.Invoke(compacted.Value);
     if (Conversation.Messages.FirstOrDefault(m => m.IsSummary) is { } summary)
     {
@@ -528,6 +532,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         continue;
       }
       ITool? tool = _tools.Find(call.Name);
+      if (tool is ILedgerBoundTool ledgerTool && !ledgerTool.HasLedger)
+      {
+        tool = ledgerTool.WithLedger(_readLedger);
+      }
+
       PublishProgress(ChildPhase.ToolExec, "tool:" + call.Name);
       _heartbeat?.Beat(Id);
       ToolResult toolResult = tool is null
@@ -541,6 +550,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       if (toolResult.Content.Contains(ContextShrinkSentinel, StringComparison.Ordinal))
       {
         _shrankThisTurnObserved = true;
+        _readLedger.Reset();  // history was replaced: nothing held before is held now
       }
       if (_repeatGuard.Observe(call.Name, call.Arguments, toolResult.IsError, toolResult.Content) is { } guardLine)
       {
