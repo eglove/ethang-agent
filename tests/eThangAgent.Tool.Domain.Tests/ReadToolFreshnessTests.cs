@@ -1,3 +1,6 @@
+// JSON arguments in tool-input tests are plain string literals by design;
+// the JSON-string analyzer's rewrites do not apply to RawToolInput payloads.
+#pragma warning disable JSON002
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain.Tests;
@@ -258,3 +261,5 @@ public class ReadToolFreshnessTests
         => throw new NotImplementedException();
   }
 }
+
+#pragma warning restore JSON002
