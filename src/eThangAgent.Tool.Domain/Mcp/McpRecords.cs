@@ -31,6 +31,8 @@ public enum McpConnectionState
 /// <param name="State">The pool's connection state.</param>
 /// <param name="Tools">The cached tool list; empty unless connected.</param>
 /// <param name="Error">The failure message when State is Failed; else null.</param>
+/// <param name="Stderr">The captured stderr tail (connected or dead session), or null
+///     when the transport captures none - the status view's WHY-it-failed text.</param>
 // CA1054/CA1056: deliberately raw text - for stdio transports this is a command
 // (not a URI at all); the same named deviation as McpServerConfig.
 #pragma warning disable CA1054, CA1056
@@ -41,7 +43,8 @@ public sealed record McpServerStatus(
     string CommandOrUrl,
     McpConnectionState State,
     IReadOnlyList<McpToolInfo> Tools,
-    string? Error);
+    string? Error,
+    string? Stderr = null);
 #pragma warning restore CA1054, CA1056
 
 /// <summary>Commands the dispatch tool sends the seam (the closed command set).

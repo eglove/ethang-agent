@@ -83,6 +83,24 @@ public class McpCompositionTests
   }
 
   [Fact]
+  public void Container_Registers_One_Shared_Mcp_Server_Access()
+  {
+    // Issue #106: the status view reads the SAME pooled access the mcp tool
+    // dispatches through - one IMcpServerAccess per container, so the dialog's
+    // live state (connected/failed) is the session's own pool state.
+    using ServiceProvider services = Build();
+    ToolDomain.Mcp.IMcpServerAccess access = services.GetRequiredService<ToolDomain.Mcp.IMcpServerAccess>();
+    _ = Assert.IsType<ToolDomain.Mcp.McpServerAccess>(access);
+
+    // The loop tool and the capability surface share it: both bindings resolve
+    // the same singleton, never two pools over one workspace.
+    IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
+    Assert.NotNull(registry.Find("mcp"));
+    Func<ICapabilityRegistry> surface = services.GetRequiredService<Func<ICapabilityRegistry>>();
+    Assert.True(surface().Resolve("mcp").IsSuccess);
+  }
+
+  [Fact]
   public void Workspace_Access_Resolves_Per_Workspace()
   {
     using ServiceProvider services = Build();

@@ -169,11 +169,11 @@ public static class AgentComposition
                     new CycleCheckTool(),
                     "Detect dependency cycles in a supplied construction graph and classify deadlock risk."),
                 // MCP dispatch (issue #104): the model's single door to configured MCP
-                // servers; the definition budget stays flat (B1). Per-workspace access
-                // through the provider seam.
+                // servers; the definition budget stays flat (B1). The SHARED access
+                // (issue #106): the loop tool and the Desktop status view see the same
+                // pooled sessions.
                 new AgentToolBinding(
-                    new McpTool(sp.GetRequiredService<IMcpServerAccessProvider>().ForWorkspace(
-                        sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)),
+                    new McpTool(sp.GetRequiredService<IMcpServerAccess>()),
                     "Call tools on configured MCP servers through one dispatch surface (list, call)."),
                 .. ComputerToolBindings(sp, settings),
         ]))
@@ -193,6 +193,9 @@ public static class AgentComposition
             sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<IMcpClientSessionPool, SdkMcpClientSessionFactory>()
         .AddSingleton<IMcpServerAccessProvider, McpServerAccessProvider>()
+        // Issue #106: ONE access per container - the mcp tool's dispatches and the
+        // Desktop status view share this workspace's pooled sessions.
+        .AddSingleton(SharedMcpServerAccess)
         .AddSingleton<IContextWindowSource, CatalogContextWindowSource>()
         .AddSingleton(sp =>
         {
@@ -471,8 +474,7 @@ public static class AgentComposition
             sp.GetRequiredService<IExecActivitySink>()))
         .AddSingleton<IToolRegistry>(sp =>
             new ToolRegistry([sp.GetRequiredService<ITool>(),
-                new McpTool(sp.GetRequiredService<IMcpServerAccessProvider>().ForWorkspace(
-                    sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)),
+                new McpTool(sp.GetRequiredService<IMcpServerAccess>()),
                 .. ComputerLoopTools(sp, settings)]))
         .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
         [
@@ -732,6 +734,14 @@ public static class AgentComposition
   ///     (settings.ComputerUse from the computer_use_enabled preference). The access instance is
   ///     the per-workspace BrokerRegistry entry; the vision capability resolves the session's
   ///     CURRENT ModelConfig at call time, so a model-picker change applies from the next turn.</summary>
+  /// <summary>The container's ONE MCP server access (issue #106): the mcp tool's
+  ///     dispatches and the Desktop status view share this workspace's pooled
+  ///     sessions. Extracted so the registration reads as a method group (IDE0001
+  ///     flags the inline factory's generic).</summary>
+  private static IMcpServerAccess SharedMcpServerAccess(IServiceProvider sp) =>
+      sp.GetRequiredService<IMcpServerAccessProvider>().ForWorkspace(
+          sp.GetRequiredService<IWorkspaceContext>().WorkspaceId);
+
   private static IEnumerable<AgentToolBinding> ComputerToolBindings(IServiceProvider sp, AgentSettings settings)
   {
     if (!settings.ComputerUse)

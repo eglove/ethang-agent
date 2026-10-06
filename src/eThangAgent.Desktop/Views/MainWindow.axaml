@@ -43,6 +43,12 @@
                 Margin="0,2" Command="{Binding OpenLinksCommand}"
                 IsVisible="{Binding HasSelectedTab}"
                 ToolTip.Tip="Links — consented routes to other agents"/>
+        <Button x:Name="McpServersMenuItem" Classes="menu-item" DockPanel.Dock="Top" Content="🔌"
+                Width="40" Height="34" Padding="0" FontSize="18"
+                HorizontalAlignment="Center"
+                Margin="0,2" Command="{Binding OpenMcpServersCommand}"
+                IsVisible="{Binding HasSelectedTab}"
+                ToolTip.Tip="MCP Servers — configured servers and their live state"/>
         <Button x:Name="SettingsMenuItem" Classes="menu-item" DockPanel.Dock="Bottom" Content="⚙"
                 Width="40" Height="34" Padding="0" FontSize="18"
                 HorizontalAlignment="Center"

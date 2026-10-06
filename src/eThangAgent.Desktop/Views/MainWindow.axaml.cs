@@ -6,6 +6,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain.Mcp;
 
 namespace eThangAgent.Desktop.Views;
 
@@ -40,6 +41,7 @@ internal partial class MainWindow : Window
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
     vm.ModelSettingsRequested += async (_, _) => await ShowModelSettingsDialogAsync();
     vm.LinksRequested += async (_, _) => await ShowLinksDialogAsync();
+    vm.McpServersRequested += async (_, _) => await ShowMcpServersDialogAsync();
   }
 
   /// <summary>Shows the Sessions dialog (persisted root sessions, already-open ones
@@ -175,6 +177,30 @@ internal partial class MainWindow : Window
     LinksWindow dialog = new(loader, registry);
     await dialog.ShowDialog(this);
   }
+  /// <summary>Shows the MCP servers dialog (issue #106) over the selected tab's
+  ///     own seams: the store the form writes through, the SHARED pooled access the
+  ///     status view reads (the same object the mcp tool dispatches through), and
+  ///     the workspace id. No tab: structured failure, not silence.</summary>
+  private async Task ShowMcpServersDialogAsync()
+  {
+    if (_vm is not { } vm)
+    {
+      return; // design-time / headless shell without a view-model
+    }
+
+    Func<(IMcpServerStore Store, IMcpServerAccess Access, string WorkspaceId)>? loader =
+        vm.SelectedMcpServersLoader;
+    if (loader is null)
+    {
+      await ShowOpenFailedAsync("Open an agent tab before configuring MCP servers.");
+      return;
+    }
+
+    (IMcpServerStore store, IMcpServerAccess access, string workspaceId) = loader();
+    McpServersWindow dialog = new(new McpServersViewModel(store, access, workspaceId));
+    await dialog.ShowDialog(this);
+  }
+
   private async Task ShowOpenFailedAsync(string message)
   {
     Window dialog = new()

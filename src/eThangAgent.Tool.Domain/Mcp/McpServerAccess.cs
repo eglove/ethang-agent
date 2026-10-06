@@ -11,7 +11,7 @@ namespace eThangAgent.ToolDomain.Mcp;
 ///     errors that name what is configured and connected (B4). Listing never connects
 ///     anything. One instance per session container = one pool per workspace.</summary>
 public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool pool, string workspaceId)
-    : IMcpServerAccess, IAsyncDisposable
+    : IMcpServerAccess, IAsyncDisposable, IDisposable
 {
   private readonly IMcpServerStore _store = store ?? throw new ArgumentNullException(nameof(store));
   private readonly IMcpClientSessionPool _pool = pool ?? throw new ArgumentNullException(nameof(pool));
@@ -61,7 +61,7 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
     {
       PoolEntry entry = _entries.GetOrAdd(config.Name, _ => new PoolEntry());
       statuses.Add(new McpServerStatus(config.Name, config.ApprovalState, config.Transport,
-          config.CommandOrUrl, entry.State, entry.Tools, entry.Error));
+          config.CommandOrUrl, entry.State, entry.Tools, entry.Error, entry.Stderr));
     }
 
     return Task.FromResult<McpOutcome>(new McpOutcome.Status(statuses));
@@ -92,6 +92,9 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
     // and detached: its failure never blocks the reconnect.
     if (entry.Session is { HasExited: true } dead)
     {
+      // Issue #106: the crash's diagnosis outlives the corpse - the dead session's
+      // stderr tail stays on the entry until a fresh session connects.
+      entry.Stderr = dead.StderrTail ?? entry.Stderr;
       entry.Session = null;
       entry.State = McpConnectionState.NotConnected;
       entry.Tools = [];
@@ -114,6 +117,7 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
 
       entry.Session = ((McpConnectResult.Success)connect).Session;
       entry.State = McpConnectionState.Connected;
+      entry.Stderr = entry.Session.StderrTail;
       entry.Tools = await entry.Session.ListToolsAsync(ct).ConfigureAwait(false);
     }
 
@@ -150,6 +154,21 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
     _entries.Clear();
   }
 
+  /// <summary>Sync dispose for the DI container's shutdown path: the same reaping
+  ///     as <see cref="DisposeAsync"/> without the await (the SDK session factory's
+  ///     precedent). Sessions dispose their transports; a UI-thread container close
+  ///     must not deadlock on them.</summary>
+  public void Dispose()
+  {
+    foreach (IMcpClientSession session in _entries.Values.Where(e => e.Session is not null)
+        .Select(e => e.Session!))
+    {
+      session.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    _entries.Clear();
+  }
+
   /// <summary>One server's pooled state: the session once connected, the cached tool
   ///     list, and the last connect failure if any.</summary>
   private sealed class PoolEntry
@@ -158,5 +177,8 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
     public McpConnectionState State { get; set; } = McpConnectionState.NotConnected;
     public IReadOnlyList<McpToolInfo> Tools { get; set; } = [];
     public string? Error { get; set; }
+
+    /// <summary>The captured stderr tail of the current (or last dead) session.</summary>
+    public string? Stderr { get; set; }
   }
 }

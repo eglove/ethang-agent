@@ -9,6 +9,9 @@ namespace eThangAgent.ToolDomain.Tests;
 ///     scripted fake that reports itself dead after its first call.</summary>
 public class McpServerAccessReconnectTests
 {
+  // Named decision (CA2000): every test disposes its access explicitly at the end
+  // (DisposeAsync under ConfigureAwait(true)); the analyzer cannot see the transfer.
+#pragma warning disable CA2000 // Use a using statement or using declaration
   private static McpServerConfig ApprovedStdio(string name = "demo", int id = 1) => new(
       id, name, McpTransport.Stdio, "npx demo", "[]", "{}", "{}", null,
       McpApprovalState.Approved, null, DateTimeOffset.UtcNow);
@@ -142,3 +145,4 @@ public class McpServerAccessReconnectTests
     await access.DisposeAsync().ConfigureAwait(true);
   }
 }
+#pragma warning restore CA2000 // Use a using statement or using declaration

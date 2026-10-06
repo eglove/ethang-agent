@@ -9,6 +9,10 @@ namespace eThangAgent.ToolDomain.Tests;
 ///     contract (B4). The SDK session is a scripted fake over the seam.</summary>
 public class McpServerAccessTests
 {
+  // Named decision (CA2000): every session here is an in-memory fake whose dispose
+  // is a no-op; the pool's sessions are the tests' observation points and outlive
+  // single commands. No test holds a real transport.
+#pragma warning disable CA2000 // Use a using statement or using declaration
   private const string ToolsJson = "[{" + "\"name\":\"echo\"," + "\"description\":\"Echoes text\"}," +
       "{\"name\":\"ping\",\"description\":null}]";
 
@@ -265,6 +269,7 @@ public class McpServerAccessTests
     Assert.Equal("McpToolNotFound", failure.Code);
     Assert.Contains("echo", failure.Message, StringComparison.Ordinal);
   }
+#pragma warning restore CA2000 // Use a using statement or using declaration
 
   // ---- storage fault ----
 

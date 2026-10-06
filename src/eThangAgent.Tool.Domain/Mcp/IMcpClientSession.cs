@@ -12,6 +12,11 @@ public interface IMcpClientSession : IAsyncDisposable
   ///     HTTP) never dies, so the default is false.</summary>
   bool HasExited => false;
 
+  /// <summary>The captured stderr tail (the last lines the server wrote, oldest
+  ///     first), or null when the transport captures none (in-memory, HTTP). The
+  ///     status view surfaces it so a failed server shows WHY it failed (issue #106).</summary>
+  string? StderrTail => null;
+
   /// <summary>Lists the server's tools. The result is the ACL's parsed view of the
   ///     server's tool metadata (names plus descriptions).</summary>
   Task<IReadOnlyList<McpToolInfo>> ListToolsAsync(CancellationToken ct = default);

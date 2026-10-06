@@ -1,0 +1,107 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:eThangAgent.Desktop.ViewModels"
+        x:Class="eThangAgent.Desktop.Views.McpServersWindow"
+        x:DataType="vm:McpServersViewModel"
+        Title="MCP Servers - configured servers and their live state" Width="760" Height="560"
+        MinWidth="560" MinHeight="380" CanResize="True" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" Margin="16">
+
+    <TextBlock Grid.Row="0" TextWrapping="Wrap" Opacity="0.75" Margin="0,0,0,8">
+      Configured MCP servers for this workspace and the global scope. A server connects only
+      after you approve it (the trust event); a failed connect shows its last error and the
+      captured stderr below - the session that hit the failure continued.
+    </TextBlock>
+
+    <!-- The configured list with live state -->
+    <ListBox Grid.Row="1" x:Name="ServerList" ItemsSource="{Binding Servers}"
+             SelectedItem="{Binding Selected}" MinHeight="140">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="vm:McpServerRow">
+          <StackPanel Margin="2,4">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock FontWeight="SemiBold" Text="{Binding Name}"/>
+              <TextBlock FontSize="12" Opacity="0.6" Text="{Binding ApprovalDisplay}"/>
+              <TextBlock FontSize="12" Opacity="0.6" Text="{Binding Detail}"/>
+            </StackPanel>
+          </StackPanel>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+    <!-- Live error / stderr for the selected server -->
+    <StackPanel Grid.Row="2" Spacing="4" Margin="0,8,0,0"
+                IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
+      <TextBlock Text="Last error" FontWeight="SemiBold" Opacity="0.8" FontSize="12"/>
+      <TextBlock Text="{Binding Selected.Error}" Foreground="OrangeRed" TextWrapping="Wrap" FontSize="12"
+                 IsVisible="{Binding Selected.Error, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      <TextBlock Text="Captured stderr" FontWeight="SemiBold" Opacity="0.8" FontSize="12" Margin="0,4,0,0"/>
+      <TextBox Text="{Binding Selected.Stderr}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="90"
+               IsVisible="{Binding Selected.Stderr, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    </StackPanel>
+
+    <!-- The config form (add / edit) -->
+    <StackPanel Grid.Row="2" Spacing="6" Margin="0,8,0,0" IsVisible="{Binding IsFormOpen}">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <TextBlock Text="Name:" VerticalAlignment="Center"/>
+        <TextBox x:Name="FormNameBox" Width="180" Text="{Binding FormName}"/>
+        <TextBlock Text="Transport:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        <ComboBox x:Name="FormTransportBox" SelectedIndex="{Binding FormTransportIndex}" MinWidth="110">
+          <ComboBoxItem Content="stdio (command)"/>
+          <ComboBoxItem Content="http (URL)"/>
+        </ComboBox>
+        <TextBlock Text="Command or URL:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        <TextBox x:Name="FormCommandOrUrlBox" Width="240" Text="{Binding FormCommandOrUrl}"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <TextBlock Text="Args JSON:" VerticalAlignment="Center"/>
+        <TextBox x:Name="FormArgsBox" Width="220" Text="{Binding FormArgsJson}"/>
+        <TextBlock Text="Env JSON:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        <TextBox x:Name="FormEnvBox" Width="180" Text="{Binding FormEnvJson}"/>
+        <TextBlock Text="Headers JSON:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        <TextBox x:Name="FormHeadersBox" Width="180" Text="{Binding FormHeadersJson}"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <TextBlock Text="Scope:" VerticalAlignment="Center"/>
+        <ComboBox x:Name="FormScopeBox" SelectedIndex="{Binding FormScopeIndex}" MinWidth="140">
+          <ComboBoxItem Content="This workspace"/>
+          <ComboBoxItem Content="Global"/>
+        </ComboBox>
+        <TextBlock Text="Pinned version:" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        <TextBox x:Name="FormPinnedBox" Width="140" Text="{Binding FormPinnedVersion}"
+                 PlaceholderText="none"/>
+      </StackPanel>
+      <TextBlock Text="{Binding FormError}" Foreground="OrangeRed" TextWrapping="Wrap"
+                 IsVisible="{Binding FormError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    </StackPanel>
+
+    <!-- Action row: form open/save, or the list controls -->
+    <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+      <Button x:Name="AddButton" Content="Add server" Click="OnAdd"
+              IsVisible="{Binding !IsFormOpen}"/>
+      <Button x:Name="EditButton" Content="Edit" Click="OnEdit"
+             IsVisible="{Binding !IsFormOpen}"/>
+      <Button x:Name="ApproveButton" Content="Approve" Command="{Binding ApproveCommand}"
+              IsVisible="{Binding !IsFormOpen}"/>
+      <Button x:Name="RevokeButton" Content="Revoke" Command="{Binding RevokeCommand}"
+              IsVisible="{Binding !IsFormOpen}"/>
+      <Button x:Name="RemoveButton" Content="Remove" Command="{Binding RemoveCommand}"
+              IsVisible="{Binding !IsFormOpen}"/>
+      <Button x:Name="RefreshButton" Content="Refresh" Command="{Binding RefreshCommand}"
+              IsVisible="{Binding !IsFormOpen}"/>
+      <Button x:Name="SaveButton" Content="Save" Command="{Binding SaveCommand}"
+              IsVisible="{Binding IsFormOpen}"/>
+      <Button x:Name="CancelFormButton" Content="Cancel" Click="OnCancelForm"
+              IsVisible="{Binding IsFormOpen}"/>
+      <TextBlock Text="{Binding ActionError}" Foreground="OrangeRed" VerticalAlignment="Center"
+                 TextWrapping="Wrap" MaxWidth="300"
+                 IsVisible="{Binding ActionError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    </StackPanel>
+
+    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <TextBlock Text="{Binding LoadError}" Foreground="OrangeRed" VerticalAlignment="Center" MaxWidth="420"
+                 TextWrapping="Wrap" IsVisible="{Binding LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      <Button Content="Close" Click="OnClose"/>
+    </StackPanel>
+  </Grid>
+</Window>

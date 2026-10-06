@@ -13,8 +13,10 @@ using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using eThangAgent.ToolDomain.Mcp;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.ViewModels;
@@ -220,6 +222,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public IRelayCommand OpenLinksCommand { get; }
 
+  public IRelayCommand OpenMcpServersCommand { get; }
+
   /// <summary>Raised when the shell wants the new-agent dialog shown.</summary>
   public event EventHandler? OpenAgentRequested;
 
@@ -234,6 +238,9 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Raised when the shell wants the selected tab's Links dialog shown.</summary>
   public event EventHandler? LinksRequested;
+
+  /// <summary>Raised when the shell wants the MCP servers dialog shown (issue #106).</summary>
+  public event EventHandler? McpServersRequested;
 
   /// <param name="createSession">Session-creation hook. Null in production — the shell
   ///     derives it from <paramref name="options"/> so saved keys can rebuild it; hosts
@@ -286,6 +293,9 @@ internal sealed partial class MainViewModel : ObservableObject
         () => HasSelectedTab);
     OpenLinksCommand = new RelayCommand(
         () => LinksRequested?.Invoke(this, EventArgs.Empty),
+        () => HasSelectedTab);
+    OpenMcpServersCommand = new RelayCommand(
+        () => McpServersRequested?.Invoke(this, EventArgs.Empty),
         () => HasSelectedTab);
 
     AvailableProviders = _settings is not null
@@ -1033,6 +1043,24 @@ internal sealed partial class MainViewModel : ObservableObject
     {
       IAgentStore? store = SelectedTab?.Container.Services.GetService<IAgentStore>();
       return store is null ? null : ct => store.ListAllAsync(ct);
+    }
+  }
+
+  /// <summary>The selected tab's MCP seams (issue #106): the store the dialog's form
+  ///     writes through, the SHARED pooled access its status view reads (the same
+  ///     object the session's mcp tool dispatches through), and the workspace id the
+  ///     store scopes rows by. Null when no tab is selected (the menu entry is hidden
+  ///     then) or the host wired no MCP store (headless stubs).</summary>
+  public Func<(IMcpServerStore Store, IMcpServerAccess Access, string WorkspaceId)>? SelectedMcpServersLoader
+  {
+    get
+    {
+      IMcpServerStore? store = SelectedTab?.Container.Services.GetService<IMcpServerStore>();
+      IMcpServerAccess? access = SelectedTab?.Container.Services.GetService<IMcpServerAccess>();
+      return store is null || access is null
+          ? null
+          : () => (store, access, SelectedTab!.Container.Services
+              .GetRequiredService<IWorkspaceContext>().WorkspaceId);
     }
   }
 
