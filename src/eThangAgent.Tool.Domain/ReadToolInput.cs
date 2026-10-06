@@ -3,7 +3,7 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed record ReadToolInput(string Path, int StartLine, int EndLine)
+public sealed record ReadToolInput(string Path, int StartLine, int EndLine, bool Force = false)
 {
   public const int MaxRangeLines = 1000;
 
@@ -20,14 +20,14 @@ public sealed record ReadToolInput(string Path, int StartLine, int EndLine)
 
     JsonElement json = baseParse.Value;
 
-    HashSet<string> known = new(["path", StartLineName, EndLineName, ToolTimeout.ParameterName], StringComparer.Ordinal);
+    HashSet<string> known = new(["path", StartLineName, EndLineName, "force", ToolTimeout.ParameterName], StringComparer.Ordinal);
     List<string> unknown = [.. json.EnumerateObject()
         .Where(p => !known.Contains(p.Name))
         .Select(p => p.Name)];
     if (unknown.Count > 0)
     {
       return Failure(new DomainError("UnknownParameter",
-          $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, startLine, endLine, {ToolTimeout.ParameterName}."));
+          $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, startLine, endLine, force, {ToolTimeout.ParameterName}."));
     }
 
     if (!json.TryGetProperty("path", out JsonElement pathEl))
@@ -85,13 +85,25 @@ public sealed record ReadToolInput(string Path, int StartLine, int EndLine)
           $"'startLine' ({startLine}) must not exceed 'endLine' ({endLine})."));
     }
 
+    bool force = false;
+    if (json.TryGetProperty("force", out JsonElement forceEl))
+    {
+      if (forceEl.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+      {
+        return Failure(new DomainError("InvalidParameterType",
+            "'force' must be a boolean, but got " + forceEl.ValueKind + "."));
+      }
+
+      force = forceEl.GetBoolean();
+    }
+
     long span = (long)endLine - startLine + 1;
     return span > MaxRangeLines
       ? Failure(new DomainError("RangeTooLarge",
           $"Range spans {span} lines; maximum is {MaxRangeLines}. " +
           $"Read in chunks (e.g. {startLine}-{startLine + MaxRangeLines - 1}, " +
           $"{startLine + MaxRangeLines}-{Math.Min(startLine + (2 * MaxRangeLines) - 1, endLine)})."))
-      : Result.Success(new ReadToolInput(path, startLine, endLine));
+      : Result.Success(new ReadToolInput(path, startLine, endLine, force));
   }
 
   private static Result<ReadToolInput> Missing(string name) =>

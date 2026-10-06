@@ -263,16 +263,19 @@ public class ReadToolTests
   // ---- ToolDefinition ----
 
   [Fact]
-  public void Definition_HasCorrectNameAndThreeParams()
+  public void Definition_HasCorrectNameAndParams()
   {
     ReadTool tool = new(new StubResolver(), new FakeFileSystemAccess(null!));
 
     Assert.Equal("read", tool.Definition.Name);
-    Assert.Equal(4, tool.Definition.Parameters.Count);
+    Assert.Equal(5, tool.Definition.Parameters.Count);
     Assert.Contains(tool.Definition.Parameters, p => p.Name == ToolTimeout.ParameterName && p.Minimum == 1);
     Assert.Contains(tool.Definition.Parameters, p => p.Name == "path");
     Assert.Contains(tool.Definition.Parameters, p => p.Name == "startLine" && p.Minimum == 1);
     Assert.Contains(tool.Definition.Parameters, p => p.Name == "endLine" && p.Minimum == 1);
+    Assert.Contains(tool.Definition.Parameters, p => p.Name == "force" && p.Type == ToolParameterType.Flag);
+    // force is the only optional parameter; the required subset is stated explicitly.
+    Assert.Equal(["timeoutSeconds", "path", "startLine", "endLine"], tool.Definition.RequiredParameters);
   }
 
   // ---- Path resolution ----
