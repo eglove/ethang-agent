@@ -137,6 +137,11 @@ public sealed class AppDatabase
       ApplyV14(connection);
       SetVersion(connection, 14);
     }
+    if (GetVersion(connection) < 15)
+    {
+      ApplyV15(connection);
+      SetVersion(connection, 15);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -561,6 +566,48 @@ public sealed class AppDatabase
             ran_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_command_runs_ws_id ON command_runs(workspace_id, id);
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V15 adds the MCP config tables (issue #103): mcp_servers carries server
+  ///     configs with the scope split (null workspace = global), approval state, and
+  ///     pinned version from day one so the trust flow needs no second migration;
+  ///     mcp_oauth_tokens is keyed by server id so removing a server deletes its tokens
+  ///     atomically. Name uniqueness is per scope: SQLite treats NULLs as distinct in
+  ///     unique indexes, so two partial unique indexes pin the two scope shapes.</summary>
+  private static void ApplyV15(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS mcp_servers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            transport TEXT NOT NULL,
+            command_or_url TEXT NOT NULL,
+            args_json TEXT NOT NULL,
+            env_json TEXT NOT NULL,
+            headers_json TEXT NOT NULL,
+            workspace_id TEXT,
+            approval_state TEXT NOT NULL,
+            pinned_version TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_mcp_servers_scope_name
+            ON mcp_servers(name) WHERE workspace_id IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_mcp_servers_ws_scope_name
+            ON mcp_servers(workspace_id, name) WHERE workspace_id IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS mcp_oauth_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_id INTEGER NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+            access_token TEXT NOT NULL,
+            refresh_token TEXT,
+            expires_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_mcp_oauth_tokens_server ON mcp_oauth_tokens(server_id);
         """;
     using SqliteCommand command = connection.CreateCommand();
 #pragma warning disable CA2100
