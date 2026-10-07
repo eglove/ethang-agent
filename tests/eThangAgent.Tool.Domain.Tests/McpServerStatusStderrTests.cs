@@ -103,6 +103,12 @@ public class McpServerStatusStderrTests
     public Task<Result<McpOAuthTokens>> SaveTokensAsync(int serverId, McpOAuthTokens tokens, CancellationToken ct = default) =>
         Task.FromResult(Result.Success(tokens));
 
+    public Task<Result<bool>> AppendDecisionAsync(int serverId, string decision, string? detail, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success(true));
+
+    public Task<Result<IReadOnlyList<McpDecision>>> ListDecisionsAsync(int serverId, int take, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success<IReadOnlyList<McpDecision>>([]));
+
     public Task<Result<McpOAuthTokens?>> GetTokensAsync(int serverId, CancellationToken ct = default) =>
         Task.FromResult(Result.Success<McpOAuthTokens?>(null));
   }

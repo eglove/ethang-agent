@@ -70,6 +70,9 @@
         <TextBlock Text="Pinned version:" VerticalAlignment="Center" Margin="8,0,0,0"/>
         <TextBox x:Name="FormPinnedBox" Width="140" Text="{Binding FormPinnedVersion}"
                  PlaceholderText="none"/>
+        <CheckBox x:Name="FormGateBox" Content="Gate mutating calls" IsChecked="{Binding FormGateMutating}"
+                  VerticalAlignment="Center" Margin="8,0,0,0"
+                  ToolTip.Tip="Refuse calls the server does not declare read-only (logged); the toggle is the approval path." />
       </StackPanel>
       <TextBlock Text="{Binding FormError}" Foreground="OrangeRed" TextWrapping="Wrap"
                  IsVisible="{Binding FormError, Converter={x:Static ObjectConverters.IsNotNull}}"/>

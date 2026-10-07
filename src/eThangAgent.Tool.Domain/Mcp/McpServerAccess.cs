@@ -129,10 +129,31 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
           (entry.Tools.Count == 0 ? "(none)" : string.Join(", ", entry.Tools.Select(t => t.Name))) + ".");
     }
 
+    // The per-call gate (issue #109): a mutating call on a gated server is refused
+    // with a structured, logged refusal - the dialog's toggle is the human decision
+    // path; the harness has no mid-turn approval surface to wait on. Classification
+    // is policy over the server's declared hints: destructive, undeclared, or
+    // explicitly non-read-only all gate; only a declared read-only tool passes.
+    if (config.GateMode == McpGateMode.Mutating && IsMutating(tool))
+    {
+      string detail = $"'{call.Tool}' is a mutating call on gated server '{call.Server}'";
+      _ = await _store.AppendDecisionAsync(config.Id, "gate-denied", detail, ct).ConfigureAwait(false);
+      return new McpOutcome.Failure("McpCallGated",
+        $"server '{call.Server}' gates mutating calls: '{call.Tool}' is mutating (no read-only declaration). " +
+        "The user can lift the gate in the MCP Servers dialog; the denial is logged.");
+    }
+
     McpToolCallResult result = await entry.Session
         .CallToolAsync(call.Tool, call.Arguments.GetRawText(), ct).ConfigureAwait(false);
     return new McpOutcome.Called(result.Content, result.IsError);
   }
+
+  /// <summary>Whether the tool is mutating under the gate's classification (issue #109):
+  ///     a destructive hint, a false read-only hint, or NO hint at all is mutating -
+  ///     deny-by-default over an untyped world.</summary>
+  private static bool IsMutating(McpToolInfo tool)
+      => tool.DestructiveHint == true
+          || tool.ReadOnlyHint is null or false;
 
   private static string ApprovalText(McpApprovalState state) => state switch
   {

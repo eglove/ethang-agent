@@ -98,6 +98,21 @@ public sealed class SdkMcpClientSessionFactory : IMcpClientSessionPool, IAsyncDi
     return options;
   }
 
+  /// <summary>The client options every session carries (issue #109): capabilities
+  ///     deliberately EMPTY - sampling, roots, and elicitation are never advertised,
+  ///     so a server asking for a harness-model completion fails at the SDK's
+  ///     capability check, structurally, before any handler could exist. The SDK
+  ///     deprecates sampling and roots as of specification 2026-07-28 (SEP-2577);
+  ///     the empty capability set is the pinning point, not an omission.</summary>
+  internal static McpClientOptions BuildClientOptions()
+  {
+    return new McpClientOptions
+    {
+      Capabilities = new ClientCapabilities(),
+      Handlers = new McpClientHandlers(),
+    };
+  }
+
   /// <summary>Creates the transport for one server config: stdio spawn or Streamable
   ///     HTTP. Internal for tests.</summary>
   internal static IClientTransport CreateTransport(McpServerConfig server) =>
@@ -124,7 +139,7 @@ public sealed class SdkMcpClientSessionFactory : IMcpClientSessionPool, IAsyncDi
     try
     {
       IClientTransport transport = transportFactory();
-      McpClient client = await McpClient.CreateAsync(transport, cancellationToken: ct).ConfigureAwait(false);
+      McpClient client = await McpClient.CreateAsync(transport, BuildClientOptions(), cancellationToken: ct).ConfigureAwait(false);
       SdkMcpClientSession session = new(client);
       return new McpConnectResult.Success(session);
     }
@@ -170,7 +185,7 @@ public sealed class SdkMcpClientSessionFactory : IMcpClientSessionPool, IAsyncDi
       // StreamClientTransport(serverInput, serverOutput): the client writes requests
       // to the server's stdin and reads responses from the server's stdout.
       StreamClientTransport transport = new(process.StandardInput.BaseStream, process.StandardOutput.BaseStream);
-      McpClient client = await McpClient.CreateAsync(transport, cancellationToken: ct).ConfigureAwait(false);
+      McpClient client = await McpClient.CreateAsync(transport, BuildClientOptions(), cancellationToken: ct).ConfigureAwait(false);
       ContainedStdioSession session = new(client, process, job, stderr);
       lock (_gate)
       {

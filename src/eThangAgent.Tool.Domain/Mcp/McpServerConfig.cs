@@ -16,6 +16,8 @@ namespace eThangAgent.ToolDomain.Mcp;
 /// <param name="ApprovalState">The trust state; pending servers never connect.</param>
 /// <param name="PinnedVersion">The pinned install version, if any; never auto-updated.</param>
 /// <param name="CreatedAt">When the row was created.</param>
+/// <param name="GateMode">The per-call gate (issue #109): none by default; mutating
+///     gates tools the server does not declare read-only.</param>
 // CA1054/CA1056: deliberately raw text — for stdio transports this is a command
 // (not a URI at all), and validation is the config door's job, not the record's.
 #pragma warning disable CA1054, CA1056
@@ -30,5 +32,6 @@ public sealed record McpServerConfig(
     string? WorkspaceId,
     McpApprovalState ApprovalState,
     string? PinnedVersion,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    McpGateMode GateMode = McpGateMode.None);
 #pragma warning restore CA1054, CA1056

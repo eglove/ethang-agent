@@ -4,10 +4,16 @@ namespace eThangAgent.ToolDomain.Mcp;
 
 /// <summary>One tool a connected MCP server advertises (issue #104): the server-local
 ///     name plus its description. Descriptions are untrusted server text carried
-///     verbatim. The namespaced grant id (mcp.server.tool) is derived, not stored.</summary>
+///     verbatim. The namespaced grant id (mcp.server.tool) is derived, not stored.
+///     The annotation hints (issue #109) feed the mutating-call gate's
+///     classification - null means undeclared, which the gate treats as mutating
+///     (the MCP spec has no mutation flag; classification is policy).</summary>
 /// <param name="Name">The server-local tool name.</param>
 /// <param name="Description">The server's description text, or null.</param>
-public sealed record McpToolInfo(string Name, string? Description);
+/// <param name="ReadOnlyHint">The server's declared read-only-ness, or null.</param>
+/// <param name="DestructiveHint">The server's declared destructive-ness, or null.</param>
+public sealed record McpToolInfo(string Name, string? Description,
+    bool? ReadOnlyHint = null, bool? DestructiveHint = null);
 
 /// <summary>How a configured server's connection stands in the session pool.</summary>
 public enum McpConnectionState

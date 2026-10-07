@@ -18,7 +18,8 @@ public sealed class SdkMcpClientSession(McpClient client) : IMcpClientSession
   public async Task<IReadOnlyList<McpToolInfo>> ListToolsAsync(CancellationToken ct = default)
   {
     IList<McpClientTool> tools = await _client.ListToolsAsync(cancellationToken: ct).ConfigureAwait(false);
-    return [.. tools.Select(t => new McpToolInfo(t.Name, t.Description))];
+    return [.. tools.Select(t => new McpToolInfo(t.Name, t.Description,
+        t.ProtocolTool.Annotations?.ReadOnlyHint, t.ProtocolTool.Annotations?.DestructiveHint))];
   }
 
   /// <inheritdoc />

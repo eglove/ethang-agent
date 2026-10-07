@@ -103,7 +103,7 @@ public class McpServerAccessTests
   private static Task<McpOutcome> Run(McpServerAccess access, McpCommand command) =>
       access.ExecuteAsync(command, TestContext.Current.CancellationToken);
 
-  private sealed class FakeStore(params McpServerConfig[] servers) : IMcpServerStore
+  private class FakeStore(params McpServerConfig[] servers) : IMcpServerStore
   {
     public Task<Result<IReadOnlyList<McpServerConfig>>> ListAsync(string workspaceId, CancellationToken ct = default) =>
         Task.FromResult(Result.Success<IReadOnlyList<McpServerConfig>>(servers));
@@ -125,6 +125,12 @@ public class McpServerAccessTests
 
     public Task<Result<McpOAuthTokens?>> GetTokensAsync(int serverId, CancellationToken ct = default) =>
         Task.FromResult(Result.Success<McpOAuthTokens?>(null));
+
+    public virtual Task<Result<bool>> AppendDecisionAsync(int serverId, string decision, string? detail, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success(true));
+
+    public Task<Result<IReadOnlyList<McpDecision>>> ListDecisionsAsync(int serverId, int take, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success<IReadOnlyList<McpDecision>>([]));
   }
 
   // ---- B2: lazy connect, cached discovery ----
@@ -311,11 +317,81 @@ public class McpServerAccessTests
 
     public Task<Result<McpOAuthTokens?>> GetTokensAsync(int serverId, CancellationToken ct = default) =>
         throw new InvalidOperationException("db gone");
+
+    public Task<Result<bool>> AppendDecisionAsync(int serverId, string decision, string? detail, CancellationToken ct = default) =>
+        throw new InvalidOperationException("db gone");
+
+    public Task<Result<IReadOnlyList<McpDecision>>> ListDecisionsAsync(int serverId, int take, CancellationToken ct = default) =>
+        throw new InvalidOperationException("db gone");
   }
 
   private static System.Text.Json.JsonElement ParseArgs(string json)
   {
     using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(json);
     return doc.RootElement.Clone();
+  }
+
+  // ---- issue #109: the per-call gate ----
+
+  private static McpServerConfig Gated(string name = "gated", int id = 3) => new(
+      id, name, McpTransport.Stdio, "npx gated", "[]", "{}", "{}", null,
+      McpApprovalState.Approved, null, DateTimeOffset.UtcNow, McpGateMode.Mutating);
+
+  // Named decision (CA2000): the access is an in-memory policy object over fakes;
+  // its dispose is a no-op and the tests observe through the fakes.
+#pragma warning disable CA2000 // Use a using statement or using declaration
+  private static async Task<(McpOutcome Outcome, LoggingStore Store)> RunGatedAsync(
+      McpServerConfig server, string tool)
+  {
+    FakeSessionPool pool = new();
+    LoggingStore store = new(server);
+    McpServerAccess access = new(store, pool, "ws-test");
+    McpOutcome outcome = await access.ExecuteAsync(new McpCommand.CallTool(server.Name, tool,
+        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone()),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+    return (outcome, store);
+  }
+#pragma warning restore CA2000
+
+  private sealed class LoggingStore(params McpServerConfig[] servers) : FakeStore(servers)
+  {
+    public List<(int ServerId, string Decision)> Appends { get; } = [];
+
+    public override Task<Result<bool>> AppendDecisionAsync(int serverId, string decision, string? detail, CancellationToken ct = default)
+    {
+      Appends.Add((serverId, detail is null ? decision : decision + ":" + detail));
+      return Task.FromResult(Result.Success(true));
+    }
+  }
+
+  [Fact]
+  public async Task Gated_Mutating_Call_Is_Refused_And_Logged()
+  {
+    (McpOutcome outcome, LoggingStore store) = await RunGatedAsync(Gated(), "echo").ConfigureAwait(true);
+
+    McpOutcome.Failure failure = Assert.IsType<McpOutcome.Failure>(outcome);
+    Assert.Equal("McpCallGated", failure.Code);
+    Assert.Contains("mutating", failure.Message, StringComparison.Ordinal);
+    (int appendServerId, string appendDecision) = Assert.Single(store.Appends);
+    Assert.Equal(3, appendServerId);
+    Assert.StartsWith("gate-denied", appendDecision, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Gated_Server_Undeclared_Tool_Is_Mutating_By_Default()
+  {
+    // The MCP spec has no mutation flag: an undeclared tool gates (deny-by-default).
+    (McpOutcome outcome, LoggingStore _) = await RunGatedAsync(Gated(), "ping").ConfigureAwait(true);
+
+    _ = Assert.IsType<McpOutcome.Failure>(outcome);
+  }
+
+  [Fact]
+  public async Task Ungated_Server_Behaves_As_Before()
+  {
+    (McpOutcome outcome, LoggingStore store) = await RunGatedAsync(ApprovedStdio(), "echo").ConfigureAwait(true);
+
+    _ = Assert.IsType<McpOutcome.Called>(outcome);
+    Assert.Empty(store.Appends);
   }
 }
