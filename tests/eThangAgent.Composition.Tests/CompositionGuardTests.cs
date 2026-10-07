@@ -22,12 +22,13 @@ public class CompositionGuardTests
   public void SubAgentDefaultModel_FallsBackToRootModel_WhenConfigOmitsIt()
   {
     AgentSettings settings = Settings();
+    using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider services = new ServiceCollection()
-        .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("root/model", null, 512, 0.5f, 8192).Value!,
-            new AgentHostOptions(
-                new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
-        .BuildServiceProvider();
+    .AddEThangAgentCore(settings, Providers.OpenRouter,
+        ModelConfig.Create("root/model", null, 512, 0.5f, 8192).Value!,
+        new AgentHostOptions(
+            new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
+    .BuildServiceProvider();
 
     SubAgentOptions options = services.GetRequiredService<SubAgentOptions>();
     Assert.Equal("root/model", options.DefaultModel);
@@ -50,9 +51,10 @@ public class CompositionGuardTests
   {
     Assert.False(string.IsNullOrWhiteSpace(label));
     AgentSettings settings = Settings();
+    using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
-            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!, host)
+            ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!, host, db.Database)
         .BuildServiceProvider();
 
     object?[] resolutions =
@@ -98,12 +100,13 @@ public class CompositionGuardTests
   {
     // The worktree capability is core wiring, not provider-specific: every
     // session's tool surface carries it.
+    using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider services = new ServiceCollection()
-        .AddEThangAgentCore(Settings(), Providers.OpenRouter,
-            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
-            new AgentHostOptions(
-                new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
-        .BuildServiceProvider();
+    .AddEThangAgentCore(Settings(), Providers.OpenRouter,
+        ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+        new AgentHostOptions(
+            new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
+    .BuildServiceProvider();
 
     AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
     Assert.Contains(tools.Actions, a => a.Name == "worktree");
@@ -114,12 +117,13 @@ public class CompositionGuardTests
   {
     // OpenRouter wires the two-stage automatic selector. Consumers taking an
     // optional selector must still resolve on a container with one.
+    using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider openRouterServices = new ServiceCollection()
-        .AddEThangAgentCore(Settings(), Providers.OpenRouter,
-            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
-            new AgentHostOptions(
-                new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
-        .BuildServiceProvider();
+    .AddEThangAgentCore(Settings(), Providers.OpenRouter,
+        ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+        new AgentHostOptions(
+            new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
+    .BuildServiceProvider();
 
     Assert.NotNull(openRouterServices.GetRequiredService<IModelSelector>());
   }
@@ -128,11 +132,12 @@ public class CompositionGuardTests
   public void SelectedProvider_WithoutApiKey_Throws()
   {
     AgentSettings settings = Settings(openRouterKey: null);
+    using TestAppDatabase db = TestAppDatabase.Create();
     Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("app"), new UnrootedPathResolver())));
+                new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database));
 
     InvalidOperationException invalid = Assert.IsType<InvalidOperationException>(ex);
     Assert.Contains("API key", invalid.Message, StringComparison.Ordinal);
@@ -142,11 +147,12 @@ public class CompositionGuardTests
   public void UnknownProviderName_Throws_ArgumentException()
   {
     AgentSettings settings = Settings();
+    using TestAppDatabase db = TestAppDatabase.Create();
     Exception? ex = Record.Exception(() => new ServiceCollection()
         .AddEThangAgentCore(settings, "anthropic",
             ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("app"), new UnrootedPathResolver())));
+                new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database));
 
     ArgumentException argument = Assert.IsType<ArgumentException>(ex);
     Assert.Contains("anthropic", argument.Message, StringComparison.Ordinal);

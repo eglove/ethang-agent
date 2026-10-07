@@ -14,6 +14,7 @@ public class ToolSurfaceTests
 {
   private static ServiceProvider Build()
   {
+    using TestAppDatabase db = TestAppDatabase.Create();
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
         new SubAgentOptions(null, 2));
@@ -21,7 +22,7 @@ public class ToolSurfaceTests
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
+                new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
         .BuildServiceProvider();
   }
 

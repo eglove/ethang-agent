@@ -11,7 +11,10 @@ namespace eThangAgent.Composition.Tests;
 ///     actually beat. Two containers never share a heartbeat (per-session isolation).</summary>
 public class WatchdogWiringTests
 {
-  private static ServiceProvider Build() => new ServiceCollection()
+  private static ServiceProvider Build()
+  {
+    using TestAppDatabase db = TestAppDatabase.Create();
+    return new ServiceCollection()
       .AddEThangAgentCore(
           new AgentSettings(
               new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
@@ -19,12 +22,13 @@ public class WatchdogWiringTests
           Providers.OpenRouter,
           ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
           new AgentHostOptions(
-              new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
+              new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
       .BuildServiceProvider();
-
+  }
   [Fact]
   public void Container_ResolvesSingletonHeartbeatAndEventStore()
   {
+    using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider services = Build();
     IAgentHeartbeat heartbeat = services.GetRequiredService<IAgentHeartbeat>();
     Assert.Same(heartbeat, services.GetRequiredService<IAgentHeartbeat>());

@@ -111,11 +111,12 @@ public class ProviderAttributionWiringTests
         new SubAgentOptions(null, 2));
     try
     {
+      using TestAppDatabase db = TestAppDatabase.Create();
       using ServiceProvider services = new ServiceCollection()
           .AddEThangAgentCore(settings, Providers.OpenRouter,
               ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
               new AgentHostOptions(
-                  new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
+                  new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
           .BuildServiceProvider();
 
       IModelProvider provider = services.GetRequiredService<IModelProvider>();

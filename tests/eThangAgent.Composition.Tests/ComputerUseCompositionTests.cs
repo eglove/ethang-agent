@@ -20,11 +20,12 @@ public class ComputerUseCompositionTests
 
   private static ServiceProvider Build(bool computerUse, string providerName = Providers.OpenRouter)
   {
+    using TestAppDatabase db = TestAppDatabase.Create();
     return new ServiceCollection()
         .AddEThangAgentCore(Settings(computerUse), providerName,
             ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("ws"), new UnrootedPathResolver()))
+                new FixedWorkspaceContext("ws"), new UnrootedPathResolver()), db.Database)
         .BuildServiceProvider();
   }
 

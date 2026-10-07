@@ -27,20 +27,23 @@ public class SkillInvocationCompositionTests
 
   private static ServiceProvider BuildContainer()
   {
+    using TestAppDatabase db = TestAppDatabase.Create();
     return new ServiceCollection()
         .AddEThangAgentCore(Settings(), Providers.OpenRouter,
             ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("app"), new UnrootedPathResolver()))
+                new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
         .BuildServiceProvider();
   }
 
-  private static (AgentSessionFactory Factory, string DbPath, string Workspace) CreateFactory()
+  private static (AgentSessionFactory Factory, TestAppDatabase Db, string Workspace) CreateFactory()
   {
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-invoke-{Guid.NewGuid():N}.db");
-    Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
+    // The factory gets the database EXPLICITLY - the env-var fallback is a shared
+    // mutable hazard under concurrent tests (another test's finally clears it
+    // mid-run), and no test may open the user's real database.
+    TestAppDatabase db = TestAppDatabase.Create();
     string workspace = Directory.CreateTempSubdirectory("ethang-invoke-ws").FullName;
-    return (new AgentSessionFactory(Settings()), dbPath, workspace);
+    return (new AgentSessionFactory(Settings(), db.Database), db, workspace);
   }
 
   [Fact]
@@ -74,7 +77,7 @@ public class SkillInvocationCompositionTests
   [Fact]
   public async Task Session_Carries_Invocation_OnCreate_And_Resume()
   {
-    (AgentSessionFactory factory, string db, string workspace) = CreateFactory();
+    (AgentSessionFactory factory, TestAppDatabase db, string workspace) = CreateFactory();
     try
     {
       Result<AgentSession> created = await factory.CreateAsync(
@@ -89,10 +92,9 @@ public class SkillInvocationCompositionTests
     }
     finally
     {
-      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      db.Dispose();
       try
       {
-        File.Delete(db);
         Directory.Delete(workspace, true);
       }
       catch { }

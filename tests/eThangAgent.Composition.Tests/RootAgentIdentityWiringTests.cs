@@ -14,20 +14,21 @@ namespace eThangAgent.Composition.Tests;
 ///     explicit Id. The built root agent's identity must BE the persisted root id.</summary>
 public class RootAgentIdentityWiringTests
 {
-  private static (AgentSessionFactory Factory, string DbPath) CreateFactory()
+  private static (AgentSessionFactory Factory, TestAppDatabase Db) CreateFactory()
   {
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-rootid-{Guid.NewGuid():N}.db");
-    Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", dbPath);
+    // The factory gets the database EXPLICITLY - the env-var fallback races other
+    // tests' env clears mid-run, and no test may open the user's real database.
+    TestAppDatabase db = TestAppDatabase.Create();
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
         new SubAgentOptions(null, 2));
-    return (new AgentSessionFactory(settings), dbPath);
+    return (new AgentSessionFactory(settings, db.Database), db);
   }
 
   [Fact]
   public async Task BuiltRootAgent_Carries_PersistedRootId_AsItsOwnId()
   {
-    (AgentSessionFactory? factory, string? db) = CreateFactory();
+    (AgentSessionFactory? factory, TestAppDatabase? db) = CreateFactory();
     try
     {
       DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-rootid-ws");
@@ -50,12 +51,7 @@ public class RootAgentIdentityWiringTests
     }
     finally
     {
-      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
-      try
-      {
-        File.Delete(db);
-      }
-      catch { }
+      db?.Dispose();
     }
   }
 }
