@@ -18,8 +18,8 @@ public sealed record BrokerLaunchOptions(
   ///     data dir. The env lookup and argv are injected so tests never touch process state.
   ///     The token is NEVER logged and never appears in an error message. The optional
   ///     <c>--input-targeted</c> argument switches the send hooks to targeted window-message
-  ///     delivery (see TargetedInputDelivery) — the integration suite's opt-in against
-  ///     global input injection.</summary>
+  ///     delivery (see TargetedInputDelivery) — the no-global-injection mode against
+  ///     stray input on the user's desktop.</summary>
   public static BrokerLaunchOptions Resolve(string[] args, Func<string, string?> tokenEnv, Func<string, string?> anyEnv)
   {
     ArgumentNullException.ThrowIfNull(args);

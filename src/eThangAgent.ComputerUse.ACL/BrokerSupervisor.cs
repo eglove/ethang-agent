@@ -72,8 +72,9 @@ public sealed class BrokerSupervisor(string hostPath, string pipeName, string wo
   private static string NewToken() => Guid.NewGuid().ToString("N");
 
   /// <summary>Default spawn: the Host exe with the pipe name as argv[1], the optional
-  ///     <c>--input-targeted</c> flag (TargetedInputDelivery — the integration suite's
-  ///     no-global-injection mode), and the per-spawn token in ETHANG_COMPUTER_USE_TOKEN.
+  ///     <c>--input-targeted</c> flag (TargetedInputDelivery — the no-global-injection
+  ///     mode: input travels as window messages to the verified foreground target), and
+  ///     the per-spawn token in ETHANG_COMPUTER_USE_TOKEN.
   ///     The child joins a kill-on-close Job Object so an app crash or exit kills the
   ///     broker (no orphaned automation process survives).</summary>
   private static Process DefaultSpawn(string exePath, string pipeName, string token, bool targetedInput)

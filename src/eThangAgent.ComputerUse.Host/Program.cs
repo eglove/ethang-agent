@@ -27,7 +27,7 @@ log.Write("serving pipe " + options.PipeName);
 // plus the element-op resolver the input dispatcher uses for element_* methods (R1).
 // With --input-targeted the send hooks deliver input as window messages to the verified
 // foreground target (TargetedInputDelivery) instead of global SendInput — the
-// integration suite's opt-in; every gate still runs on the real foreground read.
+// no-global-injection mode; every gate still runs on the real foreground read.
 RealBrokerObserver observer = new();
 PipeServer broker = options.TargetedInput
     ? new PipeServer(new BrokerConfig(options.PipeName, options.Token), observer,
