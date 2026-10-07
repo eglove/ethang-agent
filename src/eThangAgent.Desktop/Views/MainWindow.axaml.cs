@@ -111,7 +111,8 @@ internal partial class MainWindow : Window
         _vm.ConfiguredWatchdogTick, _vm.ConfiguredWatchdogIdle, _vm.ConfiguredWatchdogWrapUp,
         _vm.ConfiguredOpenRouterBaseUrl,
         _vm.ConfiguredComputerUse,
-        await _vm.GetSkillRegistryDefaultTargetAsync());
+        await _vm.GetSkillRegistryDefaultTargetAsync(),
+        _vm.ConfiguredOpenRouterManagementKey);
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {

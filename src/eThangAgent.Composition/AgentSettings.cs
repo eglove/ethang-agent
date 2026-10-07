@@ -6,11 +6,18 @@ namespace eThangAgent.Composition;
 ///     when a key is configured, and a session that selects it without one fails
 ///     with a structured error. Hosts source the key themselves (the Desktop reads it
 ///     from app preferences via the Settings modal) and overlay it with
-///     <see cref="AgentSettings.WithApiKeys"/>.</summary>
-public sealed record OpenRouterSettings(string? ApiKey, Uri BaseUrl)
+///     <see cref="AgentSettings.WithApiKeys"/>. ManagementKey is the OPTIONAL
+///     management-API key (the separate sk-or-... credentialed for /api/v1/keys);
+///     null means the 'openrouter_management' tool refuses with a typed error —
+///     it never gates the provider or the model loop.</summary>
+public sealed record OpenRouterSettings(string? ApiKey, Uri BaseUrl, string? ManagementKey = null)
 {
   /// <summary>App-preference key the Desktop stores the (protected) OpenRouter key under.</summary>
   public const string PreferenceKey = "openrouter_api_key";
+
+  /// <summary>App-preference key the Desktop stores the (protected) OpenRouter
+  ///     management key under.</summary>
+  public const string ManagementKeyPreferenceKey = "openrouter_management_key";
 }
 
 /// <summary>Everything a host needs before building the core. ApiKeys may be null —
@@ -83,5 +90,14 @@ public sealed record AgentSettings(
   public AgentSettings WithWorkspaceRoot(string? workspaceRoot) => this with
   {
     WorkspaceRoot = workspaceRoot,
+  };
+
+  /// <summary>Returns the same settings with the OpenRouter management key overlaid.
+  ///     Null clears it — the 'openrouter_management' tool then refuses with a typed
+  ///     error. Hosts use this to lift the key from their own credential source onto
+  ///     the loaded settings; a missing management key never gates anything else.</summary>
+  public AgentSettings WithManagementKey(string? openRouterManagementKey) => this with
+  {
+    OpenRouter = OpenRouter with { ManagementKey = openRouterManagementKey },
   };
 }

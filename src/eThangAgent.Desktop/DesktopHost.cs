@@ -59,7 +59,9 @@ internal static class DesktopHost
     // Non-secret settings load from app preferences — the single configuration source.
     AgentSettings settings = await AgentSettingsLoader.LoadAsync(preferences);
     settings = settings.WithApiKeys(
-        await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey));
+        await LoadKeyAsync(preferences, protector, OpenRouterSettings.PreferenceKey))
+        .WithManagementKey(await LoadKeyAsync(preferences, protector,
+            OpenRouterSettings.ManagementKeyPreferenceKey));
     CommitStyle commitStyle = await LoadCommitStyleAsync(preferences);
 
     // The app-side watchdog (loop, policy, RSS monitor) runs the SAME configured knobs

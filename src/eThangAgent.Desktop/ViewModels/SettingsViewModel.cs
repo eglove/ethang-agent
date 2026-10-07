@@ -34,7 +34,8 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle Comm
     string? WatchdogTickText = null, string? WatchdogIdleText = null, string? WatchdogWrapUpText = null,
     string? OpenRouterBaseUrlText = null,
     bool ComputerUse = false,
-    string? SkillRegistryDefaultTarget = null);
+    string? SkillRegistryDefaultTarget = null,
+    string? OpenRouterManagementKey = null);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
 ///     and their shared validation.
@@ -64,6 +65,13 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(ValidationError))]
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial string OpenRouterKey { get; set; }
+
+  /// <summary>The OpenRouter MANAGEMENT key (provisioning-key API) as raw text -
+  ///     blank means cleared; the same no-internal-whitespace rule applies.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string OpenRouterManagementKey { get; set; }
 
   /// <summary>Maximum concurrently running child agents as raw text — blank means the
   ///     shipped default (4); a non-blank value must be a positive integer.</summary>
@@ -173,6 +181,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
   /// <summary>The first validation problem across all fields, or null when clean.</summary>
   public string? ValidationError =>
       Validate(OpenRouterKey)
+      ?? Validate(OpenRouterManagementKey)
       ?? ValidateMaxConcurrent(MaxConcurrentAgentsText)
       ?? ValidateDuration(WatchdogTickText, "Tick interval")
       ?? ValidateDuration(WatchdogIdleText, "Idle threshold")
@@ -187,7 +196,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
       string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
       string? openRouterBaseUrlText = null,
       bool computerUse = false,
-      string? skillRegistryDefaultTarget = null)
+      string? skillRegistryDefaultTarget = null,
+      string? openRouterManagementKey = null)
   {
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
@@ -204,12 +214,14 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 Normalize(MaxConcurrentAgentsText), Normalize(DefaultModelText), RemoteHost,
                 Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
                 Normalize(OpenRouterBaseUrlText), ComputerUse,
-                SkillRegistryDefaultTarget: SkillRegistryTarget));
+                SkillRegistryDefaultTarget: SkillRegistryTarget,
+                OpenRouterManagementKey: Normalize(OpenRouterManagementKey)));
           }
         },
         () => CanSave);
     CompactionModels = compactionModels ?? [CompactionModelOption.Automatic];
     OpenRouterKey = openRouterKey ?? string.Empty;
+    OpenRouterManagementKey = openRouterManagementKey ?? string.Empty;
     MaxConcurrentAgentsText = maxConcurrentAgentsText ?? string.Empty;
     DefaultModelText = defaultModelText ?? string.Empty;
     RemoteHost = remoteHost;
@@ -232,6 +244,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
 
   // Validation edits must requery the Save button's CanExecute.
   partial void OnOpenRouterKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnOpenRouterManagementKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnMaxConcurrentAgentsTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 

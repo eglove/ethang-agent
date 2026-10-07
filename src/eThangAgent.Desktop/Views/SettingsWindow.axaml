@@ -25,9 +25,13 @@
           <TextBox x:Name="OpenRouterKeyBox" Text="{Binding OpenRouterKey}"
                    PasswordChar="{Binding KeyPasswordChar}"
                    PlaceholderText="No OpenRouter API key configured"/>
+          <TextBlock Text="Management key (optional)" FontWeight="Bold" Margin="0,6,0,0"/>
+          <TextBox x:Name="OpenRouterManagementKeyBox" Text="{Binding OpenRouterManagementKey}"
+                   PasswordChar="{Binding KeyPasswordChar}"
+                   PlaceholderText="No OpenRouter management key configured"/>
           <CheckBox x:Name="ShowKeysCheck" Content="Show keys" IsChecked="{Binding KeysVisible}" Margin="0,4,0,0"/>
           <TextBlock
-              Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave the field blank to remove the key."
+              Text="Keys are stored encrypted on this machine (Windows DPAPI) and apply to newly opened agents. Leave a field blank to remove that key. The management key (sk-or-... from openrouter.ai/settings/keys, marked as a management key) unlocks the openrouter_management tool; it never touches model calls."
               Opacity="0.6" TextWrapping="Wrap" FontSize="12"/>
         </StackPanel>
       </TabItem>

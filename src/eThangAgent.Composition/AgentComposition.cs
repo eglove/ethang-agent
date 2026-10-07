@@ -163,6 +163,9 @@ public static class AgentComposition
                     new WebFetchTool(sp.GetRequiredService<IWebAccess>(),
                         sp.GetRequiredService<IHtmlToMarkdown>()),
                     "Fetch a web page or resource over HTTP(S) and return readable text (HTML converted to markdown; other text verbatim)."),
+                new AgentToolBinding(
+                    new OpenRouterManagementTool(sp.GetRequiredService<IOpenRouterManagementAccess>()),
+                    "Manage OpenRouter provisioning keys through the OpenRouter Management API (list, create, get, update, delete, current)."),
 
                 // Pure graph math, no external access: safe for sub-agents too.
                 new AgentToolBinding(
@@ -475,6 +478,7 @@ public static class AgentComposition
         .AddSingleton<IToolRegistry>(sp =>
             new ToolRegistry([sp.GetRequiredService<ITool>(),
                 new McpTool(sp.GetRequiredService<IMcpServerAccess>(), new AmbientMcpGrantScopeAdapter()),
+                new OpenRouterManagementTool(sp.GetRequiredService<IOpenRouterManagementAccess>()),
                 .. ComputerLoopTools(sp, settings)]))
         .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
         [
@@ -645,7 +649,8 @@ public static class AgentComposition
     return providerName switch
     {
       Providers.OpenRouter => services
-          .AddSingleton(new OpenRouterConfiguration(apiKey ?? MissingKey(), settings.OpenRouter.BaseUrl))
+          .AddSingleton(new OpenRouterConfiguration(apiKey ?? MissingKey(), settings.OpenRouter.BaseUrl,
+              ManagementKey: settings.OpenRouter.ManagementKey))
           // App attribution (openrouter.ai/docs/app-attribution): every request the
           // shared client sends — model calls and catalog fetches alike — identifies
           // the app. One Apply point covers the root and every remote child host,
@@ -678,6 +683,12 @@ public static class AgentComposition
           .AddSingleton<IModelProviderFactory>(sp => new OpenRouterModelProviderFactory(
               sp.GetRequiredService<OpenRouterConfiguration>(),
               sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter")))
+          // Management API client (the 'openrouter_management' tool's seam): the SAME
+          // named HttpClient (attribution + timeouts) and the SAME configuration - the
+          // management key rides OpenRouterConfiguration.ManagementKey.
+          .AddSingleton<IOpenRouterManagementAccess>(sp => new OpenRouterManagementClient(
+              sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
+              sp.GetRequiredService<OpenRouterConfiguration>()))
           .AddSingleton<IModelCatalog>(sp => new OpenRouterCatalogClient(
               sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
               sp.GetRequiredService<OpenRouterConfiguration>())),

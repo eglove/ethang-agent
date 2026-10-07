@@ -263,7 +263,8 @@ public class ShellViewModelTests
     // never an empty-string value): the Agents/Advanced fields this legacy-shaped
     // update leaves unset all delete.
     Assert.Equal(
-        [AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
+        [OpenRouterSettings.ManagementKeyPreferenceKey,
+         AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl],
         preferences.Deletions);
@@ -285,7 +286,7 @@ public class ShellViewModelTests
     await vm.ApplySettingsAsync(new SettingsUpdate(null, CommitStyle.Conventional));
 
     Assert.Equal(
-        [OpenRouterSettings.PreferenceKey,
+        [OpenRouterSettings.PreferenceKey, OpenRouterSettings.ManagementKeyPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl],
@@ -322,7 +323,8 @@ public class ShellViewModelTests
         ],
         preferences.Writes);
     Assert.Equal(
-        [AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
+        [OpenRouterSettings.ManagementKeyPreferenceKey,
+         AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl],
         preferences.Deletions);

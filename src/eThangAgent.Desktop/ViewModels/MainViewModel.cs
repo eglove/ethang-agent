@@ -174,6 +174,10 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     no key is set or settings editing is disabled).</summary>
   public string? ConfiguredOpenRouterKey => _settings?.OpenRouter.ApiKey;
 
+  /// <summary>The configured OpenRouter management key - the settings modal's
+  ///     prefill (null when unset or settings editing is disabled).</summary>
+  public string? ConfiguredOpenRouterManagementKey => _settings?.OpenRouter.ManagementKey;
+
   /// <summary>The max-concurrent-agents text the settings modal prefills: the loaded
   ///     value (the shipped default of 4 when no preference is stored). Null when no
   ///     settings snapshot exists.</summary>
@@ -586,6 +590,8 @@ internal sealed partial class MainViewModel : ObservableObject
     string? openRouterKey = Normalize(update.OpenRouterApiKey);
 
     await PersistApiKeyAsync(OpenRouterSettings.PreferenceKey, openRouterKey);
+    await PersistApiKeyAsync(OpenRouterSettings.ManagementKeyPreferenceKey,
+        Normalize(update.OpenRouterManagementKey));
     await PersistPreferenceAsync(AppPreferenceCommitStyleProvider.PreferenceKey,
         update.CommitStyle.ToString());
     await PersistPreferenceAsync(AgentPreferenceKeys.MaxConcurrentAgents,
@@ -636,7 +642,8 @@ internal sealed partial class MainViewModel : ObservableObject
     AgentSettings rebuilt = _preferences is not null
         ? await AgentSettingsLoader.LoadAsync(_preferences)
         : BindFromUpdate(update); // test seam: no store, same strict binders
-    _settings = rebuilt.WithApiKeys(openRouterKey);
+    _settings = rebuilt.WithApiKeys(openRouterKey)
+        .WithManagementKey(Normalize(update.OpenRouterManagementKey));
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
 
     AvailableProviders = ProvidersFrom(_settings);

@@ -27,13 +27,15 @@ internal partial class SettingsWindow : Window
       string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
       string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
       string? openRouterBaseUrlText = null, bool computerUse = false,
-      string? skillRegistryDefaultTarget = null) : this()
+      string? skillRegistryDefaultTarget = null,
+      string? openRouterManagementKey = null) : this()
   {
     _vm = new SettingsViewModel(openRouterKey, commitStyle,
         compactionModels, selectedCompactionModel, workspaceRoot,
         maxConcurrentAgentsText, defaultModelText, remoteHost,
         watchdogTickText, watchdogIdleText, watchdogWrapUpText,
-        openRouterBaseUrlText, computerUse, skillRegistryDefaultTarget);
+        openRouterBaseUrlText, computerUse, skillRegistryDefaultTarget,
+        openRouterManagementKey);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);
   }

@@ -1,6 +1,6 @@
 namespace eThangAgent.OpenRouter.ACL;
 
-public sealed record OpenRouterConfiguration(string ApiKey, Uri BaseUrl)
+public sealed record OpenRouterConfiguration(string ApiKey, Uri BaseUrl, string? ManagementKey = null)
 {
   /// <summary>Transient-failure retry policy. Defaults to four attempts with exponential backoff.</summary>
   public RetryPolicy Retry { get; init; } = RetryPolicy.Default;

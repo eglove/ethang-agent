@@ -75,4 +75,53 @@ public class AgentSettingsTests
     Assert.Equal("before", original.OpenRouter.ApiKey);
     Assert.True(original.HasOpenRouter);
   }
+
+  [Fact]
+  public void Management_Preference_Key_Names_The_Stored_Slot() =>
+      Assert.Equal("openrouter_management_key", OpenRouterSettings.ManagementKeyPreferenceKey);
+
+  [Fact]
+  public void WithManagementKey_Overlays_The_Key()
+  {
+    AgentSettings overlaid = Settings(openRouter: "sk-or-test").WithManagementKey("sk-or-mng-1");
+
+    Assert.Equal("sk-or-mng-1", overlaid.OpenRouter.ManagementKey);
+    // The model API key is a separate slot - overlaying one never touches the other.
+    Assert.Equal("sk-or-test", overlaid.OpenRouter.ApiKey);
+    Assert.True(overlaid.HasOpenRouter);
+  }
+
+  [Fact]
+  public void WithManagementKey_Null_Clears_The_Key()
+  {
+    AgentSettings overlaid = Settings().WithManagementKey("sk-or-mng-1").WithManagementKey(null);
+
+    Assert.Null(overlaid.OpenRouter.ManagementKey);
+  }
+
+  [Fact]
+  public void WithManagementKey_Does_Not_Mutate_The_Original()
+  {
+    AgentSettings original = Settings();
+    _ = original.WithManagementKey("after");
+
+    Assert.Null(original.OpenRouter.ManagementKey);
+  }
+
+  [Fact]
+  public void OpenRouter_Settings_Json_Round_Trips_ManagementKey_And_Old_Json_Reads_Null()
+  {
+    System.Text.Json.JsonSerializerOptions options = new(System.Text.Json.JsonSerializerDefaults.Web);
+    AgentSettings settings = Settings().WithManagementKey("sk-or-mng-1");
+
+    string json = System.Text.Json.JsonSerializer.Serialize(settings, options);
+    AgentSettings parsed = System.Text.Json.JsonSerializer.Deserialize<AgentSettings>(json, options)!;
+    Assert.Equal("sk-or-mng-1", parsed.OpenRouter.ManagementKey);
+
+    // A settings JSON written before the member existed (no ManagementKey key)
+    // deserializes with a null management key - the documented fallback, never a fault.
+    string legacy = "{\"OpenRouter\":{\"ApiKey\":null,\"BaseUrl\":\"http://openrouter.test\"},\"SubAgents\":{\"MaxConcurrentAgents\":1}}";
+    AgentSettings legacyParsed = System.Text.Json.JsonSerializer.Deserialize<AgentSettings>(legacy, options)!;
+    Assert.Null(legacyParsed.OpenRouter.ManagementKey);
+  }
 }

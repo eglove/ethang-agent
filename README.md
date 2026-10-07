@@ -79,6 +79,14 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   fenced code); other textual responses (plain text, JSON, XML) pass through verbatim; binary
   responses are rejected. Redirects are followed and the output's first line always annotates
   the final URL, status, content type, and size
+- `openrouter_management` tool — review OpenRouter usage logs for debugging through the
+  [Management API](https://openrouter.ai/docs/guides/overview/auth/management-api-keys):
+  `generation` (one request's log line — model, provider, finish reason, tokens, cost, latency),
+  `generation_content` (the stored prompt/completion/error of one request), `credits` (balance),
+  `activity` (per-day usage rows, 30 days or one date), and `analytics_meta` / `analytics_query`
+  (aggregated usage queries — metrics, dimensions, granularity, time range). Requires the optional
+  management key under **⚙ Settings → API Keys**; model API keys never serve management routes and
+  management keys never touch model calls
 - Curated memory loop — `memories.search/add/update/remove/purge` over a categorized, full-text,
   versioned knowledge base, with turn-boundary nudges prompting curation
 - Skill subsystem: embedded skills (the development methodology plus per-style commit guidance),
@@ -175,6 +183,7 @@ The window opens directly on the shell: no workspace and no pre-configured key a
 | Setting | Where | Notes |
 | ------- | ----- | ----- |
 | OpenRouter API key | **⚙ Settings → API Keys** | DPAPI-encrypted in the app database. Providers without a key are not offered in the Open-Agent dialog. |
+| OpenRouter management key (optional) | **⚙ Settings → API Keys** | DPAPI-encrypted in the app database. A separate [management API key](https://openrouter.ai/docs/guides/overview/auth/management-api-keys) (created at openrouter.ai/settings/keys) that unlocks the `openrouter_management` tool — the debugging surface: per-request generation logs, stored prompt/completion content, credits, activity, and analytics queries. It never touches model calls; without it the tool refuses with `ManagementUnavailable`. |
 | OpenRouter base URL | **⚙ Settings → Advanced** | Optional; blank keeps the provider default (`https://openrouter.ai`). Stored in the app database; an invalid value is refused at save and re-validated at startup — never silently coerced. |
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. This is the one remaining environment variable — the bootstrap chicken-and-egg (the database itself must be locatable before preferences can be read) — not app configuration. |
 | Sub-agent settings (`DefaultModel`, `MaxConcurrentAgents`, `RemoteHost`) | Settings window — **Agents** tab; stored in the app database (`app_preferences`). Absent values fall back to shipped defaults (max concurrent 4, no default model, in-process children). | Invalid values are refused at save and re-validated at startup — configuration is validated strictly, never silently coerced. There is deliberately no child-timeout setting: wall-clock is never a child cancellation source. `RemoteHost` is `false` by default; `true` runs children in the out-of-process `eThangAgent.ChildHost`, which survives app restarts (the app re-attaches and reconciles running children exactly). |
