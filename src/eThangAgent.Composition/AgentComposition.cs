@@ -173,7 +173,7 @@ public static class AgentComposition
                 // (issue #106): the loop tool and the Desktop status view see the same
                 // pooled sessions.
                 new AgentToolBinding(
-                    new McpTool(sp.GetRequiredService<IMcpServerAccess>()),
+                    new McpTool(sp.GetRequiredService<IMcpServerAccess>(), new AmbientMcpGrantScopeAdapter()),
                     "Call tools on configured MCP servers through one dispatch surface (list, call)."),
                 .. ComputerToolBindings(sp, settings),
         ]))
@@ -474,7 +474,7 @@ public static class AgentComposition
             sp.GetRequiredService<IExecActivitySink>()))
         .AddSingleton<IToolRegistry>(sp =>
             new ToolRegistry([sp.GetRequiredService<ITool>(),
-                new McpTool(sp.GetRequiredService<IMcpServerAccess>()),
+                new McpTool(sp.GetRequiredService<IMcpServerAccess>(), new AmbientMcpGrantScopeAdapter()),
                 .. ComputerLoopTools(sp, settings)]))
         .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
         [

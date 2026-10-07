@@ -3,6 +3,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
+using eThangAgent.ToolDomain.Mcp;
 
 namespace eThangAgent.AgentDomain;
 
@@ -210,6 +211,12 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     // previous value may be null and is restored in the finally, so a nested
     // grandchild run chains correctly (its restore puts the parent's anchor back).
     string? previousAnchor = null;
+    // The MCP grant scope (issue #108) rides the same save/restore pattern: a child
+    // whose contract carries a resolved effective set runs with that set ambient —
+    // the mcp dispatch tool re-checks resolved ids against it. Null contract set =
+    // full-reach default; the previous value (a nested grandchild's parent scope)
+    // is restored in the finally.
+    IMcpGrantScope? previousGrants = null;
     try
     {
       // The SET sits inside the try on purpose: an anchored contract with NO scope
@@ -220,6 +227,13 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
       if (anchor is not null)
       {
         services.AnchorScope!.Current = anchor;
+      }
+
+      previousGrants = AmbientMcpGrantScope.Current;
+      if (child.Contract is { } grantScopeJson
+          && SpawnContract.Decode(grantScopeJson).DecodedEffectiveTools is { } grantEntries)
+      {
+        AmbientMcpGrantScope.Current = new McpGrantScope(grantEntries);
       }
 
       // The child drains its runtime-owned mailbox at safe points (FR-C2): the runtime
@@ -259,6 +273,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
         anchorScope.Current = previousAnchor;
       }
 
+      AmbientMcpGrantScope.Current = previousGrants;
       RunningChildCurrent.Value = previousChild;
       _heartbeat?.Forget(child.Id);
     }

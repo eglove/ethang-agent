@@ -11,9 +11,10 @@ namespace eThangAgent.ToolDomain.Mcp;
 ///     <see cref="IMcpServerAccess"/> seam, and rendered on the fixed output contract.
 ///     The seam never throws domain errors - failures arrive as
 ///     <see cref="McpOutcome.Failure"/> values and are rendered, not caught.</summary>
-public sealed class McpTool(IMcpServerAccess access) : ITool
+public sealed class McpTool(IMcpServerAccess access, IMcpGrantScope? grants = null) : ITool
 {
   private readonly IMcpServerAccess _access = access ?? throw new ArgumentNullException(nameof(access));
+  private readonly IMcpGrantScope? _grants = grants;
 
   /// <summary>The wire name of every admitted action, in advertisement order.</summary>
   private static readonly string[] ActionNames = ["list", "call"];
@@ -79,6 +80,20 @@ public sealed class McpTool(IMcpServerAccess access) : ITool
 
   private async Task<ToolResult> RunAsync(McpToolInput args, CancellationToken ct)
   {
+    // Dispatch-time grant binding (issue #108): the filtered registry sees the
+    // dispatch tool itself; the RESOLVED id (mcp.server.tool) is re-checked against
+    // the ambient grant scope before anything dispatches. No scope wired = the
+    // full-reach default (root agents, ungranted children, legacy wiring).
+    if (args.Action == McpAction.Call && _grants is { } grantScope)
+    {
+      string resolvedId = $"mcp.{args.Server}.{args.Tool}";
+      string? refusal = grantScope.RefusalFor(resolvedId);
+      if (refusal is not null)
+      {
+        return new ToolResult(refusal, true);
+      }
+    }
+
     McpCommand command = args.Action switch
     {
       McpAction.List => new McpCommand.ListServers(),
@@ -88,7 +103,7 @@ public sealed class McpTool(IMcpServerAccess access) : ITool
     McpOutcome outcome = await _access.ExecuteAsync(command, ct).ConfigureAwait(false);
     return outcome switch
     {
-      McpOutcome.Status status => RenderStatus(status),
+      McpOutcome.Status status => RenderStatus(status, args.Action == McpAction.List ? _grants : null),
       McpOutcome.Called call => new ToolResult(call.Content, call.IsError),
       McpOutcome.Failure failure => new ToolResult(
           $"Error [{failure.Code}]: {failure.Message}", true),
@@ -96,19 +111,25 @@ public sealed class McpTool(IMcpServerAccess access) : ITool
     };
   }
 
-  private static ToolResult RenderStatus(McpOutcome.Status status)
+  private static ToolResult RenderStatus(McpOutcome.Status status, IMcpGrantScope? grants)
   {
-    if (status.Servers.Count == 0)
+    // A scoped agent's listing shows only servers its grants can reach (issue #108):
+    // the config's server names are not leaked past the grant boundary.
+    IEnumerable<McpServerStatus> visible = grants is null
+        ? status.Servers
+        : status.Servers.Where(s => grants.Reachable(s.Name));
+    List<McpServerStatus> servers = [.. visible];
+    if (servers.Count == 0)
     {
       return new ToolResult("[mcp] 0 server(s) configured", false);
     }
 
-    string[] lines = new string[status.Servers.Count + 1];
+    string[] lines = new string[servers.Count + 1];
     lines[0] = string.Create(CultureInfo.InvariantCulture,
-        $"[mcp] {status.Servers.Count} server(s) configured");
-    for (int i = 0; i < status.Servers.Count; i++)
+        $"[mcp] {servers.Count} server(s) configured");
+    for (int i = 0; i < servers.Count; i++)
     {
-      lines[i + 1] = RenderServer(status.Servers[i]);
+      lines[i + 1] = RenderServer(servers[i]);
     }
 
     return new ToolResult(string.Join("\n", lines), false);

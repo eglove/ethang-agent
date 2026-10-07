@@ -18,11 +18,12 @@ public class McpCompositionTests
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
         new SubAgentOptions(null, 2));
+    AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("ws-mcp"), new UnrootedPathResolver()))
+                new FixedWorkspaceContext("ws-mcp"), new UnrootedPathResolver()), database)
         .BuildServiceProvider();
   }
 
@@ -115,12 +116,43 @@ public class McpCompositionTests
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", new Uri("https://openrouter.test")),
         new SubAgentOptions(null, 2));
+    AppDatabase database = new(Path.Combine(Path.GetTempPath(), $"ethang-mcpcomp-{Guid.NewGuid():N}.db"));
     return new ServiceCollection()
         .AddEThangAgentCore(settings, Providers.OpenRouter,
             ModelConfig.Create("test/model", null, 512, 0.5f, 8192).Value!,
             new AgentHostOptions(
-                new FixedWorkspaceContext("ws-mcp"), new UnrootedPathResolver()))
+                new FixedWorkspaceContext("ws-mcp"), new UnrootedPathResolver()), database)
         .AddSingleton<ToolDomain.Mcp.IMcpServerStore>(store)
         .BuildServiceProvider();
+  }
+
+  // JSON002 fires only in the format/IDE host; the pragma pair is the repo's
+  // named decision for hand-written JSON test shapes.
+#pragma warning disable JSON002 // Probable JSON string detected
+  private const string GrantProbeArgs = "{\"timeoutSeconds\":120,\"action\":\"call\",\"server\":\"gitlab\",\"tool\":\"push\"}";
+#pragma warning restore JSON002 // Probable JSON string detected
+
+  [Fact]
+  public async Task Loop_Mcp_Tool_Reads_The_Ambient_Grant_Scope()
+  {
+    // Issue #108: the composition's mcp tool is built with the ambient grant
+    // scope, so a scoped child's dispatches re-check resolved ids. The probe:
+    // set the ambient, dispatch through the tool, observe the refusal.
+    using ServiceProvider services = Build();
+    IToolRegistry registry = services.GetRequiredService<IToolRegistry>();
+    ToolDomain.Mcp.McpTool tool = Assert.IsType<ToolDomain.Mcp.McpTool>(registry.Find("mcp"));
+    ToolDomain.Mcp.AmbientMcpGrantScope.Current = new ToolDomain.Mcp.McpGrantScope(
+        new HashSet<string>(StringComparer.Ordinal) { "mcp", "mcp.github.*" });
+    try
+    {
+      ToolResult result = await tool.ExecuteAsync(new RawToolInput("mcp", GrantProbeArgs),
+          ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(result.IsError);
+      Assert.Equal("Error [GrantViolation]: tool 'mcp.gitlab.push' is not granted to this agent.", result.Content);
+    }
+    finally
+    {
+      ToolDomain.Mcp.AmbientMcpGrantScope.Current = null;
+    }
   }
 }
