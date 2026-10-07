@@ -45,11 +45,14 @@ public sealed class McpTool(IMcpServerAccess access, IMcpGrantScope? grants = nu
     return "Call tools on configured MCP (Model Context Protocol) servers through one dispatch surface."
         + " timeoutSeconds is mandatory. action is exactly one of " + string.Join(", ", ActionNames)
         + " (case-sensitive)."
-        + " list takes no other keys and reports every configured server with its approval state, transport,"
-        + " connection state, and - for connected servers - the cached tool list; it never connects anything."
+        + " list takes no other keys and reports the configured servers visible to this agent's grants with their"
+        + " approval state, transport, connection state, and - for connected servers - the cached tool list;"
+        + " it never connects anything."
         + " call requires server and tool and takes an optional arguments object (default {});"
         + " the first call to a server connects it lazily and caches its tool list; later calls reuse the session."
         + " Servers connect only when approved; a pending or revoked server refuses with McpServerNotApproved."
+        + " A server whose launch (command, args, env, headers, pinned version) changed since the session connected"
+        + " reconnects under the new launch on the next dispatch."
         + " Output: list renders one annotation line '[mcp] N server(s) configured' then one line per server -"
         + " 'name | approval | transport | state' where state is 'not connected', 'connected, N tool(s): a, b',"
         + " or 'error: <message>'. call renders the server's text content verbatim; when the server marks the"
@@ -57,9 +60,12 @@ public sealed class McpTool(IMcpServerAccess access, IMcpGrantScope? grants = nu
         + " Failures render 'Error [Code]: <message>'."
         + " Error codes: McpServerNotFound (unknown server name - run list), McpToolNotFound (unknown tool on a"
         + " connected server - run list), McpServerNotApproved (the server is pending or revoked - the user must"
-        + " approve it), McpConnectFailed (the server process or endpoint failed - the status entry appears in"
-        + " list), McpCallFailed (the call could not complete), StorageUnavailable (the server config store"
-        + " could not be read). Errors are safe to retry with corrected input.";
+        + " approve it), McpCallGated (the server gates mutating calls and this tool is not declared read-only -"
+        + " the user can lift the gate in the MCP Servers dialog), GrantViolation (the resolved id is outside"
+        + " this agent's MCP grants - the spawn contract names what is reachable), McpConnectFailed (the server"
+        + " process or endpoint failed - the status entry appears in list), McpCallFailed (the call could not"
+        + " complete), StorageUnavailable (the server config store could not be read). Errors are safe to retry"
+        + " with corrected input.";
   }
 
   /// <inheritdoc />

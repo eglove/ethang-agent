@@ -63,7 +63,7 @@ public class McpToolTests
     }
 
     foreach (string code in new[] { "McpServerNotFound", "McpToolNotFound", "McpServerNotApproved",
-             "McpConnectFailed", "McpCallFailed", "StorageUnavailable" })
+             "McpCallGated", "GrantViolation", "McpConnectFailed", "McpCallFailed", "StorageUnavailable" })
     {
       Assert.Contains(code, d, StringComparison.Ordinal);
     }
@@ -71,6 +71,11 @@ public class McpToolTests
     Assert.Contains("[mcp]", d, StringComparison.Ordinal);
     Assert.Contains("Error [Code]:", d, StringComparison.Ordinal);
     Assert.Contains("lazily", d, StringComparison.Ordinal);
+    // Issues #108/#109: the scoped listing, the gate, and the stale-launch reconnect
+    // are part of the contract the model reads.
+    Assert.Contains("visible to this agent's grants", d, StringComparison.Ordinal);
+    Assert.Contains("gates mutating calls", d, StringComparison.Ordinal);
+    Assert.Contains("reconnects under the new launch", d, StringComparison.Ordinal);
   }
 
   // ---- strict parsing ----
