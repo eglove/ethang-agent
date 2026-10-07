@@ -89,6 +89,23 @@
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>
+        <ItemsControl x:Name="PendingImagesList" ItemsSource="{Binding PendingImages, Mode=OneWay}"
+                      IsVisible="{Binding HasPendingImages, Mode=OneWay}" Margin="8,0,8,4">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6"/></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:PendingImage">
+              <Border Padding="8,4" CornerRadius="10" Background="#22000000">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
+                  <Button Content="✕" Padding="2,0" Click="OnRemovePendingImage"
+                          Tag="{Binding}" ToolTip.Tip="Remove image"/>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
         <Grid ColumnDefinitions="*,Auto" Margin="8,0">
           <TextBox x:Name="InputBox" Grid.Column="0" PlaceholderText="Type a message"
                    AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/>
@@ -105,8 +122,19 @@
       <ItemsControl x:Name="TranscriptList" ItemsSource="{Binding Transcript.Entries}" Margin="4,8">
         <ItemsControl.DataTemplates>
           <DataTemplate DataType="vm:UserMessageEntry">
-            <SelectableTextBlock Text="{Binding Text}" FontWeight="Bold" Margin="8,2" TextWrapping="Wrap"/>
+            <StackPanel Margin="8,2">
+              <ItemsControl ItemsSource="{Binding Images, Mode=OneWay}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Image Source="{Binding Bitmap, Mode=OneWay}" MaxHeight="240" Margin="0,4,0,4"
+                           HorizontalAlignment="Left"/>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <SelectableTextBlock Text="{Binding Text}" FontWeight="Bold" TextWrapping="Wrap"/>
+            </StackPanel>
           </DataTemplate>
+
           <DataTemplate DataType="vm:AssistantTextEntry">
             <md:AgentMarkdownBlock MarkdownText="{Binding Text}" IsOpen="{Binding IsOpen}" Margin="8,2"/>
           </DataTemplate>

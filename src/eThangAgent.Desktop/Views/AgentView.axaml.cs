@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Platform.Storage;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using eThangAgent.Desktop.ViewModels;
@@ -50,6 +51,8 @@ internal partial class AgentView : UserControl
   ///     unsubscribing the previous VM first (the tab-rebuild leak fix).</summary>
   private void OnDataContextChanged(object? sender, EventArgs e)
   {
+    RemoveHandler(DragDrop.DropEvent, OnImageDrop);
+    DragDrop.SetAllowDrop(this, false);
     if (_wiredVm is not null)
     {
       _wiredVm.Transcript.Entries.CollectionChanged -= OnEntriesChanged;
@@ -100,6 +103,13 @@ internal partial class AgentView : UserControl
     // Tunnel so Esc/End are seen no matter which control inside the view holds
     // focus (input box, transcript).
     AddHandler(KeyDownEvent, OnViewKeyDownTunnel, RoutingStrategies.Tunnel);
+
+    // Paste (issue #20): Ctrl+V on the input box attaches a clipboard image; plain
+    // text paste falls through to the TextBox's own handling.
+    InputBox.AddHandler(KeyDownEvent, OnInputPasteKey, RoutingStrategies.Tunnel);
+    // Drop (issue #20): image files dropped anywhere on the view stage as attachments.
+    DragDrop.SetAllowDrop(this, true);
+    AddHandler(DragDrop.DropEvent, OnImageDrop);
 
     // Reading-position restore: a transcript left unstuck elsewhere (tab switch)
     // gets its reading offset back; a stuck one re-pins to the bottom - both after
@@ -427,6 +437,75 @@ internal partial class AgentView : UserControl
     string rest = input[1..];
     int space = rest.IndexOf(' ', StringComparison.Ordinal);
     return space < 0 ? rest : rest[..space];
+  }
+
+  /// <summary>Ctrl+V on the input box: a clipboard IMAGE stages as an attachment
+  ///     (issue #20); a text clipboard falls through so normal paste still works.
+  ///     The bitmap re-encodes as PNG - the clipboard carries pixels, not files.</summary>
+  private async void OnInputPasteKey(object? sender, KeyEventArgs e)
+  {
+    AgentSessionViewModel? vm = Vm;
+    TopLevel? top = TopLevel.GetTopLevel(this);
+    if (vm is null || top?.Clipboard is not { } clipboard || e.Key != Key.V
+        || !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+    {
+      return;
+    }
+
+    try
+    {
+      using Avalonia.Media.Imaging.Bitmap? bitmap =
+          await Avalonia.Input.Platform.ClipboardExtensions.TryGetBitmapAsync(clipboard).ConfigureAwait(true);
+      if (bitmap is null)
+      {
+        return; // text (or nothing) on the clipboard: normal paste proceeds
+      }
+
+      e.Handled = true;
+      using MemoryStream ms = new();
+      bitmap.Save(ms, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+      _ = vm.AttachImageBytes(ms.ToArray(), "clipboard.png");
+    }
+#pragma warning disable CA1031 // Named decision: clipboard probing is best effort; a hostile clipboard shape must not crash the shell.
+    catch
+    {
+      // Unreadable clipboard: leave e.Handled false so text paste still works.
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Image files dropped on the view stage as attachments (issue #20);
+  ///     non-image files are rejected by the staging surface with a notice.</summary>
+  private void OnImageDrop(object? sender, DragEventArgs e)
+  {
+    AgentSessionViewModel? vm = Vm;
+    if (vm is null)
+    {
+      return;
+    }
+
+    if (e.DataTransfer.TryGetFiles() is not { } files)
+    {
+      return;
+    }
+
+    foreach (IStorageItem item in files)
+    {
+      if (item.Path is { } path)
+      {
+        _ = vm.AttachImageFile(path.LocalPath);
+      }
+    }
+  }
+
+  /// <summary>Removes one staged image from the chip row.</summary>
+  private void OnRemovePendingImage(object? sender, RoutedEventArgs e)
+  {
+    if (sender is Button { Tag: PendingImage pending } && Vm is { } vm)
+    {
+      int index = vm.PendingImages.IndexOf(pending);
+      vm.RemovePendingImage(index);
+    }
   }
 
   private void SubmitInput()
