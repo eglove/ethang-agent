@@ -1,3 +1,5 @@
+using System.Net.Sockets;
+
 namespace eThangAgent.Web.ACL.Tests;
 
 /// <summary>Tiny in-process HTTP server for integration tests: real HTTP over
@@ -7,16 +9,43 @@ internal sealed class TestServer : IDisposable
   private readonly HttpListener _listener;
   private bool _disposed;
 
+  /// <summary>Bind retries after a stolen probe; five matches the mock provider's
+  ///     listener in Desktop.Tests.</summary>
+  private const int MaxBindAttempts = 5;
+
   public Uri BaseUrl { get; }
 
   public TestServer(Action<HttpListenerContext> respond)
   {
-    _listener = new HttpListener();
-    // Port 0 is not supported by HttpListener; bind a random high port instead.
-    int port = System.Security.Cryptography.RandomNumberGenerator.GetInt32(41000, 60000);
-    _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-    _listener.Start();
-    BaseUrl = new Uri($"http://127.0.0.1:{port}");
+    // Port 0 is not supported by HttpListener; probe a free high port instead and
+    // retry on a stolen probe: the TcpListener probe closes before HttpListener
+    // binds, and a concurrently starting listener can win that port under the
+    // solution's parallel test modules (CI: HttpListenerException 'file in use').
+    // A FAILED Start() closes the HttpListener (state Closed), so each attempt
+    // binds a FRESH listener - retrying Start() on the same instance throws
+    // ObjectDisposedException.
+    Uri baseUri = null!;
+    HttpListener listener = null!;
+    for (int attempt = 1; attempt <= MaxBindAttempts; attempt++)
+    {
+      listener = new HttpListener();
+      int port = GetFreePort();
+      string prefix = $"http://127.0.0.1:{port}/";
+      listener.Prefixes.Add(prefix);
+      baseUri = new Uri(prefix);
+      try
+      {
+        listener.Start();
+        break;
+      }
+      catch (HttpListenerException) when (attempt < MaxBindAttempts)
+      {
+        listener.Close(); // the failed attempt's listener is dead - drop it
+      }
+    }
+
+    _listener = listener;
+    BaseUrl = baseUri;
     _ = Task.Run(() =>
     {
       while (_listener.IsListening)
@@ -41,6 +70,16 @@ internal sealed class TestServer : IDisposable
         }
       }
     });
+  }
+
+  /// <summary>Probes a free loopback port: binds TcpListener on port 0, reads the
+  ///     assigned port, closes. The probe window is tiny but real - callers retry the
+  ///     whole probe+bind on collision.</summary>
+  private static int GetFreePort()
+  {
+    using TcpListener listener = new(IPAddress.Loopback, 0);
+    listener.Start();
+    return ((IPEndPoint)listener.LocalEndpoint).Port;
   }
 
   public static TestServer Serving(string contentType, string body, int status = 200)
