@@ -9,13 +9,11 @@ namespace eThangAgent.Composition;
 /// verbatim ethang-tools-mapping skill body — BOTH read from the skill catalog so the
 /// embedded markdown is the single source of harness tool binding (no mirrored constant
 /// to drift) — plus the selected commit style's guidance skill (the user's host
-/// setting; Conventional when no provider is wired) and the ASD-STE100 user-message
-/// style rule (every user-facing message follows Simplified Technical English;
-/// internal reasoning and agent-to-agent messages are exempt) — closed by the
+/// setting; Conventional when no provider is wired) — closed by the
 /// already-active notice. No emphasis wrapper: the contract speaks for itself.
 /// The always-on skill listing is a separate provider
 /// (SkillsListingPromptProvider); this one injects the contract skill, tools
-/// mapping, commit style, and STE rule. Built once per session; no caching
+/// mapping, and commit style. Built once per session; no caching
 /// needed.</summary>
 public sealed class SkillsBootstrapPromptProvider(ISkillCatalog catalog,
     ICommitStyleProvider? styleProvider = null) : ISkillCatalogDependentSystemPromptProvider
@@ -35,18 +33,6 @@ public sealed class SkillsBootstrapPromptProvider(ISkillCatalog catalog,
       "The using-skills skill is ALREADY ACTIVE — do not load it again. Load other " +
       "skills with skill_view when they apply. This bootstrap is injected once per session.";
 
-  /// <summary>User-message style rule carried by every session: user-facing messages
-  ///     must follow ASD-STE100 Simplified Technical English; internal reasoning and
-  ///     agent-to-agent messages are exempt. Part of the bootstrap system messaging —
-  ///     not a curated memory or a per-session preference.</summary>
-  private const string UserMessageStyleRule =
-      "User message style rule: every message to the user must follow ASD-STE100: " +
-      "Simplified Technical English (https://www.asd-ste100.org/, " +
-      "https://en.wikipedia.org/wiki/Simplified_Technical_English). Use approved common " +
-      "words, active voice, one instruction per sentence, and short sentences. No idioms, " +
-      "no slang, no humor. Internal reasoning and messages between agents do not follow " +
-      "this standard; only messages to the user do.";
-
   private readonly ISkillCatalog _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
 
   /// <summary>The style provider is optional: hosts without a preference store (tests,
@@ -65,7 +51,7 @@ public sealed class SkillsBootstrapPromptProvider(ISkillCatalog catalog,
     string skillsMarkdown =
         $"---\nname: {skills.Name}\ndescription: {skills.Description}\n---\n\n{skills.Body}";
     return $"{skillsMarkdown}\n\n{mapping.Body}\n\nActive commit style guidance (the user's host setting; the git_commit tool " +
-        $"enforces it):\n\n{commitStyle.Body}\n\n{UserMessageStyleRule}\n\n{AlreadyActiveNotice}";
+        $"enforces it):\n\n{commitStyle.Body}\n\n{AlreadyActiveNotice}";
   }
 
   /// <summary>Resolves which commit-style guidance skill to inject: the wired

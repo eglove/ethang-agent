@@ -4,13 +4,13 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Composition.Tests;
 
-/// <summary>Eleven contract cases for SkillsBootstrapPromptProvider: the output
+/// <summary>Ten contract cases for SkillsBootstrapPromptProvider: the output
 /// renders the verbatim using-skills skill (frontmatter header + body) plus the
 /// verbatim ethang-tools-mapping skill body — BOTH read from the skill catalog —
-/// the selected commit-style guidance, the ASD-STE100 user-message style rule,
-/// and the already-active notice as a PLAIN session contract: no emphasis tags
-/// anywhere. The always-on skill listing is a separate provider; this one
-/// injects the contract skill, tools mapping, commit style, and STE rule. A
+/// the selected commit-style guidance, and the already-active notice as a PLAIN
+/// session contract: no emphasis tags anywhere. The always-on skill listing is a
+/// separate provider; this one injects the contract skill, tools mapping, and
+/// commit style. A
 /// catalog missing a built-in skill is a packaging defect that throws.</summary>
 public class SkillsBootstrapTests
 {
@@ -108,15 +108,6 @@ public class SkillsBootstrapTests
     Assert.DoesNotContain("the description stands alone", output, StringComparison.Ordinal);
   }
 
-  [Fact]
-  public void Build_InjectsUserMessageStyleRule_AsdSte100()
-  {
-    string output = Build();
-
-    Assert.Contains("ASD-STE100", output, StringComparison.Ordinal);
-    Assert.Contains("Simplified Technical English", output, StringComparison.Ordinal);
-    Assert.Contains("messages to the user", output, StringComparison.Ordinal);
-  }
 
   [Fact]
   public void Build_MissingSelectedStyleSkill_ThrowsInvalidOperationException()
