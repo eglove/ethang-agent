@@ -159,6 +159,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   public async Task<Result<string>> SendMessage(string text,
       TurnCallbacks? callbacks = null,
       IAgentInbox? inbox = null,
+      IReadOnlyList<MessagePart>? imageParts = null,
       CancellationToken ct = default)
   {
     try
@@ -174,7 +175,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // and one re-send per turn — a second overflow fails the turn, bounded.
       bool overflowRecovered = false;
       DrainInbox(inbox);
-      Conversation.AddUserMessage(text);
+      Conversation.AddUserMessage(text, imageParts);
       Beat();
       // No iteration cap by design: the loop runs until the model answers without
       // tool calls. Termination is the model's job — but cancellation is checked

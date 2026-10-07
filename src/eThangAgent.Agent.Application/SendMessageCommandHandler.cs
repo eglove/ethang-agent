@@ -61,7 +61,7 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
       return Result.Failure<string>(new DomainError(Ag.TurnCancelledCode, RuntimeErrors.TurnCancelled));
     }
 
-    Result<string> result = await active.SendMessage(command.Text, callbacks, _inbox, ct)
+    Result<string> result = await active.SendMessage(command.Text, callbacks, _inbox, command.ImageParts, ct)
         .ConfigureAwait(false);
     if (!result.IsSuccess)
     {
