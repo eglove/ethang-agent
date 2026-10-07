@@ -142,6 +142,11 @@ public sealed class AppDatabase
       ApplyV15(connection);
       SetVersion(connection, 15);
     }
+    if (GetVersion(connection) < 16)
+    {
+      ApplyV16(connection);
+      SetVersion(connection, 16);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -609,6 +614,58 @@ public sealed class AppDatabase
         );
         CREATE INDEX IF NOT EXISTS idx_mcp_oauth_tokens_server ON mcp_oauth_tokens(server_id);
         """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+  private static void ApplyV16(SqliteConnection connection)
+  {
+    // The ALTER is not idempotent (no IF NOT EXISTS for columns), and a database
+    // rolled back to an earlier version for testing can already carry the column:
+    // add it only when missing. The table and index are IF NOT EXISTS already.
+    using SqliteCommand columnCheck = connection.CreateCommand();
+    columnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('mcp_servers') WHERE name = 'gate_mode';";
+    bool hasColumn = Convert.ToInt32(columnCheck.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
+    string sql = """
+        CREATE TABLE IF NOT EXISTS mcp_decisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_id INTEGER NOT NULL,
+            decision TEXT NOT NULL,
+            detail TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_mcp_decisions_server ON mcp_decisions(server_id, id);
+        """;
+    using SqliteCommand tableCheck = connection.CreateCommand();
+    tableCheck.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mcp_servers';";
+    bool hasTable = Convert.ToInt32(tableCheck.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
+    if (!hasTable)
+    {
+      // A database stamped past V15 without the V15 tables (a migration renumbering
+      // survivor): V15's IF NOT EXISTS never re-runs, so V16 self-heals the base
+      // shape before the column add.
+      sql = "CREATE TABLE IF NOT EXISTS mcp_servers (\n" +
+          "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n" +
+          "    name TEXT NOT NULL,\n" +
+          "    transport TEXT NOT NULL,\n" +
+          "    command_or_url TEXT NOT NULL,\n" +
+          "    args_json TEXT NOT NULL,\n" +
+          "    env_json TEXT NOT NULL,\n" +
+          "    headers_json TEXT NOT NULL,\n" +
+          "    workspace_id TEXT,\n" +
+          "    approval_state TEXT NOT NULL,\n" +
+          "    pinned_version TEXT,\n" +
+          "    created_at TEXT NOT NULL\n" +
+          ");\n" + sql;
+    }
+
+    if (!hasColumn)
+    {
+      sql = "ALTER TABLE mcp_servers ADD COLUMN gate_mode TEXT NOT NULL DEFAULT 'none';" + "\n" + sql;
+    }
+
     using SqliteCommand command = connection.CreateCommand();
 #pragma warning disable CA2100
     command.CommandText = sql;

@@ -72,6 +72,12 @@ public class McpServersViewModelTests
 
     public Task<Result<McpOAuthTokens?>> GetTokensAsync(int serverId, CancellationToken ct = default) =>
         Task.FromResult(Result.Success<McpOAuthTokens?>(null));
+
+    public Task<Result<bool>> AppendDecisionAsync(int serverId, string decision, string? detail, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success(true));
+
+    public Task<Result<IReadOnlyList<McpDecision>>> ListDecisionsAsync(int serverId, int take, CancellationToken ct = default) =>
+        Task.FromResult(Result.Success<IReadOnlyList<McpDecision>>([]));
   }
 
   /// <summary>A pooled access over the SAME store - the status view's live source.</summary>
@@ -173,6 +179,12 @@ public class McpServersViewModelTests
         throw new InvalidOperationException("db gone");
 
     public Task<Result<McpOAuthTokens?>> GetTokensAsync(int serverId, CancellationToken ct = default) =>
+        throw new InvalidOperationException("db gone");
+
+    public Task<Result<bool>> AppendDecisionAsync(int serverId, string decision, string? detail, CancellationToken ct = default) =>
+        throw new InvalidOperationException("db gone");
+
+    public Task<Result<IReadOnlyList<McpDecision>>> ListDecisionsAsync(int serverId, int take, CancellationToken ct = default) =>
         throw new InvalidOperationException("db gone");
   }
 
@@ -325,18 +337,83 @@ public class McpServersViewModelTests
   }
 
   [Fact]
-  public async Task Save_Editing_Non_Identity_Fields_Keeps_Approval()
+  public async Task Save_Editing_Env_Reopens_Approval()
   {
+    // Issue #107: the trust decision was about THAT environment - an env change
+    // on an approved server flips it back to pending.
     (McpServersViewModel vm, FakeStore store, _) = Make(Row(approval: McpApprovalState.Approved));
     await vm.LoadAsync().ConfigureAwait(true);
     vm.BeginEdit(vm.Servers[0]);
-    vm.FormEnvJson = EnvJson; // env is not identity
+    vm.FormEnvJson = EnvJson;
+
+    vm.SaveCommand.Execute(null);
+
+    McpServerConfig updated = Assert.Single(store.Updates);
+    Assert.Equal(McpApprovalState.Pending, updated.ApprovalState);
+    Assert.Equal(EnvJson, updated.EnvJson);
+  }
+
+  [Fact]
+  public async Task Save_Editing_Args_Reopens_Approval()
+  {
+    // Issue #107: args are the command line's tail - the launch the user trusted.
+    (McpServersViewModel vm, FakeStore store, _) = Make(Row(approval: McpApprovalState.Approved));
+    await vm.LoadAsync().ConfigureAwait(true);
+    vm.BeginEdit(vm.Servers[0]);
+    vm.FormArgsJson = ArgsJson;
+
+    vm.SaveCommand.Execute(null);
+
+    McpServerConfig updated = Assert.Single(store.Updates);
+    Assert.Equal(McpApprovalState.Pending, updated.ApprovalState);
+  }
+
+  [Fact]
+  public async Task Save_Editing_Headers_Reopens_Approval()
+  {
+    // Issue #107: headers carry the HTTP auth material - a credential change is
+    // a trust change.
+    (McpServersViewModel vm, FakeStore store, _) = Make(Row(approval: McpApprovalState.Approved));
+    await vm.LoadAsync().ConfigureAwait(true);
+    vm.BeginEdit(vm.Servers[0]);
+    vm.FormHeadersJson = EnvJson;
+
+    vm.SaveCommand.Execute(null);
+
+    McpServerConfig updated = Assert.Single(store.Updates);
+    Assert.Equal(McpApprovalState.Pending, updated.ApprovalState);
+  }
+
+  [Fact]
+  public async Task Save_Editing_PinnedVersion_Reopens_Approval()
+  {
+    // Issue #107: the rug-pull attack re-defines tools after approval - a version
+    // change is never trusted silently.
+    (McpServersViewModel vm, FakeStore store, _) = Make(Row(approval: McpApprovalState.Approved));
+    await vm.LoadAsync().ConfigureAwait(true);
+    vm.BeginEdit(vm.Servers[0]);
+    vm.FormPinnedVersion = "2.0.0";
+
+    vm.SaveCommand.Execute(null);
+
+    McpServerConfig updated = Assert.Single(store.Updates);
+    Assert.Equal(McpApprovalState.Pending, updated.ApprovalState);
+    Assert.Equal("2.0.0", updated.PinnedVersion);
+  }
+
+  [Fact]
+  public async Task Save_Editing_Nothing_Trustworthy_Keeps_Approval()
+  {
+    // Issue #107: scope is not part of the trust decision's object - a save that
+    // changes none of command/args/env/headers/version keeps the approval.
+    (McpServersViewModel vm, FakeStore store, _) = Make(Row(approval: McpApprovalState.Approved));
+    await vm.LoadAsync().ConfigureAwait(true);
+    vm.BeginEdit(vm.Servers[0]);
 
     vm.SaveCommand.Execute(null);
 
     McpServerConfig updated = Assert.Single(store.Updates);
     Assert.Equal(McpApprovalState.Approved, updated.ApprovalState);
-    Assert.Equal(EnvJson, updated.EnvJson);
   }
 
   [Fact]

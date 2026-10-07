@@ -40,4 +40,13 @@ public interface IMcpServerStore
 
   /// <summary>The stored OAuth tokens for one server, or null when none are stored.</summary>
   Task<Result<McpOAuthTokens?>> GetTokensAsync(int serverId, CancellationToken ct = default);
+
+  /// <summary>Appends one decision to the server's trust/gate log (issues #107/#109):
+  ///     a human approve/revoke, or a gate denial the model received. An unknown id
+  ///     fails McpServerNotFound.</summary>
+  Task<Result<bool>> AppendDecisionAsync(int serverId, string decision, string? detail, CancellationToken ct = default);
+
+  /// <summary>The server's decision log, oldest first, at most <paramref name="take"/>
+  ///     rows. A decision is a record, never a state source (P2).</summary>
+  Task<Result<IReadOnlyList<McpDecision>>> ListDecisionsAsync(int serverId, int take, CancellationToken ct = default);
 }

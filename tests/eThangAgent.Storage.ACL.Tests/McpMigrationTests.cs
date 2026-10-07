@@ -65,7 +65,7 @@ public sealed class McpMigrationTests : IDisposable
     _ = new AppDatabase(_dbPath); // constructor migrates
 
     using SqliteConnection connection = Open();
-    Assert.Equal(15, Version(connection));
+    Assert.Equal(16, Version(connection));
     Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mcp_servers';"));
     Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mcp_oauth_tokens';"));
     // Every earlier table and row is untouched.
@@ -82,7 +82,7 @@ public sealed class McpMigrationTests : IDisposable
     _ = new AppDatabase(_dbPath); // reopen: no-op
 
     using SqliteConnection connection = Open();
-    Assert.Equal(15, Version(connection));
+    Assert.Equal(16, Version(connection));
     // Exactly one mcp_servers table and its two per-scope unique indexes survive a reopen.
     Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mcp_servers';"));
     Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='ux_mcp_servers_scope_name';"));
@@ -102,7 +102,7 @@ public sealed class McpMigrationTests : IDisposable
     _ = await Task.WhenAll(all).ConfigureAwait(true);
 
     using SqliteConnection connection = Open();
-    Assert.Equal(15, Version(connection));
+    Assert.Equal(16, Version(connection));
     Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mcp_servers';"));
   }
 

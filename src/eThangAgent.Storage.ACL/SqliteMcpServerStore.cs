@@ -29,7 +29,7 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
 #pragma warning restore CA2007
       using SqliteCommand command = connection.CreateCommand();
       command.CommandText = """
-          SELECT id, name, transport, command_or_url, args_json, env_json, headers_json, workspace_id, approval_state, pinned_version, created_at
+          SELECT id, name, transport, command_or_url, args_json, env_json, headers_json, workspace_id, approval_state, pinned_version, created_at, gate_mode
           FROM mcp_servers
           WHERE workspace_id IS NULL OR workspace_id = @ws
           ORDER BY name;
@@ -131,7 +131,8 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
                 env_json = @env,
                 headers_json = @headers,
                 approval_state = @approval,
-                pinned_version = @pinned
+                pinned_version = @pinned,
+                gate_mode = @gate
             WHERE id = @id;
             """;
         AddServerFields(update, server);
@@ -184,6 +185,13 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
         deleteTokens.CommandText = "DELETE FROM mcp_oauth_tokens WHERE server_id = @id;";
         _ = deleteTokens.Parameters.AddWithValue("@id", id);
         _ = await deleteTokens.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+      }
+      using (SqliteCommand deleteDecisions = connection.CreateCommand())
+      {
+        deleteDecisions.Transaction = transaction;
+        deleteDecisions.CommandText = "DELETE FROM mcp_decisions WHERE server_id = @id;";
+        _ = deleteDecisions.Parameters.AddWithValue("@id", id);
+        _ = await deleteDecisions.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
       }
       using (SqliteCommand deleteServer = connection.CreateCommand())
       {
@@ -285,6 +293,80 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
     }
   }
 
+  public async Task<Result<bool>> AppendDecisionAsync(int serverId, string decision, string? detail, CancellationToken ct = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(decision);
+    try
+    {
+#pragma warning disable CA2007
+      await using SqliteConnection connection = _database.Open();
+      await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(ct);
+#pragma warning restore CA2007
+
+      if (!await ServerExistsAsync(connection, transaction, serverId, ct).ConfigureAwait(false))
+      {
+        await transaction.RollbackAsync(ct).ConfigureAwait(false);
+        return Result.Failure<bool>(NotFound(serverId));
+      }
+
+      using (SqliteCommand insert = connection.CreateCommand())
+      {
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO mcp_decisions (server_id, decision, detail, created_at)
+            VALUES (@id, @decision, @detail, @created);
+            """;
+        _ = insert.Parameters.AddWithValue("@id", serverId);
+        _ = insert.Parameters.AddWithValue("@decision", decision);
+        _ = insert.Parameters.AddWithValue("@detail", (object?)detail ?? DBNull.Value);
+        _ = insert.Parameters.AddWithValue("@created", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        _ = await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+      }
+
+      await transaction.CommitAsync(ct).ConfigureAwait(false);
+      return Result.Success(true);
+    }
+    catch (SqliteException ex)
+    {
+      return Result.Failure<bool>(Unavailable(ex));
+    }
+  }
+
+  public async Task<Result<IReadOnlyList<McpDecision>>> ListDecisionsAsync(int serverId, int take, CancellationToken ct = default)
+  {
+    try
+    {
+#pragma warning disable CA2007
+      await using SqliteConnection connection = _database.Open();
+#pragma warning restore CA2007
+      using SqliteCommand command = connection.CreateCommand();
+      command.CommandText = """
+          SELECT server_id, decision, detail, created_at
+          FROM mcp_decisions WHERE server_id = @id
+          ORDER BY id
+          LIMIT @take;
+          """;
+      _ = command.Parameters.AddWithValue("@id", serverId);
+      _ = command.Parameters.AddWithValue("@take", take);
+      List<McpDecision> decisions = [];
+      using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+      while (await reader.ReadAsync(ct).ConfigureAwait(false))
+      {
+        decisions.Add(new McpDecision(
+            reader.GetInt32(0),
+            reader.GetString(1),
+            await reader.IsDBNullAsync(2, ct).ConfigureAwait(false) ? null : reader.GetString(2),
+            DateTimeOffset.Parse(reader.GetString(3), CultureInfo.InvariantCulture)));
+      }
+
+      return Result.Success<IReadOnlyList<McpDecision>>(decisions);
+    }
+    catch (SqliteException ex)
+    {
+      return Result.Failure<IReadOnlyList<McpDecision>>(Unavailable(ex));
+    }
+  }
+
   private static async Task<Result<McpServerConfig>> InsertAsync(
       SqliteConnection connection, SqliteTransaction transaction, McpServerConfig server, CancellationToken ct)
   {
@@ -298,8 +380,8 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
     {
       insert.Transaction = transaction;
       insert.CommandText = """
-          INSERT INTO mcp_servers (name, transport, command_or_url, args_json, env_json, headers_json, workspace_id, approval_state, pinned_version, created_at)
-          VALUES (@name, @transport, @commandOrUrl, @args, @env, @headers, @ws, @approval, @pinned, @created);
+          INSERT INTO mcp_servers (name, transport, command_or_url, args_json, env_json, headers_json, workspace_id, approval_state, pinned_version, created_at, gate_mode)
+          VALUES (@name, @transport, @commandOrUrl, @args, @env, @headers, @ws, @approval, @pinned, @created, @gate);
           """;
       AddServerFields(insert, server);
       _ = insert.Parameters.AddWithValue("@ws", (object?)server.WorkspaceId ?? DBNull.Value);
@@ -359,7 +441,7 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
     using SqliteCommand command = connection.CreateCommand();
     command.Transaction = transaction;
     command.CommandText = """
-        SELECT id, name, transport, command_or_url, args_json, env_json, headers_json, workspace_id, approval_state, pinned_version, created_at
+        SELECT id, name, transport, command_or_url, args_json, env_json, headers_json, workspace_id, approval_state, pinned_version, created_at, gate_mode
         FROM mcp_servers
         WHERE id = @id AND (workspace_id IS NULL OR workspace_id = @ws);
         """;
@@ -384,8 +466,25 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
         await reader.IsDBNullAsync(7, ct).ConfigureAwait(false) ? null : reader.GetString(7),
         ParseApproval(reader.GetString(8)),
         await reader.IsDBNullAsync(9, ct).ConfigureAwait(false) ? null : reader.GetString(9),
-        DateTimeOffset.Parse(reader.GetString(10), CultureInfo.InvariantCulture));
+        DateTimeOffset.Parse(reader.GetString(10), CultureInfo.InvariantCulture),
+        ParseGate(reader.GetString(11)));
   }
+
+  private static McpGateMode ParseGate(string value)
+      => value switch
+      {
+        "none" => McpGateMode.None,
+        "mutating" => McpGateMode.Mutating,
+        _ => throw new InvalidOperationException($"corrupt mcp_servers row: unknown gate mode '{value}'."),
+      };
+
+  private static string GateText(McpGateMode mode)
+      => mode switch
+      {
+        McpGateMode.None => "none",
+        McpGateMode.Mutating => "mutating",
+        _ => "none",
+      };
 
   private static McpTransport ParseTransport(string value)
       => value switch
@@ -424,6 +523,7 @@ public sealed class SqliteMcpServerStore(AppDatabase database) : IMcpServerStore
     _ = command.Parameters.AddWithValue("@headers", server.HeadersJson);
     _ = command.Parameters.AddWithValue("@approval", ApprovalText(server.ApprovalState));
     _ = command.Parameters.AddWithValue("@pinned", (object?)server.PinnedVersion ?? DBNull.Value);
+    _ = command.Parameters.AddWithValue("@gate", GateText(server.GateMode));
   }
 
   private static void Validate(McpServerConfig server)

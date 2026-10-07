@@ -129,6 +129,11 @@ internal sealed partial class McpServersViewModel : ObservableObject
   public partial string FormPinnedVersion { get; set; } = string.Empty;
 
   [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(FormError))]
+  [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+  public partial bool FormGateMutating { get; set; }
+
+  [ObservableProperty]
   public partial string? FormError { get; set; }
 
   [ObservableProperty]
@@ -220,6 +225,7 @@ internal sealed partial class McpServersViewModel : ObservableObject
     FormHeadersJson = "{}";
     FormScopeIndex = 0;
     FormPinnedVersion = string.Empty;
+    FormGateMutating = false;
     FormError = null;
     ActionError = null;
   }
@@ -232,7 +238,9 @@ internal sealed partial class McpServersViewModel : ObservableObject
     FormError = null;
   }
 
-  /// <summary>Opens the form prefilled with the selected row for editing.</summary>
+  /// <summary>Opens the form prefilled with the selected row for editing. The
+  ///     pinned version prefills from the store too (issue #107): a blanked pin
+  ///     would read as a version CHANGE and spuriously re-open approval.</summary>
   public void BeginEdit(McpServerRow row)
   {
     Editing = row;
@@ -240,32 +248,28 @@ internal sealed partial class McpServersViewModel : ObservableObject
     FormName = row.Name;
     FormTransportIndex = row.Transport == McpTransport.Stdio ? 0 : 1;
     FormCommandOrUrl = row.CommandOrUrl;
-    FormArgsJson = LoadJson(row.Id, "args") ?? "[]";
-    FormEnvJson = LoadJson(row.Id, "env") ?? "{}";
-    FormHeadersJson = LoadJson(row.Id, "headers") ?? "{}";
+    McpServerConfig? stored = LoadStored(row.Id);
+    FormArgsJson = stored?.ArgsJson ?? "[]";
+    FormEnvJson = stored?.EnvJson ?? "{}";
+    FormHeadersJson = stored?.HeadersJson ?? "{}";
     FormScopeIndex = 0;
-    FormPinnedVersion = string.Empty;
+    FormPinnedVersion = stored?.PinnedVersion ?? string.Empty;
+    FormGateMutating = stored?.GateMode == McpGateMode.Mutating;
     FormError = null;
     ActionError = null;
   }
 
-  /// <summary>The stored JSON field for one row (args/env/headers) - the form
-  ///     prefills from the store, not the row record (which carries none).</summary>
-  private string? LoadJson(int id, string field)
+  /// <summary>The stored row for one id - the form prefills from the store, not the
+  ///     list row record (which carries none of the JSON fields).</summary>
+  private McpServerConfig? LoadStored(int id)
   {
-    // Named decision (CA1031): a store fault degrades to the empty default - the
-    // form still opens, the user can re-enter the JSON.
+    // Named decision (CA1031): a store fault degrades to null - the form still
+    // opens, the user can re-enter the JSON.
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
       Result<McpServerConfig> row = _store.GetAsync(id, _workspaceId).GetAwaiter().GetResult();
-      return row.IsSuccess ? field switch
-      {
-        "args" => row.Value.ArgsJson,
-        "env" => row.Value.EnvJson,
-        "headers" => row.Value.HeadersJson,
-        _ => null,
-      } : null;
+      return row.IsSuccess ? row.Value : null;
     }
     catch (Exception)
     {
@@ -365,11 +369,20 @@ internal sealed partial class McpServersViewModel : ObservableObject
           return;
         }
 
-        bool identityChanged = !string.Equals(current.Value.Name, FormName.Trim(), StringComparison.Ordinal)
+        // Issue #107: the trust decision was about THAT launch - command (name,
+        // transport, command line), args, env, headers, and pinned version are all
+        // its parts. Any change flips an approved server back to pending; scope and
+        // formatting-only JSON renormalization do not.
+        bool trustChanged = !string.Equals(current.Value.Name, FormName.Trim(), StringComparison.Ordinal)
             || current.Value.Transport != transport
-            || !string.Equals(current.Value.CommandOrUrl, FormCommandOrUrl.Trim(), StringComparison.Ordinal);
-        McpApprovalState approval = identityChanged
-            ? McpApprovalState.Pending // the trust decision was about the OLD command
+            || !string.Equals(current.Value.CommandOrUrl, FormCommandOrUrl.Trim(), StringComparison.Ordinal)
+            || !string.Equals(current.Value.ArgsJson, NormalizeJson(FormArgsJson, "[]"), StringComparison.Ordinal)
+            || !string.Equals(current.Value.EnvJson, NormalizeJson(FormEnvJson, "{}"), StringComparison.Ordinal)
+            || !string.Equals(current.Value.HeadersJson, NormalizeJson(FormHeadersJson, "{}"), StringComparison.Ordinal)
+            || !string.Equals(current.Value.PinnedVersion ?? "",
+                string.IsNullOrWhiteSpace(FormPinnedVersion) ? "" : FormPinnedVersion.Trim(), StringComparison.Ordinal);
+        McpApprovalState approval = trustChanged
+            ? McpApprovalState.Pending // the trust decision was about the OLD launch
             : current.Value.ApprovalState;
         McpServerConfig updated = current.Value with
         {
@@ -381,6 +394,7 @@ internal sealed partial class McpServersViewModel : ObservableObject
           HeadersJson = NormalizeJson(FormHeadersJson, "{}"),
           ApprovalState = approval,
           PinnedVersion = string.IsNullOrWhiteSpace(FormPinnedVersion) ? null : FormPinnedVersion.Trim(),
+          GateMode = FormGateMutating ? McpGateMode.Mutating : McpGateMode.None,
         };
         Result<McpServerConfig> saved = _store.UpdateAsync(updated).GetAwaiter().GetResult();
         FormError = saved.IsSuccess ? null : saved.Error.Message;
@@ -398,7 +412,8 @@ internal sealed partial class McpServersViewModel : ObservableObject
             FormScopeIndex == 1 ? null : _workspaceId, // 1 = global; 0 = this workspace
             McpApprovalState.Pending, // the trust event is a separate, deliberate click
             string.IsNullOrWhiteSpace(FormPinnedVersion) ? null : FormPinnedVersion.Trim(),
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            FormGateMutating ? McpGateMode.Mutating : McpGateMode.None);
         Result<McpServerConfig> saved = _store.AddAsync(created).GetAwaiter().GetResult();
         FormError = saved.IsSuccess ? null : saved.Error.Message;
       }
@@ -450,6 +465,13 @@ internal sealed partial class McpServersViewModel : ObservableObject
 
       Result<McpServerConfig> saved = _store.UpdateAsync(
           current.Value with { ApprovalState = state }).GetAwaiter().GetResult();
+      if (saved.IsSuccess)
+      {
+        // The decision log (issue #107): a human approve/revoke is a logged action.
+        _ = _store.AppendDecisionAsync(row.Id, state == McpApprovalState.Approved ? "approved" : "revoked",
+            null, CancellationToken.None);
+      }
+
       ActionError = saved.IsSuccess ? null : saved.Error.Message;
       if (saved.IsSuccess)
       {
