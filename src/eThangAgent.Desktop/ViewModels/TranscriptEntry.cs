@@ -30,7 +30,14 @@ internal sealed record TranscriptImage : IDisposable
   public void Dispose() => Bitmap.Dispose();
 }
 
-internal sealed record UserMessageEntry(string Text) : TranscriptEntry;
+/// <summary>One image staged for the next message (issue #20): the decoded bytes plus
+///     the sniffed media type and a source label (clipboard.png or the file name).</summary>
+internal sealed record PendingImage(string Label, byte[] Bytes, string MediaType);
+
+/// <summary>One user message; images ride beside the text when the user pasted or
+///     dropped any (issue #20).</summary>
+internal sealed record UserMessageEntry(string Text, IReadOnlyList<TranscriptImage>? Images = null,
+    IReadOnlyList<string>? ImageLabels = null) : TranscriptEntry;
 
 internal sealed record AssistantTextEntry(string Text, bool IsOpen) : TranscriptEntry;
 

@@ -38,10 +38,11 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   ///     inherits the sticky state and last reading offset.</summary>
   public TranscriptScrollController Scroll { get; } = new();
 
-  public void AddUser(string text)
+  public void AddUser(string text, IReadOnlyList<TranscriptImage>? images = null,
+      IReadOnlyList<string>? imageLabels = null)
   {
     CloseOpen();
-    Entries.Add(new UserMessageEntry(text));
+    Entries.Add(new UserMessageEntry(text, images, imageLabels));
   }
 
   public void AddToolCall(string name, string arguments)

@@ -87,6 +87,75 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   [ObservableProperty]
   public partial string Input { get; set; } = "";
 
+  /// <summary>Images staged for the NEXT message (issue #20): clipboard pastes and file
+  ///     drops land here; submit attaches them to the user message and clears the
+  ///     queue. Bounded by ImageLimits at attach time - violations are notices.</summary>
+  public System.Collections.ObjectModel.ObservableCollection<PendingImage> PendingImages { get; } = [];
+
+  /// <summary>True when at least one image is staged (chip-row visibility).</summary>
+  public bool HasPendingImages => PendingImages.Count > 0;
+
+  /// <summary>Stages one image for the next message: format sniffed (image/png or
+  ///     image/jpeg only), 20 MB bound, 4-per-message batch. Violations append a
+  ///     transcript notice and return false - never a throw, never a silent clamp.</summary>
+  public bool AttachImageBytes(byte[] bytes, string label)
+  {
+    ArgumentNullException.ThrowIfNull(bytes);
+    string? mediaType = ImageFormats.SniffMediaType(bytes);
+    if (mediaType is null)
+    {
+      Transcript.AddNotice($"Error [UnsupportedImageFormat]: '{label}' is not an attachable image. Formats: image/png or image/jpeg.");
+      return false;
+    }
+
+    if (bytes.Length > ImageLimits.MaxBytes)
+    {
+      Transcript.AddNotice($"Error [ImageTooLarge]: '{label}' is {bytes.Length} bytes; the maximum is {ImageLimits.MaxBytes} bytes (20 MB).");
+      return false;
+    }
+
+    if (PendingImages.Count >= ImageLimits.MaxPerMessage)
+    {
+      Transcript.AddNotice($"Error [ImageBatchFull]: at most {ImageLimits.MaxPerMessage} images per message.");
+      return false;
+    }
+
+    PendingImages.Add(new PendingImage(label, bytes, mediaType));
+    OnPropertyChanged(nameof(HasPendingImages));
+    return true;
+  }
+
+  /// <summary>Reads one image file from disk and stages it under its file name.</summary>
+  public bool AttachImageFile(string path)
+  {
+    try
+    {
+      return AttachImageBytes(File.ReadAllBytes(path), Path.GetFileName(path));
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+        or System.Security.SecurityException or ArgumentException)
+    {
+      Transcript.AddNotice($"Error [ImageReadFailed]: could not read '{path}': {ex.Message}");
+      return false;
+    }
+  }
+
+  /// <summary>Removes the staged image at <paramref name="index"/> (chip close).</summary>
+  public void RemovePendingImage(int index)
+  {
+    if (index >= 0 && index < PendingImages.Count)
+    {
+      PendingImages.RemoveAt(index);
+      OnPropertyChanged(nameof(HasPendingImages));
+    }
+  }
+
+  private void ClearPendingImages()
+  {
+    PendingImages.Clear();
+    OnPropertyChanged(nameof(HasPendingImages));
+  }
+
   public TranscriptViewModel Transcript { get; } = new();
   public StatusViewModel Status { get; }
 
@@ -421,7 +490,34 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private async Task ExecuteTurnCoreAsync(string input)
   {
     MessageCount++;
-    Transcript.AddUser(input);
+
+    // Staged images (issue #20) attach to THIS user message and clear: the parts ride
+    // the conversation message (and the provider wire); the transcript entry shows the
+    // decoded strip. A payload that no longer decodes degrades to a notice (I13).
+    List<TranscriptImage>? transcriptImages = null;
+    List<string>? transcriptImageLabels = null;
+    IReadOnlyList<MessagePart>? imageParts = null;
+    if (PendingImages.Count > 0)
+    {
+      imageParts = [.. PendingImages.Select(p => new MessagePart.ImagePart(p.MediaType, Convert.ToBase64String(p.Bytes)))];
+      transcriptImages = [];
+      transcriptImageLabels = [.. PendingImages.Select(p => p.Label)];
+      foreach (PendingImage p in PendingImages)
+      {
+        try
+        {
+          transcriptImages.Add(new TranscriptImage(p.Bytes));
+        }
+        catch (Exception ex) when (ex is FormatException or ArgumentException or InvalidOperationException)
+        {
+          Transcript.AddNotice($"[chat] staged image '{p.Label}' could not be decoded and was skipped.");
+        }
+      }
+
+      ClearPendingImages();
+    }
+
+    Transcript.AddUser(input, transcriptImages, transcriptImageLabels);
     Status.Phase = TurnPhase.Thinking;
     IsBusy = true;
 
@@ -436,7 +532,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     bool compactedThisTurn = false;
     bool shrunkThisTurn = false;
     Result<string> result = await _runner(
-          new SendMessageCommand(input),
+          new SendMessageCommand(input, imageParts),
           cts.Token,
           new TurnCallbacks(
               OnContentDelta: d =>
