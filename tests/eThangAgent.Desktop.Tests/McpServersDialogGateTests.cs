@@ -59,8 +59,10 @@ public class McpServersDialogGateTests
       return Task.FromResult(Result.Success(true));
     }
 
+    public List<McpDecision> Decisions { get; } = [];
+
     public Task<Result<IReadOnlyList<McpDecision>>> ListDecisionsAsync(int serverId, int take, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success<IReadOnlyList<McpDecision>>([]));
+        Task.FromResult(Result.Success<IReadOnlyList<McpDecision>>([.. Decisions]));
   }
 
   private sealed class FakeAccess(IMcpServerStore store) : IMcpServerAccess
@@ -121,5 +123,22 @@ public class McpServersDialogGateTests
 
     McpServerConfig updated = store.Rows[0];
     Assert.Equal(McpGateMode.Mutating, updated.GateMode);
+  }
+  [Fact]
+  public async Task Selected_Server_Loads_Its_Decision_Log()
+  {
+    // The log must be READABLE, not just written: the dialog shows the selected
+    // server's recent decisions (approve/revoke/gate-denials) - a trust log nobody
+    // can see is a diary, not a log.
+    (McpServersViewModel vm, LoggingStore store) = MakeWithApproved();
+    vm.Selected = vm.Servers[0];
+    store.Decisions.Add(new McpDecision(1, "approved", "the user clicked approve", DateTimeOffset.UtcNow));
+    store.Decisions.Add(new McpDecision(1, "gate-denied", "echo is mutating", DateTimeOffset.UtcNow));
+
+    await vm.LoadAsync().ConfigureAwait(true);
+
+    Assert.Equal(2, vm.SelectedDecisions.Count);
+    Assert.Contains("approved", vm.SelectedDecisions[0], StringComparison.Ordinal);
+    Assert.Contains("gate-denied", vm.SelectedDecisions[1], StringComparison.Ordinal);
   }
 }

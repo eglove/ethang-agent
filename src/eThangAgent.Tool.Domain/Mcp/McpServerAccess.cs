@@ -103,6 +103,22 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
       _ = Task.Run(() => corpse.DisposeAsync().AsTask(), CancellationToken.None);
     }
 
+    // Trust staleness (issue #107): the pooled session was established under a
+    // particular launch (command, args, env, headers, pinned version). A
+    // trust-relevant config change - even re-approved - means the RUNNING process
+    // is not the one the user's current trust decision produced: dispose it and
+    // reconnect under the new launch.
+    string launchStamp = StampOf(config);
+    if (entry.Session is not null && !string.Equals(entry.LaunchStamp, launchStamp, StringComparison.Ordinal))
+    {
+      IMcpClientSession stale = entry.Session;
+      entry.Session = null;
+      entry.State = McpConnectionState.NotConnected;
+      entry.Tools = [];
+      entry.Error = null;
+      _ = Task.Run(() => stale.DisposeAsync().AsTask(), CancellationToken.None);
+    }
+
     if (entry.Session is null)
     {
       McpConnectResult connect = await _pool.ConnectAsync(config, ct).ConfigureAwait(false);
@@ -117,6 +133,7 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
 
       entry.Session = ((McpConnectResult.Success)connect).Session;
       entry.State = McpConnectionState.Connected;
+      entry.LaunchStamp = launchStamp;
       entry.Stderr = entry.Session.StderrTail;
       entry.Tools = await entry.Session.ListToolsAsync(ct).ConfigureAwait(false);
     }
@@ -201,5 +218,17 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
 
     /// <summary>The captured stderr tail of the current (or last dead) session.</summary>
     public string? Stderr { get; set; }
+
+    /// <summary>The launch stamp the CURRENT session was established under (issue #107):
+    ///     a config whose stamp differs means the session predates the user's current
+    ///     trust decision and must be re-established.</summary>
+    public string? LaunchStamp { get; set; }
   }
+
+  /// <summary>The trust-relevant launch identity of one config (issue #107): the fields
+  ///     whose change re-opens approval in the dialog - command, args, env, headers,
+  ///     pinned version - joined so a change in any of them changes the stamp.</summary>
+  private static string StampOf(McpServerConfig config)
+      => string.Join("|", config.CommandOrUrl, config.ArgsJson, config.EnvJson,
+          config.HeadersJson, config.PinnedVersion ?? "");
 }

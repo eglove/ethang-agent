@@ -38,6 +38,14 @@
       <TextBlock Text="Captured stderr" FontWeight="SemiBold" Opacity="0.8" FontSize="12" Margin="0,4,0,0"/>
       <TextBox Text="{Binding Selected.Stderr}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="90"
                IsVisible="{Binding Selected.Stderr, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      <TextBlock Text="Decision log (approve / revoke / gate denials)" FontWeight="SemiBold" Opacity="0.8" FontSize="12" Margin="0,4,0,0"/>
+      <ItemsControl ItemsSource="{Binding SelectedDecisions}" MaxHeight="110">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding}" FontSize="12" Opacity="0.85" TextWrapping="Wrap"/>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
     </StackPanel>
 
     <!-- The config form (add / edit) -->

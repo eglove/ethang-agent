@@ -105,4 +105,45 @@ public sealed class McpTrustFlowStoreTests : IDisposable
     Assert.True(tokens.IsSuccess);
     Assert.Null(tokens.Value);
   }
+
+  [Fact]
+  public async Task SelfHealed_BaseTable_Keeps_Scope_Name_Uniqueness()
+  {
+    // A database stamped past V15 without the V15 tables (the renumbering survivor
+    // shape): V16 self-heals the base table - and it must carry the partial unique
+    // indexes, or scope-name uniqueness silently vanishes on such databases.
+    string path = Path.Combine(Path.GetTempPath(), $"ethang-selfheal-{Guid.NewGuid():N}.db");
+    try
+    {
+      _ = new AppDatabase(path);
+      using (Microsoft.Data.Sqlite.SqliteConnection c = new AppDatabase(path).Open())
+      {
+        using Microsoft.Data.Sqlite.SqliteCommand drop = c.CreateCommand();
+        drop.CommandText = "DROP TABLE mcp_servers; DROP TABLE mcp_oauth_tokens; DROP TABLE mcp_decisions;";
+        _ = await drop.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+        using Microsoft.Data.Sqlite.SqliteCommand stamp = c.CreateCommand();
+        stamp.CommandText = "PRAGMA user_version = 15;";
+        _ = await stamp.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+      }
+
+      SqliteMcpServerStore healed = new(new AppDatabase(path));
+      Result<McpServerConfig> first = await healed.AddAsync(Approved(), TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(first.IsSuccess, first.Error?.Message);
+      Result<McpServerConfig> second = await healed.AddAsync(Approved(), TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.False(second.IsSuccess);
+      Assert.Equal("McpDuplicateName", second.Error.Code);
+    }
+    finally
+    {
+#pragma warning disable CA1031, S108 // Do not catch general exception types
+      try
+      {
+        File.Delete(path);
+      }
+      catch
+      {
+      }
+#pragma warning restore CA1031, S108
+    }
+  }
 }

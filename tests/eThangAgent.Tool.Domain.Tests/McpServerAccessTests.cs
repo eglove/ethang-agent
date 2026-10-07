@@ -105,8 +105,10 @@ public class McpServerAccessTests
 
   private class FakeStore(params McpServerConfig[] servers) : IMcpServerStore
   {
+    public List<McpServerConfig> Servers { get; } = [.. servers];
+
     public Task<Result<IReadOnlyList<McpServerConfig>>> ListAsync(string workspaceId, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success<IReadOnlyList<McpServerConfig>>(servers));
+        Task.FromResult(Result.Success<IReadOnlyList<McpServerConfig>>(Servers));
 
     public Task<Result<McpServerConfig>> GetAsync(int id, string workspaceId, CancellationToken ct = default) =>
         Task.FromResult(Result.Failure<McpServerConfig>(new DomainError("McpServerNotFound", "no")));
@@ -394,4 +396,47 @@ public class McpServerAccessTests
     _ = Assert.IsType<McpOutcome.Called>(outcome);
     Assert.Empty(store.Appends);
   }
+
+  // ---- issue #107 hardening: the pool never keeps a session connected under a
+  // launch the user no longer trusts ----
+
+#pragma warning disable CA2000 // Use a using statement or using declaration
+  [Fact]
+  public async Task TrustRelevant_Config_Change_Reconnects_The_Pooled_Session()
+  {
+    // Approved + connected under env A; the user edits the env (pending),
+    // re-approves: the next dispatch must run against a FRESH session spawned
+    // under env B - never the process the old trust decision produced.
+    FakeSessionPool pool = new();
+    FakeStore store = new(ApprovedStdio());
+    McpServerAccess access = new(store, pool, "ws-test");
+    _ = await Run(access, new McpCommand.CallTool("demo", "echo",
+        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone())).ConfigureAwait(true);
+    Assert.Equal(1, pool.ConnectCounts["demo"]);
+
+    // The env edit + re-approval: same id, new env JSON, approved again.
+#pragma warning disable JSON002 // Probable JSON string detected
+    store.Servers[0] = store.Servers[0] with { EnvJson = "{\"K\":\"V2\"}" };
+#pragma warning restore JSON002 // Probable JSON string detected
+
+    _ = await Run(access, new McpCommand.CallTool("demo", "echo",
+        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone())).ConfigureAwait(true);
+
+    Assert.Equal(2, pool.ConnectCounts["demo"]);
+  }
+
+  [Fact]
+  public async Task Unchanged_Config_Reuses_The_Pooled_Session()
+  {
+    FakeSessionPool pool = new();
+    FakeStore store = new(ApprovedStdio());
+    McpServerAccess access = new(store, pool, "ws-test");
+    _ = await Run(access, new McpCommand.CallTool("demo", "echo",
+        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone())).ConfigureAwait(true);
+    _ = await Run(access, new McpCommand.CallTool("demo", "echo",
+        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone())).ConfigureAwait(true);
+
+    Assert.Equal(1, pool.ConnectCounts["demo"]);
+  }
+#pragma warning restore CA2000
 }

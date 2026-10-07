@@ -139,6 +139,11 @@ internal sealed partial class McpServersViewModel : ObservableObject
   [ObservableProperty]
   public partial string? ActionError { get; set; }
 
+  /// <summary>The selected server's recent trust/gate decisions (issue #107): the
+  ///     readable side of the decision log - one line per decision, oldest first.</summary>
+  [ObservableProperty]
+  public partial IReadOnlyList<string> SelectedDecisions { get; set; } = [];
+
   public bool IsFormOpen { get; private set; }
 
   public McpServersViewModel(IMcpServerStore store, IMcpServerAccess access, string workspaceId)
@@ -199,6 +204,7 @@ internal sealed partial class McpServersViewModel : ObservableObject
         return new McpServerRow(c.Id, c.Name, c.ApprovalState, c.Transport, c.CommandOrUrl,
             statusRow.State, statusRow.Error, statusRow.Stderr);
       })];
+      SelectedDecisions = await LoadDecisionsAsync().ConfigureAwait(true);
       LoadError = null;
     }
     catch (Exception ex)
@@ -481,6 +487,33 @@ internal sealed partial class McpServersViewModel : ObservableObject
     catch (Exception ex)
     {
       ActionError = ex.Message;
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>The selected server's decision log lines (issue #107): the readable
+  ///     side of the trust log. A store fault degrades to an empty list - the log
+  ///     display never breaks the dialog.</summary>
+  private async Task<IReadOnlyList<string>> LoadDecisionsAsync()
+  {
+    if (Selected is not { } row)
+    {
+      return [];
+    }
+
+    // Named decision (CA1031): a log read fault lands in the error state, never
+    // breaks the dialog.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      Result<IReadOnlyList<McpDecision>> log = await _store.ListDecisionsAsync(row.Id, 20, CancellationToken.None).ConfigureAwait(true);
+      return log.IsSuccess
+          ? [.. log.Value.Select(d => $"{d.CreatedAt.LocalDateTime:yyyy-MM-dd HH:mm} - {d.Decision}" + (d.Detail is null ? "" : " - " + d.Detail))]
+          : [];
+    }
+    catch (Exception)
+    {
+      return [];
     }
 #pragma warning restore CA1031
   }

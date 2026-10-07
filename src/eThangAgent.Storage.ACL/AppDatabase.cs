@@ -620,14 +620,19 @@ public sealed class AppDatabase
 #pragma warning restore CA2100
     _ = command.ExecuteNonQuery();
   }
+
   private static void ApplyV16(SqliteConnection connection)
   {
     // The ALTER is not idempotent (no IF NOT EXISTS for columns), and a database
     // rolled back to an earlier version for testing can already carry the column:
-    // add it only when missing. The table and index are IF NOT EXISTS already.
+    // add it only when missing. Statement order matters: the base table must
+    // exist before the column add, so the batch is assembled in order.
     using SqliteCommand columnCheck = connection.CreateCommand();
     columnCheck.CommandText = "SELECT COUNT(*) FROM pragma_table_info('mcp_servers') WHERE name = 'gate_mode';";
     bool hasColumn = Convert.ToInt32(columnCheck.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
+    using SqliteCommand tableCheck = connection.CreateCommand();
+    tableCheck.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mcp_servers';";
+    bool hasTable = Convert.ToInt32(tableCheck.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
     string sql = """
         CREATE TABLE IF NOT EXISTS mcp_decisions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -638,14 +643,17 @@ public sealed class AppDatabase
         );
         CREATE INDEX IF NOT EXISTS idx_mcp_decisions_server ON mcp_decisions(server_id, id);
         """;
-    using SqliteCommand tableCheck = connection.CreateCommand();
-    tableCheck.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mcp_servers';";
-    bool hasTable = Convert.ToInt32(tableCheck.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
-    if (!hasTable)
+    if (!hasColumn)
     {
       // A database stamped past V15 without the V15 tables (a migration renumbering
       // survivor): V15's IF NOT EXISTS never re-runs, so V16 self-heals the base
-      // shape before the column add.
+      // shape - WITH its partial unique indexes, so scope-name uniqueness survives
+      // on such databases - before the column add.
+      sql = "ALTER TABLE mcp_servers ADD COLUMN gate_mode TEXT NOT NULL DEFAULT 'none';" + "\n" + sql;
+    }
+
+    if (!hasTable)
+    {
       sql = "CREATE TABLE IF NOT EXISTS mcp_servers (\n" +
           "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n" +
           "    name TEXT NOT NULL,\n" +
@@ -658,12 +666,10 @@ public sealed class AppDatabase
           "    approval_state TEXT NOT NULL,\n" +
           "    pinned_version TEXT,\n" +
           "    created_at TEXT NOT NULL\n" +
-          ");\n" + sql;
-    }
-
-    if (!hasColumn)
-    {
-      sql = "ALTER TABLE mcp_servers ADD COLUMN gate_mode TEXT NOT NULL DEFAULT 'none';" + "\n" + sql;
+          ");\n" +
+          "CREATE UNIQUE INDEX IF NOT EXISTS ux_mcp_servers_scope_name ON mcp_servers(name) WHERE workspace_id IS NULL;\n" +
+          "CREATE UNIQUE INDEX IF NOT EXISTS ux_mcp_servers_ws_scope_name ON mcp_servers(workspace_id, name) WHERE workspace_id IS NOT NULL;\n" +
+          sql;
     }
 
     using SqliteCommand command = connection.CreateCommand();
