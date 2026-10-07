@@ -85,6 +85,11 @@ public static class AgentComposition
                         sp.GetRequiredService<IFileSystemAccess>()),
                     "Read lines from a text file."),
                 new AgentToolBinding(
+                    new ReadImageTool(sp.GetRequiredService<IPathResolver>(),
+                        sp.GetRequiredService<IFileSystemAccess>(),
+                        new SessionImageInputCapability(sp)),
+                    "Read one image file from the workspace and attach it to the result."),
+                new AgentToolBinding(
                     new WriteTool(sp.GetRequiredService<IPathResolver>(),
                         sp.GetRequiredService<IFileWriteAccess>()),
                     "Create or overwrite a workspace file."),
@@ -479,6 +484,9 @@ public static class AgentComposition
             new ToolRegistry([sp.GetRequiredService<ITool>(),
                 new McpTool(sp.GetRequiredService<IMcpServerAccess>(), new AmbientMcpGrantScopeAdapter()),
                 new OpenRouterManagementTool(sp.GetRequiredService<IOpenRouterManagementAccess>()),
+                new ReadImageTool(sp.GetRequiredService<IPathResolver>(),
+                    sp.GetRequiredService<IFileSystemAccess>(),
+                    new SessionImageInputCapability(sp)),
                 .. ComputerLoopTools(sp, settings)]))
         .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
         [
