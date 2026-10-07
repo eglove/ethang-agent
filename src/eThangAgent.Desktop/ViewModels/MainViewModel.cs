@@ -329,6 +329,8 @@ internal sealed partial class MainViewModel : ObservableObject
   partial void OnSelectedTabChanged(AgentTabViewModel? value)
   {
     ChooseModelSettingsCommand.NotifyCanExecuteChanged();
+    OpenLinksCommand.NotifyCanExecuteChanged();
+    OpenMcpServersCommand.NotifyCanExecuteChanged();
 
     // Keep-alive tabs: every open tab's view stays built; IsSelected toggles the
     // visibility of exactly one. A null selection hides all.

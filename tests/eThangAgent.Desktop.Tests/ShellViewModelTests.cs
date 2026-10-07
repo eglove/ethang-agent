@@ -508,6 +508,59 @@ public class ShellViewModelTests
     Assert.Null(vm.SelectedTab!.Container.Preferences!.ReasoningEffort);
   }
 
+  // ── Tab-scoped rail buttons: Links and MCP Servers are guarded on
+  //    HasSelectedTab, so their CanExecute must re-query when the selection
+  //    changes — a button Avalonia never re-evaluates stays greyed forever.
+
+  [Fact]
+  public void Links_And_McpServers_Commands_Are_Gated_When_No_Tab_Is_Selected()
+  {
+    MainViewModel vm = CreateShell();
+
+    Assert.False(vm.OpenLinksCommand.CanExecute(null));
+    Assert.False(vm.OpenMcpServersCommand.CanExecute(null));
+  }
+
+  [Fact]
+  public async Task Links_And_McpServers_Commands_Enable_Once_A_Tab_Is_Selected()
+  {
+    MainViewModel vm = CreateShell((root, _) => FakeSession(root));
+
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    Assert.True(vm.OpenLinksCommand.CanExecute(null));
+    Assert.True(vm.OpenMcpServersCommand.CanExecute(null));
+  }
+
+  [Fact]
+  public async Task Links_And_McpServers_Commands_Disable_Again_When_The_Last_Tab_Closes()
+  {
+    MainViewModel vm = CreateShell((root, _) => FakeSession(root));
+    AgentTabViewModel alpha = (await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter")).Value!;
+
+    await vm.CloseTabAsync(alpha);
+
+    Assert.False(vm.OpenLinksCommand.CanExecute(null));
+    Assert.False(vm.OpenMcpServersCommand.CanExecute(null));
+  }
+
+  [Fact]
+  public async Task Links_And_McpServers_Commands_Raise_Their_Dialog_Requests()
+  {
+    MainViewModel vm = CreateShell((root, _) => FakeSession(root));
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+    bool linksRaised = false;
+    bool mcpRaised = false;
+    vm.LinksRequested += (_, _) => linksRaised = true;
+    vm.McpServersRequested += (_, _) => mcpRaised = true;
+
+    vm.OpenLinksCommand.Execute(null);
+    vm.OpenMcpServersCommand.Execute(null);
+
+    Assert.True(linksRaised);
+    Assert.True(mcpRaised);
+  }
+
   [Fact]
   public async Task ApplySettings_Persists_And_Applies_The_Commit_Style()
   {

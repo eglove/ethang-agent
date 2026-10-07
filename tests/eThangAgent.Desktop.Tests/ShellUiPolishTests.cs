@@ -7,6 +7,7 @@ using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
 using eThangAgent.SharedKernel;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -14,13 +15,27 @@ namespace eThangAgent.Desktop.Tests;
 ///     tooltips) and tab headers render at a reduced font size.</summary>
 public class ShellUiPolishTests
 {
-  private static MainWindow CreateShellWindow()
+  private static MainViewModel CreateShellWindowVm()
   {
     static Task<Result<AgentSession>> create(string root, string provider)
-        => Task.FromResult(Result.Failure<AgentSession>(
-            new DomainError("NoFactory", $"no factory for {root} ({provider})")));
-    return new MainWindow(new MainViewModel(create));
+        => Task.FromResult(Result.Success(FakeSession(root)));
+    return new MainViewModel(create);
   }
+
+  private static MainWindow CreateShellWindow() => new(CreateShellWindowVm());
+
+  private static AgentSession FakeSession(string root)
+      => new(
+          new ServiceCollection().BuildServiceProvider(),
+          AgentDomain.AgentId.NewId(),
+          new ConversationDomain.Conversation(),
+          Handler: null!,
+          Lifecycle: new RootSessionLifecycle(new TestFixtures.StubStore()),
+          Model: ModelDomain.ModelConfig.Create("test/model", null, 128, 0.1f, 8192).Value!,
+          WorkspaceRoot: root,
+          ProviderName: "openrouter",
+          Inbox: new AgentDomain.BoundedAgentMailbox(),
+          ChildRuntime: new TestFixtures.StubAgentRuntime());
 
   [AvaloniaFact]
   public void Menu_Bar_Is_A_Thin_Icon_Rail_Without_A_Header()
@@ -92,6 +107,35 @@ public class ShellUiPolishTests
       Assert.True(Math.Abs(iconCenterY - buttonCenterY) <= 2.0,
           $"{name} icon must be vertically centered, off by {iconCenterY - buttonCenterY}");
     }
+  }
+
+  /// <summary>Regression: the Links and MCP Servers rail buttons are guarded on
+  ///     HasSelectedTab, so their commands must re-query when the selection changes.
+  ///     A button Avalonia never re-evaluates keeps its startup disabled state
+  ///     forever — the bug report's greyed-out pair. Driven through a real window:
+  ///     the open selects the tab, and the buttons must re-enable from the command's
+  ///     own CanExecuteChanged, with no further notification.</summary>
+  [AvaloniaFact]
+  public async Task Rail_Tab_Buttons_Are_Enabled_When_A_Tab_Is_Selected()
+  {
+    MainViewModel shell = CreateShellWindowVm();
+    MainWindow window = new(shell);
+    window.Show();
+    Dispatcher.UIThread.RunJobs(); // let the Command bindings resolve
+
+    Button links = window.GetControl<Button>("LinksMenuItem");
+    Button mcp = window.GetControl<Button>("McpServersMenuItem");
+    Assert.False(links.IsEffectivelyEnabled);
+    Assert.False(mcp.IsEffectivelyEnabled);
+
+    // The same path the new-agent dialog drives: a successful open selects the
+    // tab, and the buttons must re-enable from the command's own CanExecuteChanged
+    // — with no further notification.
+    _ = await shell.OpenAgentAsync(@"C:\work\alpha", "openrouter").ConfigureAwait(true);
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.True(links.IsEffectivelyEnabled, "LinksMenuItem must re-enable once a tab is selected");
+    Assert.True(mcp.IsEffectivelyEnabled, "McpServersMenuItem must re-enable once a tab is selected");
   }
 
   [AvaloniaFact]
