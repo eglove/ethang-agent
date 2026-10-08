@@ -543,7 +543,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // the guard (it cannot extend or reset the streak).
       if (_repeatGuard.IsSuspended(call.Name))
       {
-        string refusal = $"Error [ToolSuspended]: Tool '{call.Name}' is suspended for the rest of this turn after repeated failures. Take a different approach.";
+        string refusal = $"Error [ToolSuspended]: Tool '{call.Name}' is suspended for the rest of this turn after repeated identical calls. Take a different approach.";
         Conversation.AddToolResult(call.Id, refusal);
         callbacks?.OnToolResult?.Invoke(call.Name, refusal, refusal, true, null);
         continue;

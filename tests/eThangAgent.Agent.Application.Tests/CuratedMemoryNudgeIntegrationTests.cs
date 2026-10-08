@@ -65,7 +65,9 @@ public class CuratedMemoryNudgeIntegrationTests
       List<ToolCallRequest> calls = [];
       for (int i = 0; i < 3; i++)
       {
-        calls.Add(new ToolCallRequest($"c{turn}-{i}", "filler", "{}"));
+        // Distinct arguments: this test pins the memory-nudge policy, so its
+        // filler calls must not trip the repeat guard's success-repetition breaker.
+        calls.Add(new ToolCallRequest($"c{turn}-{i}", "filler", $"{{\"i\":{i}}}"));
       }
 
       if (addDuringFinalTurn && turn == 5)
