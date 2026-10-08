@@ -373,14 +373,18 @@ public static class AgentComposition
         .AddSingleton<SpawnGraphHandler>()
         .AddSingleton(sp =>
         {
-          AgentRecord rootRecord = AgentRecord.Spawned(AgentId.NewId(), null, 0,
-                  sp.GetRequiredService<ModelConfig>().ModelId, null,
-                  "root session", DateTimeOffset.UtcNow);
           SpawnGraphHandler graph = sp.GetRequiredService<SpawnGraphHandler>();
           return new AgentCapabilityProvider(
                   sp.GetRequiredService<IAgentSpawnCommand>(),
                   sp.GetRequiredService<IAgentQueries>(),
-                  () => SubAgentSpawner.RunningChild ?? rootRecord,
+                  // The parent-context fallback (root spawning a child: RunningChild is
+                  // null there) must carry the PERSISTED root session id — a fresh random
+                  // id here phantom-parents every root-spawned child to a row that has
+                  // none (2026-10-08 Resumes session: 43 children pointed at an id no row
+                  // ever held; grandchildren parented correctly because RunningChild
+                  // carries the real child id). Resolved lazily per dispatch, exactly as
+                  // RootAgentHolder resolves the agent's request identity.
+                  () => SubAgentSpawner.RunningChild ?? RootParentRecord(sp),
                   sp.GetRequiredService<IAgentRuntime>(),
                   sp.GetRequiredService<AgentLinkRegistry>(),
                   locator: sp.GetRequiredService<ProcessMailboxLocator>(),
@@ -659,6 +663,13 @@ public static class AgentComposition
       Providers.OpenRouter => services
           .AddSingleton(new OpenRouterConfiguration(apiKey ?? MissingKey(), settings.OpenRouter.BaseUrl,
               ManagementKey: settings.OpenRouter.ManagementKey))
+          // The management key rides a LIVE carrier read at dispatch (the frozen
+          // snapshot forced a session restart to pick a saved key up, 2026-10-08):
+          // seeded from settings at build, pushed live by the host on save.
+          .AddSingleton(new OpenRouterManagementKeyCarrier
+          {
+            Current = settings.OpenRouter.ManagementKey,
+          })
           // App attribution (openrouter.ai/docs/app-attribution): every request the
           // shared client sends — model calls and catalog fetches alike — identifies
           // the app. One Apply point covers the root and every remote child host,
@@ -696,7 +707,8 @@ public static class AgentComposition
           // management key rides OpenRouterConfiguration.ManagementKey.
           .AddSingleton<IOpenRouterManagementAccess>(sp => new OpenRouterManagementClient(
               sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
-              sp.GetRequiredService<OpenRouterConfiguration>()))
+              sp.GetRequiredService<OpenRouterConfiguration>(),
+              managementKeySource: () => sp.GetRequiredService<OpenRouterManagementKeyCarrier>().Current))
           .AddSingleton<IModelCatalog>(sp => new OpenRouterCatalogClient(
               sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
               sp.GetRequiredService<OpenRouterConfiguration>())),
@@ -704,6 +716,23 @@ public static class AgentComposition
     };
   }
 
+  /// <summary>The parent record the spawn path serves when no child is running (the
+  ///     ROOT spawning a child): a depth-0 stand-in whose Id is the PERSISTED root
+  ///     session id, resolved at dispatch — never a fresh random id, which
+  ///     phantom-parents every root-spawned child to a row that has none
+  ///     (2026-10-08 regression). Null identity (legacy wiring, headless stubs)
+  ///     keeps the generated-id behavior: the record is then a throwaway stand-in
+  ///     and children phantom-parent exactly as before the persisted-root fix.
+  ///     ModelUsed stamps the container's bootstrap model for parity with the
+  ///     persisted root row.</summary>
+  private static AgentRecord RootParentRecord(IServiceProvider sp)
+  {
+    AgentId? persisted = sp.GetRequiredService<RootSessionIdentity>().Id;
+    return AgentRecord.Spawned(
+        persisted ?? AgentId.NewId(), null, 0,
+        sp.GetRequiredService<ModelConfig>().ModelId, null,
+        "root session", DateTimeOffset.UtcNow);
+  }
   /// <summary>Best-effort exec-path grant audit (R1.4): a denied dispatch lands as a
   ///     GrantViolation watchdog row; a failing write never blocks the denial.</summary>
   private static void AuditGrantDenial(IServiceProvider sp, AgentId childId, string actionName)
