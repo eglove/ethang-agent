@@ -31,6 +31,104 @@ internal sealed record ModelSettingsSnapshot(
   string? ProviderSettingsJson,
   ModelSettingsViewModel.ModelChoice? Model = null);
 
+/// <summary>One selectable row of a fixed-vocabulary setting: the display label the
+///     dropdown shows and the exact text the save path persists. The unset row's
+///     value is the empty string — the "unset" contract every knob and routing
+///     field shares.</summary>
+internal sealed record SettingChoice(string Display, string Value)
+{
+  public static SettingChoice Unset { get; } = new("(default)", string.Empty);
+}
+
+/// <summary>The documented option vocabularies for the fixed-value settings, each
+///     verified against OpenRouter's official documentation: the Model Domain's
+///     verbosity levels (API parameters enum: low, medium, high, xhigh, max), the
+///     parallel-tool-calls boolean, the provider-routing sort keys (provider
+///     selection guide: price, throughput, latency), the data-collection policy
+///     (allow, deny), the deprecated route alias (chat-completion API reference:
+///     fallback, sort, null), and the web plugin's search engines (web-search
+///     plugin guide: native, exa, firecrawl, parallel, perplexity, or unset).
+///     A persisted value outside its vocabulary is preserved as a synthetic
+///     "(custom)" row — never silently dropped or coerced.</summary>
+internal static class SettingChoiceVocabulary
+{
+  public static IReadOnlyList<SettingChoice> Verbosity { get; } =
+  [
+    new("low", "low"),
+    new("medium", "medium"),
+    new("high", "high"),
+    new("xhigh", "xhigh"),
+    new("max", "max"),
+  ];
+
+  public static IReadOnlyList<SettingChoice> ParallelToolCalls { get; } =
+  [
+    new("true", "true"),
+    new("false", "false"),
+  ];
+
+  public static IReadOnlyList<SettingChoice> Sort { get; } =
+  [
+    new("price", "price"),
+    new("throughput", "throughput"),
+    new("latency", "latency"),
+  ];
+
+  public static IReadOnlyList<SettingChoice> DataCollection { get; } =
+  [
+    new("allow", "allow"),
+    new("deny", "deny"),
+  ];
+
+  public static IReadOnlyList<SettingChoice> Route { get; } =
+  [
+    new("fallback", "fallback"),
+    new("sort", "sort"),
+  ];
+
+  public static IReadOnlyList<SettingChoice> WebSearchEngine { get; } =
+  [
+    new("native", "native"),
+    new("exa", "exa"),
+    new("firecrawl", "firecrawl"),
+    new("parallel", "parallel"),
+    new("perplexity", "perplexity"),
+  ];
+
+  /// <summary>The unset row followed by the documented list plus a synthetic row
+  ///     when <paramref name="value"/> is a non-empty value outside it — the full
+  ///     ItemsSource a dropdown needs: "(default)" selectable, documented values
+  ///     selectable, and a persisted out-of-vocabulary value displayed and
+  ///     preserved rather than silently dropped.</summary>
+  public static IReadOnlyList<SettingChoice> WithUnset(IReadOnlyList<SettingChoice> vocabulary, string? value)
+      => [SettingChoice.Unset, .. WithCustom(vocabulary, value)];
+
+  /// <summary>The documented list plus a synthetic row when <paramref name="value"/>
+  ///     is a non-empty value outside it (a persisted setting from an older build
+  ///     or a future API value must survive a round-trip untouched).</summary>
+  public static IReadOnlyList<SettingChoice> WithCustom(IReadOnlyList<SettingChoice> vocabulary, string? value)
+  {
+    string trimmed = value?.Trim() ?? string.Empty;
+    if (trimmed.Length == 0 || vocabulary.Any(choice => choice.Value == trimmed))
+    {
+      return vocabulary;
+    }
+
+    List<SettingChoice> withCustom = [.. vocabulary, new SettingChoice($"(custom) {trimmed}", trimmed)];
+    return withCustom;
+  }
+
+  /// <summary>The row matching <paramref name="value"/>, or the unset row for
+  ///     null/empty text.</summary>
+  public static SettingChoice RowFor(IReadOnlyList<SettingChoice> choices, string? value)
+  {
+    string trimmed = value?.Trim() ?? string.Empty;
+    return trimmed.Length == 0
+        ? SettingChoice.Unset
+        : choices.FirstOrDefault(choice => choice.Value == trimmed) ?? SettingChoice.Unset;
+  }
+}
+
 /// <summary>One editable sampling knob row: a stable name constant (the test and
 ///     AXAML key), the display label, the current text, and the editability the
 ///     provider dictates. The window binds <see cref="Text"/> two-way; the
@@ -41,12 +139,21 @@ internal sealed record ModelSettingsSnapshot(
 ///     (<c>ValidationError</c>, <c>CanSave</c>, the Save command) re-queries on
 ///     each edit — window edits and programmatic setters behave identically.
 ///     Empty text means "unset": the live preference returns to null.</summary>
-internal sealed partial class KnobEntry(string name, string label, string text, bool isEnabled, Action onTextChanged) : ObservableObject
+internal sealed partial class KnobEntry(string name, string label, string text, bool isEnabled, Action onTextChanged,
+    IReadOnlyList<SettingChoice>? choices = null) : ObservableObject
 {
   [ObservableProperty]
   public partial string Text { get; set; } = text;
 
-  partial void OnTextChanged(string value) => onTextChanged();
+  partial void OnTextChanged(string value)
+  {
+    onTextChanged();
+    // Choices and SelectedChoice derive from Text: re-notify so the dropdown's
+    // selection tracks a programmatic text write (restore path, tests) exactly
+    // like a user pick.
+    OnPropertyChanged(nameof(Choices));
+    OnPropertyChanged(nameof(SelectedChoice));
+  }
 
   public string Name { get; } = name;
 
@@ -56,6 +163,31 @@ internal sealed partial class KnobEntry(string name, string label, string text, 
   ///     (z.ai's seven N/A knobs): the field renders disabled/greyed and its
   ///     value never reaches the preferences.</summary>
   public bool IsEnabled { get; } = isEnabled;
+
+  private readonly IReadOnlyList<SettingChoice>? _vocabulary = choices;
+
+  /// <summary>Null for a free-text knob (the window renders a TextBox); the
+  ///     full dropdown ItemsSource for a fixed-choice knob (the window renders a
+  ///     ComboBox): the unset row, the documented vocabulary, plus a synthetic
+  ///     row whenever the current text is a value outside it. Computed from Text
+  ///     — the single source of truth — so a programmatic write (restore path,
+  ///     tests) is reflected exactly like a user pick.</summary>
+  public IReadOnlyList<SettingChoice>? Choices
+      => _vocabulary is null ? null : SettingChoiceVocabulary.WithUnset(_vocabulary, Text);
+
+  /// <summary>The selected row, derived from Text; picking a row writes Text.
+  ///     Meaningful only when <see cref="Choices"/> is not null.</summary>
+  public SettingChoice SelectedChoice
+  {
+    get => SettingChoiceVocabulary.RowFor(Choices ?? [], Text);
+    set
+    {
+      if (_vocabulary is not null)
+      {
+        Text = value.Value;
+      }
+    }
+  }
 }
 
 /// <summary>The OpenRouter routing fields, edited as raw text (list fields are
@@ -75,6 +207,37 @@ internal sealed class RoutingSection
   public string DataCollectionText { get; set; } = string.Empty;
   public string ModelsText { get; set; } = string.Empty;
   public string RouteText { get; set; } = string.Empty;
+
+  // Fixed-vocabulary fields render as dropdowns over the documented values; the
+  // text property stays the single source of truth and the selection is a
+  // projection of it. SettingChoice is a record (value equality), so a freshly
+  // computed ItemsSource still matches the ComboBox's selected row by value.
+  public IReadOnlyList<SettingChoice> SortChoices
+      => SettingChoiceVocabulary.WithUnset(SettingChoiceVocabulary.Sort, SortText);
+
+  public SettingChoice SelectedSort
+  {
+    get => SettingChoiceVocabulary.RowFor(SortChoices, SortText);
+    set => SortText = value.Value;
+  }
+
+  public IReadOnlyList<SettingChoice> DataCollectionChoices
+      => SettingChoiceVocabulary.WithUnset(SettingChoiceVocabulary.DataCollection, DataCollectionText);
+
+  public SettingChoice SelectedDataCollection
+  {
+    get => SettingChoiceVocabulary.RowFor(DataCollectionChoices, DataCollectionText);
+    set => DataCollectionText = value.Value;
+  }
+
+  public IReadOnlyList<SettingChoice> RouteChoices
+      => SettingChoiceVocabulary.WithUnset(SettingChoiceVocabulary.Route, RouteText);
+
+  public SettingChoice SelectedRoute
+  {
+    get => SettingChoiceVocabulary.RowFor(RouteChoices, RouteText);
+    set => RouteText = value.Value;
+  }
 
   /// <summary>Projects the fields onto the ACL record: blank text becomes null,
   ///     comma-separated text splits on commas and trims each entry.</summary>
@@ -295,6 +458,18 @@ internal sealed class PluginsSection
   public string WebGroundingEngineText { get; set; } = string.Empty;
   public bool ResponseHealing { get; set; }
 
+  // The web plugin's search-engine override is a documented fixed vocabulary
+  // (or unset for the provider default); the text property stays the source of
+  // truth and the selection is a projection of it.
+  public IReadOnlyList<SettingChoice> EngineChoices
+      => SettingChoiceVocabulary.WithUnset(SettingChoiceVocabulary.WebSearchEngine, WebGroundingEngineText);
+
+  public SettingChoice SelectedEngine
+  {
+    get => SettingChoiceVocabulary.RowFor(EngineChoices, WebGroundingEngineText);
+    set => WebGroundingEngineText = value.Value;
+  }
+
   public Plugins ToPlugins() => new(
       WebGrounding: WebGrounding,
       ResponseHealing: ResponseHealing,
@@ -319,11 +494,19 @@ internal sealed class PluginsSection
 ///     x:DataType; the dictionary is surfaced as this row list in fixed display
 ///     order. Text writes forward to the entry, whose own change notification is
 ///     the single source of truth.</summary>
-internal sealed class KnobRow(KnobEntry entry) : ObservableObject
+internal sealed class KnobRow : ObservableObject
 {
-  private readonly KnobEntry _entry = entry;
+  private readonly KnobEntry _entry;
 
-  public string Label { get; } = entry.Label;
+  public KnobRow(KnobEntry entry)
+  {
+    _entry = entry;
+    // Forward the entry's change notifications so a programmatic Text write
+    // (tests, future code) updates the row's bound selection too.
+    _entry.PropertyChanged += (_, args) => OnPropertyChanged(args.PropertyName);
+  }
+
+  public string Label => _entry.Label;
 
   public bool IsEnabled => _entry.IsEnabled;
 
@@ -331,6 +514,21 @@ internal sealed class KnobRow(KnobEntry entry) : ObservableObject
   {
     get => _entry.Text;
     set => _entry.Text = value;
+  }
+
+  /// <summary>True when the knob is a fixed-choice field: the window renders a
+  ///     ComboBox over <see cref="Choices"/> instead of the free-text TextBox.</summary>
+  public bool HasChoices => _entry.Choices is not null;
+
+  public IReadOnlyList<SettingChoice>? Choices => _entry.Choices;
+
+  /// <summary>The selected vocabulary row (two-way bound). Writes forward to the
+  ///     entry, whose own notification loop writes Text — the single source of
+  ///     truth — and re-derives the selection.</summary>
+  public SettingChoice SelectedChoice
+  {
+    get => _entry.SelectedChoice;
+    set => _entry.SelectedChoice = value;
   }
 }
 
@@ -430,8 +628,8 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     [KnobMinP] = "Min P (0-1)",
     [KnobTopA] = "Top A (0-1)",
     [KnobSeed] = "Seed",
-    [KnobVerbosity] = "Verbosity (low/medium/high/xhigh/max)",
-    [KnobParallelToolCalls] = "Parallel tool calls (true/false)",
+    [KnobVerbosity] = "Verbosity",
+    [KnobParallelToolCalls] = "Parallel tool calls",
   };
 
   private readonly SessionModelPreferences _live;
@@ -541,8 +739,15 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     persistedKnobTexts ??= new Dictionary<string, string>();
     string Text(string knob, string? fromPreferences) =>
         persistedKnobTexts.TryGetValue(knob, out string? persisted) ? persisted : fromPreferences ?? string.Empty;
-    KnobEntry CreateEntry(string knob, string? fromPreferences) =>
-        new(knob, KnobLabels[knob], Text(knob, fromPreferences), isEnabled: true, OnKnobTextChanged);
+    KnobEntry CreateEntry(string knob, string? fromPreferences, IReadOnlyList<SettingChoice>? choices = null)
+    {
+      string initial = Text(knob, fromPreferences);
+      // The RAW documented vocabulary rides the entry; the Choices getter computes
+      // the full ItemsSource (unset row + vocabulary + a synthetic custom row for
+      // an out-of-vocabulary current text) from it — augmentation happens exactly
+      // once, at display time, so the dropdown never shows duplicate rows.
+      return new KnobEntry(knob, KnobLabels[knob], initial, isEnabled: true, OnKnobTextChanged, choices);
+    }
     Knobs = new Dictionary<string, KnobEntry>
     {
       [KnobTemperature] = CreateEntry(KnobTemperature, Format(_live.Temperature)),
@@ -555,8 +760,8 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       [KnobMinP] = CreateEntry(KnobMinP, Format(_live.MinP)),
       [KnobTopA] = CreateEntry(KnobTopA, Format(_live.TopA)),
       [KnobSeed] = CreateEntry(KnobSeed, Format(_live.Seed)),
-      [KnobVerbosity] = CreateEntry(KnobVerbosity, Format(_live.Verbosity)),
-      [KnobParallelToolCalls] = CreateEntry(KnobParallelToolCalls, Format(_live.ParallelToolCalls)),
+      [KnobVerbosity] = CreateEntry(KnobVerbosity, Format(_live.Verbosity), SettingChoiceVocabulary.Verbosity),
+      [KnobParallelToolCalls] = CreateEntry(KnobParallelToolCalls, Format(_live.ParallelToolCalls), SettingChoiceVocabulary.ParallelToolCalls),
     };
     (Routing, ServerTools, Plugins) = ParseProviderSettings(_live.ProviderSettings);
     foreach (KnobEntry entry in Knobs.Values)

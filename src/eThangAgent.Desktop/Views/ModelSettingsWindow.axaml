@@ -52,14 +52,22 @@
                     DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
         </StackPanel>
 
-        <!-- The twelve sampling knobs. -->
+        <!-- The twelve sampling knobs. Fixed-vocabulary knobs (verbosity,
+              parallel tool calls) render as dropdowns over their documented
+              values; free-range knobs keep the text box. -->
         <TextBlock Text="Sampling" FontWeight="SemiBold"/>
         <ItemsControl x:Name="KnobList" ItemsSource="{Binding KnobRows}" Margin="0,-8,0,0">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:KnobRow">
               <StackPanel Spacing="2" Margin="0,4">
                 <TextBlock Text="{Binding Label}" FontSize="12" Opacity="0.75"/>
-                <TextBox Text="{Binding Text}" IsEnabled="{Binding IsEnabled}"/>
+                <Panel>
+                  <TextBox Text="{Binding Text}" IsEnabled="{Binding IsEnabled}"
+                           IsVisible="{Binding !HasChoices}"/>
+                  <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding SelectedChoice}"
+                            DisplayMemberBinding="{Binding Display}" HorizontalAlignment="Stretch"
+                            IsEnabled="{Binding IsEnabled}" IsVisible="{Binding HasChoices}"/>
+                </Panel>
               </StackPanel>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
@@ -78,16 +86,19 @@
             <TextBox Text="{Binding Routing.IgnoreText}"/>
             <CheckBox Content="Allow fallbacks" IsChecked="{Binding Routing.AllowFallbacks}"/>
             <TextBlock Text="Sort" FontSize="12" Opacity="0.75"/>
-            <TextBox Text="{Binding Routing.SortText}"/>
+            <ComboBox ItemsSource="{Binding Routing.SortChoices}" SelectedItem="{Binding Routing.SelectedSort}"
+                      DisplayMemberBinding="{Binding Display}" HorizontalAlignment="Stretch"/>
             <TextBlock Text="Quantizations (comma-separated)" FontSize="12" Opacity="0.75"/>
             <TextBox Text="{Binding Routing.QuantizationsText}"/>
             <CheckBox Content="Require parameters" IsChecked="{Binding Routing.RequireParameters}"/>
-            <TextBlock Text="Data collection (e.g. deny)" FontSize="12" Opacity="0.75"/>
-            <TextBox Text="{Binding Routing.DataCollectionText}"/>
+            <TextBlock Text="Data collection" FontSize="12" Opacity="0.75"/>
+            <ComboBox ItemsSource="{Binding Routing.DataCollectionChoices}" SelectedItem="{Binding Routing.SelectedDataCollection}"
+                      DisplayMemberBinding="{Binding Display}" HorizontalAlignment="Stretch"/>
             <TextBlock Text="Models fallback chain (comma-separated)" FontSize="12" Opacity="0.75"/>
             <TextBox Text="{Binding Routing.ModelsText}"/>
-            <TextBlock Text="Route" FontSize="12" Opacity="0.75"/>
-            <TextBox Text="{Binding Routing.RouteText}"/>
+            <TextBlock Text="Route (deprecated)" FontSize="12" Opacity="0.75"/>
+            <ComboBox ItemsSource="{Binding Routing.RouteChoices}" SelectedItem="{Binding Routing.SelectedRoute}"
+                      DisplayMemberBinding="{Binding Display}" HorizontalAlignment="Stretch"/>
           </StackPanel>
 
           <TextBlock Text="Server-side tools" FontWeight="SemiBold" Margin="0,8,0,0"/>
@@ -107,8 +118,9 @@
 
           <TextBlock Text="Plugins" FontWeight="SemiBold" Margin="0,8,0,0"/>
           <CheckBox Content="Web grounding" IsChecked="{Binding Plugins.WebGrounding}"/>
-          <TextBlock Text="Search engine override (optional, e.g. exa)" FontSize="12" Opacity="0.75"/>
-          <TextBox Text="{Binding Plugins.WebGroundingEngineText}"/>
+          <TextBlock Text="Search engine" FontSize="12" Opacity="0.75"/>
+          <ComboBox ItemsSource="{Binding Plugins.EngineChoices}" SelectedItem="{Binding Plugins.SelectedEngine}"
+                    DisplayMemberBinding="{Binding Display}" HorizontalAlignment="Stretch"/>
           <CheckBox Content="Response healing" IsChecked="{Binding Plugins.ResponseHealing}"/>
         </StackPanel>
       </StackPanel>
