@@ -646,6 +646,17 @@ internal sealed partial class MainViewModel : ObservableObject
         .WithManagementKey(Normalize(update.OpenRouterManagementKey));
     _sessionFactory = _sessionFactory?.WithSettings(_settings);
 
+    // Live management-key push: every open session's carrier takes the saved key
+    // immediately — the frozen OpenRouterConfiguration snapshot forced a session
+    // restart to pick a key up (2026-10-08). The openrouter_management tool reads
+    // the carrier at dispatch, so the NEXT call uses the key. Sessions without a
+    // carrier (headless stubs) skip the push silently.
+    string? liveManagementKey = Normalize(update.OpenRouterManagementKey);
+    foreach (AgentTabViewModel tab in Tabs)
+    {
+      tab.Container.Services.GetService<OpenRouterManagementKeyCarrier>()?.Current = liveManagementKey;
+    }
+
     AvailableProviders = ProvidersFrom(_settings);
     if (!AvailableProviders.Any(p => p.Id == PreferredProviderId) && AvailableProviders.Count > 0)
     {
