@@ -13,13 +13,24 @@ namespace eThangAgent.OpenRouter.ACL;
 ///     Every HTTP failure is a typed outcome carrying the capped error body
 ///     (the provider's error-is-information rule); parse failures are their own
 ///     outcome, never exceptions.</summary>
-public sealed class OpenRouterManagementClient(HttpClient http, OpenRouterConfiguration config)
+public sealed class OpenRouterManagementClient(HttpClient http, OpenRouterConfiguration config,
+    Func<string?>? managementKeySource = null)
     : IOpenRouterManagementAccess
 {
   private const int MaxErrorBodyCharacters = 300;
 
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly OpenRouterConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
+  // Live key source (the carrier) when wired: read at DISPATCH so a key saved
+  // mid-session applies to the next call. Null falls back to the snapshot config
+  // key (legacy wiring, byte-identical behavior).
+  private readonly Func<string?>? _managementKeySource = managementKeySource;
+
+  /// <summary>The effective management key for the NEXT dispatch: the live carrier
+  ///     when wired, else the snapshot config value.</summary>
+  private string? EffectiveManagementKey => _managementKeySource is { } source
+      ? source()
+      : _config.ManagementKey;
 
   /// <summary>Internal pipeline result: either a parsed JSON root or the typed
   ///     failure to surface verbatim. Never both, never neither.</summary>
@@ -32,7 +43,7 @@ public sealed class OpenRouterManagementClient(HttpClient http, OpenRouterConfig
   public async Task<OpenRouterManagementOutcome> ExecuteAsync(
       OpenRouterManagementCommand command, CancellationToken ct = default)
   {
-    if (string.IsNullOrWhiteSpace(_config.ManagementKey))
+    if (string.IsNullOrWhiteSpace(EffectiveManagementKey))
     {
       return new OpenRouterManagementOutcome.Failure("ManagementUnavailable",
           "No OpenRouter management key is configured. Add one under Settings, API Keys.");
@@ -246,7 +257,7 @@ public sealed class OpenRouterManagementClient(HttpClient http, OpenRouterConfig
   private void Authorize(HttpRequestMessage request)
   {
     request.Headers.Authorization =
-        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.ManagementKey);
+        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", EffectiveManagementKey);
   }
 
   private static OpenRouterGenerationRecord ParseGeneration(JsonElement el) => new(
