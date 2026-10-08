@@ -30,6 +30,16 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   public const string ContinuationPrompt =
       "[Your previous message was cut off by the output limit. Continue exactly where you stopped; do not repeat earlier text.]";
 
+  /// <summary>Appended as a System message after a length-truncated response that
+  ///     carried NO visible text: the output budget was consumed before any content
+  ///     surfaced (typically hidden reasoning). The generic continuation prompt is
+  ///     wrong here — there is nothing to resume — and it invites a full
+  ///     re-derivation, i.e. another truncated multi-minute stall (2026-10-08:
+  ///     subagents sat in consecutive 3-10 minute provider calls producing empty
+  ///     responses). This nudge names the situation and demands the short path.</summary>
+  public const string EmptyContinuationPrompt =
+      "[Your previous response hit the output limit with no visible text — the budget was consumed before any content surfaced, likely by hidden reasoning. Do NOT re-derive your previous work: give the answer or next tool call directly and concisely, skipping any long reasoning pass.]";
+
   /// <summary>Error code returned (as a Result failure, never an exception) when the turn's
   ///     token fires mid-loop.</summary>
   public const string TurnCancelledCode = "TurnCancelled";
@@ -440,8 +450,14 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
     autoContinuations++;
     Conversation.AddAssistantMessage(content);
-    Conversation.AddSystemMessage(ContinuationPrompt);
-    callbacks?.OnSystemMessage?.Invoke(ContinuationPrompt);
+    // An empty truncated response gets the empty-specific nudge: 'continue exactly
+    // where you stopped' is meaningless when nothing surfaced, and it invites a
+    // full re-derivation — the multi-minute empty-stall shape.
+    string continuationPrompt = string.IsNullOrWhiteSpace(content)
+        ? EmptyContinuationPrompt
+        : ContinuationPrompt;
+    Conversation.AddSystemMessage(continuationPrompt);
+    callbacks?.OnSystemMessage?.Invoke(continuationPrompt);
     return null;
   }
 
