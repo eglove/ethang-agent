@@ -1,11 +1,14 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Reflection;
+using System.Runtime.Loader;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.Verification;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
+using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Scripting;
 
 namespace eThangAgent.Roslyn.ACL;
@@ -35,12 +38,30 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       "No workspace resolver was provided to the exec engine; scripts cannot resolve 'Workspace'. " +
       "Supply one at composition (the session's IWorkspaceContext).");
 
+  // THE LEAK CONTRACT (2026-10-08 incident, 9 GB -> 23 GB RSS over one session):
+  // Roslyn scripting materializes a loaded submission assembly as a SIDE EFFECT of
+  // Script.Compile(), and loads another through the default InteractiveAssemblyLoader
+  // on the RunAsync path — both into the DEFAULT non-collectible AssemblyLoadContext,
+  // where they can never be unloaded. A realistic script (one carrying a using
+  // directive) pins its metadata through that assembly: measured 46-81 MB live heap
+  // per exec call, 151 submission assemblies after ~75 calls. So this engine NEVER
+  // calls Script.Compile() and NEVER lets Roslyn load the submission: validation
+  // reads GetCompilation().GetDiagnostics() (pure analysis, no assembly), and the run
+  // path emits the compilation into a per-run COLLECTIBLE AssemblyLoadContext and
+  // invokes the compiled entry point directly — the same
+  // GetEntryPoint -> CreateDelegate<Func<object[], Task<T>>> contract Roslyn's own
+  // ScriptBuilder.CreateExecutor uses (the entry point is the generated <Factory>,
+  // which news the submission and runs <Initialize>; ScriptExecutionState puts the
+  // globals at index 0 and the factory stores the submission instance into the next
+  // slot itself). When the run settles, the context unloads and the submission's
+  // assembly, metadata, and IL return to the OS.
+
   public Task<Result<IReadOnlyList<ExecParseError>>> ValidateAsync(
       ExecProgram program, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(program);
     Script<object> script = CSharpScript.Create(program.Text, ScriptOpts, typeof(ScriptGlobals));
-    ImmutableArray<Diagnostic> diagnostics = script.Compile(ct);
+    ImmutableArray<Diagnostic> diagnostics = script.GetCompilation().GetDiagnostics(ct);
     List<ExecParseError> errors = [.. diagnostics
         .Where(d => d.Severity == DiagnosticSeverity.Error)
         .Select(d =>
@@ -75,17 +96,64 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
         execBudget: program.Budget);
 
     Script<object> script = CSharpScript.Create(program.Text, ScriptOpts, typeof(ScriptGlobals));
-    ImmutableArray<Diagnostic> compileDiagnostics = script.Compile(ct);
-    List<Diagnostic> compileErrors = [.. compileDiagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)];
-    if (compileErrors.Count > 0)
-    {
-      return new ExecRunResult(ExecRunStatus.Completed, "",
-          [.. compileErrors.Select(d => d.GetMessage(CultureInfo.InvariantCulture))]);
-    }
 
     globals.BeginCapture();
+    AssemblyLoadContext? alc = null;
     try
     {
+      Compilation compilation = script.GetCompilation();
+      ImmutableArray<Diagnostic> compileDiagnostics = compilation.GetDiagnostics(ct);
+      List<Diagnostic> compileErrors = [.. compileDiagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)];
+      if (compileErrors.Count > 0)
+      {
+        return new ExecRunResult(ExecRunStatus.Completed, string.Empty,
+            [.. compileErrors.Select(d => d.GetMessage(CultureInfo.InvariantCulture))]);
+      }
+
+      IMethodSymbol? entryPoint = compilation.GetEntryPoint(ct);
+
+      // A script with no executable top-level code (declarations only) has no entry
+      // point: Roslyn's own executor collapses to Task.FromResult(default) — parity
+      // here is a completed run with empty output.
+      if (entryPoint is null)
+      {
+        return new ExecRunResult(ExecRunStatus.Completed, string.Empty, [],
+            NestedDispatchCount: globals.NestedDispatchCount,
+            WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+      }
+
+      MemoryStream pe = new();
+      EmitResult emit = compilation.Emit(pe, options: null, cancellationToken: ct);
+      if (!emit.Success)
+      {
+        List<string> emitErrors = [.. emit.Diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.GetMessage(CultureInfo.InvariantCulture))];
+        return new ExecRunResult(ExecRunStatus.Completed, string.Empty, emitErrors,
+            NestedDispatchCount: globals.NestedDispatchCount,
+            WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+      }
+
+      pe.Position = 0;
+      alc = new AssemblyLoadContext("eThangAgent-exec-" + Guid.NewGuid().ToString("N"), isCollectible: true);
+      Assembly submissionAssembly = alc.LoadFromStream(pe);
+
+      // Resolve the entry point exactly as ScriptBuilder.GetEntryPointRuntimeMethod
+      // does: the containing type's metadata name (scripts live in the global
+      // namespace) and the method's metadata name.
+      string entryTypeName = entryPoint.ContainingType.MetadataName;
+      Type entryType = submissionAssembly.GetType(entryTypeName, throwOnError: true)!;
+      // Named decision (S3011): the generated entry point is deliberately non-public —
+      // reading it IS the submission contract (Roslyn's own ScriptBuilder does the same).
+#pragma warning disable S3011 // Make sure that this accessibility bypass is safe here
+      MethodInfo entryMethod = entryType.GetMethod(entryPoint.MetadataName,
+          BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static
+          | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+          ?? throw new MissingMethodException(entryTypeName, entryPoint.MetadataName);
+#pragma warning restore S3011 // Make sure that this accessibility bypass is safe here
+      Func<object[], Task<object>> executor =
+          entryMethod.CreateDelegate<Func<object[], Task<object>>>();
+
       // Scripts are synchronous model-authored code; they may legitimately block
       // (Tools.Invoke, Shell). Schedule the submission on the worker pool with the
       // caller's SynchronizationContext shed INSIDE the delegate: Task.Run alone still
@@ -95,29 +163,28 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       // a UI pump — while ExecutionContext (AsyncLocal ambient state such as
       // SubAgentSpawner.RunningChild) still flows: suppressing it broke
       // agent.spawn parent resolution from inside exec scripts (2026-10-04 incident).
-      Task<ScriptState<object>> scheduled = Task.Run(() =>
+      Task<object?> scheduled = Task.Run(async () =>
       {
         SynchronizationContext? callerContext = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(null);
         try
         {
-          // The linked token on Task.Run itself: a cancellation that fires before the
-          // delegate starts yields a Canceled task instead of executing the script.
-          return script.RunAsync(globals, err => err is OperationCanceledException, cts.Token);
+          // First-submission states layout: index 0 is the globals; the generated
+          // <Factory> stores the submission instance into the next slot itself.
+          object[] submissionStates = new object[2];
+          submissionStates[0] = globals;
+          return (object?)await executor(submissionStates).ConfigureAwait(false);
         }
         finally
         {
           SynchronizationContext.SetSynchronizationContext(callerContext);
         }
       }, cts.Token);
-      // The ACL is context-free by contract: its resumptions must never depend
-      // on the caller's pump, so shed the captured context here as well.
-      //
-      // The await races the submission against the caller's token: Roslyn's
-      // cancellation is cooperative (cancelOnError ends the run only when SCRIPT
-      // code throws OCE), so a script stuck in synchronous IL — a tight spin, a
-      // blocking call that ignores the token — cannot be interrupted. Awaiting the
-      // submission directly would wedge the turn busy forever despite a user stop.
+
+      // The await races the submission against the caller's token: script cancellation
+      // is cooperative (a script stuck in synchronous IL — a tight spin, a blocking
+      // call that ignores the token — cannot be interrupted). Awaiting the submission
+      // directly would wedge the turn busy forever despite a user stop.
       // Named decision: on a token win the submission task is abandoned, not
       // awaited — the spinning thread and its script object graph stay alive until
       // process exit (bounded by the pool, not accumulated per call). The turn
@@ -135,27 +202,23 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
         }
       }
 
-
-      // scheduled completed here, so this await resumes synchronously.
-      ScriptState<object> state = await scheduled.ConfigureAwait(false);
+      // scheduled completed here, so this await resumes synchronously. The entry-point
+      // delegate's result IS the script's return value (the <Initialize> task's result —
+      // no ScriptState wrapper exists on this path).
+      object? returnValue = await scheduled.ConfigureAwait(false);
 
       // An OCE thrown from synchronous script surfaces (Shell killed by the budget or
-      // a user stop) does NOT propagate: Roslyn's cancelOnError predicate ends the
-      // submission loop gracefully, so RunAsync returns an empty state instead.
-      // Classify the outcome explicitly rather than trusting the completion shape.
-      // Single budget authority: propagate rather than classify. An elapsed
-      // per-call budget surfaces as Error [ToolTimeout] at the tool layer; a
-      // user stop flows to the turn loop. (Roslyn ends submissions gracefully
-      // when synchronous script surfaces throw, so check explicitly.)
+      // a user stop) does NOT propagate as a fault: check the token explicitly and
+      // classify the outcome rather than trusting the completion shape.
       ct.ThrowIfCancellationRequested();
 
       List<string> outputLines = [.. globals.OutputLines];
-      if (state.ReturnValue is not null and not ScriptGlobals)
+      if (returnValue is not null and not ScriptGlobals)
       {
-        string text = state.ReturnValue switch
+        string text = returnValue switch
         {
           string s => s,
-          _ => System.Text.Json.JsonSerializer.Serialize(state.ReturnValue)
+          _ => System.Text.Json.JsonSerializer.Serialize(returnValue)
         };
         if (!string.IsNullOrEmpty(text))
         {
@@ -185,9 +248,16 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
           NestedDispatchCount: globals.NestedDispatchCount,
           WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
     }
+#pragma warning restore CA1031 // Do not catch general exception types
     finally
     {
       globals.EndCapture();
+      // Unload the collectible context once the run settles: the submission's
+      // assembly, metadata, and IL return to the OS. Unload is asynchronous by
+      // design — it marks the context; collection reclaims it when the last
+      // reference dies (an abandoned spin keeps its context alive, bounded by
+      // the pool — the named decision above).
+      alc?.Unload();
     }
   }
 }
