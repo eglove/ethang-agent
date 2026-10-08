@@ -50,6 +50,9 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   tool loop itself runs uncapped until the model answers without tool calls, with per-turn
   cancellation always honored
 - `read` tool — bounded, line-range text file reads with a freshness guard: every read's annotation carries a file-version token (the (Length, LastWriteTimeUtc) pair the ACL captures at the read moment); re-reading a range the model already holds at the same version returns an elided stub naming the held span instead of the content (`force: true` returns it anyway). The ledger is turn-local and per-agent — reset at turn start and wherever history is replaced (compaction, context shrink) — so elision never hides content the model no longer holds
+- `read_image` tool — read one image file from the workspace and attach it to the tool
+  result so the model can see it (PNG/JPEG sniffed from file bytes, 20 MB cap; the image
+  is withheld with a notice when the session model has no image input)
 - `write` tool — create/replace files behind an explicit overwrite gate
 - `edit` tool — exact literal replacements with occurrence verification, or line-range replacement (lines N..M, no anchor, endLine past EOF rejected); a missed anchor quotes the file's nearest matching region (exact line numbers and content) so one retry corrects the anchor
 - `write_markdown` tool — renders a structured JSON document into well-formed markdown deterministically (headers, lists, tables, alerts, frontmatter); returns the string or writes it to a workspace file behind the same overwrite gate as `write`
@@ -67,6 +70,9 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
   with an optional `files` array of workspace-relative paths to stage first (relative-only: no drives, no `..`, no `.`)
 - `worktree` tool — list git worktrees, or create/remove one under the workspace's `.worktrees/` folder
   (branch `worktree/<name>` from HEAD; dirty worktrees refuse removal unless forced)
+- Image paste & drop — paste a clipboard image (Ctrl+V) or drop image files onto the chat
+  surface to attach up to 4 images (PNG/JPEG, 20 MB each) to the next message; staged
+  images render as removable chips above the input
 - `!` chat commands — a line starting with `!` runs as a shell command against the workspace
   (through the machine's shell: pwsh, PowerShell, or cmd — probed in that order) instead of going
   to the model, even mid-turn. Output is captured to the local transcript and the app database,

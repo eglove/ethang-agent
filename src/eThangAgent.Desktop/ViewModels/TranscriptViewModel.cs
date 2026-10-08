@@ -147,7 +147,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
       switch (message.Role)
       {
         case Role.User:
-          AddUser(message.Content);
+          AddUser(message.Content, DecodeUserImages(message));
           break;
         case Role.Assistant:
           RestoreAssistant(callNames, message);
@@ -197,6 +197,34 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
         ? resolved
         : "tool";
     return new ToolResultEntry(name, "ok", message.Content, IsError: false);
+  }
+
+  /// <summary>Decodes a restored user message's image parts (issue #20); a payload
+  ///     that no longer decodes degrades to a notice, never throws. The labels are
+  ///     not persisted (parts carry no source label), so chips render unnamed.</summary>
+  private List<TranscriptImage>? DecodeUserImages(Message message)
+  {
+    if (message.Parts is not { Count: > 0 } parts)
+    {
+      return null;
+    }
+
+    List<TranscriptImage>? decoded = null;
+    foreach (MessagePart.ImagePart part in parts.OfType<MessagePart.ImagePart>())
+    {
+      try
+      {
+        TranscriptImage image = new(Convert.FromBase64String(part.Base64Data));
+        decoded ??= [];
+        decoded.Add(image);
+      }
+      catch (Exception ex) when (ex is FormatException or ArgumentException or InvalidOperationException)
+      {
+        AddNotice("[chat] a restored image could not be decoded and was skipped.");
+      }
+    }
+
+    return decoded;
   }
 
   public void AppendAssistantDelta(string text)

@@ -7,6 +7,10 @@ namespace eThangAgent.ToolDomain.Tests;
 ///     ReadToolInput, pinned through its own suite.</summary>
 public class ReadImageToolInputTests
 {
+  // JSON002 fires only in the format/IDE host; the pragma pair mirrors the repo's
+  // standing pattern for literal JSON arguments in fixtures.
+#pragma warning disable JSON002
+
   private static Result<ReadImageToolInput> Create(string json) => ReadImageToolInput.Create(json);
 
   [Fact]
@@ -64,4 +68,5 @@ public class ReadImageToolInputTests
 
   [Fact]
   public void Create_NotJson_Fails() => Assert.False(Create("not json").IsSuccess);
+#pragma warning restore JSON002
 }
