@@ -93,6 +93,23 @@ public class ModelSettingsChoiceTests
   }
 
   [Fact]
+  public void KnobChoices_ThroughTheViewModel_AugmentExactlyOnce()
+  {
+    // Regression: the entry must carry the RAW vocabulary and augment at display
+    // time exactly once — a double prepend would show two unset rows.
+    ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, persist: _ => { });
+
+    IReadOnlyList<SettingChoice> verbosity = vm.Knobs[ModelSettingsViewModel.KnobVerbosity].Choices!;
+    Assert.Equal(6, verbosity.Count); // unset + the five documented levels
+    Assert.Equal(1, verbosity.Count(c => c.Value.Length == 0));
+    Assert.Equal(SettingChoice.Unset, verbosity[0]);
+
+    IReadOnlyList<SettingChoice> parallel = vm.Knobs[ModelSettingsViewModel.KnobParallelToolCalls].Choices!;
+    Assert.Equal(3, parallel.Count); // unset + true + false
+    Assert.Equal(1, parallel.Count(c => c.Value.Length == 0));
+  }
+
+  [Fact]
   public void KnobChoice_PrefillsFromTheLivePreference()
   {
     SessionModelPreferences live = new() { Verbosity = VerbosityLevel.XHigh, ParallelToolCalls = false };
