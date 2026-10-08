@@ -487,11 +487,6 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       body["models"] = models;
     }
 
-    if (routing.Route is { } route)
-    {
-      body["route"] = route;
-    }
-
     return body;
   }
 

@@ -136,7 +136,6 @@ public sealed record OpenRouterRequestSettings
 /// <param name="DataCollection">Provider data-collection policy filter, e.g. deny.
 ///     Wire: data_collection.</param>
 /// <param name="Models">Restrict routing to these models. Wire: models.</param>
-/// <param name="Route">Explicit route strategy, e.g. fallback. Wire: route.</param>
 #pragma warning disable CA1819 // By-design wire data-carrier: the OpenRouter API's own members are arrays; this record is data, not a mutable surface.
 public sealed record Routing(
   [property: JsonPropertyName("order")]
@@ -165,10 +164,7 @@ public sealed record Routing(
   string? DataCollection = null,
   [property: JsonPropertyName("models")]
   [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  string[]? Models = null,
-  [property: JsonPropertyName("route")]
-  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  string? Route = null)
+  string[]? Models = null)
 {
   /// <summary>Sequence equality over the array members — the default record
   ///     equality compares arrays by reference, which would break
@@ -183,8 +179,7 @@ public sealed record Routing(
           && NullableSequenceEqual(Quantizations, other.Quantizations)
           && RequireParameters == other.RequireParameters
           && DataCollection == other.DataCollection
-          && NullableSequenceEqual(Models, other.Models)
-          && Route == other.Route;
+          && NullableSequenceEqual(Models, other.Models);
 
   /// <summary>Sequence hash consistent with Equals.</summary>
   public override int GetHashCode()
@@ -199,7 +194,6 @@ public sealed record Routing(
     hash.Add(RequireParameters);
     hash.Add(DataCollection);
     AddSequence(ref hash, Models);
-    hash.Add(Route);
     return hash.ToHashCode();
   }
 

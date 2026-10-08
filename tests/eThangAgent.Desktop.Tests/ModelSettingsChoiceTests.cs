@@ -46,11 +46,6 @@ public class ModelSettingsChoiceTests
         SettingChoiceVocabulary.DataCollection.Select(c => c.Value));
 
   [Fact]
-  public void RouteVocabulary_IsExactlyTheDeprecatedAliasValues()
-    => Assert.Equal(["fallback", "sort"],
-        SettingChoiceVocabulary.Route.Select(c => c.Value));
-
-  [Fact]
   public void WebSearchEngineVocabulary_IsExactlyTheDocumentedEngines()
     => Assert.Equal(["native", "exa", "firecrawl", "parallel", "perplexity"],
         SettingChoiceVocabulary.WebSearchEngine.Select(c => c.Value));
@@ -215,16 +210,14 @@ public class ModelSettingsChoiceTests
   }
 
   [Fact]
-  public void RoutingDataCollectionAndRoute_RoundTripThroughTheirTexts()
+  public void RoutingDataCollection_RoundTripsThroughTheText()
   {
     ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, persist: _ => { });
 
     vm.Routing.SelectedDataCollection = vm.Routing.DataCollectionChoices.First(c => c.Value == "deny");
-    vm.Routing.SelectedRoute = vm.Routing.RouteChoices.First(c => c.Value == "fallback");
 
     Routing routing = vm.Routing.ToRouting();
     Assert.Equal("deny", routing.DataCollection);
-    Assert.Equal("fallback", routing.Route);
   }
 
   // ---- The web plugin's engine dropdown ----

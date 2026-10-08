@@ -45,8 +45,7 @@ internal sealed record SettingChoice(string Display, string Value)
 ///     verbosity levels (API parameters enum: low, medium, high, xhigh, max), the
 ///     parallel-tool-calls boolean, the provider-routing sort keys (provider
 ///     selection guide: price, throughput, latency), the data-collection policy
-///     (allow, deny), the deprecated route alias (chat-completion API reference:
-///     fallback, sort, null), and the web plugin's search engines (web-search
+///     (allow, deny), and the web plugin's search engines (web-search
 ///     plugin guide: native, exa, firecrawl, parallel, perplexity, or unset).
 ///     A persisted value outside its vocabulary is preserved as a synthetic
 ///     "(custom)" row — never silently dropped or coerced.</summary>
@@ -78,12 +77,6 @@ internal static class SettingChoiceVocabulary
   [
     new("allow", "allow"),
     new("deny", "deny"),
-  ];
-
-  public static IReadOnlyList<SettingChoice> Route { get; } =
-  [
-    new("fallback", "fallback"),
-    new("sort", "sort"),
   ];
 
   public static IReadOnlyList<SettingChoice> WebSearchEngine { get; } =
@@ -206,7 +199,6 @@ internal sealed class RoutingSection
   public bool? RequireParameters { get; set; }
   public string DataCollectionText { get; set; } = string.Empty;
   public string ModelsText { get; set; } = string.Empty;
-  public string RouteText { get; set; } = string.Empty;
 
   // Fixed-vocabulary fields render as dropdowns over the documented values; the
   // text property stays the single source of truth and the selection is a
@@ -230,14 +222,7 @@ internal sealed class RoutingSection
     set => DataCollectionText = value.Value;
   }
 
-  public IReadOnlyList<SettingChoice> RouteChoices
-      => SettingChoiceVocabulary.WithUnset(SettingChoiceVocabulary.Route, RouteText);
 
-  public SettingChoice SelectedRoute
-  {
-    get => SettingChoiceVocabulary.RowFor(RouteChoices, RouteText);
-    set => RouteText = value.Value;
-  }
 
   /// <summary>Projects the fields onto the ACL record: blank text becomes null,
   ///     comma-separated text splits on commas and trims each entry.</summary>
@@ -250,8 +235,7 @@ internal sealed class RoutingSection
       Quantizations: SplitList(QuantizationsText),
       RequireParameters: RequireParameters,
       DataCollection: NullIfBlank(DataCollectionText),
-      Models: SplitList(ModelsText),
-      Route: NullIfBlank(RouteText));
+      Models: SplitList(ModelsText));
 
   private static string[]? SplitList(string text)
   {
@@ -278,7 +262,6 @@ internal sealed class RoutingSection
     RequireParameters = routing.RequireParameters,
     DataCollectionText = routing.DataCollection ?? string.Empty,
     ModelsText = JoinList(routing.Models),
-    RouteText = routing.Route ?? string.Empty,
   };
 
   private static string JoinList(string[]? values) => values is null ? string.Empty : string.Join(", ", values);

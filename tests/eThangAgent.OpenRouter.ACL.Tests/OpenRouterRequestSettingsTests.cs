@@ -60,8 +60,7 @@ public class OpenRouterRequestSettingsTests
       Quantizations: ["int4", "int8"],
       RequireParameters: true,
       DataCollection: "deny",
-      Models: ["openai/gpt-5"],
-      Route: "fallback"),
+      Models: ["openai/gpt-5"]),
     ServerTools = new ServerTools(
       WebSearch: true,
       WebFetch: true,

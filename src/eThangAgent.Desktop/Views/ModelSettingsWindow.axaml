@@ -96,9 +96,6 @@
                       DisplayMemberBinding="{Binding Display}" HorizontalAlignment="Stretch"/>
             <TextBlock Text="Models fallback chain (comma-separated)" FontSize="12" Opacity="0.75"/>
             <TextBox Text="{Binding Routing.ModelsText}"/>
-            <TextBlock Text="Route (deprecated)" FontSize="12" Opacity="0.75"/>
-            <ComboBox ItemsSource="{Binding Routing.RouteChoices}" SelectedItem="{Binding Routing.SelectedRoute}"
-                      DisplayMemberBinding="{Binding Display}" HorizontalAlignment="Stretch"/>
           </StackPanel>
 
           <TextBlock Text="Server-side tools" FontWeight="SemiBold" Margin="0,8,0,0"/>
