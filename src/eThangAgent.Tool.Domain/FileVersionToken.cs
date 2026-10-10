@@ -23,7 +23,7 @@ public static class FileVersionToken
   ///     naming the expected shape.</summary>
   public static Result<FileVersion> Decode(string? token)
   {
-    if (token is null || token[0] != 'v')
+    if (string.IsNullOrEmpty(token) || token[0] != 'v')
     {
       return Fail(token);
     }

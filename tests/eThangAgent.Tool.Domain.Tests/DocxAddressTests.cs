@@ -106,6 +106,21 @@ public class DocxAddressTests
   [InlineData("SEC1.header.p1")] // case-sensitive grammar
   [InlineData("p1.")]            // trailing dot is an empty segment
   [InlineData(".p1")]            // leading dot is an empty segment
+  [InlineData(".r2.c1")]         // empty head segment (3-segment cell shape)
+  [InlineData("t1..c1")]         // empty middle segment (cell shape)
+  [InlineData("t1.r2.")]         // empty tail segment (cell shape)
+  [InlineData("t1..")]           // two empty segments (cell shape)
+  [InlineData("t..")]            // empty segments after bare t
+  [InlineData("..")]             // every segment empty
+  [InlineData("sec1.header.")]   // empty tail segment (layered shape)
+  [InlineData("sec1.footer.")]   // empty tail segment (footer shape)
+  [InlineData(".header.p1")]     // empty head segment (layered shape)
+  [InlineData("sec1..p1")]       // empty middle segment (layered shape)
+  [InlineData("tx.r2.c1")]       // cell head is not an integer
+  [InlineData("t.r2.c1")]        // cell head is missing entirely
+  [InlineData("t0.r2.c1")]       // cell head is 0 (1-based grammar)
+  [InlineData("t-1.r2.c1")]      // cell head is negative
+  [InlineData("t99999999999999999999.r2.c1")] // cell head overflows int
   [InlineData("p 1")]            // space inside the index
   [InlineData("p1 ")]            // no trimming
   [InlineData(" p1")]            // no trimming
@@ -172,6 +187,7 @@ public class DocxAddressTests
   [InlineData("v1:")]
   [InlineData("1:2")]
   [InlineData("v-1:0")]
+  [InlineData("")]
   [InlineData(null)]
   public void Token_Decode_RejectsGarbage_WithInvalidParameterValue(string? token)
   {

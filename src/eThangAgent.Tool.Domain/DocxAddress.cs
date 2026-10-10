@@ -32,19 +32,27 @@ public sealed record DocxAddress(DocxAddressKind Kind, int BodyIndex, int Row, i
 
     string text = raw; // non-null past the guard; the helpers take it verbatim.
     string[] segments = text.Split('.');
-    return segments.Length switch
-    {
-      1 when segments[0][0] == 'p' => ParseIndex(segments[0][1..], text, DocxAddressKind.Paragraph),
-      1 when segments[0][0] == 't' => ParseIndex(segments[0][1..], text, DocxAddressKind.Table),
-      3 when segments[0][0] == 't' => ParseCell(segments, text),
-      3 when segments[0].StartsWith("sec", StringComparison.Ordinal) => ParseLayered(segments, text),
-      _ => Fail(raw, null),
-    };
+    return segments.Any(s => s.Length == 0)
+      ? Fail(raw, "empty segment")
+      : segments.Length switch
+      {
+        1 when segments[0][0] == 'p' => ParseIndex(segments[0][1..], text, DocxAddressKind.Paragraph),
+        1 when segments[0][0] == 't' => ParseIndex(segments[0][1..], text, DocxAddressKind.Table),
+        3 when segments[0][0] == 't' => ParseCell(segments, text),
+        3 when segments[0].StartsWith("sec", StringComparison.Ordinal) => ParseLayered(segments, text),
+        _ => Fail(raw, null),
+      };
   }
 
   private static Result<DocxAddress> ParseCell(string[] segments, string raw)
   {
     if (segments[1][0] != 'r' || segments[2][0] != 'c')
+    {
+      return Fail(raw, null);
+    }
+
+    Result<int> body = Index(segments[0][1..]);
+    if (!body.IsSuccess)
     {
       return Fail(raw, null);
     }
@@ -58,7 +66,7 @@ public sealed record DocxAddress(DocxAddressKind Kind, int BodyIndex, int Row, i
     Result<int> col = Index(segments[2][1..]);
     return !col.IsSuccess
       ? Fail(raw, null)
-      : Result.Success(new DocxAddress(DocxAddressKind.TableCell, BodyIndexOf(raw), row.Value, col.Value, 0, raw));
+      : Result.Success(new DocxAddress(DocxAddressKind.TableCell, body.Value, row.Value, col.Value, 0, raw));
   }
 
   private static Result<DocxAddress> ParseLayered(string[] segments, string raw)
@@ -99,14 +107,6 @@ public sealed record DocxAddress(DocxAddressKind Kind, int BodyIndex, int Row, i
     return int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int value) && value >= 1
       ? Result.Success(value)
       : Result.Failure<int>(new DomainError(DocxErrorCodes.InvalidAddress, GrammarReminder));
-  }
-
-  private static int BodyIndexOf(string raw)
-  {
-    int dot = raw.IndexOf('.', StringComparison.Ordinal);
-    string head = dot < 0 ? raw : raw[..dot];
-    _ = int.TryParse(head[1..], NumberStyles.None, CultureInfo.InvariantCulture, out int body);
-    return body;
   }
 
   private static Result<DocxAddress> Fail(string? raw, string? reason)
