@@ -1,13 +1,27 @@
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 
+
+// S3220/S3878 flag every OOXML element-constructor call below: the element trees
+// are built exactly this way by design (a child element argument to the params
+// ctor is the intended shape; collection expressions bind the same overloads).
+// Named deviation, scoped to this file - mirrors TestDocxFactory.
+#pragma warning disable S3220, S3878
 namespace eThangAgent.Documents.ACL;
 
-/// <summary>The IDocxAccess implementation over DocumentFormat.OpenXml (task 5 ships
-///     the read path; later tasks replace their own NotSupportedException
-///     placeholder - plan-mandated staging). Every method stats the file FIRST and
-///     returns the content-true FileVersion; the sniffer gates every open.</summary>
+/// <summary>One resolved edit operation: the OpenXml element(s) it targets plus the
+///     apply action, resolved against the document BEFORE any mutation (the atomic
+///     contract). BlockKey deduplicates ChangedBlocks across the batch.</summary>
+internal sealed record ResolvedEdit(string BlockKey, Action Apply);
+
+/// <summary>The IDocxAccess implementation over DocumentFormat.OpenXml (task 5 the
+///     read path, task 6 the edit path; later tasks replace their own
+///     NotSupportedException placeholder - plan-mandated staging). Every method
+///     stats the file FIRST and returns the content-true FileVersion; the sniffer
+///     gates every open.</summary>
 public sealed class DirectDocxAccess : IDocxAccess
 {
   /// <summary>Reads one page of the flat body block list plus document metadata.</summary>
@@ -20,8 +34,18 @@ public sealed class DirectDocxAccess : IDocxAccess
       : ReadCore(path, offset, maxBlocks));
   }
 
+  /// <summary>Applies an atomic edit batch (task 6): stat-check the version FIRST
+  ///     (StaleDocument), sniff, open editable, resolve+validate ALL operations
+  ///     against the open document BEFORE any mutation, mutate, save, re-stat.
+  ///     ChangedBlocks counts DISTINCT addressed blocks (one block touched by two
+  ///     operations counts once).</summary>
   public Task<Result<DocxEditOutcome>> EditAsync(string path, FileVersion expectedVersion, IReadOnlyList<DocxOperation> operations, CancellationToken ct = default)
-    => throw new NotSupportedException("EditAsync is implemented by task 6 (edit ops part 1).");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    ArgumentNullException.ThrowIfNull(expectedVersion);
+    ArgumentNullException.ThrowIfNull(operations);
+    return Task.FromResult(EditCore(path, expectedVersion, operations));
+  }
 
   public Task<Result<DocxSaveOutcome>> CreateAsync(string path, string markdown, CancellationToken ct = default)
     => throw new NotSupportedException("CreateAsync is implemented by task 8 (create from markdown).");
@@ -66,17 +90,438 @@ public sealed class DirectDocxAccess : IDocxAccess
         MaxCharactersInPart = DocxLimits.MaxCharactersInPart,
       });
       return doc.MainDocumentPart?.Document?.Body is null
-        ? FailSnapshot(DocxErrorCodes.CorruptDocument, $" '{path}' has no readable document body.")
+        ? FailSnapshot(DocxErrorCodes.CorruptDocument, $"'{path}' has no readable document body.")
         : Result.Success(DocxBlockWalker.Walk(doc, version, offset, maxBlocks));
     }
     catch (OpenXmlPackageException ex)
     {
-      return FailSnapshot(DocxErrorCodes.CorruptDocument, $" '{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
+      return FailSnapshot(DocxErrorCodes.CorruptDocument, $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
     }
     catch (IOException ex)
     {
-      return FailSnapshot(DocxErrorCodes.CorruptDocument, $" '{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
+      return FailSnapshot(DocxErrorCodes.CorruptDocument, $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
     }
+  }
+
+  private static Result<DocxEditOutcome> EditCore(string path, FileVersion expectedVersion, IReadOnlyList<DocxOperation> operations)
+  {
+    if (operations.Count == 0)
+    {
+      return FailEdit(ToolErrorCodes.InvalidParameterValue, "The operations list must not be empty.");
+    }
+
+    if (operations.Count > DocxLimits.MaxOperationsPerEdit)
+    {
+      return FailEdit(ToolErrorCodes.InvalidParameterValue, $"The operations list exceeds the {DocxLimits.MaxOperationsPerEdit}-operation cap.");
+    }
+
+    if (!File.Exists(path))
+    {
+      return FailEdit(DocxErrorCodes.FileNotFound, $"File not found: '{path}'.");
+    }
+
+    FileInfo info = new(path);
+    FileVersion current = new(info.Length, info.LastWriteTimeUtc);
+    if (current != expectedVersion)
+    {
+      return FailEdit(DocxErrorCodes.StaleDocument,
+        $"The document changed since it was read (expected {expectedVersion.Token}, current {current.Token}); re-read and retry.");
+    }
+
+    Result<string> sniff = DocxFormatSniffer.Inspect(path);
+    if (!sniff.IsSuccess)
+    {
+      return Result.Failure<DocxEditOutcome>(sniff.Error);
+    }
+
+    try
+    {
+      using WordprocessingDocument doc = WordprocessingDocument.Open(path, true, new OpenSettings
+      {
+        MaxCharactersInPart = DocxLimits.MaxCharactersInPart,
+      });
+      if (doc.MainDocumentPart?.Document?.Body is null)
+      {
+        return FailEdit(DocxErrorCodes.CorruptDocument, $"'{path}' has no readable document body.");
+      }
+
+      List<ResolvedEdit> resolved = [];
+      foreach (DocxOperation op in operations)
+      {
+        Result<ResolvedEdit> one = ResolveEdit(doc, op);
+        if (!one.IsSuccess)
+        {
+          return Result.Failure<DocxEditOutcome>(one.Error); // atomic: nothing mutated yet
+        }
+
+        resolved.Add(one.Value);
+      }
+
+      HashSet<string> touched = [];
+      foreach (ResolvedEdit edit in resolved)
+      {
+        edit.Apply();
+        _ = touched.Add(edit.BlockKey);
+      }
+
+      doc.Save();
+      return Result.Success(new DocxEditOutcome(StatAfter(path), touched.Count));
+    }
+    catch (OpenXmlPackageException ex)
+    {
+      return FailEdit(DocxErrorCodes.CorruptDocument, $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
+    }
+    catch (IOException ex)
+    {
+      return FailEdit(DocxErrorCodes.CorruptDocument, $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
+    }
+  }
+
+  private static FileVersion StatAfter(string path)
+  {
+    FileInfo after = new(path);
+    return new FileVersion(after.Length, after.LastWriteTimeUtc);
+  }
+
+  private static Result<ResolvedEdit> ResolveEdit(WordprocessingDocument doc, DocxOperation op)
+  {
+    MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
+    Body body = main.Document.Body ?? throw new InvalidOperationException("document has no body");
+    return op switch
+    {
+      ReplaceParagraphText text => ResolveParagraphOp(body, text.Address, "p", para => ReplaceText(para, text.Text)),
+      SetParagraphStyle style => ResolveStyleOp(main, body, style),
+      InsertParagraph insert => ResolveInsertParagraph(main, body, insert),
+      DeleteParagraph delete => ResolveParagraphOp(body, delete.Address, "p", DeleteParagraphOp),
+      SetCellText cell => ResolveCellOp(body, cell),
+      InsertTableRow row => ResolveInsertRow(body, row),
+      DeleteTableRow row => ResolveDeleteRow(body, row),
+      ApplyRunFormatting or FindReplace => FailResolved(ToolErrorCodes.InvalidParameterValue,
+        $"The '{op.GetType().Name}' operation is implemented by task 7 (edit ops part 2); this build stages it."),
+      _ => FailResolved(ToolErrorCodes.InvalidParameterValue, $"Unknown edit operation '{op.GetType().Name}'."),
+    };
+  }
+
+  /// <summary>Resolves a body-paragraph operation: the address must parse to the
+  ///     Paragraph kind and resolve to a Paragraph element.</summary>
+  private static Result<ResolvedEdit> ResolveParagraphOp(Body body, string address, string keyPrefix, Action<Paragraph> apply)
+  {
+    Result<DocxAddress> parsed = DocxAddress.Parse(address);
+    if (!parsed.IsSuccess)
+    {
+      return FailResolved(parsed.Error.Code, parsed.Error.Message);
+    }
+
+    if (parsed.Value.Kind != DocxAddressKind.Paragraph)
+    {
+      return FailResolved(ToolErrorCodes.InvalidParameterValue,
+        $"Address '{address}' does not address a body paragraph (kind {parsed.Value.Kind}); header/footer paragraphs are separate layers, and cells are addressed through setCellText.");
+    }
+
+    if (TryBodyBlock(body, parsed.Value.BodyIndex) is not Paragraph para)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{address}' does not resolve to a body paragraph; {RangeHint(body)}.");
+    }
+
+    string key = keyPrefix + parsed.Value.BodyIndex;
+    return Result.Success(new ResolvedEdit(key, () => apply(para)));
+  }
+
+  private static Result<ResolvedEdit> ResolveStyleOp(MainDocumentPart main, Body body, SetParagraphStyle op)
+  {
+    Result<DocxAddress> parsed = DocxAddress.Parse(op.Address);
+    if (!parsed.IsSuccess)
+    {
+      return FailResolved(parsed.Error.Code, parsed.Error.Message);
+    }
+
+    if (parsed.Value.Kind != DocxAddressKind.Paragraph)
+    {
+      return FailResolved(ToolErrorCodes.InvalidParameterValue,
+        $"Address '{op.Address}' does not address a body paragraph (kind {parsed.Value.Kind}).");
+    }
+
+    if (TryBodyBlock(body, parsed.Value.BodyIndex) is not Paragraph para)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{op.Address}' does not resolve to a body paragraph; {RangeHint(body)}.");
+    }
+
+    Result<string?> styleId = ResolveStyleId(main, op.StyleName);
+    if (!styleId.IsSuccess)
+    {
+      return Result.Failure<ResolvedEdit>(styleId.Error);
+    }
+
+    string? id = styleId.Value;
+    return Result.Success(new ResolvedEdit("p" + parsed.Value.BodyIndex, () => ApplyStyle(para, id)));
+  }
+
+  private static Result<ResolvedEdit> ResolveInsertParagraph(MainDocumentPart main, Body body, InsertParagraph op)
+  {
+    Result<string?> styleId = op.Style is null ? Result.Success((string?)null) : ResolveStyleId(main, op.Style);
+    if (!styleId.IsSuccess)
+    {
+      return Result.Failure<ResolvedEdit>(styleId.Error);
+    }
+
+    string? id = styleId.Value;
+    if (op.AfterAddress == "p0")
+    {
+      return Result.Success(new ResolvedEdit("p0", () =>
+      {
+        Paragraph para = BuildParagraph(op.Text, id);
+        _ = body.InsertAt(para, 0);
+      }));
+    }
+
+    Result<DocxAddress> parsed = DocxAddress.Parse(op.AfterAddress);
+    if (!parsed.IsSuccess)
+    {
+      return FailResolved(parsed.Error.Code, parsed.Error.Message);
+    }
+
+    if (parsed.Value.Kind != DocxAddressKind.Paragraph)
+    {
+      return FailResolved(ToolErrorCodes.InvalidParameterValue,
+        $"Address '{op.AfterAddress}' does not address a body paragraph (kind {parsed.Value.Kind}).");
+    }
+
+    if (TryBodyBlock(body, parsed.Value.BodyIndex) is not Paragraph para)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{op.AfterAddress}' does not resolve to a body paragraph; {RangeHint(body)}.");
+    }
+
+    string key = "p" + parsed.Value.BodyIndex;
+    return Result.Success(new ResolvedEdit(key,
+      () => body.InsertAfter(BuildParagraph(op.Text, id), para)));
+  }
+
+  private static Result<ResolvedEdit> ResolveCellOp(Body body, SetCellText op)
+  {
+    Result<DocxAddress> parsed = DocxAddress.Parse(op.Address);
+    if (!parsed.IsSuccess)
+    {
+      return FailResolved(parsed.Error.Code, parsed.Error.Message);
+    }
+
+    if (parsed.Value.Kind != DocxAddressKind.TableCell)
+    {
+      return FailResolved(ToolErrorCodes.InvalidParameterValue,
+        $"Address '{op.Address}' does not address a table cell (kind {parsed.Value.Kind}); cells address as t<N>.r<R>.c<C>.");
+    }
+
+    if (TryBodyBlock(body, parsed.Value.BodyIndex) is not Table table)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{op.Address}' does not resolve to a body table; {RangeHint(body)}.");
+    }
+
+    List<TableRow> rows = [.. table.Elements<TableRow>()];
+    if (parsed.Value.Row < 1 || parsed.Value.Row > rows.Count)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{op.Address}': row {parsed.Value.Row} is outside the table's 1..{rows.Count} rows.");
+    }
+
+    List<TableCell> cells = [.. rows[parsed.Value.Row - 1].Elements<TableCell>()];
+    if (parsed.Value.Col < 1 || parsed.Value.Col > cells.Count)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{op.Address}': column {parsed.Value.Col} is outside the row's 1..{cells.Count} cells.");
+    }
+
+    TableCell target = cells[parsed.Value.Col - 1];
+    return Result.Success(new ResolvedEdit(
+      $"t{parsed.Value.BodyIndex}.r{parsed.Value.Row}.c{parsed.Value.Col}", () => ReplaceCellText(target, op.Text)));
+  }
+
+  private static Result<ResolvedEdit> ResolveInsertRow(Body body, InsertTableRow op)
+  {
+    Result<DocxAddress> parsed = DocxAddress.Parse(op.TableAddress);
+    if (!parsed.IsSuccess)
+    {
+      return FailResolved(parsed.Error.Code, parsed.Error.Message);
+    }
+
+    if (parsed.Value.Kind != DocxAddressKind.Table)
+    {
+      return FailResolved(ToolErrorCodes.InvalidParameterValue,
+        $"Address '{op.TableAddress}' does not address a body table (kind {parsed.Value.Kind}).");
+    }
+
+    if (TryBodyBlock(body, parsed.Value.BodyIndex) is not Table table)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{op.TableAddress}' does not resolve to a body table; {RangeHint(body)}.");
+    }
+
+    List<TableRow> rows = [.. table.Elements<TableRow>()];
+    int count = rows.Count;
+    if (op.AfterRowIndex < 0 || op.AfterRowIndex > count)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{op.TableAddress}': afterRow {op.AfterRowIndex} is outside the table's 0..{rows.Count} insertion points.");
+    }
+
+    TableRow newRow = BuildRowLike(rows[^1]);
+    string key = "t" + parsed.Value.BodyIndex;
+    return Result.Success(new ResolvedEdit(key, () => InsertRowAt(table, rows, newRow, op.AfterRowIndex)));
+  }
+
+  private static Result<ResolvedEdit> ResolveDeleteRow(Body body, DeleteTableRow op)
+  {
+    Result<DocxAddress> parsed = DocxAddress.Parse(op.TableAddress);
+    if (!parsed.IsSuccess)
+    {
+      return FailResolved(parsed.Error.Code, parsed.Error.Message);
+    }
+
+    if (parsed.Value.Kind != DocxAddressKind.Table)
+    {
+      return FailResolved(ToolErrorCodes.InvalidParameterValue,
+        $"Address '{op.TableAddress}' does not address a body table (kind {parsed.Value.Kind}).");
+    }
+
+    if (TryBodyBlock(body, parsed.Value.BodyIndex) is not Table table)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{op.TableAddress}' does not resolve to a body table; {RangeHint(body)}.");
+    }
+
+    List<TableRow> rows = [.. table.Elements<TableRow>()];
+    if (op.RowIndex < 1 || op.RowIndex > rows.Count)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{op.TableAddress}': row {op.RowIndex} is outside the table's 1..{rows.Count} rows.");
+    }
+
+    TableRow victim = rows[op.RowIndex - 1];
+    return Result.Success(new ResolvedEdit("t" + parsed.Value.BodyIndex, victim.Remove));
+  }
+
+  /// <summary>The nth block of the shared flat body numbering (1-based): the
+  ///     Paragraph or Table element at that position, or null.</summary>
+  private static OpenXmlElement? TryBodyBlock(Body body, int index)
+    => body.ChildElements.Where(child => child is Paragraph or Table)
+      .ElementAtOrDefault(index - 1);
+
+  private static string RangeHint(Body body)
+  {
+    int count = body.ChildElements.Count(el => el is Paragraph or Table);
+    return count == 0 ? "the body has no blocks" : $"the body has block 1..{count}";
+  }
+
+  /// <summary>Resolves a style NAME (what read surfaces) to its style id; an unknown
+  ///     name fails StyleNotFound listing the available paragraph style names.</summary>
+  private static Result<string?> ResolveStyleId(MainDocumentPart main, string styleName)
+  {
+    Styles? styles = main.StyleDefinitionsPart?.Styles;
+    if (styles is null)
+    {
+      return Result.Failure<string?>(new DomainError(DocxErrorCodes.StyleNotFound,
+        $"Style '{styleName}' was not found; the document has no styles part."));
+    }
+
+    List<Style> paragraphStyles = [.. styles.Elements<Style>().Where(s => s.Type is null || s.Type == StyleValues.Paragraph)];
+    Style? match = paragraphStyles.FirstOrDefault(s => string.Equals(s.StyleName?.Val, styleName, StringComparison.Ordinal))
+      ?? paragraphStyles.FirstOrDefault(s => string.Equals(s.StyleId?.Value, styleName, StringComparison.Ordinal));
+    if (match is null)
+    {
+      List<string> available = [.. paragraphStyles
+        .Select(s => s.StyleName?.Val?.Value ?? s.StyleId?.Value ?? "(unnamed)")
+        .Distinct()];
+      return Result.Failure<string?>(new DomainError(DocxErrorCodes.StyleNotFound,
+        $"Style '{styleName}' was not found; available styles: {(available.Count == 0 ? "(none)" : string.Join(", ", available))}."));
+    }
+
+    return Result.Success(match.StyleId?.Value);
+  }
+
+  private static void ApplyStyle(Paragraph para, string? styleId)
+  {
+    ParagraphProperties properties = para.ParagraphProperties ?? new ParagraphProperties();
+    if (para.ParagraphProperties is null)
+    {
+      _ = para.InsertAt(properties, 0);
+    }
+
+    properties.ParagraphStyleId = new ParagraphStyleId { Val = styleId };
+  }
+
+  /// <summary>Replaces a paragraph's text: the style is kept, the FIRST run's
+  ///     formatting applies to the new text, run-level variance is lost (named
+  ///     decisions). Comment range markers and bookmarks survive.</summary>
+  private static void ReplaceText(Paragraph para, string text)
+  {
+    RunProperties? firstFormat = para.Descendants<Run>().FirstOrDefault()?.RunProperties?.CloneNode(true) as RunProperties;
+    foreach (Run run in para.Elements<Run>().ToList())
+    {
+      run.Remove();
+    }
+
+    foreach (Hyperlink link in para.Elements<Hyperlink>().ToList())
+    {
+      link.Remove();
+    }
+
+    RunProperties? format = firstFormat;
+    Run replacement = format is null
+      ? new Run([new Text(text) { Space = SpaceProcessingModeValues.Preserve }])
+      : new Run([format, new Text(text) { Space = SpaceProcessingModeValues.Preserve }]);
+    para.Append(replacement);
+  }
+
+  private static void DeleteParagraphOp(Paragraph para) => para.Remove();
+
+  /// <summary>Sets a cell's text: the first paragraph gets the replace treatment,
+  ///     extra paragraphs are removed (a cell renders as one text block).</summary>
+  private static void ReplaceCellText(TableCell cell, string text)
+  {
+    List<Paragraph> paragraphs = [.. cell.Elements<Paragraph>()];
+    if (paragraphs.Count == 0)
+    {
+      cell.Append(new Paragraph([new Run([new Text(text) { Space = SpaceProcessingModeValues.Preserve }])]));
+      return;
+    }
+
+    ReplaceText(paragraphs[0], text);
+    foreach (Paragraph extra in paragraphs.Skip(1))
+    {
+      extra.Remove();
+    }
+  }
+
+  private static Paragraph BuildParagraph(string text, string? styleId)
+  {
+    Paragraph para = new([new Run([new Text(text) { Space = SpaceProcessingModeValues.Preserve }])]);
+    if (styleId is not null)
+    {
+      _ = para.InsertAt(new ParagraphProperties([new ParagraphStyleId { Val = styleId }]), 0);
+    }
+
+    return para;
+  }
+
+  /// <summary>Inserts a built row: before the first row at index 0, else after the
+  ///     addressed row (the single-ternary shape keeps S3358 quiet).</summary>
+  private static void InsertRowAt(Table table, List<TableRow> rows, TableRow newRow, int afterRowIndex)
+    => _ = afterRowIndex == 0 ? table.PrependChild(newRow) : table.InsertAfter(newRow, rows[afterRowIndex - 1]);
+
+  /// <summary>A new row shaped like the table's last row: one empty-text cell per
+  ///     column (the pinned clone-last-row rule, without cloning content).</summary>
+  private static TableRow BuildRowLike(TableRow template)
+  {
+    int cols = template.Elements<TableCell>().Count();
+    List<TableCell> cells = [];
+    for (int i = 0; i < cols; i++)
+    {
+      cells.Add(new TableCell([new Paragraph([new Run([new Text(string.Empty) { Space = SpaceProcessingModeValues.Preserve }])])]));
+    }
+
+    return new TableRow([.. cells]);
   }
 
   private static Result<DocxSnapshot> InvalidSnapshot(string message)
@@ -84,6 +529,12 @@ public sealed class DirectDocxAccess : IDocxAccess
 
   private static Result<DocxSnapshot> FailSnapshot(string code, string message)
     => Result.Failure<DocxSnapshot>(new DomainError(code, message));
+
+  private static Result<DocxEditOutcome> FailEdit(string code, string message)
+    => Result.Failure<DocxEditOutcome>(new DomainError(code, message));
+
+  private static Result<ResolvedEdit> FailResolved(string code, string message)
+    => Result.Failure<ResolvedEdit>(new DomainError(code, message));
 
   private static string Clamp(string message)
   {
