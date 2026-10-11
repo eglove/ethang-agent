@@ -72,9 +72,17 @@ public sealed class RootAgentResolver(
     string? providerName = selection.Value.ProviderName;
 
     // 4. Persist the pin (best effort - a store failure must not stop the turn;
-    //    it surfaces as a notice instead).
+    //    it surfaces as a notice instead). The notice names the provider when
+    //    selection resolved one, matching the measured-mix reselection coordinator's
+    //    contract ('Model selected: <id> via <provider>'); a provider-less selection
+    //    keeps the legacy id-only form.
     string? persistNotice = await TryPersistModelAsync(modelId, ct).ConfigureAwait(false);
-    string? notice = persistNotice is null ? null : $"Model selected: {persistNotice}";
+    string? notice = persistNotice switch
+    {
+      null => null,
+      _ when providerName is null => $"Model selected: {persistNotice}",
+      _ => $"Model selected: {persistNotice} via {providerName}",
+    };
     return (await MakeAsync(modelId, providerName, ct).ConfigureAwait(false), notice);
   }
 

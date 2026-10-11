@@ -25,7 +25,7 @@ public class RootAgentResolverTests
         => Task.FromResult(Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed", "boom")));
   }
 
-  private static ModelSelectionResult Selection(string modelId, string providerName = "TestProvider") => new(modelId, providerName, "reason");
+  private static ModelSelectionResult Selection(string modelId, string? providerName = "TestProvider") => new(modelId, providerName, "reason");
 
   private static async Task<AgentId> SeedRootAsync(FakeAgentStore store)
   {
@@ -64,7 +64,8 @@ public class RootAgentResolverTests
 
     Assert.Equal("anthropic/claude-3.5-sonnet", config.ModelId);
     Assert.NotNull(notice);
-    Assert.Contains("Model selected: anthropic/claude-3.5-sonnet", notice, StringComparison.Ordinal);
+    // Task 9: the smart-selection success notice now names the provider.
+    Assert.Contains("Model selected: anthropic/claude-3.5-sonnet via TestProvider", notice, StringComparison.Ordinal);
     Assert.Equal(1, selector.Calls);
     AgentRecord updated = Assert.Single(store.Updated);
     Assert.Equal("anthropic/claude-3.5-sonnet", updated.ModelUsed);
@@ -137,7 +138,8 @@ public class RootAgentResolverTests
     Assert.Equal("z-ai/glm-5.3-flash", config.ModelId);
     Assert.Equal(1, selector.Calls);
     Assert.NotNull(notice);
-    Assert.Contains("Model selected: z-ai/glm-5.3-flash", notice, StringComparison.Ordinal);
+    // Task 9: the smart-selection success notice now names the provider.
+    Assert.Contains("Model selected: z-ai/glm-5.3-flash via TestProvider", notice, StringComparison.Ordinal);
     AgentRecord updated = Assert.Single(store.Updated);
     Assert.Equal("z-ai/glm-5.3-flash", updated.ModelUsed);
   }
@@ -214,5 +216,35 @@ public class RootAgentResolverTests
     _ = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(1, optionCalls);
+  }
+
+  [Fact]
+  public async Task Selection_WithoutProviderName_NoticeIsIdOnly()
+  {
+    // Task 9: provider unknown (null ProviderName) keeps the legacy id-only form.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    FakeModelSelector selector = new(Selection("m/x", providerName: null));
+    RootAgentResolver resolver = new(Ctx(store, rootId), selector);
+
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal("m/x", config.ModelId);
+    Assert.Equal("Model selected: m/x", notice);
+  }
+
+  [Fact]
+  public async Task PreferredPick_NoticeStaysIdOnly()
+  {
+    // Task 9: the preferred-pick path (step 0) has no provider to name - id-only stays.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    SessionModelPreferences preferences = new() { ModelId = "user-pick" };
+    RootAgentResolver resolver = new(Ctx(store, rootId), new FakeModelSelector(Selection("a")), preferences);
+
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal("user-pick", config.ModelId);
+    Assert.Equal("Model selected: user-pick", notice);
   }
 }

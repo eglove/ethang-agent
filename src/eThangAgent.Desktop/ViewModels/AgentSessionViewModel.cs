@@ -698,8 +698,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>Parses the resolved model id from a RootAgentResolver notice so the status
-  ///     bar can track mid-session reselection. Recognizes both verbatim notice contracts:
-  ///     "Model selected: &lt;id&gt;" (success) and "... using &lt;id&gt;." (fallback).
+  ///     bar can track mid-session reselection. Recognizes all three verbatim notice
+  ///     contracts: "Model selected: &lt;id&gt; via &lt;provider&gt;" (success with a known
+  ///     provider - the resolver's smart-selection path and the measured-mix reselection
+  ///     coordinator), "Model selected: &lt;id&gt;" (success without one, and the
+  ///     preferred-pick path), and "... using &lt;id&gt;." (fallback). The ' via ' suffix is
+  ///     dropped so the provider never leaks into the status bar's model cell.
   ///     Returns null when the notice carries no recognizable model id.</summary>
   private static string? TryExtractModelId(string notice)
   {
@@ -707,7 +711,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     int sel = notice.IndexOf(selectedPrefix, StringComparison.Ordinal);
     if (sel >= 0)
     {
-      return notice[(sel + selectedPrefix.Length)..].Trim();
+      string selected = notice[(sel + selectedPrefix.Length)..].Trim();
+      const string viaSeparator = " via ";
+      int via = selected.IndexOf(viaSeparator, StringComparison.Ordinal);
+      return via >= 0 ? selected[..via].Trim() : selected;
     }
 
     const string usingPrefix = "using ";
