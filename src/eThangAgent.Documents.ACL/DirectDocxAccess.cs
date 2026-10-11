@@ -79,14 +79,35 @@ public sealed class DirectDocxAccess : IDocxAccess
     }
   }
 
+  /// <summary>Lists the document's comments (task 9): id, author, text, and the
+  ///     anchor address of the block carrying commentRangeStart.</summary>
   public Task<Result<IReadOnlyList<DocxCommentInfo>>> ListCommentsAsync(string path, CancellationToken ct = default)
-    => throw new NotSupportedException("ListCommentsAsync is implemented by task 9 (comments).");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    return Task.FromResult(ListCommentsCore(path));
+  }
 
+  /// <summary>Adds a comment anchored at the addressed block (task 9, version-guarded):
+  ///     appends the comments part when missing; the id is max-existing + 1; the
+  ///     range wraps the target paragraph's content.</summary>
   public Task<Result<DocxSaveOutcome>> AddCommentAsync(string path, FileVersion expectedVersion, string address, string author, string text, CancellationToken ct = default)
-    => throw new NotSupportedException("AddCommentAsync is implemented by task 9 (comments).");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    ArgumentNullException.ThrowIfNull(expectedVersion);
+    ArgumentNullException.ThrowIfNull(address);
+    ArgumentNullException.ThrowIfNull(author);
+    ArgumentNullException.ThrowIfNull(text);
+    return Task.FromResult(MutateSave(path, expectedVersion, doc => AddComment(doc, address, author, text)));
+  }
 
+  /// <summary>Deletes one comment by id (task 9, version-guarded): the Comment
+  ///     element, its range markers, and any reference run with that id.</summary>
   public Task<Result<DocxSaveOutcome>> DeleteCommentAsync(string path, FileVersion expectedVersion, int commentId, CancellationToken ct = default)
-    => throw new NotSupportedException("DeleteCommentAsync is implemented by task 9 (comments).");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    ArgumentNullException.ThrowIfNull(expectedVersion);
+    return Task.FromResult(MutateSave(path, expectedVersion, doc => DeleteComment(doc, commentId)));
+  }
 
   public Task<Result<IReadOnlyList<DocxRevisionInfo>>> ListRevisionsAsync(string path, CancellationToken ct = default)
     => throw new NotSupportedException("ListRevisionsAsync is implemented by task 10 (revisions).");
@@ -711,6 +732,254 @@ public sealed class DirectDocxAccess : IDocxAccess
     }
 
     return runs.Count > 0 ? runs[^1].RunProperties : null;
+  }
+
+  /// <summary>The shared mutation shape for comments/revisions (task 9+): stat
+  ///     check, sniff, open editable, mutate through the delegate, save, re-stat.
+  ///     A delegate failure refuses the mutation (nothing saved).</summary>
+  private static Result<DocxSaveOutcome> MutateSave(string path, FileVersion expectedVersion, Func<WordprocessingDocument, Result<bool>> mutate)
+  {
+    if (!File.Exists(path))
+    {
+      return FailSave(DocxErrorCodes.FileNotFound, $"File not found: '{path}'.");
+    }
+
+    FileInfo info = new(path);
+    FileVersion current = new(info.Length, info.LastWriteTimeUtc);
+    if (current != expectedVersion)
+    {
+      return FailSave(DocxErrorCodes.StaleDocument,
+        $"The document changed since it was read (expected {expectedVersion.Token}, current {current.Token}); re-read and retry.");
+    }
+
+    Result<string> sniff = DocxFormatSniffer.Inspect(path);
+    if (!sniff.IsSuccess)
+    {
+      return Result.Failure<DocxSaveOutcome>(sniff.Error);
+    }
+
+    try
+    {
+      using WordprocessingDocument doc = WordprocessingDocument.Open(path, true, new OpenSettings
+      {
+        MaxCharactersInPart = DocxLimits.MaxCharactersInPart,
+      });
+      Result<bool> outcome = mutate(doc);
+      if (!outcome.IsSuccess)
+      {
+        return Result.Failure<DocxSaveOutcome>(outcome.Error);
+      }
+
+      doc.Save();
+      return Result.Success(new DocxSaveOutcome(StatAfter(path)));
+    }
+    catch (OpenXmlPackageException ex)
+    {
+      return FailSave(DocxErrorCodes.CorruptDocument, $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
+    }
+    catch (IOException ex)
+    {
+      return FailSave(DocxErrorCodes.CorruptDocument, $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
+    }
+  }
+
+  private static Result<IReadOnlyList<DocxCommentInfo>> ListCommentsCore(string path)
+  {
+    if (!File.Exists(path))
+    {
+      return Result.Failure<IReadOnlyList<DocxCommentInfo>>(new DomainError(DocxErrorCodes.FileNotFound, $"File not found: '{path}'."));
+    }
+
+    Result<string> sniff = DocxFormatSniffer.Inspect(path);
+    if (!sniff.IsSuccess)
+    {
+      return Result.Failure<IReadOnlyList<DocxCommentInfo>>(sniff.Error);
+    }
+
+    try
+    {
+      using WordprocessingDocument doc = WordprocessingDocument.Open(path, false, new OpenSettings
+      {
+        MaxCharactersInPart = DocxLimits.MaxCharactersInPart,
+      });
+      DocxMap map = DocxElementMap.Build(doc);
+      List<DocxCommentInfo> comments = [];
+      Comments? root = doc.MainDocumentPart?.WordprocessingCommentsPart?.Comments;
+      if (root is not null)
+      {
+        foreach (Comment comment in root.Elements<Comment>())
+        {
+          int id = ParseCommentId(comment.Id?.Value);
+          string author = comment.Author?.Value ?? string.Empty;
+          string text = string.Concat(comment.Descendants<Text>().Select(t => t.Text));
+          string anchor = AnchorOf(doc, map, id);
+          comments.Add(new DocxCommentInfo(id, author, text, anchor));
+        }
+      }
+
+      return Result.Success<IReadOnlyList<DocxCommentInfo>>(comments);
+    }
+    catch (OpenXmlPackageException ex)
+    {
+      return Result.Failure<IReadOnlyList<DocxCommentInfo>>(new DomainError(DocxErrorCodes.CorruptDocument,
+        $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}"));
+    }
+    catch (IOException ex)
+    {
+      return Result.Failure<IReadOnlyList<DocxCommentInfo>>(new DomainError(DocxErrorCodes.CorruptDocument,
+        $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}"));
+    }
+  }
+
+  /// <summary>The anchor address of the comment's commentRangeStart: the first
+  ///     mappable ancestor (paragraph, cell, header/footer paragraph).</summary>
+  private static string AnchorOf(WordprocessingDocument doc, DocxMap map, int commentId)
+  {
+    string idText = commentId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    MainDocumentPart? main = doc.MainDocumentPart;
+    CommentRangeStart? marker = main?.Document?.Descendants<CommentRangeStart>()
+      .FirstOrDefault(m => m.Id?.Value == idText)
+      ?? main?.HeaderParts.SelectMany(h => h.Header.Descendants<CommentRangeStart>()).FirstOrDefault(m => m.Id?.Value == idText)
+      ?? main?.FooterParts.SelectMany(fo => fo.Footer.Descendants<CommentRangeStart>()).FirstOrDefault(m => m.Id?.Value == idText);
+    if (marker is null)
+    {
+      return string.Empty;
+    }
+
+    for (OpenXmlElement? at = marker; at is not null; at = at.Parent)
+    {
+      if (at is Paragraph or TableCell)
+      {
+        string? address = DocxElementMap.AddressOf(map, at);
+        if (address is not null)
+        {
+          return address;
+        }
+      }
+    }
+
+    return string.Empty;
+  }
+
+  private static int ParseCommentId(string? id)
+    => int.TryParse(id, System.Globalization.CultureInfo.InvariantCulture, out int value) ? value : 0;
+
+  private static Result<bool> AddComment(WordprocessingDocument doc, string address, string author, string text)
+  {
+    MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
+    DocxMap map = DocxElementMap.Build(doc);
+    OpenXmlElement? target = ResolveAddressElement(map, address);
+    if (target is null)
+    {
+      return Result.Failure<bool>(new DomainError(DocxErrorCodes.AddressNotFound,
+        $"Address '{address}' does not resolve to a block."));
+    }
+
+    if (target is Table)
+    {
+      return Result.Failure<bool>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+        $"Address '{address}' addresses a whole table; anchor a paragraph or a cell."));
+    }
+
+    Paragraph anchorPara = target switch
+    {
+      Paragraph para => para,
+      TableCell cell => cell.Elements<Paragraph>().FirstOrDefault() ?? throw new InvalidOperationException("cell has no paragraph"),
+      _ => throw new InvalidOperationException($"unexpected anchor element '{target.GetType().Name}'"),
+    };
+
+    WordprocessingCommentsPart commentsPart = main.WordprocessingCommentsPart ?? main.AddNewPart<WordprocessingCommentsPart>();
+    commentsPart.Comments ??= new Comments();
+    int nextId = commentsPart.Comments.Elements<Comment>()
+      .Select(c => ParseCommentId(c.Id?.Value))
+      .DefaultIfEmpty(0)
+      .Max() + 1;
+    string idText = nextId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    commentsPart.Comments.Append(new Comment([new Paragraph([new Run([new Text(text) { Space = SpaceProcessingModeValues.Preserve }])])])
+    {
+      Id = idText,
+      Author = author,
+      Date = DateTime.UtcNow,
+    });
+    _ = anchorPara.InsertAt(new CommentRangeStart { Id = idText }, 0);
+    anchorPara.Append(new CommentRangeEnd { Id = idText });
+    anchorPara.Append(new Run([new CommentReference { Id = idText }]));
+    return Result.Success(true);
+  }
+
+  private static Result<bool> DeleteComment(WordprocessingDocument doc, int commentId)
+  {
+    MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
+    Comments? root = main.WordprocessingCommentsPart?.Comments;
+    string idText = commentId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    Comment? comment = root?.Elements<Comment>().FirstOrDefault(c => c.Id?.Value == idText);
+    if (comment is null)
+    {
+      return Result.Failure<bool>(new DomainError(DocxErrorCodes.CommentNotFound, $"No comment with id {commentId}."));
+    }
+
+    comment.Remove();
+    foreach (CommentRangeStart start in main.Document.Descendants<CommentRangeStart>().Where(m => m.Id?.Value == idText).ToList())
+    {
+      start.Remove();
+    }
+
+    foreach (CommentRangeEnd end in main.Document.Descendants<CommentRangeEnd>().Where(m => m.Id?.Value == idText).ToList())
+    {
+      end.Remove();
+    }
+
+    foreach (CommentReference reference in main.Document.Descendants<CommentReference>().Where(r => r.Id?.Value == idText).ToList())
+    {
+      OpenXmlElement parent = reference.Parent ?? throw new InvalidOperationException("orphan comment reference");
+      if (parent is Run run && run.Elements<CommentReference>().Any() && !run.Elements<Text>().Any())
+      {
+        run.Remove(); // the reference-only wrapper run goes with it
+      }
+      else
+      {
+        reference.Remove();
+      }
+    }
+
+    return Result.Success(true);
+  }
+
+  /// <summary>Resolves an address to its ELEMENT through the map: body block,
+  ///     header/footer paragraph, or table cell.</summary>
+  private static OpenXmlElement? ResolveAddressElement(DocxMap map, string address)
+  {
+    Result<DocxAddress> parsed = DocxAddress.Parse(address);
+    if (!parsed.IsSuccess)
+    {
+      return null;
+    }
+
+    DocxAddress a = parsed.Value;
+    return a.Kind switch
+    {
+      DocxAddressKind.Paragraph when a.BodyIndex >= 1 && a.BodyIndex <= map.BodyBlocks.Count
+        => map.BodyBlocks[a.BodyIndex - 1] is Paragraph ? map.BodyBlocks[a.BodyIndex - 1] : null,
+      DocxAddressKind.Table when a.BodyIndex >= 1 && a.BodyIndex <= map.BodyBlocks.Count
+        => map.BodyBlocks[a.BodyIndex - 1] is Table ? map.BodyBlocks[a.BodyIndex - 1] : null,
+      DocxAddressKind.TableCell when a.BodyIndex >= 1 && a.BodyIndex <= map.BodyBlocks.Count
+        => map.BodyBlocks[a.BodyIndex - 1] is Table table ? CellElement(table, a.Row, a.Col) : null,
+      DocxAddressKind.HeaderParagraph or DocxAddressKind.FooterParagraph
+        => map.ExtraParagraphs.FirstOrDefault(e => e.Address == address).Element,
+      _ => null,
+    };
+  }
+
+  private static TableCell? CellElement(Table table, int row, int col)
+  {
+    List<TableRow> rows = [.. table.Elements<TableRow>()];
+    if (row < 1 || row > rows.Count)
+    {
+      return null;
+    }
+
+    List<TableCell> cells = [.. rows[row - 1].Elements<TableCell>()];
+    return col >= 1 && col <= cells.Count ? cells[col - 1] : null;
   }
 
   private static Result<DocxSnapshot> InvalidSnapshot(string message)
