@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Test fixtures construct OOXML element trees; the assembly is never consumed
+         outside the test run (mirrors the ComputerUse.ACL.Tests carve-out). -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Documents.ACL/eThangAgent.Documents.ACL.csproj" />
+  </ItemGroup>
+</Project>
