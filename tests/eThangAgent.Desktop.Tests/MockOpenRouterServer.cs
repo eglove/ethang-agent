@@ -16,6 +16,9 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   private readonly string _responsesPath = responsesPath;
   private readonly List<string> _responsesRequestPaths = [];
   private string? _catalogResponse;
+  public Task? CatalogGate { get; set; }
+  public TaskCompletionSource CatalogRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+  public int CatalogStatusCode { get; set; } = 200;
   private int _port;
 
   public IReadOnlyList<string> RequestBodies => _requestBodies;
@@ -251,9 +254,14 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
 
       if (ctx.Request.Url!.AbsolutePath == "/api/v1/models")
       {
+        _ = CatalogRequested.TrySetResult();
+        if (CatalogGate is { } gate)
+        {
+          await gate.WaitAsync(_cts.Token).ConfigureAwait(false);
+        }
         string body = _catalogResponse ?? /*lang=json,strict*/ """{"data":[]}""";
         byte[] bytes = Encoding.UTF8.GetBytes(body);
-        ctx.Response.StatusCode = 200;
+        ctx.Response.StatusCode = CatalogStatusCode;
         ctx.Response.ContentType = "application/json";
         ctx.Response.ContentLength64 = bytes.Length;
         await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);

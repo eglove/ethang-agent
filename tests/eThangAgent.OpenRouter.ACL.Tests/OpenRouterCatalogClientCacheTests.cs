@@ -62,27 +62,29 @@ public class OpenRouterCatalogClientCacheTests
       new("persisted/model", "Persisted", 0.000009m, 0.000010m, 200_000, 4096, true, false, 90.0, 85.0, 80.0, null, null, "from disk");
 
   [Fact]
-  public async Task GetAsync_ColdCache_ServesPersistedSnapshot_WithoutHttp()
+  public async Task GetAsync_ColdCache_ServesPersistedSnapshot_WithoutWaitingForHttp()
   {
     FakeModelCatalogCache cache = new();
     cache.Seed("openrouter|https://openrouter.test/api/v1/models", new ModelCatalogSnapshot([PersistedEntry()], DateTimeOffset.UtcNow));
-    int httpCalls = 0;
-    FakeHttpMessageHandler handler = new(req =>
-    {
-      _ = Interlocked.Increment(ref httpCalls);
-      return Task.FromResult(Route(req));
-    });
+    TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    FakeHttpMessageHandler handler = new(req => HoldThenRespond(gate.Task, req));
     using HttpClient http = new(handler);
-    OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl), cache, "openrouter");
-
-    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsSuccess);
-    ModelProviderEntry entry = Assert.Single(result.Value);
-    Assert.Equal("persisted/model", entry.ModelId);
-    Assert.Equal(0, httpCalls); // served entirely from disk
+    using OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl), cache, "openrouter");
+    try
+    {
+      Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
+      Assert.True(result.IsSuccess);
+      Assert.Equal("persisted/model", Assert.Single(result.Value).ModelId);
+    }
+    finally
+    {
+      _ = gate.TrySetResult();
+      if (client.PendingRefresh is { } refresh)
+      {
+        await refresh.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      }
+    }
   }
-
   [Fact]
   public async Task GetAsync_ColdCacheNoSnapshot_FetchesAndPersists()
   {
@@ -101,8 +103,6 @@ public class OpenRouterCatalogClientCacheTests
   [Fact]
   public async Task GetAsync_WarmFreshCache_ServesWithoutHttpOrRefresh()
   {
-    FakeModelCatalogCache cache = new();
-    cache.Seed("openrouter|https://openrouter.test/api/v1/models", new ModelCatalogSnapshot([PersistedEntry()], DateTimeOffset.UtcNow));
     int httpCalls = 0;
     FakeHttpMessageHandler handler = new(req =>
     {
@@ -110,15 +110,12 @@ public class OpenRouterCatalogClientCacheTests
       return Task.FromResult(Route(req));
     });
     using HttpClient http = new(handler);
-    OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl), cache, "openrouter");
-
-    _ = await client.GetAsync(TestContext.Current.CancellationToken); // hydrates memory from disk
-    _ = await client.GetAsync(TestContext.Current.CancellationToken); // warm + fresh
-
-    Assert.Equal(0, httpCalls);
-    Assert.Null(client.PendingRefresh); // fresh: no revalidation kicked
+    using OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl));
+    _ = await client.GetAsync(TestContext.Current.CancellationToken);
+    _ = await client.GetAsync(TestContext.Current.CancellationToken);
+    Assert.Equal(2, httpCalls);
+    Assert.Null(client.PendingRefresh);
   }
-
   [Fact]
   public async Task GetAsync_WarmStaleCache_ServesStaleImmediately_ThenRevalidatesInBackground()
   {
@@ -209,6 +206,128 @@ public class OpenRouterCatalogClientCacheTests
     Assert.True(result.IsSuccess);
     Assert.Equal("google/gemini-2.0-flash-001", Assert.Single(result.Value).ModelId);
     Assert.Equal(1, cache.WriteCount);
+  }
+  [Fact]
+  public async Task GetAsync_FreshDiskSnapshot_RevalidatesWithoutBlockingCachedServe()
+  {
+    FakeModelCatalogCache cache = new();
+    cache.Seed("openrouter|https://openrouter.test/api/v1/models", new ModelCatalogSnapshot([PersistedEntry()], DateTimeOffset.UtcNow));
+    TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    FakeHttpMessageHandler handler = new(req => req.RequestUri!.AbsolutePath == "/api/v1/models"
+        ? HoldThenRespond(gate.Task, req) : Task.FromResult(Route(req)));
+    using HttpClient http = new(handler);
+    using OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl), cache, "openrouter");
+    try
+    {
+      Result<IReadOnlyList<ModelProviderEntry>> cached = await client.GetAsync(TestContext.Current.CancellationToken);
+      Assert.True(cached.IsSuccess);
+      Assert.Equal("persisted/model", Assert.Single(cached.Value).ModelId);
+      Assert.NotNull(client.PendingRefresh);
+      Assert.False(client.PendingRefresh.IsCompleted);
+    }
+    finally
+    {
+      _ = gate.TrySetResult();
+      if (client.PendingRefresh is { } refresh)
+      {
+        await refresh.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      }
+    }
+    Result<IReadOnlyList<ModelProviderEntry>> updated = await client.GetAsync(TestContext.Current.CancellationToken);
+    Assert.True(updated.IsSuccess);
+    Assert.Equal("google/gemini-2.0-flash-001", Assert.Single(updated.Value).ModelId);
+    Assert.Equal(1, cache.WriteCount);
+  }
+  [Fact]
+  public async Task RefreshAsync_Failure_RetainsCachedData_AndNextRefreshRetries()
+  {
+    FakeModelCatalogCache cache = new();
+    cache.Seed("openrouter|https://openrouter.test/api/v1/models", new ModelCatalogSnapshot([PersistedEntry()], DateTimeOffset.UtcNow));
+    int modelsCalls = 0;
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(
+        req.RequestUri!.AbsolutePath == "/api/v1/models" && Interlocked.Increment(ref modelsCalls) == 1
+            ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) : Route(req)));
+    using HttpClient http = new(handler);
+    using OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl), cache, "openrouter");
+    _ = await client.GetAsync(TestContext.Current.CancellationToken);
+    Assert.NotNull(client.PendingRefresh);
+    await client.PendingRefresh.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    Assert.Equal(0, cache.WriteCount); // failed refresh did not replace disk or memory
+    Result<IReadOnlyList<ModelProviderEntry>> cached = await client.GetAsync(TestContext.Current.CancellationToken);
+    Assert.True(cached.IsSuccess);
+    Assert.Equal("persisted/model", Assert.Single(cached.Value).ModelId);
+    Result<IReadOnlyList<ModelProviderEntry>> retry = await client.RefreshAsync(TestContext.Current.CancellationToken);
+    Assert.True(retry.IsSuccess);
+    Assert.Equal("google/gemini-2.0-flash-001", Assert.Single(retry.Value).ModelId);
+  }
+  [Fact]
+  public async Task RefreshAsync_ConcurrentWaiters_JoinOneFetch_CancelOnlyTheirWait()
+  {
+    TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    int calls = 0;
+    FakeHttpMessageHandler handler = new(req =>
+    {
+      if (req.RequestUri!.AbsolutePath == "/api/v1/models")
+      {
+        _ = Interlocked.Increment(ref calls);
+        _ = started.TrySetResult();
+        return HoldThenRespond(gate.Task, req);
+      }
+      return Task.FromResult(Route(req));
+    });
+    using HttpClient http = new(handler);
+    using OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl));
+    using CancellationTokenSource cancelled = new();
+    Task<Result<IReadOnlyList<ModelProviderEntry>>> first = client.RefreshAsync(cancelled.Token);
+    Task<Result<IReadOnlyList<ModelProviderEntry>>> second = client.RefreshAsync(TestContext.Current.CancellationToken);
+    try
+    {
+      await started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      await cancelled.CancelAsync();
+      _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+      Assert.False(second.IsCompleted);
+      Assert.Equal(1, calls);
+    }
+    finally
+    {
+      _ = gate.TrySetResult();
+      _ = await second.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    }
+    Assert.True((await second).IsSuccess);
+  }
+  [Fact]
+  public async Task Dispose_CancelsInFlightSourceRefresh()
+  {
+    TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    using CancellationAwareHandler handler = new(started, release);
+    using HttpClient http = new(handler);
+    OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl));
+    Task<Result<IReadOnlyList<ModelProviderEntry>>> refresh = client.RefreshAsync(TestContext.Current.CancellationToken);
+    try
+    {
+      await started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+      client.Dispose();
+      Assert.True(handler.Token.IsCancellationRequested);
+    }
+    finally
+    {
+      _ = release.TrySetResult();
+      _ = await refresh.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    }
+  }
+
+  private sealed class CancellationAwareHandler(TaskCompletionSource started, TaskCompletionSource release) : HttpMessageHandler
+  {
+    public CancellationToken Token { get; private set; }
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+      Token = cancellationToken;
+      _ = started.TrySetResult();
+      await release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+      return Route(request);
+    }
   }
   private static async Task<HttpResponseMessage> HoldThenRespond(Task gate, HttpRequestMessage req)
   {

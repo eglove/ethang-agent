@@ -35,7 +35,7 @@ public class ModelSettingsModelSectionTests
         persist: _ => { }, loadCatalog: Loader(Entry("alpha/model"), Entry("zeta/model")),
         allowAuto: true, currentModelId: "zeta/model");
 
-    await vm.LoadModelCatalogAsync();
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     Assert.False(vm.ModelSection!.IsLoading);
     Assert.Null(vm.ModelSection.LoadError);
@@ -53,7 +53,7 @@ public class ModelSettingsModelSectionTests
         persist: _ => { }, loadCatalog: _ => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
             new DomainError("Catalog", "down"))), allowAuto: false, currentModelId: null);
 
-    await vm.LoadModelCatalogAsync();
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     Assert.NotNull(vm.ModelSection!.LoadError);
   }
@@ -66,7 +66,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
         loadCatalog: Loader(Entry("alpha/model")), allowAuto: true, currentModelId: "alpha/model");
-    await vm.LoadModelCatalogAsync();
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     bool saved = vm.TrySave(out string? error);
 
@@ -86,7 +86,7 @@ public class ModelSettingsModelSectionTests
         live, ProvidersOpenRouter, persist: s => received = s,
         loadCatalog: Loader(Entry("alpha/model"), Entry("beta/model")), allowAuto: true,
         currentModelId: "alpha/model");
-    await vm.LoadModelCatalogAsync();
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     vm.ModelSection!.SelectedRow = vm.ModelSection.FilteredRows.First(r => r.ModelId == "beta/model");
 
     bool saved = vm.TrySave(out string? error);
@@ -106,7 +106,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
         loadCatalog: Loader(Entry("alpha/model")), allowAuto: true, currentModelId: "alpha/model");
-    await vm.LoadModelCatalogAsync();
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     vm.ModelSection!.SelectedRow = ModelPickerViewModel.AutoRow;
 
     bool saved = vm.TrySave(out string? error);
@@ -116,5 +116,32 @@ public class ModelSettingsModelSectionTests
     Assert.Equal(ModelChoiceKind.Auto, received.Model.Kind);
     Assert.Null(received.Model.ModelId);
     Assert.Null(live.ModelId); // auto resets the session to automatic choice
+  }
+  [Theory]
+  [InlineData(false)]
+  [InlineData(true)]
+  public async Task Refresh_PreservesSelection_WithoutInventingAUserEdit(bool changeSelection)
+  {
+    TaskCompletionSource<Result<IReadOnlyList<ModelProviderEntry>>> refresh = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    ModelSettingsSnapshot? saved = null;
+    ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, s => saved = s,
+        loadCatalog: Loader(Entry("alpha/model"), Entry("beta/model")), allowAuto: true,
+        currentModelId: "alpha/model", refreshCatalog: ct =>
+        {
+          _ = ready.TrySetResult();
+          return refresh.Task.WaitAsync(ct);
+        });
+    Task load = vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
+    await ready.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    if (changeSelection)
+    {
+      vm.ModelSection!.SelectedRow = vm.ModelSection.FilteredRows.First(row => row.ModelId == "beta/model");
+    }
+    refresh.SetResult(Result.Success<IReadOnlyList<ModelProviderEntry>>([Entry("alpha/model"), Entry("beta/model"), Entry("gamma/model")]));
+    await load.ConfigureAwait(true);
+    Assert.Equal(changeSelection ? "beta/model" : "alpha/model", vm.ModelSection!.SelectedRow!.ModelId);
+    Assert.True(vm.TrySave(out string? error), error);
+    Assert.Equal(changeSelection ? ModelChoiceKind.Pinned : ModelChoiceKind.Unchanged, saved!.Model!.Kind);
   }
 }

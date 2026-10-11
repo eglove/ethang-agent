@@ -412,7 +412,7 @@ public class ModelSettingsViewModelTests
     ];
     ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: _ => { },
         loadCatalog: _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries)));
-    await vm.LoadModelCatalogAsync();
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     vm.SmartSelectionSection!.RecomputePreview();
 
@@ -429,7 +429,7 @@ public class ModelSettingsViewModelTests
     ];
     ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: _ => { },
         loadCatalog: _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries)));
-    await vm.LoadModelCatalogAsync();
+    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     vm.SmartSelectionSection!.RecomputePreview();
 

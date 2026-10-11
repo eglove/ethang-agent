@@ -618,6 +618,8 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     [KnobParallelToolCalls] = "Parallel tool calls",
   };
 
+  private bool _catalogLoadStarted;
+  private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? _refreshCatalog;
   private readonly SessionModelPreferences _live;
   private readonly Action<ModelSettingsSnapshot> _persist;
   /// <summary>The embedded model section: the same searchable catalog view-model
@@ -633,8 +635,13 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
 
   /// <summary>Loads the catalog for the embedded model section (delegates to the
   ///     picker view-model's own load). A no-op when there is no section.</summary>
-  public async Task LoadModelCatalogAsync()
+  public async Task LoadModelCatalogAsync(CancellationToken ct = default)
   {
+    if (_catalogLoadStarted)
+    {
+      return;
+    }
+    _catalogLoadStarted = true;
     if (ModelSection is not null)
     {
       await ModelSection.LoadAsync();
@@ -644,6 +651,34 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     if (SmartSelectionSection is not null)
     {
       await SmartSelectionSection.LoadAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    if (_refreshCatalog is not null)
+    {
+      Result<IReadOnlyList<ModelProviderEntry>> refreshed;
+#pragma warning disable CA1031 // A background loader fault must remain visible in the dialog.
+      try
+      {
+        refreshed = await _refreshCatalog(ct);
+      }
+      catch (OperationCanceledException) when (ct.IsCancellationRequested)
+      {
+        return; // Closing the window abandons this waiter, not the shared refresh.
+      }
+      catch (Exception ex)
+      {
+        refreshed = Result.Failure<IReadOnlyList<ModelProviderEntry>>(new DomainError(
+            "CatalogUnavailable", ex.Message));
+      }
+#pragma warning restore CA1031
+      ModelPickerRow? before = ModelSection?.SelectedRow;
+      bool unchanged = ReferenceEquals(before, _preselectedRow);
+      ModelSection?.ApplyRefresh(refreshed);
+      if (unchanged)
+      {
+        _preselectedRow = ModelSection?.SelectedRow;
+      }
+      SmartSelectionSection?.ApplyRefresh(refreshed);
     }
   }
 
@@ -723,11 +758,13 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? loadCatalog = null,
       bool allowAuto = false,
       string? currentModelId = null,
-      SmartSelectionOptions? persistedSmartOptions = null)
+      SmartSelectionOptions? persistedSmartOptions = null,
+      Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? refreshCatalog = null)
   {
     ArgumentNullException.ThrowIfNull(current);
     ArgumentException.ThrowIfNullOrWhiteSpace(providerName);
     ArgumentNullException.ThrowIfNull(persist);
+    _refreshCatalog = refreshCatalog;
     _live = current;
     _persist = persist;
     IsOpenRouter = string.Equals(providerName, ProvidersOpenRouter, StringComparison.Ordinal);
@@ -1235,6 +1272,16 @@ internal sealed partial class SmartSelectionSection : ObservableObject
     _entries = entries.IsSuccess ? entries.Value : null;
     _loadFailed = !entries.IsSuccess;
     RecomputePreview();
+  }
+
+  internal void ApplyRefresh(Result<IReadOnlyList<ModelProviderEntry>> result)
+  {
+    if (result.IsSuccess)
+    {
+      _entries = result.Value;
+      _loadFailed = false;
+      RecomputePreview();
+    }
   }
 
   private static decimal? ParseDecimal(string text)

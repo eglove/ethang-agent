@@ -151,7 +151,8 @@ internal partial class MainWindow : Window
         loadCatalog: _vm.SelectedTabCatalogLoader,
         allowAuto,
         currentModelId: preferences.ModelId,
-        persistedSmartOptions: await _vm.ReadSmartSelectionForSelectedTabAsync());
+        persistedSmartOptions: await _vm.ReadSmartSelectionForSelectedTabAsync(),
+        refreshCatalog: _vm.SelectedTabCatalogRefresher);
     ModelSettingsWindow dialog = new(vm);
     _ = await dialog.ShowDialog<ModelSettingsSnapshot?>(this);
   }

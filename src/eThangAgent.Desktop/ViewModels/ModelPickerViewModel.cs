@@ -157,6 +157,21 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
 #pragma warning restore CA1031
   }
 
+  internal void ApplyRefresh(Result<IReadOnlyList<ModelProviderEntry>> result)
+  {
+    if (!result.IsSuccess)
+    {
+      LoadError = $"Catalog refresh failed; showing cached models. {result.Error.Message}";
+      return;
+    }
+    ModelPickerRow? selected = SelectedRow;
+    ModelRows = BuildRows(result.Value);
+    RebuildFilteredRows();
+    SelectedRow = selected is null ? null
+        : FilteredRows.FirstOrDefault(row => row.ModelId == selected.ModelId) ?? selected;
+    LoadError = null;
+  }
+
   private void Confirm()
   {
     if (SelectedRow is not null)

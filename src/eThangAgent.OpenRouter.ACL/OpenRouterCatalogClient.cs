@@ -27,10 +27,12 @@ public sealed class OpenRouterCatalogClient(
       : $"{provider}|{config.Endpoint("/api/v1/models").AbsoluteUri}";
   private readonly Action<Exception>? _onRefreshFault = onRefreshFault;
   private readonly SemaphoreSlim _gate = new(1, 1);
+  private readonly CancellationTokenSource _lifetime = new();
+  private bool _disposed;
   private readonly Lock _refreshLock = new();
   private IReadOnlyList<ModelProviderEntry>? _cached;
   private DateTimeOffset _fetchedAt;
-  private Task? _refresh;
+  private Task<Result<IReadOnlyList<ModelProviderEntry>>>? _refresh;
 
   /// <summary>The in-flight background revalidation, or null when none is running.
   ///     Exposed for deterministic tests; production never awaits it.</summary>
@@ -84,11 +86,7 @@ public sealed class OpenRouterCatalogClient(
       await HydrateFromDiskAsync(ct).ConfigureAwait(false);
       if (_cached is not null)
       {
-        if (IsFresh())
-        {
-          return Result.Success(_cached);
-        }
-
+        // Disk freshness is not evidence that this process has revalidated the source.
         StartBackgroundRefresh();
         return Result.Success(_cached);
       }
@@ -101,7 +99,33 @@ public sealed class OpenRouterCatalogClient(
     }
   }
 
-  public void Dispose() => _gate.Dispose();
+  public void Dispose()
+  {
+    lock (_refreshLock)
+    {
+      if (_disposed)
+      {
+        return;
+      }
+      _disposed = true;
+      _lifetime.Cancel();
+      if (_refresh is { IsCompleted: false } refresh)
+      {
+        _ = refresh.ContinueWith(_ => DisposeResources(), CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+      }
+      else
+      {
+        DisposeResources();
+      }
+    }
+  }
+
+  private void DisposeResources()
+  {
+    _gate.Dispose();
+    _lifetime.Dispose();
+  }
 
   private bool IsFresh()
       => _cached is not null && DateTimeOffset.UtcNow - _fetchedAt < _config.CatalogCacheTtl;
@@ -186,11 +210,31 @@ public sealed class OpenRouterCatalogClient(
         return;
       }
 
-      _refresh = Task.Run(RefreshAsync);
+      _refresh = Task.Run(RevalidateAsync, CancellationToken.None);
     }
   }
 
-  private async Task RefreshAsync()
+  public async Task<Result<IReadOnlyList<ModelProviderEntry>>> RefreshAsync(CancellationToken ct = default)
+  {
+    Task<Result<IReadOnlyList<ModelProviderEntry>>> refresh;
+    lock (_refreshLock)
+    {
+      ObjectDisposedException.ThrowIf(_disposed, this);
+      // Completed refreshes are reusable while fresh, including the disk-hydration
+      // refresh that may have finished between cached rendering and this join.
+#pragma warning disable CA1849 // Result is read only after IsCompletedSuccessfully, never blocking.
+      if (_refresh is null || (_refresh.IsCompleted
+          && (!_refresh.IsCompletedSuccessfully || !_refresh.Result.IsSuccess || !IsFresh())))
+      {
+        _refresh = Task.Run(RevalidateAsync, CancellationToken.None);
+      }
+#pragma warning restore CA1849
+      refresh = _refresh;
+    }
+    return await refresh.WaitAsync(ct).ConfigureAwait(false);
+  }
+
+  private async Task<Result<IReadOnlyList<ModelProviderEntry>>> RevalidateAsync()
   {
     // Named decision (CA1031): a background revalidation fault is best effort - the
     // stale catalog keeps serving and the next call retries; the fault is surfaced
@@ -198,10 +242,10 @@ public sealed class OpenRouterCatalogClient(
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      await _gate.WaitAsync().ConfigureAwait(false);
+      await _gate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
       try
       {
-        _ = await FetchUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
+        return await FetchUnderGateAsync(_lifetime.Token).ConfigureAwait(false);
       }
       finally
       {
@@ -211,6 +255,8 @@ public sealed class OpenRouterCatalogClient(
     catch (Exception ex)
     {
       ReportFault(ex);
+      return Result.Failure<IReadOnlyList<ModelProviderEntry>>(new DomainError(
+          "CatalogUnavailable", $"Catalog refresh failed: {ex.Message}"));
     }
 #pragma warning restore CA1031
   }

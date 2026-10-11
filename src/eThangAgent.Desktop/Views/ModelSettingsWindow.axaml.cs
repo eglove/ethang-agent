@@ -18,9 +18,17 @@ internal partial class ModelSettingsWindow : Window
   {
     DataContext = vm;
     vm.SettingsSaved += (_, snapshot) => Close(snapshot);
-    // The catalog load must be kicked when the window opens — LoadAsync is
-    // idempotent per view-model, so a re-open never refetches.
-    Opened += (_, _) => _ = vm.LoadModelCatalogAsync();
+    // Render the cached catalog, then join revalidation. Closing cancels only this
+    // dialog's waiter; the session-owned source refresh continues and persists.
+#pragma warning disable CA2000 // The Closed handler owns and disposes the dialog lifetime.
+    CancellationTokenSource lifetime = new();
+#pragma warning restore CA2000
+    Opened += (_, _) => _ = vm.LoadModelCatalogAsync(lifetime.Token);
+    Closed += (_, _) =>
+    {
+      lifetime.Cancel();
+      lifetime.Dispose();
+    };
   }
 
   private void OnCancel(object? sender, RoutedEventArgs e) => Close(null);

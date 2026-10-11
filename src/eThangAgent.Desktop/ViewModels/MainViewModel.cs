@@ -491,6 +491,17 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
+  /// <summary>Joins source revalidation for the selected tab's settings dialog.</summary>
+  public Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? SelectedTabCatalogRefresher
+  {
+    get
+    {
+      AgentTabViewModel? tab = SelectedTab;
+      return tab is null ? null
+          : ct => tab.Container.Services.GetRequiredService<IModelCatalog>().RefreshAsync(ct);
+    }
+  }
+
   /// <summary>Applies a model-picker choice to the selected tab and persists it per
   ///     workspace + provider (best effort — the same named decision as the other
   ///     preferences). Null means auto choice and clears the persisted preference, so
