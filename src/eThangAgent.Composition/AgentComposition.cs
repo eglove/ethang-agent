@@ -538,7 +538,11 @@ public static class AgentComposition
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.
-            sessionIdSource: () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString()))
+            sessionIdSource: () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString(),
+            // Measured-mix observer (spec #55 section 2): the factory fills the carrier
+            // ONLY for a Price-sort session; a non-Price session leaves it empty and the
+            // holder's onUsage is null — byte-identical legacy wiring.
+            onUsage: sp.GetRequiredService<MeasuredMixCarrier>().OnUsage))
         .AddSingleton(sp => new RootAgentResolver(
             new RootModelContext(
                 sp.GetRequiredService<IAgentStore>(),
@@ -567,7 +571,21 @@ public static class AgentComposition
                       sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)
                       .GetAwaiter().GetResult();
               return status.IsSuccess ? status.Value : [];
-            }))
+            },
+            // Measured-mix reselection (spec #55 section 1): the coordinator is built
+            // ONLY for a Price-sort session — the factory leaves the carrier empty
+            // otherwise, so a non-Price session's handler gets null and its turn path
+            // is byte-identical to before this seam existed.
+            reselection: sp.GetRequiredService<MeasuredMixCarrier>().Policy is { } measuredMixPolicy
+                ? new DynamicReselectionCoordinator(
+                    sp.GetRequiredService<IModelCatalog>(),
+                    () => sp.GetRequiredService<SmartSelectionCarrier>().Current ?? SmartSelectionOptions.Default,
+                    sp.GetRequiredService<SessionModelPreferences>(),
+                    measuredMixPolicy,
+                    sp.GetRequiredService<IAgentStore>(),
+                    sp.GetRequiredService<RootSessionIdentity>(),
+                    Providers.FallbackModelId(providerName))
+                : null))
         .AddSingleton<IConversationContextService>(sp => new ConversationContextServiceAdapter(sp.GetRequiredService<Conversation>()))
         .AddSingleton<RootSessionLifecycle>()
         // Skill-directory config rides EVERY container (skill-routing Phase 1): the
@@ -586,6 +604,12 @@ public static class AgentComposition
             settings.VerificationGateEnabled))
         .AddSingleton<SkillDirectoriesCarrier>()
         .AddSingleton<SmartSelectionCarrier>()
+        // Measured-mix dynamic provider selection (spec #55): the factory fills the
+        // carrier for a Price-sort session only; the root-holder and handler
+        // registrations above read it lazily, and the flush singleton writes the
+        // accumulated prior at container disposal.
+        .AddSingleton<MeasuredMixCarrier>()
+        .AddSingleton(sp => new MeasuredMixSessionFlush(sp.GetRequiredService<MeasuredMixCarrier>()))
         .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)))
         ;
 
