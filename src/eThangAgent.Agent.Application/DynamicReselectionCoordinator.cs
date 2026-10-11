@@ -73,11 +73,18 @@ public sealed class DynamicReselectionCoordinator(
     string? providerName = selection.Value.ProviderName;
 
     // 5. Resolve the CURRENT pinned pair BEFORE the overwrite, then persist.
+    //    A persist failure keeps the old pin: skip the audit row and the notice
+    //    (the pin was not rewritten, so there is no decision to surface).
     string oldModelId = await CurrentPinAsync(ct).ConfigureAwait(false);
-    await TryPersistModelAsync(newModelId, ct).ConfigureAwait(false);
+    string? oldProviderName = CurrentPinProvider(entries.Value, oldModelId);
+    string? persisted = await TryPersistModelAsync(newModelId, ct).ConfigureAwait(false);
+    if (persisted is null)
+    {
+      return (false, null);
+    }
 
     // 6. Audit row (best effort).
-    await TryAppendAuditAsync(oldModelId, newModelId, decision.MeasuredWeight, qualifiers.Count, ct).ConfigureAwait(false);
+    await TryAppendAuditAsync(oldModelId, oldProviderName, newModelId, providerName, decision.MeasuredWeight, qualifiers.Count, ct).ConfigureAwait(false);
 
     // 7. Notice.
     string notice = providerName is null
@@ -110,27 +117,55 @@ public sealed class DynamicReselectionCoordinator(
         : modelUsed;
   }
 
-  /// <summary>Persists the new pin, best effort. The write is skipped when ModelUsed
-  /// already equals the new id (no-op rewrite).</summary>
-  private async Task TryPersistModelAsync(string modelId, CancellationToken ct)
+  /// <summary>Persists the new pin, best effort. Returns the model id on success
+  /// (including the no-op case where ModelUsed already equals it), null on any
+  /// failure (missing store/identity, read failure, or write failure). Mirrors
+  /// <see cref="RootAgentResolver.TryPersistModelAsync"/>.</summary>
+  private async Task<string?> TryPersistModelAsync(string modelId, CancellationToken ct)
   {
     AgentId? rootId = _identity?.Id;
     if (_store is null || rootId is null)
     {
-      return;
+      return null;
     }
 
     Result<AgentRecord> record = await _store.GetAsync(rootId.Value, ct).ConfigureAwait(false);
-    if (!record.IsSuccess || record.Value.ModelUsed == modelId)
+    if (!record.IsSuccess)
     {
-      return;
+      return null;
     }
 
-    _ = await _store.UpdateAsync(record.Value with { ModelUsed = modelId }, ct).ConfigureAwait(false);
+    if (record.Value.ModelUsed == modelId)
+    {
+      return modelId;
+    }
+
+    Result<string> updated = await _store.UpdateAsync(record.Value with { ModelUsed = modelId }, ct)
+        .ConfigureAwait(false);
+    return updated.IsSuccess ? modelId : null;
   }
 
-  /// <summary>Appends the audit row, best effort.</summary>
-  private async Task TryAppendAuditAsync(string oldModelId, string newModelId, decimal weight, int qualifiers, CancellationToken ct)
+  /// <summary>The provider name of the currently pinned model, resolved from
+  /// the already-fetched catalog entries. Null when no entry matches the
+  /// pinned model id (or the pin is the fallback / unassigned).</summary>
+  private static string? CurrentPinProvider(IReadOnlyList<ModelProviderEntry> entries, string pinnedModelId)
+  {
+    if (pinnedModelId is null)
+    {
+      return null;
+    }
+
+    ModelProviderEntry? match = entries.FirstOrDefault(e => e.ModelId == pinnedModelId);
+    return match?.ProviderName;
+  }
+
+  /// <summary>Appends the audit row, best effort. The row includes old/new
+  /// provider names so it alone reconstructs the decision; ' via (prov)' is
+  /// omitted when the provider is null (same rule as the notice).</summary>
+  private async Task TryAppendAuditAsync(
+      string oldModelId, string? oldProviderName,
+      string newModelId, string? newProviderName,
+      decimal weight, int qualifiers, CancellationToken ct)
   {
     AgentId? rootId = _identity?.Id;
     if (_store is null || rootId is null)
@@ -138,9 +173,11 @@ public sealed class DynamicReselectionCoordinator(
       return;
     }
 
+    string oldPart = oldProviderName is null ? oldModelId : $"{oldModelId} via {oldProviderName}";
+    string newPart = newProviderName is null ? newModelId : $"{newModelId} via {newProviderName}";
     string content = string.Create(
         CultureInfo.InvariantCulture,
-        $"[reselection] {oldModelId} -> {newModelId} | w={weight:0.##} | qualifiers={qualifiers}");
+        $"[reselection] {oldPart} -> {newPart} | w={weight:0.##} | qualifiers={qualifiers}");
     Message audit = new(Role.System, content, DateTimeOffset.UtcNow);
     _ = await _store.AppendMessageAsync(rootId.Value, audit, ct).ConfigureAwait(false);
   }

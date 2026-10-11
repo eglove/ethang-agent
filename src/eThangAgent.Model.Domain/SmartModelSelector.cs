@@ -107,7 +107,8 @@ public static class SmartModelSelectorCore
     {
       SmartSortCriterion.Price => qualifiers
           .OrderBy(e => BlendedPrice(e, weight))
-          .ThenBy(e => e.ModelId, StringComparer.Ordinal),
+          .ThenBy(e => e.ModelId, StringComparer.Ordinal)
+          .ThenBy(e => e.ProviderName, StringComparer.Ordinal),
       SmartSortCriterion.Intelligence => OrderedByScore(qualifiers, e => e.IntelligenceScore, weight),
       SmartSortCriterion.Coding => OrderedByScore(qualifiers, e => e.CodingScore, weight),
       SmartSortCriterion.Agentic => OrderedByScore(qualifiers, e => e.AgenticScore, weight),

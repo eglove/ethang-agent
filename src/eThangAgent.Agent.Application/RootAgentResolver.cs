@@ -8,7 +8,8 @@ namespace eThangAgent.Agent.Application;
 /// live model choice wins; then the session pin (the persisted ModelUsed, the record
 /// of what actually served - a pinned session never re-selects); then smart
 /// selection for an unpinned session; then the fallback, which leaves the session
-/// unpinned so selection retries next turn. No cadence, no mid-session re-decision.
+/// unpinned so selection retries next turn. The pin is re-decided only by the
+/// measured-mix coordinator (Price sort) before this resolver reads it.
 /// </summary>
 public sealed class RootAgentResolver(
     RootModelContext context,

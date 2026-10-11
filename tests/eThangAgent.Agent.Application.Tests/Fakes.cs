@@ -33,8 +33,16 @@ internal sealed class FakeAgentStore(List<string>? callLog = null) : IAgentStore
     return Task.FromResult(Result.Success(record.Id.ToString()));
   }
 
+  /// <summary>When set, the next UpdateAsync fails with this error instead of persisting.</summary>
+  public DomainError? UpdateFailure { get; set; }
+
   public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
   {
+    if (UpdateFailure is { } failure)
+    {
+      return Task.FromResult(Result.Failure<string>(failure));
+    }
+
     Updated.Add(record);
     _records[record.Id.Value] = record;
     callLog?.Add($"update:{record.Id}");

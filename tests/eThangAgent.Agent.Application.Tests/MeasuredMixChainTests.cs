@@ -124,6 +124,7 @@ public class MeasuredMixChainTests
     Message audit = Assert.Single(await TranscriptAsync(chain));
     Assert.Equal(Role.System, audit.Role);
     Assert.Contains("[reselection]", audit.Content, StringComparison.Ordinal);
+    Assert.Contains("old/model -> m/x via B", audit.Content, StringComparison.Ordinal);
     Assert.Equal("m/x", chain.Provider.LastModelId); // the rewritten pin serves this same turn
 
     // Turn 7: the pin serves the re-picked pair on subsequent turns; no further notice or audit.

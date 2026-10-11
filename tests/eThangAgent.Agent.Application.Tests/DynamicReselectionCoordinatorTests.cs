@@ -159,6 +159,31 @@ public class DynamicReselectionCoordinatorTests
     Message audit = Assert.Single(transcript.Value);
     Assert.Equal(Role.System, audit.Role);
     Assert.Contains("[reselection]", audit.Content, StringComparison.Ordinal);
+    // Finding 3: audit row includes old/new provider so the row alone reconstructs
+    // the decision. The old pin "old/model" has no provider (null); the new pin
+    // "m/x" is served by provider "B".
+    Assert.Contains("old/model -> m/x via B", audit.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Apply_PersistFails_SkipsAuditAndNotice()
+  {
+    FakeAgentStore store = new()
+    {
+      UpdateFailure = Result.Failure<string>(new DomainError("StorageDown", "agent store unavailable.")).Error
+    };
+    AgentId rootId = await SeedRootAsync(store, "old/model");
+    CountingCatalog catalog = new(P("A", 0.04m, 0.50m), P("B", 0.07m, 0.05m));
+    DynamicReselectionCoordinator coordinator = Coordinator(catalog, CrossedPolicy(), store, Identity(rootId));
+
+    (bool applied, string? notice) = await coordinator.ApplyAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.False(applied);
+    Assert.Null(notice);
+    Assert.Empty(store.Updated);
+    Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(rootId, TestContext.Current.CancellationToken);
+    Assert.True(transcript.IsSuccess);
+    Assert.Empty(transcript.Value); // no audit row on persist failure
   }
 
   [Fact]
