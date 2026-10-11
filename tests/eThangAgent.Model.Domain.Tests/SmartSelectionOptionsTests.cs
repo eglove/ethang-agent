@@ -39,14 +39,14 @@ public class SmartSelectionOptionsTests
 
   [Fact]
   public void TryFromJson_UnknownSort_ReturnsFalse()
-    => Assert.False(SmartSelectionOptions.TryFromJson("{\"sort\":\"cheapest\"}", out _));
+    => Assert.False(SmartSelectionOptions.TryFromJson(/*lang=json,strict*/ "{\"sort\":\"cheapest\"}", out _));
   [Fact]
   public void TryFromJson_MalformedJson_ReturnsFalse()
     => Assert.False(SmartSelectionOptions.TryFromJson("not json", out _));
   [Fact]
   public void TryFromJson_SortIsCaseInsensitive()
   {
-    Assert.True(SmartSelectionOptions.TryFromJson("{\"sort\":\"CODING\"}", out SmartSelectionOptions options));
+    Assert.True(SmartSelectionOptions.TryFromJson(/*lang=json,strict*/ "{\"sort\":\"CODING\"}", out SmartSelectionOptions options));
 
     Assert.Equal(SmartSortCriterion.Coding, options.Sort);
   }
