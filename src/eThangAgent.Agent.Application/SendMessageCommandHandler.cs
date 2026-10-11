@@ -26,7 +26,8 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
     INudgePolicy? policy = null, Func<int>? memoriesWritten = null, IAgentInbox? inbox = null,
     RootAgentHolder? rootHolder = null, RootAgentResolver? rootResolver = null,
     VerificationGate? verificationGate = null,
-    Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>? changedFilesResolver = null)
+    Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>? changedFilesResolver = null,
+    DynamicReselectionCoordinator? reselection = null)
 {
   private readonly Ag? _agent = agent;
   private readonly Conversation? _conversation = conversation;
@@ -37,6 +38,7 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
   private readonly RootAgentResolver? _rootResolver = rootResolver;
   private readonly VerificationGate? _verificationGate = verificationGate;
   private readonly Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>? _changedFilesResolver = changedFilesResolver;
+  private readonly DynamicReselectionCoordinator? _reselection = reselection;
   private int _turnCount;
 
   public async Task<Result<string>> Handle(SendMessageCommand command,
@@ -112,6 +114,18 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
             "Root model resolution requires a conversation.");
 
     bool requireVision = CarriesImages(rootConversation) || CarriesImages(command.ImageParts);
+
+    // The measured-mix reselection safe point runs BEFORE resolution so a re-picked
+    // pair is what the resolver's pin path serves this same turn. Absent coordinator
+    // means byte-identical legacy behavior.
+    if (_reselection is not null)
+    {
+      (bool _, string? reselectionNotice) = await _reselection.ApplyAsync(requireVision, ct).ConfigureAwait(false);
+      if (reselectionNotice is not null)
+      {
+        onNotice?.Invoke(reselectionNotice);
+      }
+    }
 
     (ModelConfig config, string? notice) = await _rootResolver.ResolveAsync(requireVision, ct)
         .ConfigureAwait(false);
