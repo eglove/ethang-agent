@@ -53,6 +53,13 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
 - `read_image` tool — read one image file from the workspace and attach it to the tool
   result so the model can see it (PNG/JPEG sniffed from file bytes, 20 MB cap; the image
   is withheld with a notice when the session model has no image input)
+- `docx` tool — read, edit, create, and inspect .docx documents: a numbered block
+view (paragraphs/tables with styles and pagination), atomic addressed edit batches
+(replace text, set styles, insert/delete paragraphs, cells, rows, run formatting,
+literal find/replace) with a stale-edit version guard, create from a pinned markdown
+subset, comment list/add/delete, tracked-revision list/accept/reject, and embedded
+image extraction (PNG/JPEG attach; other formats listed). Macro-enabled (.docm)
+content is refused; the extension alone is never trusted (magic-byte + package sniffing)
 - `write` tool — create/replace files behind an explicit overwrite gate
 - `edit` tool — exact literal replacements with occurrence verification, or line-range replacement (lines N..M, no anchor, endLine past EOF rejected); a missed anchor quotes the file's nearest matching region (exact line numbers and content) so one retry corrects the anchor
 - `write_markdown` tool — renders a structured JSON document into well-formed markdown deterministically (headers, lists, tables, alerts, frontmatter); returns the string or writes it to a workspace file behind the same overwrite gate as `write`

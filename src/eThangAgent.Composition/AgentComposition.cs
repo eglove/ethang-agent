@@ -7,6 +7,7 @@ using eThangAgent.AgentInfrastructure;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ComputerUse.ACL;
 using eThangAgent.ConversationDomain;
+using eThangAgent.Documents.ACL;
 using eThangAgent.FileSystem.ACL;
 using eThangAgent.Mcp.ACL;
 using eThangAgent.MemoryDomain;
@@ -78,6 +79,7 @@ public static class AgentComposition
         .AddSingleton<ISkillRegistryAccess, GitSkillRegistryAccess>()
         .AddSingleton<ISkillsShAccess, HttpSkillsShAccess>()
         .AddSingleton<IHtmlToMarkdown, HtmlAgilityMarkdownConverter>()
+        .AddSingleton<IDocxAccess, DirectDocxAccess>()
         .AddSingleton(sp => new AgentToolsProvider("agent",
         [
             new AgentToolBinding(
@@ -89,6 +91,11 @@ public static class AgentComposition
                         sp.GetRequiredService<IFileSystemAccess>(),
                         new SessionImageInputCapability(sp)),
                     "Read one image file from the workspace and attach it to the result."),
+                new AgentToolBinding(
+                    new DocxTool(sp.GetRequiredService<IPathResolver>(),
+                        sp.GetRequiredService<IDocxAccess>(),
+                        new SessionImageInputCapability(sp)),
+                    "Read, edit, create, and inspect .docx documents."),
                 new AgentToolBinding(
                     new WriteTool(sp.GetRequiredService<IPathResolver>(),
                         sp.GetRequiredService<IFileWriteAccess>()),
@@ -490,6 +497,9 @@ public static class AgentComposition
                 new OpenRouterManagementTool(sp.GetRequiredService<IOpenRouterManagementAccess>()),
                 new ReadImageTool(sp.GetRequiredService<IPathResolver>(),
                     sp.GetRequiredService<IFileSystemAccess>(),
+                    new SessionImageInputCapability(sp)),
+                new DocxTool(sp.GetRequiredService<IPathResolver>(),
+                    sp.GetRequiredService<IDocxAccess>(),
                     new SessionImageInputCapability(sp)),
                 .. ComputerLoopTools(sp, settings)]))
         .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
