@@ -568,6 +568,7 @@ internal sealed partial class MainViewModel : ObservableObject
     string? knobPayload = allUnset ? null : JsonSerializer.Serialize(snapshot.KnobTexts);
     await PersistSamplingPrefsAsync(providerName, workspaceRoot, knobPayload);
     await PersistProviderSettingsAsync(providerName, workspaceRoot, snapshot.ProviderSettingsJson);
+    await PersistSmartSelectionAsync(providerName, workspaceRoot, snapshot.SmartSelectionJson);
   }
 
   /// <summary>Applies a settings-modal result: persists the key (protected) or deletes
@@ -1341,6 +1342,74 @@ internal sealed partial class MainViewModel : ObservableObject
 #pragma warning restore CA1031
   }
 
+  /// <summary>Composite preference key of the per-workspace smart-selection options:
+  ///     the same directory may be open under both providers, so the key is scoped
+  ///     to the (provider, workspace) pair - the model_choice pattern.</summary>
+  private static string SmartSelectionKey(string providerName, string workspaceRoot)
+      => $"smart_selection:{providerName}:{workspaceRoot}";
+
+  /// <summary>Reads the selected tab's persisted smart-selection options, or null
+  /// when unset (or the store is unavailable, or the payload is corrupt - a failed
+  /// read degrades to unset, never fails the open; named decision, CA1031).</summary>
+  public async Task<SmartSelectionOptions?> ReadSmartSelectionForSelectedTabAsync()
+  {
+    AgentTabViewModel? tab = SelectedTab;
+    return tab is null
+        ? null
+        : await ReadSmartSelectionAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot);
+  }
+
+  private async Task<SmartSelectionOptions?> ReadSmartSelectionAsync(string providerName, string workspaceRoot)
+  {
+    if (_preferences is null)
+    {
+      return null;
+    }
+
+    // Named decision (CA1031): preference reads must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      string? stored = await _preferences.GetAsync(SmartSelectionKey(providerName, workspaceRoot));
+      return stored is null || !SmartSelectionOptions.TryFromJson(stored, out SmartSelectionOptions options)
+        ? null
+        : options;
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"smart selection read failed: {ex.Message}");
+      return null;
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Persists (or, for null, clears) the per-workspace serialized
+  ///     smart-selection options. Best effort - a failed write logs to stderr and
+  ///     never fails the save (named decision, CA1031).</summary>
+  private async Task PersistSmartSelectionAsync(string providerName, string workspaceRoot, string? json)
+  {
+    if (_preferences is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): preference persistence must not take the shell down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      string key = SmartSelectionKey(providerName, workspaceRoot);
+      bool landed = json is null ? await _preferences.DeleteAsync(key) : await _preferences.SetAsync(key, json);
+      if (!landed)
+      {
+        await Console.Error.WriteLineAsync($"smart selection write failed for '{key}'");
+      }
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"smart selection write failed: {ex.Message}");
+    }
+#pragma warning restore CA1031
+  }
   /// <summary>Persists (or clears) the per-workspace serialized OpenRouter request
   ///     settings. Best effort, same named decision.</summary>
   private async Task PersistProviderSettingsAsync(string providerName, string workspaceRoot, string? settingsJson)

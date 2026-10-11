@@ -385,4 +385,94 @@ public class ModelSettingsViewModelTests
   }
 
   private const string ProvidersOpenRouter = "openrouter";
+
+  [Fact]
+  public void SmartSelection_SectionVisible_OnOpenRouter()
+  {
+    ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: _ => { });
+
+    Assert.NotNull(vm.SmartSelectionSection);
+  }
+
+  [Fact]
+  public void SmartSelection_SectionHidden_OnNonOpenRouter()
+  {
+    ModelSettingsViewModel vm = new(Snapshot(), "z.ai", persist: _ => { });
+
+    Assert.Null(vm.SmartSelectionSection);
+  }
+
+  [Fact]
+  public async Task SmartSelection_Preview_ComputesCheapestFromCatalog()
+  {
+    ModelProviderEntry[] entries =
+    [
+        new("a/cheap", "Prov", 0.5m / 1_000_000m, 2m / 1_000_000m, 128_000, 8_192, true, false, null, null, null, null, null, null),
+        new("b/pricey", "Prov", 5m / 1_000_000m, 20m / 1_000_000m, 128_000, 8_192, true, false, null, null, null, null, null, null),
+    ];
+    ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: _ => { },
+        loadCatalog: _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries)));
+    await vm.LoadModelCatalogAsync();
+
+    vm.SmartSelectionSection!.RecomputePreview();
+
+    Assert.Contains("a/cheap via Prov", vm.SmartSelectionSection.PreviewText, StringComparison.Ordinal);
+    Assert.Contains("cheapest of 2 qualifying models", vm.SmartSelectionSection.PreviewText, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task SmartSelection_Preview_ZeroQualifiers_ShowsFallbackLine()
+  {
+    ModelProviderEntry[] entries =
+    [
+        new("a/toolless", "Prov", 1m / 1_000_000m, 2m / 1_000_000m, 128_000, 8_192, false, false, null, null, null, null, null, null),
+    ];
+    ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: _ => { },
+        loadCatalog: _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(entries)));
+    await vm.LoadModelCatalogAsync();
+
+    vm.SmartSelectionSection!.RecomputePreview();
+
+    Assert.Contains("no model qualifies", vm.SmartSelectionSection.PreviewText, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void SmartSelection_Save_PersistsJson_And_ClearsOnAllDefault()
+  {
+    ModelSettingsSnapshot? saved = null;
+    ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: s => saved = s);
+    vm.SmartSelectionSection!.MaxInputText = "2.5";
+    vm.SmartSelectionSection.SortChoice = "Coding";
+
+    bool ok = vm.TrySave(out _);
+
+    Assert.True(ok);
+    Assert.NotNull(saved);
+    Assert.NotNull(saved.SmartSelectionJson);
+    Assert.True(SmartSelectionOptions.TryFromJson(saved.SmartSelectionJson, out SmartSelectionOptions options));
+    Assert.Equal(2.5m, options.MaxInputPerM);
+    Assert.Equal(SmartSortCriterion.Coding, options.Sort);
+
+    // All-default save clears: a fresh VM with untouched fields saves null.
+    ModelSettingsSnapshot? cleared = null;
+    ModelSettingsViewModel vm2 = new(Snapshot(), ProvidersOpenRouter, persist: s => cleared = s);
+    _ = vm2.TrySave(out _);
+    Assert.NotNull(cleared);
+    Assert.Null(cleared.SmartSelectionJson);
+  }
+
+  [Fact]
+  public void SmartSelection_PersistedOptions_PrefillFields()
+  {
+    SmartSelectionOptions persisted = new(2.5m, 10m, 40.0, null, null, 128_000, SmartSortCriterion.Agentic);
+    ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: _ => { },
+        persistedSmartOptions: persisted);
+
+    Assert.Equal("2.5", vm.SmartSelectionSection!.MaxInputText);
+    Assert.Equal("10", vm.SmartSelectionSection.MaxOutputText);
+    Assert.Equal("40", vm.SmartSelectionSection.MinIntelligenceText);
+    Assert.Equal(string.Empty, vm.SmartSelectionSection.MinCodingText);
+    Assert.Equal("128000", vm.SmartSelectionSection.MinContextText);
+    Assert.Equal("Agentic", vm.SmartSelectionSection.SortChoice);
+  }
 }

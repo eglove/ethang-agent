@@ -184,4 +184,32 @@ public class ModelSettingsE2ETests
     return opened.IsSuccess ? shell : throw new InvalidOperationException(
         $"prebuilt session failed to open: [{opened.Error.Code}] {opened.Error.Message}");
   }
+
+  [Fact]
+  public async Task SavedSmartSelection_RestoresToSettingsWindow()
+  {
+    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-smart");
+    try
+    {
+      using E2E.HostHarness host = new();
+      _ = await host.StartAsync(workspaceRoot: ws.FullName);
+      string workspaceRoot = ws.FullName;
+
+      // Persist smart-selection options the way the Model Settings save does.
+      SmartSelectionOptions options = new(2.5m, 10m, 40.0, null, null, 128_000, SmartSortCriterion.Coding);
+      _ = await host.Store.SetAsync($"smart_selection:openrouter:{workspaceRoot}", options.ToJson(),
+          TestContext.Current.CancellationToken);
+
+      MainViewModel shell = await OpenThroughShellAsync(host, workspaceRoot);
+
+      // The shell's read path (the Model Settings window's prefill source) restores them.
+      SmartSelectionOptions? restored = await shell.ReadSmartSelectionForSelectedTabAsync();
+      Assert.NotNull(restored);
+      Assert.Equal(options, restored);
+    }
+    finally
+    {
+      ws.Delete(true);
+    }
+  }
 }
