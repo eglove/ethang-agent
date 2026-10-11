@@ -569,6 +569,13 @@ internal sealed partial class MainViewModel : ObservableObject
     await PersistSamplingPrefsAsync(providerName, workspaceRoot, knobPayload);
     await PersistProviderSettingsAsync(providerName, workspaceRoot, snapshot.ProviderSettingsJson);
     await PersistSmartSelectionAsync(providerName, workspaceRoot, snapshot.SmartSelectionJson);
+    // The carrier is filled only at session open; a save mid-session must refresh it
+    // too, or the resolver keeps serving the options the session OPENED with (a save
+    // between open and the first turn was invisible to selection).
+    tab.Container.Services.GetService<SmartSelectionCarrier>()?.Fill(
+        snapshot.SmartSelectionJson is { } json && SmartSelectionOptions.TryFromJson(json, out SmartSelectionOptions options)
+            ? options
+            : null);
   }
 
   /// <summary>Applies a settings-modal result: persists the key (protected) or deletes
@@ -981,6 +988,31 @@ internal sealed partial class MainViewModel : ObservableObject
               : () => SkillOptionsOf(session),
         });
     sessionVmRef = sessionVm;
+
+    // A session whose record carries a real pin (a previous selection, or a user's
+    // picker choice that already served a turn) shows that model in the status bar
+    // immediately: the selection notice fires only on the turn that CHANGES the pin,
+    // so a resumed or second-turn session would otherwise display the bootstrap
+    // fallback forever. Best effort - a store miss keeps the bootstrap id.
+    // Named decision (CA1031): a status restore must never fail the session open.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      Result<AgentRecord> pinned = await session.Services.GetRequiredService<IAgentStore>()
+          .GetAsync(session.RootId, CancellationToken.None);
+      if (pinned.IsSuccess
+          && pinned.Value.ModelUsed is { } used
+          && used != AgentRecord.UnassignedModel
+          && used != Providers.FallbackModelId(session.ProviderName))
+      {
+        sessionVm.Status.ModelId = used;
+      }
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"status model restore failed: {ex.Message}");
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
 
     // Restore the per-workspace model and effort choices (if any) BEFORE the tab can
     // take a turn: both ride the session preferences, so the first turn resolves

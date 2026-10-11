@@ -211,6 +211,62 @@ public class SmartModelSelectorTests
   }
 
   [Fact]
+  public async Task NegativeSentinelPrice_AlwaysExcluded()
+  {
+    // OpenRouter's router pseudo-models serve -1 per-token prices ("priced at
+    // routing time"). A negative price passes every cap and wins every sort
+    // (blended -4), so an unpriced router would beat every real model - the
+    // 2026-10-11 jev-router incident. Excluded outright.
+    SmartModelSelector selector = new(new Catalog(
+        Entry("typesafe/jev-router", input: -1m, output: -1m),
+        Entry("real", input: 5m, output: 20m)));
+    Result<ModelSelectionResult> result = await selector.SelectAsync(Options(), requireVision: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("real", result.Value.ModelId);
+  }
+
+  [Fact]
+  public async Task NegativeSentinelPrice_ExcludedEvenUnderCaps()
+  {
+    // The sentinel also survives price caps: -1 <= any cap. The exclusion must
+    // hold under the user's constraints too, not just the unconstrained sort.
+    SmartModelSelector selector = new(new Catalog(
+        Entry("router", input: -1m, output: -1m),
+        Entry("real", input: 0.05m, output: 0.5m)));
+    Result<ModelSelectionResult> result = await selector.SelectAsync(Options(maxIn: 0.1m, maxOut: 2m), requireVision: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("real", result.Value.ModelId);
+  }
+
+  [Fact]
+  public async Task NegativeSentinelPrice_AllExcluded_Fails()
+  {
+    SmartModelSelector selector = new(new Catalog(
+        Entry("typesafe/jev-router", input: -1m, output: -1m),
+        Entry("nvidia/switchyard", input: -1m, output: -1m)));
+    Result<ModelSelectionResult> result = await selector.SelectAsync(Options(), requireVision: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("NoMatchingModels", result.Error.Code);
+  }
+
+  [Fact]
+  public async Task NullProvider_PropagatesFromSelection()
+  {
+    // A synthesized catalog row (no known endpoints) carries a null provider;
+    // selection must pass it through so the resolver never pins the wire.
+    Catalog catalog = new(new ModelProviderEntry("some/router", null, 1m / 1_000_000m, 2m / 1_000_000m, 128_000, 8_192, true, false, null, null, null, null, null, null));
+    SmartModelSelector nullProviderSelector = new(catalog);
+    Result<ModelSelectionResult> result = await nullProviderSelector.SelectAsync(Options(), requireVision: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("some/router", result.Value.ModelId);
+    Assert.Null(result.Value.ProviderName);
+  }
+
+  [Fact]
   public async Task Determinism_SameCatalogSameOptions_SameResult()
   {
     Catalog catalog = new(

@@ -21,7 +21,15 @@ public static class SmartModelSelectorCore
     ArgumentNullException.ThrowIfNull(entries);
     ArgumentNullException.ThrowIfNull(options);
 
+    // Negative per-token prices are OpenRouter's sentinel for "priced at routing
+    // time" (the router pseudo-models). They are not real prices: -1 passes every
+    // price cap and wins every price sort (blended -4), so an unpriced router would
+    // always beat every real model. Excluded outright - the user's caps must mean
+    // what they say. (Verified live: typesafe/jev-router, nvidia/switchyard, and
+    // OpenRouter's own pseudo-models all serve -1.)
     IEnumerable<ModelProviderEntry> candidates = entries
+        .Where(e => e.PromptPricePerToken >= 0)
+        .Where(e => e.CompletionPricePerToken >= 0)
         .Where(e => !e.ModelId.EndsWith(":batch", StringComparison.Ordinal))
         .Where(e => !e.ModelId.EndsWith(":free", StringComparison.Ordinal))
         .Where(e => !e.ModelId.StartsWith("openrouter/", StringComparison.Ordinal))

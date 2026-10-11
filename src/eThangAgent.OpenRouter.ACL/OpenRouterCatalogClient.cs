@@ -275,41 +275,47 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
     int maxCompletionTokens = endpoint.TryGetProperty("max_completion_tokens", out JsonElement mct) && mct.ValueKind == JsonValueKind.Number
         ? mct.GetInt32() : 0;
 
+    // The endpoints API's prices ARE the effective prices - verified against the
+    // live API and the website (Baidu $0.35/M served as 0.00000035 with
+    // discount: 0.75; the site shows $0.35 as the price paid). The discount field
+    // is promo metadata, not a multiplier: applying it double-discounts. The
+    // endpoint row overrides the model-level price only when it carries one.
     decimal promptPrice = model.PromptPrice;
     decimal completionPrice = model.CompletionPrice;
-    decimal discount = model.Discount;
     if (endpoint.TryGetProperty("pricing", out JsonElement pricing) && pricing.ValueKind == JsonValueKind.Object)
     {
       decimal ep = ParseDecimal(pricing, "prompt");
       decimal ec = ParseDecimal(pricing, "completion");
-      if (ep > 0m || ec > 0m)
+      if (ep > 0m)
       {
         promptPrice = ep;
+      }
+
+      if (ec > 0m)
+      {
         completionPrice = ec;
       }
-      discount = ParseDiscount(pricing);
     }
-
-    decimal effectivePrompt = EffectivePrice(promptPrice, discount);
-    decimal effectiveCompletion = EffectivePrice(completionPrice, discount);
 
     double? latencyMs = endpoint.TryGetProperty("latency_last_30m", out JsonElement lat) && lat.ValueKind == JsonValueKind.Number
         ? lat.GetDouble() : null;
     double? throughput = endpoint.TryGetProperty("throughput_last_30m", out JsonElement thr) && thr.ValueKind == JsonValueKind.Number
         ? thr.GetDouble() : null;
 
-    return new ModelProviderEntry(model.Id, providerName, effectivePrompt, effectiveCompletion,
+    return new ModelProviderEntry(model.Id, providerName, promptPrice, completionPrice,
         contextLength, maxCompletionTokens, model.SupportsToolUse, model.SupportsVision,
         model.IntelligenceScore, model.CodingScore, model.AgenticScore, latencyMs, throughput,
         model.Description);
   }
 
+  /// <summary>The row for a model whose per-provider endpoints are unknown (the
+  ///     endpoints call failed or the model has none - the routing pseudo-models).
+  ///     ProviderName is the top provider when known, else null: a fabricated name
+  ///     would ride selection onto the wire as a provider pin ("only": ["Unknown"])
+  ///     and fail every request. Null never pins.</summary>
   private static ModelProviderEntry CreateFallbackEntry(IntermediateModel model)
   {
-    decimal effectivePrompt = EffectivePrice(model.PromptPrice, model.Discount);
-    decimal effectiveCompletion = EffectivePrice(model.CompletionPrice, model.Discount);
-    string providerName = model.TopProviderName ?? "Unknown";
-    return new ModelProviderEntry(model.Id, providerName, effectivePrompt, effectiveCompletion,
+    return new ModelProviderEntry(model.Id, model.TopProviderName, model.PromptPrice, model.CompletionPrice,
         model.TopProviderContext, model.TopProviderMaxTokens, model.SupportsToolUse,
         model.SupportsVision, model.IntelligenceScore, model.CodingScore, model.AgenticScore,
         null, null, model.Description);
@@ -352,9 +358,6 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
 
     return 0m;
   }
-
-  private static decimal EffectivePrice(decimal basePrice, decimal discount)
-      => basePrice * (1m - discount);
 
   private static decimal ParseDecimal(JsonElement parent, string propertyName)
   {

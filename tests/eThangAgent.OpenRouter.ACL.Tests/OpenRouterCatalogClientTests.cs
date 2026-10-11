@@ -55,10 +55,12 @@ public class OpenRouterCatalogClientTests
     // 2 from gemini endpoints + 1 from llama endpoints = 3 (no curated auto entry)
     Assert.Equal(3, result.Value.Count);
 
-    // Gemini via Google: effective price = 0.000001 * (1 - 0.5) = 0.0000005
+    // Gemini via Google: the served price IS the effective price - the discount
+    // field is promo metadata, never a multiplier (verified against the live API:
+    // the site's displayed price matches pricing.prompt exactly).
     ModelProviderEntry geminiGoogle = Assert.Single(result.Value, e => e.ModelId == "google/gemini-2.0-flash-001" && e.ProviderName == "Google");
-    Assert.Equal(0.0000005m, geminiGoogle.PromptPricePerToken);
-    Assert.Equal(0.000001m, geminiGoogle.CompletionPricePerToken);
+    Assert.Equal(0.000001m, geminiGoogle.PromptPricePerToken);
+    Assert.Equal(0.000002m, geminiGoogle.CompletionPricePerToken);
     Assert.Equal(1_048_576, geminiGoogle.ContextLength);
     Assert.Equal(8192, geminiGoogle.MaxCompletionTokens);
     Assert.True(geminiGoogle.SupportsToolUse);
@@ -203,8 +205,9 @@ public class OpenRouterCatalogClientTests
     // 2 from gemini endpoints + 1 from llama top_provider fallback = 3 (no curated auto)
     Assert.Equal(3, result.Value.Count);
     ModelProviderEntry llama = Assert.Single(result.Value, e => e.ModelId == "meta-llama/llama-3.3-70b");
-    // top_provider didn't have a provider_name, so it falls back to "Unknown"
-    Assert.NotNull(llama.ProviderName);
+    // top_provider had no provider_name: ProviderName stays null - a fabricated name
+    // would ride selection onto the wire as a provider pin ("only": ["Unknown"]).
+    Assert.Null(llama.ProviderName);
     Assert.Equal(131072, llama.ContextLength);
     Assert.Equal(4096, llama.MaxCompletionTokens);
   }

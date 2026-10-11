@@ -1,11 +1,12 @@
 namespace eThangAgent.ModelDomain;
 
 /// <summary>One model+provider pair from the OpenRouter catalog: effective prices
-/// (after discount), per-provider context and max completion tokens, capability scores,
-/// advertised latency/throughput, and per-model capabilities. Replaces ModelCatalogEntry.</summary>
+/// (as served - the endpoints API's prices are final), per-provider context and max
+/// completion tokens, capability scores, advertised latency/throughput, and per-model
+/// capabilities. Replaces ModelCatalogEntry.</summary>
 public sealed record ModelProviderEntry(
     string ModelId,
-    string ProviderName,
+    string? ProviderName,
     decimal PromptPricePerToken,
     decimal CompletionPricePerToken,
     int ContextLength,
