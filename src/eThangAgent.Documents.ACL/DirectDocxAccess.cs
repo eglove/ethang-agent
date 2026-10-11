@@ -148,13 +148,13 @@ public sealed class DirectDocxAccess : IDocxAccess
       List<ResolvedEdit> resolved = [];
       foreach (DocxOperation op in operations)
       {
-        Result<ResolvedEdit> one = ResolveEdit(doc, op);
+        Result<IReadOnlyList<ResolvedEdit>> one = ResolveEdit(doc, op);
         if (!one.IsSuccess)
         {
           return Result.Failure<DocxEditOutcome>(one.Error); // atomic: nothing mutated yet
         }
 
-        resolved.Add(one.Value);
+        resolved.AddRange(one.Value);
       }
 
       HashSet<string> touched = [];
@@ -162,6 +162,11 @@ public sealed class DirectDocxAccess : IDocxAccess
       {
         edit.Apply();
         _ = touched.Add(edit.BlockKey);
+      }
+
+      if (touched.Count == 0)
+      {
+        return Result.Success(new DocxEditOutcome(expectedVersion, 0)); // pinned: zero matches skip the save
       }
 
       doc.Save();
@@ -183,7 +188,7 @@ public sealed class DirectDocxAccess : IDocxAccess
     return new FileVersion(after.Length, after.LastWriteTimeUtc);
   }
 
-  private static Result<ResolvedEdit> ResolveEdit(WordprocessingDocument doc, DocxOperation op)
+  private static Result<IReadOnlyList<ResolvedEdit>> ResolveEdit(WordprocessingDocument doc, DocxOperation op)
   {
     MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
     Body body = main.Document.Body ?? throw new InvalidOperationException("document has no body");
@@ -196,15 +201,15 @@ public sealed class DirectDocxAccess : IDocxAccess
       SetCellText cell => ResolveCellOp(body, cell),
       InsertTableRow row => ResolveInsertRow(body, row),
       DeleteTableRow row => ResolveDeleteRow(body, row),
-      ApplyRunFormatting or FindReplace => FailResolved(ToolErrorCodes.InvalidParameterValue,
-        $"The '{op.GetType().Name}' operation is implemented by task 7 (edit ops part 2); this build stages it."),
+      ApplyRunFormatting format => ResolveFormattingOp(body, format),
+      FindReplace replace => ResolveFindReplace(body, replace),
       _ => FailResolved(ToolErrorCodes.InvalidParameterValue, $"Unknown edit operation '{op.GetType().Name}'."),
     };
   }
 
   /// <summary>Resolves a body-paragraph operation: the address must parse to the
   ///     Paragraph kind and resolve to a Paragraph element.</summary>
-  private static Result<ResolvedEdit> ResolveParagraphOp(Body body, string address, string keyPrefix, Action<Paragraph> apply)
+  private static Result<IReadOnlyList<ResolvedEdit>> ResolveParagraphOp(Body body, string address, string keyPrefix, Action<Paragraph> apply)
   {
     Result<DocxAddress> parsed = DocxAddress.Parse(address);
     if (!parsed.IsSuccess)
@@ -225,10 +230,10 @@ public sealed class DirectDocxAccess : IDocxAccess
     }
 
     string key = keyPrefix + parsed.Value.BodyIndex;
-    return Result.Success(new ResolvedEdit(key, () => apply(para)));
+    return Single(new ResolvedEdit(key, () => apply(para)));
   }
 
-  private static Result<ResolvedEdit> ResolveStyleOp(MainDocumentPart main, Body body, SetParagraphStyle op)
+  private static Result<IReadOnlyList<ResolvedEdit>> ResolveStyleOp(MainDocumentPart main, Body body, SetParagraphStyle op)
   {
     Result<DocxAddress> parsed = DocxAddress.Parse(op.Address);
     if (!parsed.IsSuccess)
@@ -251,25 +256,25 @@ public sealed class DirectDocxAccess : IDocxAccess
     Result<string?> styleId = ResolveStyleId(main, op.StyleName);
     if (!styleId.IsSuccess)
     {
-      return Result.Failure<ResolvedEdit>(styleId.Error);
+      return Result.Failure<IReadOnlyList<ResolvedEdit>>(styleId.Error);
     }
 
     string? id = styleId.Value;
-    return Result.Success(new ResolvedEdit("p" + parsed.Value.BodyIndex, () => ApplyStyle(para, id)));
+    return Single(new ResolvedEdit("p" + parsed.Value.BodyIndex, () => ApplyStyle(para, id)));
   }
 
-  private static Result<ResolvedEdit> ResolveInsertParagraph(MainDocumentPart main, Body body, InsertParagraph op)
+  private static Result<IReadOnlyList<ResolvedEdit>> ResolveInsertParagraph(MainDocumentPart main, Body body, InsertParagraph op)
   {
     Result<string?> styleId = op.Style is null ? Result.Success((string?)null) : ResolveStyleId(main, op.Style);
     if (!styleId.IsSuccess)
     {
-      return Result.Failure<ResolvedEdit>(styleId.Error);
+      return Result.Failure<IReadOnlyList<ResolvedEdit>>(styleId.Error);
     }
 
     string? id = styleId.Value;
     if (op.AfterAddress == "p0")
     {
-      return Result.Success(new ResolvedEdit("p0", () =>
+      return Single(new ResolvedEdit("p0", () =>
       {
         Paragraph para = BuildParagraph(op.Text, id);
         _ = body.InsertAt(para, 0);
@@ -295,11 +300,11 @@ public sealed class DirectDocxAccess : IDocxAccess
     }
 
     string key = "p" + parsed.Value.BodyIndex;
-    return Result.Success(new ResolvedEdit(key,
+    return Single(new ResolvedEdit(key,
       () => body.InsertAfter(BuildParagraph(op.Text, id), para)));
   }
 
-  private static Result<ResolvedEdit> ResolveCellOp(Body body, SetCellText op)
+  private static Result<IReadOnlyList<ResolvedEdit>> ResolveCellOp(Body body, SetCellText op)
   {
     Result<DocxAddress> parsed = DocxAddress.Parse(op.Address);
     if (!parsed.IsSuccess)
@@ -334,11 +339,11 @@ public sealed class DirectDocxAccess : IDocxAccess
     }
 
     TableCell target = cells[parsed.Value.Col - 1];
-    return Result.Success(new ResolvedEdit(
+    return Single(new ResolvedEdit(
       $"t{parsed.Value.BodyIndex}.r{parsed.Value.Row}.c{parsed.Value.Col}", () => ReplaceCellText(target, op.Text)));
   }
 
-  private static Result<ResolvedEdit> ResolveInsertRow(Body body, InsertTableRow op)
+  private static Result<IReadOnlyList<ResolvedEdit>> ResolveInsertRow(Body body, InsertTableRow op)
   {
     Result<DocxAddress> parsed = DocxAddress.Parse(op.TableAddress);
     if (!parsed.IsSuccess)
@@ -368,10 +373,10 @@ public sealed class DirectDocxAccess : IDocxAccess
 
     TableRow newRow = BuildRowLike(rows[^1]);
     string key = "t" + parsed.Value.BodyIndex;
-    return Result.Success(new ResolvedEdit(key, () => InsertRowAt(table, rows, newRow, op.AfterRowIndex)));
+    return Single(new ResolvedEdit(key, () => InsertRowAt(table, rows, newRow, op.AfterRowIndex)));
   }
 
-  private static Result<ResolvedEdit> ResolveDeleteRow(Body body, DeleteTableRow op)
+  private static Result<IReadOnlyList<ResolvedEdit>> ResolveDeleteRow(Body body, DeleteTableRow op)
   {
     Result<DocxAddress> parsed = DocxAddress.Parse(op.TableAddress);
     if (!parsed.IsSuccess)
@@ -399,7 +404,7 @@ public sealed class DirectDocxAccess : IDocxAccess
     }
 
     TableRow victim = rows[op.RowIndex - 1];
-    return Result.Success(new ResolvedEdit("t" + parsed.Value.BodyIndex, victim.Remove));
+    return Single(new ResolvedEdit("t" + parsed.Value.BodyIndex, victim.Remove));
   }
 
   /// <summary>The nth block of the shared flat body numbering (1-based): the
@@ -524,6 +529,161 @@ public sealed class DirectDocxAccess : IDocxAccess
     return new TableRow([.. cells]);
   }
 
+  /// <summary>Resolves run formatting (task 7): the address must be a body
+  ///     paragraph; the format applies to EVERY run in it (paragraph-granular).</summary>
+  private static Result<IReadOnlyList<ResolvedEdit>> ResolveFormattingOp(Body body, ApplyRunFormatting op)
+  {
+    Result<DocxAddress> parsed = DocxAddress.Parse(op.Address);
+    if (!parsed.IsSuccess)
+    {
+      return FailResolved(parsed.Error.Code, parsed.Error.Message);
+    }
+
+    if (parsed.Value.Kind != DocxAddressKind.Paragraph)
+    {
+      return FailResolved(ToolErrorCodes.InvalidParameterValue,
+        $"Address '{op.Address}' does not address a body paragraph (kind {parsed.Value.Kind}).");
+    }
+
+    if (TryBodyBlock(body, parsed.Value.BodyIndex) is not Paragraph para)
+    {
+      return FailResolved(DocxErrorCodes.AddressNotFound,
+        $"Address '{op.Address}' does not resolve to a body paragraph; {RangeHint(body)}.");
+    }
+
+    string key = "p" + parsed.Value.BodyIndex;
+    return Single(new ResolvedEdit(key, () => ApplyRunFormat(para, op.Format)));
+  }
+
+  /// <summary>Applies the non-null format members to every run in the paragraph;
+  ///     runs without properties get one; null members stay untouched.</summary>
+  private static void ApplyRunFormat(Paragraph para, DocxRunFormat format)
+  {
+    foreach (Run run in para.Descendants<Run>().ToList())
+    {
+      RunProperties properties = run.RunProperties ?? new RunProperties();
+      if (run.RunProperties is null)
+      {
+        _ = run.InsertAt(properties, 0);
+      }
+
+      if (format.Bold is not null)
+      {
+        properties.Bold = format.Bold.Value ? new Bold() : new Bold { Val = false };
+      }
+
+      if (format.Italic is not null)
+      {
+        properties.Italic = format.Italic.Value ? new Italic() : new Italic { Val = false };
+      }
+
+      if (format.Underline is not null)
+      {
+        properties.Underline = format.Underline.Value
+          ? new Underline()
+          : new Underline { Val = UnderlineValues.None };
+      }
+
+      if (format.FontSizeHalfPoints is not null)
+      {
+        properties.FontSize = new FontSize { Val = format.FontSizeHalfPoints.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+      }
+
+      if (format.ColorHex is not null)
+      {
+        properties.Color = new Color { Val = format.ColorHex };
+      }
+    }
+  }
+
+  /// <summary>Resolves find/replace (task 7): literal, case-sensitive, body
+  ///     paragraphs only; zero matches skips the save entirely (pinned decision -
+  ///     the version stays unchanged).</summary>
+  private static Result<IReadOnlyList<ResolvedEdit>> ResolveFindReplace(Body body, FindReplace op)
+  {
+    if (op.Find.Length == 0)
+    {
+      return FailResolved(ToolErrorCodes.InvalidParameterValue, "The find text must not be empty.");
+    }
+
+    // one resolved edit per matched paragraph (keyed by its flat body position), so
+    // ChangedBlocks counts the paragraphs the find/replace touched; zero matches
+    // yields no edits at all and the save is skipped (pinned decision)
+    List<OpenXmlElement> flat = [.. body.ChildElements];
+    List<ResolvedEdit> edits = [.. body.Elements<Paragraph>()
+      .Where(para => ParagraphText(para).Contains(op.Find, StringComparison.Ordinal))
+      .Select(para => new ResolvedEdit("p" + (flat.IndexOf(para) + 1), () => ApplyFindReplace(para, op)))];
+    return Result.Success<IReadOnlyList<ResolvedEdit>>(edits);
+  }
+
+  private static string ParagraphText(Paragraph para)
+    => string.Concat(para.Descendants<Text>().Select(t => t.Text));
+
+  /// <summary>Rebuilds each matched paragraph's run list: segments outside matches
+  ///     keep their run formatting; each match's replacement carries the FIRST
+  ///     matched run's cloned formatting (named decision).</summary>
+  private static void ApplyFindReplace(Paragraph para, FindReplace op)
+  {
+    List<Run> runs = [.. para.Elements<Run>().Where(run => run.Elements<Text>().Any())];
+    string full = string.Concat(runs.Select(run => string.Concat(run.Elements<Text>().Select(t => t.Text))));
+    List<(int Start, int End)> matches = [];
+    int at = 0;
+    while ((at = full.IndexOf(op.Find, at, StringComparison.Ordinal)) >= 0)
+    {
+      matches.Add((at, at + op.Find.Length));
+      at += op.Find.Length;
+    }
+
+    List<(string Text, RunProperties? Format)> segments = [];
+    int cursor = 0;
+    foreach ((int start, int end) in matches)
+    {
+      if (start > cursor)
+      {
+        segments.Add((full[cursor..start], FormatAt(runs, cursor)));
+      }
+
+      segments.Add((op.Replace, FormatAt(runs, start)));
+      cursor = end;
+    }
+
+    if (cursor < full.Length)
+    {
+      segments.Add((full[cursor..], FormatAt(runs, cursor)));
+    }
+
+    foreach (Run run in runs)
+    {
+      run.Remove();
+    }
+
+    foreach ((string text, RunProperties? format) in segments)
+    {
+      Run replacement = format is null
+        ? new Run([new Text(text) { Space = SpaceProcessingModeValues.Preserve }])
+        : new Run([format.CloneNode(true) as RunProperties ?? format, new Text(text) { Space = SpaceProcessingModeValues.Preserve }]);
+      para.Append(replacement);
+    }
+  }
+
+  /// <summary>The formatting of the run covering the concatenated-text offset.</summary>
+  private static RunProperties? FormatAt(List<Run> runs, int offset)
+  {
+    int at = 0;
+    foreach (Run run in runs)
+    {
+      int length = run.Elements<Text>().Sum(t => t.Text.Length);
+      if (offset < at + length)
+      {
+        return run.RunProperties;
+      }
+
+      at += length;
+    }
+
+    return runs.Count > 0 ? runs[^1].RunProperties : null;
+  }
+
   private static Result<DocxSnapshot> InvalidSnapshot(string message)
     => FailSnapshot(ToolErrorCodes.InvalidParameterValue, message);
 
@@ -533,8 +693,11 @@ public sealed class DirectDocxAccess : IDocxAccess
   private static Result<DocxEditOutcome> FailEdit(string code, string message)
     => Result.Failure<DocxEditOutcome>(new DomainError(code, message));
 
-  private static Result<ResolvedEdit> FailResolved(string code, string message)
-    => Result.Failure<ResolvedEdit>(new DomainError(code, message));
+  private static Result<IReadOnlyList<ResolvedEdit>> FailResolved(string code, string message)
+    => Result.Failure<IReadOnlyList<ResolvedEdit>>(new DomainError(code, message));
+
+  private static Result<IReadOnlyList<ResolvedEdit>> Single(ResolvedEdit edit)
+    => Result.Success<IReadOnlyList<ResolvedEdit>>([edit]);
 
   private static string Clamp(string message)
   {
