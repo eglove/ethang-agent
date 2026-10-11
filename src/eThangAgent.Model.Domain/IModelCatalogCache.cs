@@ -10,7 +10,8 @@ public sealed record ModelCatalogSnapshot(
     DateTimeOffset FetchedAt);
 
 /// <summary>Persists a provider's model catalog between sessions. The catalog is one
-/// global list per provider (not workspace-scoped), so the key is the provider id.
+/// global list per provider source (not workspace-scoped). The key is an opaque
+/// source identity supplied by the provider ACL, never just a provider id.
 /// Implementations live behind an ACL (SQLite); the domain knows nothing of the
 /// storage engine. Reads and writes flow as <see cref="Result{T}"/> — a cache miss is
 /// a named error, and a storage fault never throws.</summary>

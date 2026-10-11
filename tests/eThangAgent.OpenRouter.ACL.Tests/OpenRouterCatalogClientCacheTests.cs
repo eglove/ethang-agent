@@ -65,7 +65,7 @@ public class OpenRouterCatalogClientCacheTests
   public async Task GetAsync_ColdCache_ServesPersistedSnapshot_WithoutHttp()
   {
     FakeModelCatalogCache cache = new();
-    cache.Seed("openrouter", new ModelCatalogSnapshot([PersistedEntry()], DateTimeOffset.UtcNow));
+    cache.Seed("openrouter|https://openrouter.test/api/v1/models", new ModelCatalogSnapshot([PersistedEntry()], DateTimeOffset.UtcNow));
     int httpCalls = 0;
     FakeHttpMessageHandler handler = new(req =>
     {
@@ -102,7 +102,7 @@ public class OpenRouterCatalogClientCacheTests
   public async Task GetAsync_WarmFreshCache_ServesWithoutHttpOrRefresh()
   {
     FakeModelCatalogCache cache = new();
-    cache.Seed("openrouter", new ModelCatalogSnapshot([PersistedEntry()], DateTimeOffset.UtcNow));
+    cache.Seed("openrouter|https://openrouter.test/api/v1/models", new ModelCatalogSnapshot([PersistedEntry()], DateTimeOffset.UtcNow));
     int httpCalls = 0;
     FakeHttpMessageHandler handler = new(req =>
     {
@@ -156,6 +156,60 @@ public class OpenRouterCatalogClientCacheTests
     Assert.Equal(2, modelsCalls); // the background refresh ran to completion
   }
 
+  [Fact]
+  public async Task GetAsync_LegacyProviderOnlySnapshot_DoesNotServeUnidentifiedSource()
+  {
+    FakeModelCatalogCache cache = new();
+    cache.Seed("openrouter", new ModelCatalogSnapshot([PersistedEntry()], DateTimeOffset.UtcNow));
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(Route(req)));
+    using HttpClient http = new(handler);
+    using OpenRouterCatalogClient client = new(http, new OpenRouterConfiguration("k", BaseUrl), cache, "openrouter");
+    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
+    Assert.True(result.IsSuccess);
+    Assert.Equal("google/gemini-2.0-flash-001", Assert.Single(result.Value).ModelId);
+    Assert.Equal(1, cache.WriteCount);
+  }
+
+  [Fact]
+  public async Task GetAsync_DifferentApiSource_DoesNotReuseAnotherSourcesSnapshot()
+  {
+    FakeModelCatalogCache cache = new();
+    FakeHttpMessageHandler firstHandler = new(req => Task.FromResult(Route(req)));
+    using HttpClient firstHttp = new(firstHandler);
+    using OpenRouterCatalogClient first = new(firstHttp, new OpenRouterConfiguration("k", BaseUrl), cache, "openrouter");
+    _ = await first.GetAsync(TestContext.Current.CancellationToken);
+    int calls = 0;
+    FakeHttpMessageHandler secondHandler = new(req =>
+    {
+      _ = Interlocked.Increment(ref calls);
+      return Task.FromResult(Route(req));
+    });
+    using HttpClient secondHttp = new(secondHandler);
+    using OpenRouterCatalogClient second = new(secondHttp,
+        new OpenRouterConfiguration("k", new Uri("https://another-source.test")), cache, "openrouter");
+    Result<IReadOnlyList<ModelProviderEntry>> result = await second.GetAsync(TestContext.Current.CancellationToken);
+    Assert.True(result.IsSuccess);
+    Assert.Equal(2, calls);
+    Assert.Equal(2, cache.WriteCount);
+  }
+
+  [Fact]
+  public async Task GetAsync_SameApiSource_NewClientReusesSnapshot()
+  {
+    FakeModelCatalogCache cache = new();
+    FakeHttpMessageHandler firstHandler = new(req => Task.FromResult(Route(req)));
+    using HttpClient firstHttp = new(firstHandler);
+    using OpenRouterCatalogClient first = new(firstHttp, new OpenRouterConfiguration("k", BaseUrl), cache, "openrouter");
+    _ = await first.GetAsync(TestContext.Current.CancellationToken);
+    FakeHttpMessageHandler secondHandler = new(_ => throw new InvalidOperationException("fresh snapshot should avoid HTTP"));
+    using HttpClient secondHttp = new(secondHandler);
+    using OpenRouterCatalogClient second = new(secondHttp,
+        new OpenRouterConfiguration("different-key", BaseUrl), cache, "openrouter");
+    Result<IReadOnlyList<ModelProviderEntry>> result = await second.GetAsync(TestContext.Current.CancellationToken);
+    Assert.True(result.IsSuccess);
+    Assert.Equal("google/gemini-2.0-flash-001", Assert.Single(result.Value).ModelId);
+    Assert.Equal(1, cache.WriteCount);
+  }
   private static async Task<HttpResponseMessage> HoldThenRespond(Task gate, HttpRequestMessage req)
   {
     await gate;

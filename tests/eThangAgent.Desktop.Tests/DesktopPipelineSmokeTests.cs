@@ -5,6 +5,7 @@ using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.ModelDomain;
+using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -20,6 +21,7 @@ public class DesktopPipelineSmokeTests
   [AvaloniaFact]
   public async Task Real_Core_Through_Mock_Provider_Renders_Streamed_Transcript()
   {
+    using TestAppDatabase database = TestAppDatabase.Create();
     using MockOpenRouterServer server = new();
     server.Start();
     // The canned response is split across two SSE output_text deltas by the mock,
@@ -38,8 +40,10 @@ public class DesktopPipelineSmokeTests
             ModelConfig.Create("mock/model", null, 256, 0.2f, 8192).Value!,
             new AgentHostOptions(
                 new FixedWorkspaceContext("app"),
-                new UnrootedPathResolver()))
+                new UnrootedPathResolver()), database: database.Database)
         .BuildServiceProvider();
+
+    Assert.Same(database.Database, services.GetRequiredService<AppDatabase>());
 
     // Pin the session's model through the same live-preference surface the desktop
     // model picker uses — selection must not run here, or it would consume the

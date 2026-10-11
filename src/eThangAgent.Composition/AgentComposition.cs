@@ -199,7 +199,8 @@ public static class AgentComposition
         .AddSingleton(_ => database ?? new AppDatabase())
         // The provider model catalog persists between app runs (stale-while-revalidate):
         // the model picker and smart-selection previews serve the last fetched catalog
-        // instantly and refresh in the background. Provider-scoped, one row per provider.
+        // instantly and refresh in the background. The ACL scopes keys by provider plus
+        // API source, so configured proxies and mock servers cannot poison the live catalog.
         .AddSingleton<IModelCatalogCache>(sp => new SqliteModelCatalogCache(
             sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<IAppPreferenceStore>(sp => new SqliteAppPreferenceStore(

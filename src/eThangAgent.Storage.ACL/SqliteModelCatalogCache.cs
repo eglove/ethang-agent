@@ -9,8 +9,8 @@ namespace eThangAgent.Storage.ACL;
 /// <summary>SQLite-backed persistence for a provider's model catalog: one row per
 ///     provider holding the serialized entries and the fetch timestamp, so the model
 ///     picker and smart-selection previews serve instantly from disk between app runs
-///     and revalidate in the background. Provider-scoped (not workspace-scoped) - the
-///     catalog is one global list per provider. Expected failures flow as DomainErrors
+///     and revalidate in the background. Source-scoped (not workspace-scoped) - the
+///     provider column stores the ACL's opaque provider-plus-source identity. Expected failures flow as DomainErrors
 ///     through Result; a storage fault surfaces StorageUnavailable and a corrupt
 ///     payload CatalogCacheCorrupt, never an exception.</summary>
 // Named decision (CA1001): process-lifetime singleton owned by the composition root.

@@ -20,7 +20,11 @@ public sealed class OpenRouterCatalogClient(
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly OpenRouterConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
   private readonly IModelCatalogCache? _cache = cache;
-  private readonly string? _provider = provider;
+  // A provider id alone cannot distinguish the real API from a configured proxy or
+  // test server. Ignore legacy provider-only rows: their source cannot be verified.
+  private readonly string? _cacheKey = string.IsNullOrEmpty(provider)
+      ? null
+      : $"{provider}|{config.Endpoint("/api/v1/models").AbsoluteUri}";
   private readonly Action<Exception>? _onRefreshFault = onRefreshFault;
   private readonly SemaphoreSlim _gate = new(1, 1);
   private readonly Lock _refreshLock = new();
@@ -124,7 +128,7 @@ public sealed class OpenRouterCatalogClient(
   ///     cold (the caller then fetches); a fault is reported, never thrown.</summary>
   private async Task HydrateFromDiskAsync(CancellationToken ct)
   {
-    if (_cache is null || string.IsNullOrEmpty(_provider))
+    if (_cache is null || string.IsNullOrEmpty(_cacheKey))
     {
       return;
     }
@@ -134,7 +138,7 @@ public sealed class OpenRouterCatalogClient(
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      Result<ModelCatalogSnapshot> stored = await _cache.ReadAsync(_provider, ct).ConfigureAwait(false);
+      Result<ModelCatalogSnapshot> stored = await _cache.ReadAsync(_cacheKey, ct).ConfigureAwait(false);
       if (stored.IsSuccess)
       {
         _cached = stored.Value.Entries;
@@ -152,7 +156,7 @@ public sealed class OpenRouterCatalogClient(
   ///     effort: a storage fault never fails the fetch that produced the data.</summary>
   private async Task PersistAsync(CancellationToken ct)
   {
-    if (_cache is null || string.IsNullOrEmpty(_provider) || _cached is null)
+    if (_cache is null || string.IsNullOrEmpty(_cacheKey) || _cached is null)
     {
       return;
     }
@@ -162,7 +166,7 @@ public sealed class OpenRouterCatalogClient(
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      _ = await _cache.WriteAsync(_provider, new ModelCatalogSnapshot(_cached, _fetchedAt), ct).ConfigureAwait(false);
+      _ = await _cache.WriteAsync(_cacheKey, new ModelCatalogSnapshot(_cached, _fetchedAt), ct).ConfigureAwait(false);
     }
     catch (Exception ex)
     {
