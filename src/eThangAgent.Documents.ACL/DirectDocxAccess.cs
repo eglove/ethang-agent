@@ -109,12 +109,6 @@ public sealed class DirectDocxAccess : IDocxAccess
     return Task.FromResult(MutateSave(path, expectedVersion, doc => DeleteComment(doc, commentId)));
   }
 
-  public Task<Result<IReadOnlyList<DocxRevisionInfo>>> ListRevisionsAsync(string path, CancellationToken ct = default)
-    => throw new NotSupportedException("ListRevisionsAsync is implemented by task 10 (revisions).");
-
-  public Task<Result<DocxSaveOutcome>> ResolveRevisionsAsync(string path, FileVersion expectedVersion, bool accept, DocxRevisionScope scope, CancellationToken ct = default)
-    => throw new NotSupportedException("ResolveRevisionsAsync is implemented by task 10 (revisions).");
-
   public Task<Result<IReadOnlyList<ToolResultImage>>> ExtractImagesAsync(string path, IReadOnlyList<string>? names, CancellationToken ct = default)
     => throw new NotSupportedException("ExtractImagesAsync is implemented by task 11 (extract images).");
 
@@ -980,6 +974,204 @@ public sealed class DirectDocxAccess : IDocxAccess
 
     List<TableCell> cells = [.. rows[row - 1].Elements<TableCell>()];
     return col >= 1 && col <= cells.Count ? cells[col - 1] : null;
+  }
+
+  /// <summary>Lists the document's tracked changes (task 10): document order,
+  ///     author, type (Insertion|Deletion|Formatting), and the anchor address.</summary>
+  public Task<Result<IReadOnlyList<DocxRevisionInfo>>> ListRevisionsAsync(string path, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    return Task.FromResult(ListRevisionsCore(path));
+  }
+
+  /// <summary>Accepts or rejects tracked changes matching the scope (task 10,
+  ///     version-guarded): accept unwraps insertions and removes deletions; reject
+  ///     removes insertions and unwraps deletions (delText converts to text).</summary>
+  public Task<Result<DocxSaveOutcome>> ResolveRevisionsAsync(string path, FileVersion expectedVersion, bool accept, DocxRevisionScope scope, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    ArgumentNullException.ThrowIfNull(expectedVersion);
+    ArgumentNullException.ThrowIfNull(scope);
+    return Task.FromResult(MutateSave(path, expectedVersion, doc => ResolveRevisions(doc, accept, scope)));
+  }
+
+  private static Result<IReadOnlyList<DocxRevisionInfo>> ListRevisionsCore(string path)
+  {
+    if (!File.Exists(path))
+    {
+      return Result.Failure<IReadOnlyList<DocxRevisionInfo>>(new DomainError(DocxErrorCodes.FileNotFound, $"File not found: '{path}'."));
+    }
+
+    Result<string> sniff = DocxFormatSniffer.Inspect(path);
+    if (!sniff.IsSuccess)
+    {
+      return Result.Failure<IReadOnlyList<DocxRevisionInfo>>(sniff.Error);
+    }
+
+    try
+    {
+      using WordprocessingDocument doc = WordprocessingDocument.Open(path, false, new OpenSettings
+      {
+        MaxCharactersInPart = DocxLimits.MaxCharactersInPart,
+      });
+      DocxMap map = DocxElementMap.Build(doc);
+      List<DocxRevisionInfo> revisions = [];
+      int index = 0;
+      foreach (OpenXmlElement change in RevisionElements(doc))
+      {
+        index++;
+        string type = change switch
+        {
+          InsertedRun => "Insertion",
+          DeletedRun => "Deletion",
+          _ => "Formatting",
+        };
+        string author = AuthorOf(change);
+        string anchor = AnchorOfElement(map, change);
+        revisions.Add(new DocxRevisionInfo(index, author, type, anchor));
+      }
+
+      return Result.Success<IReadOnlyList<DocxRevisionInfo>>(revisions);
+    }
+    catch (OpenXmlPackageException ex)
+    {
+      return Result.Failure<IReadOnlyList<DocxRevisionInfo>>(new DomainError(DocxErrorCodes.CorruptDocument,
+        $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}"));
+    }
+    catch (IOException ex)
+    {
+      return Result.Failure<IReadOnlyList<DocxRevisionInfo>>(new DomainError(DocxErrorCodes.CorruptDocument,
+        $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}"));
+    }
+  }
+
+  /// <summary>Every tracked-change element in document order: insertions, deletions,
+  ///     and formatting changes (rPrChange/pPrChange).</summary>
+  private static IEnumerable<OpenXmlElement> RevisionElements(WordprocessingDocument doc)
+    => doc.MainDocumentPart?.Document?.Descendants()
+      .Where(el => el is InsertedRun or DeletedRun or PreviousRunProperties or PreviousParagraphProperties)
+      ?? [];
+
+  /// <summary>The change's author: w:ins/w:del carry w:author directly; formatting
+  ///     changes (rPrChange/pPrChange) carry it as the same attribute on their
+  ///     element - read through the qualified attribute name.</summary>
+  private static string AuthorOf(OpenXmlElement change)
+    => change switch
+    {
+      InsertedRun ins => ins.Author?.Value ?? string.Empty,
+      DeletedRun del => del.Author?.Value ?? string.Empty,
+      _ => change.GetAttributes().FirstOrDefault(a => a.LocalName == "author").Value ?? string.Empty,
+    };
+
+  /// <summary>The anchor of a change element: the first mappable ancestor.</summary>
+  private static string AnchorOfElement(DocxMap map, OpenXmlElement change)
+  {
+    for (OpenXmlElement? at = change; at is not null; at = at.Parent)
+    {
+      if (at is Paragraph or TableCell)
+      {
+        string? address = DocxElementMap.AddressOf(map, at);
+        if (address is not null)
+        {
+          return address;
+        }
+      }
+    }
+
+    return string.Empty;
+  }
+
+  private static Result<bool> ResolveRevisions(WordprocessingDocument doc, bool accept, DocxRevisionScope scope)
+  {
+    DocxMap map = DocxElementMap.Build(doc);
+    List<OpenXmlElement> selected = [.. RevisionElements(doc).Where(change => ScopeMatches(map, change, scope))];
+    if (selected.Count == 0)
+    {
+      return Result.Failure<bool>(new DomainError(DocxErrorCodes.RevisionNotFound,
+        $"No tracked changes match the scope (all={scope.All}, author={scope.Author ?? "(none)"}, address={scope.Address ?? "(none)"})."));
+    }
+
+    foreach (OpenXmlElement change in selected)
+    {
+      ResolveOne(change, accept);
+    }
+
+    return Result.Success(true);
+  }
+
+  private static bool ScopeMatches(DocxMap map, OpenXmlElement change, DocxRevisionScope scope)
+    => scope.All
+      || (scope.Author is not null && string.Equals(AuthorOf(change), scope.Author, StringComparison.Ordinal))
+      || (scope.Address is not null && string.Equals(AnchorOfElement(map, change), scope.Address, StringComparison.Ordinal));
+
+  /// <summary>Resolves ONE change element: accept unwraps insertions (content stays)
+  ///     and removes deletions (content stays deleted); reject removes insertions
+  ///     and unwraps deletions converting delText to text; formatting changes are
+  ///     removed either way.</summary>
+  private static void ResolveOne(OpenXmlElement change, bool accept)
+  {
+    switch (change)
+    {
+      case InsertedRun:
+        if (accept)
+        {
+          Unwrap(change);
+        }
+        else
+        {
+          change.Remove();
+        }
+
+        break;
+      case DeletedRun:
+        if (accept)
+        {
+          change.Remove();
+        }
+        else
+        {
+          UnwrapDeletion(change);
+        }
+
+        break;
+      default:
+        change.Remove(); // rPrChange / pPrChange: the change record goes either way
+        break;
+    }
+  }
+
+  private static void Unwrap(OpenXmlElement wrapper)
+  {
+    OpenXmlElement parent = wrapper.Parent ?? throw new InvalidOperationException("revision wrapper has no parent");
+    OpenXmlElement at = wrapper;
+    foreach (OpenXmlElement child in wrapper.ChildElements.ToList())
+    {
+      child.Remove(); // detach from the wrapper before re-attaching (the SDK refuses in-tree moves)
+      at = parent.InsertAfter(child, at);
+    }
+
+    wrapper.Remove();
+  }
+
+  /// <summary>Rejecting a deletion restores the text: unwrap, then convert every
+  ///     w:delText back to w:t (Space preserved).</summary>
+  private static void UnwrapDeletion(OpenXmlElement wrapper)
+  {
+    OpenXmlElement parent = wrapper.Parent ?? throw new InvalidOperationException("revision wrapper has no parent");
+    OpenXmlElement at = wrapper;
+    foreach (OpenXmlElement child in wrapper.ChildElements.ToList())
+    {
+      child.Remove(); // detach from the wrapper before re-attaching
+      at = parent.InsertAfter(child, at);
+    }
+
+    wrapper.Remove();
+    foreach (DeletedText deleted in parent.Descendants<DeletedText>().ToList())
+    {
+      OpenXmlElement converted = new Text(deleted.Text) { Space = SpaceProcessingModeValues.Preserve };
+      _ = deleted.Parent!.InsertAfter(converted, deleted);
+      deleted.Remove();
+    }
   }
 
   private static Result<DocxSnapshot> InvalidSnapshot(string message)
