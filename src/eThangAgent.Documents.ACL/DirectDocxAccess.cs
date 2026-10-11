@@ -47,8 +47,37 @@ public sealed class DirectDocxAccess : IDocxAccess
     return Task.FromResult(EditCore(path, expectedVersion, operations));
   }
 
+  /// <summary>Creates a new .docx from the pinned markdown subset (task 8): the
+  ///     file must not exist; the parser's violations translate to MarkdownInvalid
+  ///     with the 1-based line number.</summary>
   public Task<Result<DocxSaveOutcome>> CreateAsync(string path, string markdown, CancellationToken ct = default)
-    => throw new NotSupportedException("CreateAsync is implemented by task 8 (create from markdown).");
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    ArgumentNullException.ThrowIfNull(markdown);
+    if (File.Exists(path))
+    {
+      return Task.FromResult(FailSave(ToolErrorCodes.InvalidParameterValue,
+        $"'{path}' already exists; create is for new paths (delete first is the model's explicit move)."));
+    }
+
+    string? dir = Path.GetDirectoryName(Path.GetFullPath(path));
+    if (dir is not null && !Directory.Exists(dir))
+    {
+      return Task.FromResult(FailSave(DocxErrorCodes.FileNotFound, $"Directory not found: '{dir}'."));
+    }
+
+    try
+    {
+      IReadOnlyList<DocxMarkdownBlock> blocks = DocxMarkdownParser.Parse(markdown);
+      DocxDocumentBuilder.Build(path, blocks);
+      return Task.FromResult(Result.Success(new DocxSaveOutcome(StatAfter(path))));
+    }
+    catch (MarkdownInvalidException ex)
+    {
+      return Task.FromResult(FailSave(DocxErrorCodes.MarkdownInvalid,
+        ex.Message == "line 0" ? "The markdown violates the pinned subset (see the tool description)." : ex.Message));
+    }
+  }
 
   public Task<Result<IReadOnlyList<DocxCommentInfo>>> ListCommentsAsync(string path, CancellationToken ct = default)
     => throw new NotSupportedException("ListCommentsAsync is implemented by task 9 (comments).");
@@ -692,6 +721,9 @@ public sealed class DirectDocxAccess : IDocxAccess
 
   private static Result<DocxEditOutcome> FailEdit(string code, string message)
     => Result.Failure<DocxEditOutcome>(new DomainError(code, message));
+
+  private static Result<DocxSaveOutcome> FailSave(string code, string message)
+    => Result.Failure<DocxSaveOutcome>(new DomainError(code, message));
 
   private static Result<IReadOnlyList<ResolvedEdit>> FailResolved(string code, string message)
     => Result.Failure<IReadOnlyList<ResolvedEdit>>(new DomainError(code, message));
