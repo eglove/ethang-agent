@@ -126,6 +126,14 @@ public class CompositionGuardTests
     .BuildServiceProvider();
 
     Assert.NotNull(openRouterServices.GetRequiredService<IModelSelector>());
+
+    // The smart-selection carrier resolves and starts unfilled (the factory fills it;
+    // a direct container build here skips that phase - Default options apply).
+    SmartSelectionCarrier carrier = openRouterServices.GetRequiredService<SmartSelectionCarrier>();
+    Assert.Null(carrier.Current);
+
+    // The resolver wiring resolves the carrier lazily: a resolution must not throw.
+    _ = openRouterServices.GetRequiredService<RootAgentResolver>();
   }
 
   [Fact]

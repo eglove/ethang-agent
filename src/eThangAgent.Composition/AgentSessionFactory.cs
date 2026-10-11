@@ -77,10 +77,12 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(full, ct).ConfigureAwait(false);
+    SmartSelectionOptions? smartOptions = await ReadSmartSelectionAsync(full, providerName, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(full, providerName, conversationSeed: null,
         ResolveBootstrapModel(providerName), globalFiles, workspaceFiles,
         globalDirectories, workspaceDirectories);
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
+    services.GetRequiredService<SmartSelectionCarrier>().Fill(smartOptions);
     try
     {
       IAgentStore store = services.GetRequiredService<IAgentStore>();
@@ -167,10 +169,12 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(workspaceRoot, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(workspaceRoot, ct).ConfigureAwait(false);
+    SmartSelectionOptions? smartOptions = await ReadSmartSelectionAsync(workspaceRoot, providerName, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(workspaceRoot, providerName, transcript.Value,
         ResolveBootstrapModel(providerName), globalFiles, workspaceFiles,
         globalDirectories, workspaceDirectories);
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
+    services.GetRequiredService<SmartSelectionCarrier>().Fill(smartOptions);
     try
     {
 
@@ -278,6 +282,22 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   /// <summary>Reads the two stored session-file lists (global, workspace) for one
   ///     workspace. Both are optional: a store miss returns nulls and the session
   ///     opens with nothing injected (truly empty by default).</summary>
+  /// <summary>Reads the workspace's persisted smart-selection options, or null
+  /// when unset. A corrupt payload degrades to null (Default semantics) - the
+  /// same corrupt-to-unset named decision as every other preference read.</summary>
+  private async Task<SmartSelectionOptions?> ReadSmartSelectionAsync(
+      string workspaceRoot, string providerName, CancellationToken ct)
+  {
+    SqliteAppPreferenceStore preferences = new(_database ?? new AppDatabase());
+    string? stored = await preferences.GetAsync(
+        SmartSelectionPreferencesKey(providerName, workspaceRoot), ct).ConfigureAwait(false);
+    return stored is null || !SmartSelectionOptions.TryFromJson(stored, out SmartSelectionOptions options)
+        ? null
+        : options;
+  }
+
+  private static string SmartSelectionPreferencesKey(string providerName, string workspaceRoot)
+      => $"smart_selection:{providerName}:{workspaceRoot}";
   private async Task<(string? Global, string? Workspace)> ReadSessionFilesAsync(
       string workspaceRoot, CancellationToken ct)
   {

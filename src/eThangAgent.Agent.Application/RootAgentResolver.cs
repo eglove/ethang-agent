@@ -124,17 +124,19 @@ public sealed class RootAgentResolver(
     return await MakeFallbackAsync(ct).ConfigureAwait(false);
   }
 
+  /// <summary>The fallback config. A catalog-resolved window is stamped when the
+  /// source knows one; a degraded or fallback-less catalog serves the fallback with
+  /// a NULL window - the exact shape of the bootstrap config (ModelConfig treats
+  /// null as "not yet known", and the provider resolves the routing pseudo-model
+  /// server-side anyway). A null window is a transient degraded state, not a wiring
+  /// fault: the next turn's resolution stamps the real window.</summary>
   private async Task<ModelConfig> MakeFallbackAsync(CancellationToken ct)
   {
     int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(_fallbackModelId, null, ct).ConfigureAwait(false);
-    return window is { } resolved
-        ? ModelPreferencesOverlay.Apply(
-            ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort,
-                acceptsImageInput: await AcceptsImagesAsync(_fallbackModelId, null, ct).ConfigureAwait(false)).Value!,
-            _preferences)
-        : throw new InvalidOperationException(
-            $"Fallback model '{_fallbackModelId}' has no catalog context window (catalog unavailable or model unknown); the resolver cannot serve any turn. "
-            + "This is a composition wiring fault: the fallback must be a model the catalog knows.");
+    return ModelPreferencesOverlay.Apply(
+        ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature, window, _preferences?.ReasoningEffort,
+            acceptsImageInput: await AcceptsImagesAsync(_fallbackModelId, null, ct).ConfigureAwait(false)).Value!,
+        _preferences);
   }
 
   /// <summary>The model's vision capability from the session catalog: the first entry
