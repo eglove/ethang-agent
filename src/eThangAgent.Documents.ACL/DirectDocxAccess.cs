@@ -109,9 +109,6 @@ public sealed class DirectDocxAccess : IDocxAccess
     return Task.FromResult(MutateSave(path, expectedVersion, doc => DeleteComment(doc, commentId)));
   }
 
-  public Task<Result<IReadOnlyList<ToolResultImage>>> ExtractImagesAsync(string path, IReadOnlyList<string>? names, CancellationToken ct = default)
-    => throw new NotSupportedException("ExtractImagesAsync is implemented by task 11 (extract images).");
-
   private static Result<DocxSnapshot> ReadCore(string path, int offset, int maxBlocks)
   {
     if (!File.Exists(path))
@@ -1172,6 +1169,93 @@ public sealed class DirectDocxAccess : IDocxAccess
       _ = deleted.Parent!.InsertAfter(converted, deleted);
       deleted.Remove();
     }
+  }
+
+  /// <summary>Extracts embedded media as attachable images (task 11): names filter
+  ///     the set (null = all); unknown names fail InvalidParameterValue listing the
+  ///     available names; PNG/JPEG parts return as ToolResultImage entries - the
+  ///     seam returns only attachable images (the tool names skipped formats from
+  ///     the read's Media list).</summary>
+  public Task<Result<IReadOnlyList<ToolResultImage>>> ExtractImagesAsync(string path, IReadOnlyList<string>? names, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(path);
+    return Task.FromResult(ExtractImagesCore(path, names));
+  }
+
+  private static Result<IReadOnlyList<ToolResultImage>> ExtractImagesCore(string path, IReadOnlyList<string>? names)
+  {
+    if (!File.Exists(path))
+    {
+      return Result.Failure<IReadOnlyList<ToolResultImage>>(new DomainError(DocxErrorCodes.FileNotFound, $"File not found: '{path}'."));
+    }
+
+    Result<string> sniff = DocxFormatSniffer.Inspect(path);
+    if (!sniff.IsSuccess)
+    {
+      return Result.Failure<IReadOnlyList<ToolResultImage>>(sniff.Error);
+    }
+
+    try
+    {
+      using WordprocessingDocument doc = WordprocessingDocument.Open(path, false, new OpenSettings
+      {
+        MaxCharactersInPart = DocxLimits.MaxCharactersInPart,
+      });
+      MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
+      List<ImagePart> parts = [.. main.GetPartsOfType<ImagePart>()];
+      List<string> available = [.. parts.Select(PartName)];
+      List<ImagePart> selected = parts;
+      if (names is not null && names.Count > 0)
+      {
+        List<string> unknown = [.. names.Where(n => !available.Contains(n, StringComparer.OrdinalIgnoreCase))];
+        if (unknown.Count > 0)
+        {
+          return Result.Failure<IReadOnlyList<ToolResultImage>>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+            $"Unknown image name(s) {string.Join(", ", unknown.Select(n => $"'{n}'"))}; available: {string.Join(", ", available)}."));
+        }
+
+        selected = [.. parts.Where(part => names.Contains(PartName(part), StringComparer.OrdinalIgnoreCase))];
+      }
+
+      List<ToolResultImage> images = [];
+      foreach (ImagePart part in selected)
+      {
+        using MemoryStream buffer = new();
+        using (Stream stream = part.GetStream())
+        {
+          stream.CopyTo(buffer);
+        }
+
+        string? mediaType = ImageFormats.SniffMediaType(buffer.ToArray());
+        if (mediaType is null)
+        {
+          continue; // non-PNG/JPEG: skipped from attachments (the read's Media list names it)
+        }
+
+        images.Add(new ToolResultImage(mediaType, Convert.ToBase64String(buffer.ToArray())));
+      }
+
+      return Result.Success<IReadOnlyList<ToolResultImage>>(images);
+    }
+    catch (OpenXmlPackageException ex)
+    {
+      return Result.Failure<IReadOnlyList<ToolResultImage>>(new DomainError(DocxErrorCodes.CorruptDocument,
+        $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}"));
+    }
+    catch (IOException ex)
+    {
+      return Result.Failure<IReadOnlyList<ToolResultImage>>(new DomainError(DocxErrorCodes.CorruptDocument,
+        $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}"));
+    }
+  }
+
+  /// <summary>The media name the read's Media list and the extract filter share:
+  ///     the part URI's last segment (e.g. 'img1.png').</summary>
+  private static string PartName(ImagePart part)
+  {
+    string raw = part.Uri.OriginalString;
+    int slash = raw.LastIndexOf('/');
+    return slash < 0 ? raw : raw[(slash + 1)..];
   }
 
   private static Result<DocxSnapshot> InvalidSnapshot(string message)
