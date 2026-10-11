@@ -4,4 +4,9 @@
     <ProjectReference Include="../eThangAgent.Provider.Wire/eThangAgent.Provider.Wire.csproj" />
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The in-flight background revalidation handle (PendingRefresh) is an internal
+         seam so stale-while-revalidate tests settle deterministically instead of polling. -->
+    <InternalsVisibleTo Include="eThangAgent.OpenRouter.ACL.Tests" />
+  </ItemGroup>
 </Project>

@@ -62,7 +62,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
 
     Assert.True(schema.IsSuccess);
     // Bump alongside the next AppDatabase migration.
-    Assert.Equal(16, schema.Value.SchemaVersion);
+    Assert.Equal(17, schema.Value.SchemaVersion);
   }
 
   [Fact]

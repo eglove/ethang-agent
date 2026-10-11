@@ -147,6 +147,11 @@ public sealed class AppDatabase
       ApplyV16(connection);
       SetVersion(connection, 16);
     }
+    if (GetVersion(connection) < 17)
+    {
+      ApplyV17(connection);
+      SetVersion(connection, 17);
+    }
   }
 
   private static int GetVersion(SqliteConnection connection)
@@ -672,6 +677,27 @@ public sealed class AppDatabase
           sql;
     }
 
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V17 adds the persisted provider model-catalog cache: one row per provider
+  ///     holding the serialized catalog payload and the fetch timestamp, so the model
+  ///     picker and smart-selection previews serve instantly from disk between app runs
+  ///     and revalidate in the background. Provider-scoped (not workspace-scoped): the
+  ///     catalog is one global list per provider, shared by every workspace.</summary>
+  private static void ApplyV17(SqliteConnection connection)
+  {
+    string sql = """
+        CREATE TABLE IF NOT EXISTS model_catalog_cache (
+            provider     TEXT PRIMARY KEY,
+            payload_json TEXT NOT NULL,
+            fetched_at   TEXT NOT NULL
+        );
+        """;
     using SqliteCommand command = connection.CreateCommand();
 #pragma warning disable CA2100
     command.CommandText = sql;

@@ -197,6 +197,11 @@ public static class AgentComposition
         // One app-owned database: hosts opening several sessions pass a shared
         // instance here so every session's stores hit the same SQLite file.
         .AddSingleton(_ => database ?? new AppDatabase())
+        // The provider model catalog persists between app runs (stale-while-revalidate):
+        // the model picker and smart-selection previews serve the last fetched catalog
+        // instantly and refresh in the background. Provider-scoped, one row per provider.
+        .AddSingleton<IModelCatalogCache>(sp => new SqliteModelCatalogCache(
+            sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<IAppPreferenceStore>(sp => new SqliteAppPreferenceStore(
             sp.GetRequiredService<AppDatabase>()))
         .AddSingleton<ISelfDatabaseAccess, SqliteSelfDatabaseAccess>()
@@ -702,7 +707,9 @@ public static class AgentComposition
               managementKeySource: () => sp.GetRequiredService<OpenRouterManagementKeyCarrier>().Current))
           .AddSingleton<IModelCatalog>(sp => new OpenRouterCatalogClient(
               sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenRouter"),
-              sp.GetRequiredService<OpenRouterConfiguration>())),
+              sp.GetRequiredService<OpenRouterConfiguration>(),
+              sp.GetRequiredService<IModelCatalogCache>(),
+              Providers.OpenRouter)),
       _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id."),
     };
   }

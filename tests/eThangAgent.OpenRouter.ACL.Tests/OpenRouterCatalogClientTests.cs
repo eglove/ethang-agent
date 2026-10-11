@@ -105,7 +105,7 @@ public class OpenRouterCatalogClientTests
   }
 
   [Fact]
-  public async Task GetAsync_AfterTtlExpiry_Refetches()
+  public async Task GetAsync_AfterTtlExpiry_ServesStaleAndRefetchesInBackground()
   {
     int callCount = 0;
     FakeHttpMessageHandler handler = new(req =>
@@ -117,10 +117,12 @@ public class OpenRouterCatalogClientTests
     OpenRouterConfiguration config = new("test-key", BaseUrl) { CatalogCacheTtl = TimeSpan.Zero };
     OpenRouterCatalogClient client = new(http, config);
 
-    _ = await client.GetAsync(TestContext.Current.CancellationToken);
-    _ = await client.GetAsync(TestContext.Current.CancellationToken);
+    _ = await client.GetAsync(TestContext.Current.CancellationToken); // cold fetch: 3 calls
+    _ = await client.GetAsync(TestContext.Current.CancellationToken); // stale serve + background refresh
+    Assert.Equal(3, callCount); // the stale serve did NOT block on the network
 
-    Assert.Equal(6, callCount); // 2 refreshes x 3 calls each
+    await client.PendingRefresh!; // settle the background revalidation
+    Assert.Equal(6, callCount); // 2 fetches x 3 calls each
   }
 
   [Fact]

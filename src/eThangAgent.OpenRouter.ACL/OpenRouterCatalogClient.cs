@@ -10,39 +10,86 @@ namespace eThangAgent.OpenRouter.ACL;
 /// endpoint (Phase 1) and /api/v1/models/{id}/endpoints (Phase 2) to build a fully expanded
 /// list of model+provider pairs. Caches the result in-memory with a configurable TTL.
 /// Thread-safe via SemaphoreSlim to prevent stampede on cache expiry.</summary>
-public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfiguration config) : IModelCatalog, IDisposable
+public sealed class OpenRouterCatalogClient(
+    HttpClient http,
+    OpenRouterConfiguration config,
+    IModelCatalogCache? cache = null,
+    string? provider = null,
+    Action<Exception>? onRefreshFault = null) : IModelCatalog, IDisposable
 {
   private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
   private readonly OpenRouterConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
+  private readonly IModelCatalogCache? _cache = cache;
+  private readonly string? _provider = provider;
+  private readonly Action<Exception>? _onRefreshFault = onRefreshFault;
   private readonly SemaphoreSlim _gate = new(1, 1);
+  private readonly Lock _refreshLock = new();
   private IReadOnlyList<ModelProviderEntry>? _cached;
   private DateTimeOffset _fetchedAt;
+  private Task? _refresh;
+
+  /// <summary>The in-flight background revalidation, or null when none is running.
+  ///     Exposed for deterministic tests; production never awaits it.</summary>
+  internal Task? PendingRefresh
+  {
+    get
+    {
+      lock (_refreshLock)
+      {
+        return _refresh;
+      }
+    }
+  }
 
   public async Task<Result<IReadOnlyList<ModelProviderEntry>>> GetAsync(CancellationToken ct = default)
   {
-    if (IsFresh())
+    // Stale-while-revalidate: a warm - even stale - memory copy is served at once and
+    // refreshed in the background; only a cold cache blocks on the network.
+    if (_cached is not null)
     {
-      return Result.Success(_cached!);
+      if (IsFresh())
+      {
+        return Result.Success(_cached);
+      }
+
+      StartBackgroundRefresh();
+      return Result.Success(_cached);
     }
 
     await _gate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
-      if (IsFresh())
+      // Named decision (CA1508): the double-check is load-bearing - another thread may
+      // have completed a fetch while this call waited on the gate, so the field is
+      // re-read here even though the pre-gate check already saw it null.
+#pragma warning disable CA1508 // Avoid dead conditional code
+      if (_cached is not null)
       {
-        return Result.Success(_cached!);
+        if (IsFresh())
+        {
+          return Result.Success(_cached);
+        }
+
+        StartBackgroundRefresh();
+        return Result.Success(_cached);
+      }
+#pragma warning restore CA1508 // Avoid dead conditional code
+
+      // Cold: hydrate from the persisted snapshot once, then fall through to a network
+      // fetch when nothing is stored (or the stored copy is unusable).
+      await HydrateFromDiskAsync(ct).ConfigureAwait(false);
+      if (_cached is not null)
+      {
+        if (IsFresh())
+        {
+          return Result.Success(_cached);
+        }
+
+        StartBackgroundRefresh();
+        return Result.Success(_cached);
       }
 
-      Result<List<IntermediateModel>> phase1 = await FetchModelsAsync(ct).ConfigureAwait(false);
-      if (!phase1.IsSuccess)
-      {
-        return Result.Failure<IReadOnlyList<ModelProviderEntry>>(phase1.Error);
-      }
-
-      List<ModelProviderEntry> entries = await ExpandEndpointsAsync(phase1.Value, ct).ConfigureAwait(false);
-      _cached = entries;
-      _fetchedAt = DateTimeOffset.UtcNow;
-      return Result.Success<IReadOnlyList<ModelProviderEntry>>(entries);
+      return await FetchUnderGateAsync(ct).ConfigureAwait(false);
     }
     finally
     {
@@ -54,6 +101,117 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
 
   private bool IsFresh()
       => _cached is not null && DateTimeOffset.UtcNow - _fetchedAt < _config.CatalogCacheTtl;
+
+  /// <summary>Fetches the full catalog and stores it in memory and (when wired) on
+  ///     disk. The caller MUST hold <see cref="_gate"/>.</summary>
+  private async Task<Result<IReadOnlyList<ModelProviderEntry>>> FetchUnderGateAsync(CancellationToken ct)
+  {
+    Result<List<IntermediateModel>> phase1 = await FetchModelsAsync(ct).ConfigureAwait(false);
+    if (!phase1.IsSuccess)
+    {
+      return Result.Failure<IReadOnlyList<ModelProviderEntry>>(phase1.Error);
+    }
+
+    List<ModelProviderEntry> entries = await ExpandEndpointsAsync(phase1.Value, ct).ConfigureAwait(false);
+    _cached = entries;
+    _fetchedAt = DateTimeOffset.UtcNow;
+    await PersistAsync(ct).ConfigureAwait(false);
+    return Result.Success<IReadOnlyList<ModelProviderEntry>>(entries);
+  }
+
+  /// <summary>Loads the persisted snapshot into memory when no in-memory copy exists.
+  ///     The caller MUST hold <see cref="_gate"/>. A miss or fault leaves the cache
+  ///     cold (the caller then fetches); a fault is reported, never thrown.</summary>
+  private async Task HydrateFromDiskAsync(CancellationToken ct)
+  {
+    if (_cache is null || string.IsNullOrEmpty(_provider))
+    {
+      return;
+    }
+
+    // Named decision (CA1031): a cache read is best effort - a fault must never break
+    // the catalog, so the cold path simply falls through to a network fetch.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      Result<ModelCatalogSnapshot> stored = await _cache.ReadAsync(_provider, ct).ConfigureAwait(false);
+      if (stored.IsSuccess)
+      {
+        _cached = stored.Value.Entries;
+        _fetchedAt = stored.Value.FetchedAt;
+      }
+    }
+    catch (Exception ex)
+    {
+      ReportFault(ex);
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Writes the current in-memory catalog to the persisted snapshot. Best
+  ///     effort: a storage fault never fails the fetch that produced the data.</summary>
+  private async Task PersistAsync(CancellationToken ct)
+  {
+    if (_cache is null || string.IsNullOrEmpty(_provider) || _cached is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): persistence is best effort - the fetched catalog is
+    // already in memory and served; a write fault is reported, never thrown.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      _ = await _cache.WriteAsync(_provider, new ModelCatalogSnapshot(_cached, _fetchedAt), ct).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+      ReportFault(ex);
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Kicks a single background revalidation of a stale catalog. Idempotent:
+  ///     a refresh already in flight is never duplicated.</summary>
+  private void StartBackgroundRefresh()
+  {
+    lock (_refreshLock)
+    {
+      if (_refresh is { IsCompleted: false })
+      {
+        return;
+      }
+
+      _refresh = Task.Run(RefreshAsync);
+    }
+  }
+
+  private async Task RefreshAsync()
+  {
+    // Named decision (CA1031): a background revalidation fault is best effort - the
+    // stale catalog keeps serving and the next call retries; the fault is surfaced
+    // through the host callback when one is wired.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      await _gate.WaitAsync().ConfigureAwait(false);
+      try
+      {
+        _ = await FetchUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
+      }
+      finally
+      {
+        _ = _gate.Release();
+      }
+    }
+    catch (Exception ex)
+    {
+      ReportFault(ex);
+    }
+#pragma warning restore CA1031
+  }
+
+  private void ReportFault(Exception ex) => _onRefreshFault?.Invoke(ex);
 
   private async Task<Result<List<IntermediateModel>>> FetchModelsAsync(CancellationToken ct)
   {
