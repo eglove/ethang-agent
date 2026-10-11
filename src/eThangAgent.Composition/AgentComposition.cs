@@ -314,15 +314,8 @@ public static class AgentComposition
     wired = AddModelServices(wired, providerName);
     if (providerName == Providers.OpenRouter)
     {
-      wired = wired.AddSingleton<IModelSelector>(sp => new IntelligentModelSelector(
-          sp.GetRequiredService<IModelProvider>(),
-          sp.GetRequiredService<IModelCatalog>(),
-          // Bootstrap-only selector pseudo-model; its own calls are tiny and fixed.
-          // The window is unknown until the catalog resolves it — the selector's own
-          // calls never account against it.
-          ModelConfig.Create(Providers.SelectorModelId(providerName), null, 2048, 0f,
-              null,
-              acceptsImageInput: FallbackModelCatalog.AcceptsImageInput(Providers.SelectorModelId(providerName))).Value!));
+      wired = wired.AddSingleton<IModelSelector>(sp => new SmartModelSelector(
+          sp.GetRequiredService<IModelCatalog>()));
     }
 
     wired = wired
@@ -411,9 +404,6 @@ public static class AgentComposition
         .AddSingleton(_ => EvidenceOptions.Default)
         .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()
         .AddSingleton<IStateService, StateService>()
-        .AddSingleton<IProviderExclusionStore>(sp => new SqliteProviderExclusionStore(
-            sp.GetRequiredService<AppDatabase>(),
-            sp.GetRequiredService<IWorkspaceContext>()))
         .AddSingleton<StateCapabilityProvider>()
         .AddSingleton(sp => new PlanCapabilityProvider(
             sp.GetRequiredService<PlanService>(),
@@ -551,20 +541,10 @@ public static class AgentComposition
                 defaultModel.MaxTokens,
                 defaultModel.Temperature,
                 sp.GetRequiredService<IContextWindowSource>(),
-                sp.GetRequiredService<IModelCatalog>()),
+                sp.GetRequiredService<IModelCatalog>(),
+                SmartOptions: () => sp.GetRequiredService<SmartSelectionCarrier>().Current ?? SmartSelectionOptions.Default),
             sp.GetService<IModelSelector>(),
             sp.GetRequiredService<SessionModelPreferences>()))
-        .AddSingleton(sp => new ProviderFailoverResolver(
-            new RootModelContext(
-                sp.GetRequiredService<IAgentStore>(),
-                sp.GetRequiredService<RootSessionIdentity>(),
-                Providers.FallbackModelId(providerName),
-                defaultModel.MaxTokens,
-                defaultModel.Temperature,
-                sp.GetRequiredService<IContextWindowSource>(),
-                sp.GetRequiredService<IModelCatalog>()),
-            sp.GetRequiredService<IProviderExclusionStore>(),
-            sp.GetService<IModelSelector>()))
         .AddSingleton(sp => new SendMessageCommandHandler(
             agent: null,
             sp.GetRequiredService<Conversation>(),
@@ -599,6 +579,7 @@ public static class AgentComposition
             sp.GetRequiredService<VerificationFreshnessSpecification>(),
             settings.VerificationGateEnabled))
         .AddSingleton<SkillDirectoriesCarrier>()
+        .AddSingleton<SmartSelectionCarrier>()
         .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)))
         ;
 

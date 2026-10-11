@@ -279,7 +279,8 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     //    has no window falls through to the fallback (same chain as selection failure).
     if (_modelSelector is not null)
     {
-      Result<ModelSelectionResult> selection = await _modelSelector.SelectAsync(request.TaskPrompt, excludedKeys: null, ct).ConfigureAwait(false);
+      SmartSelectionOptions smartOptions = _spawn.SmartOptions?.Invoke() ?? SmartSelectionOptions.Default;
+      Result<ModelSelectionResult> selection = await _modelSelector.SelectAsync(smartOptions, requireVision: false, ct).ConfigureAwait(false);
       if (selection.IsSuccess)
       {
         int? selectedWindow = _windowSource is null

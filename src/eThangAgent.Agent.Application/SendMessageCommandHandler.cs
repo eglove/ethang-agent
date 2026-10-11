@@ -50,7 +50,7 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
     Ag active;
     try
     {
-      active = await ResolveAgentAsync(command.Text, onNotice, ct).ConfigureAwait(false);
+      active = await ResolveAgentAsync(command, onNotice, ct).ConfigureAwait(false);
     }
     catch (OperationCanceledException)
     {
@@ -96,10 +96,10 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
   }
 
   /// <summary>Resolves the agent to serve this turn. When the root holder/resolver seam is
-  ///     wired, runs pre-turn model resolution (cadence-based selection or explicit pin),
+  ///     wired, runs pre-turn model resolution (explicit pin, session pin, or smart selection),
   ///     rebuilds the agent when the model changed, and surfaces any selection notice. Without
   ///     the seam, returns the single pre-built agent.</summary>
-  private async Task<Ag> ResolveAgentAsync(string prompt, Action<string>? onNotice, CancellationToken ct)
+  private async Task<Ag> ResolveAgentAsync(SendMessageCommand command, Action<string>? onNotice, CancellationToken ct)
   {
     if (_rootHolder is null || _rootResolver is null)
     {
@@ -109,9 +109,11 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
 
     Conversation rootConversation = _conversation
         ?? throw new InvalidOperationException(
-            "Root model resolution requires a conversation to count user messages.");
+            "Root model resolution requires a conversation.");
 
-    (ModelConfig config, string? notice) = await _rootResolver.ResolveAsync(rootConversation, prompt, ct)
+    bool requireVision = CarriesImages(rootConversation) || CarriesImages(command.ImageParts);
+
+    (ModelConfig config, string? notice) = await _rootResolver.ResolveAsync(requireVision, ct)
         .ConfigureAwait(false);
     if (notice is not null)
     {
@@ -120,4 +122,10 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
 
     return _rootHolder.Build(_rootHolder.Current, config);
   }
+
+  private static bool CarriesImages(Conversation conversation)
+      => conversation.Messages.Any(m => m.Parts is { } parts && parts.Any(p => p is MessagePart.ImagePart));
+
+  private static bool CarriesImages(IReadOnlyList<MessagePart>? parts)
+      => parts is { } list && list.Any(p => p is MessagePart.ImagePart);
 }

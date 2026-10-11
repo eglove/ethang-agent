@@ -2,11 +2,11 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ModelDomain;
 
-/// <summary>Selects the best model+provider pair for a given task prompt via a two-stage LLM pipeline.</summary>
+/// <summary>Selects the best model+provider pair under user constraints. Options
+/// arrive per call: the session resolver passes the carrier's snapshot, the Desktop
+/// preview its live draft.</summary>
 public interface IModelSelector
 {
   Task<Result<ModelSelectionResult>> SelectAsync(
-      string taskPrompt,
-      IReadOnlySet<string>? excludedKeys = null,
-      CancellationToken ct = default);
+      SmartSelectionOptions options, bool requireVision, CancellationToken ct = default);
 }

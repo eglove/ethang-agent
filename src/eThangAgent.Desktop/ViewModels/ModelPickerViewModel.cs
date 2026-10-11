@@ -27,7 +27,7 @@ internal sealed record ModelPickerRow(string? ModelId, string DisplayName, strin
 internal sealed partial class ModelPickerViewModel : ObservableObject
 {
   internal static readonly ModelPickerRow AutoRow =
-      new(null, "Auto (smart selection)", "Picks the best model for each prompt automatically");
+      new(null, "Auto (smart selection)", "Picks the best model under your smart selection settings");
 
   private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> _loadCatalog;
   private readonly bool _allowAuto;

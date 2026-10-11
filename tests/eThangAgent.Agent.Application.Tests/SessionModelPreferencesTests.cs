@@ -1,5 +1,4 @@
 using eThangAgent.AgentDomain;
-using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
@@ -7,10 +6,7 @@ namespace eThangAgent.Agent.Application.Tests;
 
 public class SessionModelPreferencesTests
 {
-  private static ModelSelectionResult Selection(string modelId, string providerName = "TestProvider") => new(
-      modelId, providerName,
-      new TaskCategory(["coding"], 3, false, false, null, null),
-      new ModelFilter(null, null, null, null, null, null, null, null, null, null, null), "reason");
+  private static ModelSelectionResult Selection(string modelId, string providerName = "TestProvider") => new(modelId, providerName, "reason");
 
   /// <summary>Session context for the resolver tests; only the preferred-model test
   ///     wires persistence.</summary>
@@ -20,7 +16,7 @@ public class SessionModelPreferencesTests
 
   private sealed class FakeModelSelector(ModelSelectionResult result) : IModelSelector
   {
-    public Task<Result<ModelSelectionResult>> SelectAsync(string taskPrompt, IReadOnlySet<string>? excludedKeys = null, CancellationToken ct = default)
+    public Task<Result<ModelSelectionResult>> SelectAsync(SmartSelectionOptions options, bool requireVision, CancellationToken ct = default)
         => Task.FromResult(Result.Success(result));
   }
 
@@ -31,7 +27,7 @@ public class SessionModelPreferencesTests
     RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"),
         new FakeModelSelector(Selection("anthropic/claude-3.5-sonnet")), preferences);
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(ReasoningEffort.Low, config.Effort);
   }
@@ -41,7 +37,7 @@ public class SessionModelPreferencesTests
   {
     RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"), selector: null);
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.Null(config.Effort);
   }
@@ -51,11 +47,10 @@ public class SessionModelPreferencesTests
   {
     SessionModelPreferences preferences = new();
     RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"), selector: null, preferences: preferences);
-    Conversation conversation = new();
 
-    (ModelConfig first, _) = await resolver.ResolveAsync(conversation, "turn one", ct: TestContext.Current.CancellationToken);
+    (ModelConfig first, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
     preferences.ReasoningEffort = ReasoningEffort.None;
-    (ModelConfig second, _) = await resolver.ResolveAsync(conversation, "turn two", ct: TestContext.Current.CancellationToken);
+    (ModelConfig second, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.Null(first.Effort);
     Assert.Equal(ReasoningEffort.None, second.Effort);
@@ -68,7 +63,7 @@ public class SessionModelPreferencesTests
     RootAgentResolver resolver = new(Ctx(null, null, "glm-5.3-flash"),
         new FakeModelSelector(Selection("anthropic/claude-3.5-sonnet")), preferences);
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("glm-5.3", config.ModelId);
   }
@@ -79,7 +74,7 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3", ReasoningEffort = ReasoningEffort.High };
     RootAgentResolver resolver = new(Ctx(null, null, "glm-5.3-flash"), selector: null, preferences: preferences);
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("glm-5.3", config.ModelId);
     Assert.Equal(ReasoningEffort.High, config.Effort);
@@ -93,12 +88,11 @@ public class SessionModelPreferencesTests
     _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, "C:/workspaces/demo", "openrouter"), ct: TestContext.Current.CancellationToken);
     SessionModelPreferences preferences = new();
     RootAgentResolver resolver = new(Ctx(store, rootId, "glm-5.3-flash"), selector: null, preferences: preferences);
-    Conversation conversation = new();
 
-    (ModelConfig first, string? firstNotice) = await resolver.ResolveAsync(conversation, "turn one", ct: TestContext.Current.CancellationToken);
+    (ModelConfig first, string? firstNotice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
     preferences.ModelId = "glm-5.3";
-    (ModelConfig second, string? secondNotice) = await resolver.ResolveAsync(conversation, "turn two", ct: TestContext.Current.CancellationToken);
-    (ModelConfig third, string? thirdNotice) = await resolver.ResolveAsync(conversation, "turn three", ct: TestContext.Current.CancellationToken);
+    (ModelConfig second, string? secondNotice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+    (ModelConfig third, string? thirdNotice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("glm-5.3-flash", first.ModelId);
     Assert.Null(firstNotice);
@@ -115,11 +109,10 @@ public class SessionModelPreferencesTests
   {
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3-flash" };
     RootAgentResolver resolver = new(Ctx(null, null, "glm-5.3-flash"), selector: null, preferences: preferences);
-    Conversation conversation = new();
 
-    (ModelConfig first, _) = await resolver.ResolveAsync(conversation, "turn one", ct: TestContext.Current.CancellationToken);
+    (ModelConfig first, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
     preferences.ModelId = "glm-5.3";
-    (ModelConfig second, _) = await resolver.ResolveAsync(conversation, "turn two", ct: TestContext.Current.CancellationToken);
+    (ModelConfig second, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("glm-5.3-flash", first.ModelId);
     Assert.Equal("glm-5.3", second.ModelId);

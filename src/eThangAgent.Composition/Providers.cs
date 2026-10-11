@@ -34,9 +34,6 @@ public static class Providers
     _ => throw new ArgumentOutOfRangeException(nameof(providerName), providerName, "Unknown provider id.")
   };
 
-  /// <summary>Model id for the selection pipeline's own categorize/decide calls.</summary>
-  public static string SelectorModelId(string providerName) => FallbackModelId(providerName);
-
   /// <summary>The OpenRouter server-side routing pseudo-model id. Its context window
   ///     and capability facts resolve from the fetched catalog like every other model —
   ///     no curated constants.</summary>

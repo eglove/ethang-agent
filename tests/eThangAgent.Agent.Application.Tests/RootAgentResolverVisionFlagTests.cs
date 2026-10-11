@@ -1,4 +1,3 @@
-using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
@@ -37,7 +36,7 @@ public class RootAgentResolverVisionFlagTests
   {
     RootAgentResolver resolver = await ResolverAsync(new VisionCatalog((FallbackModel, true)));
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.True(config.AcceptsImageInput);
   }
@@ -47,7 +46,7 @@ public class RootAgentResolverVisionFlagTests
   {
     RootAgentResolver resolver = await ResolverAsync(new VisionCatalog((FallbackModel, false)));
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.False(config.AcceptsImageInput);
   }
@@ -60,7 +59,7 @@ public class RootAgentResolverVisionFlagTests
     // entry through GetAsync), not a hard-coded default.
     RootAgentResolver resolver = await ResolverAsync(new VisionCatalog(("openrouter/auto", true)));
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.True(config.AcceptsImageInput);
   }
@@ -72,7 +71,7 @@ public class RootAgentResolverVisionFlagTests
         new RootModelContext(null, null, FallbackModel, 2048, 0.7f, new FixedWindowSource(), Catalog: null),
         selector: null);
 
-    (ModelConfig config, _) = await withoutCatalog.ResolveAsync(new Conversation(), "task", ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, _) = await withoutCatalog.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
 
     Assert.False(config.AcceptsImageInput);
   }

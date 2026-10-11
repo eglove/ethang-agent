@@ -16,6 +16,9 @@ namespace eThangAgent.Agent.Application;
 ///     grant validation measures requested allows against it. Null disables widening checks
 ///     (legacy wiring/tests only).</param>
 /// <param name="WorkspaceRoot">The session workspace the handler validates a request's
+/// <param name="SmartOptions">Optional factory for the session's smart-selection
+/// options; invoked once per selection when the ladder reaches the selector step.
+/// Null selects with <see cref="SmartSelectionOptions.Default"/>.</param>
 ///     anchor against when the parent record carries no persisted anchor of its own
 ///     (worktree ladder, T5). Composition supplies it; null means an anchored request
 ///     without a parent anchor is refused rather than silently inherited.</param>
@@ -25,4 +28,5 @@ public sealed record SpawnOptions(
     int MaxTokens = 4096,
     float Temperature = 0.7f,
     IReadOnlySet<string>? ChildToolSurface = null,
-    string? WorkspaceRoot = null);
+    string? WorkspaceRoot = null,
+    Func<SmartSelectionOptions>? SmartOptions = null);

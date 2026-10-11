@@ -1,29 +1,20 @@
 using eThangAgent.AgentDomain;
-using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application;
 
-/// <summary>Resolves the root agent's model for an upcoming turn. The session's live
-///     model choice (the host's model picker, when set) serves every turn — a recent
-///     user choice outranks everything static. Otherwise, the two-stage
-///     <see cref="IModelSelector"/> pipeline runs on the turn's prompt at the first turn
-///     and every <see cref="Recadence"/> user messages thereafter; on success the root
-///     <see cref="AgentRecord.ModelUsed"/> is updated. Selection failures fall back to
-///     the context's <see cref="RootModelContext.FallbackModelId"/> and are surfaced via the
-///     notice string so the user sees that selection failed. Mirrors
-///     <c>StartSpawnHandler.ResolveModelAsync</c> for the root path, which previously ran
-///     once at startup with a canned prompt.</summary>
+/// <summary>Resolves the root agent's model for an upcoming turn. Order: the user's
+/// live model choice wins; then the session pin (the persisted ModelUsed, the record
+/// of what actually served - a pinned session never re-selects); then smart
+/// selection for an unpinned session; then the fallback, which leaves the session
+/// unpinned so selection retries next turn. No cadence, no mid-session re-decision.
+/// </summary>
 public sealed class RootAgentResolver(
     RootModelContext context,
     IModelSelector? selector,
     SessionModelPreferences? preferences = null)
 {
-  /// <summary>Reclassify every this many user messages. Turn 1 is the first classification;
-  ///     turn <c>Recadence + 1</c> the second, and so on.</summary>
-  public const int Recadence = 10;
-
   private readonly IModelSelector? _selector = selector;
   private readonly IAgentStore? _store = context.Store;
   private readonly RootSessionIdentity? _identity = context.Identity;
@@ -33,22 +24,19 @@ public sealed class RootAgentResolver(
   private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IContextWindowSource? _windowSource = context.WindowSource;
   private readonly IModelCatalog? _catalog = context.Catalog;
+  private readonly Func<SmartSelectionOptions>? _smartOptions = context.SmartOptions;
 
-  /// <summary>True when the caller may skip selection entirely — no selector is wired.
-  ///     Exposed for diagnostics and tests.</summary>
+  /// <summary>True when the caller may skip selection entirely - no selector is wired.
+  /// Exposed for diagnostics and tests.</summary>
   public bool IsExplicit => _selector is null;
 
-  /// <summary>Resolves the model to serve the upcoming turn. Returns the <see cref="ModelConfig"/>
-  ///     and a notice string to surface to the user (null when nothing notable happened — e.g.
-  ///     the chosen model is unchanged, or selection ran cleanly with no model change).</summary>
-  public async Task<(ModelConfig Config, string? Notice)> ResolveAsync(
-      Conversation conversation, string prompt, CancellationToken ct = default)
+  /// <summary>Resolves the model to serve the upcoming turn; requireVision is
+  /// computed by the caller (history images OR upcoming images). Returns the
+  /// config and a notice (null when nothing notable happened).</summary>
+  public async Task<(ModelConfig Config, string? Notice)> ResolveAsync(bool requireVision, CancellationToken ct = default)
   {
-    ArgumentNullException.ThrowIfNull(conversation);
-
-    // 0. The user's live model choice wins over everything static — selection,
-    //    cadence, and fallback. Runtime preferences (reasoning effort and the
-    //    sampling knobs) still apply: the choice fixes the model identity, not the knobs.
+    // 0. The user's live model choice wins over everything static. Runtime
+    //    preferences (reasoning effort, sampling knobs) still apply.
     if (_preferences?.ModelId is { } preferred)
     {
       string? preferredNotice = await TryPersistModelAsync(preferred, ct).ConfigureAwait(false);
@@ -56,23 +44,24 @@ public sealed class RootAgentResolver(
           preferredNotice is null ? null : $"Model selected: {preferredNotice}");
     }
 
-    // 1. No selector wired: use the fallback for every turn.
+    // 1. No selector wired: the fallback serves every turn.
     if (_selector is null)
     {
       return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false), null);
     }
 
-    // 2. Decide whether this turn is on the reclassification cadence.
-    int priorUserMessages = CountUserMessages(conversation);
-    if (!IsCadenceBoundary(priorUserMessages))
+    // 2. The session pin: a persisted ModelUsed that is not the fallback id is the
+    //    record of what actually served - serve it, never re-select.
+    string? pinned = await PinnedModelAsync(ct).ConfigureAwait(false);
+    if (pinned is not null)
     {
-      // Off-cadence turns serve the fallback (OpenRouter's openrouter/auto routes
-      // server-side); reclassification only runs on the cadence boundaries below.
-      return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false), null);
+      return (await MakeAsync(pinned, null, ct).ConfigureAwait(false), null);
     }
 
-    // 3. Run selection on the actual prompt.
-    Result<ModelSelectionResult> selection = await _selector.SelectAsync(prompt, excludedKeys: null, ct).ConfigureAwait(false);
+    // 3. Unpinned: run smart selection. Failure leaves the session unpinned - the
+    //    fallback serves this turn and selection retries next turn.
+    SmartSelectionOptions options = _smartOptions?.Invoke() ?? SmartSelectionOptions.Default;
+    Result<ModelSelectionResult> selection = await _selector.SelectAsync(options, requireVision, ct).ConfigureAwait(false);
     if (!selection.IsSuccess)
     {
       return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false),
@@ -82,28 +71,39 @@ public sealed class RootAgentResolver(
     string modelId = selection.Value.ModelId;
     string? providerName = selection.Value.ProviderName;
 
-    // 4. Persist the resolved model onto the root record (best effort — a store failure
-    //    must not stop the turn; it surfaces as a notice instead).
+    // 4. Persist the pin (best effort - a store failure must not stop the turn;
+    //    it surfaces as a notice instead).
     string? persistNotice = await TryPersistModelAsync(modelId, ct).ConfigureAwait(false);
-
-    // Verbatim contract parsed by AgentSessionViewModel.TryExtractModelId: a success
-    // notice carries "Model selected: <modelId>". The failure branch above carries
-    // "using <fallback>"; both shapes are recognized by the parser.
-    string? notice = persistNotice is null
-        ? null
-        : $"Model selected: {persistNotice}";
+    string? notice = persistNotice is null ? null : $"Model selected: {persistNotice}";
     return (await MakeAsync(modelId, providerName, ct).ConfigureAwait(false), notice);
   }
 
-  private static int CountUserMessages(Conversation conversation) =>
-      conversation.Messages.Count(m => m.Role is Role.User);
+  /// <summary>The persisted ModelUsed when it names a real selection: non-null and
+  /// different from the fallback id. The bootstrapper stamps the fallback id on
+  /// fresh rows, so fallback == unpinned; null ModelUsed (legacy rows) is unpinned
+  /// too. The persisted provider name is not restored - the pair rides the catalog
+  /// like every other resolution.</summary>
+  private async Task<string?> PinnedModelAsync(CancellationToken ct)
+  {
+    AgentId? rootId = _identity?.Id;
+    if (_store is null || rootId is null)
+    {
+      return null;
+    }
 
-  /// <summary>Turn 1 (the first user message) and every <see cref="Recadence"/> user messages
-  ///     thereafter: 1, 11, 21, … The user-message count is taken BEFORE the upcoming prompt is
-  ///     appended (the resolver runs pre-turn), so the boundary is 0-based here: the first turn
-  ///     has 0 prior user messages and reclassifies; the 11th reclassifies when 10 already exist.</summary>
-  private static bool IsCadenceBoundary(int priorUserMessages)
-      => priorUserMessages % Recadence == 0;
+    Result<AgentRecord> record = await _store.GetAsync(rootId.Value, ct).ConfigureAwait(false);
+    if (!record.IsSuccess)
+    {
+      return null;
+    }
+
+    string? modelUsed = record.Value.ModelUsed;
+    return string.IsNullOrEmpty(modelUsed)
+        || modelUsed == AgentRecord.UnassignedModel
+        || modelUsed == _fallbackModelId
+        ? null
+        : modelUsed;
+  }
 
   private async Task<ModelConfig> MakeAsync(string modelId, string? providerName, CancellationToken ct)
   {
@@ -119,10 +119,9 @@ public sealed class RootAgentResolver(
       }
     }
 
-    // Unknown window (or invalid create): the fallback serves instead — the same
+    // Unknown window (or invalid create): the fallback serves instead - the same
     // failure-notice chain that a failed selection takes.
-    ModelConfig fallback = await MakeFallbackAsync(ct).ConfigureAwait(false);
-    return fallback;
+    return await MakeFallbackAsync(ct).ConfigureAwait(false);
   }
 
   private async Task<ModelConfig> MakeFallbackAsync(CancellationToken ct)
@@ -139,8 +138,8 @@ public sealed class RootAgentResolver(
   }
 
   /// <summary>The model's vision capability from the session catalog: the first entry
-  ///     matching the model (and provider, when named) that accepts image input. A
-  ///     missing or failed catalog resolves false — capability is never guessed.</summary>
+  /// matching the model (and provider, when named) that accepts image input. A
+  /// missing or failed catalog resolves false - capability is never guessed.</summary>
   private async Task<bool> AcceptsImagesAsync(string modelId, string? providerName, CancellationToken ct)
   {
     if (_catalog is null)
