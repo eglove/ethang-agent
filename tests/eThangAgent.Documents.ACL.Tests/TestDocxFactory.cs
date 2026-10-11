@@ -68,6 +68,87 @@ public static class TestDocxFactory
     return path;
   }
 
+  /// <summary>One insertion and one deletion tracked change by the given author.</summary>
+  public static string CreateWithTrackedChanges(string name, string author)
+  {
+    string path = NewPath(name);
+    using (WordprocessingDocument doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document))
+    {
+      MainDocumentPart main = doc.AddMainDocumentPart();
+      InsertedRun insertion = new([RunOf("Added")]) { Id = "1", Author = author, Date = DateTime.UtcNow };
+      DeletedRun deletion = new([new Run([new DeletedText("Gone") { Space = SpaceProcessingModeValues.Preserve }])]) { Id = "2", Author = author, Date = DateTime.UtcNow };
+      main.Document = new Document(new Body(new Paragraph([insertion]), new Paragraph([deletion])));
+      doc.Save();
+    }
+    return path;
+  }
+
+  /// <summary>One comment (id 1) anchored on the first paragraph.</summary>
+  public static string CreateWithComments(string name, string author, string text)
+  {
+    string path = NewPath(name);
+    using (WordprocessingDocument doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document))
+    {
+      MainDocumentPart main = doc.AddMainDocumentPart();
+      WordprocessingCommentsPart comments = main.AddNewPart<WordprocessingCommentsPart>();
+      comments.Comments = new Comments(
+      [
+        new Comment([new Paragraph([RunOf(text)])]) { Id = "1", Author = author, Date = DateTime.UtcNow },
+        ]);
+      Paragraph anchored = new(
+      [
+        new CommentRangeStart { Id = "1" },
+          RunOf("Commented text"),
+          new CommentRangeEnd { Id = "1" },
+          new Run([new CommentReference { Id = "1" }]),
+        ]);
+      main.Document = new Document(new Body(anchored));
+      doc.Save();
+    }
+    return path;
+  }
+
+  /// <summary>Simple doc + one embedded PNG image part.</summary>
+  public static string CreateWithImage(string name, byte[] pngBytes)
+  {
+    ArgumentNullException.ThrowIfNull(pngBytes);
+    string path = NewPath(name);
+    using (WordprocessingDocument doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document))
+    {
+      MainDocumentPart main = doc.AddMainDocumentPart();
+      main.Document = new Document(new Body(Para("with image")));
+      ImagePart image = main.AddNewPart<ImagePart>("image/png", "img1");
+      using (Stream s = image.GetStream(FileMode.Create))
+      {
+        s.Write(pngBytes, 0, pngBytes.Length);
+      }
+      doc.Save();
+    }
+    return path;
+  }
+
+  /// <summary>Body paragraph + a default header/footer, each with one paragraph.</summary>
+  public static string CreateWithHeaderFooter(string name)
+  {
+    string path = NewPath(name);
+    using (WordprocessingDocument doc = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document))
+    {
+      MainDocumentPart main = doc.AddMainDocumentPart();
+      HeaderPart header = main.AddNewPart<HeaderPart>();
+      header.Header = new Header(Para("Header text"));
+      FooterPart footer = main.AddNewPart<FooterPart>();
+      footer.Footer = new Footer(Para("Footer text"));
+      SectionProperties sectPr = new(
+      [
+        new HeaderReference { Type = HeaderFooterValues.Default, Id = main.GetIdOfPart(header) },
+          new FooterReference { Type = HeaderFooterValues.Default, Id = main.GetIdOfPart(footer) },
+        ]);
+      main.Document = new Document(new Body(Para("Body text"), sectPr));
+      doc.Save();
+    }
+    return path;
+  }
+
   private static string NewPath(string name)
   {
     string dir = Path.Combine(Path.GetTempPath(), "docx-tests-" + Guid.NewGuid().ToString("N"));
