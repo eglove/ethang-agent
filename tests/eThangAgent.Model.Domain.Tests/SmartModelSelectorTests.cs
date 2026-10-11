@@ -267,6 +267,55 @@ public class SmartModelSelectorTests
   }
 
   [Fact]
+  public void QualifyingEntries_MatchesSelectFilter_ExcludesVariantsPseudoAndUnscored()
+  {
+    // The extracted filter chain must exclude the same entries Select excludes:
+    // :free variants, the openrouter/ pseudo-namespace, and (under a set score
+    // floor) a model below the floor.
+    ModelProviderEntry[] entries =
+    [
+      Entry("glm-5.3-flash", intel: 50.0, coding: 80.0),
+      Entry("glm-5.3-flash:free", intel: 50.0, coding: 80.0),
+      Entry("openrouter/auto", input: -1m, output: -1m),
+      Entry("glm-4.6", intel: 18.5, coding: 45.8),
+    ];
+    SmartSelectionOptions options = Options(minC: 50.0);
+
+    IReadOnlyList<ModelProviderEntry> qualifiers =
+        SmartModelSelectorCore.QualifyingEntries(entries, options, requireVision: false);
+
+    ModelProviderEntry only = Assert.Single(qualifiers);
+    Assert.Equal("glm-5.3-flash", only.ModelId);
+
+    // Same filter as Select: the reported qualifying count matches.
+    Result<ModelSelectionResult> selected = SmartModelSelectorCore.Select(entries, options, requireVision: false);
+    Assert.True(selected.IsSuccess);
+    Assert.Contains("cheapest of 1 qualifying models", selected.Value.Reasoning, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Select_WithWeightOverride_PrefersLowOutputProvider()
+  {
+    // Same model served by two providers: A is input-cheap / output-pricey,
+    // B is input-pricey / output-cheap. Prices are per-token; the Entry helper
+    // takes $/M, so 0.04m -> 4e-8 per token.
+    ModelProviderEntry a = Entry("m/x", providerName: "A", input: 0.04m, output: 0.5m, intel: 50.0, coding: 80.0);
+    ModelProviderEntry b = Entry("m/x", providerName: "B", input: 0.07m, output: 0.05m, intel: 50.0, coding: 80.0);
+    ModelProviderEntry[] entries = [a, b];
+
+    // Default weight (3) favors cheap output -> B.
+    Result<ModelSelectionResult> byDefault = SmartModelSelectorCore.Select(entries, Options(), requireVision: false);
+    Assert.True(byDefault.IsSuccess);
+    Assert.Equal("B", byDefault.Value.ProviderName);
+
+    // An input-heavy override (below the 0.0667 crossover) favors cheap input -> A.
+    Result<ModelSelectionResult> inputHeavy =
+        SmartModelSelectorCore.Select(entries, Options(), requireVision: false, outputWeightOverride: 0.02m);
+    Assert.True(inputHeavy.IsSuccess);
+    Assert.Equal("A", inputHeavy.Value.ProviderName);
+  }
+
+  [Fact]
   public async Task Determinism_SameCatalogSameOptions_SameResult()
   {
     Catalog catalog = new(

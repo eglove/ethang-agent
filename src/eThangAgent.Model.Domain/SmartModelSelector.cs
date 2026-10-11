@@ -13,7 +13,12 @@ public static class SmartModelSelectorCore
   /// ranks by input + 3 x output (per-token prices, discount already applied).</summary>
   public const decimal OutputWeight = 3m;
 
-  public static Result<ModelSelectionResult> Select(
+  /// <summary>The candidate filter chain: the entries that pass every exclusion
+  /// and every constraint the options set. Exposed so a caller can reason about
+  /// the qualifying set itself (e.g. a measured token-mix weight over exactly the
+  /// models the price sort would rank) instead of re-deriving the rules - Select
+  /// ranks this same set, so the two can never drift.</summary>
+  public static IReadOnlyList<ModelProviderEntry> QualifyingEntries(
       IReadOnlyList<ModelProviderEntry> entries,
       SmartSelectionOptions options,
       bool requireVision)
@@ -71,7 +76,24 @@ public static class SmartModelSelectorCore
       candidates = candidates.Where(e => e.ContextLength > 0 && e.ContextLength >= minCtx);
     }
 
-    List<ModelProviderEntry> qualifiers = [.. candidates];
+    return [.. candidates];
+  }
+
+  /// <summary>Ranks the qualifying set. <paramref name="outputWeightOverride"/> replaces
+  /// the <see cref="OutputWeight"/> constant in the blended price (input + weight x
+  /// output); null keeps the documented 3:1 default, so the legacy path is
+  /// byte-identical.</summary>
+  public static Result<ModelSelectionResult> Select(
+      IReadOnlyList<ModelProviderEntry> entries,
+      SmartSelectionOptions options,
+      bool requireVision,
+      decimal? outputWeightOverride = null)
+  {
+    ArgumentNullException.ThrowIfNull(entries);
+    ArgumentNullException.ThrowIfNull(options);
+
+    decimal weight = outputWeightOverride ?? OutputWeight;
+    List<ModelProviderEntry> qualifiers = [.. QualifyingEntries(entries, options, requireVision)];
     if (qualifiers.Count == 0)
     {
       return Result.Failure<ModelSelectionResult>(new DomainError(
@@ -84,11 +106,11 @@ public static class SmartModelSelectorCore
     IOrderedEnumerable<ModelProviderEntry> ordered = options.Sort switch
     {
       SmartSortCriterion.Price => qualifiers
-          .OrderBy(BlendedPrice)
+          .OrderBy(e => BlendedPrice(e, weight))
           .ThenBy(e => e.ModelId, StringComparer.Ordinal),
-      SmartSortCriterion.Intelligence => OrderedByScore(qualifiers, e => e.IntelligenceScore),
-      SmartSortCriterion.Coding => OrderedByScore(qualifiers, e => e.CodingScore),
-      SmartSortCriterion.Agentic => OrderedByScore(qualifiers, e => e.AgenticScore),
+      SmartSortCriterion.Intelligence => OrderedByScore(qualifiers, e => e.IntelligenceScore, weight),
+      SmartSortCriterion.Coding => OrderedByScore(qualifiers, e => e.CodingScore, weight),
+      SmartSortCriterion.Agentic => OrderedByScore(qualifiers, e => e.AgenticScore, weight),
       _ => throw new InvalidOperationException($"Unknown sort criterion {options.Sort}."),
     };
 
@@ -105,12 +127,12 @@ public static class SmartModelSelectorCore
     return Result.Success(new ModelSelectionResult(best.ModelId, best.ProviderName, reasoning));
   }
 
-  private static decimal BlendedPrice(ModelProviderEntry e) => e.PromptPricePerToken + (OutputWeight * e.CompletionPricePerToken);
+  private static decimal BlendedPrice(ModelProviderEntry e, decimal weight) => e.PromptPricePerToken + (weight * e.CompletionPricePerToken);
 
   private static IOrderedEnumerable<ModelProviderEntry> OrderedByScore(
-      IReadOnlyList<ModelProviderEntry> qualifiers, Func<ModelProviderEntry, double?> score)
+      IReadOnlyList<ModelProviderEntry> qualifiers, Func<ModelProviderEntry, double?> score, decimal weight)
       => qualifiers.OrderByDescending(e => score(e) ?? double.NegativeInfinity)
-          .ThenBy(BlendedPrice)
+          .ThenBy(e => BlendedPrice(e, weight))
           .ThenBy(e => e.ModelId, StringComparer.Ordinal);
 }
 
