@@ -293,9 +293,9 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
     decimal effectivePrompt = EffectivePrice(promptPrice, discount);
     decimal effectiveCompletion = EffectivePrice(completionPrice, discount);
 
-    double? latencyMs = endpoint.TryGetProperty("latency_ms", out JsonElement lat) && lat.ValueKind == JsonValueKind.Number
+    double? latencyMs = endpoint.TryGetProperty("latency_last_30m", out JsonElement lat) && lat.ValueKind == JsonValueKind.Number
         ? lat.GetDouble() : null;
-    double? throughput = endpoint.TryGetProperty("throughput_tokens_per_second", out JsonElement thr) && thr.ValueKind == JsonValueKind.Number
+    double? throughput = endpoint.TryGetProperty("throughput_last_30m", out JsonElement thr) && thr.ValueKind == JsonValueKind.Number
         ? thr.GetDouble() : null;
 
     return new ModelProviderEntry(model.Id, providerName, effectivePrompt, effectiveCompletion,
@@ -315,13 +315,17 @@ public sealed class OpenRouterCatalogClient(HttpClient http, OpenRouterConfigura
         null, null, model.Description);
   }
 
+  /// <summary>Artificial Analysis indices from the benchmarks block (model level).
+  /// The live API serves them at benchmarks.artificial_analysis.*; a missing block
+  /// or missing index resolves null - absence is an answer, never a parse error.</summary>
   private static (double? intelligence, double? coding, double? agentic) ParseScores(JsonElement item)
   {
-    if (!item.TryGetProperty("scores", out JsonElement scores) || scores.ValueKind != JsonValueKind.Object)
+    if (!item.TryGetProperty("benchmarks", out JsonElement benchmarks) || benchmarks.ValueKind != JsonValueKind.Object
+        || !benchmarks.TryGetProperty("artificial_analysis", out JsonElement aa) || aa.ValueKind != JsonValueKind.Object)
     {
       return (null, null, null);
     }
-    return (ParseScoreDouble(scores, "intelligence"), ParseScoreDouble(scores, "coding"), ParseScoreDouble(scores, "agentic"));
+    return (ParseScoreDouble(aa, "intelligence_index"), ParseScoreDouble(aa, "coding_index"), ParseScoreDouble(aa, "agentic_index"));
   }
 
   private static double? ParseScoreDouble(JsonElement parent, string name)

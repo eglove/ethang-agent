@@ -14,11 +14,11 @@ public class OpenRouterCatalogClientTests
 
   private const string SampleModelsJson =
       /*lang=json,strict*/
-      """{"data":[{"id":"google/gemini-2.0-flash-001","context_length":1048576,"pricing":{"prompt":"0.000001","completion":"0.000002","discount":"0.5"},"architecture":{"input_modalities":["text","image"]},"supported_parameters":["tools"],"scores":{"intelligence":85.0,"coding":80.0,"agentic":70.0},"top_provider":{"context_length":1048576,"max_completion_tokens":8192},"description":"Fast multimodal model"},{"id":"meta-llama/llama-3.3-70b","context_length":131072,"pricing":{"prompt":"0.0000005","completion":"0.0000008"},"architecture":{"input_modalities":["text"]},"supported_parameters":[],"top_provider":{"context_length":131072,"max_completion_tokens":4096},"description":null}]}""";
+      """{"data":[{"id":"google/gemini-2.0-flash-001","context_length":1048576,"pricing":{"prompt":"0.000001","completion":"0.000002","discount":"0.5"},"architecture":{"input_modalities":["text","image"]},"supported_parameters":["tools"],"benchmarks":{"artificial_analysis":{"intelligence_index":85.0,"coding_index":80.0,"agentic_index":70.0}},"top_provider":{"context_length":1048576,"max_completion_tokens":8192},"description":"Fast multimodal model"},{"id":"meta-llama/llama-3.3-70b","context_length":131072,"pricing":{"prompt":"0.0000005","completion":"0.0000008"},"architecture":{"input_modalities":["text"]},"supported_parameters":[],"top_provider":{"context_length":131072,"max_completion_tokens":4096},"description":null}]}""";
 
   private const string GeminiEndpointsJson =
       /*lang=json,strict*/
-      """[{"provider_name":"Google","context_length":1048576,"max_completion_tokens":8192,"pricing":{"prompt":"0.000001","completion":"0.000002","discount":"0.5"}},{"provider_name":"OpenRouter","context_length":1048576,"max_completion_tokens":4096,"pricing":{"prompt":"0.0000015","completion":"0.000003"}}]""";
+      """[{"provider_name":"Google","context_length":1048576,"max_completion_tokens":8192,"pricing":{"prompt":"0.000001","completion":"0.000002","discount":"0.5"},"latency_last_30m":412.5,"throughput_last_30m":88.2},{"provider_name":"OpenRouter","context_length":1048576,"max_completion_tokens":4096,"pricing":{"prompt":"0.0000015","completion":"0.000003"}}]""";
 
   private const string LlamaEndpointsJson =
       /*lang=json,strict*/
@@ -72,6 +72,9 @@ public class OpenRouterCatalogClientTests
     ModelProviderEntry geminiOR = Assert.Single(result.Value, e => e.ModelId == "google/gemini-2.0-flash-001" && e.ProviderName == "OpenRouter");
     Assert.Equal(0.0000015m, geminiOR.PromptPricePerToken);
     Assert.Equal(4096, geminiOR.MaxCompletionTokens);
+    Assert.Equal(412.5, geminiGoogle.LatencyMs);
+    Assert.Equal(88.2, geminiGoogle.ThroughputTokensPerSec);
+    Assert.Null(geminiOR.LatencyMs); // endpoint without speed stats stays null
 
     // Llama via Meta
     ModelProviderEntry llama = Assert.Single(result.Value, e => e.ModelId == "meta-llama/llama-3.3-70b");
