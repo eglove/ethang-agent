@@ -432,10 +432,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>
   /// Applies the user's model picker choice: pins the session's model (null returns it
   /// to automatic choice — intelligent selection on OpenRouter, the provider default on
-  /// z.ai), updates the status bar, and announces the change. Applies from the next turn,
-  /// root and children alike; persisted per workspace by the shell.
+  /// z.ai), updates the status bar, and announces the change. The Auto choice (null) ALSO
+  /// clears the persisted ModelUsed pin so the next turn's resolution falls through to
+  /// smart selection. Applies from the next turn, root and children alike; persisted per
+  /// workspace by the shell.
   /// </summary>
-  public void ApplyModelChoice(string? modelId)
+  public async Task ApplyModelChoiceAsync(string? modelId)
   {
     if (_modelPreferences is null)
     {
@@ -445,6 +447,16 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     _modelPreferences.ModelId = modelId;
     Status.ModelId = modelId ?? _sessionDefaultModelId;
+    // Auto must also clear the PERSISTED pin: a prior pick pinned ModelUsed on the root
+    // row, and the resolver serves that pin before ever running smart selection. Clearing
+    // only the preference (above) left the stale pin serving, so selection never ran and
+    // the status line showed the bootstrap id. An explicit pick needs no clear - the
+    // resolver re-pins from the preference on the next turn.
+    if (modelId is null)
+    {
+      await _lifecycle.ClearModelPinAsync(_rootId, ReportPersistenceError).ConfigureAwait(true);
+    }
+
     Transcript.AddNotice(modelId is null
         ? "Model set to automatic choice; applies from the next turn."
         : $"Model set to {modelId}; applies from the next turn.");

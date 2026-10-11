@@ -503,7 +503,7 @@ internal sealed partial class MainViewModel : ObservableObject
       return;
     }
 
-    tab.ViewModel.ApplyModelChoice(modelId);
+    await tab.ViewModel.ApplyModelChoiceAsync(modelId);
     await PersistModelChoiceAsync(tab.Container.ProviderName, tab.Container.WorkspaceRoot, modelId);
   }
 
@@ -554,7 +554,7 @@ internal sealed partial class MainViewModel : ObservableObject
     if (snapshot.Model is { } model && model.Kind != ModelChoiceKind.Unchanged)
     {
       string? modelId = model.Kind == ModelChoiceKind.Pinned ? model.ModelId : null;
-      tab.ViewModel.ApplyModelChoice(modelId);
+      await tab.ViewModel.ApplyModelChoiceAsync(modelId);
       await PersistModelChoiceAsync(providerName, workspaceRoot, modelId);
     }
 

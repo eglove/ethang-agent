@@ -111,6 +111,38 @@ public class RootAgentResolverTests
   }
 
   [Fact]
+  public async Task ClearedPin_RunsSelection_OnNextTurn()
+  {
+    // The Auto model choice clears the persisted pin (ModelUsed -> unassigned). The
+    // next resolution must then run smart selection instead of serving the stale pin.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
+    Assert.True(root.IsSuccess);
+    _ = await store.UpdateAsync(root.Value with { ModelUsed = "~z-ai/glm-flash-latest" }, TestContext.Current.CancellationToken);
+    RootAgentResolver pinnedResolver = new(Ctx(store, rootId), new FakeModelSelector(Selection("z-ai/glm-5.3-flash")));
+    (ModelConfig pinnedConfig, _) = await pinnedResolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+    Assert.Equal("~z-ai/glm-flash-latest", pinnedConfig.ModelId); // the stale pin serves
+
+    // The Auto choice clears the pin.
+    Result<AgentRecord> afterPin = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
+    Assert.True(afterPin.IsSuccess);
+    _ = await store.UpdateAsync(afterPin.Value with { ModelUsed = AgentRecord.UnassignedModel }, TestContext.Current.CancellationToken);
+    store.Updated.Clear();
+    FakeModelSelector selector = new(Selection("z-ai/glm-5.3-flash"));
+    RootAgentResolver resolver = new(Ctx(store, rootId), selector);
+
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal("z-ai/glm-5.3-flash", config.ModelId);
+    Assert.Equal(1, selector.Calls);
+    Assert.NotNull(notice);
+    Assert.Contains("Model selected: z-ai/glm-5.3-flash", notice, StringComparison.Ordinal);
+    AgentRecord updated = Assert.Single(store.Updated);
+    Assert.Equal("z-ai/glm-5.3-flash", updated.ModelUsed);
+  }
+
+  [Fact]
   public async Task SelectionFailure_FallsBack_StaysUnpinned()
   {
     FakeAgentStore store = new();

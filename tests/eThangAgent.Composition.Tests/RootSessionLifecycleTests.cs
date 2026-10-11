@@ -215,6 +215,75 @@ public class RootSessionLifecycleTests
   }
 
   [Fact]
+  public async Task ClearModelPin_ResetsModelUsedToUnassigned_PreservingOtherFields()
+  {
+    // The Auto model choice clears the session pin so the next turn falls through to
+    // smart selection. Without this, a prior pin keeps serving and selection never runs.
+    DateTimeOffset createdAt = DateTimeOffset.UtcNow;
+    AgentRecord pinned = AgentRecord.Root(RootId, createdAt, @"C:\workspaces\demo", "openrouter", "~z-ai/glm-flash-latest");
+    FakeAgentStore store = new() { _current = pinned, _getOutcome = Result.Success(pinned) };
+    RootSessionLifecycle lifecycle = new(store);
+    List<string> errors = [];
+
+    await lifecycle.ClearModelPinAsync(RootId, errors.Add);
+
+    Assert.Empty(errors);
+    AgentRecord persisted = store._current;
+    Assert.Equal(AgentRecord.UnassignedModel, persisted.ModelUsed);
+    // Preservation-by-reconstruction: every other field survives the transition.
+    Assert.Equal(pinned.Id, persisted.Id);
+    Assert.Equal(pinned.Status, persisted.Status);
+    Assert.Equal(pinned.WorkspaceId, persisted.WorkspaceId);
+    Assert.Equal(pinned.Provider, persisted.Provider);
+    _ = Assert.Single(store._updated);
+  }
+
+  [Fact]
+  public async Task ClearModelPin_When_AlreadyUnassigned_DoesNotWrite()
+  {
+    AgentRecord root = AgentRecord.Root(RootId, DateTimeOffset.UtcNow, @"C:\workspaces\demo", "openrouter");
+    FakeAgentStore store = new() { _current = root, _getOutcome = Result.Success(root) };
+    RootSessionLifecycle lifecycle = new(store);
+
+    await lifecycle.ClearModelPinAsync(RootId, _ => Assert.Fail("no errors expected"));
+
+    Assert.Empty(store._updated);
+  }
+
+  [Fact]
+  public async Task ClearModelPin_When_Get_Fails_Reports_Error()
+  {
+    FakeAgentStore store = new() { _getOutcome = Result.Failure<AgentRecord>(new DomainError("Db", "down")) };
+    RootSessionLifecycle lifecycle = new(store);
+    List<string> errors = [];
+
+    await lifecycle.ClearModelPinAsync(RootId, errors.Add);
+
+    _ = Assert.Single(errors);
+    Assert.Contains("Db", errors[0], StringComparison.Ordinal);
+    Assert.Empty(store._updated);
+  }
+
+  [Fact]
+  public async Task ClearModelPin_When_Update_Fails_Reports_Error()
+  {
+    AgentRecord root = AgentRecord.Root(RootId, DateTimeOffset.UtcNow, @"C:\workspaces\demo", "openrouter", "pinned");
+    FakeAgentStore store = new()
+    {
+      _current = root,
+      _getOutcome = Result.Success(root),
+      _updateOutcome = Result.Failure<string>(new DomainError("DbDown", "write failed")),
+    };
+    RootSessionLifecycle lifecycle = new(store);
+    List<string> errors = [];
+
+    await lifecycle.ClearModelPinAsync(RootId, errors.Add);
+
+    _ = Assert.Single(errors);
+    Assert.Contains("DbDown", errors[0], StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task ReplaceTranscript_PersistsWholeConversation_DoesNotTouchAppendSeam()
   {
     FakeAgentStore store = new();
