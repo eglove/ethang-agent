@@ -93,4 +93,102 @@ public class MeasuredMixPolicyTests
     Assert.Equal(0.3m, MeasuredMixPolicy.Alpha);
     Assert.Equal(0.10m, MeasuredMixPolicy.MinMargin);
   }
+
+  private static ModelProviderEntry P(string prov, decimal inM, decimal outM) =>
+      new("m/x", prov, inM / 1_000_000m, outM / 1_000_000m, 128000, 0, true, false, 50, 80, null, null, null, null);
+
+  [Fact]
+  public void Evaluate_Untrusted_NeverFires()
+  {
+    MeasuredMixPolicy policy = new(seedWeight: 0.2m);
+    policy.Observe(new UsageObservation(100, 5));
+
+    ReselectionConsidered? result = policy.Evaluate([P("A", 0.04m, 0.50m), P("B", 0.07m, 0.05m)]);
+
+    Assert.Null(result);
+  }
+
+  [Fact]
+  public void Evaluate_TrustedCrossing_WithMargin_Fires_AndRebaselines()
+  {
+    MeasuredMixPolicy policy = new(3.0m);
+    for (int i = 0; i < 13; i++)
+    {
+      policy.Observe(new UsageObservation(100, 1));
+    }
+
+    ModelProviderEntry[] entries = [P("A", 0.04m, 0.50m), P("B", 0.07m, 0.05m)];
+
+    ReselectionConsidered? first = policy.Evaluate(entries);
+
+    Assert.NotNull(first);
+    Assert.True(policy.MeasuredWeight < 1m);
+    Assert.True(first.NewBlended < first.IncumbentBlended);
+
+    ReselectionConsidered? second = policy.Evaluate(entries);
+
+    Assert.Null(second);
+  }
+
+  [Fact]
+  public void Evaluate_SubMarginCrossing_Silent()
+  {
+    MeasuredMixPolicy policy = new(1.0m);
+    for (int i = 0; i < 5; i++)
+    {
+      policy.Observe(new UsageObservation(100, 99));
+    }
+
+    ReselectionConsidered? result = policy.Evaluate([P("A", 0.10m, 0.10m), P("B", 0.099m, 0.101m)]);
+
+    Assert.Null(result);
+  }
+
+  [Fact]
+  public void Evaluate_EmptyEntries_Null()
+  {
+    MeasuredMixPolicy policy = new(3.0m);
+    for (int i = 0; i < 5; i++)
+    {
+      policy.Observe(new UsageObservation(100, 10));
+    }
+
+    Assert.Null(policy.Evaluate([]));
+  }
+
+  [Fact]
+  public void Evaluate_NullEntries_Null()
+  {
+    MeasuredMixPolicy policy = new(3.0m);
+    for (int i = 0; i < 5; i++)
+    {
+      policy.Observe(new UsageObservation(100, 10));
+    }
+
+    Assert.Null(policy.Evaluate(null!));
+  }
+
+  [Fact]
+  public void Evaluate_CrossingBack_FiresAgain()
+  {
+    MeasuredMixPolicy policy = new(3.0m);
+    for (int i = 0; i < 13; i++)
+    {
+      policy.Observe(new UsageObservation(100, 1));
+    }
+
+    ModelProviderEntry[] entries = [P("A", 0.04m, 0.50m), P("B", 0.07m, 0.05m)];
+    ReselectionConsidered? first = policy.Evaluate(entries);
+    Assert.NotNull(first);
+
+    for (int i = 0; i < 5; i++)
+    {
+      policy.Observe(new UsageObservation(100, 400));
+    }
+
+    ReselectionConsidered? second = policy.Evaluate(entries);
+
+    Assert.NotNull(second);
+    Assert.True(second.NewBlended < second.IncumbentBlended);
+  }
 }
