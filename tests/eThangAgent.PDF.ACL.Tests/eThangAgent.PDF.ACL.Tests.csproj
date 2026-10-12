@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.PDF.ACL/eThangAgent.PDF.ACL.csproj" />
+  </ItemGroup>
+</Project>

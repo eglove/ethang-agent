@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
+    <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="PdfPig" Version="0.1.*" />
+    <PackageReference Include="PDFtoImage" Version="4.*" />
+    <PackageReference Include="QuestPDF" Version="2024.*" />
+    <!-- PDFsharp 6.x core flavor. If a font-resolver add-on package is required for text rendering later, note it here but do not add it yet. -->
+    <PackageReference Include="PDFsharp" Version="6.*" />
+  </ItemGroup>
+</Project>
