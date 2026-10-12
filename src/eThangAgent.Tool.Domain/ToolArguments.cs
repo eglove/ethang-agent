@@ -215,14 +215,14 @@ public static class ToolArguments
   }
 
   /// <summary>Validates one element as a JSON integer. The type-mismatch wording is the
-  ///     shared tool contract: <c>'{name}' must be a integer, but got {kind}.</c>
+  ///     shared tool contract: <c>'{name}' must be an integer, but got {kind}.</c>
   ///     (The article reproduces the message verbatim as every tool advertises it.)</summary>
   private static Result<int> IntOf(JsonElement el, string name)
   {
     Result<int> value = el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int parsed)
       ? Result.Success(parsed)
       : Result.Failure<int>(new DomainError(ToolErrorCodes.InvalidParameterType,
-          $"'{name}' must be a integer, but got {el.ValueKind}."));
+          $"'{name}' must be an integer, but got {el.ValueKind}."));
     return value;
   }
 }

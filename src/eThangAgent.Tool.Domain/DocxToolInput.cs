@@ -819,7 +819,7 @@ public sealed record DocxToolInput(
     Result<int> parsed = el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int value)
       ? Result.Success(value)
       : Result.Failure<int>(new DomainError(ToolErrorCodes.InvalidParameterType,
-          $"'{field}' must be a integer, but got {el.ValueKind}."));
+          $"'{field}' must be an integer, but got {el.ValueKind}."));
     return parsed;
   }
 
