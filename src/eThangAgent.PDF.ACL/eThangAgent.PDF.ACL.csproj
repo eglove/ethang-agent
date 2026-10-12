@@ -7,7 +7,10 @@
     <PackageReference Include="PdfPig" Version="0.1.*" />
     <PackageReference Include="PDFtoImage" Version="4.*" />
     <PackageReference Include="QuestPDF" Version="2024.*" />
-    <!-- PDFsharp 6.x core flavor. If a font-resolver add-on package is required for text rendering later, note it here but do not add it yet. -->
+    <!-- PDFsharp 6.x core flavor. No font-resolver add-on package is required: the
+         core build's built-in WindowsPlatformFontResolver resolves standard faces
+         (Arial/Times) from C:\Windows\Fonts once GlobalFontSettings
+         .UseWindowsFontsUnderWindows is set (PdfManipulator's static ctor does this). -->
     <PackageReference Include="PDFsharp" Version="6.*" />
   </ItemGroup>
 </Project>

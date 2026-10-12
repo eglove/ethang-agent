@@ -62,13 +62,49 @@ public sealed class DirectPdfAccess : IPdfAccess
     return Task.FromResult(Result.Success(new PdfSaveOutcome(version, composed.Value)));
   }
 
-  /// <summary>Applies an atomic manipulate batch (task 8).</summary>
+  /// <summary>Applies an atomic manipulate batch (task 7): stats the file FIRST for the
+  ///     content-true version (StaleDocument when <paramref name="expectedVersion"/>
+  ///     differs), gates the open through the sniffer, validates EVERY operation against
+  ///     the page count BEFORE any mutation, applies them to an in-memory working copy,
+  ///     and writes the result atomically. One invalid op refuses the whole batch with
+  ///     nothing saved. Extract output paths arrive pre-resolved (the tool layer owns
+  ///     workspace containment); the seam only enforces OutputExists.</summary>
   public Task<Result<PdfEditOutcome>> ManipulateAsync(string path, FileVersion expectedVersion, IReadOnlyList<PdfOperation> operations, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(path);
     ArgumentNullException.ThrowIfNull(expectedVersion);
     ArgumentNullException.ThrowIfNull(operations);
-    throw new NotSupportedException(NotImplementedMessage);
+
+    if (!File.Exists(path))
+    {
+      return Task.FromResult(Result.Failure<PdfEditOutcome>(new DomainError(PdfErrorCodes.FileNotFound,
+          $"File not found: '{path}'.")));
+    }
+
+    // Stat FIRST: the version is the pair captured before the document is opened.
+    FileInfo info = new(path);
+    FileVersion current = new(info.Length, info.LastWriteTimeUtc);
+    if (current != expectedVersion)
+    {
+      return Task.FromResult(Result.Failure<PdfEditOutcome>(new DomainError(PdfErrorCodes.StaleDocument,
+          $"'{path}' changed since it was read (expected {expectedVersion.Token}, found {current.Token}).")));
+    }
+
+    Result<string> sniff = PdfFormatSniffer.Inspect(path);
+    if (!sniff.IsSuccess)
+    {
+      return Task.FromResult(Result.Failure<PdfEditOutcome>(sniff.Error));
+    }
+
+    Result<PdfManipulatorOutcome> applied = PdfManipulator.Apply(path, operations);
+    if (!applied.IsSuccess)
+    {
+      return Task.FromResult(Result.Failure<PdfEditOutcome>(applied.Error));
+    }
+
+    FileInfo after = new(path);
+    FileVersion newVersion = new(after.Length, after.LastWriteTimeUtc);
+    return Task.FromResult(Result.Success(new PdfEditOutcome(newVersion, applied.Value.PageCount, applied.Value.OperationsApplied)));
   }
 
   private static Result<PdfSnapshot> FailSnapshot(string code, string message)
