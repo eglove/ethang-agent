@@ -11,10 +11,11 @@ namespace eThangAgent.ToolDomain;
 ///     never exceptions.</summary>
 public interface IPdfAccess
 {
-  /// <summary>Reads one page slice of extracted text plus document metadata. Pages are
-  ///     1-based; <paramref name="offset"/> is the 1-based first page and
-  ///     <paramref name="maxPages"/> caps the slice (the ACL resolves the open tail and
-  ///     refuses out-of-range pages with PageNotFound — never a clamp).</summary>
+  /// <summary>Reads one page slice of extracted text plus document metadata. Page
+  ///     numbers are 1-based; <paramref name="offset"/> is the 0-based first page
+  ///     (offset 0 names page 1) and <paramref name="maxPages"/> caps the slice (the
+  ///     ACL refuses an offset at or past the page count with PageNotFound — never a
+  ///     clamp).</summary>
   Task<Result<PdfSnapshot>> ReadAsync(string path, int offset, int maxPages, CancellationToken ct = default);
 
   /// <summary>Renders the listed 1-based pages to PNG images at the given DPI.</summary>

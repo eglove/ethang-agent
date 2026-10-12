@@ -3,10 +3,11 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.PDF.ACL;
 
-/// <summary>The <see cref="IPdfAccess"/> implementation over PdfPig (task 5 the read
-///     path; later tasks replace their own NotSupportedException placeholder -
-///     plan-mandated staging). Every method stats the file FIRST and returns the
-///     content-true <see cref="FileVersion"/>; the sniffer gates every open.</summary>
+/// <summary>The <see cref="IPdfAccess"/> implementation over PdfPig (the read path,
+///     task 5) and QuestPDF (the create path, task 6); later tasks replace their own
+///     NotSupportedException placeholder - plan-mandated staging. Every method stats
+///     the file FIRST and returns the content-true <see cref="FileVersion"/>; the
+///     sniffer gates every open.</summary>
 public sealed class DirectPdfAccess : IPdfAccess
 {
   private const string NotImplementedMessage = "not implemented in this task slice";
@@ -29,12 +30,36 @@ public sealed class DirectPdfAccess : IPdfAccess
     throw new NotSupportedException(NotImplementedMessage);
   }
 
-  /// <summary>Creates a new PDF from the pinned markdown subset (task 7).</summary>
+  /// <summary>Creates a new PDF from the pinned markdown subset (task 6). The target
+  ///     must not already exist (OutputExists) and its directory must exist
+  ///     (FileNotFound); the composer writes the file, then the new file is stat'd
+  ///     for the content-true version and its page count is reported.</summary>
   public Task<Result<PdfSaveOutcome>> CreateAsync(string path, string markdown, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(path);
     ArgumentNullException.ThrowIfNull(markdown);
-    throw new NotSupportedException(NotImplementedMessage);
+    if (File.Exists(path))
+    {
+      return Task.FromResult(Result.Failure<PdfSaveOutcome>(new DomainError(PdfErrorCodes.OutputExists,
+          $"Output file already exists: '{path}'.")));
+    }
+
+    string? dir = Path.GetDirectoryName(Path.GetFullPath(path));
+    if (dir is null || !Directory.Exists(dir))
+    {
+      return Task.FromResult(Result.Failure<PdfSaveOutcome>(new DomainError(PdfErrorCodes.FileNotFound,
+          $"Directory not found: '{dir}'.")));
+    }
+
+    Result<int> composed = PdfComposer.Compose(markdown, path);
+    if (!composed.IsSuccess)
+    {
+      return Task.FromResult(Result.Failure<PdfSaveOutcome>(composed.Error));
+    }
+
+    FileInfo info = new(path);
+    FileVersion version = new(info.Length, info.LastWriteTimeUtc);
+    return Task.FromResult(Result.Success(new PdfSaveOutcome(version, composed.Value)));
   }
 
   /// <summary>Applies an atomic manipulate batch (task 8).</summary>
