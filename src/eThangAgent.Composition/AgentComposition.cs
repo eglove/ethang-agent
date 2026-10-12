@@ -13,6 +13,7 @@ using eThangAgent.Mcp.ACL;
 using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
+using eThangAgent.PDF.ACL;
 using eThangAgent.PlanDomain;
 using eThangAgent.Roslyn.ACL;
 using eThangAgent.SharedKernel;
@@ -80,6 +81,7 @@ public static class AgentComposition
         .AddSingleton<ISkillsShAccess, HttpSkillsShAccess>()
         .AddSingleton<IHtmlToMarkdown, HtmlAgilityMarkdownConverter>()
         .AddSingleton<IDocxAccess, DirectDocxAccess>()
+        .AddSingleton<IPdfAccess, DirectPdfAccess>()
         .AddSingleton(sp => new AgentToolsProvider("agent",
         [
             new AgentToolBinding(
@@ -96,6 +98,11 @@ public static class AgentComposition
                         sp.GetRequiredService<IDocxAccess>(),
                         new SessionImageInputCapability(sp)),
                     "Read, edit, create, and inspect .docx documents."),
+                new AgentToolBinding(
+                    new PdfTool(sp.GetRequiredService<IPathResolver>(),
+                        sp.GetRequiredService<IPdfAccess>(),
+                        new SessionImageInputCapability(sp)),
+                    "Read, render, create, and manipulate PDF documents."),
                 new AgentToolBinding(
                     new WriteTool(sp.GetRequiredService<IPathResolver>(),
                         sp.GetRequiredService<IFileWriteAccess>()),
@@ -496,6 +503,9 @@ public static class AgentComposition
                     new SessionImageInputCapability(sp)),
                 new DocxTool(sp.GetRequiredService<IPathResolver>(),
                     sp.GetRequiredService<IDocxAccess>(),
+                    new SessionImageInputCapability(sp)),
+                new PdfTool(sp.GetRequiredService<IPathResolver>(),
+                    sp.GetRequiredService<IPdfAccess>(),
                     new SessionImageInputCapability(sp)),
                 .. ComputerLoopTools(sp, settings)]))
         .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
