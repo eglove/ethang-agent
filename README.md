@@ -60,6 +60,12 @@ literal find/replace) with a stale-edit version guard, create from a pinned mark
 subset, comment list/add/delete, tracked-revision list/accept/reject, and embedded
 image extraction (PNG/JPEG attach; other formats listed). Macro-enabled (.docm)
 content is refused; the extension alone is never trusted (magic-byte + package sniffing)
+- `pdf` tool — read, render, create, and manipulate PDF documents: paginated
+ per-page text extraction with a version token, page rendering to PNG images (attached
+ when the model accepts images, up to 10 pages per call), create from a pinned markdown
+ subset, and atomic structural manipulation (rotate, delete, reorder, extract, merge,
+ watermark, set metadata) behind a stale-edit version guard. Non-PDF and encrypted files
+ are refused; named caps bound file size, pages, DPI, batch size, and markdown size
 - `write` tool — create/replace files behind an explicit overwrite gate
 - `edit` tool — exact literal replacements with occurrence verification, or line-range replacement (lines N..M, no anchor, endLine past EOF rejected); a missed anchor quotes the file's nearest matching region (exact line numbers and content) so one retry corrects the anchor
 - `write_markdown` tool — renders a structured JSON document into well-formed markdown deterministically (headers, lists, tables, alerts, frontmatter); returns the string or writes it to a workspace file behind the same overwrite gate as `write`
