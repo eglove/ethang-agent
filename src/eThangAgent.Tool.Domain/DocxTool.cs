@@ -26,17 +26,18 @@ public sealed class DocxTool(
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IDocxAccess _docx = docx ?? throw new ArgumentNullException(nameof(docx));
   private readonly IImageInputCapability? _vision = vision;
+  private readonly ReadFreshnessLedger? _ledger = ledger;
 
   /// <inheritdoc />
   public ITool RootedAt(string workspaceRoot)
-      => new DocxTool(new WorkspacePathResolver(workspaceRoot), _docx, _vision, ledger);
+      => new DocxTool(new WorkspacePathResolver(workspaceRoot), _docx, _vision, _ledger);
 
   /// <inheritdoc />
-  public bool HasLedger => ledger is not null;
+  public bool HasLedger => _ledger is not null;
 
   /// <inheritdoc />
   public ITool WithLedger(ReadFreshnessLedger ledger)
-      => ledger is null ? new DocxTool(_resolver, _docx, _vision, ledger) : this;
+      => _ledger is null ? new DocxTool(_resolver, _docx, _vision, ledger) : this;
 
   public ToolDefinition Definition { get; } = new(
       ToolName,
@@ -171,7 +172,7 @@ public sealed class DocxTool(
     }
 
     DocxSnapshot snap = read.Value;
-    ledger?.Record(path, snap.Version, args.Offset + 1, args.Offset + snap.Blocks.Count);
+    _ledger?.Record(path, snap.Version, args.Offset + 1, args.Offset + snap.Blocks.Count);
 
     StringBuilder sb = new();
     _ = sb.AppendLine(CultureInfo.InvariantCulture,

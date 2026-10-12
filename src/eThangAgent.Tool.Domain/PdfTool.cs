@@ -26,17 +26,18 @@ public sealed class PdfTool(
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
   private readonly IPdfAccess _pdf = pdf ?? throw new ArgumentNullException(nameof(pdf));
   private readonly IImageInputCapability? _vision = vision;
+  private readonly ReadFreshnessLedger? _ledger = ledger;
 
   /// <inheritdoc />
   public ITool RootedAt(string workspaceRoot)
-      => new PdfTool(new WorkspacePathResolver(workspaceRoot), _pdf, _vision, ledger);
+      => new PdfTool(new WorkspacePathResolver(workspaceRoot), _pdf, _vision, _ledger);
 
   /// <inheritdoc />
-  public bool HasLedger => ledger is not null;
+  public bool HasLedger => _ledger is not null;
 
   /// <inheritdoc />
   public ITool WithLedger(ReadFreshnessLedger ledger)
-      => ledger is null ? new PdfTool(_resolver, _pdf, _vision, ledger) : this;
+      => _ledger is null ? new PdfTool(_resolver, _pdf, _vision, ledger) : this;
 
   public ToolDefinition Definition { get; } = new(
       ToolName,
@@ -147,7 +148,7 @@ public sealed class PdfTool(
     PdfSnapshot snap = read.Value;
     int first = args.Offset + 1;
     int last = args.Offset + snap.Pages.Count;
-    ledger?.Record(path, snap.Version, first, last);
+    _ledger?.Record(path, snap.Version, first, last);
 
     StringBuilder sb = new();
     _ = sb.AppendLine(CultureInfo.InvariantCulture,
