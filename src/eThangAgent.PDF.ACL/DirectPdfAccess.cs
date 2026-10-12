@@ -3,15 +3,13 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.PDF.ACL;
 
-/// <summary>The <see cref="IPdfAccess"/> implementation over PdfPig (the read path,
-///     task 5) and QuestPDF (the create path, task 6); later tasks replace their own
-///     NotSupportedException placeholder - plan-mandated staging. Every method stats
-///     the file FIRST and returns the content-true <see cref="FileVersion"/>; the
-///     sniffer gates every open.</summary>
+/// <summary>The <see cref="IPdfAccess"/> implementation: PdfPig for the read path
+///     (task 5), QuestPDF for the create path (task 6), PDFsharp for the manipulate
+///     path (task 7), and PDFtoImage/PDFium for the render path (task 8). Every method
+///     stats the file FIRST and returns the content-true <see cref="FileVersion"/>
+///     (issue #117 pattern); the sniffer gates every open.</summary>
 public sealed class DirectPdfAccess : IPdfAccess
 {
-  private const string NotImplementedMessage = "not implemented in this task slice";
-
   /// <summary>Reads one page slice of extracted text plus document metadata (task 5).</summary>
   public Task<Result<PdfSnapshot>> ReadAsync(string path, int offset, int maxPages, CancellationToken ct = default)
   {
@@ -22,12 +20,18 @@ public sealed class DirectPdfAccess : IPdfAccess
       : PdfTextExtractor.Extract(path, offset, maxPages));
   }
 
-  /// <summary>Renders the listed 1-based pages to PNG images at the given DPI (task 6).</summary>
+  /// <summary>Renders the listed 1-based pages to PNG images at the given DPI (task 8).
+  ///     The page list arrives ALREADY resolved to explicit page numbers (the tool layer
+  ///     owns the grammar and the open-tail resolution against the document's page count);
+  ///     the seam stats the file FIRST, gates the open through the sniffer, validates
+  ///     every page against the count, and rasterizes each page via
+  ///     <see cref="PdfPageRenderer"/>. The version the stat captures is surfaced by the
+  ///     TOOL layer's annotation line, never inside the images.</summary>
   public Task<Result<PdfRenderOutcome>> RenderAsync(string path, IReadOnlyList<int> pages, int dpi, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(path);
     ArgumentNullException.ThrowIfNull(pages);
-    throw new NotSupportedException(NotImplementedMessage);
+    return Task.FromResult(PdfPageRenderer.Render(path, pages, dpi));
   }
 
   /// <summary>Creates a new PDF from the pinned markdown subset (task 6). The target
