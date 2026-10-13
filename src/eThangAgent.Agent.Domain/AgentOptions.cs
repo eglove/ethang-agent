@@ -43,12 +43,6 @@ public sealed record AgentOptions
   ///     during the run: byte-identical legacy behavior.</summary>
   public IChildTranscriptStore? TranscriptSink { get; init; }
 
-  /// <summary>Receives the provider-scored usage of every response that carries it, at
-  ///     the same observation point as <see cref="ContextMonitor"/>. Null (legacy wiring)
-  ///     means nothing observes usage: byte-identical legacy behavior. Wired by the ROOT
-  ///     only (the measured-mix observer); children never publish (spec #55 section 2).</summary>
-  public Action<TokenUsage>? UsageObserver { get; init; }
-
   /// <summary>Durable session identity stamped onto every provider request this loop
   ///     builds (OpenRouter sticky sessions / prompt caching). Null (legacy wiring)
   ///     leaves the request's id unset: byte-identical legacy behavior.</summary>

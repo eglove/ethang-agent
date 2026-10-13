@@ -8,25 +8,6 @@ public class RootAgentResolverTests
 {
   private const string FallbackModel = "openrouter/auto";
 
-  private sealed class FakeModelSelector(ModelSelectionResult result) : IModelSelector
-  {
-    public int Calls { get; private set; }
-
-    public Task<Result<ModelSelectionResult>> SelectAsync(SmartSelectionOptions options, bool requireVision, CancellationToken ct = default)
-    {
-      Calls++;
-      return Task.FromResult(Result.Success(result));
-    }
-  }
-
-  private sealed class FailingModelSelector : IModelSelector
-  {
-    public Task<Result<ModelSelectionResult>> SelectAsync(SmartSelectionOptions options, bool requireVision, CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed", "boom")));
-  }
-
-  private static ModelSelectionResult Selection(string modelId, string? providerName = "TestProvider") => new(modelId, providerName, "reason");
-
   private static async Task<AgentId> SeedRootAsync(FakeAgentStore store)
   {
     AgentId rootId = AgentId.NewId();
@@ -40,55 +21,34 @@ public class RootAgentResolverTests
       new(store, rootId is null ? null : Identity(rootId.Value), FallbackModel, 2048, 0.7f, new FixedWindowSource());
 
   [Fact]
-  public async Task NoSelector_Uses_Fallback_Without_Selection()
+  public async Task UnpinnedSession_ServesFallback()
   {
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    RootAgentResolver resolver = new(Ctx(store, rootId), selector: null);
+    RootAgentResolver resolver = new(Ctx(store, rootId));
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(FallbackModel, config.ModelId);
     Assert.Null(notice);
+    Assert.Empty(store.Updated);
   }
 
   [Fact]
-  public async Task UnpinnedSession_RunsSelection_PersistsPin()
+  public async Task PinnedSession_ServesPin_NeverRewrites()
   {
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
-    RootAgentResolver resolver = new(Ctx(store, rootId), selector);
-
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
-
-    Assert.Equal("anthropic/claude-3.5-sonnet", config.ModelId);
-    Assert.NotNull(notice);
-    // Task 9: the smart-selection success notice now names the provider.
-    Assert.Contains("Model selected: anthropic/claude-3.5-sonnet via TestProvider", notice, StringComparison.Ordinal);
-    Assert.Equal(1, selector.Calls);
-    AgentRecord updated = Assert.Single(store.Updated);
-    Assert.Equal("anthropic/claude-3.5-sonnet", updated.ModelUsed);
-  }
-
-  [Fact]
-  public async Task PinnedSession_ServesPin_NeverReSelects()
-  {
-    FakeAgentStore store = new();
-    AgentId rootId = await SeedRootAsync(store);
-    FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
-    RootAgentResolver resolver = new(Ctx(store, rootId), selector);
     Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
     Assert.True(root.IsSuccess);
-    AgentRecord pinned = root.Value;
-    _ = await store.UpdateAsync(pinned with { ModelUsed = "google/gemini-2.0-flash-001" }, TestContext.Current.CancellationToken);
+    _ = await store.UpdateAsync(root.Value with { ModelUsed = "google/gemini-2.0-flash-001" }, TestContext.Current.CancellationToken);
     store.Updated.Clear();
+    RootAgentResolver resolver = new(Ctx(store, rootId));
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("google/gemini-2.0-flash-001", config.ModelId);
     Assert.Null(notice);
-    Assert.Equal(0, selector.Calls);
     Assert.Empty(store.Updated);
   }
 
@@ -97,86 +57,43 @@ public class RootAgentResolverTests
   {
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    FakeModelSelector selector = new(Selection("anthropic/claude-3.5-sonnet"));
-    RootAgentResolver resolver = new(Ctx(store, rootId), selector);
     Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
     Assert.True(root.IsSuccess);
-    AgentRecord pinned = root.Value;
-    _ = await store.UpdateAsync(pinned with { ModelUsed = FallbackModel }, TestContext.Current.CancellationToken);
+    _ = await store.UpdateAsync(root.Value with { ModelUsed = FallbackModel }, TestContext.Current.CancellationToken);
     store.Updated.Clear();
+    RootAgentResolver resolver = new(Ctx(store, rootId));
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, _) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal("anthropic/claude-3.5-sonnet", config.ModelId);
-    Assert.Equal(1, selector.Calls);
+    Assert.Equal(FallbackModel, config.ModelId);
+    Assert.Empty(store.Updated);
   }
 
   [Fact]
-  public async Task ClearedPin_RunsSelection_OnNextTurn()
+  public async Task ClearedPin_ServesFallback_OnNextTurn()
   {
     // The Auto model choice clears the persisted pin (ModelUsed -> unassigned). The
-    // next resolution must then run smart selection instead of serving the stale pin.
+    // next resolution then serves the fallback instead of the stale pin.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
     Assert.True(root.IsSuccess);
     _ = await store.UpdateAsync(root.Value with { ModelUsed = "~z-ai/glm-flash-latest" }, TestContext.Current.CancellationToken);
-    RootAgentResolver pinnedResolver = new(Ctx(store, rootId), new FakeModelSelector(Selection("z-ai/glm-5.3-flash")));
-    (ModelConfig pinnedConfig, _) = await pinnedResolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+    RootAgentResolver pinnedResolver = new(Ctx(store, rootId));
+    (ModelConfig pinnedConfig, _) = await pinnedResolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
     Assert.Equal("~z-ai/glm-flash-latest", pinnedConfig.ModelId); // the stale pin serves
 
-    // The Auto choice clears the pin.
     Result<AgentRecord> afterPin = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
     Assert.True(afterPin.IsSuccess);
     _ = await store.UpdateAsync(afterPin.Value with { ModelUsed = AgentRecord.UnassignedModel }, TestContext.Current.CancellationToken);
     store.Updated.Clear();
-    FakeModelSelector selector = new(Selection("z-ai/glm-5.3-flash"));
-    RootAgentResolver resolver = new(Ctx(store, rootId), selector);
+    RootAgentResolver resolver = new(Ctx(store, rootId));
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
-
-    Assert.Equal("z-ai/glm-5.3-flash", config.ModelId);
-    Assert.Equal(1, selector.Calls);
-    Assert.NotNull(notice);
-    // Task 9: the smart-selection success notice now names the provider.
-    Assert.Contains("Model selected: z-ai/glm-5.3-flash via TestProvider", notice, StringComparison.Ordinal);
-    AgentRecord updated = Assert.Single(store.Updated);
-    Assert.Equal("z-ai/glm-5.3-flash", updated.ModelUsed);
-  }
-
-  [Fact]
-  public async Task SelectionFailure_FallsBack_StaysUnpinned()
-  {
-    FakeAgentStore store = new();
-    AgentId rootId = await SeedRootAsync(store);
-    FailingModelSelector selector = new();
-    RootAgentResolver resolver = new(Ctx(store, rootId), selector);
-
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
     Assert.Equal(FallbackModel, config.ModelId);
-    Assert.NotNull(notice);
-    Assert.Contains("Model selection failed: boom", notice, StringComparison.Ordinal);
-    Assert.Contains($"using {FallbackModel}", notice, StringComparison.Ordinal);
+    Assert.Null(notice);
     Assert.Empty(store.Updated);
-  }
-
-  [Fact]
-  public async Task RetryAfterFailure_SelectsOnNextTurn()
-  {
-    FakeAgentStore store = new();
-    AgentId rootId = await SeedRootAsync(store);
-    FailingModelSelector selector = new();
-    RootAgentResolver resolver = new(Ctx(store, rootId), selector);
-
-    _ = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
-    FakeModelSelector recovered = new(Selection("google/gemini-2.0-flash-001"));
-    RootAgentResolver recoveredResolver = new(Ctx(store, rootId), recovered);
-
-    (ModelConfig config, _) = await recoveredResolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
-
-    Assert.Equal("google/gemini-2.0-flash-001", config.ModelId);
-    Assert.Equal(1, recovered.Calls);
   }
 
   [Fact]
@@ -184,67 +101,37 @@ public class RootAgentResolverTests
   {
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
-    FakeModelSelector selector = new(Selection("a"));
     SessionModelPreferences preferences = new() { ModelId = "user-pick" };
-    RootAgentResolver resolver = new(Ctx(store, rootId), selector, preferences);
+    RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
     Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
     Assert.True(root.IsSuccess);
     AgentRecord pinned = root.Value;
     _ = await store.UpdateAsync(pinned with { ModelUsed = "pinned-id" }, TestContext.Current.CancellationToken);
+    store.Updated.Clear();
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, _) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("user-pick", config.ModelId);
-    Assert.Equal(0, selector.Calls);
+    AgentRecord updated = Assert.Single(store.Updated);
+    Assert.Equal("user-pick", updated.ModelUsed);
   }
 
   [Fact]
-  public async Task OptionsFunc_InvokedOncePerSelection()
+  public async Task PreferencePersist_NoOp_WhenAlreadyPinned()
   {
-    FakeAgentStore store = new();
-    AgentId rootId = await SeedRootAsync(store);
-    FakeModelSelector selector = new(Selection("a"));
-    int optionCalls = 0;
-    RootModelContext ctx = new(store, Identity(rootId), FallbackModel, 2048, 0.7f, new FixedWindowSource(), Catalog: null,
-        SmartOptions: () =>
-        {
-          optionCalls++;
-          return SmartSelectionOptions.Default;
-        });
-    RootAgentResolver resolver = new(ctx, selector);
-
-    _ = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
-
-    Assert.Equal(1, optionCalls);
-  }
-
-  [Fact]
-  public async Task Selection_WithoutProviderName_NoticeIsIdOnly()
-  {
-    // Task 9: provider unknown (null ProviderName) keeps the legacy id-only form.
-    FakeAgentStore store = new();
-    AgentId rootId = await SeedRootAsync(store);
-    FakeModelSelector selector = new(Selection("m/x", providerName: null));
-    RootAgentResolver resolver = new(Ctx(store, rootId), selector);
-
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
-
-    Assert.Equal("m/x", config.ModelId);
-    Assert.Equal("Model selected: m/x", notice);
-  }
-
-  [Fact]
-  public async Task PreferredPick_NoticeStaysIdOnly()
-  {
-    // Task 9: the preferred-pick path (step 0) has no provider to name - id-only stays.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     SessionModelPreferences preferences = new() { ModelId = "user-pick" };
-    RootAgentResolver resolver = new(Ctx(store, rootId), new FakeModelSelector(Selection("a")), preferences);
+    RootAgentResolver resolver = new(Ctx(store, rootId), preferences);
+    Result<AgentRecord> seeded = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
+    Assert.True(seeded.IsSuccess);
+    _ = await store.UpdateAsync(seeded.Value with { ModelUsed = "user-pick" }, TestContext.Current.CancellationToken);
+    store.Updated.Clear();
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(requireVision: false, ct: TestContext.Current.CancellationToken);
+    (ModelConfig config, string? notice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
     Assert.Equal("user-pick", config.ModelId);
-    Assert.Equal("Model selected: user-pick", notice);
+    Assert.Null(notice);
+    Assert.Empty(store.Updated);
   }
 }

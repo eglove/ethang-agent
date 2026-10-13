@@ -27,7 +27,7 @@ public class ModelSettingsWindowTests
         persist: _ => { },
         loadCatalog: _ => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
             [Entry("alpha/model")])),
-        allowAuto: true, currentModelId: null);
+        currentModelId: null);
     Views.ModelSettingsWindow window = new(vm);
 
     window.Show();
@@ -39,6 +39,6 @@ public class ModelSettingsWindowTests
     }
     window.Close();
 
-    Assert.Equal(2, vm.ModelSection!.FilteredRows.Count); // auto row + the loaded entry
+    _ = Assert.Single(vm.ModelSection!.FilteredRows); // the loaded entry
   }
 }

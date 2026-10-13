@@ -96,25 +96,6 @@
                       DisplayMemberBinding="{Binding Display}" HorizontalAlignment="Stretch"/>
             <TextBlock Text="Models fallback chain (comma-separated)" FontSize="12" Opacity="0.75"/>
             <TextBox Text="{Binding Routing.ModelsText}"/>
-                    <TextBlock Text="Smart selection" FontWeight="SemiBold" Margin="0,12,0,0"/>
-          <TextBlock Text="Max input $/M (blank = unconstrained)" FontSize="12" Opacity="0.75"/>
-          <TextBox Text="{Binding SmartSelectionSection.MaxInputText}"/>
-          <TextBlock Text="Max output $/M (blank = unconstrained)" FontSize="12" Opacity="0.75"/>
-          <TextBox Text="{Binding SmartSelectionSection.MaxOutputText}"/>
-          <TextBlock Text="Min intelligence (Artificial Analysis index)" FontSize="12" Opacity="0.75"/>
-          <TextBox Text="{Binding SmartSelectionSection.MinIntelligenceText}"/>
-          <TextBlock Text="Min coding" FontSize="12" Opacity="0.75"/>
-          <TextBox Text="{Binding SmartSelectionSection.MinCodingText}"/>
-          <TextBlock Text="Min agentic" FontSize="12" Opacity="0.75"/>
-          <TextBox Text="{Binding SmartSelectionSection.MinAgenticText}"/>
-          <TextBlock Text="Min context window (tokens)" FontSize="12" Opacity="0.75"/>
-          <TextBox Text="{Binding SmartSelectionSection.MinContextText}"/>
-          <TextBlock Text="Sort" FontSize="12" Opacity="0.75"/>
-          <ComboBox ItemsSource="{Binding SmartSelectionSection.SortChoices}" SelectedItem="{Binding SmartSelectionSection.SortChoice}"
-                    HorizontalAlignment="Stretch"/>
-          <TextBlock Text="{Binding SmartSelectionSection.PreviewText}"
-                     IsVisible="{Binding SmartSelectionSection.PreviewVisible}"
-                     FontSize="12" FontStyle="Italic" TextWrapping="Wrap"/>
 </StackPanel>
 
           <TextBlock Text="Server-side tools" FontWeight="SemiBold" Margin="0,8,0,0"/>

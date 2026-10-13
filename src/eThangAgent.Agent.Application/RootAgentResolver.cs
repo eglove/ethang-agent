@@ -6,17 +6,12 @@ namespace eThangAgent.Agent.Application;
 
 /// <summary>Resolves the root agent's model for an upcoming turn. Order: the user's
 /// live model choice wins; then the session pin (the persisted ModelUsed, the record
-/// of what actually served - a pinned session never re-selects); then smart
-/// selection for an unpinned session; then the fallback, which leaves the session
-/// unpinned so selection retries next turn. The pin is re-decided only by the
-/// measured-mix coordinator (Price sort) before this resolver reads it.
-/// </summary>
+/// of what actually served); then the fallback. The pin is never re-decided — it is
+/// the record of what served.</summary>
 public sealed class RootAgentResolver(
     RootModelContext context,
-    IModelSelector? selector,
     SessionModelPreferences? preferences = null)
 {
-  private readonly IModelSelector? _selector = selector;
   private readonly IAgentStore? _store = context.Store;
   private readonly RootSessionIdentity? _identity = context.Identity;
   private readonly string _fallbackModelId = context.FallbackModelId ?? throw new ArgumentNullException(nameof(context), "FallbackModelId must not be null.");
@@ -25,16 +20,10 @@ public sealed class RootAgentResolver(
   private readonly SessionModelPreferences? _preferences = preferences;
   private readonly IContextWindowSource? _windowSource = context.WindowSource;
   private readonly IModelCatalog? _catalog = context.Catalog;
-  private readonly Func<SmartSelectionOptions>? _smartOptions = context.SmartOptions;
 
-  /// <summary>True when the caller may skip selection entirely - no selector is wired.
-  /// Exposed for diagnostics and tests.</summary>
-  public bool IsExplicit => _selector is null;
-
-  /// <summary>Resolves the model to serve the upcoming turn; requireVision is
-  /// computed by the caller (history images OR upcoming images). Returns the
+  /// <summary>Resolves the model to serve the upcoming turn. Returns the
   /// config and a notice (null when nothing notable happened).</summary>
-  public async Task<(ModelConfig Config, string? Notice)> ResolveAsync(bool requireVision, CancellationToken ct = default)
+  public async Task<(ModelConfig Config, string? Notice)> ResolveAsync(CancellationToken ct = default)
   {
     // 0. The user's live model choice wins over everything static. Runtime
     //    preferences (reasoning effort, sampling knobs) still apply.
@@ -45,46 +34,16 @@ public sealed class RootAgentResolver(
           preferredNotice is null ? null : $"Model selected: {preferredNotice}");
     }
 
-    // 1. No selector wired: the fallback serves every turn.
-    if (_selector is null)
-    {
-      return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false), null);
-    }
-
-    // 2. The session pin: a persisted ModelUsed that is not the fallback id is the
-    //    record of what actually served - serve it, never re-select.
+    // 1. The session pin: a persisted ModelUsed that is not the fallback id is the
+    //    record of what actually served - serve it.
     string? pinned = await PinnedModelAsync(ct).ConfigureAwait(false);
     if (pinned is not null)
     {
       return (await MakeAsync(pinned, null, ct).ConfigureAwait(false), null);
     }
 
-    // 3. Unpinned: run smart selection. Failure leaves the session unpinned - the
-    //    fallback serves this turn and selection retries next turn.
-    SmartSelectionOptions options = _smartOptions?.Invoke() ?? SmartSelectionOptions.Default;
-    Result<ModelSelectionResult> selection = await _selector.SelectAsync(options, requireVision, ct).ConfigureAwait(false);
-    if (!selection.IsSuccess)
-    {
-      return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false),
-          $"Model selection failed: {selection.Error.Message}; using {_fallbackModelId}.");
-    }
-
-    string modelId = selection.Value.ModelId;
-    string? providerName = selection.Value.ProviderName;
-
-    // 4. Persist the pin (best effort - a store failure must not stop the turn;
-    //    it surfaces as a notice instead). The notice names the provider when
-    //    selection resolved one, matching the measured-mix reselection coordinator's
-    //    contract ('Model selected: <id> via <provider>'); a provider-less selection
-    //    keeps the legacy id-only form.
-    string? persistNotice = await TryPersistModelAsync(modelId, ct).ConfigureAwait(false);
-    string? notice = persistNotice switch
-    {
-      null => null,
-      _ when providerName is null => $"Model selected: {persistNotice}",
-      _ => $"Model selected: {persistNotice} via {providerName}",
-    };
-    return (await MakeAsync(modelId, providerName, ct).ConfigureAwait(false), notice);
+    // 2. The fallback serves an unpinned session.
+    return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false), null);
   }
 
   /// <summary>The persisted ModelUsed when it names a real selection: non-null and
@@ -128,8 +87,7 @@ public sealed class RootAgentResolver(
       }
     }
 
-    // Unknown window (or invalid create): the fallback serves instead - the same
-    // failure-notice chain that a failed selection takes.
+    // Unknown window (or invalid create): the fallback serves instead.
     return await MakeFallbackAsync(ct).ConfigureAwait(false);
   }
 

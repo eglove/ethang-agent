@@ -17,17 +17,16 @@ namespace eThangAgent.Agent.Application;
 /// </summary>
 /// <remarks>
 /// Root model resolution: when a <see cref="RootAgentHolder"/> + <see cref="RootAgentResolver"/>
-/// are supplied, each turn first resolves the model to serve (explicit pin, or intelligent
-/// selection on the cadence boundary), rebuilds the root agent when the model changed, and
-/// surfaces selection notices via the onNotice callback. Without the holder/resolver the
+/// are supplied, each turn first resolves the model to serve (the user's live choice, the
+/// session pin, or the fallback), rebuilds the root agent when the model changed, and
+/// surfaces resolution notices via the onNotice callback. Without the holder/resolver the
 /// handler falls back to the single pre-built agent exactly as it did before this seam existed.
 /// </remarks>
 public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversation = null,
     INudgePolicy? policy = null, Func<int>? memoriesWritten = null, IAgentInbox? inbox = null,
     RootAgentHolder? rootHolder = null, RootAgentResolver? rootResolver = null,
     VerificationGate? verificationGate = null,
-    Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>? changedFilesResolver = null,
-    DynamicReselectionCoordinator? reselection = null)
+    Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>? changedFilesResolver = null)
 {
   private readonly Ag? _agent = agent;
   private readonly Conversation? _conversation = conversation;
@@ -38,7 +37,6 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
   private readonly RootAgentResolver? _rootResolver = rootResolver;
   private readonly VerificationGate? _verificationGate = verificationGate;
   private readonly Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>? _changedFilesResolver = changedFilesResolver;
-  private readonly DynamicReselectionCoordinator? _reselection = reselection;
   private int _turnCount;
 
   public async Task<Result<string>> Handle(SendMessageCommand command,
@@ -52,7 +50,7 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
     Ag active;
     try
     {
-      active = await ResolveAgentAsync(command, onNotice, ct).ConfigureAwait(false);
+      active = await ResolveAgentAsync(onNotice, ct).ConfigureAwait(false);
     }
     catch (OperationCanceledException)
     {
@@ -98,10 +96,10 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
   }
 
   /// <summary>Resolves the agent to serve this turn. When the root holder/resolver seam is
-  ///     wired, runs pre-turn model resolution (explicit pin, session pin, or smart selection),
-  ///     rebuilds the agent when the model changed, and surfaces any selection notice. Without
-  ///     the seam, returns the single pre-built agent.</summary>
-  private async Task<Ag> ResolveAgentAsync(SendMessageCommand command, Action<string>? onNotice, CancellationToken ct)
+  ///     wired, runs pre-turn model resolution (the user's live choice, the session pin, or
+  ///     the fallback), rebuilds the agent when the model changed, and surfaces any notice.
+  ///     Without the seam, returns the single pre-built agent.</summary>
+  private async Task<Ag> ResolveAgentAsync(Action<string>? onNotice, CancellationToken ct)
   {
     if (_rootHolder is null || _rootResolver is null)
     {
@@ -109,25 +107,7 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
           "SendMessageCommandHandler has no agent and no root holder; one must be supplied.");
     }
 
-    Conversation rootConversation = _conversation
-        ?? throw new InvalidOperationException(
-            "Root model resolution requires a conversation.");
-
-    bool requireVision = CarriesImages(rootConversation) || CarriesImages(command.ImageParts);
-
-    // The measured-mix reselection safe point runs BEFORE resolution so a re-picked
-    // pair is what the resolver's pin path serves this same turn. Absent coordinator
-    // means byte-identical legacy behavior.
-    if (_reselection is not null)
-    {
-      (bool _, string? reselectionNotice) = await _reselection.ApplyAsync(requireVision, ct).ConfigureAwait(false);
-      if (reselectionNotice is not null)
-      {
-        onNotice?.Invoke(reselectionNotice);
-      }
-    }
-
-    (ModelConfig config, string? notice) = await _rootResolver.ResolveAsync(requireVision, ct)
+    (ModelConfig config, string? notice) = await _rootResolver.ResolveAsync(ct)
         .ConfigureAwait(false);
     if (notice is not null)
     {
@@ -136,10 +116,4 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
 
     return _rootHolder.Build(_rootHolder.Current, config);
   }
-
-  private static bool CarriesImages(Conversation conversation)
-      => conversation.Messages.Any(m => m.Parts is { } parts && parts.Any(p => p is MessagePart.ImagePart));
-
-  private static bool CarriesImages(IReadOnlyList<MessagePart>? parts)
-      => parts is { } list && list.Any(p => p is MessagePart.ImagePart);
 }

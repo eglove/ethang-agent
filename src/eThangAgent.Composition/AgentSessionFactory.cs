@@ -77,13 +77,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(full, ct).ConfigureAwait(false);
-    SmartSelectionOptions? smartOptions = await ReadSmartSelectionAsync(full, providerName, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(full, providerName, conversationSeed: null,
         ResolveBootstrapModel(providerName), globalFiles, workspaceFiles,
         globalDirectories, workspaceDirectories);
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
-    services.GetRequiredService<SmartSelectionCarrier>().Fill(smartOptions);
-    await FillMeasuredMixAsync(services, smartOptions, full, providerName, resumed: false, ct).ConfigureAwait(false);
     try
     {
       IAgentStore store = services.GetRequiredService<IAgentStore>();
@@ -170,13 +167,10 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(workspaceRoot, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(workspaceRoot, ct).ConfigureAwait(false);
-    SmartSelectionOptions? smartOptions = await ReadSmartSelectionAsync(workspaceRoot, providerName, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(workspaceRoot, providerName, transcript.Value,
         ResolveBootstrapModel(providerName), globalFiles, workspaceFiles,
         globalDirectories, workspaceDirectories);
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
-    services.GetRequiredService<SmartSelectionCarrier>().Fill(smartOptions);
-    await FillMeasuredMixAsync(services, smartOptions, workspaceRoot, providerName, resumed: true, ct).ConfigureAwait(false);
     try
     {
 
@@ -284,87 +278,6 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   /// <summary>Reads the two stored session-file lists (global, workspace) for one
   ///     workspace. Both are optional: a store miss returns nulls and the session
   ///     opens with nothing injected (truly empty by default).</summary>
-  /// <summary>Reads the workspace's persisted smart-selection options, or null
-  /// when unset. A corrupt payload degrades to null (Default semantics) - the
-  /// same corrupt-to-unset named decision as every other preference read.</summary>
-  private async Task<SmartSelectionOptions?> ReadSmartSelectionAsync(
-      string workspaceRoot, string providerName, CancellationToken ct)
-  {
-    SqliteAppPreferenceStore preferences = new(_database ?? new AppDatabase());
-    string? stored = await preferences.GetAsync(
-        SmartSelectionPreferencesKey(providerName, workspaceRoot), ct).ConfigureAwait(false);
-    return stored is null || !SmartSelectionOptions.TryFromJson(stored, out SmartSelectionOptions options)
-        ? null
-        : options;
-  }
-
-  private static string SmartSelectionPreferencesKey(string providerName, string workspaceRoot)
-      => $"smart_selection:{providerName}:{workspaceRoot}";
-
-  /// <summary>Builds and fills the measured-mix dynamic provider selection stack
-  ///     (spec #55) for a Price-sort session. A non-Price session (or an absent
-  ///     preference, which IS Price) constructs nothing: the carrier stays empty and
-  ///     every consumer sees null — byte-identical legacy wiring. The policy seeds from
-  ///     the workspace prior (null/corrupt prior => the constant default weight); a
-  ///     resumed session restarts its trust count (no transcript replay). The usage
-  ///     observer records each turn and flushes the prior every 25 turns, fire-and-forget
-  ///     safe. The flush singleton is resolved here so the container tracks it for
-  ///     disposal — the normal-close flush rides container disposal.</summary>
-  private static async Task FillMeasuredMixAsync(ServiceProvider services, SmartSelectionOptions? smartOptions,
-      string workspaceRoot, string providerName, bool resumed, CancellationToken ct)
-  {
-    // An absent preference IS Default, whose sort is Price.
-    SmartSortCriterion sort = smartOptions?.Sort ?? SmartSelectionOptions.Default.Sort;
-    if (sort != SmartSortCriterion.Price)
-    {
-      return;
-    }
-
-    MeasuredMixPriorWriter writer = new(
-        services.GetRequiredService<IStateStore>(),
-        MeasuredMixPrior.StateKey(providerName, workspaceRoot));
-    MeasuredMixPrior? prior = await writer.ReadAsync(ct).ConfigureAwait(false);
-    MeasuredMixPolicy policy = new(prior?.SeedWeight);
-    if (resumed)
-    {
-      // A resumed session re-seeds from the prior and restarts its trust count:
-      // the persisted transcript is never replayed into the policy.
-      policy.ResetTrust();
-    }
-
-    void OnUsage(TokenUsage usage)
-    {
-      policy.Observe(new UsageObservation(usage.InputTokens, usage.OutputTokens));
-      (long totalInput, long totalOutput, int turns) = policy.Totals;
-      if (turns > 0 && turns % 25 == 0)
-      {
-        _ = FlushPriorAsync(writer, totalInput, totalOutput, turns);
-      }
-    }
-
-    Action<TokenUsage> onUsage = OnUsage;
-
-    services.GetRequiredService<MeasuredMixCarrier>().Fill(policy, writer, onUsage);
-    // Force construction so the container disposes it (the session-end flush).
-    _ = services.GetRequiredService<MeasuredMixSessionFlush>();
-  }
-
-  /// <summary>Fire-and-forget checkpoint flush (spec #55 section 4): a store fault is
-  ///     swallowed and never breaks the turn.</summary>
-  private static async Task FlushPriorAsync(MeasuredMixPriorWriter writer, long totalInput, long totalOutput, int turns)
-  {
-#pragma warning disable CA1031 // Do not catch general exception types — best-effort flush per spec #55 section 4.
-    try
-    {
-      await writer.WriteAsync(new MeasuredMixPrior(totalInput, totalOutput, turns, DateTimeOffset.UtcNow))
-          .ConfigureAwait(false);
-    }
-    catch
-    {
-      // Swallowed deliberately: a prior flush must never break the turn.
-    }
-#pragma warning restore CA1031
-  }
   private async Task<(string? Global, string? Workspace)> ReadSessionFilesAsync(
       string workspaceRoot, CancellationToken ct)
   {

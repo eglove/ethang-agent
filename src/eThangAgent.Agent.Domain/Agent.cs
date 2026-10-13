@@ -74,7 +74,6 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
   private readonly ISystemPromptProvider? _systemPrompt = options?.SystemPrompt;
   private readonly IContextMonitor? _contextMonitor = options?.ContextMonitor;
-  private readonly Action<TokenUsage>? _usageObserver = options?.UsageObserver;
   private readonly IContextCompactor? _contextCompactor = options?.ContextCompactor;
   private readonly IAgentHeartbeat? _heartbeat = options?.Heartbeat;
   private readonly IAgentEvents? _events = options?.Events;
@@ -505,7 +504,6 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     long toolChars = request.Tools is null ? 0 : request.Tools.Sum(ToolDefinitionChars);
     _contextMonitor.OnRequestUsage(usage,
         new ContextComposition(systemPromptChars, messageChars, toolChars));
-    _usageObserver?.Invoke(usage);
     callbacks?.OnContextUpdate?.Invoke(new ContextSnapshot(_contextMonitor.Status, _contextMonitor.Breakdown));
   }
 

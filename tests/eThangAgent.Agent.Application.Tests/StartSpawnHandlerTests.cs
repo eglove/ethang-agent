@@ -11,19 +11,6 @@ public class StartSpawnHandlerTests
       new AgentId(Guid.NewGuid()), null, depth, AgentStatus.Completed, null,
       "root-model", "root", "root task", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "root report");
 
-  private sealed class FakeModelSelector(ModelSelectionResult result) : IModelSelector
-  {
-    private readonly ModelSelectionResult _result = result;
-    public Task<Result<ModelSelectionResult>> SelectAsync(SmartSelectionOptions options, bool requireVision, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(_result));
-  }
-
-  private sealed class FailingModelSelector : IModelSelector
-  {
-    public Task<Result<ModelSelectionResult>> SelectAsync(SmartSelectionOptions options, bool requireVision, CancellationToken ct = default)
-        => Task.FromResult(Result.Failure<ModelSelectionResult>(new DomainError("SelectionFailed", "boom")));
-  }
-
   [Fact]
   public async Task Execute_HappyPath_PersistsRunningRecord_StartsRuntime_ReturnsId()
   {
@@ -166,37 +153,6 @@ public class StartSpawnHandlerTests
     Assert.False(result.IsSuccess);
     Assert.Same(saveError, result.Error);
     Assert.Empty(runtime.Started);
-  }
-
-  [Fact]
-  public async Task Execute_NoExplicitModel_NoDefault_SelectorSucceeds_UsesSelectedModel()
-  {
-    FakeAgentStore store = new();
-    FakeAgentRuntime runtime = new();
-    ModelSelectionResult selection = new("anthropic/claude-3.5-sonnet", "Anthropic", "best");
-    FakeModelSelector selector = new(selection);
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel), selector, windowSource: new FixedWindowSource());
-
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"), ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsSuccess);
-    AgentRecord saved = Assert.Single(store.Saved);
-    Assert.Equal("anthropic/claude-3.5-sonnet", saved.ModelUsed);
-  }
-
-  [Fact]
-  public async Task Execute_NoExplicitModel_NoDefault_SelectorFails_FallsBackToAutoRouter()
-  {
-    FakeAgentStore store = new();
-    FakeAgentRuntime runtime = new();
-    FailingModelSelector selector = new();
-    StartSpawnHandler handler = new(store, runtime, new SubAgentOptions(DefaultModel: null), new SpawnOptions(FallbackModel), selector, windowSource: new FixedWindowSource());
-
-    Result<AgentId> result = await handler.Execute(Parent(), new SpawnRequest("write code"), ct: TestContext.Current.CancellationToken);
-
-    Assert.True(result.IsSuccess);
-    AgentRecord saved = Assert.Single(store.Saved);
-    Assert.Equal("openrouter/auto", saved.ModelUsed);
   }
 
   [Fact]

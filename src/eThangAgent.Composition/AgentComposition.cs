@@ -322,15 +322,7 @@ public static class AgentComposition
         .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy())
         ;
 
-    // OpenRouter wires the two-stage intelligent selector; consumers treat a missing
-    // selector as "serve the fallback / preference" (RootAgentResolver, StartSpawnHandler).
     wired = AddModelServices(wired, providerName);
-    if (providerName == Providers.OpenRouter)
-    {
-      wired = wired.AddSingleton<IModelSelector>(sp => new SmartModelSelector(
-          sp.GetRequiredService<IModelCatalog>()));
-    }
-
     wired = wired
         // The workspace anchor scope (worktree ladder, T7): one instance per session
         // container, written by the spawner around an anchored child's run and read
@@ -373,7 +365,6 @@ public static class AgentComposition
                 sp.GetRequiredService<SessionModelPreferences>(),
                 ChildToolSurface: ChildToolSurface(sp),
                 WorkspaceRoot: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
-            sp.GetService<IModelSelector>(),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<IWorktreeProvisioner>(),
             sp.GetRequiredService<IModelCatalog>()))
@@ -525,8 +516,8 @@ public static class AgentComposition
         ]))
         .AddSingleton(subAgents(settings, defaultModel.ModelId))
         // Root agent is built lazily on the first turn (and rebuilt on every model
-        // reselection) by RootAgentHolder; the root is NOT known at container build time
-        // while intelligent selection is active. The holder reuses the shared
+        // change) by RootAgentHolder; the root is NOT known at container build time.
+        // The holder reuses the shared
         // Conversation/provider/tools/system-prompt so a rebuild preserves all message history.
         .AddSingleton<SessionImageInputCapability>()
         // F4 (fix round 5): the registry + provider are PROCESS-level. A host either
@@ -548,11 +539,7 @@ public static class AgentComposition
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.
-            sessionIdSource: () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString(),
-            // Measured-mix observer (spec #55 section 2): the factory fills the carrier
-            // ONLY for a Price-sort session; a non-Price session leaves it empty and the
-            // holder's onUsage is null — byte-identical legacy wiring.
-            onUsage: sp.GetRequiredService<MeasuredMixCarrier>().OnUsage))
+            sessionIdSource: () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString()))
         .AddSingleton(sp => new RootAgentResolver(
             new RootModelContext(
                 sp.GetRequiredService<IAgentStore>(),
@@ -561,9 +548,7 @@ public static class AgentComposition
                 defaultModel.MaxTokens,
                 defaultModel.Temperature,
                 sp.GetRequiredService<IContextWindowSource>(),
-                sp.GetRequiredService<IModelCatalog>(),
-                SmartOptions: () => sp.GetRequiredService<SmartSelectionCarrier>().Current ?? SmartSelectionOptions.Default),
-            sp.GetService<IModelSelector>(),
+                sp.GetRequiredService<IModelCatalog>()),
             sp.GetRequiredService<SessionModelPreferences>()))
         .AddSingleton(sp => new SendMessageCommandHandler(
             agent: null,
@@ -581,21 +566,7 @@ public static class AgentComposition
                       sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)
                       .GetAwaiter().GetResult();
               return status.IsSuccess ? status.Value : [];
-            },
-            // Measured-mix reselection (spec #55 section 1): the coordinator is built
-            // ONLY for a Price-sort session — the factory leaves the carrier empty
-            // otherwise, so a non-Price session's handler gets null and its turn path
-            // is byte-identical to before this seam existed.
-            reselection: sp.GetRequiredService<MeasuredMixCarrier>().Policy is { } measuredMixPolicy
-                ? new DynamicReselectionCoordinator(
-                    sp.GetRequiredService<IModelCatalog>(),
-                    () => sp.GetRequiredService<SmartSelectionCarrier>().Current ?? SmartSelectionOptions.Default,
-                    sp.GetRequiredService<SessionModelPreferences>(),
-                    measuredMixPolicy,
-                    sp.GetRequiredService<IAgentStore>(),
-                    sp.GetRequiredService<RootSessionIdentity>(),
-                    Providers.FallbackModelId(providerName))
-                : null))
+            }))
         .AddSingleton<IConversationContextService>(sp => new ConversationContextServiceAdapter(sp.GetRequiredService<Conversation>()))
         .AddSingleton<RootSessionLifecycle>()
         // Skill-directory config rides EVERY container (skill-routing Phase 1): the
@@ -613,13 +584,6 @@ public static class AgentComposition
             sp.GetRequiredService<VerificationFreshnessSpecification>(),
             settings.VerificationGateEnabled))
         .AddSingleton<SkillDirectoriesCarrier>()
-        .AddSingleton<SmartSelectionCarrier>()
-        // Measured-mix dynamic provider selection (spec #55): the factory fills the
-        // carrier for a Price-sort session only; the root-holder and handler
-        // registrations above read it lazily, and the flush singleton writes the
-        // accumulated prior at container disposal.
-        .AddSingleton<MeasuredMixCarrier>()
-        .AddSingleton(sp => new MeasuredMixSessionFlush(sp.GetRequiredService<MeasuredMixCarrier>()))
         .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)))
         ;
 

@@ -23,7 +23,7 @@ public class CatalogRefreshE2ETests
   [AvaloniaTheory]
   [InlineData(200)]
   [InlineData(503)]
-  public async Task CachedCatalog_RendersImmediately_ThenRefreshesBothSections(int status)
+  public async Task CachedCatalog_RendersImmediately_ThenRefreshesTheModelSection(int status)
   {
     using TestAppDatabase database = TestAppDatabase.Create();
     using MockOpenRouterServer server = new();
@@ -45,7 +45,7 @@ public class CatalogRefreshE2ETests
         services.GetRequiredService<IAgentInbox>(), services.GetRequiredService<IAgentRuntime>());
     MainViewModel shell = await MainViewModel.ForPrebuiltSessionAsync(session);
     ModelSettingsViewModel vm = new(new SessionModelPreferences(), Providers.OpenRouter, _ => { },
-        loadCatalog: shell.SelectedTabCatalogLoader, allowAuto: true, refreshCatalog: shell.SelectedTabCatalogRefresher);
+        loadCatalog: shell.SelectedTabCatalogLoader, refreshCatalog: shell.SelectedTabCatalogRefresher);
     Task load = vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     try
     {
@@ -53,10 +53,8 @@ public class CatalogRefreshE2ETests
       // Drain UI continuations, not elapsed-time polling. HTTP is held until assertions finish.
       await Dispatcher.UIThread.InvokeAsync(() => { });
       Assert.Contains(vm.ModelSection!.FilteredRows, row => row.ModelId == "old/model");
-      Assert.Contains("old/model", vm.SmartSelectionSection!.PreviewText, StringComparison.Ordinal);
       Assert.False(load.IsCompleted);
       vm.ModelSection.SearchText = "model";
-      vm.SmartSelectionSection.MinContextText = "100000";
     }
     finally
     {
@@ -67,7 +65,6 @@ public class CatalogRefreshE2ETests
     {
       Assert.Contains(vm.ModelSection.FilteredRows, row => row.ModelId == "new/model");
       Assert.DoesNotContain(vm.ModelSection.FilteredRows, row => row.ModelId == "old/model");
-      Assert.Contains("new/model", vm.SmartSelectionSection.PreviewText, StringComparison.Ordinal);
       Assert.Null(vm.ModelSection.LoadError);
       Result<ModelCatalogSnapshot> persisted = await store.ReadAsync(key, TestContext.Current.CancellationToken);
       Assert.True(persisted.IsSuccess);
@@ -77,9 +74,7 @@ public class CatalogRefreshE2ETests
     {
       Assert.Contains(vm.ModelSection.FilteredRows, row => row.ModelId == "old/model");
       Assert.Contains("503", vm.ModelSection.LoadError!, StringComparison.Ordinal);
-      Assert.Contains("old/model", vm.SmartSelectionSection.PreviewText, StringComparison.Ordinal);
     }
     Assert.Equal("model", vm.ModelSection.SearchText);
-    Assert.Equal("100000", vm.SmartSelectionSection.MinContextText);
   }
 }

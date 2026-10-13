@@ -6,11 +6,11 @@ namespace eThangAgent.Desktop.Tests;
 
 /// <summary>Grand-plan items 116-117: the Model and Effort rail entries fold into
 ///     the Model Settings window. The window's view-model owns the model choice:
-///     a searchable catalog section (auto row where the provider offers one),
-///     pre-selected from the session's live choice, applied on save through the
-///     snapshot's tri-state model field - unchanged / auto / pinned id. The rail
-///     keeps no per-choice entries: MainWindow exposes neither the model nor the
-///     effort picker anymore, and the settings window is the single surface.</summary>
+///     a searchable catalog section, pre-selected from the session's live choice,
+///     applied on save through the snapshot's tri-state model field - unchanged /
+///     pinned id. The rail keeps no per-choice entries: MainWindow exposes neither
+///     the model nor the effort picker anymore, and the settings window is the
+///     single surface.</summary>
 public class ModelSettingsModelSectionTests
 {
   private static ModelProviderEntry Entry(string modelId) => new(
@@ -25,21 +25,19 @@ public class ModelSettingsModelSectionTests
 
   private const string ProvidersOpenRouter = "openrouter";
 
-  private static SessionModelPreferences Pinned(string modelId) => new() { ModelId = modelId };
-
   [Fact]
   public async Task ModelSection_LoadsCatalog_AndPreservesThePickerContract()
   {
     ModelSettingsViewModel vm = new(
         new SessionModelPreferences(), ProvidersOpenRouter,
         persist: _ => { }, loadCatalog: Loader(Entry("alpha/model"), Entry("zeta/model")),
-        allowAuto: true, currentModelId: "zeta/model");
+        currentModelId: "zeta/model");
 
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     Assert.False(vm.ModelSection!.IsLoading);
     Assert.Null(vm.ModelSection.LoadError);
-    Assert.Equal(["Auto (smart selection)", "alpha/model", "zeta/model"],
+    Assert.Equal(["alpha/model", "zeta/model"],
         vm.ModelSection.FilteredRows.Select(r => r.DisplayName));
     ModelPickerRow? selected = vm.ModelSection.SelectedRow;
     Assert.Equal("zeta/model", selected!.ModelId); // live choice pre-selected
@@ -51,7 +49,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsViewModel vm = new(
         new SessionModelPreferences(), ProvidersOpenRouter,
         persist: _ => { }, loadCatalog: _ => Task.FromResult(Result.Failure<IReadOnlyList<ModelProviderEntry>>(
-            new DomainError("Catalog", "down"))), allowAuto: false, currentModelId: null);
+            new DomainError("Catalog", "down"))), currentModelId: null);
 
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
@@ -65,7 +63,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsSnapshot? received = null;
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
-        loadCatalog: Loader(Entry("alpha/model")), allowAuto: true, currentModelId: "alpha/model");
+        loadCatalog: Loader(Entry("alpha/model")), currentModelId: "alpha/model");
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
 
     bool saved = vm.TrySave(out string? error);
@@ -84,7 +82,7 @@ public class ModelSettingsModelSectionTests
     ModelSettingsSnapshot? received = null;
     ModelSettingsViewModel vm = new(
         live, ProvidersOpenRouter, persist: s => received = s,
-        loadCatalog: Loader(Entry("alpha/model"), Entry("beta/model")), allowAuto: true,
+        loadCatalog: Loader(Entry("alpha/model"), Entry("beta/model")),
         currentModelId: "alpha/model");
     await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
     vm.ModelSection!.SelectedRow = vm.ModelSection.FilteredRows.First(r => r.ModelId == "beta/model");
@@ -98,25 +96,6 @@ public class ModelSettingsModelSectionTests
     Assert.Equal("beta/model", live.ModelId); // applied to the live preferences
   }
 
-  [Fact]
-  public async Task Save_WithAutoChoice_ClearsThePinnedId()
-  {
-    SessionModelPreferences live = Pinned("alpha/model");
-    ModelSettingsSnapshot? received = null;
-    ModelSettingsViewModel vm = new(
-        live, ProvidersOpenRouter, persist: s => received = s,
-        loadCatalog: Loader(Entry("alpha/model")), allowAuto: true, currentModelId: "alpha/model");
-    await vm.LoadModelCatalogAsync(TestContext.Current.CancellationToken);
-    vm.ModelSection!.SelectedRow = ModelPickerViewModel.AutoRow;
-
-    bool saved = vm.TrySave(out string? error);
-
-    Assert.True(saved, error ?? "no error");
-    Assert.NotNull(received!.Model);
-    Assert.Equal(ModelChoiceKind.Auto, received.Model.Kind);
-    Assert.Null(received.Model.ModelId);
-    Assert.Null(live.ModelId); // auto resets the session to automatic choice
-  }
   [Theory]
   [InlineData(false)]
   [InlineData(true)]
@@ -126,7 +105,7 @@ public class ModelSettingsModelSectionTests
     TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     ModelSettingsSnapshot? saved = null;
     ModelSettingsViewModel vm = new(new SessionModelPreferences(), ProvidersOpenRouter, s => saved = s,
-        loadCatalog: Loader(Entry("alpha/model"), Entry("beta/model")), allowAuto: true,
+        loadCatalog: Loader(Entry("alpha/model"), Entry("beta/model")),
         currentModelId: "alpha/model", refreshCatalog: ct =>
         {
           _ = ready.TrySetResult();

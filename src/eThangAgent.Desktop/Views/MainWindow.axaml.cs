@@ -3,7 +3,6 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
-using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain.Mcp;
@@ -141,17 +140,13 @@ internal partial class MainWindow : Window
       return; // host composed the session without model preferences — nothing to edit
     }
 
-    bool allowAuto = string.Equals(
-        tab.Container.ProviderName, Providers.OpenRouter, StringComparison.Ordinal);
     ModelSettingsViewModel vm = new(
         preferences,
         tab.Container.ProviderName,
         persist: snapshot => _ = _vm.ApplySamplingSettingsAsync(snapshot),
         await _vm.ReadSamplingPrefsForSelectedTabAsync(),
         loadCatalog: _vm.SelectedTabCatalogLoader,
-        allowAuto,
         currentModelId: preferences.ModelId,
-        persistedSmartOptions: await _vm.ReadSmartSelectionForSelectedTabAsync(),
         refreshCatalog: _vm.SelectedTabCatalogRefresher);
     ModelSettingsWindow dialog = new(vm);
     _ = await dialog.ShowDialog<ModelSettingsSnapshot?>(this);

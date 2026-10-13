@@ -18,19 +18,12 @@ internal sealed class RecordingLifecycle(IAgentStore store) : RootSessionLifecyc
 {
   public int _exchanges;
   public int _replacements;
-  public int _pinClears;
 
   public override Task AppendExchangeAsync(
       AgentId rootId, Conversation conversation, int messageCountBefore,
       Result<string> result, Action<string> reportError)
   {
     _exchanges++;
-    return Task.CompletedTask;
-  }
-
-  public override Task ClearModelPinAsync(AgentId rootId, Action<string> reportError)
-  {
-    _pinClears++;
     return Task.CompletedTask;
   }
 
@@ -209,29 +202,26 @@ public class AgentSessionViewModelTests
   }
 
   // ── 5. Model picker choice ────────────────────────────────────────────────
-
   [Fact]
-  public async Task ApplyModelChoice_Pins_Session_Model_Updates_Status_And_Announces()
+  public void ApplyModelChoice_Pins_Session_Model_Updates_Status_And_Announces()
   {
     SessionModelPreferences preferences = new();
-    RecordingLifecycle lifecycle = new(new StubStore());
     AgentSessionViewModel vm = new(
         (_, _, _, _) => Task.FromResult(Result.Success("")),
-        lifecycle, AgentId.NewId(), new Conversation(),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
-    await vm.ApplyModelChoiceAsync("anthropic/claude");
+    vm.ApplyModelChoice("anthropic/claude");
 
     Assert.Equal("anthropic/claude", preferences.ModelId);
     Assert.Equal("anthropic/claude", vm.Status.ModelId);
-    Assert.Equal(0, lifecycle._pinClears); // an explicit pick never clears the pin
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
     Assert.Contains("anthropic/claude", notice.Text, StringComparison.Ordinal);
     Assert.Contains("next turn", notice.Text, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task ApplyModelChoice_Auto_Clears_Choice_And_Restores_Session_Default()
+  public void ApplyModelChoice_Default_Clears_Choice_And_Restores_Session_Default()
   {
     SessionModelPreferences preferences = new() { ModelId = "anthropic/claude" };
     AgentSessionViewModel vm = new(
@@ -239,46 +229,29 @@ public class AgentSessionViewModelTests
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
 
-    await vm.ApplyModelChoiceAsync(null);
+    vm.ApplyModelChoice(null);
 
     Assert.Null(preferences.ModelId);
     Assert.Equal("openrouter/auto", vm.Status.ModelId); // the session's bootstrap model
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
-    Assert.Contains("automatic", notice.Text, StringComparison.Ordinal);
+    Assert.Contains("session default", notice.Text, StringComparison.Ordinal);
   }
 
   [Fact]
-  public async Task ApplyModelChoice_Auto_Clears_The_Persisted_Pin()
-  {
-    // The bug: picking Auto cleared only the preference, never the session pin, so the
-    // next turn served the old pinned model and smart selection never ran. Auto must
-    // clear the persisted ModelUsed pin so resolution falls through to selection.
-    SessionModelPreferences preferences = new() { ModelId = "anthropic/claude" };
-    RecordingLifecycle lifecycle = new(new StubStore());
-    AgentSessionViewModel vm = new(
-        (_, _, _, _) => Task.FromResult(Result.Success("")),
-        lifecycle, AgentId.NewId(), new Conversation(),
-        "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
-
-    await vm.ApplyModelChoiceAsync(null);
-
-    Assert.Equal(1, lifecycle._pinClears);
-  }
-
-  [Fact]
-  public async Task ApplyModelChoice_Without_Preferences_Notices_Unavailable()
+  public void ApplyModelChoice_Without_Preferences_Notices_Unavailable()
   {
     AgentSessionViewModel vm = new(
         (_, _, _, _) => Task.FromResult(Result.Success("")),
         new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
         "OpenRouter", "test/model", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo" });
 
-    await vm.ApplyModelChoiceAsync("anthropic/claude");
+    vm.ApplyModelChoice("anthropic/claude");
 
     Assert.Equal("test/model", vm.Status.ModelId); // untouched
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
     Assert.Contains("unavailable", notice.Text, StringComparison.Ordinal);
   }
+
 
   // ── 6. Effort picker choice ───────────────────────────────────────────────
 

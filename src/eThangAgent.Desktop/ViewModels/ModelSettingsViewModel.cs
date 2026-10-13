@@ -22,8 +22,6 @@ namespace eThangAgent.Desktop.ViewModels;
 ///     same constants as <see cref="ModelSettingsViewModel.Knobs"/>.</param>
 /// <param name="ProviderSettingsJson">The serialized OpenRouter section, or null
 ///     when hidden or all-default.</param>
-/// <param name="SmartSelectionJson">The serialized smart-selection options, or null
-///     when hidden or all-default.</param>
 /// <param name="Model">The tri-state model choice the save carries. Null (the
 ///     default) means Unchanged — legacy callers that never touch the model
 ///     section keep the shell's model persistence untouched.</param>
@@ -31,7 +29,6 @@ internal sealed record ModelSettingsSnapshot(
   SessionModelPreferences Preferences,
   IReadOnlyDictionary<string, string> KnobTexts,
   string? ProviderSettingsJson,
-  string? SmartSelectionJson = null,
   ModelSettingsViewModel.ModelChoice? Model = null);
 
 /// <summary>One selectable row of a fixed-vocabulary setting: the display label the
@@ -560,12 +557,10 @@ internal sealed class ToolToggleRow
 ///     validation).</summary>
 /// <summary>The tri-state model choice a save carries: the user did not touch
 ///     the model section (unchanged - the shell's existing model persistence is
-///     untouched), chose the auto row (the pinned choice clears - automatic
-///     resolution applies from the next turn), or pinned a concrete model id.</summary>
+///     untouched) or pinned a concrete model id.</summary>
 internal enum ModelChoiceKind
 {
   Unchanged,
-  Auto,
   Pinned,
 }
 
@@ -573,12 +568,10 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
 {
   /// <summary>The model section's choice state, tri-state at save time: the user
   ///     never touched the list (Unchanged - the shell's model persistence is
-  ///     untouched), chose the auto row (Auto), or pinned a concrete model id
-  ///     (Pinned, carrying the id).</summary>
+  ///     untouched) or pinned a concrete model id (Pinned, carrying the id).</summary>
   internal sealed record ModelChoice(ModelChoiceKind Kind, string? ModelId)
   {
     public static readonly ModelChoice Unchanged = new(ModelChoiceKind.Unchanged, null);
-    public static readonly ModelChoice Auto = new(ModelChoiceKind.Auto, null);
     public static ModelChoice Pinned(string modelId) => new(ModelChoiceKind.Pinned, modelId);
   }
   // Knob name constants — the single vocabulary shared by tests, the AXAML keys,
@@ -628,11 +621,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     the section then never renders and saves always carry Unchanged.</summary>
   public ModelPickerViewModel? ModelSection { get; }
 
-  /// <summary>The smart-selection editor: constraints, sort, and the live preview.
-  /// Null on non-OpenRouter sessions (and when the host supplies no catalog loader
-  /// the section still renders - the preview degrades to its unavailable line).</summary>
-  public SmartSelectionSection? SmartSelectionSection { get; }
-
   /// <summary>Loads the catalog for the embedded model section (delegates to the
   ///     picker view-model's own load). A no-op when there is no section.</summary>
   public async Task LoadModelCatalogAsync(CancellationToken ct = default)
@@ -646,11 +634,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     {
       await ModelSection.LoadAsync();
       _preselectedRow = ModelSection.SelectedRow;
-    }
-
-    if (SmartSelectionSection is not null)
-    {
-      await SmartSelectionSection.LoadAsync(CancellationToken.None).ConfigureAwait(true);
     }
 
     if (_refreshCatalog is not null)
@@ -678,7 +661,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       {
         _preselectedRow = ModelSection?.SelectedRow;
       }
-      SmartSelectionSection?.ApplyRefresh(refreshed);
     }
   }
 
@@ -756,9 +738,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       Action<ModelSettingsSnapshot> persist,
       IReadOnlyDictionary<string, string>? persistedKnobTexts = null,
       Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? loadCatalog = null,
-      bool allowAuto = false,
       string? currentModelId = null,
-      SmartSelectionOptions? persistedSmartOptions = null,
       Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? refreshCatalog = null)
   {
     ArgumentNullException.ThrowIfNull(current);
@@ -830,10 +810,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     SaveCommand = new RelayCommand(Save, () => CanSave);
     ModelSection = loadCatalog is null
         ? null
-        : new ModelPickerViewModel(loadCatalog, allowAuto, currentModelId);
-    SmartSelectionSection = IsOpenRouter
-        ? new SmartSelectionSection(loadCatalog, persistedSmartOptions)
-        : null;
+        : new ModelPickerViewModel(loadCatalog, currentModelId);
   }
 
   /// <summary>Parses the persisted provider settings for the section prefill.
@@ -904,13 +881,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       return ModelChoice.Unchanged; // nothing picked — the shell's model state is untouched
     }
 
-    if (ReferenceEquals(row, ModelPickerViewModel.AutoRow))
-    {
-      return ReferenceEquals(_preselectedRow, ModelPickerViewModel.AutoRow)
-          ? ModelChoice.Unchanged // opened on auto, still on auto
-          : ModelChoice.Auto;     // a pinned choice cleared to auto
-    }
-
     return ReferenceEquals(row, _preselectedRow)
         ? ModelChoice.Unchanged // opened on this model, still on it
         : ModelChoice.Pinned(row.ModelId!);
@@ -938,13 +908,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
 
     string? serialized = ShowOpenRouterSection ? SerializeSectionOrNull() : null;
     _live.ProviderSettings = serialized;
-    string? smartJson = null;
-    if (ShowOpenRouterSection && SmartSelectionSection is { } section)
-    {
-      SmartSelectionOptions draft = section.BuildOptions();
-      smartJson = IsAllDefault(draft) ? null : draft.ToJson();
-    }
-    ModelSettingsSnapshot snapshot = new(_live, KnobTexts(), serialized, smartJson, modelChoice);
+    ModelSettingsSnapshot snapshot = new(_live, KnobTexts(), serialized, modelChoice);
     _persist(snapshot);
     SettingsSaved?.Invoke(this, snapshot);
     return true;
@@ -961,11 +925,6 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     string? serialized = IsAllDefault(settings) ? null : OpenRouterRequestSettings.Serialize(settings);
     return serialized;
   }
-
-  private static bool IsAllDefault(SmartSelectionOptions o)
-      => o.MaxInputPerM is null && o.MaxOutputPerM is null && o.MinIntelligence is null
-      && o.MinCoding is null && o.MinAgentic is null && o.MinContextWindow is null
-      && o.Sort == SmartSortCriterion.Price;
 
   private static bool IsAllDefault(OpenRouterRequestSettings settings)
       => settings.Routing == new Routing() && settings.ServerTools == new ServerTools() && settings.Plugins == new Plugins();
@@ -1145,151 +1104,4 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   };
 
   private const string ProvidersOpenRouter = "openrouter";
-}
-
-/// <summary>The smart-selection editor: six nullable constraint fields, the sort
-/// dropdown, and the live preview recomputed on every field change over the
-/// window's fetched catalog (requireVision false - the general fresh-session case).
-/// Owns no persistence - the save path reads BuildOptions().</summary>
-// Named deviation (IDE0290): a primary constructor cannot prefill [ObservableProperty] partial
-// properties (their generated backing fields live in the generator's half); the manual constructor
-// is the only form that prefills from the persisted options.
-#pragma warning disable IDE0290 // Use primary constructor
-internal sealed partial class SmartSelectionSection : ObservableObject
-#pragma warning restore IDE0290 // Use primary constructor
-{
-  private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? _loadCatalog;
-
-  private static readonly string[] SortChoicesField = ["Price", "Intelligence", "Coding", "Agentic"];
-
-  private IReadOnlyList<ModelProviderEntry>? _entries;
-  private bool _loadFailed;
-
-#pragma warning disable IDE0290 // Use primary constructor - a primary constructor cannot prefill [ObservableProperty] partial properties (their generated backing fields live in the generator's half)
-  public SmartSelectionSection(
-      Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? loadCatalog,
-      SmartSelectionOptions? persisted)
-  {
-    _loadCatalog = loadCatalog;
-    MaxInputText = persisted?.MaxInputPerM is { } mi ? mi.ToString(CultureInfo.InvariantCulture) : string.Empty;
-    MaxOutputText = persisted?.MaxOutputPerM is { } mo ? mo.ToString(CultureInfo.InvariantCulture) : string.Empty;
-    MinIntelligenceText = persisted?.MinIntelligence is { } m1 ? m1.ToString(CultureInfo.InvariantCulture) : string.Empty;
-    MinCodingText = persisted?.MinCoding is { } m2 ? m2.ToString(CultureInfo.InvariantCulture) : string.Empty;
-    MinAgenticText = persisted?.MinAgentic is { } m3 ? m3.ToString(CultureInfo.InvariantCulture) : string.Empty;
-    MinContextText = persisted?.MinContextWindow is { } m4 ? m4.ToString(CultureInfo.InvariantCulture) : string.Empty;
-    SortChoice = persisted?.Sort.ToString() ?? "Price";
-  }
-#pragma warning restore IDE0290 // Use primary constructor
-
-  /// <summary>The sort rows (the window's ItemsSource).</summary>
-  public static IReadOnlyList<string> SortChoices => SortChoicesField;
-
-  [ObservableProperty]
-  public partial string MaxInputText { get; set; }
-
-  [ObservableProperty]
-  public partial string MaxOutputText { get; set; }
-
-  [ObservableProperty]
-  public partial string MinIntelligenceText { get; set; }
-
-  [ObservableProperty]
-  public partial string MinCodingText { get; set; }
-
-  [ObservableProperty]
-  public partial string MinAgenticText { get; set; }
-
-  [ObservableProperty]
-  public partial string MinContextText { get; set; }
-
-  [ObservableProperty]
-  public partial string SortChoice { get; set; }
-
-  [ObservableProperty]
-  public partial string PreviewText { get; set; } = string.Empty;
-
-  [ObservableProperty]
-  public partial bool PreviewVisible { get; set; }
-
-  partial void OnMaxInputTextChanged(string value) => RecomputePreview();
-
-  partial void OnMaxOutputTextChanged(string value) => RecomputePreview();
-
-  partial void OnMinIntelligenceTextChanged(string value) => RecomputePreview();
-
-  partial void OnMinCodingTextChanged(string value) => RecomputePreview();
-
-  partial void OnMinAgenticTextChanged(string value) => RecomputePreview();
-
-  partial void OnMinContextTextChanged(string value) => RecomputePreview();
-
-  partial void OnSortChoiceChanged(string value) => RecomputePreview();
-
-  /// <summary>Recomputes the preview from the current draft. Called on every field
-  /// change and after the catalog lands.</summary>
-  public void RecomputePreview()
-  {
-    if (_loadFailed || _entries is null)
-    {
-      PreviewText = _loadCatalog is null
-          ? string.Empty
-          : "catalog unavailable - preview needs the model list";
-      PreviewVisible = _loadCatalog is not null;
-      return;
-    }
-
-    SmartSelectionOptions draft = BuildOptions();
-    Result<ModelSelectionResult> result = SmartModelSelectorCore.Select(_entries, draft, requireVision: false);
-    (PreviewText, PreviewVisible) = result.IsSuccess
-        ? ($"\u2192 {result.Value.ModelId} via {result.Value.ProviderName} - {result.Value.Reasoning}", true)
-        : ("no model qualifies - openrouter/auto would serve", true);
-  }
-
-  /// <summary>The draft options from the current field texts (empty = null).</summary>
-  public SmartSelectionOptions BuildOptions()
-  {
-    decimal? maxIn = ParseDecimal(MaxInputText);
-    decimal? maxOut = ParseDecimal(MaxOutputText);
-    double? minI = ParseDouble(MinIntelligenceText);
-    double? minC = ParseDouble(MinCodingText);
-    double? minA = ParseDouble(MinAgenticText);
-    int? minCtx = ParseInt(MinContextText);
-    _ = Enum.TryParse(SortChoice, ignoreCase: true, out SmartSortCriterion sort);
-    return new SmartSelectionOptions(maxIn, maxOut, minI, minC, minA, minCtx, sort);
-  }
-
-  /// <summary>Fetches the catalog (once per window open; the loader caches) and
-  /// recomputes the preview. A failure degrades the preview to its unavailable
-  /// line - never a crash.</summary>
-  public async Task LoadAsync(CancellationToken ct)
-  {
-    if (_loadCatalog is null)
-    {
-      return;
-    }
-
-    Result<IReadOnlyList<ModelProviderEntry>> entries = await _loadCatalog(ct).ConfigureAwait(true);
-    _entries = entries.IsSuccess ? entries.Value : null;
-    _loadFailed = !entries.IsSuccess;
-    RecomputePreview();
-  }
-
-  internal void ApplyRefresh(Result<IReadOnlyList<ModelProviderEntry>> result)
-  {
-    if (result.IsSuccess)
-    {
-      _entries = result.Value;
-      _loadFailed = false;
-      RecomputePreview();
-    }
-  }
-
-  private static decimal? ParseDecimal(string text)
-      => decimal.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out decimal v) ? v : null;
-
-  private static double? ParseDouble(string text)
-      => double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) ? v : null;
-
-  private static int? ParseInt(string text)
-      => int.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out int v) ? v : null;
 }

@@ -11,11 +11,10 @@ namespace eThangAgent.Agent.Application;
 ///     rule (validated against the parent's effective root, resolved path persisted on the contract),
 ///     and spawn-time worktree isolation (an IsolateInWorktree request is provisioned a fresh worktree
 ///     and anchored at it). When no explicit model is
-///     provided and no session model preference is set, an available IModelSelector runs
-///     intelligent model selection; the chain falls back to the host-injected
-///     <see cref="SpawnOptions.FallbackModelId"/> on any selection failure.</summary>
+///     provided and no session model preference or configured default is set, the
+///     host-injected <see cref="SpawnOptions.FallbackModelId"/> serves.</summary>
 public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, SubAgentOptions options,
-    SpawnOptions spawn, IModelSelector? modelSelector = null, IContextWindowSource? windowSource = null,
+    SpawnOptions spawn, IContextWindowSource? windowSource = null,
     IWorktreeProvisioner? worktrees = null, IModelCatalog? catalog = null)
     : IAgentSpawnCommand
 {
@@ -23,7 +22,6 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
   private readonly IAgentStore _store = store ?? throw new ArgumentNullException(nameof(store));
   private readonly IAgentRuntime _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
   private readonly SubAgentOptions _options = options ?? throw new ArgumentNullException(nameof(options));
-  private readonly IModelSelector? _modelSelector = modelSelector;
   private readonly IContextWindowSource? _windowSource = windowSource;
   private readonly IWorktreeProvisioner? _worktrees = worktrees;
   private readonly IModelCatalog? _catalog = catalog;
@@ -275,27 +273,7 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
       return await CreateAsync(_options.DefaultModel, null, ct).ConfigureAwait(false);
     }
 
-    // 4. Intelligent selection when a selector is available; a selection whose model
-    //    has no window falls through to the fallback (same chain as selection failure).
-    if (_modelSelector is not null)
-    {
-      SmartSelectionOptions smartOptions = _spawn.SmartOptions?.Invoke() ?? SmartSelectionOptions.Default;
-      Result<ModelSelectionResult> selection = await _modelSelector.SelectAsync(smartOptions, requireVision: false, ct).ConfigureAwait(false);
-      if (selection.IsSuccess)
-      {
-        int? selectedWindow = _windowSource is null
-            ? null
-            : await _windowSource.WindowForAsync(selection.Value.ModelId, selection.Value.ProviderName, ct).ConfigureAwait(false);
-        if (selectedWindow is { } selected)
-        {
-          return ModelConfig.Create(selection.Value.ModelId, selection.Value.ProviderName,
-              _spawn.MaxTokens, _spawn.Temperature, selected,
-              acceptsImageInput: await AcceptsImagesAsync(selection.Value.ModelId, selection.Value.ProviderName, ct).ConfigureAwait(false));
-        }
-      }
-    }
-
-    // 5. Fallback to the host-injected fallback model.
+    // 4. Fallback to the host-injected fallback model.
     return await CreateAsync(_fallbackModelId, null, ct).ConfigureAwait(false);
   }
 

@@ -113,10 +113,9 @@ public class CompositionGuardTests
   }
 
   [Fact]
-  public void OpenRouterSession_WiresTheModelSelector()
+  public void OpenRouterSession_ResolvesTheRootResolver()
   {
-    // OpenRouter wires the two-stage automatic selector. Consumers taking an
-    // optional selector must still resolve on a container with one.
+    // The resolver wiring resolves lazily: a container build must not throw.
     using TestAppDatabase db = TestAppDatabase.Create();
     using ServiceProvider openRouterServices = new ServiceCollection()
     .AddEThangAgentCore(Settings(), Providers.OpenRouter,
@@ -125,15 +124,7 @@ public class CompositionGuardTests
             new FixedWorkspaceContext("app"), new UnrootedPathResolver()), db.Database)
     .BuildServiceProvider();
 
-    Assert.NotNull(openRouterServices.GetRequiredService<IModelSelector>());
-
-    // The smart-selection carrier resolves and starts unfilled (the factory fills it;
-    // a direct container build here skips that phase - Default options apply).
-    SmartSelectionCarrier carrier = openRouterServices.GetRequiredService<SmartSelectionCarrier>();
-    Assert.Null(carrier.Current);
-
-    // The resolver wiring resolves the carrier lazily: a resolution must not throw.
-    _ = openRouterServices.GetRequiredService<RootAgentResolver>();
+    Assert.NotNull(openRouterServices.GetRequiredService<RootAgentResolver>());
   }
 
   [Fact]

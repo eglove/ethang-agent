@@ -19,5 +19,4 @@ public sealed record RootModelContext(
     int MaxTokens,
     float Temperature,
     IContextWindowSource? WindowSource,
-    IModelCatalog? Catalog = null,
-    Func<SmartSelectionOptions>? SmartOptions = null);
+    IModelCatalog? Catalog = null);

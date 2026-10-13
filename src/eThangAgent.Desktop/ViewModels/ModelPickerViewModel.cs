@@ -6,31 +6,23 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop.ViewModels;
 
-/// <summary>The model confirmed in the model picker. Null <see cref="ModelId"/> means
-///     "auto choice" — the session returns to its normal resolution (intelligent
-///     selection on OpenRouter, the provider default on z.ai). (A cancelled dialog
-///     closes with no result at all, so unchanged-vs-auto never collides.)</summary>
+/// <summary>The model confirmed in the model picker: a concrete model id. (A cancelled
+///     dialog closes with no result at all.)</summary>
 internal sealed record ModelChoice(string? ModelId);
 
 /// <summary>One choosable row of the model picker: a concrete model (deduped across the
-///     catalog's provider endpoints, represented by the cheapest pricing) or the pinned
-///     auto pseudo-row (<see cref="ModelId"/> null, offered only where the provider has
-///     an automatic resolution).</summary>
+///     catalog's provider endpoints, represented by the cheapest pricing).</summary>
 internal sealed record ModelPickerRow(string? ModelId, string DisplayName, string Detail);
 
 /// <summary>View-model behind the model picker: a searchable, deduped list of the open
-///     session's provider catalog plus the optional auto row. Pure state and commands;
+///     session's provider catalog. Pure state and commands;
 ///     window closing and applying the choice belong to the caller. The catalog load
 ///     runs off the UI thread and populates the rows when it lands — the first open per
 ///     session can take seconds (OpenRouter crawls per-model endpoints), so the list
 ///     stays in loading state until then.</summary>
 internal sealed partial class ModelPickerViewModel : ObservableObject
 {
-  internal static readonly ModelPickerRow AutoRow =
-      new(null, "Auto (smart selection)", "Picks the best model under your smart selection settings");
-
   private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> _loadCatalog;
-  private readonly bool _allowAuto;
   private readonly string? _currentModelId;
   private IReadOnlyList<ModelPickerRow> ModelRows { get; set; } = [];
   private IReadOnlyList<ModelPickerRow> FilteredRowsList { get; set; } = [];
@@ -59,8 +51,8 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   [NotifyCanExecuteChangedFor(nameof(ConfirmCommand))]
   public partial ModelPickerRow? SelectedRow { get; set; }
 
-  /// <summary>The auto row (pinned first, never filtered out) followed by the models
-  ///     matching the search text, case-insensitive on the model id. The list identity
+  /// <summary>The models matching the search text, case-insensitive on the model id.
+  ///     The list identity
   ///     is STABLE between rebuilds: <see cref="SelectedRow"/> deliberately does not
   ///     raise it — swapping ItemsSource on every selection change would reset the
   ///     ListBox mid-click, lose the row the user just picked, and write a stale
@@ -72,11 +64,6 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
   {
     string needle = SearchText.Trim();
     List<ModelPickerRow> rows = [];
-    if (_allowAuto)
-    {
-      rows.Add(AutoRow);
-    }
-
     rows.AddRange(needle.Length == 0
         ? ModelRows
         : ModelRows.Where(r => r.ModelId!.Contains(needle, StringComparison.OrdinalIgnoreCase)));
@@ -86,17 +73,13 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
 
   /// <param name="loadCatalog">Loads the open session's provider catalog (UI thread
   ///     escape handled here — the delegate itself may block on HTTP).</param>
-  /// <param name="allowAuto">Whether the auto pseudo-row is offered (OpenRouter only —
-  ///     z.ai has no automatic resolution, so its list is just the static lineup).</param>
-  /// <param name="currentModelId">The session's live model choice to pre-select (null
-  ///     pre-selects the auto row when offered, nothing otherwise).</param>
+  /// <param name="currentModelId">The session's live model choice to pre-select
+  ///     (null pre-selects nothing).</param>
   public ModelPickerViewModel(
       Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>> loadCatalog,
-      bool allowAuto,
       string? currentModelId)
   {
     _loadCatalog = loadCatalog ?? throw new ArgumentNullException(nameof(loadCatalog));
-    _allowAuto = allowAuto;
     _currentModelId = currentModelId;
 
     // The command exists before the observable properties: setting those raises the
@@ -142,9 +125,8 @@ internal sealed partial class ModelPickerViewModel : ObservableObject
 
       ModelRows = BuildRows(catalog.Value);
       RebuildFilteredRows();
-      // Pre-select the session's live choice; otherwise the auto row when offered.
-      SelectedRow = FilteredRows.FirstOrDefault(r => r.ModelId == _currentModelId)
-          ?? (_allowAuto ? AutoRow : null);
+      // Pre-select the session's live choice, when it is in the list.
+      SelectedRow = FilteredRows.FirstOrDefault(r => r.ModelId == _currentModelId);
     }
     catch (Exception ex)
     {

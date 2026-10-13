@@ -60,36 +60,6 @@ public class RootSessionLifecycle(IAgentStore store)
     }
   }
 
-  /// <summary>Clears the session's persisted model pin (ModelUsed -> the unassigned
-  ///     sentinel) so the next turn's resolution falls through to smart selection. The
-  ///     Auto model choice calls this: without it a prior pin keeps serving and selection
-  ///     never runs. An already-unassigned pin is a no-op (no write). Failures surface via
-  ///     reportError; the session continues.</summary>
-  public virtual async Task ClearModelPinAsync(AgentId rootId, Action<string> reportError)
-  {
-    ArgumentNullException.ThrowIfNull(reportError);
-    Result<AgentRecord> record = await store.GetAsync(rootId).ConfigureAwait(false);
-    if (!record.IsSuccess)
-    {
-      reportError($"Error [{record.Error.Code}]: {record.Error.Message}");
-      return;
-    }
-
-    if (record.Value.ModelUsed == AgentRecord.UnassignedModel)
-    {
-      return;
-    }
-
-    Result<string> updated = await store.UpdateAsync(record.Value with
-    {
-      ModelUsed = AgentRecord.UnassignedModel,
-    }).ConfigureAwait(false);
-    if (!updated.IsSuccess)
-    {
-      reportError($"Error [{updated.Error.Code}]: {updated.Error.Message}");
-    }
-  }
-
   public virtual async Task CompleteAsync(AgentId rootId, Action<string> reportError)
   {
     ArgumentNullException.ThrowIfNull(reportError);
