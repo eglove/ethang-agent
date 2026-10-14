@@ -51,6 +51,15 @@ internal sealed record AgentSessionViewModelOptions
   ///     stubs without the skill catalog).</summary>
   public Func<IReadOnlyList<SkillOption>>? SkillCatalogSource { get; init; }
 
+  /// <summary>The session's child-event stream: the split view's subagent accordion
+  ///     subscribes to it (started adds rows, progress updates phases, settled marks
+  ///     done). Null = the panel attaches nothing (headless stubs).</summary>
+  public IAgentEvents? ChildEvents { get; init; }
+
+  /// <summary>The session's agent store: the subagent rows poll child transcripts
+  ///     from it for the realtime view. Null = rows render events only.</summary>
+  public IAgentStore? AgentStore { get; init; }
+
   /// <summary>The session's rendered system prompt, shown verbatim (collapsed) in the
   ///     bootstrap entry so nothing the agent receives is hidden. Empty = nothing to
   ///     surface (headless stubs); production always passes the session's prompt.</summary>
@@ -186,6 +195,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     source (headless stubs); the view routes keys only while it is open.</summary>
   public SkillAutocompleteViewModel? Autocomplete { get; }
 
+  /// <summary>The split view's subagent accordion (right column): rows arrive by
+  ///     subscription to the session's child-event stream, transcripts poll the
+  ///     store. Always constructed; visible only while rows exist.</summary>
+  public SubagentPanelViewModel Subagents { get; }
+
   /// <summary>Feeds the popup from the input box's current text; the view calls
   ///     this on every input change.</summary>
   public void UpdateAutocomplete(string input) => Autocomplete?.Update(input);
@@ -234,6 +248,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Autocomplete = options.SkillCatalogSource is null ? null : new SkillAutocompleteViewModel(options.SkillCatalogSource);
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
+    // Split view (subagent accordion): the panel subscribes to the session's child
+    // event stream; the shell marshals event mutations onto the UI thread.
+    Subagents = new SubagentPanelViewModel(options.AgentStore);
+    Subagents.Attach(options.ChildEvents);
     // Grand-plan "show initial bootstrap/context at start of session": the first
     // transcript line states what the session runs under (transient, never a
     // conversation message). Resume replays persisted history after it.

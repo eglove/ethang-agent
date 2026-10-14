@@ -224,8 +224,6 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public IRelayCommand ChooseModelSettingsCommand { get; }
 
-  public IRelayCommand OpenLinksCommand { get; }
-
   public IRelayCommand OpenMcpServersCommand { get; }
 
   /// <summary>Raised when the shell wants the new-agent dialog shown.</summary>
@@ -239,9 +237,6 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Raised when the shell wants the selected tab's Model Settings window shown.</summary>
   public event EventHandler? ModelSettingsRequested;
-
-  /// <summary>Raised when the shell wants the selected tab's Links dialog shown.</summary>
-  public event EventHandler? LinksRequested;
 
   /// <summary>Raised when the shell wants the MCP servers dialog shown (issue #106).</summary>
   public event EventHandler? McpServersRequested;
@@ -295,9 +290,6 @@ internal sealed partial class MainViewModel : ObservableObject
     ChooseModelSettingsCommand = new RelayCommand(
         () => ModelSettingsRequested?.Invoke(this, EventArgs.Empty),
         () => HasSelectedTab);
-    OpenLinksCommand = new RelayCommand(
-        () => LinksRequested?.Invoke(this, EventArgs.Empty),
-        () => HasSelectedTab);
     OpenMcpServersCommand = new RelayCommand(
         () => McpServersRequested?.Invoke(this, EventArgs.Empty),
         () => HasSelectedTab);
@@ -333,7 +325,6 @@ internal sealed partial class MainViewModel : ObservableObject
   partial void OnSelectedTabChanged(AgentTabViewModel? value)
   {
     ChooseModelSettingsCommand.NotifyCanExecuteChanged();
-    OpenLinksCommand.NotifyCanExecuteChanged();
     OpenMcpServersCommand.NotifyCanExecuteChanged();
 
     // Keep-alive tabs: every open tab's view stays built; IsSelected toggles the
@@ -989,6 +980,8 @@ internal sealed partial class MainViewModel : ObservableObject
           SkillCatalogSource = session.SkillInvocation is null
               ? null
               : () => SkillOptionsOf(session),
+          ChildEvents = session.Services.GetService<IAgentEvents>(),
+          AgentStore = session.Services.GetService<IAgentStore>(),
         });
     sessionVmRef = sessionVm;
 
@@ -1083,24 +1076,6 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     shared store (the dialog is then not shown).</summary>
   public Func<CancellationToken, Task<Result<IReadOnlyList<SessionCatalogEntry>>>>? SessionCatalogLoader
       => _sessionCatalog is null ? null : ct => _sessionCatalog.ListAsync(ct);
-
-  /// <summary>The selected tab's link registry — the consent object the Links dialog
-  ///     links through and the SAME object the session's capability provider resolves
-  ///     agent.route names through, so a link created in the dialog is immediately
-  ///     routable. Null when no tab is selected (the menu entry is hidden then).</summary>
-  public AgentLinkRegistry? SelectedLinksRegistry
-      => SelectedTab?.Container.Services.GetService<AgentLinkRegistry>();
-
-  /// <summary>Loads the Links dialog's candidate agents from the selected tab's own
-  ///     store, or null when no tab is selected (the dialog is then not shown).</summary>
-  public Func<CancellationToken, Task<Result<IReadOnlyList<AgentRecord>>>>? LinksCatalogLoader
-  {
-    get
-    {
-      IAgentStore? store = SelectedTab?.Container.Services.GetService<IAgentStore>();
-      return store is null ? null : ct => store.ListAllAsync(ct);
-    }
-  }
 
   /// <summary>The selected tab's MCP seams (issue #106): the store the dialog's form
   ///     writes through, the SHARED pooled access its status view reads (the same

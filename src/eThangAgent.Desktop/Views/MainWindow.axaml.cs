@@ -39,7 +39,6 @@ internal partial class MainWindow : Window
     vm.SessionsRequested += async (_, _) => await ShowSessionsDialogAsync();
     vm.SettingsRequested += async (_, _) => await ShowSettingsDialogAsync();
     vm.ModelSettingsRequested += async (_, _) => await ShowModelSettingsDialogAsync();
-    vm.LinksRequested += async (_, _) => await ShowLinksDialogAsync();
     vm.McpServersRequested += async (_, _) => await ShowMcpServersDialogAsync();
   }
 
@@ -152,29 +151,6 @@ internal partial class MainWindow : Window
     _ = await dialog.ShowDialog<ModelSettingsSnapshot?>(this);
   }
 
-  /// <summary>Shows the Links dialog (consent door, D10) for the selected tab. The
-  ///     dialog links through the tab's OWN registry — the same object the session's
-  ///     capability provider resolves agent.route names through — and lists candidate
-  ///     agents from the tab's store. No tab: structured failure, not silence.
-  /// </summary>
-  private async Task ShowLinksDialogAsync()
-  {
-    if (_vm is not { } vm)
-    {
-      return; // design-time / headless shell without a view-model
-    }
-
-    Func<CancellationToken, Task<Result<IReadOnlyList<AgentRecord>>>>? loader = vm.LinksCatalogLoader;
-    AgentLinkRegistry? registry = vm.SelectedLinksRegistry;
-    if (loader is null || registry is null)
-    {
-      await ShowOpenFailedAsync("Open an agent tab before managing links.");
-      return;
-    }
-
-    LinksWindow dialog = new(loader, registry);
-    await dialog.ShowDialog(this);
-  }
   /// <summary>Shows the MCP servers dialog (issue #106) over the selected tab's
   ///     own seams: the store the form writes through, the SHARED pooled access the
   ///     status view reads (the same object the mcp tool dispatches through), and

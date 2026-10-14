@@ -57,12 +57,14 @@ internal partial class AgentView : UserControl
     {
       _wiredVm.Transcript.Entries.CollectionChanged -= OnEntriesChanged;
       _wiredVm.PropertyChanged -= OnVmPropertyChanged;
+      _wiredVm.Subagents.PropertyChanged -= OnSubagentsPropertyChanged;
       _wiredVm = null;
     }
 
-    // The timer belongs to the wiring, not the view: stop the old one so a re-wire
-    // cannot leave a spinner ticking for a detached VM forever.
+    // The timers belong to the wiring, not the view: stop the old ones so a re-wire
+    // cannot leave a spinner or a subagent refresh running for a detached VM forever.
     _statusTimer?.Stop();
+    _subagentTimer?.Stop();
 
     _restorePending = false;
     AgentSessionViewModel? vm = Vm;
@@ -74,6 +76,17 @@ internal partial class AgentView : UserControl
     _wiredVm = vm;
     vm.Transcript.Entries.CollectionChanged += OnEntriesChanged;
     vm.PropertyChanged += OnVmPropertyChanged;
+
+    // Subagent split view: a 500 ms refresh pulls RUNNING rows' transcripts from the
+    // store (the realtime surface). The timer lives on the wiring like the spinner.
+    _subagentTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+    _subagentTimer.Tick += async (_, _) => await vm.Subagents.RefreshRunningTranscriptsAsync();
+    _subagentTimer.Start();
+
+    // The split: column 2 is star-sized only while rows exist; with none, it
+    // collapses to zero so the chat owns the full width (the panel is hidden too).
+    vm.Subagents.PropertyChanged += OnSubagentsPropertyChanged;
+    ApplySplitLayout(vm.Subagents.HasRows);
 
     // Animated spinner parity with the terminal frame loop (~12 fps): an 80 ms timer
     // runs only while a turn is busy; Phase transitions reset the displayed state.
@@ -123,6 +136,33 @@ internal partial class AgentView : UserControl
 
   // Spinner timer, recreated per wiring; stops with the VM subscription on re-wire.
   private DispatcherTimer? _statusTimer;
+
+  // Subagent transcript refresh timer, same lifecycle as the spinner timer.
+  private DispatcherTimer? _subagentTimer;
+
+  /// <summary>Sizes the split: the subagent column is star-sized while rows exist,
+  ///     zero-width otherwise — a star column with hidden content would still take
+  ///     half the width and starve the chat.</summary>
+  private void OnSubagentsPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+  {
+    if (e.PropertyName == nameof(SubagentPanelViewModel.HasRows) && sender is SubagentPanelViewModel panel)
+    {
+      ApplySplitLayout(panel.HasRows);
+    }
+  }
+
+  private void ApplySplitLayout(bool hasRows)
+  {
+    Grid? root = this.FindControl<Grid>("RootSplit");
+    if (root is null || root.ColumnDefinitions.Count < 3)
+    {
+      return;
+    }
+
+    root.ColumnDefinitions[2].Width = hasRows
+        ? new GridLength(1, GridUnitType.Star)
+        : new GridLength(0);
+  }
 
   /// <summary>Whether the spinner timer is currently running (test observation surface:
   ///     the attach-to-busy wiring cannot be asserted through the private timer field).</summary>

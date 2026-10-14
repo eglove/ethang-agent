@@ -44,7 +44,9 @@
       <Setter Property="BorderThickness" Value="2"/>
     </Style>
   </UserControl.Styles>
-  <DockPanel>
+  <Grid x:Name="RootSplit" ColumnDefinitions="*,Auto,*">
+    <!-- Chat column: the main agent's transcript, input, and status bar. -->
+    <DockPanel Grid.Column="0">
     <!-- Status bar: phase first, then context, provider, model id, reasoning effort.
          The running tool's elapsed lives in its chat tool cards, not here. -->
     <Border DockPanel.Dock="Bottom" Background="#22000000">
@@ -248,5 +250,70 @@
         </ItemsControl.DataTemplates>
       </ItemsControl>
     </ScrollViewer>
-  </DockPanel>
+    </DockPanel>
+
+    <!-- Splitter between the chat and the subagent accordion. -->
+    <GridSplitter Grid.Column="1" Name="SubagentSplitter" Width="4"
+                  Background="#33888888" HorizontalAlignment="Center"
+                  IsVisible="{Binding Subagents.HasRows, Mode=OneWay}"/>
+
+    <!-- Subagent column: an accordion of running (and just-finished) children,
+         driven by the child-event stream with store-polled realtime transcripts.
+         Visible only while rows exist — otherwise the chat owns the full width. -->
+    <Border Grid.Column="2" Background="#11000000"
+            IsVisible="{Binding Subagents.HasRows, Mode=OneWay}">
+      <DockPanel Margin="8,8,8,0">
+        <TextBlock DockPanel.Dock="Top" Text="Subagents" FontWeight="SemiBold" Opacity="0.8" Margin="0,0,0,4"/>
+        <ScrollViewer>
+          <ItemsControl x:Name="SubagentList" ItemsSource="{Binding Subagents.Rows, Mode=OneWay}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SubagentRowViewModel">
+                <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}" Margin="0,2"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                  <Expander.Header>
+                    <DockPanel HorizontalAlignment="Stretch">
+                      <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0"
+                                 Foreground="{Binding StatusBrush, Mode=OneWay}"
+                                 Text="{Binding StatusDisplay, Mode=OneWay}"/>
+                      <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    </DockPanel>
+                  </Expander.Header>
+                  <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Transcript.Entries, Mode=OneWay}" Margin="4,4">
+                      <ItemsControl.DataTemplates>
+                        <DataTemplate DataType="vm:UserMessageEntry">
+                          <SelectableTextBlock Text="{Binding Text}" FontWeight="Bold" TextWrapping="Wrap" Margin="4,2"/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:AssistantTextEntry">
+                          <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="4,2"/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:ToolCallEntry">
+                          <TextBlock TextWrapping="Wrap" Margin="4,2" FontSize="12">
+                            <Run Text="⚙ "/><Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold"/>
+                            <Run Foreground="Gray" Text="{Binding Preview, Mode=OneWay}"/>
+                          </TextBlock>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:ToolResultEntry">
+                          <TextBlock TextWrapping="Wrap" Margin="4,2" FontSize="12">
+                            <Run Text="↳ "/><Run Text="{Binding Name, Mode=OneWay}"/>
+                            <Run Text="{Binding Summary, Mode=OneWay}" Foreground="{Binding SummaryBrush, Mode=OneWay}"/>
+                          </TextBlock>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:NoticeEntry">
+                          <SelectableTextBlock Text="{Binding Text}" Foreground="DarkGray" TextWrapping="Wrap" Margin="4,2"/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:SystemMessageEntry">
+                          <SelectableTextBlock Text="{Binding Text}" Foreground="#B9C7E2" TextWrapping="Wrap" Margin="4,2"/>
+                        </DataTemplate>
+                      </ItemsControl.DataTemplates>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </Expander>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+  </Grid>
 </UserControl>

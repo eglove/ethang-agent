@@ -109,12 +109,12 @@ public class ShellUiPolishTests
     }
   }
 
-  /// <summary>Regression: the Links and MCP Servers rail buttons are guarded on
-  ///     HasSelectedTab, so their commands must re-query when the selection changes.
-  ///     A button Avalonia never re-evaluates keeps its startup disabled state
-  ///     forever — the bug report's greyed-out pair. Driven through a real window:
-  ///     the open selects the tab, and the buttons must re-enable from the command's
-  ///     own CanExecuteChanged, with no further notification.</summary>
+  /// <summary>Regression: the MCP Servers rail button is guarded on HasSelectedTab,
+  ///     so its command must re-query when the selection changes. A button Avalonia
+  ///     never re-evaluates keeps its startup disabled state forever — the bug
+  ///     report's greyed-out button. Driven through a real window: the open selects
+  ///     the tab, and the button must re-enable from the command's own
+  ///     CanExecuteChanged, with no further notification.</summary>
   [AvaloniaFact]
   public async Task Rail_Tab_Buttons_Are_Enabled_When_A_Tab_Is_Selected()
   {
@@ -123,18 +123,15 @@ public class ShellUiPolishTests
     window.Show();
     Dispatcher.UIThread.RunJobs(); // let the Command bindings resolve
 
-    Button links = window.GetControl<Button>("LinksMenuItem");
     Button mcp = window.GetControl<Button>("McpServersMenuItem");
-    Assert.False(links.IsEffectivelyEnabled);
     Assert.False(mcp.IsEffectivelyEnabled);
 
     // The same path the new-agent dialog drives: a successful open selects the
-    // tab, and the buttons must re-enable from the command's own CanExecuteChanged
+    // tab, and the button must re-enable from the command's own CanExecuteChanged
     // — with no further notification.
     _ = await shell.OpenAgentAsync(@"C:\work\alpha", "openrouter").ConfigureAwait(true);
     Dispatcher.UIThread.RunJobs();
 
-    Assert.True(links.IsEffectivelyEnabled, "LinksMenuItem must re-enable once a tab is selected");
     Assert.True(mcp.IsEffectivelyEnabled, "McpServersMenuItem must re-enable once a tab is selected");
   }
 
