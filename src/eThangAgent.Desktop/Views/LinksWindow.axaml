@@ -13,10 +13,13 @@
       survive restarts; revoking removes them everywhere.
     </TextBlock>
 
+    <!-- Starved Grid rows, not StackPanels: a vertical StackPanel measures its
+         children with infinite height, so a ListBox here sizes to its FULL content
+         height, never scrolls, and overflows the cell over the Name/Close rows below. -->
     <Grid Grid.Row="1" ColumnDefinitions="*,16,*">
-      <StackPanel Grid.Column="0" Spacing="4">
-        <TextBlock Text="Agents" FontWeight="SemiBold" Opacity="0.8"/>
-        <ListBox x:Name="CandidateList" ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}" MinHeight="180">
+      <Grid Grid.Column="0" RowDefinitions="Auto,*" Spacing="4">
+        <TextBlock Grid.Row="0" Text="Agents" FontWeight="SemiBold" Opacity="0.8"/>
+        <ListBox Grid.Row="1" x:Name="CandidateList" ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}" MinHeight="180">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:CandidateRow">
               <StackPanel Margin="2,4" ToolTip.Tip="{Binding ToolTip}">
@@ -26,10 +29,10 @@
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>
-      </StackPanel>
-      <StackPanel Grid.Column="2" Spacing="4">
-        <TextBlock Text="Live links (newest first)" FontWeight="SemiBold" Opacity="0.8"/>
-        <ListBox x:Name="LinkList" ItemsSource="{Binding Links}" SelectedItem="{Binding SelectedLink}" MinHeight="180">
+      </Grid>
+      <Grid Grid.Column="2" RowDefinitions="Auto,*" Spacing="4">
+        <TextBlock Grid.Row="0" Text="Live links (newest first)" FontWeight="SemiBold" Opacity="0.8"/>
+        <ListBox Grid.Row="1" x:Name="LinkList" ItemsSource="{Binding Links}" SelectedItem="{Binding SelectedLink}" MinHeight="180">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:LinkRow">
               <StackPanel Margin="2,4" ToolTip.Tip="{Binding AgentAddress}">
@@ -39,7 +42,7 @@
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>
-      </StackPanel>
+      </Grid>
     </Grid>
 
     <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
