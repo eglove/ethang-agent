@@ -80,16 +80,18 @@ public class AgentSessionFactoryResumeTests
         Assert.Equal(Providers.OpenRouter, session.ProviderName);
 
         // The transcript hydrates the new container's conversation, losslessly —
-        // including the tool call and its result.
+        // including the tool call and its result — plus the resume contract notice.
         IReadOnlyList<Message> messages = session.Conversation.Messages;
-        Assert.Equal(4, messages.Count);
+        Assert.Equal(5, messages.Count);
         Assert.Equal(Role.User, messages[0].Role);
         Assert.Equal("first question", messages[0].Content);
         Assert.NotNull(messages[1].ToolCalls);
         Assert.Equal("call-1", messages[1].ToolCalls![0].Id);
         Assert.Equal(Role.Tool, messages[2].Role);
         Assert.Equal("call-1", messages[2].ToolCallId);
-        Assert.Equal("final answer", messages[^1].Content);
+        Assert.Equal("final answer", messages[3].Content);
+        // The resume contract notice rides last (added after hydration).
+        Assert.Contains("CURRENT build's tool definitions are authoritative", messages[^1].Content, StringComparison.Ordinal);
 
         // The root identity is published BEFORE the session is handed out.
         Assert.Equal(rootId, session.Services.GetRequiredService<RootSessionIdentity>().Id);
@@ -98,6 +100,12 @@ public class AgentSessionFactoryResumeTests
         AgentRecord record = (await store.GetAsync(rootId, ct: TestContext.Current.CancellationToken)).Value!;
         Assert.Equal(AgentStatus.Running, record.Status);
         Assert.Null(record.CompletedAt);
+
+        // Resume contract notice: a resumed session is told its CURRENT tool
+        // definitions are authoritative, so stale in-context contract text from an
+        // older build never outranks a live tool error.
+        Assert.Contains(messages, m => m.Role == Role.System &&
+            m.Content.Contains("CURRENT build's tool definitions are authoritative", StringComparison.Ordinal));
       }
       finally
       {

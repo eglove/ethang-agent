@@ -38,7 +38,8 @@ public class SessionResumeE2ETests
     // The conversation hydrates losslessly from the persisted transcript.
     Assert.Equal(rootId, session.RootId);
     Assert.Equal("remember the word crumble", session.Conversation.Messages[0].Content);
-    Assert.Equal(2, session.Conversation.Messages.Count);
+    // The hydrated transcript plus the resume contract notice.
+    Assert.Equal(3, session.Conversation.Messages.Count);
 
     // Pin the model the way the desktop's per-workspace preference does, so no
     // selection run consumes the mock's scripted responses.
@@ -52,13 +53,16 @@ public class SessionResumeE2ETests
     AgentSessionViewModel vm = shell.Tabs[0].ViewModel;
     sessionVmRef = vm;
 
-    // The bootstrap context line leads; the replayed transcript follows it.
-    Assert.Equal(3, vm.Transcript.Entries.Count);
+    // The bootstrap context line leads; the replayed transcript follows it,
+    // then the resume contract notice as a system entry.
+    Assert.Equal(4, vm.Transcript.Entries.Count);
     _ = Assert.IsType<BootstrapEntry>(vm.Transcript.Entries[0]);
     Assert.Equal("remember the word crumble",
         Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[1]).Text);
     Assert.Contains("pineapple",
         Assert.IsType<AssistantTextEntry>(vm.Transcript.Entries[2]).Text, StringComparison.Ordinal);
+    Assert.Contains("CURRENT build's tool definitions are authoritative",
+        Assert.IsType<SystemMessageEntry>(vm.Transcript.Entries[3]).Text, StringComparison.Ordinal);
 
     // Turn two: the resumed session's request must CARRY the prior history.
     _ = host.Mock.Returns(RawCompletion("crumble, of course"));

@@ -157,6 +157,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     }
 
     string workspaceRoot = validated.Value;
+    const string ResumeContractNotice = "[resume: tool contracts may have changed since this session was last open. The CURRENT build's tool definitions are authoritative — when a tool error describes the accepted parameters, trust the error over any tool listing or contract text quoted earlier in this transcript, and re-read the contract from the error itself.]";
     Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(sessionId, ct).ConfigureAwait(false);
     if (!transcript.IsSuccess)
     {
@@ -175,6 +176,13 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     {
 
       services.GetRequiredService<RootSessionIdentity>().Id = sessionId;
+      // Resume contract notice: the hydrated transcript may carry tool listings and
+      // contract text from an OLDER build (the session survived an app update), and
+      // transcript history is append-only — nothing rewrites it. The wire schema is
+      // rebuilt from the live registry every turn, so the CURRENT definitions are
+      // what the provider serves; this notice says so explicitly, so the model never
+      // trusts stale in-context contract text over a live tool error.
+      services.GetRequiredService<Conversation>().AddSystemMessage(ResumeContractNotice);
       // Re-open: clear a Completed row back to Running so status reflects the live session.
       Result<string> reopened = await store.UpdateAsync(record with
       {
