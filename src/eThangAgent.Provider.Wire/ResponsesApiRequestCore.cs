@@ -328,6 +328,7 @@ public static class ResponsesApiRequestCore
                       ToolParameterType.TextArray => "array",
                       ToolParameterType.WholeNumber => "integer",
                       ToolParameterType.Flag => "boolean",
+                      ToolParameterType.ObjectValue => "object",
                       _ => throw new InvalidOperationException(
                             $"Unhandled tool parameter type: {p.Type}"),
                     },

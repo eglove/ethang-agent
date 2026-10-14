@@ -101,6 +101,20 @@ public class ComputerToolTests
     Assert.Contains("0..30", d, StringComparison.Ordinal);
   }
 
+  [Fact]
+  public void Definition_ObjectShapedParameters_AreAdvertisedAsObject()
+  {
+    // The wire schema must advertise app_ref/target/from_target/to as JSON
+    // objects: a "string" schema made the model JSON-encode the object into a
+    // string, which the strict parser then rejected as InvalidParameterType.
+    IReadOnlyList<ToolParameter> parameters = Make(new ScriptedComputerAccess()).Definition.Parameters;
+    foreach (string name in new[] { "app_ref", "target", "from_target", "to" })
+    {
+      ToolParameter p = Assert.Single(parameters, q => q.Name == name);
+      Assert.Equal(ToolParameterType.ObjectValue, p.Type);
+    }
+  }
+
   // ---- parser errors surface as Error [code]: message ----
 
   [Fact]

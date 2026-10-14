@@ -97,6 +97,22 @@ public class ToolSchemaWireFormatTests
   }
 
   [Fact]
+  public async Task ObjectParameter_IsAdvertisedAsJsonObject()
+  {
+    JsonElement tool = await SingleToolAsync(
+        [
+            new("demo_tool", "desc",
+            [
+                new ToolParameter("app_ref", ToolParameterType.ObjectValue, "the app ref"),
+            ]),
+        ]).ConfigureAwait(true);
+
+    JsonElement appRef = tool.GetProperty("parameters").GetProperty("properties").GetProperty("app_ref");
+    Assert.Equal("object", appRef.GetProperty("type").GetString());
+    Assert.False(appRef.TryGetProperty("items", out _));
+  }
+
+  [Fact]
   public async Task RequiredList_ComesFromRequiredParameters_NotAllParameters()
   {
     List<ToolDefinition> tools =
