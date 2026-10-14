@@ -244,11 +244,22 @@ public static class ResponsesApiRequestCore
 
   /// <summary>One message item's content: an input-part array when the message carries
   ///     parts (text → input_text, image → input_image with a data: URL), a single
-  ///     input_text part otherwise.</summary>
-  private static object[] InputContent(Message m) =>
-      m.Parts is { Count: > 0 }
-          ? [.. m.Parts.Select(PartContent)]
-          : [TextPart(m.Content)];
+  ///     input_text part otherwise. The message's own text content rides FIRST when
+  ///     parts exist but none of them is a text part (issue #123): the typed body of
+  ///     an image-attached user message lives in Content while Parts carries only the
+  ///     images — emitting the parts alone would silently drop the text.</summary>
+  private static object[] InputContent(Message m)
+  {
+    if (m.Parts is not { Count: > 0 })
+    {
+      return [TextPart(m.Content)];
+    }
+
+    object[] content = [.. m.Parts.Select(PartContent)];
+    return m.Parts.Any(p => p is MessagePart.TextPart) || string.IsNullOrEmpty(m.Content)
+        ? content
+        : [TextPart(m.Content), .. content];
+  }
 
   private static Dictionary<string, object?> MessageItem(string role, object[] content) => new()
   {
@@ -276,7 +287,9 @@ public static class ResponsesApiRequestCore
   };
 
   /// <summary>One tool result: a flat string output when the message carries only text
-  ///     (the common case), an input-part array when it carries images — strict
+  ///     (the common case), an input-part array when it carries images — the text
+  ///     content rides FIRST when parts exist but none is a text part (issue #123,
+  ///     same shape as user messages: Agent.ToParts builds image-only parts) — strict
   ///     attribution: a well-formed history always carries the tool call id, a null
   ///     one is programmer error and coerces to nothing.</summary>
   private static Dictionary<string, object?> FunctionCallOutput(Message m)
@@ -288,10 +301,20 @@ public static class ResponsesApiRequestCore
           nameof(m));
     }
 
-    bool hasImages = m.Parts is { Count: > 0 } && m.Parts.Any(p => p is MessagePart.ImagePart);
-    object output = hasImages
-        ? m.Parts!.Select(PartContent).ToArray()
-        : m.Content;
+    if (m.Parts is not { Count: > 0 } parts || !parts.Any(p => p is MessagePart.ImagePart))
+    {
+      return new Dictionary<string, object?>
+      {
+        ["type"] = "function_call_output",
+        ["call_id"] = m.ToolCallId,
+        ["output"] = m.Content,
+      };
+    }
+
+    object[] content = [.. parts.Select(PartContent)];
+    object[] output = parts.Any(p => p is MessagePart.TextPart) || string.IsNullOrEmpty(m.Content)
+        ? content
+        : [TextPart(m.Content), .. content];
     return new Dictionary<string, object?>
     {
       ["type"] = "function_call_output",

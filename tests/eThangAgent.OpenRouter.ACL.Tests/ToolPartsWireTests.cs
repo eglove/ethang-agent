@@ -43,10 +43,12 @@ public class ToolPartsWireTests
     using JsonDocument doc = JsonDocument.Parse(capturedBody);
     // Exactly three input items: the user message, the assistant's function_call,
     // and the tool result carrying the image natively — no synthetic user message,
-    // no "role":"tool" item anywhere on this surface.
+    // no "role":"tool" item anywhere on this surface. The result's text content
+    // rides FIRST in the output array (issue #123): image-only parts must not drop
+    // the tool's text.
     Assert.Equal(
         /*lang=json,strict*/
-        """[{"type":"message","role":"user","content":[{"type":"input_text","text":"look"}]},{"type":"function_call","call_id":"call-1","name":"read","arguments":"{}"},{"type":"function_call_output","call_id":"call-1","output":[{"type":"input_image","image_url":"data:image/png;base64,aGVsbG8="}]}]""",
+        """[{"type":"message","role":"user","content":[{"type":"input_text","text":"look"}]},{"type":"function_call","call_id":"call-1","name":"read","arguments":"{}"},{"type":"function_call_output","call_id":"call-1","output":[{"type":"input_text","text":"see attached"},{"type":"input_image","image_url":"data:image/png;base64,aGVsbG8="}]}]""",
         doc.RootElement.GetProperty("input").GetRawText());
   }
 

@@ -56,6 +56,86 @@ public class PartsSerializationWireTests
   }
 
   [Fact]
+  public void BuildInput_UserMessageWithImageOnlyParts_PrependsTextContentAsInputText()
+  {
+    // Issue #123: the Desktop's paste path builds image-only parts while the typed
+    // body lives in Message.Content — the parts alone dropped the text silently.
+    ModelRequest request = new(
+        [
+          new Message(Role.User, "what is in this screenshot?", SentAt,
+              Parts:
+              [
+                new MessagePart.ImagePart("image/png", "aGVsbG8="),
+              ]),
+        ]);
+
+    string json = Serialize(ResponsesApiRequestCore.BuildInput(request));
+
+    Assert.Equal(
+        /*lang=json,strict*/"""[{"type":"message","role":"user","content":[{"type":"input_text","text":"what is in this screenshot?"},{"type":"input_image","image_url":"data:image/png;base64,aGVsbG8="}]}]""",
+        json);
+  }
+
+  [Fact]
+  public void BuildInput_UserMessageWithImageOnlyPartsAndEmptyText_EmitsNoEmptyInputText()
+  {
+    ModelRequest request = new(
+        [
+          new Message(Role.User, "", SentAt,
+              Parts:
+              [
+                new MessagePart.ImagePart("image/png", "aGVsbG8="),
+              ]),
+        ]);
+
+    string json = Serialize(ResponsesApiRequestCore.BuildInput(request));
+
+    Assert.Equal(
+        /*lang=json,strict*/"""[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,aGVsbG8="}]}]""",
+        json);
+  }
+
+  [Fact]
+  public void BuildInput_ToolResultWithImageOnlyParts_PrependsTextContentAsInputText()
+  {
+    // Issue #123 twin: Agent.ToParts builds image-only parts beside the tool's text
+    // content — the parts alone dropped the content from the function_call_output.
+    ModelRequest request = new(
+        [
+          new Message(Role.Tool, "screenshot saved", SentAt, ToolCallId: "c1",
+              Parts:
+              [
+                new MessagePart.ImagePart("image/png", "aGVsbG8="),
+              ]),
+        ]);
+
+    string json = Serialize(ResponsesApiRequestCore.BuildInput(request));
+
+    Assert.Equal(
+        /*lang=json,strict*/"""[{"type":"function_call_output","call_id":"c1","output":[{"type":"input_text","text":"screenshot saved"},{"type":"input_image","image_url":"data:image/png;base64,aGVsbG8="}]}]""",
+        json);
+  }
+
+  [Fact]
+  public void BuildInput_ToolResultWithImageOnlyPartsAndEmptyText_EmitsNoEmptyInputText()
+  {
+    ModelRequest request = new(
+        [
+          new Message(Role.Tool, "", SentAt, ToolCallId: "c1",
+              Parts:
+              [
+                new MessagePart.ImagePart("image/png", "aGVsbG8="),
+              ]),
+        ]);
+
+    string json = Serialize(ResponsesApiRequestCore.BuildInput(request));
+
+    Assert.Equal(
+        /*lang=json,strict*/"""[{"type":"function_call_output","call_id":"c1","output":[{"type":"input_image","image_url":"data:image/png;base64,aGVsbG8="}]}]""",
+        json);
+  }
+
+  [Fact]
   public void BuildInput_SystemRoleHistoryMessage_SerializesSystemMessageItem()
   {
     ModelRequest request = new(
