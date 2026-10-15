@@ -14,6 +14,13 @@ namespace eThangAgent.Desktop.ViewModels;
 ///     TranscriptViewModel the main chat uses. Events arrive on stream threads; the
 ///     caller supplies the marshal wrapper (the shell posts through the Dispatcher),
 ///     so every state mutation lands on the UI thread.</summary>
+// CRASH FIX (commit 884fc61 regression): the panel's Rows collection is bound to the
+// accordion; child events publish on stream threads, and the 500 ms refresh timer
+// enumerates Rows on the UI thread — an Add racing that enumeration threw
+// 'Collection was modified' out of an async-void tick and killed the dispatcher
+// (0xe0434352). Two defenses: the shell marshals event mutations onto the UI thread
+// (the same wrapper TabBadgeViewModel.Attach takes), and the refresh enumerates a
+// snapshot with an in-flight guard.
 internal sealed partial class SubagentRowViewModel(
     AgentId id,
     string label,
@@ -171,8 +178,12 @@ internal sealed partial class SubagentPanelViewModel(IAgentStore? store) : Obser
   public partial SubagentRowViewModel? SelectedRow { get; set; }
 
   /// <summary>Subscribes the panel to a session's child-event stream. Null stream:
-  ///     attaches nothing (headless hosts). Calling again detaches the prior lease.</summary>
-  public void Attach(IAgentEvents? events)
+  ///     attaches nothing (headless hosts). Calling again detaches the prior lease.
+  ///     The marshal wrapper posts each event's application onto the UI thread —
+  ///     events arrive on stream threads and every mutation here (Rows, row state)
+  ///     is UI-thread-only. Null wrapper (tests) applies inline, the same contract
+  ///     TabBadgeViewModel.Attach serves.</summary>
+  public void Attach(IAgentEvents? events, Func<Action<ChildEvent>, Action<ChildEvent>>? marshal = null)
   {
     _lease?.Dispose();
     _lease = null;
@@ -181,27 +192,58 @@ internal sealed partial class SubagentPanelViewModel(IAgentStore? store) : Obser
       return;
     }
 
-    SubagentEventSubscriber subscriber = new(this);
+    Func<Action<ChildEvent>, Action<ChildEvent>> wrap = marshal ?? (apply => apply);
+    SubagentEventSubscriber subscriber = new(this, wrap);
     _lease = events.Subscribe(subscriber);
   }
 
   /// <summary>Refreshes every RUNNING row's transcript from the store. Called by the
-  ///     view's timer; marshals nothing itself — runs on the UI thread by contract.</summary>
+  ///     view's timer; runs on the UI thread by contract. Enumerates a SNAPSHOT of
+  ///     Rows: a child event can add a row mid-refresh (the crash fix — the live
+  ///     enumeration threw 'Collection was modified' out of the timer's async-void
+  ///     tick and killed the dispatcher), and a snapshot makes the next refresh pick
+  ///     the newcomer up. An in-flight guard collapses overlapping ticks: the async
+  ///     store reads interleave with timer ticks, and a second pass over a row whose
+  ///     first read is still running would double-append once both resume.</summary>
   public async Task RefreshRunningTranscriptsAsync()
   {
-    foreach (SubagentRowViewModel row in Rows)
+    if (_refreshInFlight)
     {
-      if (row.IsRunning)
+      return;
+    }
+
+    _refreshInFlight = true;
+    try
+    {
+      List<SubagentRowViewModel> snapshot = [.. Rows];
+      MidRefreshHook?.Invoke();
+      foreach (SubagentRowViewModel row in snapshot)
       {
-        await row.RefreshTranscriptAsync().ConfigureAwait(true);
+        if (row.IsRunning)
+        {
+          await row.RefreshTranscriptAsync().ConfigureAwait(true);
+        }
       }
     }
+    finally
+    {
+      _refreshInFlight = false;
+    }
   }
+
+  /// <summary>True while a transcript refresh pass is running: overlapping timer
+  ///     ticks collapse into it instead of double-reading the same rows.</summary>
+  private bool _refreshInFlight;
+
+  /// <summary>Test seam: invoked once per refresh pass after the Rows snapshot is
+  ///     taken, so a test can publish a child event INSIDE the refresh — the exact
+  ///     race shape that killed the dispatcher (commit 884fc61). Null in production.</summary>
+  internal Action? MidRefreshHook { get; set; }
 
   /// <summary>Event-stream adapter: routes events to the panel through the marshal
   ///     wrapper so mutations land on the UI thread. Contained: a fault in panel
   ///     handling never propagates into the child loop.</summary>
-  private sealed class SubagentEventSubscriber(SubagentPanelViewModel panel) : IAgentEventSubscriber
+  private sealed class SubagentEventSubscriber(SubagentPanelViewModel panel, Func<Action<ChildEvent>, Action<ChildEvent>> marshal) : IAgentEventSubscriber
   {
     public void OnEvent(ChildEvent evt)
     {
@@ -210,7 +252,7 @@ internal sealed partial class SubagentPanelViewModel(IAgentStore? store) : Obser
 #pragma warning disable CA1031 // Do not catch general exception types
       try
       {
-        panel.OnEvent(evt);
+        marshal(panel.OnEvent)(evt);
       }
       catch
       {

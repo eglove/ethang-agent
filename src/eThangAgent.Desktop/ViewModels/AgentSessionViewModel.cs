@@ -249,9 +249,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
     // Split view (subagent accordion): the panel subscribes to the session's child
-    // event stream; the shell marshals event mutations onto the UI thread.
+    // event stream. Events publish on stream threads; the marshal wrapper posts every
+    // event's application onto the UI thread — Rows is bound to the accordion and
+    // UI-thread-only (the 884fc61 crash fix; the badge's AttachBadge is the pattern).
     Subagents = new SubagentPanelViewModel(options.AgentStore);
-    Subagents.Attach(options.ChildEvents);
+    Subagents.Attach(options.ChildEvents, apply => evt =>
+      Avalonia.Threading.Dispatcher.UIThread.Post(() => apply(evt)));
     // Grand-plan "show initial bootstrap/context at start of session": the first
     // transcript line states what the session runs under (transient, never a
     // conversation message). Resume replays persisted history after it.

@@ -288,7 +288,14 @@ internal static class FakeConnectionFactory
   public static PipeServer WithForeground(int expected, int actual)
   {
     _ = expected; // documents the test's intent; the actual foreground drives the gate.
-    return new PipeServer(new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => actual);
+    // LIVE-FIRE FIX: this factory previously wired ONLY the foreground read — a
+    // zero-send-hook server, which PipeServer's resolution contract resolves to the
+    // REAL NativeInput surface. Any test here whose dispatch path slipped past the
+    // gate live-fired real input into whatever window had focus (the stray 'y'
+    // keystroke from Key_NoStrategy_IsNotGated, an ungated press_key). The recording
+    // doubles keep the gate semantics (the foreground read is still injected) while
+    // making real dispatch structurally impossible in tests.
+    return WithAlwaysSucceedingDrag(actual);
   }
 
   public static PipeServer WithAlwaysSucceedingDrag(int foreground)

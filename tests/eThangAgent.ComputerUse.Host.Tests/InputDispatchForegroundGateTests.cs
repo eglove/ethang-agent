@@ -64,7 +64,14 @@ public class InputDispatchForegroundGateTests
   public void Key_NoStrategy_IsNotGated()
   {
     // Strategy-less keys stay ungated (the lease-holder's own action vocabulary).
+    // LIVE-FIRE FIX: this test used to run on a zero-hook server — PipeServer's
+    // resolution contract resolves that to the REAL NativeInput — and its ungated
+    // press_key live-fired a real 'y' keystroke into whatever window had focus on
+    // the developer's desktop while the suite ran. The factory now wires recording
+    // doubles; the assertion pins that invariant so a future factory change that
+    // reintroduces the real path fails HERE instead of typing into someone's editor.
     PipeServer server = FakeConnectionFactory.WithForeground(expected: 42, actual: 99);
+    Assert.True(server.InputDispatch.IsDoubleBacked, "the gate test must run on the double-backed dispatcher, never the real SendInput path");
     _ = server.Dispatch(0, "authenticate", JsonDocument.Parse("""{"token":"t"}""").RootElement, connectionId: 1);
     _ = server.Dispatch(2, "controller_takeover", null, connectionId: 1);
     BrokerResponse reply = server.Dispatch(3, "press_key", JsonDocument.Parse("""{"key":"y","app_ref":{"pid":42}}""").RootElement, connectionId: 1);

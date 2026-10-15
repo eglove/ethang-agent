@@ -157,4 +157,54 @@ public class SubagentPanelViewModelTests
     stream.Publish(Started(AgentId.NewId()));
     Assert.Empty(panel.Rows);
   }
+
+  [Fact]
+  public void Attach_Marshal_Wraps_Every_Event_Application()
+  {
+    // CRASH-FIX regression (commit 884fc61): events publish on stream threads while
+    // Rows is bound to the accordion — the shell must marshal every application onto
+    // the UI thread. The wrapper is the seam that makes that true; a panel attached
+    // without one mutates Rows on the publishing thread.
+    TestEventStream stream = new();
+    using SubagentPanelViewModel panel = new(store: null);
+    List<ChildEvent> marshaled = [];
+    panel.Attach(stream, apply => evt =>
+    {
+      marshaled.Add(evt);
+      apply(evt);
+    });
+
+    stream.Publish(Started(AgentId.NewId()));
+
+    _ = Assert.Single(marshaled); // the event reached the panel THROUGH the wrapper
+    _ = Assert.Single(panel.Rows);
+  }
+
+  [Fact]
+  public async Task Refresh_Survives_A_Row_Added_Mid_Refresh()
+  {
+    // CRASH-FIX regression (commit 884fc61): the 500 ms timer enumerated Rows while
+    // a child event added one mid-enumeration — 'Collection was modified' escaped the
+    // async-void tick and killed the dispatcher. The refresh must enumerate a
+    // snapshot: the newcomer is skipped this pass and picked up on the next.
+    AgentId first = AgentId.NewId();
+    AgentId second = AgentId.NewId();
+    List<Message> transcript = [new Message(Role.User, "hello", DateTimeOffset.UtcNow)];
+    // The store's read adds the second row DURING the enumeration — the race shape.
+    TestFixtures.TranscriptStore store = new(transcript);
+    using SubagentPanelViewModel panel = new(store);
+    TestEventStream stream = new();
+    panel.Attach(stream);
+    panel.OnEvent(Started(first));
+
+    panel.MidRefreshHook = () => stream.Publish(Started(second));
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+
+    Assert.Equal(2, panel.Rows.Count); // the newcomer landed without throwing
+    _ = Assert.Single(panel.Rows[0].Transcript.Entries); // the first row still refreshed
+
+    // The next refresh picks the newcomer up.
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    _ = Assert.Single(panel.Rows[1].Transcript.Entries);
+  }
 }

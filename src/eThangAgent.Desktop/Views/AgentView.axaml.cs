@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -79,8 +80,23 @@ internal partial class AgentView : UserControl
 
     // Subagent split view: a 500 ms refresh pulls RUNNING rows' transcripts from the
     // store (the realtime surface). The timer lives on the wiring like the spinner.
+    // Contained (the 884fc61 crash fix): the tick's await is async-void — a fault
+    // escaping it kills the dispatcher (0xe0434352), so the refresh is wrapped and
+    // logged, never fatal.
     _subagentTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-    _subagentTimer.Tick += async (_, _) => await vm.Subagents.RefreshRunningTranscriptsAsync();
+    _subagentTimer.Tick += async (_, _) =>
+    {
+      try
+      {
+        await vm.Subagents.RefreshRunningTranscriptsAsync();
+      }
+#pragma warning disable CA1031 // Named decision: presentation containment — a refresh fault must not take down the dispatcher.
+      catch (Exception ex)
+      {
+        Debug.WriteLine($"subagent transcript refresh fault: {ex}");
+      }
+#pragma warning restore CA1031
+    };
     _subagentTimer.Start();
 
     // The split: column 2 is star-sized only while rows exist; with none, it
