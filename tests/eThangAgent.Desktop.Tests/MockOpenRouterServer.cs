@@ -287,7 +287,7 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
 
         try
         {
-          if (MockOpenRouterServer.TryGetRequestModel(requestBody) is { } requestModel
+          if (TryGetRequestModel(requestBody) is { } requestModel
               && _modelDelays.TryGetValue(requestModel, out TimeSpan delay))
           {
             await Task.Delay(delay, _cts.Token).ConfigureAwait(false);

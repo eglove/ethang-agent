@@ -1,7 +1,7 @@
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
-using eThangAgent.ToolDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
 
