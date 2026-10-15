@@ -15,7 +15,14 @@ namespace eThangAgent.ToolDomain;
 ///     byte-identical to the pre-guard output.</summary>
 public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files, ReadFreshnessLedger? ledger = null) : ITool, IWorkspaceScopedTool, ILedgerBoundTool
 {
-  private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+  // The read tool's path policy: relative paths stay bound to the injected
+  // resolver's root (containment enforced — '..' cannot escape the workspace or
+  // a child's anchor), while absolute paths are accepted from anywhere on disk.
+  // Read is read-only, so an absolute path needs no confinement; mutating tools
+  // keep the strict resolver. RootedAt re-roots with the same policy over the
+  // anchor, so anchored children inherit it unchanged.
+  private readonly RootAnchoredPathResolver _resolver =
+      new(resolver ?? throw new ArgumentNullException(nameof(resolver)));
   private readonly IFileSystemAccess _files = files ?? throw new ArgumentNullException(nameof(files));
   private readonly ReadFreshnessLedger? _ledger = ledger;
 
@@ -36,7 +43,7 @@ public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files, Re
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("path", ToolParameterType.Text,
-                "File path, workspace-relative or absolute-inside-workspace."),
+                "File path: relative paths resolve against the workspace root (and may not leave it); absolute paths may point anywhere on disk."),
             new ToolParameter("startLine", ToolParameterType.WholeNumber, "First line to read (1-based, inclusive).", Minimum: 1),
             new ToolParameter("endLine", ToolParameterType.WholeNumber, "Last line to read (1-based, inclusive).", Minimum: 1),
             new ToolParameter("force", ToolParameterType.Flag,

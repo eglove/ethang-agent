@@ -8,6 +8,9 @@ namespace eThangAgent.ToolDomain;
 ///     with the same InvalidPath error contract as WorkspacePathResolver.</summary>
 public sealed class UnrootedPathResolver : IPathResolver
 {
+  /// <summary>Shared stateless instance; the resolver holds no per-root state.</summary>
+  public static UnrootedPathResolver Instance { get; } = new();
+
   // Path.GetFullPath no longer validates path characters on modern .NET, so
   // malformed input is detected explicitly against the platform's own rule.
   private static readonly char[] InvalidPathChars = Path.GetInvalidPathChars();
