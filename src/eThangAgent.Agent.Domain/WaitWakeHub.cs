@@ -82,3 +82,19 @@ public sealed class WaitWakeHub(Action<string>? faultLog = null) : IWaitWakeSour
     }
   }
 }
+/// <summary>The no-op wake source: subscribes nobody, publishes nothing. Used when
+///     no hub is wired but a timeout was requested — the wait then races settlement
+///     against the timeout alone.</summary>
+public sealed class NullWaitWakeSource : IWaitWakeSource
+{
+  public static readonly NullWaitWakeSource Instance = new();
+
+  public IDisposable Subscribe(Action<WakeSignal> observer) => new NoLease();
+
+  private sealed class NoLease : IDisposable
+  {
+    public void Dispose()
+    {
+    }
+  }
+}

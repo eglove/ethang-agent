@@ -11,7 +11,8 @@ public sealed class AgentCapabilityProvider(
     IAgentSpawnCommand spawnCommand, IAgentQueries queries, Func<AgentRecord> parentContext,
     IAgentRuntime? runtime = null, AgentLinkRegistry? links = null,
     Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? fanout = null,
-    IAgentMailboxLocator? locator = null, Func<AgentId, IAgentEvents?>? eventsFor = null) : ICapabilityProvider
+    IAgentMailboxLocator? locator = null, Func<AgentId, IAgentEvents?>? eventsFor = null,
+    IWaitWakeSource? wakeSource = null, TimeProvider? clock = null) : ICapabilityProvider
 {
   public const string ProviderId = "agent";
 
@@ -30,6 +31,8 @@ public sealed class AgentCapabilityProvider(
   private readonly Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? _fanout = fanout;
   private readonly IAgentMailboxLocator? _locator = locator;
   private readonly Func<AgentId, IAgentEvents?>? _eventsFor = eventsFor;
+  private readonly IWaitWakeSource? _wakeSource = wakeSource;
+  private readonly TimeProvider? _clock = clock;
 
   public string Id => ProviderId;
 
@@ -75,9 +78,14 @@ public sealed class AgentCapabilityProvider(
         new("wait", "Wait for a spawned child agent to settle and return its outcome as one result.",
             """
             Blocks until the child settles and returns the outcome contract of agent.result (the report, or the failure annotation). Unbounded by design: the watchdog guards the child, and your own stop cancels the wait with 'Error [Cancelled]'. Unknown ids yield 'Error [NotFound]'. Prefer one wait over repeated status polls when you need the outcome.
+            Optional wakeOn (default "message"): "all" or a comma list of message|progress|idle|settled|state|stream|budget|mailbox — the wait returns EARLY when a matching event arrives, WITHOUT the child settling. Optional timeoutSeconds (positive integer; must fit inside your exec call's own timeoutSeconds budget): a soft cap — expiry returns a wake annotation, never an error.
+            USER STEERING ALWAYS WAKES: if the user sends a message while you wait, the wait returns immediately with reason=user-message, regardless of wakeOn. Read it and act (steer the child with agent.send, re-wait, or intervene).
+            Woken return contract (child still running): [wait: woken reason=<user-message|progress|idle|stream-stall|state|budget|mailbox|timeout>] then id=<id> status=running, then one digest line per event. On a wake you hold the turn again: steer, re-wait, or do other work; the child's eventual outcome is still retrievable with a later wait or agent.result.
             """,
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
+                new ActionParameter("wakeOn", ActionParameterTypes.StringType, "Optional: 'all' or comma list of message|progress|idle|settled|state|stream|budget|mailbox (default 'message'). Matching events wake the wait early with the child still running."),
+                new ActionParameter("timeoutSeconds", ActionParameterTypes.IntegerType, "Optional soft cap in seconds; expiry returns a [wait: woken reason=timeout] annotation with the child still running — never an error. Must fit inside the exec call's own timeoutSeconds budget."),
             ]),
         new("send", "Send a steering message to one of your running child agents mid-run.",
             """
@@ -211,17 +219,125 @@ public sealed class AgentCapabilityProvider(
       return CapabilityInvocationResult.Fail($"Error [{id.Error.Code}]: {id.Error.Message}");
     }
 
-    Result<AgentRunOutcome> outcome = await _runtime.WhenSettledAsync(id.Value, ct).ConfigureAwait(false);
-    if (!outcome.IsSuccess)
+    string? parseError = WaitArgs(json, out WakeFilter filter, out TimeSpan? timeout);
+    if (parseError is not null)
     {
-      return CapabilityInvocationResult.Fail($"Error [{outcome.Error.Code}]: {outcome.Error.Message}");
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
     }
 
-    AgentRunOutcome settled = outcome.Value;
+    // Legacy path: no wake source AND no timeout — the pure WhenSettledAsync await,
+    // byte-identical output (the default wakeOn filter accepts only the user wake,
+    // which cannot fire without a source).
+    if (_wakeSource is null && timeout is null)
+    {
+      return await LegacyWait(_runtime, id.Value, ct).ConfigureAwait(false);
+    }
+
+    WakeAwareWait wait = new(_wakeSource ?? NullWaitWakeSource.Instance,
+        token => _runtime.WhenSettledAsync(id.Value, token), _clock ?? TimeProvider.System);
+    WaitResult result = await wait.RunAsync(new WaitSpec(id.Value, filter, timeout), ct).ConfigureAwait(false);
+
+    if (result.Error is { } error)
+    {
+      return CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");
+    }
+
+    if (result.Settled)
+    {
+      return RenderOutcome(result.Outcome!);
+    }
+
+    string reasonText = result.Reason is { } reason ? ReasonWord(reason) : "timeout";
+    List<string> lines =
+    [
+      $"[wait: woken reason={reasonText}]",
+      $"id={id.Value} status=running",
+    ];
+    lines.AddRange(result.DigestLines);
+    return CapabilityInvocationResult.Ok(string.Join("\n", lines));
+  }
+
+  /// <summary>The legacy wait path: pure settlement await, today's rendering verbatim.</summary>
+  private static async Task<CapabilityInvocationResult> LegacyWait(IAgentRuntime runtime, AgentId id, CancellationToken ct)
+  {
+    Result<AgentRunOutcome> outcome = await runtime.WhenSettledAsync(id, ct).ConfigureAwait(false);
+    return outcome.IsSuccess
+        ? RenderOutcome(outcome.Value)
+        : CapabilityInvocationResult.Fail($"Error [{outcome.Error.Code}]: {outcome.Error.Message}");
+  }
+
+  private static CapabilityInvocationResult RenderOutcome(AgentRunOutcome settled)
+  {
     return settled.Status is AgentStatus.Completed || !string.IsNullOrEmpty(settled.Report)
         ? CapabilityInvocationResult.Ok(settled.Report)
         : CapabilityInvocationResult.Fail("Error [" + ReasonText(settled.Reason) + "]: the child settled without a usable report.");
   }
+
+  /// <summary>Strict wait-argument parsing beyond the id: wakeOn (default "message") and
+  ///     timeoutSeconds (positive integer). Unknown tokens and non-positive timeouts are
+  ///     InvalidActionInput naming the offending member.</summary>
+  private static string? WaitArgs(string json, out WakeFilter filter, out TimeSpan? timeout)
+  {
+    filter = WakeFilter.Parse(null).Value!;
+    timeout = null;
+    JsonDocument doc;
+    try
+    {
+      doc = JsonDocument.Parse(json);
+    }
+    catch (JsonException ex)
+    {
+      return $"arguments must be a JSON object ({ex.Message}).";
+    }
+
+    using (doc)
+    {
+      if (doc.RootElement.TryGetProperty("wakeOn", out JsonElement wakeElement))
+      {
+        if (wakeElement.ValueKind is not JsonValueKind.String)
+        {
+          return "'wakeOn' must be a string.";
+        }
+
+        Result<WakeFilter> parsed = WakeFilter.Parse(wakeElement.GetString());
+        if (!parsed.IsSuccess)
+        {
+          return parsed.Error.Message;
+        }
+
+        filter = parsed.Value;
+      }
+
+      if (doc.RootElement.TryGetProperty("timeoutSeconds", out JsonElement timeoutElement))
+      {
+        if (timeoutElement.ValueKind is not JsonValueKind.Number || !timeoutElement.TryGetInt32(out int seconds))
+        {
+          return "'timeoutSeconds' must be an integer.";
+        }
+
+        if (seconds <= 0)
+        {
+          return "'timeoutSeconds' must be a positive integer.";
+        }
+
+        timeout = TimeSpan.FromSeconds(seconds);
+      }
+
+      return null;
+    }
+  }
+
+  private static string ReasonWord(WakeReason reason) => reason switch
+  {
+    WakeReason.UserMessage => "user-message",
+    WakeReason.Progress => "progress",
+    WakeReason.Idle => "idle",
+    WakeReason.StreamStall => "stream-stall",
+    WakeReason.StateWrite => "state",
+    WakeReason.Budget => "budget",
+    WakeReason.Mailbox => "mailbox",
+    _ => "unknown",
+  };
   /// <summary>agent.send: parent-to-child steering through the runtime's push-delivery.
   ///     Delivery to self is rejected at validation; unknown/finished targets surface
   ///     NotRunning; overflow surfaces MailboxFull — every failure has a recipient (A3).</summary>
@@ -904,7 +1020,7 @@ public sealed class AgentCapabilityProvider(
             "arguments must be a JSON object."));
       }
 
-      HashSet<string> allowed = new(StringComparer.Ordinal) { "id" };
+      HashSet<string> allowed = new(StringComparer.Ordinal) { "id", "wakeOn", "timeoutSeconds" };
       string[] unknown = [.. doc.RootElement.EnumerateObject()
           .Where(p => !allowed.Contains(p.Name))
           .Select(p => p.Name)];
