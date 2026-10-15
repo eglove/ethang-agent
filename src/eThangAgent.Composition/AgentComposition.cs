@@ -308,7 +308,26 @@ public static class AgentComposition
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
         .AddSingleton<SqliteCuratedMemoryStore>()
         .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
-        .AddSingleton<IAgentInbox, BoundedAgentMailbox>()
+        // The wait wake bus (spec #62): one hub per session; the child-event adapter and
+        // the state-change adapter feed it; the root inbox decorator fires the
+        // unconditional user wake. Ephemeral, in-process — remote waits keep today's
+        // behavior (documented at RemoteAgentRuntime).
+        // The adapters are constructed here explicitly: DI constructs lazily, and NOTHING
+        // else resolves the adapters — a plain registration would never subscribe. The hub
+        // factory builds the hub FIRST, then the adapters over it (no re-entrance), and
+        // the container holds the adapter instances for dispose.
+        .AddSingleton(sp =>
+        {
+          WaitWakeHub hub = new();
+          _ = new ChildEventWakeAdapter(sp.GetRequiredService<IAgentEvents>(), hub);
+          _ = new StateChangeWakeAdapter(sp.GetRequiredService<IStateChangeBus>(), hub);
+          return hub;
+        })
+        .AddSingleton<IStateChangeBus, InProcessStateChangeBus>()
+        .AddSingleton<IAgentInbox>(sp => new SignalingInbox(
+            new BoundedAgentMailbox(),
+            sp.GetRequiredService<WaitWakeHub>(),
+            ownerId: sp.GetRequiredService<RootSessionIdentity>().Id ?? AgentId.NewId()))
         .AddSingleton<IMailboxStore, SqliteMailboxStore>()
         .AddSingleton<IAgentEvents, InProcessAgentEvents>()
         .AddSingleton<ChildSupervisorRegistry>()
@@ -340,7 +359,8 @@ public static class AgentComposition
             sp.GetRequiredService<IWatchdogEventStore>(),
             InboxFor: id => sp.GetRequiredService<ChildMailboxRegistry>().InboxFor(id),
             AnchorScope: sp.GetRequiredService<IWorkspaceAnchorScope>(),
-            Cleanliness: sp.GetRequiredService<IWorkspaceCleanlinessCheck>()))
+            Cleanliness: sp.GetRequiredService<IWorkspaceCleanlinessCheck>(),
+            SupervisorFor: id => sp.GetRequiredService<ChildSupervisorRegistry>().Find(id)))
         .AddSingleton(sp => new SubAgentSpawner(
             sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),
@@ -393,6 +413,8 @@ public static class AgentComposition
                   sp.GetRequiredService<AgentLinkRegistry>(),
                   locator: sp.GetRequiredService<ProcessMailboxLocator>(),
                   eventsFor: id => sp.GetRequiredService<ProcessMailboxLocator>().EventsFor(id),
+                  wakeSource: sp.GetRequiredService<WaitWakeHub>(),
+                  clock: TimeProvider.System,
                   // Fail-fast join: agent.fanout's advertised contract - failed STARTS
                   // (DepthExceeded, InvalidSpawnRequest, ...) fail the join immediately
                   // and surface under their own error code.
