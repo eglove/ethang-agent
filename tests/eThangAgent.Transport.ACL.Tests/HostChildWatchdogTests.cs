@@ -118,7 +118,7 @@ public class HostChildWatchdogTests
   private static WatchdogServices Services(StubClock clock, FakeListStore store, RecordingRuntime runtime,
       FakeHeartbeat heartbeat, FakeAudit audit, TestStream stream, ChildSupervisorRegistry supervisors)
     => new(store, runtime, heartbeat, audit,
-        new WatchdogPolicy(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(5), 0),
+        new WatchdogPolicy(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(5), 0, TimeSpan.FromMinutes(2)),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 

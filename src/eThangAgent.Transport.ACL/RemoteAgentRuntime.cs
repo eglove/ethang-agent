@@ -97,6 +97,9 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   }
 
   /// <inheritdoc cref="IAgentRuntime.WhenSettledAsync"/>
+  /// <remarks>Remote waits do NOT wake on events (user steering, child events, stream
+  ///     stalls, state writes) in this build — wire forwarding is a planned follow-up;
+  ///     the wait blocks until settlement or cancellation exactly as before.</remarks>
   public async Task<Result<AgentRunOutcome>> WhenSettledAsync(AgentId id, CancellationToken ct = default)
   {
     if (!_settling.TryGetValue(id.Value, out TaskCompletionSource<AgentRunOutcome>? source))
