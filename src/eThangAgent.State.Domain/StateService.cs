@@ -4,7 +4,7 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.StateDomain;
 
 public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
-    IWorkspaceContext workspace) : IStateService
+    IWorkspaceContext workspace, IStateChangeBus? changes = null) : IStateService
 {
   public const string HeadNs = "current";
   public const string HeadName = "head";
@@ -18,6 +18,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
   private readonly IStateStore _store = store ?? throw new ArgumentNullException(nameof(store));
   private readonly IEvidenceRunner _evidence = evidence ?? throw new ArgumentNullException(nameof(evidence));
   private readonly IWorkspaceContext _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
+  private readonly IStateChangeBus? _changes = changes;
 
   public async Task<Result<string>> GetAsync(string key, CancellationToken ct = default)
   {
@@ -47,6 +48,7 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     StateKeyValue? saved = await _store.SetKeyCasAsync(_workspace.WorkspaceId, ns, name, value, expectedVersion, ct).ConfigureAwait(false);
     if (saved is not null)
     {
+      _changes?.Publish(new StateChange(_workspace.WorkspaceId, key, StateChangeKind.Set, WriterLabel: null, DateTimeOffset.UtcNow));
       return Result.Success(saved);
     }
 
@@ -71,6 +73,11 @@ public sealed class StateService(IStateStore store, IEvidenceRunner evidence,
     }
 
     bool deleted = await _store.DeleteKeyCasAsync(_workspace.WorkspaceId, ns, name, expectedVersion, ct).ConfigureAwait(false);
+    if (deleted)
+    {
+      _changes?.Publish(new StateChange(_workspace.WorkspaceId, key, StateChangeKind.Delete, WriterLabel: null, DateTimeOffset.UtcNow));
+    }
+
     return deleted
         ? Result.Success($"deleted {key}")
         : Result.Failure<string>(new DomainError(VersionConflict,
