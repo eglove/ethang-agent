@@ -135,34 +135,31 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
         }
 
         ChildIdleAlertEvent? alert = supervisor.CheckIdle(services.Policy.IdleThreshold);
+        if (alert is not null)
+        {
+          await HandleIdleAsync(supervisor, alert, ct).ConfigureAwait(false);
+        }
+
+        // Stream-stall observation (spec decision 5): independent of the idle path — a
+        // child can idle-alert AND stall-alert, and a child under the idle threshold
+        // still gets its stall check. Observation only: never interrupts or retries.
+        ChildStreamStalledEvent? stall = supervisor.CheckStreamStall(services.Policy.StallThreshold);
+        if (stall is not null)
+        {
+          services.ChildEventStream?.Publish(stall);
+          await AppendAsync(new WatchdogEvent(Guid.NewGuid(), stall.ChildId,
+              WatchdogEventKind.StreamStalled,
+              "stream stalled " + (int)stall.QuietFor.TotalSeconds + "s; last " + stall.LastActivityKind,
+              supervisor.Attempts, null, services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
+          continue;
+        }
+
         if (alert is null)
         {
           continue;
         }
 
-        await AppendAsync(new WatchdogEvent(Guid.NewGuid(), alert.ChildId,
-            WatchdogEventKind.HungDetected, "idle " + (int)alert.IdleAge.TotalMinutes + "m; phase " + alert.LastPhase,
-            supervisor.Attempts, null, services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
-        services.Runtime.Interrupt(alert.ChildId);
-        AgentRecord settled = await AwaitSettledAsync(alert.ChildId, ct).ConfigureAwait(false);
-        if (settled.Status is AgentStatus.Running)
-        {
-          continue; // cancel unobserved: next tick re-raises while still idle
-        }
-
-        if (settled.Status is AgentStatus.Completed)
-        {
-          continue; // finished while we watched
-        }
-
-        if (supervisor.Attempts >= services.Policy.MaxWrapUpAttempts)
-        {
-          await TerminalAsync(settled, supervisor.Attempts, alert.IdleAge, ct).ConfigureAwait(false);
-        }
-        else
-        {
-          await RetryAsync(settled, supervisor.Attempts + 1, ct).ConfigureAwait(false);
-        }
+        await HandleIdleAsync(supervisor, alert, ct).ConfigureAwait(false);
       }
       catch (OperationCanceledException)
       {
@@ -181,6 +178,34 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
     }
   }
 
+  /// <summary>The idle-alert graduated response, extracted so the stall check can run
+  ///     independently in the same tick iteration (a child can idle-alert AND stall-alert).</summary>
+  private async Task HandleIdleAsync(ChildSupervisor supervisor, ChildIdleAlertEvent alert, CancellationToken ct)
+  {
+    await AppendAsync(new WatchdogEvent(Guid.NewGuid(), alert.ChildId,
+        WatchdogEventKind.HungDetected, "idle " + (int)alert.IdleAge.TotalMinutes + "m; phase " + alert.LastPhase,
+        supervisor.Attempts, null, services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
+    services.Runtime.Interrupt(alert.ChildId);
+    AgentRecord settled = await AwaitSettledAsync(alert.ChildId, ct).ConfigureAwait(false);
+    if (settled.Status is AgentStatus.Running)
+    {
+      return; // cancel unobserved: next tick re-raises while still idle
+    }
+
+    if (settled.Status is AgentStatus.Completed)
+    {
+      return; // finished while we watched
+    }
+
+    if (supervisor.Attempts >= services.Policy.MaxWrapUpAttempts)
+    {
+      await TerminalAsync(settled, supervisor.Attempts, alert.IdleAge, ct).ConfigureAwait(false);
+    }
+    else
+    {
+      await RetryAsync(settled, supervisor.Attempts + 1, ct).ConfigureAwait(false);
+    }
+  }
   /// <summary>Bounded settle observation via the runtime's WhenSettledAsync: an AWAIT
   ///     (not a poll) with a hard iteration bound on the injected clock so a frozen
   ///     TimeProvider cannot hang the tick. Unknown ids settle as Running (no-op).</summary>

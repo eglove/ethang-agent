@@ -65,6 +65,19 @@ public partial class SupervisorFeedContractTests
   }
 
   [Fact]
+  public void StreamStalled_DoesNotBeat()
+  {
+    // The stall event is published from inside CheckStreamStall under the supervisor's
+    // lock — a self-echo would deadlock, and a beat would clear the very alert raised.
+    (FakeStream stream, ChildSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
+
+    stream.Publish(new ChildStreamStalledEvent(child, T0, TimeSpan.FromSeconds(130), "content"));
+
+    clock.Now = T0.AddMinutes(15).AddTicks(1);
+    ChildIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));
+    Assert.NotNull(alert); // no beat: the idle window was NOT reset by the stall event
+  }
+  [Fact]
   public void BudgetAlert_DoesNotBeat()
   {
     (FakeStream stream, ChildSupervisor supervisor, AgentId child, StubClock clock) = Fresh();

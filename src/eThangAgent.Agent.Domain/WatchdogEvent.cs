@@ -10,6 +10,7 @@ public enum WatchdogEventKind
   RssSustained,
   WatchdogErrored,
   GrantViolation,
+  StreamStalled,
 }
 
 /// <summary>One structured watchdog or process-RSS-monitor decision or observation. Rows are append-only audit:

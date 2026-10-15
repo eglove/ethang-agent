@@ -9,6 +9,7 @@ public static class WatchdogPolicyFactory
   public static WatchdogPolicy FromOptions(WatchdogOptions options)
   {
     ArgumentNullException.ThrowIfNull(options);
-    return new WatchdogPolicy(options.IdleThreshold, options.SettleWait, options.MaxWrapUpAttempts);
+    return new WatchdogPolicy(options.IdleThreshold, options.SettleWait, options.MaxWrapUpAttempts,
+        StallThreshold: TimeSpan.FromMinutes(2));
   }
 }

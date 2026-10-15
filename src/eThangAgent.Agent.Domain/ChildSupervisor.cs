@@ -20,6 +20,9 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
   private long _tokens;
   private bool _idleAlerted;
   private readonly HashSet<string> _budgetAlerts = [];
+  private DateTimeOffset _lastStreamActivity;
+  private string _lastStreamKind = "content";
+  private bool _stallAlerted;
 
   public AgentId ChildId { get; } = childId;
   public int Attempts { get; private set; }
@@ -32,7 +35,9 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
     {
       Attempts = attempts;
       _lastBeat = clock.GetUtcNow();
+      _lastStreamActivity = clock.GetUtcNow();
       _idleAlerted = false;
+      _stallAlerted = false;
     }
   }
 
@@ -101,6 +106,40 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
 
       _idleAlerted = true;
       ChildIdleAlertEvent alert = new(ChildId, clock.GetUtcNow(), idle, _phase.ToString());
+      events.Publish(alert);
+      return alert;
+    }
+  }
+  /// <summary>Stream-activity push: stamps the last provider-stream fragment (kind is
+  ///     "content" or "reasoning") and re-arms the stall alert. This is NOT a beat —
+  ///     it never resets the idle clock (streaming tokens is not loop progress; idle
+  ///     detection keeps its current meaning).</summary>
+  public void OnStreamActivity(string kind)
+  {
+    ArgumentNullException.ThrowIfNull(kind);
+    lock (_gate)
+    {
+      _lastStreamActivity = clock.GetUtcNow();
+      _lastStreamKind = kind;
+      _stallAlerted = false;
+    }
+  }
+
+  /// <summary>Stall observation for the watchdog tick. Returns the event exactly once
+  ///     per stall episode; a subsequent stream activity re-arms it. Published under
+  ///     the lock — never feeds itself (the SupervisorFeed contract).</summary>
+  public ChildStreamStalledEvent? CheckStreamStall(TimeSpan stallThreshold)
+  {
+    lock (_gate)
+    {
+      TimeSpan quiet = clock.GetUtcNow() - _lastStreamActivity;
+      if (quiet < stallThreshold || _stallAlerted)
+      {
+        return null;
+      }
+
+      _stallAlerted = true;
+      ChildStreamStalledEvent alert = new(ChildId, clock.GetUtcNow(), quiet, _lastStreamKind);
       events.Publish(alert);
       return alert;
     }

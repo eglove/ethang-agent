@@ -140,7 +140,7 @@ public class AgentWatchdogTests
     FakeHeartbeat heartbeat = new();
     FakeEvents events = new();
     WatchdogServices services = new(store, runtime, heartbeat, events,
-        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1),
+        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock);
     AgentWatchdog watchdog = new(rootId, services);
     AgentWatchdog settled = settlePoll is { } poll ? watchdog.WithSettlePollInterval(poll) : watchdog;
@@ -322,7 +322,7 @@ public class AgentWatchdogTests
     supervisor.OnStart(0);
     supervisors.Register(childId, supervisor);
     WatchdogServices services = new(store, runtime, heartbeat, audit,
-        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1),
+        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
@@ -358,7 +358,7 @@ public class AgentWatchdogTests
     supervisor.OnStart(0);
     supervisors.Register(childId, supervisor);
     WatchdogServices services = new(store, runtime, heartbeat, audit,
-        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1),
+        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
         new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
         stream, supervisors);
 #pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test

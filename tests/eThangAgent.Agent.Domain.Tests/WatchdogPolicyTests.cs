@@ -5,7 +5,8 @@ public class WatchdogPolicyTests
   private static WatchdogPolicy Policy() => new(
       IdleThreshold: TimeSpan.FromMinutes(15),
       SettleWait: TimeSpan.FromSeconds(60),
-      MaxWrapUpAttempts: 1);
+      MaxWrapUpAttempts: 1,
+      StallThreshold: TimeSpan.FromMinutes(2));
 
   [Fact]
   public void Decide_RootAgent_AlwaysWatches()

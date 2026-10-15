@@ -19,7 +19,11 @@ public sealed record WatchdogPolicy
   public TimeSpan SettleWait { get; }
   public int MaxWrapUpAttempts { get; }
 
-  public WatchdogPolicy(TimeSpan IdleThreshold, TimeSpan SettleWait, int MaxWrapUpAttempts)
+  /// <summary>Silence threshold on a running child's provider stream before the tick
+  ///     publishes a ChildStreamStalledEvent (observation only, never an interrupt).</summary>
+  public TimeSpan StallThreshold { get; }
+
+  public WatchdogPolicy(TimeSpan IdleThreshold, TimeSpan SettleWait, int MaxWrapUpAttempts, TimeSpan StallThreshold = default)
   {
     if (IdleThreshold <= TimeSpan.Zero)
     {
@@ -36,13 +40,19 @@ public sealed record WatchdogPolicy
       throw new ArgumentOutOfRangeException(nameof(MaxWrapUpAttempts), "MaxWrapUpAttempts must not be negative.");
     }
 
+    if (StallThreshold <= TimeSpan.Zero)
+    {
+      throw new ArgumentOutOfRangeException(nameof(StallThreshold), StallThreshold, "StallThreshold must be positive.");
+    }
+
     this.IdleThreshold = IdleThreshold;
     this.SettleWait = SettleWait;
     this.MaxWrapUpAttempts = MaxWrapUpAttempts;
+    this.StallThreshold = StallThreshold;
   }
 
   public WatchdogPolicy()
-      : this(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1)
+      : this(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2))
   {
   }
 

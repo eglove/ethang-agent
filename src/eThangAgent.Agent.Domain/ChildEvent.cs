@@ -42,6 +42,12 @@ public sealed record MailboxDrainedEvent(AgentId ChildId, DateTimeOffset At, int
 public sealed record PreemptedEvent(AgentId ChildId, DateTimeOffset At, string ByWhom, int Urgency)
     : ChildEvent(ChildId, At);
 
+/// <summary>A RUNNING child's provider stream went silent past the stall threshold.
+///     Informational: the child is still running; consumers (waits, UI) decide.
+///     LastActivityKind is "content" or "reasoning" — the last stream fragment type seen.</summary>
+public sealed record ChildStreamStalledEvent(AgentId ChildId, DateTimeOffset At, TimeSpan QuietFor, string LastActivityKind)
+    : ChildEvent(ChildId, At);
+
 public interface IAgentEventSubscriber
 {
   /// <summary>Called synchronously for every published event. Implementations must be
