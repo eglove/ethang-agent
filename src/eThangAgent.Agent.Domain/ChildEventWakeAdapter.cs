@@ -57,6 +57,10 @@ public sealed class ChildEventWakeAdapter : IDisposable
         _hub.Register(new WakeSignal(WakeReason.Budget, budget.ChildId, budget.At,
             string.Create(CultureInfo.InvariantCulture, $"budget {budget.BudgetKind} consumed={budget.Consumed} child={budget.ChildId}")));
         break;
+      case ChildStreamStalledEvent stalled:
+        _hub.Register(new WakeSignal(WakeReason.StreamStall, stalled.ChildId, stalled.At,
+            string.Create(CultureInfo.InvariantCulture, $"stream-stalled quiet={(int)stalled.QuietFor.TotalSeconds}s last={stalled.LastActivityKind} child={stalled.ChildId}")));
+        break;
       case MessageDeliveredEvent mail:
         _hub.Register(new WakeSignal(WakeReason.Mailbox, mail.ChildId, mail.At,
             string.Create(CultureInfo.InvariantCulture, $"mail delivered dir={mail.Direction} child={mail.ChildId}")));

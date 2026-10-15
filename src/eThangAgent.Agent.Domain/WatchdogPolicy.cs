@@ -23,7 +23,7 @@ public sealed record WatchdogPolicy
   ///     publishes a ChildStreamStalledEvent (observation only, never an interrupt).</summary>
   public TimeSpan StallThreshold { get; }
 
-  public WatchdogPolicy(TimeSpan IdleThreshold, TimeSpan SettleWait, int MaxWrapUpAttempts, TimeSpan StallThreshold = default)
+  public WatchdogPolicy(TimeSpan IdleThreshold, TimeSpan SettleWait, int MaxWrapUpAttempts, TimeSpan StallThreshold = default) // default => the 2-minute documented default below
   {
     if (IdleThreshold <= TimeSpan.Zero)
     {
@@ -40,7 +40,14 @@ public sealed record WatchdogPolicy
       throw new ArgumentOutOfRangeException(nameof(MaxWrapUpAttempts), "MaxWrapUpAttempts must not be negative.");
     }
 
-    if (StallThreshold <= TimeSpan.Zero)
+    // The .NET default means the caller omitted the optional parameter (zero is
+    // indistinguishable from omitted in C#): it resolves to the documented 2-minute
+    // default. A NEGATIVE value is a boundary error.
+    if (StallThreshold == default)
+    {
+      StallThreshold = TimeSpan.FromMinutes(2);
+    }
+    else if (StallThreshold < TimeSpan.Zero)
     {
       throw new ArgumentOutOfRangeException(nameof(StallThreshold), StallThreshold, "StallThreshold must be positive.");
     }

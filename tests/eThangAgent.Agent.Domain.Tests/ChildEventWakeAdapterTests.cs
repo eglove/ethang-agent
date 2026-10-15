@@ -181,4 +181,21 @@ public class ChildEventWakeAdapterTests
 
     Assert.Empty(seen);
   }
+  [Fact]
+  public void StreamStalled_Wakes_WithStallDigest()
+  {
+    RecordingEvents events = new();
+    WaitWakeHub hub = new();
+    using ChildEventWakeAdapter adapter = new(events, hub);
+    List<WakeSignal> seen = [];
+    using IDisposable lease = hub.Subscribe(seen.Add);
+    AgentId child = new(Guid.NewGuid());
+
+    events.Subscriber!.OnEvent(new ChildStreamStalledEvent(child, Now, TimeSpan.FromSeconds(130), "content"));
+
+    WakeSignal signal = Assert.Single(seen);
+    Assert.Equal(WakeReason.StreamStall, signal.Reason);
+    Assert.Contains("stream-stalled", signal.DigestLine, StringComparison.Ordinal);
+    Assert.Contains("130s", signal.DigestLine, StringComparison.Ordinal);
+  }
 }

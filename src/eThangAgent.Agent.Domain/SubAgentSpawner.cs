@@ -200,7 +200,10 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
           Events = _events,
           TranscriptSink = transcriptSink,
           SessionId = child.Id.ToString(),
-          OnStreamActivity = _supervisorFor is null ? null : kind => _supervisorFor(child.Id)?.OnStreamActivity(kind),
+          // Resolve the supervisor ONCE per run (not per fragment): streams emit hundreds
+          // of fragments per second; a per-fragment registry lookup would take two locks
+          // per fragment on the hot path.
+          OnStreamActivity = ResolveStreamStamp(child.Id),
         });
     PublishStarted(child);
 
@@ -468,4 +471,20 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     // Unnamed enum values cannot occur.
     _ => "child agent's model provider failed.",
   };
+  /// <summary>Resolves the child's supervisor ONCE per run and returns the stamping
+  ///     callback for AgentOptions.OnStreamActivity. Null wiring (legacy) returns null:
+  ///     byte-identical behavior. The supervisor is registered by the runtime at Start
+  ///     BEFORE the child's loop begins, so the lookup here is a single lock.
+  ///     A null resolution (registry race) degrades to no stamping for that run —
+  ///     the watchdog's idle detection still covers it.</summary>
+  private Action<string>? ResolveStreamStamp(AgentId childId)
+  {
+    if (_supervisorFor is null)
+    {
+      return null;
+    }
+
+    ChildSupervisor? supervisor = _supervisorFor(childId);
+    return supervisor is null ? null : kind => supervisor.OnStreamActivity(kind);
+  }
 }

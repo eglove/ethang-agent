@@ -314,8 +314,10 @@ public static class AgentComposition
         // behavior (documented at RemoteAgentRuntime).
         // The adapters are constructed here explicitly: DI constructs lazily, and NOTHING
         // else resolves the adapters — a plain registration would never subscribe. The hub
-        // factory builds the hub FIRST, then the adapters over it (no re-entrance), and
-        // the container holds the adapter instances for dispose.
+        // factory builds the hub FIRST, then the adapters over it (no re-entrance). The
+        // adapters' leases live in the streams' subscription closures and die with the
+        // session-scoped streams; the adapters are never disposed individually (benign:
+        // InProcessAgentEvents and InProcessStateChangeBus are session-scoped).
         .AddSingleton(sp =>
         {
           WaitWakeHub hub = new();

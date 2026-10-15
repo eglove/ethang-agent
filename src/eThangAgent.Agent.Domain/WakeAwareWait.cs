@@ -23,7 +23,7 @@ public sealed class WakeFilter
       return Result.Success(new WakeFilter(reasons)); // default: only the always-on user wake
     }
 
-    if (raw.Trim() == "all")
+    if (string.Equals(raw.Trim(), "all", StringComparison.OrdinalIgnoreCase))
     {
       foreach (WakeReason reason in (WakeReason[])[WakeReason.Progress, WakeReason.Idle, WakeReason.StreamStall,
         WakeReason.StateWrite, WakeReason.Budget, WakeReason.Mailbox])

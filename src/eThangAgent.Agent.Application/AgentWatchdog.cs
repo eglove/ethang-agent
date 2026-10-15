@@ -134,26 +134,23 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
           continue;
         }
 
-        ChildIdleAlertEvent? alert = supervisor.CheckIdle(services.Policy.IdleThreshold);
-        if (alert is not null)
-        {
-          await HandleIdleAsync(supervisor, alert, ct).ConfigureAwait(false);
-        }
-
-        // Stream-stall observation (spec decision 5): independent of the idle path — a
-        // child can idle-alert AND stall-alert, and a child under the idle threshold
-        // still gets its stall check. Observation only: never interrupts or retries.
+        // Stream-stall observation FIRST (spec decision 5): a stall is observation only
+        // and must not consume the idle response — but an idle breach consumes this
+        // tick's attention (the graduated response interrupts/awaits/retries), so the
+        // stall check runs before it and the idle handling is the loop's LAST action
+        // for this child. One idle alert is handled EXACTLY once per tick.
         ChildStreamStalledEvent? stall = supervisor.CheckStreamStall(services.Policy.StallThreshold);
         if (stall is not null)
         {
-          services.ChildEventStream?.Publish(stall);
+          // Already published by CheckStreamStall under the supervisor's lock (the
+          // CheckIdle pattern) — the watchdog only appends the audit row.
           await AppendAsync(new WatchdogEvent(Guid.NewGuid(), stall.ChildId,
               WatchdogEventKind.StreamStalled,
               "stream stalled " + (int)stall.QuietFor.TotalSeconds + "s; last " + stall.LastActivityKind,
               supervisor.Attempts, null, services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
-          continue;
         }
 
+        ChildIdleAlertEvent? alert = supervisor.CheckIdle(services.Policy.IdleThreshold);
         if (alert is null)
         {
           continue;

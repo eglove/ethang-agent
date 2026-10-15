@@ -65,6 +65,7 @@ public class AgentWatchdogStallTests
   private sealed class FakeRuntime : IAgentRuntime
   {
     public List<Guid> Interrupted { get; } = [];
+    public Action<Guid>? OnInterrupt { get; set; }
     public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
       => Task.FromResult(Result.Success(record.Id));
 
@@ -83,6 +84,7 @@ public class AgentWatchdogStallTests
       if (childId is { } id)
       {
         Interrupted.Add(id.Value);
+        OnInterrupt?.Invoke(id.Value);
       }
     }
   }
@@ -219,9 +221,67 @@ public class AgentWatchdogStallTests
   }
 
   [Fact]
-  public void WatchdogPolicy_ExplicitZeroStallThreshold_Throws()
+  public void WatchdogPolicy_ExplicitZeroStallThreshold_DefaultsToTwoMinutes()
+  {
+    // TimeSpan.Zero is indistinguishable from an omitted optional parameter in C# —
+    // it resolves to the documented default. A NEGATIVE value is the boundary error.
+    WatchdogPolicy policy = new(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.Zero);
+    Assert.Equal(TimeSpan.FromMinutes(2), policy.StallThreshold);
+  }
+
+  [Fact]
+  public void WatchdogPolicy_NegativeStallThreshold_Throws()
   {
     _ = Assert.Throws<ArgumentOutOfRangeException>(() =>
-        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.Zero));
+        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(-1)));
+  }
+  [Fact]
+  public async Task Tick_IdleBreach_WithFreshStream_HandlesIdleExactlyOnce()
+  {
+    // The regression the final review caught: an idle breach with a FRESH stream (a
+    // single long streaming turn keeps the stream alive past the idle threshold) must
+    // run the graduated idle response EXACTLY ONCE — one HungDetected row, one
+    // interrupt. The pre-fix flow called HandleIdleAsync twice (once inline, once
+    // after the null stall check), re-interrupting the freshly restarted retry.
+    AgentRecord root = Root();
+    StubClock clock = new(T0);
+    FakeStore store = new();
+    FakeRuntime runtime = new();
+    FakeHeartbeat heartbeat = new();
+    FakeEvents audit = new();
+    ChildEventStream stream = new();
+    ChildSupervisorRegistry supervisors = new();
+    AgentId childId = new(Guid.NewGuid());
+    ChildSupervisor supervisor = new(childId, stream, clock, ceilings: null);
+    supervisor.OnStart(0);
+    supervisor.OnStreamActivity("content"); // stream fresh; never stalls
+    supervisors.Register(childId, supervisor);
+    WatchdogServices services = new(store, runtime, heartbeat, audit,
+        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
+        new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock,
+        stream, supervisors);
+#pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
+    AgentWatchdog watchdog = new(root.Id, services);
+#pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
+    AgentRecord child = Child(root.Id, T0);
+    store.Records[root.Id.Value] = root;
+    store.Records[childId.Value] = child;
+    runtime.OnInterrupt = id => store.Records[id] = store.Records[id] with
+    {
+      Status = AgentStatus.Failed,
+      FailureReason = AgentFailureReason.Interrupted,
+      CompletedAt = DateTimeOffset.UtcNow,
+    };
+
+    clock.Now = T0.AddMinutes(20); // past idle (15m); stream fresh (stamped at T0, quiet 20m...
+    // NOTE: OnStart stamped the stream at T0 — quiet is 20m, PAST the 2m stall threshold.
+    // Re-stamp so the stream is fresh at tick time: the scenario is a LONG STREAMING TURN.
+    supervisor.OnStreamActivity("reasoning");
+    clock.Now = T0.AddMinutes(20).AddSeconds(30); // idle 20.5m past; stream quiet 30s (under 2m)
+
+    await watchdog.TickAsync();
+
+    _ = Assert.Single(audit.Appended, e => e.Kind == WatchdogEventKind.HungDetected);
+    _ = Assert.Single(runtime.Interrupted);
   }
 }
