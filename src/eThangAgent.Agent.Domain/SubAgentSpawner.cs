@@ -64,6 +64,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   private readonly IContextCompactor? _contextCompactor = contextCompactor;
   private readonly IModelCatalog? _catalog = catalog;
   private readonly IAgentHeartbeat? _heartbeat = services.Heartbeat;
+  private readonly Func<AgentId, ChildSupervisor?>? _supervisorFor = services.SupervisorFor;
   private readonly IAgentEvents? _events = services.Events;
 
   private static readonly AsyncLocal<AgentRecord?> RunningChildCurrent = new();
@@ -199,6 +200,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
           Events = _events,
           TranscriptSink = transcriptSink,
           SessionId = child.Id.ToString(),
+          OnStreamActivity = _supervisorFor is null ? null : kind => _supervisorFor(child.Id)?.OnStreamActivity(kind),
         });
     PublishStarted(child);
 

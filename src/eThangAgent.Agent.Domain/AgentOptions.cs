@@ -43,6 +43,11 @@ public sealed record AgentOptions
   ///     during the run: byte-identical legacy behavior.</summary>
   public IChildTranscriptStore? TranscriptSink { get; init; }
 
+  /// <summary>Invoked with "content" or "reasoning" on every provider stream fragment
+  ///     (the stream-stall liveness signal). May fire on arbitrary threads; observers
+  ///     must be thread-safe and fast. Null (legacy wiring) stamps nothing:
+  ///     byte-identical legacy behavior.</summary>
+  public Action<string>? OnStreamActivity { get; init; }
   /// <summary>Durable session identity stamped onto every provider request this loop
   ///     builds (OpenRouter sticky sessions / prompt caching). Null (legacy wiring)
   ///     leaves the request's id unset: byte-identical legacy behavior.</summary>

@@ -80,6 +80,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly double _compactionThreshold = options?.CompactionThreshold ?? DefaultCompactionThreshold;
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
   private readonly string? _sessionId = options?.SessionId;
+  private readonly Action<string>? _onStreamActivity = options?.OnStreamActivity;
   private readonly ToolRepeatGuard _repeatGuard = new();
   private readonly ReadFreshnessLedger _readLedger = new();
 
@@ -213,8 +214,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         // (retries, logging, tests) read messages added by later iterations.
         ModelRequest request = new(
             [.. Conversation.Messages], _tools.Definitions, _systemPrompt?.Build(), _sessionId);
+        // Stream-activity stamping: every fragment (content or reasoning) proves the
+        // provider stream is alive. The stamp rides the option, not the turn callbacks,
+        // so children get it without a UI surface. Null option: byte-identical legacy.
+        Action<string>? contentDelta = WrapStreamStamp(callbacks?.OnContentDelta, "content");
+        Action<string>? reasoningDelta = WrapStreamStamp(callbacks?.OnReasoningDelta, "reasoning");
         Result<ModelResponse> result = await _provider.SendStreamingAsync(Config, request,
-            callbacks?.OnContentDelta, callbacks?.OnReasoningDelta, ct).ConfigureAwait(false);
+            contentDelta, reasoningDelta, ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
           // A caller stop that landed DURING the provider call arrives here as a provider
@@ -635,6 +641,24 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     return content.Length > 80 ? content[..77] + "…" : content;
   }
 
+  /// <summary>Composes the stream-fragment callback: the stamp fires first (liveness),
+  ///     then the turn callback if present. Neither present means null — the provider
+  ///     receives no callback at all, byte-identical to legacy.</summary>
+  private Action<string>? WrapStreamStamp(Action<string>? turnCallback, string kind)
+  {
+    return (turnCallback, _onStreamActivity) switch
+    {
+      ({ } forward, { } stamp) => text =>
+      {
+        stamp(kind);
+        forward(text);
+      }
+      ,
+      ({ } onlyForward, _) => onlyForward,
+      (_, { } onlyStamp) => text => onlyStamp(kind),
+      _ => null,
+    };
+  }
   /// <summary>Drains every queued steering message into the conversation as User messages,
   /// preserving queue order. Safe points only: entry and iteration boundaries.</summary>
   private void DrainInbox(IAgentInbox? inbox)
