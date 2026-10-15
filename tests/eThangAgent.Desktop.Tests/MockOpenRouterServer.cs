@@ -12,6 +12,7 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   private readonly CancellationTokenSource _cts = new();
   private readonly Queue<string> _scriptedResponses = new();
   private readonly Dictionary<string, Queue<string>> _modelScripts = [];
+  private readonly Dictionary<string, TimeSpan> _modelDelays = [];
   private readonly List<string> _requestBodies = [];
   private readonly string _responsesPath = responsesPath;
   private readonly List<string> _responsesRequestPaths = [];
@@ -51,6 +52,16 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
   ///     server play both parent and child in a nested-spawn session.</summary>
   /// <summary>Scripts the /api/v1/models catalog response. When unset, the endpoint
   ///     serves an empty data array.</summary>
+
+  /// <summary>Delays EVERY response for a model by the given span — how a test stalls
+  ///     a child mid-provider-call so the parent sits inside agent.wait while steering
+  ///     arrives. Applied before the scripted body is served.</summary>
+  public MockOpenRouterServer DelayResponsesForModel(string model, TimeSpan delay)
+  {
+    ArgumentNullException.ThrowIfNull(model);
+    _modelDelays[model] = delay;
+    return this;
+  }
   public MockOpenRouterServer ReturnsCatalog(string catalogJson)
   {
     ArgumentNullException.ThrowIfNull(catalogJson);
@@ -276,6 +287,12 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
 
         try
         {
+          if (MockOpenRouterServer.TryGetRequestModel(requestBody) is { } requestModel
+              && _modelDelays.TryGetValue(requestModel, out TimeSpan delay))
+          {
+            await Task.Delay(delay, _cts.Token).ConfigureAwait(false);
+          }
+
           string scriptedBody = NextScriptedBody(requestBody);
           ctx.Response.StatusCode = 200;
           if (RequestWantsStream(requestBody))
