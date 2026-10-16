@@ -266,9 +266,14 @@ public sealed class AgentCapabilityProvider(
         : CapabilityInvocationResult.Fail($"Error [{outcome.Error.Code}]: {outcome.Error.Message}");
   }
 
+  /// <summary>Renders a settled outcome. Honesty rule (issue #124): only a COMPLETED
+  ///     settlement renders its report as success — a failed outcome's report field can
+  ///     carry the failure detail (or any partial text), and rendering it as the child's
+  ///     deliverable is exactly how agent.wait once handed the parent a failure sentence
+  ///     as if it were the task's result. Failure annotations pass through untouched.</summary>
   private static CapabilityInvocationResult RenderOutcome(AgentRunOutcome settled)
   {
-    return settled.Status is AgentStatus.Completed || !string.IsNullOrEmpty(settled.Report)
+    return settled.Status is AgentStatus.Completed
         ? CapabilityInvocationResult.Ok(settled.Report)
         : CapabilityInvocationResult.Fail("Error [" + ReasonText(settled.Reason) + "]: the child settled without a usable report.");
   }

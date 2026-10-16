@@ -30,6 +30,11 @@ namespace eThangAgent.AgentDomain;
 /// <param name="Cleanliness">Optional workspace-cleanliness reader for the child-report
 ///     contract: a completed run's report gains an annotation listing untracked files
 ///     left behind. Null disables the check (legacy wiring, tests).</param>
+/// <param name="ProviderRequired">Production wiring (true): a begin-run whose record
+///     carries the UnboundProvider marker fails LOUDLY as Failed(ProviderError) with an
+///     audit row instead of looping on tools with zero model calls (issue #124,
+///     2026-10-15 incident). Legacy test wiring (false, the default) stays
+///     byte-identical.</param>
 public sealed record SubAgentServices(
     IModelProviderFactory Factory,
     IAgentStore Store,
@@ -42,5 +47,6 @@ public sealed record SubAgentServices(
     Func<AgentId, IAgentInbox?>? InboxFor = null,
     IWorkspaceAnchorScope? AnchorScope = null,
     IWorkspaceCleanlinessCheck? Cleanliness = null,
-    Func<AgentId, ChildSupervisor?>? SupervisorFor = null);
+    Func<AgentId, ChildSupervisor?>? SupervisorFor = null,
+    bool ProviderRequired = false);
 

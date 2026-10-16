@@ -179,7 +179,8 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     ModelConfig modelConfig = resolved.Value;
 
     AgentRecord record = AgentRecord.Spawned(AgentId.NewId(), parent.Id, parent.Depth + 1, modelConfig.ModelId,
-        request.Label, request.TaskPrompt, DateTimeOffset.UtcNow, resolvedContract);
+        request.Label, request.TaskPrompt, DateTimeOffset.UtcNow, resolvedContract,
+        provider: _spawn.ProviderName);
 
     Result<string> saved = await _store.SaveAsync(record, ct).ConfigureAwait(false);
     if (!saved.IsSuccess)

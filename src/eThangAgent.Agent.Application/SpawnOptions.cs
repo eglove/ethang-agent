@@ -19,10 +19,16 @@ namespace eThangAgent.Agent.Application;
 ///     anchor against when the parent record carries no persisted anchor of its own
 ///     (worktree ladder, T5). Composition supplies it; null means an anchored request
 ///     without a parent anchor is refused rather than silently inherited.</param>
+/// <param name="ProviderName">The session's provider id ("openrouter"), stamped onto
+///     every spawned child's persisted row so the Desktop subagent panel renders it and
+///     diagnostics attribute the run (issue #124: all child rows carried NULL). Null
+///     means legacy wiring supplies no provider — the row carries the named
+///     UnboundProvider marker instead of SQL NULL, never a silent absence.</param>
 public sealed record SpawnOptions(
     string FallbackModelId,
     SessionModelPreferences? Preferences = null,
     int MaxTokens = 4096,
     float Temperature = 0.7f,
     IReadOnlySet<string>? ChildToolSurface = null,
-    string? WorkspaceRoot = null);
+    string? WorkspaceRoot = null,
+    string? ProviderName = null);

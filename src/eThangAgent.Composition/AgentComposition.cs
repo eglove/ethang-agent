@@ -362,7 +362,12 @@ public static class AgentComposition
             InboxFor: id => sp.GetRequiredService<ChildMailboxRegistry>().InboxFor(id),
             AnchorScope: sp.GetRequiredService<IWorkspaceAnchorScope>(),
             Cleanliness: sp.GetRequiredService<IWorkspaceCleanlinessCheck>(),
-            SupervisorFor: id => sp.GetRequiredService<ChildSupervisorRegistry>().Find(id)))
+            SupervisorFor: id => sp.GetRequiredService<ChildSupervisorRegistry>().Find(id),
+            // Spawn-boundary invariant (issue #124): production wiring demands a provider
+            // binding on every begin-run — an unbound record fails loudly (Failed + audit
+            // row) instead of looping without model calls. The spawn stamp above always
+            // supplies one; this is the second net under it.
+            ProviderRequired: true))
         .AddSingleton(sp => new SubAgentSpawner(
             sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),
@@ -386,7 +391,8 @@ public static class AgentComposition
                 Providers.FallbackModelId(providerName),
                 sp.GetRequiredService<SessionModelPreferences>(),
                 ChildToolSurface: ChildToolSurface(sp),
-                WorkspaceRoot: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
+                WorkspaceRoot: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
+                ProviderName: providerName),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<IWorktreeProvisioner>(),
             sp.GetRequiredService<IModelCatalog>()))

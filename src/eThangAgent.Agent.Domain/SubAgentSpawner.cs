@@ -103,6 +103,33 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(child);
+    // Provider-binding invariant (issue #124, 2026-10-15 incident): under production
+    // wiring a begin-run whose record carries the unbound marker fails LOUDLY — a
+    // well-formed Failed(ProviderError) outcome plus an audit row — instead of looping
+    // on tools with zero model calls while every projection reports it alive. Legacy
+    // wiring (ProviderRequired=false) keeps byte-identical behavior.
+    if (services.ProviderRequired
+        && (child.Provider is null || child.Provider == AgentRecord.UnboundProvider))
+    {
+      _ = services.Audit?.AppendAsync(new WatchdogEvent(Guid.NewGuid(), child.Id,
+          WatchdogEventKind.SpawnInvariantViolation,
+          "spawn refused: begin-run without a provider binding (unbound child row)", 0, null,
+          DateTimeOffset.UtcNow), CancellationToken.None);
+
+      AgentRecord terminal = child with
+      {
+        Status = AgentStatus.Failed,
+        FailureReason = AgentFailureReason.ProviderError,
+        CompletedAt = DateTimeOffset.UtcNow,
+        FinalReport = FailureDetail(AgentFailureReason.ProviderError)
+            + " (spawn invariant: the child record carried no provider binding; the run never started).",
+      };
+      await PersistTerminalAsync(terminal, CancellationToken.None).ConfigureAwait(false);
+      PublishSettled(child.Id, AgentStatus.Failed, AgentFailureReason.ProviderError, 0);
+      return new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
+          terminal.FinalReport ?? string.Empty, child.ModelUsed, child.Depth);
+    }
+
     // Children inherit the session's runtime preferences (the effort picker and the
     // sampling knobs, overlaid below): the effort choice is a property of the
     // conversation, not of the root agent. A wired
