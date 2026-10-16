@@ -4,13 +4,36 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.ToolDomain;
 
 public sealed class ExecTool(IExecEngine engine, ExecOptions options,
-    IExecActivitySink activity) : ITool
+    IExecActivitySink activity) : ITool, IToolCallIdentifiable
 {
   public const string ToolName = "exec";
 
   private readonly IExecEngine _engine = engine ?? throw new ArgumentNullException(nameof(engine));
   private readonly ExecOptions _options = options ?? throw new ArgumentNullException(nameof(options));
   private readonly IExecActivitySink _activity = activity ?? throw new ArgumentNullException(nameof(activity));
+
+  /// <summary>The SEMANTIC call identity for repeat-guard observation (issue #124,
+  ///     2026-10-15 incident): the program body alone. The envelope's title and
+  ///     timeoutSeconds are transport metadata the model free-varies; keying identity on
+  ///     the raw arguments let one identical successful call run 195 times while the
+  ///     guard saw only fresh calls. Malformed arguments parse to null — the caller
+  ///     falls back to the raw arguments and the guard behaves as before.</summary>
+  public static string? CallIdentity(string jsonArguments)
+  {
+    try
+    {
+      using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(jsonArguments);
+      return doc.RootElement.ValueKind is System.Text.Json.JsonValueKind.Object
+              && doc.RootElement.TryGetProperty("program", out System.Text.Json.JsonElement program)
+              && program.ValueKind is System.Text.Json.JsonValueKind.String
+          ? program.GetString()
+          : null;
+    }
+    catch (System.Text.Json.JsonException)
+    {
+      return null;
+    }
+  }
 
   public ToolDefinition Definition { get; } = new(
       ToolName,
@@ -25,6 +48,8 @@ public sealed class ExecTool(IExecEngine engine, ExecOptions options,
                 "The C# program text to execute."),
       ],
       ["timeoutSeconds", "title", "program"]);
+
+  string? IToolCallIdentifiable.CallIdentity(string jsonArguments) => CallIdentity(jsonArguments);
 
   public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
   {

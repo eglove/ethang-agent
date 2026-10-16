@@ -575,7 +575,17 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         _shrankThisTurnObserved = true;
         _readLedger.Reset();  // history was replaced: nothing held before is held now
       }
-      if (_repeatGuard.Observe(call.Name, call.Arguments, toolResult.IsError, toolResult.Content) is { } guardLine)
+      // Call-identity normalization (issue #124): a tool declaring a semantic identity
+      // (exec's program body) keys the guard on it; envelope fields the model free-varies
+      // (title, timeoutSeconds) reset nothing. Non-declaring tools keep raw arguments.
+      // The guard itself prepends the tool name to whatever key it receives. The tool
+      // resolved above is reused — a second Find would make a granting registry audit
+      // the same denial twice.
+      string guardKey = tool is IToolCallIdentifiable identifiable
+          && identifiable.CallIdentity(call.Arguments) is { } identity
+              ? identity
+              : call.Arguments;
+      if (_repeatGuard.Observe(call.Name, guardKey, toolResult.IsError, toolResult.Content) is { } guardLine)
       {
         Conversation.AddSystemMessage(guardLine);
         callbacks?.OnSystemMessage?.Invoke(guardLine);
