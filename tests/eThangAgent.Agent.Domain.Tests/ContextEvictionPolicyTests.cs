@@ -88,7 +88,7 @@ public class ContextEvictionPolicyTests
   {
     // Window 1000 tokens -> budget 4000 chars, target 40% -> 1600 chars. The kept
     // tail is the LONGEST group-suffix fitting the target: the four small recent
-    // groups (8 chars) fit, adding the big exchange group (4000 chars) does not,
+    // groups (16 chars total) fit, adding the big exchange group (4000 chars) does not,
     // so the suffix grows from the 3-group floor to 4 groups.
     string big = new('x', 2000);
     List<Message> messages =
@@ -104,7 +104,7 @@ public class ContextEvictionPolicyTests
     ContextEvictionPlan plan = ContextEvictionPolicy.Plan(messages, 1000, 40.0);
 
     // Evictable prefix: the head assistant group + the big exchange group (3 messages,
-    // 6000 chars) reaches the target-derived toFree (4608 chars).
+    // 6000 chars) reaches the target-derived toFree (4420 chars: total 6020 - target 1600).
     Assert.Equal(3, plan.EvictCount);
     Assert.Equal(messages.Count - 3, plan.KeptCount);
     // The kept tail after the protected head is exactly the 4 small groups.

@@ -45,12 +45,29 @@ public class ContextEvictionPolicyTargetTests
   [Fact]
   public void Plan_NeverSplitsToolCallFromResult()
   {
+    // Window 1000 tokens -> budget 4000 chars, target 40% -> 1600 chars. The tool
+    // pair sits in the FIRST evicted group and eviction continues past it (three
+    // groups evicted), so a policy that split the batch would leave the result or
+    // the call behind in the kept list - exactly what the assertions below catch.
     Message call = new(Role.Assistant, "", DateTimeOffset.UtcNow,
         [new ToolCall("c1", "read", "{}")]);
-    Message result = new(Role.Tool, new string('y', 40_000), DateTimeOffset.UtcNow, ToolCallId: "c1");
-    List<Message> messages = [User("task"), User(new string('a', 40_000)), Assistant("done"), call, result, User(new string('b', 40_000))];
-    ContextEvictionPlan plan = ContextEvictionPolicy.Plan(messages, 128_000, 40.0);
-    // Whatever is evicted, the call/result pair stays together: simulate the split.
+    Message result = new(Role.Tool, new string('y', 2000), DateTimeOffset.UtcNow, ToolCallId: "c1");
+    List<Message> messages =
+    [
+      User("task"),
+      User(new string('a', 100)), call, result,
+      User(new string('b', 2000)), Assistant(new string('c', 2000)),
+      User(new string('d', 2000)), Assistant(new string('e', 2000)),
+      User("r1"), Assistant("r1"),
+      User("r2"), Assistant("r2"),
+      User("r3"), Assistant("r3"),
+    ];
+    ContextEvictionPlan plan = ContextEvictionPolicy.Plan(messages, 1000, 40.0);
+    Assert.True(plan.EvictCount > 0); // the plan actually evicts across the batch
+    List<Message> evicted = [.. messages.Skip(plan.ProtectedCount).Take(plan.EvictCount)];
+    // The pair really was in the evicted region: both halves moved together.
+    Assert.Contains(evicted, m => m.ToolCalls is { Count: > 0 });
+    Assert.Contains(evicted, m => m.Role is Role.Tool && m.ToolCallId == "c1");
     List<Message> kept = [.. messages.Take(plan.ProtectedCount), .. messages.Skip(plan.ProtectedCount + plan.EvictCount)];
 
     // Strengthened (mirror Conversation.Compact's invariants): no unanswered tool
