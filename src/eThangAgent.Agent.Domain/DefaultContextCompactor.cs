@@ -19,6 +19,10 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
   public const string SummarizerSystemPrompt =
       "You are compacting an agent conversation. Produce a dense handoff summary of the evicted messages that lets work continue seamlessly: decisions made, files touched, current state, next steps. Keep concrete identifiers. Do not narrate.";
 
+  /// <summary>Fraction of the character budget above which a kept tool result is a
+  ///     tail-compression candidate (deterministic marker, no LLM call).</summary>
+  public const double TailCompressionThresholdFraction = 0.05;
+
   public async Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation,
       ModelConfig servingModel, CancellationToken ct = default)
   {
@@ -42,7 +46,7 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
     }
 
     List<Message> evicted = [.. messages.Skip(plan.ProtectedCount).Take(plan.EvictCount)];
-    List<Message> keptTail = [.. messages.Take(plan.ProtectedCount), .. messages.Skip(plan.ProtectedCount + plan.EvictCount)];
+    List<Message> keptTail = CompressTail(messages, plan, window, policy.TargetPercent);
     ModelConfig writer = summarizerModel() ?? servingModel;
     IModelProvider provider = providerFactory.Create(writer);
     ModelRequest request = new(
@@ -71,6 +75,37 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
     return compacted.IsSuccess
         ? Result.Success(new CompactionOutcome(plan.EvictCount, keptTail.Count, summary.Value.Usage))
         : Result.Failure<CompactionOutcome>(compacted.Error);
+  }
+
+  /// <summary>Compresses the kept tail's oversized tool results to deterministic
+  ///     relocation markers, oldest-first, until the tail's estimated size fits the
+  ///     target budget. Only the content is replaced — role, tool-call id, timestamp,
+  ///     and parts stay intact, so <see cref="Conversation.Compact"/>'s pairing
+  ///     invariants hold by construction. Kept carries absolute indexes so the marker
+  ///     can find the paired tool call in the ORIGINAL list.</summary>
+  internal static List<Message> CompressTail(IReadOnlyList<Message> messages, ContextEvictionPlan plan,
+      int window, double targetPercent)
+  {
+    long budgetChars = (long)window * ContextEvictionPolicy.CharsPerTokenEstimate;
+    long targetChars = (long)(budgetChars * targetPercent / 100);
+    long thresholdChars = (long)(budgetChars * TailCompressionThresholdFraction);
+
+    List<(int Index, Message Message)> kept = [.. messages.Select((m, i) => (i, m))
+        .Where(x => x.i < plan.ProtectedCount || x.i >= plan.ProtectedCount + plan.EvictCount)];
+    long keptSize = ContextEvictionPolicy.SizeOf(kept.Select(x => x.Message));
+    for (int k = 0; k < kept.Count && keptSize > targetChars; k++)
+    {
+      if (kept[k].Message.Role is not Role.Tool || kept[k].Message.Content.Length <= thresholdChars)
+      {
+        continue;
+      }
+
+      string marker = ToolResultMarker.For(messages, kept[k].Index);
+      keptSize -= kept[k].Message.Content.Length - marker.Length;
+      kept[k] = (kept[k].Index, kept[k].Message with { Content = marker });
+    }
+
+    return [.. kept.Select(x => x.Message)];
   }
 
   /// <summary>Exact wire render of the compaction request: verbatim Role: content lines,

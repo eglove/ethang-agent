@@ -10,5 +10,8 @@
     <!-- The running-child ambient test seam (PushRunningChildForTests) is internal;
          composition tests pin the per-execution surface resolver headlessly. -->
     <InternalsVisibleTo Include="eThangAgent.Composition.Tests" />
+    <!-- The tail-compression seam (CompressTail) is internal; tests pin its
+         oldest-first-until-target contract headlessly. -->
+    <InternalsVisibleTo Include="eThangAgent.Agent.Domain.Tests" />
   </ItemGroup>
 </Project>

@@ -31,7 +31,7 @@ public static class ContextEvictionPolicy
 
     int protectedCount = ProtectedHeadCount(messages);
     List<List<Message>> groups = SplitIntoGroups([.. messages.Skip(protectedCount)]);
-    long excess = Size(messages) - targetChars;
+    long excess = SizeOf(messages) - targetChars;
     long toFree = Math.Max(minimumEviction, excess);
     if (toFree <= 0 || groups.Count == 0)
     {
@@ -97,10 +97,14 @@ public static class ContextEvictionPolicy
     return groups;
   }
 
-  private static long GroupSize(List<Message> group) => Size(group);
+  private static long GroupSize(List<Message> group) => SizeOf(group);
 
-  private static long Size(IEnumerable<Message> messages)
+  /// <summary>The per-message size estimate shared with the compactor (one size shape
+  ///     across the eviction plan and the tail compression): content length plus each
+  ///     tool call's name and arguments lengths.</summary>
+  public static long SizeOf(IEnumerable<Message> messages)
   {
+    ArgumentNullException.ThrowIfNull(messages);
     long size = 0;
     foreach (Message message in messages)
     {
