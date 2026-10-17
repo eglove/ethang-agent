@@ -145,12 +145,20 @@ content is refused; the extension alone is never trusted (magic-byte + package s
   at the bottom: your own messages never steal the scroll, scrolling up pauses the follow-the-tail
   behavior until you return to the bottom (or press End), and the reading position survives tab
   switches. OpenRouter
-  reports per-request token usage; when utilization crosses 80% at a turn boundary the oldest
-  conversation is summarized by a compaction model (per-workspace setting under Settings —
-  default: cheapest capable) and replaced by that handoff summary, so long sessions keep
-  going without hitting the window. The model can also compact on its own: the `context_edit`
-  tool lists the indexed messages and removes or shortens selections at a milestone, and a
-  shrunk session persists and resumes exactly like a compacted one. Compacted sessions persist and resume like any other.
+  reports per-request token usage; compaction is model-driven: the model trims served
+  tool results as it works (the `context_trim` tool replaces a spent result with a one-line
+  relocation marker naming what produced it and how to re-fetch it — clean at task
+  milestones, not when the window fills), while the harness compaction pressures derive
+  from the context window itself (`CompactionPolicy`: a forced deep clean from a ~80%
+  ceiling on small windows sliding to 50% at 1M+, a one-time soft reminder below the
+  ceiling naming the pressure). The deep clean replaces the oldest exchange groups with a
+  summarizer model's handoff summary (per-workspace setting under Settings — default:
+  cheapest capable), protects everything through the first user message, and compresses
+  oversized kept tool results to relocation markers until it lands at the policy target,
+  so long sessions keep going without hitting the window. The model can also shrink its
+  own context at a milestone: the `context_edit` tool lists the indexed messages and
+  removes or shortens selections, and a shrunk session persists and resumes exactly like a
+  compacted one. Compacted sessions persist and resume like any other.
    Every provider request carries the session's durable id as OpenRouter's `session_id` (sticky routing
    for prompt caching): the root uses its persisted session id, each child its own, so multi-turn
    requests stay pinned to one provider endpoint and keep the cache warm
