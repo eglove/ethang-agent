@@ -201,10 +201,63 @@ public class SubagentPanelViewModelTests
     await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
 
     Assert.Equal(2, panel.Rows.Count); // the newcomer landed without throwing
-    _ = Assert.Single(panel.Rows[0].Transcript.Entries); // the first row still refreshed
+    // Newest-first: the newcomer sits at Rows[0]; the first child's transcript
+    // still refreshed despite the mid-refresh addition.
+    _ = Assert.Single(panel.Rows.Single(r => r.Id == first).Transcript.Entries);
 
     // The next refresh picks the newcomer up.
     await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
-    _ = Assert.Single(panel.Rows[1].Transcript.Entries);
+    _ = Assert.Single(panel.Rows.Single(r => r.Id == second).Transcript.Entries);
+  }
+
+  [Fact]
+  public void Two_Started_Events_Newest_At_Top()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId first = AgentId.NewId();
+    AgentId second = AgentId.NewId();
+
+    panel.OnEvent(Started(first));
+    panel.OnEvent(Started(second));
+
+    Assert.Equal(2, panel.Rows.Count);
+    Assert.Equal(second, panel.Rows[0].Id); // newest launched at top
+    Assert.Equal(first, panel.Rows[1].Id);
+  }
+
+  [Fact]
+  public void First_Child_Takes_The_Open_Expanded_Spot()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId id = AgentId.NewId();
+
+    panel.OnEvent(Started(id));
+
+    // Nothing was expanded, so the newcomer takes the open spot.
+    Assert.True(panel.Rows[0].IsExpanded);
+    Assert.Equal(panel.Rows[0], panel.SelectedRow);
+  }
+
+  [Fact]
+  public void Second_Child_Does_Not_Steal_Expansion_Or_Selection()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId first = AgentId.NewId();
+    AgentId second = AgentId.NewId();
+
+    panel.OnEvent(Started(first));
+    SubagentRowViewModel firstRow = panel.Rows[0];
+
+    panel.OnEvent(Started(second));
+
+    // A row is already expanded: the newcomer stays collapsed and the
+    // user's selection and expanded row are untouched.
+    SubagentRowViewModel secondRow = panel.Rows.Single(r => r.Id == second);
+    Assert.False(secondRow.IsExpanded);
+    Assert.True(firstRow.IsExpanded);
+    Assert.Equal(firstRow, panel.SelectedRow);
   }
 }

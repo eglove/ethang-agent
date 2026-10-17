@@ -298,11 +298,15 @@ internal sealed partial class SubagentPanelViewModel(IAgentStore? store) : Obser
 
     SubagentRowViewModel row = new(started.ChildId, LabelFor(started), _store);
     _rowsById[started.ChildId] = row;
-    Rows.Add(row);
+    Rows.Insert(0, row); // newest-first: the newest launch sits at the top
     OnPropertyChanged(nameof(HasRows));
-    // The newest row expands; the previous selection stays where it is.
-    SelectedRow = row;
-    row.IsExpanded = true;
+    // The newcomer takes the expanded spot ONLY when no row is expanded; a new
+    // subagent must never steal the view the user is reading.
+    if (_rowsById.Values.All(r => !r.IsExpanded))
+    {
+      SelectedRow = row;
+      row.IsExpanded = true;
+    }
   }
 
   private static string LabelFor(ChildStartedEvent started)
