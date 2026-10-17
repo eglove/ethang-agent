@@ -545,6 +545,7 @@ public static class AgentComposition
                 new ExecGuidePromptProvider(
                     new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
                 new CuratedMemoryGuidePromptProvider(),
+                new ContextHygienePromptProvider(),
                 ..host.ExtraPromptProviders,
         ]))
         .AddSingleton(subAgents(settings, defaultModel.ModelId))
