@@ -41,8 +41,7 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
     ContextEvictionPlan plan = ContextEvictionPolicy.Plan(messages, window, policy.TargetPercent);
     if (plan.EvictCount == 0)
     {
-      return Result.Failure<CompactionOutcome>(new DomainError("CompactionImpossible",
-          "Nothing outside the kept tail to evict."));
+      return CompressTailFallback(conversation, messages, window, policy.TargetPercent);
     }
 
     List<Message> evicted = [.. messages.Skip(plan.ProtectedCount).Take(plan.EvictCount)];
@@ -77,13 +76,37 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
         : Result.Failure<CompactionOutcome>(compacted.Error);
   }
 
+  /// <summary>The eviction-failed fallback: the kept tail's 3-group floor alone
+  ///     exceeds the target (tail-dominated bloat - huge recent tool results), so
+  ///     compression IS the lever. When at least one oversized result compresses,
+  ///     the deep clean succeeds WITHOUT a summarizer call and WITHOUT a summary
+  ///     message: nothing was evicted, so the replacement is the compressed kept
+  ///     list via <see cref="Conversation.Compact"/>. With no compressible
+  ///     candidates at all, the deep clean fails exactly as before.</summary>
+  private static Result<CompactionOutcome> CompressTailFallback(Conversation conversation,
+      IReadOnlyList<Message> messages, int window, double targetPercent)
+  {
+    ContextEvictionPlan plan = new(ProtectedCount: 0, EvictCount: 0, KeptCount: messages.Count);
+    List<Message> keptTail = CompressTail(messages, plan, window, targetPercent);
+    if (keptTail.Select(x => x.Content).SequenceEqual(messages.Select(x => x.Content)))
+    {
+      return Result.Failure<CompactionOutcome>(new DomainError("CompactionImpossible",
+          "Nothing outside the kept tail to evict."));
+    }
+
+    Result<bool> compacted = conversation.Compact(keptTail);
+    return compacted.IsSuccess
+        ? Result.Success(new CompactionOutcome(0, keptTail.Count, null))
+        : Result.Failure<CompactionOutcome>(compacted.Error);
+  }
+
   /// <summary>Compresses the kept tail's oversized tool results to deterministic
   ///     relocation markers, oldest-first, until the tail's estimated size fits the
   ///     target budget. Only the content is replaced — role, tool-call id, timestamp,
   ///     and parts stay intact, so <see cref="Conversation.Compact"/>'s pairing
   ///     invariants hold by construction. Kept carries absolute indexes so the marker
   ///     can find the paired tool call in the ORIGINAL list.</summary>
-  internal static List<Message> CompressTail(IReadOnlyList<Message> messages, ContextEvictionPlan plan,
+  private static List<Message> CompressTail(IReadOnlyList<Message> messages, ContextEvictionPlan plan,
       int window, double targetPercent)
   {
     long budgetChars = (long)window * ContextEvictionPolicy.CharsPerTokenEstimate;

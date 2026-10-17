@@ -6,7 +6,6 @@ namespace eThangAgent.AgentDomain.Tests;
 
 public class DefaultContextCompactorTailTests
 {
-  private static readonly DateTimeOffset T = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
   private static readonly ModelConfig Serving = ModelConfig.Create("serving", null, 1000, 0.5f, 1000).Value!;
 
   private sealed class RecordingFactory : IModelProviderFactory
@@ -31,76 +30,73 @@ public class DefaultContextCompactorTailTests
         => SendAsync(config, request, ct);
   }
 
-  // Window 1000 tokens -> character budget 4000; the Small policy's 40% target is
-  // 1600 chars and the 5% tail-compression threshold is 200 chars, so an 800-char
-  // tool result is a compression candidate while small text is not.
-  private static List<Message> Messages_WithOversizedTail()
+  [Fact]
+  public async Task CompactAsync_OversizedTailOnly_CompressesInsteadOfFailing()
   {
-    List<Message> messages = [new(Role.User, "task", T)]; // protected head
+    // Tail-dominated bloat: the kept tail's 3-group floor alone exceeds the target
+    // (window 1000 -> budget 4000 chars, Small policy 40% target = 1600, 5%
+    // threshold = 200), so the plan evicts nothing; the deep clean compresses the
+    // oversized kept tool results instead of failing CompactionImpossible.
+    Conversation conversation = new();
+    conversation.AddUserMessage("task");
     for (int i = 0; i < 3; i++)
     {
-      messages.Add(new(Role.User, $"kept user {i}", T));
-      messages.Add(new(Role.Assistant, "", T, [new ToolCall($"c{i}", "read", "{}")]));
-      messages.Add(new(Role.Tool, new string('r', 800), T, ToolCallId: $"c{i}"));
+      conversation.AddUserMessage($"kept user {i}");
+      conversation.AddAssistantMessage("", [new ToolCall($"c{i}", "read", "{}")]);
+      conversation.AddToolResult($"c{i}", new string('r', 800));
     }
 
-    return messages;
-  }
+    RecordingFactory factory = new();
+    DefaultContextCompactor compactor = new(factory, () => null);
 
-  private static ContextEvictionPlan Plan_AllKept(List<Message> messages)
-      => new(ProtectedCount: 1, EvictCount: 0, KeptCount: messages.Count);
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
 
-  [Fact]
-  public void CompressTail_CompressesOversizedResults_OldestFirst_UntilTarget()
-  {
-    List<Message> messages = Messages_WithOversizedTail();
-    ContextEvictionPlan plan = Plan_AllKept(messages);
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.Equal(0, outcome.Value.MessagesEvicted);
+    Assert.Equal(10, outcome.Value.MessagesKept);
+    Assert.Null(outcome.Value.SummarizerUsage);
 
-    List<Message> keptTail = DefaultContextCompactor.CompressTail(messages, plan, 1000, 40.0);
+    IReadOnlyList<Message> after = conversation.Messages;
+    Assert.Equal(10, after.Count); // nothing was evicted: no summary message added
+    Assert.DoesNotContain(after, m => m.IsSummary);
 
     // The two oldest oversized results compress oldest-first; the most recent
-    // survives once the target is met (2409 - ~730 = ~1680 > 1600, then ~950).
-    Assert.StartsWith(ToolResultMarker.Prefix, keptTail[3].Content, StringComparison.Ordinal);
-    Assert.StartsWith(ToolResultMarker.Prefix, keptTail[6].Content, StringComparison.Ordinal);
-    Assert.Equal(new string('r', 800), keptTail[9].Content);
+    // survives once the target is met. Roles and pairing stay intact.
+    Assert.StartsWith(ToolResultMarker.Prefix, after[3].Content, StringComparison.Ordinal);
+    Assert.StartsWith(ToolResultMarker.Prefix, after[6].Content, StringComparison.Ordinal);
+    Assert.Equal(new string('r', 800), after[9].Content);
+    Assert.Equal("c0", after[3].ToolCallId);
+    Assert.Equal(Role.Tool, after[3].Role);
+    Assert.Contains("read", after[3].Content, StringComparison.Ordinal);
 
-    // Pairing stays intact: the compressed result still answers its call, and the
-    // marker names the paired tool call found in the ORIGINAL list.
-    Assert.Equal("c0", keptTail[3].ToolCallId);
-    Assert.Equal(Role.Tool, keptTail[3].Role);
-    Assert.Contains("read", keptTail[3].Content, StringComparison.Ordinal);
+    // Nothing was evicted: the summarizer model is never called.
+    Assert.Null(factory.Provider.LastRequest);
   }
 
   [Fact]
-  public void CompressTail_RecentOversizedResultSurvives_WhenTargetAlreadyMet()
+  public async Task CompactAsync_NoCompressibleCandidates_StillFailsCompactionImpossible()
   {
-    List<Message> messages = Messages_WithOversizedTail();
-    ContextEvictionPlan plan = Plan_AllKept(messages);
+    // An oversized kept tail with NO tool results: compression has no candidates,
+    // so the deep clean still fails with the unchanged CompactionImpossible code
+    // and the conversation is untouched.
+    Conversation conversation = new();
+    conversation.AddUserMessage("task");
+    for (int i = 0; i < 3; i++)
+    {
+      conversation.AddUserMessage(new string('u', 1000));
+      conversation.AddAssistantMessage(new string('a', 1000));
+    }
 
-    // A target the tail already meets: nothing compresses.
-    List<Message> keptTail = DefaultContextCompactor.CompressTail(messages, plan, 1000, 100.0);
+    RecordingFactory factory = new();
+    DefaultContextCompactor compactor = new(factory, () => null);
 
-    Assert.Equal(new string('r', 800), keptTail[3].Content);
-    Assert.Equal(new string('r', 800), keptTail[6].Content);
-    Assert.Equal(new string('r', 800), keptTail[9].Content);
-  }
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
 
-  [Fact]
-  public void CompressTail_CompressedResult_KeepsToolCallIdAndRole()
-  {
-    List<Message> messages = Messages_WithOversizedTail();
-    ContextEvictionPlan plan = Plan_AllKept(messages);
-
-    List<Message> keptTail = DefaultContextCompactor.CompressTail(messages, plan, 1000, 40.0);
-
-    // The compressed tail passes Conversation.Compact's protocol validation - the
-    // replacement is internally consistent by construction.
-    Conversation conversation = new([new(Role.System, "summary", T, IsSummary: true), .. keptTail]);
-    List<Message> after = [.. conversation.Messages];
-    Message compressed = after.First(m => m.Content.StartsWith(ToolResultMarker.Prefix, StringComparison.Ordinal));
-    Assert.Equal(Role.Tool, compressed.Role);
-    Assert.Equal("c0", compressed.ToolCallId);
-    Assert.Equal(11, after.Count); // summary(1) + protected head(1) + kept tail(9)
+    Assert.False(outcome.IsSuccess);
+    Assert.Equal("CompactionImpossible", outcome.Error.Code);
+    Assert.Equal(7, conversation.Messages.Count); // untouched
   }
 
   [Fact]
