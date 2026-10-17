@@ -158,6 +158,9 @@ public static class AgentComposition
                     new ContextEditTool(sp.GetRequiredService<IConversationContextService>()),
                     "Edit this conversation's own context (list, remove, shorten messages)."),
                 new AgentToolBinding(
+                    new ContextTrimTool(sp.GetRequiredService<IConversationContextService>()),
+                    "Trim tool results this conversation no longer needs (marker-preserving cleanup)."),
+                new AgentToolBinding(
                     new GitStatusTool(sp.GetRequiredService<IPathResolver>(),
                         sp.GetRequiredService<IGitQueryAccess>()),
                     "Show branch and working-tree status."),

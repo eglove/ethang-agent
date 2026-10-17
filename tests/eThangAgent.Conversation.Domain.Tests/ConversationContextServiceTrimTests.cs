@@ -7,7 +7,7 @@ public class ConversationContextServiceTrimTests
   private static Conversation Seeded()
   {
     Message call = new(Role.Assistant, "", DateTimeOffset.UtcNow,
-        [new ToolCall("c1", "read", "{\"path\":\"src/big.cs\"}")]);
+        [new ToolCall("c1", "read", /*lang=json,strict*/"{\"path\":\"src/big.cs\"}")]);
     Message result = new(Role.Tool, new string('x', 40_000), DateTimeOffset.UtcNow, ToolCallId: "c1");
     Message user = new(Role.User, "next step?", DateTimeOffset.UtcNow);
     return new([call, result, user]);

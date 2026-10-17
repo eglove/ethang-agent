@@ -221,8 +221,9 @@ public sealed class ConversationContextService(Conversation conversation)
       }
     }
 
-    return Result.Success<IReadOnlyList<int>>(positions);
+    return Result.Success(positions);
   }
+
   private static void AppendRendered(List<string> lines, int number, Message message)
   {
     string[] content = (message.Content ?? "").Split('\n');

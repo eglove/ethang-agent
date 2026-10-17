@@ -6,7 +6,7 @@ namespace eThangAgent.ToolDomain;
 ///     context. The composition root adapts the Conversation Domain's
 ///     ConversationContextService to it — the domain depends only on this contract,
 ///     never on another context's types, so any implementation that can express
-///     list/remove/shorten can be wired in without domain changes.</summary>
+///     list/remove/shorten/trim can be wired in without domain changes.</summary>
 public interface IConversationContextService
 {
   /// <summary>Renders the current message list with stable 1-based indexes.</summary>
@@ -17,4 +17,12 @@ public interface IConversationContextService
 
   /// <summary>Replaces one selected message's content; success returns the shrink sentinel line.</summary>
   Result<string> Shorten(string selection, string text);
+
+  /// <summary>Replaces the selected tool results' content with relocation markers;
+  ///     success returns the shrink sentinel line.</summary>
+  Result<string> TrimToolResults(string selection);
+
+  /// <summary>Replaces ONE selected tool result's content with the given excerpt;
+  ///     success returns the shrink sentinel line.</summary>
+  Result<string> ShortenToolResult(string selection, string text);
 }

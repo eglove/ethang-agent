@@ -15,6 +15,10 @@ public class ContextEditToolTests
     public Result<string> Remove(string selection) => RemoveResult;
 
     public Result<string> Shorten(string selection, string text) => ShortenResult;
+
+    public Result<string> TrimToolResults(string selection) => Result.Success("[context: shrank]");
+
+    public Result<string> ShortenToolResult(string selection, string text) => ShortenResult;
   }
 
   private static RawToolInput Input(string json) => new("context_edit", json);
