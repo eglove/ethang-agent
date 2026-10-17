@@ -124,6 +124,105 @@ public sealed class ConversationContextService(Conversation conversation)
         : Result.Failure<string>(applied.Error);
   }
 
+  /// <summary>Replaces the selected tool results' content in place with relocation
+  ///     markers. The selection must name only Tool messages — user, assistant, and
+  ///     system messages are out of reach by design. Pairing ids stay, so the
+  ///     aggregate's tool-call/result invariants hold by construction.</summary>
+  public Result<string> TrimToolResults(string selection)
+  {
+    Result<ContextSelection> parsed = ContextSelection.Parse(selection);
+    if (!parsed.IsSuccess)
+    {
+      return Result.Failure<string>(parsed.Error);
+    }
+
+    IReadOnlyList<Message> messages = _conversation.Messages;
+    Result<IReadOnlyList<int>> resolved = ResolveToolOnlySelection(parsed.Value, requireSingle: false);
+    if (!resolved.IsSuccess)
+    {
+      return Result.Failure<string>(resolved.Error);
+    }
+
+    IReadOnlyList<int> positions = resolved.Value;
+    List<Message> updated = [.. messages];
+    foreach (int position in positions)
+    {
+      updated[position] = updated[position] with { Content = ToolResultMarker.For(messages, position) };
+    }
+
+    Result<bool> applied = _conversation.Compact(updated);
+    return applied.IsSuccess
+        ? Result.Success($"{ShrankSentinel} {positions.Count} message(s): trimmed {parsed.Value.Render()}.]")
+        : Result.Failure<string>(applied.Error);
+  }
+
+  /// <summary>Replaces ONE selected tool result's content with the caller's excerpt,
+  ///     keeping its role, tool-call id, and timestamp exactly. Same tool-only guard
+  ///     as <see cref="TrimToolResults"/>.</summary>
+  public Result<string> ShortenToolResult(string selection, string text)
+  {
+    Result<ContextSelection> parsed = ContextSelection.Parse(selection);
+    if (!parsed.IsSuccess)
+    {
+      return Result.Failure<string>(parsed.Error);
+    }
+
+    if (string.IsNullOrWhiteSpace(text))
+    {
+      return Result.Failure<string>(new DomainError("InvalidText", "Shorten needs non-empty replacement text."));
+    }
+
+    Result<IReadOnlyList<int>> resolved = ResolveToolOnlySelection(parsed.Value, requireSingle: true);
+    if (!resolved.IsSuccess)
+    {
+      return Result.Failure<string>(resolved.Error);
+    }
+
+    int position = resolved.Value[0];
+    List<Message> updated = [.. _conversation.Messages];
+    updated[position] = updated[position] with { Content = text };
+    Result<bool> applied = _conversation.Compact(updated);
+    return applied.IsSuccess
+        ? Result.Success($"{ShrankSentinel} 1 message(s): message {position + 1} shortened.]")
+        : Result.Failure<string>(applied.Error);
+  }
+
+  /// <summary>Resolves a selection for a tool-result edit: every named position must
+  ///     be a Tool message — user, assistant, and system messages are out of reach
+  ///     by design; the first violation fails and names its 1-based position.</summary>
+  private Result<IReadOnlyList<int>> ResolveToolOnlySelection(ContextSelection selection, bool requireSingle)
+  {
+    IReadOnlyList<Message> messages = _conversation.Messages;
+    Result<IReadOnlyList<int>> resolved = selection.Resolve(messages.Count);
+    if (!resolved.IsSuccess)
+    {
+      return resolved;
+    }
+
+    IReadOnlyList<int> positions = resolved.Value;
+    if (positions.Count == 0)
+    {
+      return Result.Failure<IReadOnlyList<int>>(new DomainError("NothingSelected",
+          $"Selection '{selection.Render()}' selects no messages."));
+    }
+
+    if (requireSingle && positions.Count != 1)
+    {
+      return Result.Failure<IReadOnlyList<int>>(new DomainError("AmbiguousSelection",
+          $"Shorten needs exactly one message; '{selection.Render()}' selects {positions.Count}."));
+    }
+
+    foreach (int position in positions)
+    {
+      if (messages[position].Role != Role.Tool)
+      {
+        return Result.Failure<IReadOnlyList<int>>(new DomainError("ToolOnlySelection",
+            $"Selection '{selection.Render()}' names message {position + 1}, which is not a tool result; only tool results can be trimmed."));
+      }
+    }
+
+    return Result.Success<IReadOnlyList<int>>(positions);
+  }
   private static void AppendRendered(List<string> lines, int number, Message message)
   {
     string[] content = (message.Content ?? "").Split('\n');
