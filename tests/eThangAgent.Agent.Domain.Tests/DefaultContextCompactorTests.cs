@@ -41,6 +41,25 @@ public class DefaultContextCompactorTests
 
   private static Message User(string text) => new(Role.User, text, T);
 
+  /// <summary>A conversation whose plan evicts the three messages after the protected
+  /// head at window 1000 (target 40%): the first user message stays, the 15000-char
+  /// middle is evicted, and six small recent exchanges form the kept tail.</summary>
+  private static Conversation ConversationWithEvictableMiddle()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage("task"); // protected head: the original task statement
+    conversation.AddAssistantMessage(new string('x', 5000));
+    conversation.AddUserMessage(new string('y', 5000));
+    conversation.AddAssistantMessage(new string('z', 5000));
+    for (int i = 0; i < 6; i++)
+    {
+      conversation.AddUserMessage($"recent {i}");
+      conversation.AddAssistantMessage($"answer {i}");
+    }
+
+    return conversation;
+  }
+
   [Fact]
   public async Task CompactAsync_NullWindowConfig_ReturnsUnknownContextWindowFailure()
   {
@@ -64,14 +83,7 @@ public class DefaultContextCompactorTests
   [Fact]
   public async Task CompactAsync_EvictsPrefix_WritesSummaryWithIsSummaryFlag()
   {
-    Conversation conversation = new();
-    conversation.AddUserMessage(new string('x', 1500)); // forces an eviction plan at window 1000
-    conversation.AddAssistantMessage(new string('y', 1500));
-    for (int i = 0; i < 6; i++)
-    {
-      conversation.AddUserMessage($"recent {i}");
-      conversation.AddAssistantMessage($"answer {i}");
-    }
+    Conversation conversation = ConversationWithEvictableMiddle();
 
     RecordingFactory factory = new(null);
     DefaultContextCompactor compactor = new(factory, () => null); // fallback: serving model writes
@@ -79,23 +91,17 @@ public class DefaultContextCompactorTests
     Result<CompactionOutcome> outcome = await compactor.CompactAsync(conversation, Serving, TestContext.Current.CancellationToken);
 
     Assert.True(outcome.IsSuccess);
-    Assert.Equal(2, outcome.Value.MessagesEvicted);
+    Assert.Equal(3, outcome.Value.MessagesEvicted); // the assistant/user/assistant middle; head protected
     Assert.True(conversation.Messages[0].IsSummary);
     Assert.Contains("summary text", conversation.Messages[0].Content, StringComparison.Ordinal);
-    Assert.Equal(13, conversation.Messages.Count); // summary(1) + kept tail (12)
+    Assert.Equal(14, conversation.Messages.Count); // summary(1) + protected head(1) + kept tail(12)
+    Assert.Equal("task", conversation.Messages[1].Content); // the protected head survives compaction
   }
 
   [Fact]
   public async Task CompactAsync_SummarizerFactoryNull_FallsBackToServingModel()
   {
-    Conversation conversation = new();
-    conversation.AddUserMessage(new string('x', 1500));
-    conversation.AddAssistantMessage(new string('y', 1500));
-    for (int i = 0; i < 6; i++)
-    {
-      conversation.AddUserMessage($"r{i}");
-      conversation.AddAssistantMessage($"a{i}");
-    }
+    Conversation conversation = ConversationWithEvictableMiddle();
 
     RecordingFactory factory = new(null);
     DefaultContextCompactor compactor = new(factory, () => null);
@@ -124,14 +130,7 @@ public class DefaultContextCompactorTests
   [Fact]
   public async Task CompactAsync_EmptySummary_Fails_ConversationUntouched()
   {
-    Conversation conversation = new();
-    conversation.AddUserMessage(new string('x', 1500));
-    conversation.AddAssistantMessage(new string('y', 1500));
-    for (int i = 0; i < 6; i++)
-    {
-      conversation.AddUserMessage($"r{i}");
-      conversation.AddAssistantMessage($"a{i}");
-    }
+    Conversation conversation = ConversationWithEvictableMiddle();
 
     RecordingFactory factory = new(null);
     ((ScriptedProvider)factory.Provider).Enqueue(Result.Success(new ModelResponse("   ", [])));
@@ -141,7 +140,7 @@ public class DefaultContextCompactorTests
 
     Assert.False(outcome.IsSuccess);
     Assert.Equal("EmptySummary", outcome.Error.Code);
-    Assert.Equal(14, conversation.Messages.Count); // untouched
+    Assert.Equal(16, conversation.Messages.Count); // untouched
   }
 
   [Fact]

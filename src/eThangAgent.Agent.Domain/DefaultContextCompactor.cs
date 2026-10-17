@@ -33,15 +33,16 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
           "Serving model has no resolved context window; compaction cannot plan."));
     }
 
-    ContextEvictionPlan plan = ContextEvictionPolicy.Plan(messages, window);
+    CompactionPolicy policy = CompactionPolicy.For(window);
+    ContextEvictionPlan plan = ContextEvictionPolicy.Plan(messages, window, policy.TargetPercent);
     if (plan.EvictCount == 0)
     {
       return Result.Failure<CompactionOutcome>(new DomainError("CompactionImpossible",
           "Nothing outside the kept tail to evict."));
     }
 
-    List<Message> evicted = [.. messages.Take(plan.EvictCount)];
-    List<Message> keptTail = [.. messages.Skip(plan.EvictCount)];
+    List<Message> evicted = [.. messages.Skip(plan.ProtectedCount).Take(plan.EvictCount)];
+    List<Message> keptTail = [.. messages.Take(plan.ProtectedCount), .. messages.Skip(plan.ProtectedCount + plan.EvictCount)];
     ModelConfig writer = summarizerModel() ?? servingModel;
     IModelProvider provider = providerFactory.Create(writer);
     ModelRequest request = new(
