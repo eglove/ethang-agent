@@ -12,9 +12,16 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     <see cref="FinishReason.Length"/>.</summary>
   public const int DefaultMaxAutoContinuations = 8;
 
-  /// <summary>Default utilization percent that trips the compactor.</summary>
+  /// <summary>Default utilization percent that trips the compactor. The compaction
+  ///     policy's small-window ceiling: <see cref="CompactionPolicy.For"/> derives every
+  ///     pressure from the context window, and windows at or below
+  ///     <see cref="CompactionPolicy.SmallWindowMax"/> keep this ceiling.</summary>
   public const double DefaultCompactionThreshold = 80.0;
 
+  /// <summary>Verbatim prefix of the one-time soft reminder the loop appends when
+  ///     utilization first reaches the policy's soft level: names the pressure, names the
+  ///     tool, names the ceiling. Never repeats until the pressure cycle resets.</summary>
+  public const string SoftReminderPrefix = "[context:";
 
   /// <summary>How many times above the conversation's own character estimate a
   ///     provider-reported input-token count may sit and still be believed. Server-side
@@ -77,7 +84,6 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly IContextCompactor? _contextCompactor = options?.ContextCompactor;
   private readonly IAgentHeartbeat? _heartbeat = options?.Heartbeat;
   private readonly IAgentEvents? _events = options?.Events;
-  private readonly double _compactionThreshold = options?.CompactionThreshold ?? DefaultCompactionThreshold;
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
   private readonly string? _sessionId = options?.SessionId;
   private readonly Action<string>? _onStreamActivity = options?.OnStreamActivity;
@@ -146,6 +152,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   public bool ShrankThisTurn { get; private set; }
 
   private bool _shrankThisTurnObserved;
+
+  /// <summary>One-time soft reminder state: true from the iteration the reminder was
+  ///     appended until the pressure cycle resets (a successful compaction or an
+  ///     observed context shrink). A failed compaction does NOT reset it.</summary>
+  private bool _softReminderShown;
 
   /// <summary>
   /// Runs one user turn through the provider/tool loop. Content deltas stream out through
@@ -316,9 +327,14 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private void PublishProgress(ChildPhase phase, string label)
       => _events?.Publish(new ChildProgressEvent(Id, DateTimeOffset.UtcNow, phase, label));
 
-  /// <summary>Compaction phase of an iteration: when a compactor and monitor are wired
-  ///     and utilization sits at or above the threshold, runs the compactor. Success
-  ///     fires <see cref="TurnCallbacks.OnCompacted"/> and re-fires the context snapshot;
+  /// <summary>Pressure phase of an iteration: when a compactor and monitor are wired,
+  ///     derives the compaction policy from the monitor's context window (per iteration,
+  ///     so a mid-session window change re-derives automatically) and acts on the
+  ///     utilization report. At or above the policy's soft level (and below its ceiling)
+  ///     the ONE-TIME soft reminder is appended — a System message naming the pressure,
+  ///     the context_trim tool, and the ceiling; it never repeats until the pressure
+  ///     cycle resets. At the ceiling the compactor runs: success fires
+  ///     <see cref="TurnCallbacks.OnCompacted"/> and re-fires the context snapshot;
   ///     failure appends a System notice telling the model why nothing changed and
   ///     returns true so a broken compactor stops being retried this turn.</summary>
   private async Task<bool> TryCompactIfNeededAsync(TurnCallbacks? callbacks, CancellationToken ct)
@@ -328,16 +344,18 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       return false;
     }
 
-    // Null utilization (nothing reported yet) never compacts — lifted >= semantics:
-    // the original guard read utilization >= threshold, under which null falls through.
-    if (monitor.Status.UtilizationPercent is not { } utilization || utilization < _compactionThreshold)
+    // Null utilization (nothing reported yet) fires neither reminder nor compaction —
+    // lifted >= semantics: the original guard read utilization >= threshold, under
+    // which null fell through.
+    if (monitor.Status.UtilizationPercent is not { } utilization)
     {
       return false;
     }
 
-    // Inflation guard: a provider-reported input-token count far beyond what the
-    // conversation itself could hold is server-tool accounting, not context. Running
-    // the compactor on it fails spuriously (CompactionImpossible on a tiny
+    // Inflation guard FIRST: a provider-reported input-token count far beyond what the
+    // conversation itself could hold is server-tool accounting, not context. It fires
+    // NEITHER the reminder NOR the compactor — running the compactor on it fails
+    // spuriously (CompactionImpossible on a tiny
     // conversation); skipping quietly is correct — the next honest report compacts.
     long estimateChars = _systemPrompt?.Build().Length ?? 0;
     foreach (Message message in Conversation.Messages)
@@ -356,11 +374,28 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       return false;
     }
 
+    // The policy is derived per iteration from the monitor's window: a mid-session
+    // model change (root rebuild) re-derives automatically.
+    CompactionPolicy policy = CompactionPolicy.For(monitor.Status.ContextWindow);
+    if (utilization >= policy.SoftReminderPercent && utilization < policy.CeilingPercent && !_softReminderShown)
+    {
+      _softReminderShown = true;
+      string reminder = $"{SoftReminderPrefix} {utilization:0}% full — trim tool results you no longer need with context_trim; a forced cleanup runs at {policy.CeilingPercent:0}%.]";
+      Conversation.AddSystemMessage(reminder);
+      callbacks?.OnSystemMessage?.Invoke(reminder);
+    }
+
+    if (utilization < policy.CeilingPercent)
+    {
+      return false;
+    }
+
     Result<CompactionOutcome> compacted =
         await _contextCompactor.CompactAsync(Conversation, Config, ct).ConfigureAwait(false);
     if (compacted.IsSuccess)
     {
       _readLedger.Reset();  // history was replaced: nothing held before is held now
+      _softReminderShown = false;  // a successful compaction starts a new pressure cycle
       callbacks?.OnCompacted?.Invoke(compacted.Value);
       // The summary message the compaction left in the conversation is surfaced
       // verbatim: nothing the agent receives stays hidden from the host surface
@@ -423,6 +458,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // Same observer surface as the threshold backstop: outcome, the summary line the
     // compaction left in the conversation, and a re-fired context snapshot.
     _readLedger.Reset();  // history was replaced: nothing held before is held now
+    _softReminderShown = false;  // a successful compaction starts a new pressure cycle
     callbacks?.OnCompacted?.Invoke(compacted.Value);
     if (Conversation.Messages.FirstOrDefault(m => m.IsSummary) is { } summary)
     {
@@ -573,6 +609,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       if (toolResult.Content.Contains(ContextShrinkSentinel, StringComparison.Ordinal))
       {
         _shrankThisTurnObserved = true;
+        _softReminderShown = false;  // a context shrink starts a new pressure cycle
         _readLedger.Reset();  // history was replaced: nothing held before is held now
       }
       // Call-identity normalization (issue #124): a tool declaring a semantic identity

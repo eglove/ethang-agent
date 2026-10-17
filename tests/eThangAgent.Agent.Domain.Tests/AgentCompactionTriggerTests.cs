@@ -5,13 +5,18 @@ using eThangAgent.ToolDomain;
 
 namespace eThangAgent.AgentDomain.Tests;
 
+/// <summary>The compaction trigger is derived from the context window through
+///     <see cref="CompactionPolicy.For"/> — never from configuration. Window 1_000
+///     resolves the Small policy (ceiling 80); window 1_000_000 resolves Large
+///     (ceiling 60), where the former fixed 80% trigger waited far too long.</summary>
 public class AgentCompactionTriggerTests
 {
   private static readonly ModelConfig Config = ModelConfig.Create("test-model", null, 100, 0.5f, 1000).Value!;
 
-  private sealed class ThresholdMonitor(double utilization) : IContextMonitor
+  private sealed class ThresholdMonitor(double utilization, int window = 1000) : IContextMonitor
   {
-    public ContextStatus Status { get; private set; } = new((int)(utilization * 10), (long)(utilization * 10), 0, 1000, utilization);
+    public ContextStatus Status { get; set; } =
+        new((int)(utilization * window / 100.0), (long)(utilization * window / 100.0), 0, window, utilization);
 
     public ContextBreakdown? Breakdown => null;
 
@@ -147,5 +152,44 @@ public class AgentCompactionTriggerTests
     Assert.Equal(1, compactor.Calls); // one attempt, no spam
     Assert.Contains(conversation.Messages, m =>
         m.Role is Role.System && m.Content.Contains("compaction failed", StringComparison.OrdinalIgnoreCase));
+  }
+
+  [Fact]
+  public async Task LargeWindow_CompactsAtDerivedCeiling()
+  {
+    // Window 1_000_000 -> Large policy ceiling 60: a compaction at 60% where the
+    // former fixed threshold waited for 80%. The conversation must legitimately
+    // support the reported tokens (60% of 1M = 600k tokens at 4 chars/token).
+    ScriptedCompactor compactor = new();
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 600_000));
+    Agent agent = new(new StubProvider(), conversation, Config, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(60.0, 1_000_000),
+          ContextCompactor = compactor,
+        });
+
+    _ = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal(1, compactor.Calls);
+  }
+
+  [Fact]
+  public async Task LargeWindow_BelowDerivedCeiling_CompactorNeverRuns()
+  {
+    ScriptedCompactor compactor = new();
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 600_000));
+    Agent agent = new(new StubProvider(), conversation, Config, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(59.9, 1_000_000),
+          ContextCompactor = compactor,
+        });
+
+    _ = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.Equal(0, compactor.Calls);
   }
 }
