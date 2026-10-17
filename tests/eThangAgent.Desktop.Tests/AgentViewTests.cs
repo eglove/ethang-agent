@@ -36,7 +36,7 @@ public class AgentViewTests
   {
     TestFixtures.StubAgentRuntime runtime = new();
     TestFixtures.ParkingRunner park = new();
-    AgentSessionViewModel vm = BuildBusySession(park, runtime, out Window window);
+    AgentSessionViewModel vm = BuildBusySession(park, runtime, out AgentId rootId, out Window window);
     _ = vm.SubmitAsync("long running work");
 
     await park.Started.ConfigureAwait(true);
@@ -49,7 +49,9 @@ public class AgentViewTests
     await vm.WaitForTurnAsync().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(true);
     Assert.False(vm.IsBusy);
     Assert.True(park.ObservedToken.IsCancellationRequested);
-    Assert.Equal(1, runtime.InterruptAllCount);
+    AgentId interruptedRoot = Assert.Single(runtime.SubtreeInterrupts);
+    Assert.Equal(rootId, interruptedRoot);
+    Assert.Equal(0, runtime.InterruptAllCount);
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
     Assert.Contains("Error [TurnCancelled]", notice.Text, StringComparison.Ordinal);
   }
@@ -59,7 +61,7 @@ public class AgentViewTests
   {
     TestFixtures.StubAgentRuntime runtime = new();
     TestFixtures.ParkingRunner park = new();
-    AgentSessionViewModel vm = BuildBusySession(park, runtime, out Window window);
+    AgentSessionViewModel vm = BuildBusySession(park, runtime, out AgentId _, out Window window);
     Task turnTask = vm.SubmitAsync("quick work");
     await park.Started.ConfigureAwait(true);
 
@@ -77,11 +79,12 @@ public class AgentViewTests
   /// <summary>Hosts an AgentView over a session whose turn parks until released or
   /// cancelled — the headless stand-in for a long-running agent turn.</summary>
   private static AgentSessionViewModel BuildBusySession(TestFixtures.ParkingRunner park,
-      TestFixtures.StubAgentRuntime runtime, out Window window)
+      TestFixtures.StubAgentRuntime runtime, out AgentId rootId, out Window window)
   {
     RecordingLifecycle lifecycle = new(new TestFixtures.StubStore());
+    rootId = AgentId.NewId();
     AgentSessionViewModel vm = new(
-        park.RunAsync, lifecycle, AgentId.NewId(), new Conversation(),
+        park.RunAsync, lifecycle, rootId, new Conversation(),
         "OpenRouter", "test/model",
         new AgentSessionViewModelOptions
         {

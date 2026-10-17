@@ -15,10 +15,15 @@ namespace eThangAgent.Desktop.Tests;
 ///     persistence semantics.</summary>
 internal static class TestFixtures
 {
-  /// <summary>Runtime stub for view-model tests: records interrupt calls, never starts runs.</summary>
+  /// <summary>Runtime stub for view-model tests: records interrupt calls, never starts runs.
+  ///     SubtreeInterrupts holds the roots passed to InterruptSubtree; InterruptAllCount
+  ///     counts only BLANKET (null-id) Interrupt calls — the shape the stop button must
+  ///     never issue.</summary>
   internal sealed class StubAgentRuntime : IAgentRuntime
   {
     public int InterruptAllCount { get; private set; }
+
+    public List<AgentId> SubtreeInterrupts { get; } = [];
 
     public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
     {
@@ -35,7 +40,7 @@ internal static class TestFixtures
     public Task<Result<AgentId>> Resume(AgentId id, string message, CancellationToken ct = default)
     => Task.FromResult(Result.Failure<AgentId>(new DomainError("ResumeUnsupported", "not exercised by this fake.")));
 
-    public void InterruptSubtree(AgentId rootOfSubtree) => InterruptAllCount++;
+    public void InterruptSubtree(AgentId rootOfSubtree) => SubtreeInterrupts.Add(rootOfSubtree);
 
     public void Interrupt(AgentId? childId = null)
     {

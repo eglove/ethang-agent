@@ -197,6 +197,102 @@ public class InProcessAgentRuntimeTests
     Assert.Equal(AgentFailureReason.Interrupted, updated.FailureReason);
   }
 
+  /// <summary>Runner for the subtree-scoping test: each run parks on its token OR the
+  ///     shared release gate — a cancelled run reports Failed(Interrupted), a released
+  ///     one reports whatever the test set. Per-child dispatch observation included.</summary>
+  private sealed class ScopedRunner : IAgentRunner
+  {
+    private readonly TaskCompletionSource<AgentRunOutcome> _gate =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _dispatched;
+
+    public async Task WaitForDispatchAsync(int count)
+    {
+      DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+      while (Volatile.Read(ref _dispatched) < count)
+      {
+        if (DateTime.UtcNow > deadline)
+        {
+          Assert.Fail($"background dispatch {count} was not observed in time");
+        }
+
+        await Task.Delay(10, CancellationToken.None).ConfigureAwait(true);
+      }
+    }
+
+    public void Release(AgentRunOutcome outcome) => _gate.TrySetResult(outcome);
+
+    public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
+    {
+      _ = Interlocked.Increment(ref _dispatched);
+      Task finished = await Task.WhenAny(_gate.Task, Task.Delay(Timeout.InfiniteTimeSpan, ct))
+          .ConfigureAwait(false);
+      if (finished == _gate.Task)
+      {
+        return await _gate.Task.ConfigureAwait(false);
+      }
+
+      try
+      {
+        await finished.ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        // bounded: the interrupt token is the only thing that settles this await
+      }
+
+      return new AgentRunOutcome(child.Id, AgentStatus.Failed,
+          AgentFailureReason.Interrupted, "child agent was interrupted.", child.ModelUsed, child.Depth);
+    }
+  }
+
+  [Fact]
+  public async Task InterruptSubtree_CancelsOnlyTheRootsDescendants_NotForeignChildren()
+  {
+    ScopedRunner runner = new();
+    FakeStore store = new();
+    InProcessAgentRuntime runtime = new(runner, store, maxConcurrentAgents: 4);
+    AgentId sessionRoot = AgentId.NewId();
+    AgentRecord ownChild = RunningChild() with { Id = AgentId.NewId(), ParentId = sessionRoot };
+    AgentRecord foreignChild = RunningChild(prompt: "another session's child");
+    store.Records[ownChild.Id.Value] = ownChild;
+    store.Records[foreignChild.Id.Value] = foreignChild;
+
+    _ = await runtime.Start(ownChild, ct: TestContext.Current.CancellationToken);
+    _ = await runtime.Start(foreignChild, ct: TestContext.Current.CancellationToken);
+    await runner.WaitForDispatchAsync(2).ConfigureAwait(true);
+
+    runtime.InterruptSubtree(sessionRoot);
+
+    // The session's own child is cancelled (Interrupted terminal outcome); the foreign
+    // child keeps running and completes normally when released.
+    AgentRecord interrupted = await store.FirstUpdate.ConfigureAwait(true);
+    Assert.Equal(ownChild.Id, interrupted.Id);
+    Assert.Equal(AgentFailureReason.Interrupted, interrupted.FailureReason);
+    runner.Release(CompletedOutcome(foreignChild.Id, "foreign child finished fine"));
+    bool foreignSettled = await SpinUntilAsync(() => store.Updates.Any(
+        u => u.Id == foreignChild.Id && u.Status == AgentStatus.Completed)).ConfigureAwait(true);
+    Assert.True(foreignSettled);
+  }
+
+  /// <summary>Bounded poll for a store update matching the predicate — the runtime's
+  ///     terminal writes are background continuations, so a bounded wait beats a sleep.</summary>
+  private static async Task<bool> SpinUntilAsync(Func<bool> condition)
+  {
+    DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+    while (!condition())
+    {
+      if (DateTime.UtcNow > deadline)
+      {
+        return false;
+      }
+
+      await Task.Delay(10, CancellationToken.None).ConfigureAwait(true);
+    }
+
+    return true;
+  }
+
   [Fact]
   public async Task Interrupt_UnknownId_IsANoOp_AndDoesNotDisturbActiveRuns()
   {
