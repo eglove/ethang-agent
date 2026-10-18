@@ -9,6 +9,14 @@ off it. This skill runs BEFORE brainstorming whenever the input is thin — a ba
 question, a one-line request — because a plan built on an unexamined ask wastes
 the whole downstream process.
 
+## Speaking to the user
+
+Every message addressed TO THE USER speaks to them as a user/stakeholder, not a
+developer — plain language, user-visible consequences, no code vocabulary. Where a
+decision genuinely requires technical framing, present it as a recommendation the
+user approves or rejects rather than a technical question. This governs messages to
+the user only: plans, task specs, and subagent messages stay technical.
+
 Work the tree in **rounds**. The **frontier** is every decision whose prerequisites
 are already settled: the questions you can ask _now_ without guessing at answers
 you haven't heard yet. Ask the whole frontier in one round: number each question

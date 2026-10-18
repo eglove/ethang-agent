@@ -17,6 +17,14 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Save plans to:** persist the implementation plan as a plan record — `plan.create` with the plan as `goal` (announce the plan id), then one `plan.add-step` per task (step title carries the task name; step detail carries the file paths and keeps the checkbox step-tracking guidance)
 
+## Speaking to the user
+
+Every message addressed TO THE USER speaks to them as a user/stakeholder, not a
+developer — plain language, user-visible consequences, no code vocabulary. Where a
+decision genuinely requires technical framing, present it as a recommendation the
+user approves or rejects rather than a technical question. This governs messages to
+the user only: plans, task specs, and subagent messages stay technical.
+
 ## Scope Check
 
 If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking this into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
