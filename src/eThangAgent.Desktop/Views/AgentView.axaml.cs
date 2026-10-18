@@ -39,6 +39,130 @@ internal partial class AgentView : UserControl
   // user-driven change re-enables the feed.
   private bool _suppressAutocompleteUpdate;
 
+  // ---- Per-row subagent sticky auto-scroll (task 8) ----
+  // One wiring per accordion row, mirroring the main chat's pattern above:
+  // ScrollChanged feeds the row's controller; the row's Entries CollectionChanged
+  // queues a coalesced ScrollToEnd for THAT row's viewer. Attached when the row's
+  // Expander materializes (DataContextChanged), released on detach/Dispose.
+  private sealed class RowScrollWiring : IDisposable
+  {
+    private readonly SubagentRowViewModel _row;
+    private readonly ScrollViewer _viewer;
+    private bool _scrollToEndQueued;
+
+    public RowScrollWiring(SubagentRowViewModel row, ScrollViewer viewer)
+    {
+      _row = row;
+      _viewer = viewer;
+      _row.Transcript.Entries.CollectionChanged += OnEntriesChanged;
+      viewer.ScrollChanged += OnScrollChanged;
+    }
+
+    // Same entry-shape filter as the main chat: appends and streamed tail
+    // replaces follow while stuck; other actions never scroll.
+    private void OnEntriesChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+      if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+      {
+        if (e.NewItems is { Count: > 0 } added && added[0] is UserMessageEntry)
+        {
+          return;
+        }
+      }
+      else if (e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Replace)
+      {
+        return;
+      }
+
+      if (!_row.Transcript.Scroll.ShouldAutoScroll(isUserEntry: false))
+      {
+        return;
+      }
+
+      _scrollToEndQueued = true;
+      Dispatcher.UIThread.Post(FlushQueuedScrollToEnd, DispatcherPriority.Loaded);
+    }
+
+    // One queued auto-scroll after layout settles; coalesces the burst of
+    // entries that can arrive inside one dispatcher turn.
+    private void FlushQueuedScrollToEnd()
+    {
+      if (!_scrollToEndQueued)
+      {
+        return;
+      }
+
+      _scrollToEndQueued = false;
+      _viewer.ScrollToEnd();
+    }
+
+    private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+      TranscriptScrollController controller = _row.Transcript.Scroll;
+      controller.ObserveScroll(_viewer.Extent.Height, _viewer.Viewport.Height, _viewer.Offset.Y);
+
+      // Geometry drift while pinned (the accordion expanding a sibling row
+      // re-lays-out this one) moved the tail out of view: re-pin, coalesced
+      // through the same one-shot queue as appends.
+      if (controller.ShouldRePin)
+      {
+        controller.ClearRePin();
+        _scrollToEndQueued = true;
+        Dispatcher.UIThread.Post(FlushQueuedScrollToEnd, DispatcherPriority.Loaded);
+      }
+    }
+
+    public void Dispose()
+    {
+      _row.Transcript.Entries.CollectionChanged -= OnEntriesChanged;
+      _viewer.ScrollChanged -= OnScrollChanged;
+    }
+  }
+
+  // Live wirings, keyed by the row VM whose DataContext materialized them.
+  private readonly Dictionary<SubagentRowViewModel, RowScrollWiring> _rowWirings = [];
+
+  /// <summary>Attaches per-row sticky auto-scroll wiring when a row's Expander
+  ///     materializes (the ItemsControl realizes the ItemTemplate). Re-attachment
+  ///     for the same row replaces the old wiring - a recycled container gets a
+  ///     fresh viewer, so the stale subscription must go first.</summary>
+  private void OnRowDataContextChanged(object? sender, EventArgs e)
+  {
+    if (sender is not Expander { DataContext: SubagentRowViewModel row } expander)
+    {
+      return;
+    }
+
+    if (_rowWirings.TryGetValue(row, out RowScrollWiring? existing))
+    {
+      existing.Dispose();
+      _ = _rowWirings.Remove(row);
+    }
+
+    // The per-row transcript viewer is the one inside the row Expander
+    // (MaxHeight=420); name it in the template so it is findable here.
+    ScrollViewer? viewer = expander.FindControl<ScrollViewer>("RowTranscriptScroll");
+    if (viewer is null)
+    {
+      return;
+    }
+
+    _rowWirings.Add(row, new RowScrollWiring(row, viewer));
+  }
+
+  /// <summary>Releases every per-row wiring: the panel's rows are about to change
+  ///     identity (tab rebuild, VM re-wire) and stale subscriptions must not
+  ///     outlive their row.</summary>
+  private void ReleaseRowWirings()
+  {
+    foreach (RowScrollWiring wiring in _rowWirings.Values)
+    {
+      wiring.Dispose();
+    }
+
+    _rowWirings.Clear();
+  }
+
   public AgentView()
   {
     InitializeComponent();
@@ -68,6 +192,7 @@ internal partial class AgentView : UserControl
     _subagentTimer?.Stop();
 
     _restorePending = false;
+    ReleaseRowWirings(); // the rows leave with the VM: stale viewer wiring must not outlive them
     AgentSessionViewModel? vm = Vm;
     if (vm is null)
     {
@@ -303,6 +428,12 @@ internal partial class AgentView : UserControl
     }
 
     TranscriptScroll.Offset = TranscriptScroll.Offset.WithY(_restoreOffset);
+  }
+
+  protected override void OnDetachedFromVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
+  {
+    base.OnDetachedFromVisualTree(e);
+    ReleaseRowWirings(); // recycled containers outlive this view instance
   }
 
   /// <summary>Esc stops the active turn - same path as the Stop button - whenever

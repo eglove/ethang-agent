@@ -30,6 +30,10 @@ internal sealed partial class SubagentRowViewModel(
   private int _lastRenderedCount;
   private bool _terminalFailed;
 
+  /// <summary>Set once the post-settle final refresh has rendered; a settled row's
+  ///     transcript is then frozen until re-activation clears the flag.</summary>
+  private bool _finalRefreshDone;
+
   public AgentId Id { get; } = id;
 
   public string Label { get; } = label;
@@ -37,6 +41,12 @@ internal sealed partial class SubagentRowViewModel(
   /// <summary>Rendered realtime transcript for this child — the store's incremental
   ///     persistence replayed as it lands.</summary>
   public TranscriptViewModel Transcript { get; } = new();
+
+  /// <summary>The row transcript's sticky auto-scroll state — one controller per
+  ///     row so each subagent transcript follows, pauses, and re-pins
+  ///     independently (task 8). Lives on the row VM (not the view) so a rebuilt
+  ///     view inherits the sticky state, the same shape the main chat uses.</summary>
+  public TranscriptScrollController Scroll { get; } = new();
 
   [ObservableProperty]
   public partial bool IsRunning { get; set; } = true;
@@ -49,6 +59,11 @@ internal sealed partial class SubagentRowViewModel(
 
   /// <summary>The row's status chip: the phase while running, the terminal state after.</summary>
   public string StatusDisplay => IsRunning ? PhaseLabel : TerminalDisplay;
+
+  /// <summary>Whether the next refresh pass should read this row's transcript: a
+  ///     running row polls continuously; a settled row polls only until its ONE
+  ///     post-settle final refresh has rendered.</summary>
+  internal bool NeedsTranscriptRefresh => IsRunning || !_finalRefreshDone;
 
   private string TerminalDisplay { get; set; } = "done";
 
@@ -88,13 +103,32 @@ internal sealed partial class SubagentRowViewModel(
     OnPropertyChanged(nameof(StatusBrush));
   }
 
+  /// <summary>Marks the run re-activated (UI thread by contract): a second
+  ///     ChildStartedEvent for the SAME id is a done-to-active transition (watchdog
+  ///     restart, auto-resume) — the row returns to the running amber chip and the
+  ///     starting phase, the failed terminal state is cleared.</summary>
+  public void ApplyRunning()
+  {
+    IsRunning = true;
+    PhaseLabel = "starting";
+    _terminalFailed = false;
+    _finalRefreshDone = false; // polling resumes: the restart appends from _lastRenderedCount onward
+    OnPropertyChanged(nameof(StatusDisplay));
+    OnPropertyChanged(nameof(StatusBrush));
+  }
+
   /// <summary>Refreshes the transcript from the store (UI thread by contract): appends
   ///     only what landed since the last refresh, so a growing transcript never
   ///     re-renders wholesale. A store miss keeps the last state — the next refresh
-  ///     retries. The FIRST refresh replays everything (initial attach).</summary>
+  ///     retries. The FIRST refresh replays everything (initial attach). A settled
+  ///     row still gets exactly ONE final refresh: the store may hold messages
+  ///     persisted after the settle event fired (a resume's messages, a late parent
+  ///     message) — after that successful read the row is frozen until re-activation
+  ///     (ApplyRunning) clears the flag and polling resumes. A store miss on the
+  ///     final pass does NOT freeze: the next refresh retries, per the miss contract.</summary>
   public async Task RefreshTranscriptAsync()
   {
-    if (_store is null || !IsRunning)
+    if (_store is null || (!IsRunning && _finalRefreshDone))
     {
       return;
     }
@@ -103,6 +137,11 @@ internal sealed partial class SubagentRowViewModel(
     if (!persisted.IsSuccess)
     {
       return;
+    }
+
+    if (!IsRunning)
+    {
+      _finalRefreshDone = true;
     }
 
     IReadOnlyList<Message> messages = persisted.Value;
@@ -159,7 +198,8 @@ internal sealed partial class SubagentRowViewModel(
 ///     stream; rows add on ChildStartedEvent, phase labels update on progress, rows
 ///     mark terminal on ChildSettledEvent. A bounded refresh timer (the view's
 ///     existing 80 ms timer cadence is too hot for store reads; 500 ms) pulls
-///     transcripts for RUNNING rows only. Panel visibility follows row presence:
+///     transcripts for rows that still need one: RUNNING rows, plus settled rows
+///     awaiting their one post-settle final refresh. Panel visibility follows row presence:
 ///     no rows ever = collapsed (the main chat owns the full width). Null stream
 ///     (headless hosts) attaches nothing. Threading: events arrive on stream
 ///     threads — the marshal wrapper posts state mutations onto the UI thread.</summary>
@@ -219,7 +259,7 @@ internal sealed partial class SubagentPanelViewModel(IAgentStore? store) : Obser
       MidRefreshHook?.Invoke();
       foreach (SubagentRowViewModel row in snapshot)
       {
-        if (row.IsRunning)
+        if (row.NeedsTranscriptRefresh)
         {
           await row.RefreshTranscriptAsync().ConfigureAwait(true);
         }
@@ -281,6 +321,7 @@ internal sealed partial class SubagentPanelViewModel(IAgentStore? store) : Obser
         if (_rowsById.TryGetValue(settled.ChildId, out SubagentRowViewModel? settledRow))
         {
           settledRow.ApplySettled(settled.TerminalStatus, settled.Reason);
+          settledRow.IsExpanded = false; // done rows collapse out of the way
         }
 
         break;
@@ -291,18 +332,27 @@ internal sealed partial class SubagentPanelViewModel(IAgentStore? store) : Obser
 
   private void AddRow(ChildStartedEvent started)
   {
-    if (_rowsById.ContainsKey(started.ChildId))
+    if (_rowsById.TryGetValue(started.ChildId, out SubagentRowViewModel? existing))
     {
-      return; // watchdog same-id retry: the row already exists
+      // A second started event for the SAME id is a done-to-active transition (the
+      // watchdog's same-id retry, or auto-resume): the row returns to running and
+      // re-opens — never a duplicate row.
+      existing.ApplyRunning();
+      existing.IsExpanded = true;
+      return;
     }
 
     SubagentRowViewModel row = new(started.ChildId, LabelFor(started), _store);
     _rowsById[started.ChildId] = row;
-    Rows.Add(row);
+    Rows.Insert(0, row); // newest-first: the newest launch sits at the top
     OnPropertyChanged(nameof(HasRows));
-    // The newest row expands; the previous selection stays where it is.
-    SelectedRow = row;
-    row.IsExpanded = true;
+    // The newcomer takes the expanded spot ONLY when no row is expanded; a new
+    // subagent must never steal the view the user is reading.
+    if (_rowsById.Values.All(r => !r.IsExpanded))
+    {
+      SelectedRow = row;
+      row.IsExpanded = true;
+    }
   }
 
   private static string LabelFor(ChildStartedEvent started)

@@ -614,10 +614,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>
-  /// Interrupts the running turn and all of this session's sub-agents. Hard cancel: the
-  /// domain repairs any half-finished tool batch so history stays valid, and surfaces the
-  /// interruption as a TurnCancelled result. No-op with a notice when idle. Safe to call
-  /// repeatedly; only the first call per turn has effect.
+  /// Interrupts the running turn and this session's own sub-agent subtree (FR-C6).
+  /// Hard cancel: the domain repairs any half-finished tool batch so history stays
+  /// valid, and surfaces the interruption as a TurnCancelled result. No-op with a
+  /// notice when idle. Safe to call repeatedly; only the first call per turn has
+  /// effect. The subtree interrupt is scoped to this session's root id — other
+  /// sessions' children are never touched, even when they share the remote host.
   /// </summary>
   public void RequestStop()
   {
@@ -627,7 +629,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       Transcript.AddNotice("No active turn to stop.");
       return;
     }
-    _childRuntime?.Interrupt();
+    // Scoped teardown (FR-C6): interrupt THIS session's subtree only. A blanket
+    // Interrupt() cancels every active run the runtime owns — in remote-host mode
+    // that is every active child in the host, including other sessions' children.
+    _childRuntime?.InterruptSubtree(_rootId);
     cts.Cancel();
   }
 

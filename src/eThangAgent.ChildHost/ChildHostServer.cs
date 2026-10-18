@@ -23,6 +23,16 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   // the child loop drains. The server previously kept its own parallel map of boxes the
   // loop never saw, so wire-delivered steering landed in a box nobody drains.
   private readonly ConcurrentDictionary<Guid, ChildMailboxRegistry> _delivery = [];
+
+  // Subtree resolution (task 1, scoped stop): each active child's parent link, read
+  // from the record the start command loaded. Interrupt dispatch walks these edges
+  // deepest-first so a subtree-root interrupt cancels only that session's descendants.
+  private readonly ConcurrentDictionary<Guid, Guid?> _parents = [];
+
+  // Enactment (fix round 1): each active child's own container runtime — the owner of
+  // the run's REAL cancellation token. The server's _active CTSs are only waiter tokens
+  // for WhenSettledAsync; cancelling them never touches the run itself.
+  private readonly ConcurrentDictionary<Guid, IAgentRuntime> _runtimes = [];
   private long _sequence;
 
   /// <summary>The ids the host currently runs — the exact live set the app's orphan
@@ -126,6 +136,14 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         return;
       }
 
+      // Subtree resolution: record the parent edge while the record is in hand, so
+      // interrupt dispatch walks THIS child's ancestry without a store round-trip.
+      _parents[command.RecordId] = loaded.Value.ParentId?.Value;
+      // Enactment: the child's own container runtime owns the run's REAL cancellation
+      // token — scoped interrupts must enact through it, not through the bookkeeping
+      // CTS (whose cancellation only ends the settle WAIT, never the run).
+      _runtimes[command.RecordId] = host.Runtime;
+
       // Route through the host's OWN runtime (not the raw spawner): children gain the
       // host-side supervisors, budget ceilings, and mailbox lifecycle the app-side
       // container enjoys. Start returns immediately (FR-L1); the settle is awaited.
@@ -163,6 +181,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     {
       _ = _active.TryRemove(command.RecordId, out _);
       _ = _delivery.TryRemove(command.RecordId, out _);
+      _ = _parents.TryRemove(command.RecordId, out _);
+      _ = _runtimes.TryRemove(command.RecordId, out _);
       await SendLiveSetAsync().ConfigureAwait(false);
     }
   }
@@ -219,14 +239,56 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   public void AttachDeliveryRegistry(Guid recordId, ChildMailboxRegistry registry)
       => _delivery[recordId] = registry;
 
+  /// <summary>Registers a live child run the way RunChildAsync does (a cancellable CTS
+  ///     in the active set) together with the record's parent link and the CHILD
+  ///     CONTAINER's runtime — the runtime whose internal CTS is the run's ACTUAL
+  ///     cancellation token, so interrupt dispatch can enact through it. The parent
+  ///     edge is read from the record the start command loaded; tests may attach rigs
+  ///     the same way they attach delivery registries.</summary>
+  public void AttachActiveChild(Guid recordId, Guid? parentId, CancellationTokenSource cts, IAgentRuntime runtime)
+  {
+    _parents[recordId] = parentId;
+    _active[recordId] = cts;
+    _runtimes[recordId] = runtime;
+  }
+
+  /// <summary>Observation seam for tests: the cancellation token of one active child's
+  ///     run, or null when the host runs no such child.</summary>
+  public CancellationToken? ActiveToken(Guid recordId)
+      => _active.TryGetValue(recordId, out CancellationTokenSource? cts) ? cts.Token : null;
+
+  /// <summary>Interrupt dispatch. A NULL record id is the legacy blanket cancel: every
+  ///     active CTS in the host. A NON-NULL id is a SUBTREE-ROOT interrupt (task 1,
+  ///     scoped stop): interrupt that id and every ACTIVE descendant through the child
+  ///     containers' OWN runtimes — the run's real cancellation token lives there; the
+  ///     server's bookkeeping CTSs are waiter tokens only and are deliberately left
+  ///     alone so the real Interrupted outcome reaches the app as a settle envelope.
+  ///     Deepest-first so parents observe children settling before their own teardown
+  ///     (the in-process runtime's InterruptSubtree contract). The walk covers only ids
+  ///     the host actively runs, so another session's children — whose ancestry never
+  ///     reaches this root — are untouched.</summary>
   private void HandleInterrupt(TransportEnvelope envelope)
   {
     InterruptCommand? command = JsonSerializer.Deserialize<InterruptCommand>(envelope.Json);
-    if (command!.RecordId is { } id)
+    if (command!.RecordId is { } root)
     {
-      if (_active.TryGetValue(id, out CancellationTokenSource? cts))
+      // Deepest first: children settle before their parents observe the teardown.
+      List<Guid> targets = [.. _active.Keys
+          .Where(activeId => activeId == root || IsDescendantOf(activeId, root))
+          .OrderByDescending(DepthOf)];
+      foreach (Guid id in targets)
       {
-        cts.Cancel();
+        // Enactment: cancel the run's REAL token through the child container's own
+        // runtime — the bookkeeping CTS only ends the settle WAIT, so cancelling it
+        // alone would leave the run executing (the fix-round-1 finding). It is
+        // deliberately NOT cancelled here: a cancelled waiter token makes
+        // WhenSettledAsync return a bare Cancelled failure and the run's real
+        // Interrupted outcome would never be forwarded to the app as a settle
+        // envelope. The run settles itself, completing the wait naturally.
+        if (_runtimes.TryGetValue(id, out IAgentRuntime? runtime))
+        {
+          runtime.Interrupt(new AgentId(id));
+        }
       }
     }
     else
@@ -236,6 +298,35 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         cts.Cancel();
       }
     }
+  }
+
+  private bool IsDescendantOf(Guid candidate, Guid root)
+  {
+    Guid? cursor = candidate;
+    while (cursor is { } current)
+    {
+      if (current == root)
+      {
+        return true;
+      }
+
+      cursor = _parents.GetValueOrDefault(current);
+    }
+
+    return false;
+  }
+
+  private int DepthOf(Guid id)
+  {
+    int depth = 0;
+    Guid? cursor = id;
+    while (cursor is { } current && _parents.TryGetValue(current, out Guid? parent) && parent is not null)
+    {
+      depth++;
+      cursor = parent;
+    }
+
+    return depth;
   }
 
   /// <summary>Declares the host's live child set to the app (R3.2's exact orphan

@@ -19,6 +19,14 @@ to EVERY task on EVERY path below — the ceremony scales with the task;
 the approval gate never does.
 </HARD-GATE>
 
+## Speaking to the user
+
+Every message addressed TO THE USER speaks to them as a user/stakeholder, not a
+developer — plain language, user-visible consequences, no code vocabulary. Where a
+decision genuinely requires technical framing, present it as a recommendation the
+user approves or rejects rather than a technical question. This governs messages to
+the user only: plans, task specs, and subagent messages stay technical.
+
 ## Three Paths
 
 Before your first question, classify the request and say the

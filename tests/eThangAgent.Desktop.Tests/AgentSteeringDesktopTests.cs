@@ -11,12 +11,13 @@ namespace eThangAgent.Desktop.Tests;
 /// the session's sub-agents. All awaits are bounded — every gate has a reachable settle path.</summary>
 public class AgentSteeringDesktopTests
 {
-  private static (AgentSessionViewModel Vm, RecordingLifecycle Lifecycle) Build(
+  private static (AgentSessionViewModel Vm, AgentId RootId, RecordingLifecycle Lifecycle) Build(
       TurnRunner runner, BoundedAgentMailbox inbox, TestFixtures.StubAgentRuntime runtime)
   {
     RecordingLifecycle lifecycle = new(new StubStore());
+    AgentId rootId = AgentId.NewId();
     AgentSessionViewModel vm = new(
-        runner, lifecycle, AgentId.NewId(), new Conversation(),
+        runner, lifecycle, rootId, new Conversation(),
         "OpenRouter", "test/model",
         new AgentSessionViewModelOptions
         {
@@ -24,7 +25,7 @@ public class AgentSteeringDesktopTests
           Inbox = inbox,
           ChildRuntime = runtime,
         });
-    return (vm, lifecycle);
+    return (vm, rootId, lifecycle);
   }
 
   [Fact]
@@ -32,7 +33,7 @@ public class AgentSteeringDesktopTests
   {
     BoundedAgentMailbox inbox = new();
     TestFixtures.ParkingRunner park = new();
-    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build(park.RunAsync, inbox, new TestFixtures.StubAgentRuntime());
+    (AgentSessionViewModel? vm, AgentId _, RecordingLifecycle _) = Build(park.RunAsync, inbox, new TestFixtures.StubAgentRuntime());
 
     Task turnTask = vm.SubmitAsync("first question");
     await park.Started.ConfigureAwait(true);
@@ -50,11 +51,12 @@ public class AgentSteeringDesktopTests
   }
 
   [Fact]
-  public async Task StopWhileBusy_CancelsTurn_AndInterruptsChildren()
+  public async Task StopWhileBusy_CancelsTurn_AndInterruptsTheSessionSubtree()
   {
     TestFixtures.StubAgentRuntime runtime = new();
     TestFixtures.ParkingRunner park = new();
-    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build(park.RunAsync, new BoundedAgentMailbox(), runtime);
+    (AgentSessionViewModel? vm, AgentId rootId, RecordingLifecycle _) =
+        Build(park.RunAsync, new BoundedAgentMailbox(), runtime);
 
     Task turnTask = vm.SubmitAsync("long running work");
     await park.Started.ConfigureAwait(true);
@@ -65,7 +67,12 @@ public class AgentSteeringDesktopTests
 
     Assert.False(vm.IsBusy);
     Assert.True(park.ObservedToken.IsCancellationRequested);
-    Assert.Equal(1, runtime.InterruptAllCount);
+    // Scoped teardown: exactly one subtree interrupt rooted at THIS session's root id —
+    // never a blanket (null-id) Interrupt, which in remote-host mode cancels every
+    // active child in the host, including other sessions' children.
+    AgentId interruptedRoot = Assert.Single(runtime.SubtreeInterrupts);
+    Assert.Equal(rootId, interruptedRoot);
+    Assert.Equal(0, runtime.InterruptAllCount);
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
     Assert.Contains("Error [TurnCancelled]", notice.Text, StringComparison.Ordinal);
   }
@@ -74,8 +81,9 @@ public class AgentSteeringDesktopTests
   public async Task StopWhenIdle_ShowsNotice_AndDoesNotInterruptChildren()
   {
     TestFixtures.StubAgentRuntime runtime = new();
-    (AgentSessionViewModel? vm, RecordingLifecycle _) = Build((_, _, _, _) => Task.FromResult(Result.Success("ok")),
-        new BoundedAgentMailbox(), runtime);
+    (AgentSessionViewModel? vm, AgentId _, RecordingLifecycle _) =
+        Build((_, _, _, _) => Task.FromResult(Result.Success("ok")),
+            new BoundedAgentMailbox(), runtime);
 
     await vm.SubmitAsync("quick turn");
     await vm.WaitForTurnAsync();

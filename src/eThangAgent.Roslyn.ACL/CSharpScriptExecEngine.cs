@@ -258,6 +258,41 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       // reference dies (an abandoned spin keeps its context alive, bounded by
       // the pool — the named decision above).
       alc?.Unload();
+      // Only a run whose ALC was created needs the drain: a compile-only
+      // failure path (or a no-entry-point script) never allocated one, so
+      // there is nothing unloaded to reclaim.
+      if (alc is not null)
+      {
+        DrainExecGarbage();
+      }
     }
+  }
+
+  // THE DRAIN CONTRACT (2026-10-17 incident, 10-12 GB working set and ~7M handles
+  // over one exec-heavy session): alc.Unload() only MARKS the collectible context
+  // for unload — the submission's assembly, metadata, and IL stay alive until the
+  // GC next collects, and workstation GC under steady allocation defers gen2
+  // collection indefinitely. Per-exec compilations therefore accumulated between
+  // gen2 GCs (measured: the managed heap stayed ~200 MB while native memory and
+  // transient ALC handles grew 1-2k per exec call, 7M handles over hours).
+  //
+  // Named decision — GC.Collect is normally a smell; here it is the correct tool:
+  // the engine KNOWS it just created a short-lived collectible ALC whose unload
+  // must complete before the next exec starts, and no other component can know
+  // when to collect on its behalf. The collect is targeted (generation 2,
+  // aggressive, blocking, compacting — the mode that actually reclaims unloaded
+  // ALCs), and it costs tens of milliseconds against an exec call that already
+  // costs hundreds. The finalizer wait plus the second collect release the
+  // context's finalizable remnants so the next exec starts from a clean slate.
+  private static void DrainExecGarbage()
+  {
+    // Named decision (S1215): see the drain contract above — the deliberate,
+    // documented exception. The engine just unloaded a collectible ALC it created;
+    // a targeted blocking collect is the only way that unload completes promptly.
+#pragma warning disable S1215 // Do not force garbage collection
+    GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+    GC.WaitForPendingFinalizers();
+    GC.Collect();
+#pragma warning restore S1215 // Do not force garbage collection
   }
 }
