@@ -1,6 +1,6 @@
 ---
 name: scientific-method
-description: Route a task through the scientific loop — observe, hypothesize, predict, experiment, analyze, report. Use at the start of any non-trivial debugging, feature, refactoring, or research task to pick which skills carry each leg.
+description: Use when debugging, feature, refactoring, or research tasks are non-trivial and need the scientific loop's legs routed to the skills that carry them.
 ---
 
 # Scientific Method
