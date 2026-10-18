@@ -174,7 +174,7 @@ public sealed class AgentCapabilityProvider(
       "status" => await Status(jsonArguments, ct).ConfigureAwait(false),
       "result" => await GetResult(jsonArguments, ct).ConfigureAwait(false),
       "wait" => await Wait(jsonArguments, ct).ConfigureAwait(false),
-      "send" => Send(jsonArguments),
+      "send" => await Send(jsonArguments).ConfigureAwait(false),
       "resume" => await Resume(jsonArguments).ConfigureAwait(false),
       "route" => Route(jsonArguments),
       "escalate" => await Escalate(jsonArguments, ct).ConfigureAwait(false),
@@ -344,9 +344,12 @@ public sealed class AgentCapabilityProvider(
     _ => "unknown",
   };
   /// <summary>agent.send: parent-to-child steering through the runtime's push-delivery.
-  ///     Delivery to self is rejected at validation; unknown/finished targets surface
-  ///     NotRunning; overflow surfaces MailboxFull — every failure has a recipient (A3).</summary>
-  private CapabilityInvocationResult Send(string json)
+  ///     Delivery to self is rejected at validation; unknown targets surface NotFound;
+  ///     overflow surfaces MailboxFull — every failure has a recipient (A3). A COMPLETED
+  ///     child is auto-resumed with the message as its next instruction (the resume
+  ///     contract's receipt); a Failed/Interrupted child is refused with NotRunning —
+  ///     messaging it cannot restart it, agent.resume is the explicit restart path.</summary>
+  private async Task<CapabilityInvocationResult> Send(string json)
   {
     if (_runtime is null)
     {
@@ -364,6 +367,29 @@ public sealed class AgentCapabilityProvider(
     if (id!.Value == parent.Id)
     {
       return CapabilityInvocationResult.Fail("Error [InvalidActionInput]: an agent cannot send to itself.");
+    }
+
+    // A settled target changes the send's meaning: the user messaging a done child
+    // wants it to keep going, so a completed child resumes with the text verbatim,
+    // while a failed/interrupted child cannot be restarted by a message (refusal).
+    Result<AgentRecord> target = await _queries.GetStatus(id.Value, CancellationToken.None).ConfigureAwait(false);
+    if (target.IsSuccess)
+    {
+      switch (target.Value.Status)
+      {
+        case AgentStatus.Completed:
+          Result<AgentId> resumed = await _runtime.Resume(id.Value, text!, CancellationToken.None).ConfigureAwait(false);
+          return resumed.IsSuccess
+              ? CapabilityInvocationResult.Ok($"id={resumed.Value} status=running")
+              : CapabilityInvocationResult.Fail($"Error [{resumed.Error.Code}]: {resumed.Error.Message}");
+        case AgentStatus.Failed:
+        case AgentStatus.Interrupted:
+          return CapabilityInvocationResult.Fail(
+              $"Error [NotRunning]: agent {id.Value} is {StatusWord(target.Value.Status)}; messaging it cannot restart it — use agent.resume to restart it explicitly.");
+        case AgentStatus.Running:
+        default:
+          break; // falls through to the ordinary delivery path below
+      }
     }
 
     Result<bool> delivered = _runtime.Deliver(id.Value,
@@ -479,6 +505,17 @@ public sealed class AgentCapabilityProvider(
     AgentStatus.Failed => $"id={record.Id} status=failed reason={ReasonText(record.FailureReason)}",
     AgentStatus.Interrupted => $"id={record.Id} status=interrupted",
     _ => throw new InvalidOperationException($"Unknown agent status '{record.Status}' for agent '{record.Id}'."),
+  };
+
+  /// <summary>Lowercase status words for the send-refusal contract (CA1308 forbids
+  ///     ToLowerInvariant normalization; the words are pinned, not computed).</summary>
+  private static string StatusWord(AgentStatus status) => status switch
+  {
+    AgentStatus.Running => "running",
+    AgentStatus.Completed => "completed",
+    AgentStatus.Failed => "failed",
+    AgentStatus.Interrupted => "interrupted",
+    _ => throw new InvalidOperationException($"Unknown agent status '{status}'."),
   };
 
   private static string ReasonText(AgentFailureReason? reason) => reason switch
