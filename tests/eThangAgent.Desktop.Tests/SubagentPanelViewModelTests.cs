@@ -201,10 +201,167 @@ public class SubagentPanelViewModelTests
     await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
 
     Assert.Equal(2, panel.Rows.Count); // the newcomer landed without throwing
-    _ = Assert.Single(panel.Rows[0].Transcript.Entries); // the first row still refreshed
+    // Newest-first: the newcomer sits at Rows[0]; the first child's transcript
+    // still refreshed despite the mid-refresh addition.
+    _ = Assert.Single(panel.Rows.Single(r => r.Id == first).Transcript.Entries);
 
     // The next refresh picks the newcomer up.
     await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
-    _ = Assert.Single(panel.Rows[1].Transcript.Entries);
+    _ = Assert.Single(panel.Rows.Single(r => r.Id == second).Transcript.Entries);
+  }
+
+  [Fact]
+  public void Two_Started_Events_Newest_At_Top()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId first = AgentId.NewId();
+    AgentId second = AgentId.NewId();
+
+    panel.OnEvent(Started(first));
+    panel.OnEvent(Started(second));
+
+    Assert.Equal(2, panel.Rows.Count);
+    Assert.Equal(second, panel.Rows[0].Id); // newest launched at top
+    Assert.Equal(first, panel.Rows[1].Id);
+  }
+
+  [Fact]
+  public void First_Child_Takes_The_Open_Expanded_Spot()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId id = AgentId.NewId();
+
+    panel.OnEvent(Started(id));
+
+    // Nothing was expanded, so the newcomer takes the open spot.
+    Assert.True(panel.Rows[0].IsExpanded);
+    Assert.Equal(panel.Rows[0], panel.SelectedRow);
+  }
+
+  [Fact]
+  public void Settled_Row_Collapses_The_Expander()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId id = AgentId.NewId();
+    panel.OnEvent(Started(id));
+
+    panel.OnEvent(new ChildSettledEvent(id, DateTimeOffset.UtcNow, AgentStatus.Completed, null, 0));
+
+    Assert.False(panel.Rows[0].IsExpanded);
+  }
+
+  [Fact]
+  public void Same_Id_Restart_Reactivates_The_Row_Without_Duplicating()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId id = AgentId.NewId();
+    panel.OnEvent(Started(id));
+    panel.OnEvent(new ChildSettledEvent(id, DateTimeOffset.UtcNow, AgentStatus.Completed, null, 0));
+
+    // A second ChildStartedEvent for the SAME id is a done-to-active transition
+    // (watchdog restart): the row returns to running and re-opens.
+    panel.OnEvent(Started(id));
+
+    SubagentRowViewModel row = Assert.Single(panel.Rows);
+    Assert.True(row.IsRunning);
+    Assert.Equal("starting", row.StatusDisplay);
+    Assert.True(row.IsExpanded);
+  }
+
+  [Fact]
+  public void Reactivation_Resets_The_Failed_Brush_To_Running()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId id = AgentId.NewId();
+    panel.OnEvent(Started(id));
+    panel.OnEvent(new ChildSettledEvent(id, DateTimeOffset.UtcNow, AgentStatus.Failed,
+        AgentFailureReason.ProviderError, 0));
+
+    panel.OnEvent(Started(id));
+
+    Assert.Equal(Avalonia.Media.Brushes.Orange, panel.Rows[0].StatusBrush);
+  }
+
+  [Fact]
+  public void Second_Child_Does_Not_Steal_Expansion_Or_Selection()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId first = AgentId.NewId();
+    AgentId second = AgentId.NewId();
+
+    panel.OnEvent(Started(first));
+    SubagentRowViewModel firstRow = panel.Rows[0];
+
+    panel.OnEvent(Started(second));
+
+    // A row is already expanded: the newcomer stays collapsed and the
+    // user's selection and expanded row are untouched.
+    SubagentRowViewModel secondRow = panel.Rows.Single(r => r.Id == second);
+    Assert.False(secondRow.IsExpanded);
+    Assert.True(firstRow.IsExpanded);
+    Assert.Equal(firstRow, panel.SelectedRow);
+  }
+
+  [Fact]
+  public async Task Late_Message_Renders_Once_After_Settle()
+  {
+    AgentId id = AgentId.NewId();
+    List<Message> transcript =
+    [
+      new Message(Role.User, "check the claims", DateTimeOffset.UtcNow),
+    ];
+    TestFixtures.TranscriptStore store = new(transcript);
+    using SubagentPanelViewModel panel = new(store);
+    panel.Attach(new TestEventStream());
+    panel.OnEvent(Started(id));
+
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    _ = Assert.Single(panel.Rows[0].Transcript.Entries);
+
+    // The row settles; the store then holds a message persisted AFTER the settle
+    // event fired (a resume's message, a late parent message). Exactly ONE final
+    // refresh picks it up...
+    panel.OnEvent(new ChildSettledEvent(id, DateTimeOffset.UtcNow, AgentStatus.Completed, null, 0));
+    transcript.Add(new Message(Role.Assistant, "final answer", DateTimeOffset.UtcNow));
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    Assert.Equal(2, panel.Rows[0].Transcript.Entries.Count);
+
+    // ...and a SECOND refresh appends nothing - the final refresh is done.
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    Assert.Equal(2, panel.Rows[0].Transcript.Entries.Count);
+  }
+
+  [Fact]
+  public async Task Reactivated_Row_Resumes_Transcript_Polling()
+  {
+    AgentId id = AgentId.NewId();
+    List<Message> transcript =
+    [
+      new Message(Role.User, "check the claims", DateTimeOffset.UtcNow),
+    ];
+    TestFixtures.TranscriptStore store = new(transcript);
+    using SubagentPanelViewModel panel = new(store);
+    panel.Attach(new TestEventStream());
+    panel.OnEvent(Started(id));
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    _ = Assert.Single(panel.Rows[0].Transcript.Entries);
+
+    panel.OnEvent(new ChildSettledEvent(id, DateTimeOffset.UtcNow, AgentStatus.Completed, null, 0));
+    transcript.Add(new Message(Role.Assistant, "final answer", DateTimeOffset.UtcNow));
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    Assert.Equal(2, panel.Rows[0].Transcript.Entries.Count);
+
+    // Re-activation (the watchdog's same-id restart): polling resumes and the
+    // next persisted message appends again.
+    panel.OnEvent(Started(id));
+    transcript.Add(new Message(Role.User, "follow-up question", DateTimeOffset.UtcNow));
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    Assert.Equal(3, panel.Rows[0].Transcript.Entries.Count);
   }
 }
