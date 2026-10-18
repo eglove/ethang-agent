@@ -38,11 +38,16 @@ public class EmbeddedSkillCatalogTests
   {
     Result<SkillDefinition> r = await _catalog.GetAsync("grill", ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
+    string body = r.Value.Body;
     // Body preserved verbatim after frontmatter split: the frontmatter is gone and the
-    // skill's own opening prose survives intact. (The body's first line is no longer
-    // pinned to that prose — a skill may open with a framing paragraph.)
-    Assert.DoesNotContain("description:", r.Value.Body, StringComparison.Ordinal);
-    Assert.Contains("Interview the user relentlessly", r.Value.Body, StringComparison.Ordinal);
+    // skill's own prose survives intact. The opening is pinned positionally, so a leaked
+    // fence, a leaked key, or a shifted first line all fail here rather than passing
+    // because the prose merely appears somewhere.
+    Assert.StartsWith("This is the observation leg of the scientific loop", body, StringComparison.Ordinal);
+    Assert.False(body.StartsWith("---", StringComparison.Ordinal), "frontmatter fence leaked into the body");
+    Assert.DoesNotContain("description:", body, StringComparison.Ordinal);
+    Assert.DoesNotContain("name: grill", body, StringComparison.Ordinal);
+    Assert.Contains("Interview the user relentlessly", body, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -73,7 +78,7 @@ public class EmbeddedSkillCatalogTests
   ];
 
   [Fact]
-  public async Task PipelineSkills_OpenWithLegMappingHeader_NamingTheScientificLoopLeg()
+  public async Task PipelineSkills_NameTheLegBeforeTheOpeningProse()
   {
     // Grand plan: the pipeline skills name which loop leg they carry, so the
     // router's table and the carrying skill agree on the same vocabulary.
@@ -85,6 +90,7 @@ public class EmbeddedSkillCatalogTests
       int legIndex = body.IndexOf(legHeader, StringComparison.Ordinal);
       Assert.True(legIndex >= 0, $"{skill}: missing leg header '{legHeader}'");
       int anchorIndex = body.IndexOf(anchor, StringComparison.Ordinal);
+      Assert.True(anchorIndex >= 0, $"{skill}: missing anchor '{anchor}'");
       Assert.True(anchorIndex > legIndex, $"{skill}: leg header must precede '{anchor}'");
     }
   }
