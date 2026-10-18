@@ -88,6 +88,19 @@ internal sealed partial class SubagentRowViewModel(
     OnPropertyChanged(nameof(StatusBrush));
   }
 
+  /// <summary>Marks the run re-activated (UI thread by contract): a second
+  ///     ChildStartedEvent for the SAME id is a done-to-active transition (watchdog
+  ///     restart, auto-resume) — the row returns to the running amber chip and the
+  ///     starting phase, the failed terminal state is cleared.</summary>
+  public void ApplyRunning()
+  {
+    IsRunning = true;
+    PhaseLabel = "starting";
+    _terminalFailed = false;
+    OnPropertyChanged(nameof(StatusDisplay));
+    OnPropertyChanged(nameof(StatusBrush));
+  }
+
   /// <summary>Refreshes the transcript from the store (UI thread by contract): appends
   ///     only what landed since the last refresh, so a growing transcript never
   ///     re-renders wholesale. A store miss keeps the last state — the next refresh
@@ -281,6 +294,7 @@ internal sealed partial class SubagentPanelViewModel(IAgentStore? store) : Obser
         if (_rowsById.TryGetValue(settled.ChildId, out SubagentRowViewModel? settledRow))
         {
           settledRow.ApplySettled(settled.TerminalStatus, settled.Reason);
+          settledRow.IsExpanded = false; // done rows collapse out of the way
         }
 
         break;
@@ -291,9 +305,14 @@ internal sealed partial class SubagentPanelViewModel(IAgentStore? store) : Obser
 
   private void AddRow(ChildStartedEvent started)
   {
-    if (_rowsById.ContainsKey(started.ChildId))
+    if (_rowsById.TryGetValue(started.ChildId, out SubagentRowViewModel? existing))
     {
-      return; // watchdog same-id retry: the row already exists
+      // A second started event for the SAME id is a done-to-active transition (the
+      // watchdog's same-id retry, or auto-resume): the row returns to running and
+      // re-opens — never a duplicate row.
+      existing.ApplyRunning();
+      existing.IsExpanded = true;
+      return;
     }
 
     SubagentRowViewModel row = new(started.ChildId, LabelFor(started), _store);

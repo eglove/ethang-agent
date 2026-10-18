@@ -241,6 +241,53 @@ public class SubagentPanelViewModelTests
   }
 
   [Fact]
+  public void Settled_Row_Collapses_The_Expander()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId id = AgentId.NewId();
+    panel.OnEvent(Started(id));
+
+    panel.OnEvent(new ChildSettledEvent(id, DateTimeOffset.UtcNow, AgentStatus.Completed, null, 0));
+
+    Assert.False(panel.Rows[0].IsExpanded);
+  }
+
+  [Fact]
+  public void Same_Id_Restart_Reactivates_The_Row_Without_Duplicating()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId id = AgentId.NewId();
+    panel.OnEvent(Started(id));
+    panel.OnEvent(new ChildSettledEvent(id, DateTimeOffset.UtcNow, AgentStatus.Completed, null, 0));
+
+    // A second ChildStartedEvent for the SAME id is a done-to-active transition
+    // (watchdog restart): the row returns to running and re-opens.
+    panel.OnEvent(Started(id));
+
+    SubagentRowViewModel row = Assert.Single(panel.Rows);
+    Assert.True(row.IsRunning);
+    Assert.Equal("starting", row.StatusDisplay);
+    Assert.True(row.IsExpanded);
+  }
+
+  [Fact]
+  public void Reactivation_Resets_The_Failed_Brush_To_Running()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    AgentId id = AgentId.NewId();
+    panel.OnEvent(Started(id));
+    panel.OnEvent(new ChildSettledEvent(id, DateTimeOffset.UtcNow, AgentStatus.Failed,
+        AgentFailureReason.ProviderError, 0));
+
+    panel.OnEvent(Started(id));
+
+    Assert.Equal(Avalonia.Media.Brushes.Orange, panel.Rows[0].StatusBrush);
+  }
+
+  [Fact]
   public void Second_Child_Does_Not_Steal_Expansion_Or_Selection()
   {
     using SubagentPanelViewModel panel = new(store: null);
