@@ -11,7 +11,7 @@ description: Complete a branch: merge, clean up worktrees, confirm the build, an
 
 **Announce at start:** "I'm using the finishing-a-development-branch skill to complete this work."
 
-## Step 1: Verify Tests
+## Step 1: Verify Tests and Ledger
 
 Build and run the project's full suite: `dotnet build` then `dotnet test`. If the running desktop app locks bin/Debug (MSB3021/3027), build and test with `-c Release`.
 
@@ -27,6 +27,33 @@ Tests failing (<N> failures). Must fix before completing:
 via exec; any output is uncommitted work that must be committed or reverted before
 the integration menu appears. A dirty tree at finish time means something was done
 but never recorded.
+
+### The ledger gate
+
+Then check the experiment ledger for this plan. Run `experiment` with `action: list` and
+the plan's `slug`; the header line reports the open-prediction count:
+
+```text
+[experiment] sci.<slug>/ledger: <N> record(s), <M> open prediction(s)
+```
+
+**An open prediction is an untested claim.** It names a check that would refute it and no
+one has run that check yet, so the branch carries a belief nobody has tested. When `<M>` is
+greater than zero, do not present the menu. Report what is open and stop:
+
+```text
+<M> prediction(s) still open in sci.<slug>/ledger. Each one names a check that would
+refute it; none has been run. Close them before this branch is integrated:
+
+[Show each open prediction line verbatim]
+
+Record the verdict with `experiment` (action `record-verdict`), or record a skip if the
+prediction is being deliberately dropped.
+```
+
+When `<M>` is zero — every prediction carries a verdict or a recorded skip — continue to
+Step 2. A ledger that does not exist yet is not a failure: report that no ledger was found
+and continue, because a branch finished without one never made a prediction to leave open.
 
 Then continue to Step 2.
 
@@ -209,3 +236,4 @@ Carry out the choice, then remove the worktree.
 | "The merged-result failure is probably flaky" | A failing merged result stops everything. Branch and worktree stay put while you investigate. |
 | "The base branch is obviously main" | Confirm the fork point or ask. Merging into the wrong base is expensive to undo. |
 | "The push was rejected — force-push will fix it" | A rejected push means the remote moved. Investigate; force-push only on your human partner's explicit request. |
+| "The predictions were obviously going to hold" | An untested prediction is a belief, not a result. Run the check it names, or record that you are dropping it. |

@@ -95,6 +95,22 @@ public class EmbeddedSkillCatalogTests
   }
 
   [Fact]
+  public async Task FinishSkill_Carries_LedgerGate_And_UntestedPredictionRuling()
+  {
+    // The branch-finish menu is the advisory layer's enforcement point: a branch
+    // carrying an open prediction is a branch carrying an untested belief, so the
+    // finish skill checks the ledger before it presents the integration menu.
+    Result<SkillDefinition> r = await _catalog.GetAsync("finishing-a-development-branch", ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    string body = r.Value.Body;
+    Assert.Contains("## Step 1: Verify Tests and Ledger", body, StringComparison.Ordinal);
+    Assert.Contains("### The ledger gate", body, StringComparison.Ordinal);
+    Assert.Contains("open prediction", body, StringComparison.Ordinal);
+    Assert.Contains("record-verdict", body, StringComparison.Ordinal);
+    Assert.Contains("An untested prediction is a belief, not a result", body, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public async Task Get_UnknownName_Fails()
   {
     Result<SkillDefinition> r = await _catalog.GetAsync("not-a-skill", ct: TestContext.Current.CancellationToken);
