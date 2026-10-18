@@ -54,22 +54,15 @@ internal static class ExperimentLedger
   };
 
   /// <summary>The ledger's lines, in order. A null or blank value is an empty ledger;
-  ///     blank trailing lines are dropped so the last record is the last line.</summary>
-  internal static IReadOnlyList<string> Lines(string? value)
-  {
-    if (string.IsNullOrWhiteSpace(value))
-    {
-      return [];
-    }
-
-    List<string> lines = [.. value
-        .Split('\n')
-        .Select(line => line.TrimEnd('\r'))
-        .Reverse()
-        .SkipWhile(line => line.Length == 0)
-        .Reverse()];
-    return lines;
-  }
+  ///     blank lines are dropped wherever they appear, because a blank line is never a
+  ///     record (it would otherwise inflate the record count and echo as an empty line).</summary>
+  internal static IReadOnlyList<string> Lines(string? value) =>
+      string.IsNullOrWhiteSpace(value)
+        ? []
+        : [.. value
+            .Split('\n')
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.Trim().Length != 0)];
 
   /// <summary>Parses a stored ledger value into typed records, one per line.</summary>
   internal static IReadOnlyList<ExperimentRecord> Parse(string? value) =>
@@ -110,7 +103,7 @@ internal static class ExperimentLedger
     }
 
     int? reference = null;
-    if (TryReadReference(line, ref cursor, out int referenceId))
+    if (TryReadReference(line, ref cursor, ReferenceKindWord(kind), out int referenceId))
     {
       reference = referenceId;
     }
@@ -182,33 +175,61 @@ internal static class ExperimentLedger
     return int.TryParse(line[start..cursor], out value) && value > 0;
   }
 
-  /// <summary>Reads the optional <c> (kind id)</c> reference group. The cursor is left
-  ///     where it was when no group is present, so the caller can read the tail.</summary>
-  private static bool TryReadReference(string line, ref int cursor, out int referenceId)
+  /// <summary>The kind word a record's reference group must carry: a prediction references
+  ///     a hypothesis, a verdict and a skip reference a prediction, and the remaining kinds
+  ///     reference nothing (null).</summary>
+  private static string? ReferenceKindWord(ExperimentRecordKind kind) => kind switch
+  {
+    ExperimentRecordKind.Prediction => "hypothesis",
+    ExperimentRecordKind.Verdict or ExperimentRecordKind.Skip => "prediction",
+    ExperimentRecordKind.Hypothesis or ExperimentRecordKind.Observation or
+        ExperimentRecordKind.Conclusion or ExperimentRecordKind.Unrecognized => null,
+    // Unnamed enum values cannot occur.
+    _ => throw new InvalidOperationException("Unknown experiment record kind."),
+  };
+
+  /// <summary>Reads the optional <c> (kind id)</c> reference group, whose kind word must
+  ///     equal <paramref name="expectedKindWord"/>. The cursor is left where it was when no
+  ///     group is present, so the caller can read the tail. A group that is present but
+  ///     carries a different kind word (or any group when none is expected) also leaves the
+  ///     cursor alone, so the tail read fails and the whole line fails closed as
+  ///     unrecognized — a mismatched reference never closes or creates the wrong record.</summary>
+  private static bool TryReadReference(string line, ref int cursor, string? expectedKindWord,
+      out int referenceId)
   {
     referenceId = 0;
-    int start = cursor;
-    if (start < line.Length && line[start] == ' ')
-    {
-      start++;
-    }
-
-    if (start >= line.Length || line[start] != '(')
+    int start = GroupStart(line, cursor);
+    if (start < 0)
     {
       return false;
     }
 
-    // The group is '(kind id)': one space separates its kind word from its id.
+    int after = ParseGroup(line, start, expectedKindWord, out referenceId);
+    cursor = after < 0 ? cursor : after;
+    return after >= 0;
+  }
+
+  /// <summary>The index of the '(' that opens a reference group, or -1 when none starts here.</summary>
+  private static int GroupStart(string line, int cursor)
+  {
+    int start = cursor < line.Length && line[cursor] == ' ' ? cursor + 1 : cursor;
+    return start < line.Length && line[start] == '(' ? start : -1;
+  }
+
+  /// <summary>Parses the <c>(kind id)</c> group starting at <paramref name="start"/>, whose
+  ///     kind word must equal <paramref name="expectedKindWord"/>. Returns the index just past
+  ///     the ')' or -1 when the group is malformed or carries the wrong kind word.</summary>
+  private static int ParseGroup(string line, int start, string? expectedKindWord, out int referenceId)
+  {
+    referenceId = 0;
     int scan = start + 1;
-    if (ReadWord(line, ref scan) is null || !TrySkipSpace(line, ref scan) ||
-        !TryReadNumber(line, ref scan, out referenceId) ||
-        scan >= line.Length || line[scan] != ')')
-    {
-      return false;
-    }
-
-    cursor = scan + 1;
-    return true;
+    string? kindWord = ReadWord(line, ref scan);
+    bool matches = kindWord is not null && expectedKindWord is not null &&
+        string.Equals(kindWord, expectedKindWord, StringComparison.Ordinal);
+    return matches && TrySkipSpace(line, ref scan) && TryReadNumber(line, ref scan, out referenceId) &&
+        scan < line.Length && line[scan] == ')'
+      ? scan + 1
+      : -1;
   }
 
   /// <summary>Reads the <c>: content</c> tail; null when the colon is missing.</summary>

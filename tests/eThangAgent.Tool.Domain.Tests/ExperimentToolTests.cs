@@ -496,6 +496,145 @@ public class ExperimentToolTests
     Assert.StartsWith("Error [StorageUnavailable]:", result.Content, StringComparison.Ordinal);
     Assert.Empty(store.AppendCalls);
   }
+  // ---- Group 8: a reference group's kind word must match the record that references it ----
+
+  [Fact]
+  public async Task List_VerdictReferencingHypothesis_IsUnrecognized_PredictionStaysOpen()
+  {
+    const string Ledger =
+        "hypothesis 1: H\n" +
+        "prediction 1 (hypothesis 1): P \u2014 falsified by: cmd\n" +
+        "verdict 1 (hypothesis 1): confirmed \u2014 ev";
+    (ExperimentTool? tool, FakeExperimentLedgerStore _) = MakeTool(Ledger);
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"list","slug":"alpha"}""");
+
+    Assert.False(result.IsError, result.Content);
+    Assert.StartsWith("[experiment] sci.alpha/ledger: 3 record(s), 1 open prediction(s)\n",
+        result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task List_SkipWithUnknownKindWord_IsUnrecognized_PredictionStaysOpen()
+  {
+    const string Ledger =
+        "hypothesis 1: H\n" +
+        "prediction 1 (hypothesis 1): P \u2014 falsified by: cmd\n" +
+        "skip 1 (banana 1): reason";
+    (ExperimentTool? tool, FakeExperimentLedgerStore _) = MakeTool(Ledger);
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"list","slug":"alpha"}""");
+
+    Assert.False(result.IsError, result.Content);
+    Assert.StartsWith("[experiment] sci.alpha/ledger: 3 record(s), 1 open prediction(s)\n",
+        result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task List_PredictionReferencingPrediction_IsUnrecognized_NoPredictionCreated()
+  {
+    const string Ledger =
+        "hypothesis 1: H\n" +
+        "prediction 1 (prediction 1): x \u2014 falsified by: y";
+    (ExperimentTool? tool, FakeExperimentLedgerStore _) = MakeTool(Ledger);
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"list","slug":"alpha"}""");
+
+    Assert.False(result.IsError, result.Content);
+    // The malformed line is unrecognized, so no prediction exists and none is open.
+    Assert.StartsWith("[experiment] sci.alpha/ledger: 2 record(s), 0 open prediction(s)\n",
+        result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task List_CorrectlyWordedReferences_StillParseAndStillClose()
+  {
+    const string Ledger =
+        "hypothesis 1: H\n" +
+        "prediction 1 (hypothesis 1): P1 \u2014 falsified by: cmd\n" +
+        "prediction 2 (hypothesis 1): P2 \u2014 falsified by: cmd\n" +
+        "verdict 1 (prediction 1): confirmed \u2014 ev\n" +
+        "skip 1 (prediction 2): reason";
+    (ExperimentTool? tool, FakeExperimentLedgerStore? store) = MakeTool(Ledger);
+
+    ToolResult listed = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"list","slug":"alpha"}""");
+
+    Assert.False(listed.IsError, listed.Content);
+    Assert.StartsWith("[experiment] sci.alpha/ledger: 5 record(s), 0 open prediction(s)\n",
+        listed.Content, StringComparison.Ordinal);
+
+    // Both predictions are recognized and closed, so a further verdict is refused.
+    ToolResult judged = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"record-verdict","slug":"alpha","id":1,"verdict":"refuted","evidence":"ev2"}""");
+
+    Assert.True(judged.IsError);
+    Assert.StartsWith("Error [PredictionAlreadyJudged]:", judged.Content, StringComparison.Ordinal);
+    Assert.Empty(store.AppendCalls);
+  }
+
+  // ---- Group 9: list rejects every recording-only parameter ----
+
+  [Fact]
+  public async Task List_RecordingOnlyParameters_AreRejected_NoAppend()
+  {
+    (string Name, string Json)[] rejected =
+    [
+        ("id", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"list","slug":"alpha","id":1}"""),
+        ("text", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"list","slug":"alpha","text":"T"}"""),
+        ("falsifiedBy", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"list","slug":"alpha","falsifiedBy":"cmd"}"""),
+        ("evidence", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"list","slug":"alpha","evidence":"ev"}"""),
+        ("verdict", /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"list","slug":"alpha","verdict":"confirmed"}"""),
+    ];
+
+    foreach ((string name, string json) in rejected)
+    {
+      (ExperimentTool? tool, FakeExperimentLedgerStore? store) = MakeTool();
+
+      ToolResult result = await RunAsync(tool, json);
+
+      Assert.True(result.IsError, name);
+      Assert.StartsWith("Error [InvalidParameterValue]:", result.Content, StringComparison.Ordinal);
+      Assert.Contains($"'{name}' is not accepted for action 'list'", result.Content,
+          StringComparison.Ordinal);
+      Assert.Empty(store.AppendCalls);
+    }
+  }
+
+  // ---- Group 10: blank lines are never records ----
+
+  [Fact]
+  public async Task List_BlankInteriorLines_AreNotRecords()
+  {
+    const string Ledger =
+        "hypothesis 1: H\n" +
+        "\n" +
+        "prediction 1 (hypothesis 1): P \u2014 falsified by: cmd\n" +
+        "   \n" +
+        "observation 1: O";
+    (ExperimentTool? tool, FakeExperimentLedgerStore _) = MakeTool(Ledger);
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"list","slug":"alpha"}""");
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal(
+        "[experiment] sci.alpha/ledger: 3 record(s), 1 open prediction(s)\n" +
+        "hypothesis 1: H\n" +
+        "prediction 1 (hypothesis 1): P \u2014 falsified by: cmd\n" +
+        "observation 1: O",
+        result.Content);
+  }
+
 
   /// <summary>In-memory append-only ledger mirroring the composition adapter's
   ///     semantics: a missing key reads KeyNotFound, an append with a null

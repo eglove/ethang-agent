@@ -92,7 +92,7 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
 
   private readonly record struct LoadedLedger(IReadOnlyList<ExperimentRecord> Records, ToolResult? Error);
 
-  /// <summary>Loads the ledger once per call. A missing key is an EMPTY ledger, not an
+  /// <summary>Loads the ledger once per call. A missing key is an empty ledger, not an
   ///     error; a store failure fails closed (the ledger is never reset) so a corrupt or
   ///     unreadable ledger cannot be silently overwritten by the next append.</summary>
   private async Task<LoadedLedger> LoadAsync(string key, CancellationToken ct)
@@ -151,10 +151,12 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
       ExperimentAction.RecordObservation => SimpleLine(input, records, ExperimentRecordKind.Observation),
       ExperimentAction.RecordConclusion => SimpleLine(input, records, ExperimentRecordKind.Conclusion),
       ExperimentAction.RecordSkip => SkipLine(input, records),
-      // List never reaches the append path: it records nothing.
-      ExperimentAction.List => Failure("'list' records nothing; it is not an append action."),
+      // List never reaches the append path (RunAsync branches on it first); the switch
+      // stays exhaustive, so the impossible case throws rather than recording nothing.
+      ExperimentAction.List => throw new InvalidOperationException(
+          "'list' records nothing; RunAsync branches on it before building a line."),
       // Unnamed enum values cannot occur.
-      _ => throw new InvalidOperationException("Unknown experiment action."),
+      _ => throw new InvalidOperationException("Only recording actions build a ledger line."),
     };
   }
 

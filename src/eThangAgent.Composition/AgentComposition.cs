@@ -234,8 +234,8 @@ public static class AgentComposition
           "Invoke a named catalog skill on the user's behalf (including manual skills)."),
   ];
 
-  /// <summary>Context and git tool bindings: the workspace task list, context edit and
-  ///     trim, git status, diff, commit, and worktrees.</summary>
+  /// <summary>Context and git tool bindings: the workspace task list, the experiment
+  ///     ledger, context edit and trim, git status, diff, commit, and worktrees.</summary>
   private static IReadOnlyList<AgentToolBinding> ContextAndGitToolBindings(IServiceProvider sp) =>
   [
       new AgentToolBinding(
