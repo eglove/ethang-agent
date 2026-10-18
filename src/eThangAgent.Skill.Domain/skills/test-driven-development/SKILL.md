@@ -165,8 +165,7 @@ async function retryOperation<T>(
 Over-engineered
 </Bad>
 
-Adding features, refactoring other code, or "improving" beyond the test widens the
-experiment past what the prediction covers.
+GREEN adds only what the test requires — no features, no refactoring, no "improvements" beyond it.
 
 ### Verify GREEN - Watch It Pass
 
@@ -228,7 +227,7 @@ evidence actually shows — which is why the loop is the faster path, not the sl
 | "Need to explore first" | Fine — throw the exploration away and start from a failing test. |
 | "Test hard = design unclear" | The friction is data: hard to test means hard to use. |
 | "TDD will slow me down" | The loop is the pragmatic path: bugs caught before commit, regressions prevented, refactoring without fear. The shortcut skips the prediction and pays for it in production debugging — slower, not faster. |
-| "Manual test faster" | Manual checks prove no edge cases, and every change means re-running them by hand. |
+| "Manual test faster" | Manual checks prove nothing about edge cases, and every change means re-running them by hand. |
 | "Existing code has no tests" | You're improving it — add tests for the existing code. |
 
 ## Loop checks — signals the prediction is missing
@@ -246,7 +245,7 @@ means returning to RED with a better-stated prediction, not apologizing.
 - "I already manually tested it" — one ad-hoc observation, not a repeatable check.
 - "Tests after achieve the same purpose" — they answer a different question: what the code does, not what it should do.
 - "It's about spirit, not ritual" — the ritual is the evidence; without a watched failure there is nothing to appeal to.
-- "Keep it as reference" or "adapt the existing code" — the reference becomes the implementation, which is testing after.
+- "Keep it as reference" or "adapt the existing code" — the reference becomes the implementation, which is testing after; do not read it while writing the test.
 - "Already spent X hours, deleting is wasteful" — sunk cost; the time is gone either way and the untested code is the liability.
 - "TDD is dogmatic, I'm being pragmatic" — the pragmatic path is the one with a check in it; skipping the prediction moves the cost to production.
 - "This is different because..." — the exception is a hypothesis; name the observation that makes it true, or run the loop.
