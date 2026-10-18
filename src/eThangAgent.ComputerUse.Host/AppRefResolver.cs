@@ -33,73 +33,101 @@ public static class AppRefResolver
 
     if (windowId is { } pinned && pinned > 0)
     {
-      Candidate? pinnedMatch = candidates.FirstOrDefault(c => c.Handle == pinned);
-      if (pinnedMatch is null)
-      {
-        failure = new AppRefResolutionFailure(AppRefFailureKind.NotFound, "no visible window matches window_id " + pinned + ".");
-        return false;
-      }
-
-      resolution = new AppRefResolution(pinnedMatch.Handle, pinnedMatch.Pid);
-      return true;
+      return TryResolvePinned(candidates, pinned, out resolution, out failure);
     }
 
     if (pid > 0)
     {
-      List<Candidate> byPid = [.. candidates.Where(c => c.Pid == pid)];
-      if (byPid.Count == 0)
-      {
-        failure = new AppRefResolutionFailure(AppRefFailureKind.NotFound, "no visible window for pid " + pid + ".");
-        return false;
-      }
-
-      resolution = new AppRefResolution(byPid[0].Handle, pid);
-      return true;
+      return TryResolveByPid(candidates, pid, out resolution, out failure);
     }
 
     if (!string.IsNullOrWhiteSpace(name))
     {
-      List<Candidate> byName = [.. candidates.Where(c => string.Equals(c.Title, name, StringComparison.OrdinalIgnoreCase))];
-      if (byName.Count == 0)
-      {
-        failure = new AppRefResolutionFailure(AppRefFailureKind.NotFound, "no window titled '" + name + "'.");
-        return false;
-      }
-
-      List<int> namePids = [.. byName.Select(c => c.Pid).Distinct()];
-      if (namePids.Count > 1)
-      {
-        failure = new AppRefResolutionFailure(AppRefFailureKind.Ambiguous,
-          "multiple apps titled '" + name + "' (pids " + string.Join(", ", namePids) + "); add window_id or use pid.");
-        return false;
-      }
-
-      resolution = new AppRefResolution(byName[0].Handle, byName[0].Pid);
-      return true;
+      return TryResolveByName(candidates, name, out resolution, out failure);
     }
 
     if (!string.IsNullOrWhiteSpace(aumid))
     {
-      List<Candidate> byAumid = [.. candidates.Where(c => string.Equals(c.Aumid, aumid, StringComparison.OrdinalIgnoreCase))];
-      if (byAumid.Count == 0)
-      {
-        failure = new AppRefResolutionFailure(AppRefFailureKind.NotFound, "no app with aumid '" + aumid + "'.");
-        return false;
-      }
-
-      List<int> aumidPids = [.. byAumid.Select(c => c.Pid).Distinct()];
-      if (aumidPids.Count > 1)
-      {
-        failure = new AppRefResolutionFailure(AppRefFailureKind.Ambiguous,
-          "multiple apps with aumid '" + aumid + "' (pids " + string.Join(", ", aumidPids) + "); add window_id or use pid.");
-        return false;
-      }
-
-      resolution = new AppRefResolution(byAumid[0].Handle, byAumid[0].Pid);
-      return true;
+      return TryResolveByAumid(candidates, aumid, out resolution, out failure);
     }
 
     failure = new AppRefResolutionFailure(AppRefFailureKind.NotFound, "app_ref carries no selector.");
     return false;
+  }
+
+  private static bool TryResolvePinned(IReadOnlyList<Candidate> candidates, int pinned, out AppRefResolution resolution, out AppRefResolutionFailure? failure)
+  {
+    resolution = new AppRefResolution(0, 0);
+    failure = null;
+    Candidate? pinnedMatch = candidates.FirstOrDefault(c => c.Handle == pinned);
+    if (pinnedMatch is null)
+    {
+      failure = new AppRefResolutionFailure(AppRefFailureKind.NotFound, "no visible window matches window_id " + pinned + ".");
+      return false;
+    }
+
+    resolution = new AppRefResolution(pinnedMatch.Handle, pinnedMatch.Pid);
+    return true;
+  }
+
+  private static bool TryResolveByPid(IReadOnlyList<Candidate> candidates, int pid, out AppRefResolution resolution, out AppRefResolutionFailure? failure)
+  {
+    resolution = new AppRefResolution(0, 0);
+    failure = null;
+    List<Candidate> byPid = [.. candidates.Where(c => c.Pid == pid)];
+    if (byPid.Count == 0)
+    {
+      failure = new AppRefResolutionFailure(AppRefFailureKind.NotFound, "no visible window for pid " + pid + ".");
+      return false;
+    }
+
+    resolution = new AppRefResolution(byPid[0].Handle, pid);
+    return true;
+  }
+
+  private static bool TryResolveByName(IReadOnlyList<Candidate> candidates, string name, out AppRefResolution resolution, out AppRefResolutionFailure? failure)
+  {
+    resolution = new AppRefResolution(0, 0);
+    failure = null;
+    List<Candidate> byName = [.. candidates.Where(c => string.Equals(c.Title, name, StringComparison.OrdinalIgnoreCase))];
+    if (byName.Count == 0)
+    {
+      failure = new AppRefResolutionFailure(AppRefFailureKind.NotFound, "no window titled '" + name + "'.");
+      return false;
+    }
+
+    List<int> namePids = [.. byName.Select(c => c.Pid).Distinct()];
+    if (namePids.Count > 1)
+    {
+      failure = new AppRefResolutionFailure(AppRefFailureKind.Ambiguous,
+        "multiple apps titled '" + name + "' (pids " + string.Join(", ", namePids) + "); add window_id or use pid.");
+      return false;
+    }
+
+    resolution = new AppRefResolution(byName[0].Handle, byName[0].Pid);
+    return true;
+  }
+
+  private static bool TryResolveByAumid(IReadOnlyList<Candidate> candidates, string aumid, out AppRefResolution resolution, out AppRefResolutionFailure? failure)
+  {
+    resolution = new AppRefResolution(0, 0);
+    failure = null;
+    List<Candidate> byAumid = [.. candidates.Where(c => string.Equals(c.Aumid, aumid, StringComparison.OrdinalIgnoreCase))];
+    if (byAumid.Count == 0)
+    {
+      failure = new AppRefResolutionFailure(AppRefFailureKind.NotFound, "no app with aumid '" + aumid + "'.");
+      return false;
+    }
+
+    List<int> aumidPids = [.. byAumid.Select(c => c.Pid).Distinct()];
+    if (aumidPids.Count > 1)
+    {
+      failure = new AppRefResolutionFailure(AppRefFailureKind.Ambiguous,
+        "multiple apps with aumid '" + aumid + "' (pids " + string.Join(", ", aumidPids) + "); add window_id or use pid.");
+      return false;
+    }
+
+    resolution = new AppRefResolution(byAumid[0].Handle, byAumid[0].Pid);
+    return true;
   }
 }

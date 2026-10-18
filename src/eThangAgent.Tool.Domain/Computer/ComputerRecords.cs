@@ -73,36 +73,56 @@ public sealed record ComputerAppRef
 {
   public ComputerAppRef(string? name, int? pid, string? aumid, int? windowId)
   {
+    ValidateSelectorCount(name, pid, aumid);
+    ValidateName(name);
+    ValidateAumid(aumid);
+    ValidatePid(pid);
+    ValidateWindowId(windowId);
+    Name = name;
+    Pid = pid;
+    Aumid = aumid;
+    WindowId = windowId;
+  }
+
+  private static void ValidateSelectorCount(string? name, int? pid, string? aumid)
+  {
     int given = (name is not null ? 1 : 0) + (pid is not null ? 1 : 0) + (aumid is not null ? 1 : 0);
     if (given != 1)
     {
       throw new ArgumentException($"Exactly one of name, pid, or aumid must be given; got {given}.", nameof(name));
     }
+  }
 
+  private static void ValidateName(string? name)
+  {
     if (name is not (null or { Length: > 0 }))
     {
       throw new ArgumentException("App name must be non-empty when given.", nameof(name));
     }
+  }
 
+  private static void ValidateAumid(string? aumid)
+  {
     if (aumid is not (null or { Length: > 0 }))
     {
       throw new ArgumentException("App AUMID must be non-empty when given.", nameof(aumid));
     }
+  }
 
+  private static void ValidatePid(int? pid)
+  {
     if (pid is not (null or > 0))
     {
       throw new ArgumentException("App pid must be positive when given.", nameof(pid));
     }
+  }
 
+  private static void ValidateWindowId(int? windowId)
+  {
     if (windowId is not (null or > 0))
     {
       throw new ArgumentException("Window id must be positive when given.", nameof(windowId));
     }
-
-    Name = name;
-    Pid = pid;
-    Aumid = aumid;
-    WindowId = windowId;
   }
 
   /// <summary>Reference by exact application name.</summary>

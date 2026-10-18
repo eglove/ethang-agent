@@ -29,26 +29,7 @@ public sealed record McpToolInput(McpAction Action, string? Server, string? Tool
     }
 
     JsonElement json = baseParse.Value;
-    if (!json.TryGetProperty("action", out JsonElement actionEl))
-    {
-      return Result.Failure<McpToolInput>(new DomainError("InvalidAction",
-          "'action' is required: exactly one of list, call (case-sensitive)."));
-    }
-
-    if (actionEl.ValueKind != JsonValueKind.String)
-    {
-      return Result.Failure<McpToolInput>(new DomainError(ToolErrorCodes.InvalidParameterType,
-          $"'action' must be a string, but got {actionEl.ValueKind}."));
-    }
-
-    string actionText = actionEl.GetString()!;
-    Result<McpAction> action = actionText switch
-    {
-      "list" => Result.Success(McpAction.List),
-      "call" => Result.Success(McpAction.Call),
-      _ => Result.Failure<McpAction>(new DomainError("InvalidAction",
-          $"'action' must be exactly one of list, call (case-sensitive; got '{actionText}').")),
-    };
+    Result<McpAction> action = ParseAction(json);
     if (!action.IsSuccess)
     {
       return Result.Failure<McpToolInput>(action.Error);
@@ -60,41 +41,79 @@ public sealed record McpToolInput(McpAction Action, string? Server, string? Tool
       return Result.Failure<McpToolInput>(unknown);
     }
 
-    string? server = null;
-    string? tool = null;
-    JsonElement arguments = EmptyObject();
-    if (action.Value == McpAction.Call)
+    JsonElement empty = EmptyObject();
+    Result<McpToolInput> parsed = action.Value == McpAction.Call
+        ? ParseCall(json, action.Value)
+        : Result.Success(new McpToolInput(action.Value, null, null, empty));
+    return parsed;
+  }
+
+  private static Result<McpAction> ParseAction(JsonElement json)
+  {
+    if (!json.TryGetProperty("action", out JsonElement actionEl))
     {
-      Result<string> serverText = ToolArguments.RequireString(json, "server",
-          "For call, 'server' names the configured MCP server (see list).");
-      if (!serverText.IsSuccess)
-      {
-        return Result.Failure<McpToolInput>(serverText.Error);
-      }
-
-      Result<string> toolText = ToolArguments.RequireString(json, "tool",
-          "For call, 'tool' names the tool on that server (see list).");
-      if (!toolText.IsSuccess)
-      {
-        return Result.Failure<McpToolInput>(toolText.Error);
-      }
-
-      if (json.TryGetProperty("arguments", out JsonElement argsEl))
-      {
-        if (argsEl.ValueKind != JsonValueKind.Object)
-        {
-          return Result.Failure<McpToolInput>(new DomainError(ToolErrorCodes.InvalidParameterType,
-              $"'arguments' must be an object, but got {argsEl.ValueKind}."));
-        }
-
-        arguments = argsEl.Clone();
-      }
-
-      server = serverText.Value;
-      tool = toolText.Value;
+      return Result.Failure<McpAction>(new DomainError("InvalidAction",
+          "'action' is required: exactly one of list, call (case-sensitive)."));
     }
 
-    return Result.Success(new McpToolInput(action.Value, server, tool, arguments));
+    if (actionEl.ValueKind != JsonValueKind.String)
+    {
+      return Result.Failure<McpAction>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'action' must be a string, but got {actionEl.ValueKind}."));
+    }
+
+    string actionText = actionEl.GetString()!;
+    return actionText switch
+    {
+      "list" => Result.Success(McpAction.List),
+      "call" => Result.Success(McpAction.Call),
+      _ => Result.Failure<McpAction>(new DomainError("InvalidAction",
+          $"'action' must be exactly one of list, call (case-sensitive; got '{actionText}').")),
+    };
+  }
+
+  private static Result<McpToolInput> ParseCall(JsonElement json, McpAction action)
+  {
+    Result<string> serverText = ToolArguments.RequireString(json, "server",
+        "For call, 'server' names the configured MCP server (see list).");
+    if (!serverText.IsSuccess)
+    {
+      return Result.Failure<McpToolInput>(serverText.Error);
+    }
+
+    Result<string> toolText = ToolArguments.RequireString(json, "tool",
+        "For call, 'tool' names the tool on that server (see list).");
+    if (!toolText.IsSuccess)
+    {
+      return Result.Failure<McpToolInput>(toolText.Error);
+    }
+
+    DomainError? argsError = ParseArguments(json, out JsonElement arguments);
+    if (argsError is not null)
+    {
+      return Result.Failure<McpToolInput>(argsError);
+    }
+
+    McpToolInput input = new(action, serverText.Value, toolText.Value, arguments);
+    return Result.Success(input);
+  }
+
+  private static DomainError? ParseArguments(JsonElement json, out JsonElement arguments)
+  {
+    arguments = EmptyObject();
+    if (!json.TryGetProperty("arguments", out JsonElement argsEl))
+    {
+      return null;
+    }
+
+    if (argsEl.ValueKind != JsonValueKind.Object)
+    {
+      return new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'arguments' must be an object, but got {argsEl.ValueKind}.");
+    }
+
+    arguments = argsEl.Clone();
+    return null;
   }
 
   private static string[] Allowed(McpAction action) => action switch

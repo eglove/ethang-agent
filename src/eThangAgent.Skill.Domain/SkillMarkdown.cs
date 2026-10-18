@@ -58,129 +58,162 @@ public static class SkillMarkdown
   ///     index (-1 when never closed).</summary>
   private static FrontmatterScan ScanFrontmatter(string[] lines)
   {
-    string? name = null, description = null;
-    bool manual = false;
-    bool manualSeen = false;
-    int? version = null;
-    bool versionSeen = false;
-    bool inMetadataBlock = false;
-    HashSet<string> warningsSeen = new(StringComparer.Ordinal);
-    List<string> warnings = [];
-    int close = -1;
-    for (int i = 1; i < lines.Length; i++)
+    FrontmatterScanner scanner = new(lines);
+    return scanner.Scan();
+  }
+
+  // Mutable scan state for one frontmatter block; the walk splits across small
+  // methods over these fields.
+  private sealed class FrontmatterScanner(string[] lines)
+  {
+    private readonly string[] _lines = lines;
+    private string? _name;
+    private string? _description;
+    private bool _manual;
+    private bool _manualSeen;
+    private int? _version;
+    private bool _versionSeen;
+    private bool _inMetadataBlock;
+    private readonly HashSet<string> _warningsSeen = new(StringComparer.Ordinal);
+    private readonly List<string> _warnings = [];
+    private int _close = -1;
+
+    internal FrontmatterScan Scan()
     {
-      if (lines[i].TrimEnd() == Fence)
+      for (int i = 1; i < _lines.Length; i++)
       {
-        close = i;
-        break;
+        if (_lines[i].TrimEnd() == Fence)
+        {
+          _close = i;
+          break;
+        }
+
+        HarvestLine(_lines[i]);
       }
 
-      if (inMetadataBlock && IsIndented(lines[i]))
+      return new FrontmatterScan(_name, _description, _manual, _version, _warnings, _close);
+    }
+
+    private void HarvestLine(string line)
+    {
+      if (_inMetadataBlock && IsIndented(line))
       {
-        HarvestMetadataSubkey(lines[i], ref version, ref versionSeen, warnings);
-        continue;
+        HarvestMetadataSubkey(line);
+        return;
       }
 
-      if (lines[i].Length > 0)
+      if (line.Length > 0)
       {
-        inMetadataBlock = false; // blank lines never end the block; any unindented content does
+        _inMetadataBlock = false; // blank lines never end the block; any unindented content does
       }
-      int idx = lines[i].IndexOf(':', StringComparison.Ordinal);
+
+      int idx = line.IndexOf(':', StringComparison.Ordinal);
       if (idx <= 0)
       {
-        continue;
+        return;
       }
 
-      string key = lines[i][..idx].Trim();
-      string value = lines[i][(idx + 1)..].Trim();
+      HarvestKey(line[..idx].Trim(), line[(idx + 1)..].Trim());
+    }
+
+    private void HarvestKey(string key, string value)
+    {
       switch (key)
       {
-        case "name" when name is null: name = StripMatchingQuotes(value); break;
+        case "name" when _name is null: _name = StripMatchingQuotes(value); break;
         case "name": break; // repeat: first occurrence wins (existing behavior)
-        case "description" when description is null: description = StripMatchingQuotes(value); break;
+        case "description" when _description is null: _description = StripMatchingQuotes(value); break;
         case "description": break; // repeat: first occurrence wins (existing behavior)
-        case "disable-model-invocation" when !manualSeen:
-          manualSeen = true;
-          if (value.Equals("true", StringComparison.OrdinalIgnoreCase))
-          {
-            manual = true;
-          }
-          else if (!value.Equals("false", StringComparison.OrdinalIgnoreCase))
-          {
-            warnings.Add("unknown value for disable-model-invocation");
-          }
+        case "metadata": _inMetadataBlock = true; break;
+        default: HarvestOtherKey(key, value); break;
+      }
+    }
 
+    private void HarvestOtherKey(string key, string value)
+    {
+      switch (key)
+      {
+        case "disable-model-invocation" when !_manualSeen:
+          _manualSeen = true;
+          HarvestManualFlag(value);
           break;
         case "disable-model-invocation": break; // repeat: first occurrence wins
-        case "metadata": inMetadataBlock = true; break;
-        case "allowed-tools" or "license" or "compatibility" when !warningsSeen.Contains(key):
-          RecordKeyWarning(key, warnings, warningsSeen);
+        case "allowed-tools" or "license" or "compatibility" when !_warningsSeen.Contains(key):
+          RecordKeyWarning(key);
           break;
         default:
-          if (!warningsSeen.Contains(key))
+          if (!_warningsSeen.Contains(key))
           {
-            RecordKeyWarning(key, warnings, warningsSeen);
+            RecordKeyWarning(key);
           }
 
           break; // a repeated key of either class was already warned about once
       }
     }
 
-    return new FrontmatterScan(name, description, manual, version, warnings, close);
-  }
-
-  /// <summary>Records a frontmatter warning once per skill: each known-but-unapplied
-  ///     and each unknown key warns on its FIRST occurrence only (the follow-up
-  ///     cosmetics ruling - repeated lines are one fact, not several).</summary>
-  private static void RecordKeyWarning(
-      string key, List<string> warnings, HashSet<string> warningsSeen)
-  {
-    _ = warningsSeen.Add(key);
-    bool known = key is "allowed-tools" or "license" or "compatibility";
-    warnings.Add(known
-        ? $"ignored key {key} (known but unapplied)"
-        : $"unknown frontmatter key {key}");
-  }
-
-  /// <summary>Inside a <c>metadata:</c> block only <c>version:</c> is honored; every
-  ///     other subkey is the format's free-form map and is ignored silently.</summary>
-  private static void HarvestMetadataSubkey(
-      string line, ref int? version, ref bool versionSeen, List<string> warnings)
-  {
-    int idx = line.IndexOf(':', StringComparison.Ordinal);
-    if (idx <= 0)
+    private void HarvestManualFlag(string value)
     {
-      return;
+      if (value.Equals("true", StringComparison.OrdinalIgnoreCase))
+      {
+        _manual = true;
+      }
+      else if (!value.Equals("false", StringComparison.OrdinalIgnoreCase))
+      {
+        _warnings.Add("unknown value for disable-model-invocation");
+      }
     }
 
-    string key = line[..idx].Trim();
-    if (key != "version" || versionSeen)
+    /// <summary>Records a frontmatter warning once per skill: each known-but-unapplied
+    ///     and each unknown key warns on its FIRST occurrence only (the follow-up
+    ///     cosmetics ruling - repeated lines are one fact, not several).</summary>
+    private void RecordKeyWarning(string key)
     {
-      return;
+      _ = _warningsSeen.Add(key);
+      bool known = key is "allowed-tools" or "license" or "compatibility";
+      _warnings.Add(known
+          ? $"ignored key {key} (known but unapplied)"
+          : $"unknown frontmatter key {key}");
     }
 
-    versionSeen = true;
-    string value = line[(idx + 1)..].Trim();
-    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+    /// <summary>Inside a <c>metadata:</c> block only <c>version:</c> is honored; every
+    ///     other subkey is the format's free-form map and is ignored silently.</summary>
+    private void HarvestMetadataSubkey(string line)
     {
-      version = parsed;
+      int idx = line.IndexOf(':', StringComparison.Ordinal);
+      if (idx <= 0)
+      {
+        return;
+      }
+
+      string key = line[..idx].Trim();
+      if (key != "version" || _versionSeen)
+      {
+        return;
+      }
+
+      _versionSeen = true;
+      string value = line[(idx + 1)..].Trim();
+      if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+      {
+        _version = parsed;
+      }
+      else
+      {
+        _warnings.Add("metadata.version is not an integer");
+      }
     }
-    else
+
+    private static bool IsIndented(string line) =>
+        line.StartsWith(' ') || line.StartsWith('\t');
+
+    /// <summary>Strips ONE matching pair of single or double quotes; unmatched or
+    ///     partial quoting is left verbatim.</summary>
+    private static string StripMatchingQuotes(string value)
     {
-      warnings.Add("metadata.version is not an integer");
+      bool quoted = value.Length >= 2
+          && ((value[0] == '\'' && value[^1] == '\'') || (value[0] == '"' && value[^1] == '"'));
+      return quoted ? value[1..^1] : value;
     }
-  }
-
-  private static bool IsIndented(string line) =>
-      line.StartsWith(' ') || line.StartsWith('\t');
-
-  /// <summary>Strips ONE matching pair of single or double quotes; unmatched or
-  ///     partial quoting is left verbatim.</summary>
-  private static string StripMatchingQuotes(string value)
-  {
-    bool quoted = value.Length >= 2
-        && ((value[0] == '\'' && value[^1] == '\'') || (value[0] == '"' && value[^1] == '"'));
-    return quoted ? value[1..^1] : value;
   }
 
   /// <summary>Required-key rules, in the documented order: closed fence, name,

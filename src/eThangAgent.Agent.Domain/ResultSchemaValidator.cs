@@ -24,42 +24,65 @@ public static class ResultSchemaValidator
     }
 
     JsonElement schemaRoot = schema.RootElement;
-    if (schemaRoot.TryGetProperty("type", out JsonElement typeElement))
+    return ValidateType(schemaRoot, report) ?? ValidateProperties(schemaRoot, report)
+        ?? ValidateRequired(schemaRoot, report, reportJson);
+  }
+
+  /// <summary>The top-level type check, when the schema declares one.</summary>
+  private static SchemaValidation? ValidateType(JsonElement schemaRoot, JsonElement report)
+  {
+    if (!schemaRoot.TryGetProperty("type", out JsonElement typeElement))
     {
-      string expected = typeElement.GetString() ?? "";
-      if (!TypeMatches(expected, report.ValueKind))
+      return null;
+    }
+
+    string expected = typeElement.GetString() ?? "";
+    return TypeMatches(expected, report.ValueKind)
+        ? null
+        : new SchemaValidation(false, $"expected type '{expected}' but report was '{report.ValueKind}'.", null);
+  }
+
+  /// <summary>Per-property type checks, when the schema declares properties and the
+  ///     report is an object.</summary>
+  private static SchemaValidation? ValidateProperties(JsonElement schemaRoot, JsonElement report)
+  {
+    if (!schemaRoot.TryGetProperty("properties", out JsonElement properties)
+        || report.ValueKind is not JsonValueKind.Object)
+    {
+      return null;
+    }
+
+    foreach (JsonProperty property in properties.EnumerateObject())
+    {
+      if (report.TryGetProperty(property.Name, out JsonElement value)
+          && property.Value.TryGetProperty("type", out JsonElement propertyType)
+          && !TypeMatches(propertyType.GetString() ?? "", value.ValueKind))
       {
-        return new SchemaValidation(false, $"expected type '{expected}' but report was '{report.ValueKind}'.", null);
+        return new SchemaValidation(false,
+            $"property '{property.Name}' expected type '{propertyType.GetString()}' but was '{value.ValueKind}'.", null);
       }
     }
 
-    if (schemaRoot.TryGetProperty("properties", out JsonElement properties) && report.ValueKind is JsonValueKind.Object)
+    return null;
+  }
+
+  /// <summary>The required-properties check, when the schema declares it and the
+  ///     report is an object.</summary>
+  private static SchemaValidation ValidateRequired(JsonElement schemaRoot, JsonElement report, string reportJson)
+  {
+    if (!schemaRoot.TryGetProperty("required", out JsonElement required)
+        || report.ValueKind is not JsonValueKind.Object)
     {
-      foreach (JsonProperty property in properties.EnumerateObject())
-      {
-        if (report.TryGetProperty(property.Name, out JsonElement value)
-            && property.Value.TryGetProperty("type", out JsonElement propertyType)
-            && !TypeMatches(propertyType.GetString() ?? "", value.ValueKind))
-        {
-          return new SchemaValidation(false,
-              $"property '{property.Name}' expected type '{propertyType.GetString()}' but was '{value.ValueKind}'.", null);
-        }
-      }
+      return new SchemaValidation(true, null, reportJson);
     }
 
-    if (schemaRoot.TryGetProperty("required", out JsonElement required) && report.ValueKind is JsonValueKind.Object)
-    {
-      List<string> missing = [.. required.EnumerateArray()
-          .Where(entry => entry.ValueKind is JsonValueKind.String)
-          .Select(entry => entry.GetString()!)
-          .Where(name => !report.TryGetProperty(name, out _))];
-      if (missing.Count > 0)
-      {
-        return new SchemaValidation(false, "missing required properties: " + string.Join(", ", missing), null);
-      }
-    }
-
-    return new SchemaValidation(true, null, reportJson);
+    List<string> missing = [.. required.EnumerateArray()
+        .Where(entry => entry.ValueKind is JsonValueKind.String)
+        .Select(entry => entry.GetString()!)
+        .Where(name => !report.TryGetProperty(name, out _))];
+    return missing.Count == 0
+        ? new SchemaValidation(true, null, reportJson)
+        : new SchemaValidation(false, "missing required properties: " + string.Join(", ", missing), null);
   }
 
   private static bool TypeMatches(string expected, JsonValueKind kind)

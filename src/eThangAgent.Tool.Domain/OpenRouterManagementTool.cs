@@ -98,35 +98,38 @@ public sealed class OpenRouterManagementTool(IOpenRouterManagementAccess access)
 
   private async Task<ToolResult> RunAsync(OpenRouterManagementToolInput args, CancellationToken ct)
   {
-    OpenRouterManagementCommand command = args.Action switch
-    {
-      OpenRouterManagementAction.Generation => new OpenRouterManagementCommand.GetGeneration(args.GenerationId!),
-      OpenRouterManagementAction.GenerationContent => new OpenRouterManagementCommand.GetGenerationContent(args.GenerationId!),
-      OpenRouterManagementAction.Credits => new OpenRouterManagementCommand.GetCredits(),
-      OpenRouterManagementAction.Activity => new OpenRouterManagementCommand.GetActivity(args.Date, args.GroupBy),
-      OpenRouterManagementAction.AnalyticsMeta => new OpenRouterManagementCommand.GetAnalyticsMeta(),
-      OpenRouterManagementAction.AnalyticsQuery => new OpenRouterManagementCommand.QueryAnalytics(
-          args.Metrics!, args.Dimensions, args.Granularity, args.TimeRangeStart, args.TimeRangeEnd,
-          args.GroupLimit, args.Limit),
-      _ => throw new InvalidOperationException("unreachable: action is a validated enum"),
-    };
-
+    OpenRouterManagementCommand command = CommandOf(args);
     OpenRouterManagementOutcome outcome = await _access.ExecuteAsync(command, ct).ConfigureAwait(false);
-    return outcome switch
-    {
-      OpenRouterManagementOutcome.Generation generation => new ToolResult(
-          $"[openrouter-management] generation {generation.Item.Id}\n{generation.Item.RenderLine()}",
-          false),
-      OpenRouterManagementOutcome.GenerationContent content => RenderContent(content.Item),
-      OpenRouterManagementOutcome.Credits credits => RenderCredits(credits.Item),
-      OpenRouterManagementOutcome.Activity activity => RenderActivity(activity.Rows),
-      OpenRouterManagementOutcome.AnalyticsMeta meta => RenderMeta(meta),
-      OpenRouterManagementOutcome.Analytics analytics => RenderAnalytics(analytics.Result),
-      OpenRouterManagementOutcome.Failure failure => new ToolResult(
-          $"Error [{failure.Code}]: {failure.Message}", true),
-      _ => throw new InvalidOperationException("unreachable: outcome is a validated record family"),
-    };
+    return Render(outcome);
   }
+
+  private static OpenRouterManagementCommand CommandOf(OpenRouterManagementToolInput args) => args.Action switch
+  {
+    OpenRouterManagementAction.Generation => new OpenRouterManagementCommand.GetGeneration(args.GenerationId!),
+    OpenRouterManagementAction.GenerationContent => new OpenRouterManagementCommand.GetGenerationContent(args.GenerationId!),
+    OpenRouterManagementAction.Credits => new OpenRouterManagementCommand.GetCredits(),
+    OpenRouterManagementAction.Activity => new OpenRouterManagementCommand.GetActivity(args.Date, args.GroupBy),
+    OpenRouterManagementAction.AnalyticsMeta => new OpenRouterManagementCommand.GetAnalyticsMeta(),
+    OpenRouterManagementAction.AnalyticsQuery => new OpenRouterManagementCommand.QueryAnalytics(
+        args.Metrics!, args.Dimensions, args.Granularity, args.TimeRangeStart, args.TimeRangeEnd,
+        args.GroupLimit, args.Limit),
+    _ => throw new InvalidOperationException("unreachable: action is a validated enum"),
+  };
+
+  private static ToolResult Render(OpenRouterManagementOutcome outcome) => outcome switch
+  {
+    OpenRouterManagementOutcome.Generation generation => new ToolResult(
+        $"[openrouter-management] generation {generation.Item.Id}\n{generation.Item.RenderLine()}",
+        false),
+    OpenRouterManagementOutcome.GenerationContent content => RenderContent(content.Item),
+    OpenRouterManagementOutcome.Credits credits => RenderCredits(credits.Item),
+    OpenRouterManagementOutcome.Activity activity => RenderActivity(activity.Rows),
+    OpenRouterManagementOutcome.AnalyticsMeta meta => RenderMeta(meta),
+    OpenRouterManagementOutcome.Analytics analytics => RenderAnalytics(analytics.Result),
+    OpenRouterManagementOutcome.Failure failure => new ToolResult(
+        $"Error [{failure.Code}]: {failure.Message}", true),
+    _ => throw new InvalidOperationException("unreachable: outcome is a validated record family"),
+  };
 
   private static ToolResult RenderContent(OpenRouterGenerationContent content)
   {

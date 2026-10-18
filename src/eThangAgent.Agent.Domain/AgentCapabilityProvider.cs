@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
@@ -7,12 +8,7 @@ namespace eThangAgent.AgentDomain;
 /// <summary>The agent capability surface: spawn starts children as independent actors,
 ///     status and result retrieve their outcomes. Spawn renders only the running line —
 ///     reports arrive exclusively through the queries.</summary>
-public sealed class AgentCapabilityProvider(
-    IAgentSpawnCommand spawnCommand, IAgentQueries queries, Func<AgentRecord> parentContext,
-    IAgentRuntime? runtime = null, AgentLinkRegistry? links = null,
-    Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? fanout = null,
-    IAgentMailboxLocator? locator = null, Func<AgentId, IAgentEvents?>? eventsFor = null,
-    IWaitWakeSource? wakeSource = null, TimeProvider? clock = null) : ICapabilityProvider
+public sealed class AgentCapabilityProvider : ICapabilityProvider
 {
   public const string ProviderId = "agent";
 
@@ -23,16 +19,35 @@ public sealed class AgentCapabilityProvider(
       ["spawn", "status", "result", "wait", "send", "resume", "route", "escalate", "fanout",
         "notify-subtree", "notify-ancestors"];
 
-  private readonly IAgentSpawnCommand _spawnCommand = spawnCommand ?? throw new ArgumentNullException(nameof(spawnCommand));
-  private readonly IAgentQueries _queries = queries ?? throw new ArgumentNullException(nameof(queries));
-  private readonly Func<AgentRecord> _parentContext = parentContext ?? throw new ArgumentNullException(nameof(parentContext));
-  private readonly IAgentRuntime? _runtime = runtime;
-  private readonly AgentLinkRegistry? _links = links;
-  private readonly Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? _fanout = fanout;
-  private readonly IAgentMailboxLocator? _locator = locator;
-  private readonly Func<AgentId, IAgentEvents?>? _eventsFor = eventsFor;
-  private readonly IWaitWakeSource? _wakeSource = wakeSource;
-  private readonly TimeProvider? _clock = clock;
+  /// <summary>Builds the dispatch map eagerly: every handler closes over this
+  ///     provider's collaborators, so the map is per provider (one per session).</summary>
+  public AgentCapabilityProvider(AgentProviderServices services)
+  {
+    ArgumentNullException.ThrowIfNull(services);
+    _spawnCommand = services.SpawnCommand ?? throw new ArgumentNullException(nameof(services), "SpawnCommand must not be null.");
+    _queries = services.Queries ?? throw new ArgumentNullException(nameof(services), "Queries must not be null.");
+    _parentContext = services.ParentContext ?? throw new ArgumentNullException(nameof(services), "ParentContext must not be null.");
+    _runtime = services.Runtime;
+    _links = services.Links;
+    _fanout = services.Fanout;
+    _locator = services.Locator;
+    _eventsFor = services.EventsFor;
+    _wakeSource = services.WakeSource;
+    _clock = services.Clock;
+    _handlers = BuildHandlers();
+  }
+
+  private readonly IAgentSpawnCommand _spawnCommand;
+  private readonly IAgentQueries _queries;
+  private readonly Func<AgentRecord> _parentContext;
+  private readonly IAgentRuntime? _runtime;
+  private readonly AgentLinkRegistry? _links;
+  private readonly Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? _fanout;
+  private readonly IAgentMailboxLocator? _locator;
+  private readonly Func<AgentId, IAgentEvents?>? _eventsFor;
+  private readonly IWaitWakeSource? _wakeSource;
+  private readonly TimeProvider? _clock;
+  private readonly FrozenDictionary<string, ActionHandler> _handlers;
 
   public string Id => ProviderId;
 
@@ -165,24 +180,32 @@ public sealed class AgentCapabilityProvider(
             ]),
     ];
 
-  public async Task<CapabilityInvocationResult> InvokeAsync(
+  private delegate Task<CapabilityInvocationResult> ActionHandler(string json, CancellationToken ct);
+
+  private FrozenDictionary<string, ActionHandler> BuildHandlers()
+  {
+    return new Dictionary<string, ActionHandler>(StringComparer.Ordinal)
+    {
+      ["spawn"] = Spawn,
+      ["status"] = Status,
+      ["result"] = GetResult,
+      ["wait"] = Wait,
+      ["send"] = (json, _) => Send(json),
+      ["resume"] = (json, _) => Resume(json),
+      ["route"] = (json, _) => Task.FromResult(Route(json)),
+      ["escalate"] = Escalate,
+      ["notify-subtree"] = NotifySubtree,
+      ["notify-ancestors"] = NotifyAncestors,
+      ["fanout"] = Fanout,
+    }.ToFrozenDictionary();
+  }
+
+  public Task<CapabilityInvocationResult> InvokeAsync(
       string actionName, string jsonArguments, CancellationToken ct = default)
   {
-    return actionName switch
-    {
-      "spawn" => await Spawn(jsonArguments, ct).ConfigureAwait(false),
-      "status" => await Status(jsonArguments, ct).ConfigureAwait(false),
-      "result" => await GetResult(jsonArguments, ct).ConfigureAwait(false),
-      "wait" => await Wait(jsonArguments, ct).ConfigureAwait(false),
-      "send" => await Send(jsonArguments).ConfigureAwait(false),
-      "resume" => await Resume(jsonArguments).ConfigureAwait(false),
-      "route" => Route(jsonArguments),
-      "escalate" => await Escalate(jsonArguments, ct).ConfigureAwait(false),
-      "notify-subtree" => await NotifySubtree(jsonArguments, ct).ConfigureAwait(false),
-      "notify-ancestors" => await NotifyAncestors(jsonArguments, ct).ConfigureAwait(false),
-      "fanout" => await Fanout(jsonArguments, ct).ConfigureAwait(false),
-      _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
-    };
+    return _handlers.TryGetValue(actionName, out ActionHandler? handler)
+        ? handler(jsonArguments, ct)
+        : Task.FromResult(CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."));
   }
 
   /// <summary>Starts the child as an independent actor and returns immediately. The report is
@@ -237,21 +260,26 @@ public sealed class AgentCapabilityProvider(
         token => _runtime.WhenSettledAsync(id.Value, token), _clock ?? TimeProvider.System);
     WaitResult result = await wait.RunAsync(new WaitSpec(id.Value, filter, timeout), ct).ConfigureAwait(false);
 
-    if (result.Error is { } error)
-    {
-      return CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}");
-    }
+    return result.Error is { } error
+        ? CapabilityInvocationResult.Fail($"Error [{error.Code}]: {error.Message}")
+        : RenderWaitOutcome(id.Value, result);
+  }
 
-    if (result.Settled)
-    {
-      return RenderOutcome(result.Outcome!);
-    }
+  /// <summary>Renders a wake-aware wait's non-error result: the settled outcome
+  ///     contract, or the woken/expired rendering with the child still running.</summary>
+  private static CapabilityInvocationResult RenderWaitOutcome(AgentId id, WaitResult result)
+    => result.Settled ? RenderOutcome(result.Outcome!) : RenderWake(id, result);
 
+  /// <summary>Renders a woken/expired wait: the wake annotation naming the first
+  ///     reason (timeout expiry renders as reason=timeout), the still-running line,
+  ///     then the accumulated digest lines oldest first.</summary>
+  private static CapabilityInvocationResult RenderWake(AgentId id, WaitResult result)
+  {
     string reasonText = result.Reason is { } reason ? ReasonWord(reason) : "timeout";
     List<string> lines =
     [
       $"[wait: woken reason={reasonText}]",
-      $"id={id.Value} status=running",
+      $"id={id} status=running",
     ];
     lines.AddRange(result.DigestLines);
     return CapabilityInvocationResult.Ok(string.Join("\n", lines));
@@ -373,23 +401,12 @@ public sealed class AgentCapabilityProvider(
     // wants it to keep going, so a completed child resumes with the text verbatim,
     // while a failed/interrupted child cannot be restarted by a message (refusal).
     Result<AgentRecord> target = await _queries.GetStatus(id.Value, CancellationToken.None).ConfigureAwait(false);
-    if (target.IsSuccess)
+    CapabilityInvocationResult? settled = target.IsSuccess
+        ? await SettledSendOutcome(_runtime, id.Value, target.Value.Status, text!, CancellationToken.None).ConfigureAwait(false)
+        : null;
+    if (settled is not null)
     {
-      switch (target.Value.Status)
-      {
-        case AgentStatus.Completed:
-          Result<AgentId> resumed = await _runtime.Resume(id.Value, text!, CancellationToken.None).ConfigureAwait(false);
-          return resumed.IsSuccess
-              ? CapabilityInvocationResult.Ok($"id={resumed.Value} status=running")
-              : CapabilityInvocationResult.Fail($"Error [{resumed.Error.Code}]: {resumed.Error.Message}");
-        case AgentStatus.Failed:
-        case AgentStatus.Interrupted:
-          return CapabilityInvocationResult.Fail(
-              $"Error [NotRunning]: agent {id.Value} is {StatusWord(target.Value.Status)}; messaging it cannot restart it — use agent.resume to restart it explicitly.");
-        case AgentStatus.Running:
-        default:
-          break; // falls through to the ordinary delivery path below
-      }
+      return settled;
     }
 
     Result<bool> delivered = _runtime.Deliver(id.Value,
@@ -397,6 +414,30 @@ public sealed class AgentCapabilityProvider(
     return delivered.IsSuccess
         ? CapabilityInvocationResult.Ok($"delivered to={id.Value} urgency={urgency.ToString().ToUpperInvariant()}")
         : CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");
+  }
+
+  /// <summary>The settled-target half of agent.send: a completed child auto-resumes
+  ///     with the text verbatim (the resume contract's receipt); a failed/interrupted
+  ///     child is refused — messaging it cannot restart it, agent.resume is the
+  ///     explicit restart path. A running child returns null: the ordinary delivery
+  ///     path below owns it.</summary>
+  private static async Task<CapabilityInvocationResult?> SettledSendOutcome(IAgentRuntime runtime, AgentId id, AgentStatus status, string text, CancellationToken ct)
+  {
+    switch (status)
+    {
+      case AgentStatus.Completed:
+        Result<AgentId> resumed = await runtime.Resume(id, text, ct).ConfigureAwait(false);
+        return resumed.IsSuccess
+            ? CapabilityInvocationResult.Ok($"id={resumed.Value} status=running")
+            : CapabilityInvocationResult.Fail($"Error [{resumed.Error.Code}]: {resumed.Error.Message}");
+      case AgentStatus.Failed:
+      case AgentStatus.Interrupted:
+        return CapabilityInvocationResult.Fail(
+            $"Error [NotRunning]: agent {id} is {StatusWord(status)}; messaging it cannot restart it — use agent.resume to restart it explicitly.");
+      case AgentStatus.Running:
+      default:
+        return null; // the ordinary delivery path owns a running target
+    }
   }
 
   /// <summary>agent.resume: same-id fix-round continuation of a SETTLED child. Reuses
@@ -443,6 +484,9 @@ public sealed class AgentCapabilityProvider(
       return $"arguments must be a JSON object ({ex.Message}).";
     }
 
+    // Deliberately no object-kind gate and no unknown-member rejection here: send
+    // predates the strict Args contract and resume reuses it — the id check owns a
+    // non-object root (byte-identical legacy behavior).
     using (doc)
     {
       if (!doc.RootElement.TryGetProperty("id", out JsonElement idElement) || idElement.ValueKind is not JsonValueKind.String
@@ -452,19 +496,8 @@ public sealed class AgentCapabilityProvider(
       }
 
       id = new AgentId(parsed);
-      if (!doc.RootElement.TryGetProperty("text", out JsonElement textElement)
-          || textElement.ValueKind is not JsonValueKind.String
-          || string.IsNullOrWhiteSpace(textElement.GetString()))
-      {
-        return "'text' must be a non-empty string.";
-      }
-
-      text = textElement.GetString();
-      return doc.RootElement.TryGetProperty("urgency", out JsonElement urgencyElement)
-          && (urgencyElement.ValueKind is not JsonValueKind.String
-              || !Enum.TryParse(urgencyElement.GetString(), ignoreCase: true, out urgency))
-          ? "'urgency' must be one of: normal, attention, urgent."
-          : null;
+      return RequireNonEmpty(doc.RootElement, "text", out text)
+          ?? TryReadUrgency(doc.RootElement, out urgency);
     }
   }
   private async Task<CapabilityInvocationResult> Status(string json, CancellationToken ct)
@@ -562,31 +595,48 @@ public sealed class AgentCapabilityProvider(
     PendingMessage message = new(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender));
     AgentId targetId = new(target);
 
-    // Local half first (W3.1): the session's own runtime owns its children's mailboxes.
-    Result<bool> delivered = _runtime.Deliver(targetId, message);
+    Result<bool> delivered = DeliverToTarget(targetId, message, urgency, text!);
+    return delivered.IsSuccess
+        ? CapabilityInvocationResult.Ok($"delivered to={resolved.Value.AgentAddress} link={resolved.Value.Name}")
+        : CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");
+  }
+
+  /// <summary>Delivers one route/send message to a target id: the local half first
+  ///     (W3.1 — the session's own runtime owns its children's mailboxes), then the
+  ///     cross-container half (W3.2) when the local runtime reports NotRunning and
+  ///     the process-wide locator resolves the OWNING container's live mailbox.</summary>
+  private Result<bool> DeliverToTarget(AgentId targetId, PendingMessage message, MessageUrgency urgency, string text)
+  {
+    Result<bool> delivered = _runtime!.Deliver(targetId, message);
     if (!delivered.IsSuccess
         && MailboxErrors.NotRunning.Equals(delivered.Error.Code, StringComparison.Ordinal)
         && _locator?.TryGet(targetId) is { } foreign)
     {
-      // Cross-container half (W3.2): the local runtime holds no mailbox for the target,
-      // so the process-wide locator resolves the OWNING container's live mailbox. Delivery
-      // and receipt contracts are identical to the local half; the audit event marks the
-      // delivery cross-container on the target's stream (3.3).
-      delivered = foreign.Deliver(message);
-      if (delivered.IsSuccess)
-      {
-        // The audit event publishes on the OWNER's stream — the resolver returns the
-        // target container's own event stream (3.3: the host-side audit trail reads it
-        // where the target's host listens), never the sender's.
-        _eventsFor?.Invoke(targetId)?.Publish(new MessageDeliveredEvent(targetId,
-            DateTimeOffset.UtcNow, "cross-container", (int)urgency,
-            System.Text.Encoding.UTF8.GetByteCount(text!)));
-      }
+      delivered = DeliverCrossContainer(foreign, targetId, message, urgency, text);
     }
 
-    return delivered.IsSuccess
-        ? CapabilityInvocationResult.Ok($"delivered to={resolved.Value.AgentAddress} link={resolved.Value.Name}")
-        : CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");
+    return delivered;
+  }
+
+  /// <summary>The cross-container delivery half of agent.route (W3.2): the local
+  ///     runtime holds no mailbox for the target, so the process-wide locator resolved
+  ///     the OWNING container's live mailbox. Delivery and receipt contracts are
+  ///     identical to the local half; the audit event marks the delivery
+  ///     cross-container on the target's stream (3.3).</summary>
+  private Result<bool> DeliverCrossContainer(IAgentMailbox foreign, AgentId targetId, PendingMessage message, MessageUrgency urgency, string text)
+  {
+    Result<bool> delivered = foreign.Deliver(message);
+    if (delivered.IsSuccess)
+    {
+      // The audit event publishes on the OWNER's stream — the resolver returns the
+      // target container's own event stream (3.3: the host-side audit trail reads it
+      // where the target's host listens), never the sender's.
+      _eventsFor?.Invoke(targetId)?.Publish(new MessageDeliveredEvent(targetId,
+          DateTimeOffset.UtcNow, "cross-container", (int)urgency,
+          System.Text.Encoding.UTF8.GetByteCount(text)));
+    }
+
+    return delivered;
   }
 
   /// <summary>agent.escalate (R2.2): walk up to N ancestor links, one delivery per hop,
@@ -746,12 +796,13 @@ public sealed class AgentCapabilityProvider(
     return CapabilityInvocationResult.Ok(string.Join("\n", receipts));
   }
 
-  /// <summary>Strict notify-argument parsing: non-empty text, urgency in range; no other
-  ///     members accepted.</summary>
-  private static string? NotifyArgs(string json, out string? text, out MessageUrgency urgency)
+  /// <summary>Parses the raw arguments into a detached JSON object root: malformed
+  ///     JSON and non-object roots both name the object requirement (the shared first
+  ///     gate of every strict Args parser). The document is disposed here; the root
+  ///     out-value is a clone that outlives it.</summary>
+  private static string? RequireObject(string json, out JsonElement root)
   {
-    text = null;
-    urgency = MessageUrgency.Normal;
+    root = default;
     JsonDocument doc;
     try
     {
@@ -769,25 +820,59 @@ public sealed class AgentCapabilityProvider(
         return "arguments must be a JSON object.";
       }
 
-      HashSet<string> allowed = new(StringComparer.Ordinal) { "text", "urgency" };
-      string[] unknown = [.. doc.RootElement.EnumerateObject().Where(p => !allowed.Contains(p.Name)).Select(p => p.Name)];
-      if (unknown.Length > 0)
-      {
-        return $"unknown parameter(s): {string.Join(", ", unknown)}.";
-      }
-
-      if (!doc.RootElement.TryGetProperty("text", out JsonElement textElement) || textElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(textElement.GetString()))
-      {
-        return "'text' must be a non-empty string.";
-      }
-
-      text = textElement.GetString();
-      return doc.RootElement.TryGetProperty("urgency", out JsonElement urgencyElement)
-          && (urgencyElement.ValueKind is not JsonValueKind.String
-              || !Enum.TryParse(urgencyElement.GetString(), ignoreCase: true, out urgency))
-          ? "'urgency' must be one of: normal, attention, urgent."
-          : null;
+      root = doc.RootElement.Clone();
+      return null;
     }
+  }
+
+  /// <summary>Rejects every member outside the allowed set, naming them verbatim
+  ///     (the shared unknown-parameter gate).</summary>
+  private static string? RejectUnknown(JsonElement root, params string[] allowed)
+  {
+    HashSet<string> allowedSet = new(allowed, StringComparer.Ordinal);
+    string[] unknown = [.. root.EnumerateObject().Where(p => !allowedSet.Contains(p.Name)).Select(p => p.Name)];
+    return unknown.Length > 0
+        ? $"unknown parameter(s): {string.Join(", ", unknown)}."
+        : null;
+  }
+
+  /// <summary>Reads one required non-empty string member, naming it on violation
+  ///     (the shared text/name field gate).</summary>
+  private static string? RequireNonEmpty(JsonElement root, string name, out string? value)
+  {
+    value = null;
+    if (!root.TryGetProperty(name, out JsonElement element) || element.ValueKind is not JsonValueKind.String
+        || string.IsNullOrWhiteSpace(element.GetString()))
+    {
+      return $"'{name}' must be a non-empty string.";
+    }
+
+    value = element.GetString();
+    return null;
+  }
+
+  /// <summary>Reads the optional urgency member: absent keeps Normal; present must be
+  ///     a string naming one of the enum values case-insensitively.</summary>
+  private static string? TryReadUrgency(JsonElement root, out MessageUrgency urgency)
+  {
+    urgency = MessageUrgency.Normal;
+    return root.TryGetProperty("urgency", out JsonElement urgencyElement)
+        && (urgencyElement.ValueKind is not JsonValueKind.String
+            || !Enum.TryParse(urgencyElement.GetString(), ignoreCase: true, out urgency))
+        ? "'urgency' must be one of: normal, attention, urgent."
+        : null;
+  }
+
+  /// <summary>Strict notify-argument parsing: non-empty text, urgency in range; no other
+  ///     members accepted.</summary>
+  private static string? NotifyArgs(string json, out string? text, out MessageUrgency urgency)
+  {
+    text = null;
+    urgency = MessageUrgency.Normal;
+    return RequireObject(json, out JsonElement root)
+        ?? RejectUnknown(root, "text", "urgency")
+        ?? RequireNonEmpty(root, "text", out text)
+        ?? TryReadUrgency(root, out urgency);
   }
 
   /// <summary>agent.fanout (D12): fan-out/fan-in over the normal spawn command +
@@ -819,119 +904,163 @@ public sealed class AgentCapabilityProvider(
   {
     label = null;
     children = null;
-    JsonDocument doc;
-    try
+    if ((RequireObject(json, out JsonElement root)
+        ?? RejectUnknown(root, "label", "children")) is { } gateError)
     {
-      doc = JsonDocument.Parse(json);
-    }
-    catch (JsonException ex)
-    {
-      return $"arguments must be a JSON object ({ex.Message}).";
+      return gateError;
     }
 
-    using (doc)
+    if (!TryReadChildren(root, out JsonElement childrenElement, out string? childrenError))
     {
-      if (doc.RootElement.ValueKind is not JsonValueKind.Object)
+      return childrenError;
+    }
+
+    if (root.TryGetProperty("label", out JsonElement labelElement)
+        && labelElement.ValueKind is not JsonValueKind.String)
+    {
+      return "'label' must be a string.";
+    }
+
+    label = root.TryGetProperty("label", out labelElement) ? labelElement.GetString() : null;
+
+    List<SpawnRequest> parsed = [];
+    int index = 0;
+    foreach (JsonElement child in childrenElement.EnumerateArray())
+    {
+      index++;
+      string? specError = ParseChildSpec(child, index, out SpawnRequest request);
+      if (specError is not null)
       {
-        return "arguments must be a JSON object.";
+        return specError;
       }
 
-      HashSet<string> allowed = new(StringComparer.Ordinal) { "label", "children" };
-      string[] unknown = [.. doc.RootElement.EnumerateObject().Where(p => !allowed.Contains(p.Name)).Select(p => p.Name)];
-      if (unknown.Length > 0)
-      {
-        return $"unknown parameter(s): {string.Join(", ", unknown)}.";
-      }
+      parsed.Add(request);
+    }
 
-      if (!doc.RootElement.TryGetProperty("children", out JsonElement childrenElement) || childrenElement.ValueKind is not JsonValueKind.Array)
-      {
-        return "'children' must be an array of child specs.";
-      }
+    children = parsed;
+    return null;
+  }
 
-      if (childrenElement.GetArrayLength() == 0)
-      {
-        return "'children' requires at least one child spec.";
-      }
+  /// <summary>Reads the required children array: present, an array, and non-empty
+  ///     (the caller renders the verbatim typed error otherwise).</summary>
+  private static bool TryReadChildren(JsonElement root, out JsonElement childrenElement, out string? error)
+  {
+    childrenElement = default;
+    error = null;
+    if (!root.TryGetProperty("children", out childrenElement) || childrenElement.ValueKind is not JsonValueKind.Array)
+    {
+      error = "'children' must be an array of child specs.";
+      return false;
+    }
 
-      label = null;
-      if (doc.RootElement.TryGetProperty("label", out JsonElement labelElement))
-      {
-        if (labelElement.ValueKind is not JsonValueKind.String)
-        {
-          return "'label' must be a string.";
-        }
+    if (childrenElement.GetArrayLength() == 0)
+    {
+      error = "'children' requires at least one child spec.";
+      return false;
+    }
 
-        label = labelElement.GetString();
-      }
+    return true;
+  }
 
-      List<SpawnRequest> parsed = [];
-      int index = 0;
-      foreach (JsonElement child in childrenElement.EnumerateArray())
-      {
-        index++;
-        if (child.ValueKind is not JsonValueKind.Object)
-        {
-          return $"children[{index}] must be an object.";
-        }
+  /// <summary>Parses one child spec object into its SpawnRequest, or the verbatim
+  ///     per-member error naming the child's index (non-object specs included).</summary>
+  private static string? ParseChildSpec(JsonElement child, int index, out SpawnRequest request)
+  {
+    request = new SpawnRequest("");
+    if (child.ValueKind is not JsonValueKind.Object)
+    {
+      return $"children[{index}] must be an object.";
+    }
 
-        if (!child.TryGetProperty("taskPrompt", out JsonElement promptElement) || promptElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(promptElement.GetString()))
-        {
-          return $"children[{index}].taskPrompt must be a non-empty string.";
-        }
+    if (!child.TryGetProperty("taskPrompt", out JsonElement promptElement) || promptElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(promptElement.GetString()))
+    {
+      return $"children[{index}].taskPrompt must be a non-empty string.";
+    }
 
-        string? model = null;
-        if (child.TryGetProperty("model", out JsonElement modelElement))
-        {
-          if (modelElement.ValueKind is not JsonValueKind.String)
-          {
-            return $"children[{index}].model must be a string.";
-          }
+    if (OptionalChildString(child, "model", $"children[{index}].model must be a string.", out string? model) is { } modelError)
+    {
+      return modelError;
+    }
 
-          model = modelElement.GetString();
-        }
+    if (OptionalChildString(child, "label", $"children[{index}].label must be a string.", out string? childLabel) is { } labelError)
+    {
+      return labelError;
+    }
 
-        string? childLabel = null;
-        if (child.TryGetProperty("label", out JsonElement childLabelElement))
-        {
-          if (childLabelElement.ValueKind is not JsonValueKind.String)
-          {
-            return $"children[{index}].label must be a string.";
-          }
+    if (OptionalChildRoot(child, $"children[{index}].workspaceRoot must be a non-empty string.",
+            out string? childWorkspaceRoot) is { } rootError)
+    {
+      return rootError;
+    }
 
-          childLabel = childLabelElement.GetString();
-        }
+    if (OptionalChildIsolate(child, $"children[{index}].isolateInWorktree must be a boolean.",
+            out bool childIsolate) is { } isolateError)
+    {
+      return isolateError;
+    }
 
-        string? childWorkspaceRoot = null;
-        if (child.TryGetProperty("workspaceRoot", out JsonElement childRootElement))
-        {
-          if (childRootElement.ValueKind is not JsonValueKind.String
-              || childRootElement.GetString() is not { } childRoot
-              || childRoot.Length == 0)
-          {
-            return $"children[{index}].workspaceRoot must be a non-empty string.";
-          }
+    request = new SpawnRequest(promptElement.GetString()!, model, childLabel,
+        WorkspaceRoot: childWorkspaceRoot, IsolateInWorktree: childIsolate);
+    return null;
+  }
 
-          childWorkspaceRoot = childRoot;
-        }
-
-        bool childIsolate = false;
-        if (child.TryGetProperty("isolateInWorktree", out JsonElement childIsolateElement))
-        {
-          if (childIsolateElement.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
-          {
-            return $"children[{index}].isolateInWorktree must be a boolean.";
-          }
-
-          childIsolate = childIsolateElement.GetBoolean();
-        }
-
-        parsed.Add(new SpawnRequest(promptElement.GetString()!, model, childLabel,
-            WorkspaceRoot: childWorkspaceRoot, IsolateInWorktree: childIsolate));
-      }
-
-      children = parsed;
+  /// <summary>Validates one optional string member of a child spec: absent keeps
+  ///     null, present-but-not-a-string is the given typed error.</summary>
+  private static string? OptionalChildString(JsonElement child, string name, string error, out string? value)
+  {
+    value = null;
+    if (!child.TryGetProperty(name, out JsonElement element))
+    {
       return null;
     }
+
+    if (element.ValueKind is not JsonValueKind.String)
+    {
+      return error;
+    }
+
+    value = element.GetString();
+    return null;
+  }
+
+  /// <summary>Reads the child spec's optional workspaceRoot anchor: absent keeps null,
+  ///     present must be a non-empty string (the given typed error otherwise).</summary>
+  private static string? OptionalChildRoot(JsonElement child, string error, out string? value)
+  {
+    value = null;
+    if (!child.TryGetProperty("workspaceRoot", out JsonElement element))
+    {
+      return null;
+    }
+
+    if (element.ValueKind is not JsonValueKind.String
+        || element.GetString() is not { } parsed
+        || parsed.Length == 0)
+    {
+      return error;
+    }
+
+    value = parsed;
+    return null;
+  }
+
+  /// <summary>Reads the child spec's optional isolateInWorktree flag: absent keeps
+  ///     false, present must be a JSON boolean (the given typed error otherwise).</summary>
+  private static string? OptionalChildIsolate(JsonElement child, string error, out bool value)
+  {
+    value = false;
+    if (!child.TryGetProperty("isolateInWorktree", out JsonElement element))
+    {
+      return null;
+    }
+
+    if (element.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+    {
+      return error;
+    }
+
+    value = element.GetBoolean();
+    return null;
   }
 
   /// <summary>Strict route-argument parsing: non-empty name and text, urgency in range.</summary>
@@ -940,48 +1069,11 @@ public sealed class AgentCapabilityProvider(
     name = null;
     text = null;
     urgency = MessageUrgency.Normal;
-    JsonDocument doc;
-    try
-    {
-      doc = JsonDocument.Parse(json);
-    }
-    catch (JsonException ex)
-    {
-      return $"arguments must be a JSON object ({ex.Message}).";
-    }
-
-    using (doc)
-    {
-      if (doc.RootElement.ValueKind is not JsonValueKind.Object)
-      {
-        return "arguments must be a JSON object.";
-      }
-
-      HashSet<string> allowed = new(StringComparer.Ordinal) { "name", "text", "urgency" };
-      string[] unknown = [.. doc.RootElement.EnumerateObject().Where(p => !allowed.Contains(p.Name)).Select(p => p.Name)];
-      if (unknown.Length > 0)
-      {
-        return $"unknown parameter(s): {string.Join(", ", unknown)}.";
-      }
-
-      if (!doc.RootElement.TryGetProperty("name", out JsonElement nameElement) || nameElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(nameElement.GetString()))
-      {
-        return "'name' must be a non-empty string.";
-      }
-
-      name = nameElement.GetString();
-      if (!doc.RootElement.TryGetProperty("text", out JsonElement textElement) || textElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(textElement.GetString()))
-      {
-        return "'text' must be a non-empty string.";
-      }
-
-      text = textElement.GetString();
-      return doc.RootElement.TryGetProperty("urgency", out JsonElement urgencyElement)
-          && (urgencyElement.ValueKind is not JsonValueKind.String
-              || !Enum.TryParse(urgencyElement.GetString(), ignoreCase: true, out urgency))
-          ? "'urgency' must be one of: normal, attention, urgent."
-          : null;
-    }
+    return RequireObject(json, out JsonElement root)
+        ?? RejectUnknown(root, "name", "text", "urgency")
+        ?? RequireNonEmpty(root, "name", out name)
+        ?? RequireNonEmpty(root, "text", out text)
+        ?? TryReadUrgency(root, out urgency);
   }
 
   /// <summary>Strict escalate-argument parsing: non-empty text, positive hops, urgency in range.</summary>
@@ -990,52 +1082,30 @@ public sealed class AgentCapabilityProvider(
     text = null;
     hops = 1;
     urgency = MessageUrgency.Normal;
-    JsonDocument doc;
-    try
+    return RequireObject(json, out JsonElement root)
+        ?? RejectUnknown(root, "text", "hops", "urgency")
+        ?? RequireNonEmpty(root, "text", out text)
+        ?? ReadHops(root, out hops)
+        ?? TryReadUrgency(root, out urgency);
+  }
+
+  /// <summary>Reads the optional hops member: absent keeps 1; present must be a
+  ///     positive integer.</summary>
+  private static string? ReadHops(JsonElement root, out int hops)
+  {
+    hops = 1;
+    if (!root.TryGetProperty("hops", out JsonElement hopsElement))
     {
-      doc = JsonDocument.Parse(json);
+      return null;
     }
-    catch (JsonException ex)
+
+    if (hopsElement.ValueKind is not JsonValueKind.Number || !hopsElement.TryGetInt32(out int parsed) || parsed < 1)
     {
-      return $"arguments must be a JSON object ({ex.Message}).";
+      return "'hops' must be a positive integer.";
     }
 
-    using (doc)
-    {
-      if (doc.RootElement.ValueKind is not JsonValueKind.Object)
-      {
-        return "arguments must be a JSON object.";
-      }
-
-      HashSet<string> allowed = new(StringComparer.Ordinal) { "text", "hops", "urgency" };
-      string[] unknown = [.. doc.RootElement.EnumerateObject().Where(p => !allowed.Contains(p.Name)).Select(p => p.Name)];
-      if (unknown.Length > 0)
-      {
-        return $"unknown parameter(s): {string.Join(", ", unknown)}.";
-      }
-
-      if (!doc.RootElement.TryGetProperty("text", out JsonElement textElement) || textElement.ValueKind is not JsonValueKind.String || string.IsNullOrWhiteSpace(textElement.GetString()))
-      {
-        return "'text' must be a non-empty string.";
-      }
-
-      text = textElement.GetString();
-      if (doc.RootElement.TryGetProperty("hops", out JsonElement hopsElement)
-          && (hopsElement.ValueKind is not JsonValueKind.Number || !hopsElement.TryGetInt32(out int parsed) || parsed < 1))
-      {
-        return "'hops' must be a positive integer.";
-      }
-      else if (doc.RootElement.TryGetProperty("hops", out hopsElement))
-      {
-        hops = hopsElement.GetInt32();
-      }
-
-      return doc.RootElement.TryGetProperty("urgency", out JsonElement urgencyElement)
-          && (urgencyElement.ValueKind is not JsonValueKind.String
-              || !Enum.TryParse(urgencyElement.GetString(), ignoreCase: true, out urgency))
-          ? "'urgency' must be one of: normal, attention, urgent."
-          : null;
-    }
+    hops = parsed;
+    return null;
   }
 
   /// <summary>Ids cross into the domain strictly: a JSON object carrying exactly one "id"
@@ -1114,70 +1184,19 @@ public sealed class AgentCapabilityProvider(
         return (null, $"unknown parameter(s): {string.Join(", ", unknown)}.");
       }
 
-      if (!TryGetString(doc.RootElement, "taskPrompt", required: true, out string? taskPrompt, out string? tpError))
+      if (!TryReadSpawnStrings(doc.RootElement, out string? taskPrompt, out string? model, out string? label, out string? workspaceRoot, out string? stringError))
       {
-        return (null, tpError);
+        return (null, stringError);
       }
 
-      if (!TryGetString(doc.RootElement, "model", required: false, out string? model, out string? modelError))
+      if (!TryReadIsolate(doc.RootElement, out bool isolateInWorktree, out string? isolateError))
       {
-        return (null, modelError);
+        return (null, isolateError);
       }
 
-      if (!TryGetString(doc.RootElement, "label", required: false, out string? label, out string? labelError))
+      if (!TryParseGrants(doc.RootElement, out SpawnContract? contract, out string? grantsError))
       {
-        return (null, labelError);
-      }
-
-      if (!TryGetString(doc.RootElement, "workspaceRoot", required: false, out string? workspaceRoot, out string? workspaceRootError))
-      {
-        return (null, workspaceRootError);
-      }
-
-      bool isolateInWorktree = false;
-      if (doc.RootElement.TryGetProperty("isolateInWorktree", out JsonElement isolateElement))
-      {
-        if (isolateElement.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
-        {
-          return (null, "isolateInWorktree must be a boolean.");
-        }
-
-        isolateInWorktree = isolateElement.GetBoolean();
-      }
-
-      SpawnContract? contract = null;
-      if (doc.RootElement.TryGetProperty("grants", out JsonElement grantsElement))
-      {
-        if (grantsElement.ValueKind is not JsonValueKind.Object)
-        {
-          return (null, "'grants' must be an object with optional tool.allow / tool.deny entries.");
-        }
-
-        Dictionary<string, string> parsed = [];
-        foreach (string key in new[] { ToolGrantPolicy.AllowKey, ToolGrantPolicy.DenyKey })
-        {
-          if (!grantsElement.TryGetProperty(key, out JsonElement value))
-          {
-            continue;
-          }
-
-          parsed[key] = value.ValueKind switch
-          {
-            JsonValueKind.String => value.GetString() ?? "",
-            JsonValueKind.Array => string.Join(";", value.EnumerateArray()
-                .Where(item => item.ValueKind is JsonValueKind.String)
-                .Select(item => item.GetString())),
-            JsonValueKind.Number => string.Empty,
-            JsonValueKind.True => string.Empty,
-            JsonValueKind.False => string.Empty,
-            JsonValueKind.Null => string.Empty,
-            JsonValueKind.Object => string.Empty,
-            JsonValueKind.Undefined => string.Empty,
-            _ => string.Empty,
-          };
-        }
-
-        contract = new SpawnContract(CapabilityGrants: parsed);
+        return (null, grantsError);
       }
 
       return (new SpawnRequest(taskPrompt!, string.IsNullOrEmpty(model) ? null : model,
@@ -1186,6 +1205,95 @@ public sealed class AgentCapabilityProvider(
           IsolateInWorktree: isolateInWorktree), null);
     }
   }
+
+  /// <summary>Reads the spawn arguments' string members in contract order:
+  ///     taskPrompt required, then model, label, and workspaceRoot optional. The
+  ///     first violation (with its verbatim message) stops the reads.</summary>
+  private static bool TryReadSpawnStrings(JsonElement root, out string? taskPrompt, out string? model, out string? label, out string? workspaceRoot, out string? error)
+  {
+    taskPrompt = null;
+    model = null;
+    label = null;
+    workspaceRoot = null;
+    error = null;
+    return TryGetString(root, "taskPrompt", required: true, out taskPrompt, out error)
+        && TryGetString(root, "model", required: false, out model, out error)
+        && TryGetString(root, "label", required: false, out label, out error)
+        && TryGetString(root, "workspaceRoot", required: false, out workspaceRoot, out error);
+  }
+
+  /// <summary>Reads the optional isolateInWorktree member: absent keeps false;
+  ///     present must be a JSON boolean.</summary>
+  private static bool TryReadIsolate(JsonElement root, out bool value, out string? error)
+  {
+    value = false;
+    error = null;
+    if (!root.TryGetProperty("isolateInWorktree", out JsonElement isolateElement))
+    {
+      return true;
+    }
+
+    if (isolateElement.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+    {
+      error = "isolateInWorktree must be a boolean.";
+      return false;
+    }
+
+    value = isolateElement.GetBoolean();
+    return true;
+  }
+
+  /// <summary>Parses the optional grants member into a SpawnContract: absent keeps
+  ///     null; present must be an object whose tool.allow / tool.deny entries accept a
+  ///     string or a string array — any other kind collapses to the empty string
+  ///     (deny-by-default over an untyped world). False with the error set names the
+  ///     violation; true carries the parsed contract (possibly null).</summary>
+  private static bool TryParseGrants(JsonElement root, out SpawnContract? contract, out string? error)
+  {
+    contract = null;
+    error = null;
+    if (!root.TryGetProperty("grants", out JsonElement grantsElement))
+    {
+      return true;
+    }
+
+    if (grantsElement.ValueKind is not JsonValueKind.Object)
+    {
+      error = "'grants' must be an object with optional tool.allow / tool.deny entries.";
+      return false;
+    }
+
+    Dictionary<string, string> parsed = [];
+    foreach (string key in new[] { ToolGrantPolicy.AllowKey, ToolGrantPolicy.DenyKey })
+    {
+      if (!grantsElement.TryGetProperty(key, out JsonElement value))
+      {
+        continue;
+      }
+
+      parsed[key] = GrantValue(value);
+    }
+
+    contract = new SpawnContract(CapabilityGrants: parsed);
+    return true;
+  }
+
+  /// <summary>One grants entry's value: a string verbatim, a string array joined
+  ///     with ';' (non-string items dropped), any other kind the empty string
+  ///     (deny-by-default over an untyped world).</summary>
+  private static string GrantValue(JsonElement value)
+    => value.ValueKind is JsonValueKind.String ? value.GetString() ?? "" : NonStringGrant(value);
+
+  /// <summary>The non-string grants kinds: only an array carries entries; every
+  ///     other kind collapses to the empty string.</summary>
+  private static string NonStringGrant(JsonElement value)
+    => value.ValueKind is JsonValueKind.Array ? JoinedGrantItems(value) : string.Empty;
+
+  /// <summary>Joins the array's string items with ';'; non-string items drop.</summary>
+  private static string JoinedGrantItems(JsonElement value)
+    => string.Join(";", value.EnumerateArray()
+        .Where(item => item.ValueKind is JsonValueKind.String)
+        .Select(item => item.GetString()));
 
   private static bool TryGetString(JsonElement root, string name, bool required, out string? value, out string? error)
   {

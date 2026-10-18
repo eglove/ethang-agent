@@ -274,20 +274,31 @@ public sealed record PdfToolInput(
           $"Every operations element must be an object, but got {element.ValueKind}."));
     }
 
+    Result<string> opName = ParseOpName(element);
+    return opName.IsSuccess
+      ? DispatchOperation(element, opName.Value)
+      : Result.Failure<PdfOperation>(opName.Error);
+  }
+
+  /// <summary>Reads the required 'op' discriminator: present and a string.</summary>
+  private static Result<string> ParseOpName(JsonElement element)
+  {
     if (!element.TryGetProperty("op", out JsonElement opEl))
     {
-      return Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+      return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "Every operations element must carry 'op': exactly one of rotate, deletePages, reorderPages, extractPages, merge, watermarkText, or setMetadata (case-sensitive)."));
     }
 
-    if (opEl.ValueKind != JsonValueKind.String)
-    {
-      return Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterType,
+    Result<string> op = opEl.ValueKind == JsonValueKind.String
+      ? Result.Success(opEl.GetString()!)
+      : Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType,
           $"'op' must be a string, but got {opEl.ValueKind}."));
-    }
+    return op;
+  }
 
-    string op = opEl.GetString()!;
-    return op switch
+  /// <summary>Dispatches a validated op name to its per-op parser.</summary>
+  private static Result<PdfOperation> DispatchOperation(JsonElement element, string op)
+    => op switch
     {
       "rotate" => ParseRotate(element, op),
       "deletePages" => ParseDeletePages(element, op),
@@ -299,7 +310,6 @@ public sealed record PdfToolInput(
       _ => Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'op' must be exactly one of rotate, deletePages, reorderPages, extractPages, merge, watermarkText, or setMetadata (case-sensitive), but got '{op}'.")),
     };
-  }
 
   private static Result<PdfOperation> ParseRotate(JsonElement op, string opName)
   {
@@ -415,41 +425,55 @@ public sealed record PdfToolInput(
       return Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue, "'text' must be non-empty."));
     }
 
+    Result<WatermarkNumbers> numbers = ReadWatermarkNumbers(op);
+    return numbers.IsSuccess
+      ? Result.Success<PdfOperation>(new WatermarkText(text.Value, numbers.Value.FontSize, numbers.Value.Opacity, numbers.Value.Degrees))
+      : Result.Failure<PdfOperation>(numbers.Error);
+  }
+
+  /// <summary>The three optional watermark number fields, read and range-checked.</summary>
+  private sealed record WatermarkNumbers(double? FontSize, double? Opacity, int? Degrees);
+
+  /// <summary>Reads fontSize, opacity, and degrees with their range checks
+  ///     (fontSize > 0, opacity 0.0..1.0, degrees -180..180) - values are never
+  ///     clamped.</summary>
+  private static Result<WatermarkNumbers> ReadWatermarkNumbers(JsonElement op)
+  {
     Result<double?> fontSize = OptionalOpDouble(op, "fontSize");
     if (!fontSize.IsSuccess)
     {
-      return Result.Failure<PdfOperation>(fontSize.Error);
+      return Result.Failure<WatermarkNumbers>(fontSize.Error);
     }
 
     if (fontSize.Value is <= 0)
     {
-      return Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+      return Result.Failure<WatermarkNumbers>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'fontSize' must be > 0 (got {fontSize.Value}); values are never clamped."));
     }
 
     Result<double?> opacity = OptionalOpDouble(op, "opacity");
     if (!opacity.IsSuccess)
     {
-      return Result.Failure<PdfOperation>(opacity.Error);
+      return Result.Failure<WatermarkNumbers>(opacity.Error);
     }
 
     if (opacity.Value is < 0 or > 1)
     {
-      return Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+      return Result.Failure<WatermarkNumbers>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'opacity' must be 0.0..1.0 (got {opacity.Value}); values are never clamped."));
     }
 
     Result<int?> degrees = OptionalOpInt(op, "degrees");
     if (!degrees.IsSuccess)
     {
-      return Result.Failure<PdfOperation>(degrees.Error);
+      return Result.Failure<WatermarkNumbers>(degrees.Error);
     }
 
     bool outOfRange = degrees.Value is < -180 or > 180;
     return outOfRange
-      ? Result.Failure<PdfOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+      ? Result.Failure<WatermarkNumbers>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'degrees' must be -180..180 (got {degrees.Value}); values are never clamped."))
-      : Result.Success<PdfOperation>(new WatermarkText(text.Value, fontSize.Value, opacity.Value, degrees.Value));
+      : Result.Success(new WatermarkNumbers(fontSize.Value, opacity.Value, degrees.Value));
   }
 
   private static Result<PdfOperation> ParseSetMetadata(JsonElement op)

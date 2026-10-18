@@ -54,6 +54,53 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
     };
   }
 
+  // Reconnect (issue #105, B4): a session whose server died mid-session is
+  // disposed and reconnected on this dispatch - a structured reconnect, never a
+  // hang or a stale-session error loop. The dead session's dispose is best-effort
+  // and detached: its failure never blocks the reconnect.
+  private static void DiscardDeadSession(PoolEntry entry)
+  {
+    if (entry.Session is not { HasExited: true } dead)
+    {
+      return;
+    }
+
+    // Issue #106: the crash's diagnosis outlives the corpse - the dead session's
+    // stderr tail stays on the entry until a fresh session connects.
+    entry.Stderr = dead.StderrTail ?? entry.Stderr;
+    ResetEntry(entry, dead);
+  }
+
+  // Trust staleness (issue #107): the pooled session was established under a
+  // particular launch (command, args, env, headers, pinned version). A
+  // trust-relevant config change - even re-approved - means the RUNNING process
+  // is not the one the user's current trust decision produced: dispose it and
+  // reconnect under the new launch.
+  private static void DiscardStaleSession(PoolEntry entry, McpServerConfig config)
+  {
+    if (entry.Session is null)
+    {
+      return;
+    }
+
+    string launchStamp = StampOf(config);
+    if (string.Equals(entry.LaunchStamp, launchStamp, StringComparison.Ordinal))
+    {
+      return;
+    }
+
+    ResetEntry(entry, entry.Session);
+  }
+
+  private static void ResetEntry(PoolEntry entry, IMcpClientSession session)
+  {
+    entry.Session = null;
+    entry.State = McpConnectionState.NotConnected;
+    entry.Tools = [];
+    entry.Error = null;
+    _ = Task.Run(() => session.DisposeAsync().AsTask(), CancellationToken.None);
+  }
+
   private Task<McpOutcome> ListAsync(IReadOnlyList<McpServerConfig> configs)
   {
     List<McpServerStatus> statuses = [];
@@ -86,38 +133,8 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
     }
 
     PoolEntry entry = _entries.GetOrAdd(call.Server, _ => new PoolEntry());
-    // Reconnect (issue #105, B4): a session whose server died mid-session is
-    // disposed and reconnected on this dispatch - a structured reconnect, never a
-    // hang or a stale-session error loop. The dead session's dispose is best-effort
-    // and detached: its failure never blocks the reconnect.
-    if (entry.Session is { HasExited: true } dead)
-    {
-      // Issue #106: the crash's diagnosis outlives the corpse - the dead session's
-      // stderr tail stays on the entry until a fresh session connects.
-      entry.Stderr = dead.StderrTail ?? entry.Stderr;
-      entry.Session = null;
-      entry.State = McpConnectionState.NotConnected;
-      entry.Tools = [];
-      entry.Error = null;
-      IMcpClientSession corpse = dead;
-      _ = Task.Run(() => corpse.DisposeAsync().AsTask(), CancellationToken.None);
-    }
-
-    // Trust staleness (issue #107): the pooled session was established under a
-    // particular launch (command, args, env, headers, pinned version). A
-    // trust-relevant config change - even re-approved - means the RUNNING process
-    // is not the one the user's current trust decision produced: dispose it and
-    // reconnect under the new launch.
-    string launchStamp = StampOf(config);
-    if (entry.Session is not null && !string.Equals(entry.LaunchStamp, launchStamp, StringComparison.Ordinal))
-    {
-      IMcpClientSession stale = entry.Session;
-      entry.Session = null;
-      entry.State = McpConnectionState.NotConnected;
-      entry.Tools = [];
-      entry.Error = null;
-      _ = Task.Run(() => stale.DisposeAsync().AsTask(), CancellationToken.None);
-    }
+    DiscardDeadSession(entry);
+    DiscardStaleSession(entry, config);
 
     if (entry.Session is null)
     {
@@ -133,7 +150,7 @@ public sealed class McpServerAccess(IMcpServerStore store, IMcpClientSessionPool
 
       entry.Session = ((McpConnectResult.Success)connect).Session;
       entry.State = McpConnectionState.Connected;
-      entry.LaunchStamp = launchStamp;
+      entry.LaunchStamp = StampOf(config);
       entry.Stderr = entry.Session.StderrTail;
       entry.Tools = await entry.Session.ListToolsAsync(ct).ConfigureAwait(false);
     }

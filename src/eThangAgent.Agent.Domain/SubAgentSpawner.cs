@@ -103,39 +103,51 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   public async Task<AgentRunOutcome> RunAsync(AgentRecord child, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(child);
-    // Provider-binding invariant (issue #124, 2026-10-15 incident): under production
-    // wiring a begin-run whose record carries the unbound marker fails LOUDLY — a
-    // well-formed Failed(ProviderError) outcome plus an audit row — instead of looping
-    // on tools with zero model calls while every projection reports it alive. Legacy
-    // wiring (ProviderRequired=false) keeps byte-identical behavior.
-    if (services.ProviderRequired
-        && (child.Provider is null || child.Provider == AgentRecord.UnboundProvider))
-    {
-      _ = services.Audit?.AppendAsync(new WatchdogEvent(Guid.NewGuid(), child.Id,
-          WatchdogEventKind.SpawnInvariantViolation,
-          "spawn refused: begin-run without a provider binding (unbound child row)", 0, null,
-          DateTimeOffset.UtcNow), CancellationToken.None);
+    return await RunGuardedAsync(child, ct).ConfigureAwait(false);
+  }
 
-      AgentRecord terminal = child with
-      {
-        Status = AgentStatus.Failed,
-        FailureReason = AgentFailureReason.ProviderError,
-        CompletedAt = DateTimeOffset.UtcNow,
-        FinalReport = FailureDetail(AgentFailureReason.ProviderError)
-            + " (spawn invariant: the child record carried no provider binding; the run never started).",
-      };
-      await PersistTerminalAsync(terminal, CancellationToken.None).ConfigureAwait(false);
-      PublishSettled(child.Id, AgentStatus.Failed, AgentFailureReason.ProviderError, 0);
-      return new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
-          terminal.FinalReport ?? string.Empty, child.ModelUsed, child.Depth);
+  /// <summary>Provider-binding invariant (issue #124, 2026-10-15 incident): under
+  ///     production wiring a begin-run whose record carries the unbound marker fails
+  ///     LOUDLY — a well-formed Failed(ProviderError) outcome plus an audit row —
+  ///     instead of looping on tools with zero model calls while every projection
+  ///     reports it alive. Legacy wiring (ProviderRequired=false) keeps
+  ///     byte-identical behavior. Returns the failed outcome, or null to proceed.</summary>
+  private async Task<AgentRunOutcome?> UnboundProviderOutcomeAsync(AgentRecord child)
+  {
+    if (!services.ProviderRequired
+        || (child.Provider is not null && child.Provider != AgentRecord.UnboundProvider))
+    {
+      return null;
     }
 
-    // Children inherit the session's runtime preferences (the effort picker and the
-    // sampling knobs, overlaid below): the effort choice is a property of the
-    // conversation, not of the root agent. A wired
-    // window source must know the child's model — accounting cannot run blind. With no
-    // source wired (legacy wiring, tests) the config carries the unbounded legacy
-    // sentinel and the child simply runs without accounting.
+    _ = services.Audit?.AppendAsync(new WatchdogEvent(Guid.NewGuid(), child.Id,
+        WatchdogEventKind.SpawnInvariantViolation,
+        "spawn refused: begin-run without a provider binding (unbound child row)", 0, null,
+        DateTimeOffset.UtcNow), CancellationToken.None);
+
+    AgentRecord terminal = child with
+    {
+      Status = AgentStatus.Failed,
+      FailureReason = AgentFailureReason.ProviderError,
+      CompletedAt = DateTimeOffset.UtcNow,
+      FinalReport = FailureDetail(AgentFailureReason.ProviderError)
+          + " (spawn invariant: the child record carried no provider binding; the run never started).",
+    };
+    await PersistTerminalAsync(terminal, CancellationToken.None).ConfigureAwait(false);
+    PublishSettled(child.Id, AgentStatus.Failed, AgentFailureReason.ProviderError, 0);
+    return new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
+        terminal.FinalReport ?? string.Empty, child.ModelUsed, child.Depth);
+  }
+
+  /// <summary>Children inherit the session's runtime preferences (the effort picker
+  ///     and the sampling knobs, overlaid below): the effort choice is a property of
+  ///     the conversation, not of the root agent. A wired window source must know the
+  ///     child's model — accounting cannot run blind. With no source wired (legacy
+  ///     wiring, tests) the config carries the unbounded legacy sentinel and the
+  ///     child simply runs without accounting. Returns the config and the resolved
+  ///     window (the accountant's budget).</summary>
+  private async Task<(ModelConfig Config, int Window)> ChildConfigAsync(AgentRecord child, CancellationToken ct)
+  {
     int? window = _windowSource is null
         ? ChildLegacyWindowFallback
         : await _windowSource.WindowForAsync(child.ModelUsed, null, ct).ConfigureAwait(false)
@@ -146,19 +158,24 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
         child.ModelUsed, null, ChildMaxTokens, ChildTemperature, window.Value, _preferences?.ReasoningEffort,
         acceptsImageInput: await AcceptsImagesAsync(child.ModelUsed, ct).ConfigureAwait(false)).Value!,
         _preferences);
+    return (config, window.Value);
+  }
 
-    // Resume hydration: a persisted transcript means this run restarts a previously
-    // interrupted (typically watchdog-retried) child. Mirrors the root-session resume
-    // hydration in AgentSessionFactory. seed.Count is the persistence baseline: failure
-    // paths persist only what this run adds beyond it.
+  /// <summary>Resume hydration: a persisted transcript means this run restarts a
+  ///     previously interrupted (typically watchdog-retried) child. Mirrors the
+  ///     root-session resume hydration in AgentSessionFactory. seed.Count is the
+  ///     persistence baseline: failure paths persist only what this run adds beyond
+  ///     it. Prompt precedence: an agent.resume carrier (one-shot, stamped by the
+  ///     runtime) beats the watchdog wrap-up nudge, which beats the original task
+  ///     prompt. The carrier is consumed HERE (read) and cleared by the RUNTIME at
+  ///     terminal persist — this run must not mutate the record's contract
+  ///     mid-flight.</summary>
+  private async Task<(Conversation Conversation, string Prompt)> ResumeStateAsync(AgentRecord child, CancellationToken ct)
+  {
     Result<IReadOnlyList<Message>> persisted = await _store.GetTranscriptAsync(child.Id, ct).ConfigureAwait(false);
     IReadOnlyList<Message> seed = persisted.IsSuccess ? persisted.Value : [];
     bool resuming = seed.Count > 0;
     Conversation conversation = new(resuming ? seed : null);
-    // Prompt precedence: an agent.resume carrier (one-shot, stamped by the runtime)
-    // beats the watchdog wrap-up nudge, which beats the original task prompt. The
-    // carrier is consumed HERE (read) and cleared by the RUNTIME at terminal persist —
-    // this run must not mutate the record's contract mid-flight.
     string? resumeMessage = child.Contract is { } resumeJson
         ? SpawnContract.Decode(resumeJson).ResumeMessage
         : null;
@@ -166,14 +183,19 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
         ? WrapUpNudgeSentinel
             + " your run was restarted by the watchdog after an idle timeout. Continue from where you stopped and wrap up now with your final report."
         : child.TaskPrompt);
+    return (conversation, prompt);
+  }
 
-    // Run-path registry topology (R1 + worktree ladder, T7): the wraps compose
-    // inner-first — the anchored view is applied BEFORE the grant filter, so the
-    // registry the Agent carries is Filtered(Anchored(session)). The outermost wrap
-    // must be the filter: the loop resolves refusal explanations through the concrete
-    // FilteredToolRegistry (the structured GrantViolation contract, R1.3), and Find
-    // flows the grant policy down onto the anchored view, so a granted tool still
-    // resolves re-rooted at the anchor.
+  /// <summary>Run-path registry topology (R1 + worktree ladder, T7): the wraps
+  ///     compose inner-first — the anchored view is applied BEFORE the grant filter,
+  ///     so the registry the Agent carries is Filtered(Anchored(session)). The
+  ///     outermost wrap must be the filter: the loop resolves refusal explanations
+  ///     through the concrete FilteredToolRegistry (the structured GrantViolation
+  ///     contract, R1.3), and Find flows the grant policy down onto the anchored
+  ///     view, so a granted tool still resolves re-rooted at the anchor. Returns the
+  ///     wrapped registry and the anchor (null when the contract has none).</summary>
+  private Task<(IToolRegistry Tools, string? Anchor)> RunToolsAsync(AgentRecord child, CancellationToken ct)
+  {
     IToolRegistry tools = _tools;
     string? anchor = null;
     if (child.Contract is { } runContractJson)
@@ -206,35 +228,50 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
       }
     }
 
-    // Each child gets its own accountant: two children must never share totals.
-    // The child's OWN persisted id rides every request (OpenRouter sticky sessions):
-    // one sticky session per child conversation, and the child host inherits the
-    // same stamping through this same spawner in remote mode.
-    // Incremental transcript persistence: every conversation mutation lands in the
-    // store at the safe point it happens (the sink always persists with
-    // CancellationToken.None), so an interrupt or crash leaves the run's history
-    // persisted up to that point instead of destroying it.
-    ChildTranscriptStore transcriptSink = new(_store, child.Id);
-    Agent agent = new(_factory.Create(config), conversation, config, tools,
-        new AgentOptions
-        {
-          SystemPrompt = _systemPrompt,
-          Id = child.Id,
-          Depth = child.Depth,
-          ContextMonitor = new ContextAccountant(window.Value),
-          ContextCompactor = _contextCompactor,
-          Heartbeat = _heartbeat,
-          Events = _events,
-          TranscriptSink = transcriptSink,
-          SessionId = child.Id.ToString(),
-          // Resolve the supervisor ONCE per run (not per fragment): streams emit hundreds
-          // of fragments per second; a per-fragment registry lookup would take two locks
-          // per fragment on the hot path.
-          OnStreamActivity = ResolveStreamStamp(child.Id),
-        });
-    PublishStarted(child);
+    return Task.FromResult((tools, anchor));
+  }
 
+  /// <summary>The child's own accountant (two children must never share totals); its
+  ///     OWN persisted id rides every request (OpenRouter sticky sessions): one
+  ///     sticky session per child conversation — the child host inherits the same
+  ///     stamping through this same spawner in remote mode. Incremental transcript
+  ///     persistence: every conversation mutation lands in the store at the safe
+  ///     point it happens (the sink always persists with CancellationToken.None), so
+  ///     an interrupt or crash leaves the run's history persisted up to that point
+  ///     instead of destroying it.</summary>
+  private Agent BuildAgent(AgentRecord child, ModelConfig config, Conversation conversation,
+      IToolRegistry tools, int window, ChildTranscriptStore transcriptSink) =>
+      new(_factory.Create(config), conversation, config, tools,
+          new AgentOptions
+          {
+            SystemPrompt = _systemPrompt,
+            Id = child.Id,
+            Depth = child.Depth,
+            ContextMonitor = new ContextAccountant(window),
+            ContextCompactor = _contextCompactor,
+            Heartbeat = _heartbeat,
+            Events = _events,
+            TranscriptSink = transcriptSink,
+            SessionId = child.Id.ToString(),
+            // Resolve the supervisor ONCE per run (not per fragment): streams emit hundreds
+            // of fragments per second; a per-fragment registry lookup would take two locks
+            // per fragment on the hot path.
+            OnStreamActivity = ResolveStreamStamp(child.Id),
+          });
 
+  /// <summary>Runs the agent under the child's ambient scopes — the running-child slot,
+  ///     the anchor scope, and the MCP grant scope — each saved/restored exactly as
+  ///     the previous run left them, so a nested grandchild run chains correctly.
+  ///     The ambient SETS sit inside the try on purpose: an anchored contract with NO
+  ///     scope wired is strictly a composition wiring fault — the ArgumentNullException
+  ///     thrown there maps through the catch(Exception) boundary to
+  ///     Failed(ProviderError), a well-formed terminal outcome, never a crash of the
+  ///     spawning agent. Named decision (CA1031): a child run is an isolation
+  ///     boundary — ANY fault here must become a well-formed terminal outcome, not a
+  ///     crash of the spawning agent.</summary>
+  private async Task<(string? Report, AgentFailureReason? Failure)> RunScopedAsync(
+      AgentRecord child, Agent agent, string prompt, string? anchor, CancellationToken ct)
+  {
     string? report = null;
     AgentFailureReason? failureReason = null;
     AgentRecord? previousChild = RunningChildCurrent.Value;
@@ -251,10 +288,6 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     IMcpGrantScope? previousGrants = null;
     try
     {
-      // The SET sits inside the try on purpose: an anchored contract with NO scope
-      // wired is strictly a composition wiring fault — the ArgumentNullException
-      // thrown here maps through the catch(Exception) boundary to Failed(ProviderError),
-      // a well-formed terminal outcome, never a crash of the spawning agent.
       previousAnchor = services.AnchorScope?.Current;
       if (anchor is not null)
       {
@@ -288,8 +321,6 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
       // Only the caller's token can cancel a run now (FR-L4): an explicit interrupt.
       failureReason = AgentFailureReason.Interrupted;
     }
-    // Named decision (CA1031): a child run is an isolation boundary — ANY fault here
-    // must become a well-formed terminal outcome, not a crash of the spawning agent.
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception)
     {
@@ -310,100 +341,118 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
       _heartbeat?.Forget(child.Id);
     }
 
-    if (failureReason is not null)
+    return (report, failureReason);
+  }
+
+  /// <summary>The failed-run terminal: incremental persistence already landed every
+  ///     safe-point message; the terminal block only flushes stragglers (pending
+  ///     queue) and persists the terminal row. All of it runs with
+  ///     CancellationToken.None: the run is already over, and its record plus
+  ///     transcript must survive the caller's interrupt that ended it.</summary>
+  private async Task<AgentRunOutcome> FailedOutcomeAsync(AgentRecord child, ChildTranscriptStore transcriptSink,
+      AgentFailureReason failureReason)
+  {
+    await TerminalPersistAsync(child with
     {
-      // Incremental persistence already landed every safe-point message; the terminal
-      // block only flushes stragglers (pending queue) and persists the terminal row.
-      // All of it runs with CancellationToken.None: the run is already over, and its
-      // record plus transcript must survive the caller's interrupt that ended it.
-      await TerminalPersistAsync(child with
-      {
-        Status = AgentStatus.Failed,
-        FailureReason = failureReason,
-        CompletedAt = DateTimeOffset.UtcNow,
-      }, transcriptSink).ConfigureAwait(false);
-      PublishSettled(child.Id, AgentStatus.Failed, failureReason, 0);
-      return new AgentRunOutcome(child.Id, AgentStatus.Failed, failureReason,
-          FailureDetail(failureReason.Value), child.ModelUsed, child.Depth);
+      Status = AgentStatus.Failed,
+      FailureReason = failureReason,
+      CompletedAt = DateTimeOffset.UtcNow,
+    }, transcriptSink).ConfigureAwait(false);
+    PublishSettled(child.Id, AgentStatus.Failed, failureReason, 0);
+    return new AgentRunOutcome(child.Id, AgentStatus.Failed, failureReason,
+        FailureDetail(failureReason), child.ModelUsed, child.Depth);
+  }
+
+  /// <summary>Structured results (step 10, approved D3): one bounded repair round; a
+  ///     second validation failure is Failed(InvalidResult) - invalid results never
+  ///     reach the parent as success. Returns the (possibly repaired) report, or the
+  ///     Failed(InvalidResult) outcome when the repair round also failed.</summary>
+  private async Task<(string Report, AgentRunOutcome? Failed)> SchemaRepairAsync(
+      AgentRecord child, Agent agent, string finalReport, CancellationToken ct)
+  {
+    if (child.Contract is not { } contractJson)
+    {
+      return (finalReport, null);
     }
 
-    string finalReport = report!;
-
-    if (agent.ShrankThisTurn)
+    SpawnContract contract = SpawnContract.Decode(contractJson);
+    if (contract.ResultSchema is not { } schema)
     {
-      // Same shrink rule as the failure path: replace, never append a sliced delta.
-      // The sink's ReplaceAsync also resets its flushed baseline.
-      await transcriptSink.ReplaceAsync(agent.Conversation.Messages).ConfigureAwait(false);
-    }
-    else
-    {
-      // Incremental persistence landed every safe-point message; flush stragglers.
-      await transcriptSink.FlushAsync().ConfigureAwait(false);
-    }
-    // Structured results (step 10, approved D3): one bounded repair round; a second
-    // validation failure is Failed(InvalidResult) - invalid results never reach the
-    // parent as success.
-    if (child.Contract is { } contractJson)
-    {
-      SpawnContract contract = SpawnContract.Decode(contractJson);
-      if (contract.ResultSchema is { } schema)
-      {
-        SchemaValidation validation = ResultSchemaValidator.Validate(schema, finalReport);
-        if (!validation.IsValid)
-        {
-          string repairPrompt = "[schema] Your final report did not match the required schema: "
-              + validation.Error + " Re-issue your final report now, conforming exactly.";
-          Result<string> repair = await agent.SendMessage(repairPrompt, ct: ct).ConfigureAwait(false);
-          if (repair.IsSuccess)
-          {
-            string repairedReport = repair.Value;
-            SchemaValidation secondPass = ResultSchemaValidator.Validate(schema, repairedReport);
-            if (secondPass.IsValid)
-            {
-              finalReport = repairedReport;
-              _ = await _store.AppendMessageAsync(child.Id, agent.Conversation.Messages[^1], CancellationToken.None).ConfigureAwait(false);
-            }
-            else
-            {
-              await PersistTerminalAsync(child with
-              {
-                Status = AgentStatus.Failed,
-                FailureReason = AgentFailureReason.InvalidResult,
-                CompletedAt = DateTimeOffset.UtcNow,
-                FinalReport = "Error [InvalidResult]: " + secondPass.Error,
-              }, CancellationToken.None).ConfigureAwait(false);
-              PublishSettled(child.Id, AgentStatus.Failed, AgentFailureReason.InvalidResult,
-                  Encoding.UTF8.GetByteCount(finalReport));
-              return new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.InvalidResult,
-                  "Error [InvalidResult]: " + secondPass.Error, child.ModelUsed, child.Depth);
-            }
-          }
-        }
-      }
-    }
-    // Workspace-cleanliness check (grand-plan BUG 3): fresh implementers left scratch
-    // files behind twice; the report contract catches it at source. A completed run's
-    // report gains an annotation listing untracked files the workspace still holds.
-    // Best effort: a failed check (not a git repo, git missing) never blocks the run.
-    if (services.Cleanliness is { } cleanliness && child.Contract is { } reportContractJson)
-    {
-      string? reportAnchor = SpawnContract.Decode(reportContractJson).WorkspaceRoot;
-      if (reportAnchor is not null)
-      {
-        Result<IReadOnlyList<string>> untracked = await cleanliness.UntrackedFilesAsync(reportAnchor, ct).ConfigureAwait(false);
-        if (untracked.IsSuccess && untracked.Value.Count > 0)
-        {
-          const int MaxListed = 10;
-          List<string> listed = [.. untracked.Value.Take(MaxListed)];
-          int more = untracked.Value.Count - listed.Count;
-          string suffix = more > 0 ? $" … (+{more} more)" : string.Empty;
-          finalReport += "\n[agent] workspace check: " + untracked.Value.Count
-              + " untracked file(s) left behind: " + string.Join(", ", listed) + suffix
-              + " — remove scratch files (or commit intended changes).";
-        }
-      }
+      return (finalReport, null);
     }
 
+    SchemaValidation validation = ResultSchemaValidator.Validate(schema, finalReport);
+    if (validation.IsValid)
+    {
+      return (finalReport, null);
+    }
+
+    string repairPrompt = "[schema] Your final report did not match the required schema: "
+        + validation.Error + " Re-issue your final report now, conforming exactly.";
+    Result<string> repair = await agent.SendMessage(repairPrompt, ct: ct).ConfigureAwait(false);
+    if (!repair.IsSuccess)
+    {
+      return (finalReport, null);
+    }
+
+    string repairedReport = repair.Value;
+    SchemaValidation secondPass = ResultSchemaValidator.Validate(schema, repairedReport);
+    if (secondPass.IsValid)
+    {
+      _ = await _store.AppendMessageAsync(child.Id, agent.Conversation.Messages[^1], CancellationToken.None).ConfigureAwait(false);
+      return (repairedReport, null);
+    }
+
+    await PersistTerminalAsync(child with
+    {
+      Status = AgentStatus.Failed,
+      FailureReason = AgentFailureReason.InvalidResult,
+      CompletedAt = DateTimeOffset.UtcNow,
+      FinalReport = "Error [InvalidResult]: " + secondPass.Error,
+    }, CancellationToken.None).ConfigureAwait(false);
+    PublishSettled(child.Id, AgentStatus.Failed, AgentFailureReason.InvalidResult,
+        Encoding.UTF8.GetByteCount(finalReport));
+    return (finalReport, new AgentRunOutcome(child.Id, AgentStatus.Failed, AgentFailureReason.InvalidResult,
+        "Error [InvalidResult]: " + secondPass.Error, child.ModelUsed, child.Depth));
+  }
+
+  /// <summary>Workspace-cleanliness check (grand-plan BUG 3): fresh implementers left
+  ///     scratch files behind twice; the report contract catches it at source. A
+  ///     completed run's report gains an annotation listing untracked files the
+  ///     workspace still holds. Best effort: a failed check (not a git repo, git
+  ///     missing) never blocks the run.</summary>
+  private async Task<string> AnnotateCleanlinessAsync(AgentRecord child, string finalReport, CancellationToken ct)
+  {
+    if (services.Cleanliness is not { } cleanliness || child.Contract is not { } reportContractJson)
+    {
+      return finalReport;
+    }
+
+    string? reportAnchor = SpawnContract.Decode(reportContractJson).WorkspaceRoot;
+    if (reportAnchor is null)
+    {
+      return finalReport;
+    }
+
+    Result<IReadOnlyList<string>> untracked = await cleanliness.UntrackedFilesAsync(reportAnchor, ct).ConfigureAwait(false);
+    if (!untracked.IsSuccess || untracked.Value.Count == 0)
+    {
+      return finalReport;
+    }
+
+    const int MaxListed = 10;
+    List<string> listed = [.. untracked.Value.Take(MaxListed)];
+    int more = untracked.Value.Count - listed.Count;
+    string suffix = more > 0 ? $" … (+{more} more)" : string.Empty;
+    return finalReport + "\n[agent] workspace check: " + untracked.Value.Count
+        + " untracked file(s) left behind: " + string.Join(", ", listed) + suffix
+        + " — remove scratch files (or commit intended changes).";
+  }
+
+  /// <summary>The completed-run terminal: persist the Completed row with the final
+  ///     report and publish the settled event.</summary>
+  private async Task<AgentRunOutcome> CompletedOutcomeAsync(AgentRecord child, string finalReport)
+  {
     await PersistTerminalAsync(child with
     {
       Status = AgentStatus.Completed,
@@ -414,6 +463,82 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
     PublishSettled(child.Id, AgentStatus.Completed, null, Encoding.UTF8.GetByteCount(finalReport));
     return new AgentRunOutcome(child.Id, AgentStatus.Completed, null, finalReport,
         child.ModelUsed, child.Depth);
+  }
+
+  /// <summary>Phase-orchestrated begin-run: every phase lives in its own helper with
+  ///     its original commentary.</summary>
+  private async Task<AgentRunOutcome> RunGuardedAsync(AgentRecord child, CancellationToken ct)
+  {
+    if (await UnboundProviderOutcomeAsync(child).ConfigureAwait(false) is { } unbound)
+    {
+      return unbound;
+    }
+
+    (ModelConfig config, int window) = await ChildConfigAsync(child, ct).ConfigureAwait(false);
+    (Conversation conversation, string prompt) = await ResumeStateAsync(child, ct).ConfigureAwait(false);
+    (IToolRegistry tools, string? anchor) = await RunToolsAsync(child, ct).ConfigureAwait(false);
+
+    // Each child gets its own accountant: two children must never share totals.
+    ChildTranscriptStore transcriptSink = new(_store, child.Id);
+    try
+    {
+      return await RunFromSinkAsync(child,
+          new RunSetup(config, window, conversation, tools, anchor, prompt), transcriptSink, ct)
+          .ConfigureAwait(false);
+    }
+    finally
+    {
+      // Drains any pending queue (a no-op after the terminal flush) — the sink is
+      // IAsyncDisposable and its lifetime is this begin-run's.
+      await transcriptSink.DisposeAsync().ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>Everything the run phases need, resolved before the sink exists.</summary>
+  private sealed record RunSetup(
+      ModelConfig Config, int Window, Conversation Conversation, IToolRegistry Tools,
+      string? Anchor, string Prompt);
+
+  /// <summary>Run phases after the transcript sink exists.</summary>
+  private async Task<AgentRunOutcome> RunFromSinkAsync(AgentRecord child, RunSetup setup,
+      ChildTranscriptStore transcriptSink, CancellationToken ct)
+  {
+    Agent agent = BuildAgent(child, setup.Config, setup.Conversation, setup.Tools, setup.Window, transcriptSink);
+    PublishStarted(child);
+
+    (string? report, AgentFailureReason? failureReason) =
+        await RunScopedAsync(child, agent, setup.Prompt, setup.Anchor, ct).ConfigureAwait(false);
+    if (failureReason is not null)
+    {
+      return await FailedOutcomeAsync(child, transcriptSink, failureReason.Value).ConfigureAwait(false);
+    }
+
+    string finalReport = report!;
+    await CoordinatorPersistAsync(agent, transcriptSink).ConfigureAwait(false);
+    (finalReport, AgentRunOutcome? failed) = await SchemaRepairAsync(child, agent, finalReport, ct).ConfigureAwait(false);
+    if (failed is not null)
+    {
+      return failed;
+    }
+
+    finalReport = await AnnotateCleanlinessAsync(child, finalReport, ct).ConfigureAwait(false);
+    return await CompletedOutcomeAsync(child, finalReport).ConfigureAwait(false);
+  }
+
+  /// <summary>Post-run transcript coordination: a context-shrunk turn replaces the
+  ///     whole transcript (never appends a sliced delta — the sink's ReplaceAsync also
+  ///     resets its flushed baseline); otherwise the incremental persistence landed
+  ///     every safe-point message and only stragglers are flushed.</summary>
+  private static async Task CoordinatorPersistAsync(Agent agent, ChildTranscriptStore transcriptSink)
+  {
+    if (agent.ShrankThisTurn)
+    {
+      await transcriptSink.ReplaceAsync(agent.Conversation.Messages).ConfigureAwait(false);
+    }
+    else
+    {
+      await transcriptSink.FlushAsync().ConfigureAwait(false);
+    }
   }
 
   /// <summary>Terminal persistence for a settled run: flush the transcript sink's

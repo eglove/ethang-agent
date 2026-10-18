@@ -86,36 +86,49 @@ public sealed class McpTool(IMcpServerAccess access, IMcpGrantScope? grants = nu
 
   private async Task<ToolResult> RunAsync(McpToolInput args, CancellationToken ct)
   {
-    // Dispatch-time grant binding (issue #108): the filtered registry sees the
-    // dispatch tool itself; the RESOLVED id (mcp.server.tool) is re-checked against
-    // the ambient grant scope before anything dispatches. No scope wired = the
-    // full-reach default (root agents, ungranted children, legacy wiring).
-    if (args.Action == McpAction.Call && _grants is { } grantScope)
+    ToolResult? refusal = GrantRefusal(args);
+    if (refusal is not null)
     {
-      string resolvedId = $"mcp.{args.Server}.{args.Tool}";
-      string? refusal = grantScope.RefusalFor(resolvedId);
-      if (refusal is not null)
-      {
-        return new ToolResult(refusal, true);
-      }
+      return refusal;
     }
 
-    McpCommand command = args.Action switch
-    {
-      McpAction.List => new McpCommand.ListServers(),
-      McpAction.Call => new McpCommand.CallTool(args.Server!, args.Tool!, args.Arguments),
-      _ => throw new InvalidOperationException("unreachable: action is a validated enum"),
-    };
+    McpCommand command = CommandOf(args);
     McpOutcome outcome = await _access.ExecuteAsync(command, ct).ConfigureAwait(false);
-    return outcome switch
-    {
-      McpOutcome.Status status => RenderStatus(status, args.Action == McpAction.List ? _grants : null),
-      McpOutcome.Called call => new ToolResult(call.Content, call.IsError),
-      McpOutcome.Failure failure => new ToolResult(
-          $"Error [{failure.Code}]: {failure.Message}", true),
-      _ => throw new InvalidOperationException("unreachable: outcome is a validated record family"),
-    };
+    return Render(outcome, args);
   }
+
+  // Dispatch-time grant binding (issue #108): the filtered registry sees the
+  // dispatch tool itself; the RESOLVED id (mcp.server.tool) is re-checked against
+  // the ambient grant scope before anything dispatches. No scope wired = the
+  // full-reach default (root agents, ungranted children, legacy wiring).
+  private ToolResult? GrantRefusal(McpToolInput args)
+  {
+    if (args.Action != McpAction.Call || _grants is not { } grantScope)
+    {
+      return null;
+    }
+
+    string resolvedId = $"mcp.{args.Server}.{args.Tool}";
+    return grantScope.RefusalFor(resolvedId) is { } refusal
+        ? new ToolResult(refusal, true)
+        : null;
+  }
+
+  private static McpCommand CommandOf(McpToolInput args) => args.Action switch
+  {
+    McpAction.List => new McpCommand.ListServers(),
+    McpAction.Call => new McpCommand.CallTool(args.Server!, args.Tool!, args.Arguments),
+    _ => throw new InvalidOperationException("unreachable: action is a validated enum"),
+  };
+
+  private ToolResult Render(McpOutcome outcome, McpToolInput args) => outcome switch
+  {
+    McpOutcome.Status status => RenderStatus(status, args.Action == McpAction.List ? _grants : null),
+    McpOutcome.Called call => new ToolResult(call.Content, call.IsError),
+    McpOutcome.Failure failure => new ToolResult(
+        $"Error [{failure.Code}]: {failure.Message}", true),
+    _ => throw new InvalidOperationException("unreachable: outcome is a validated record family"),
+  };
 
   private static ToolResult RenderStatus(McpOutcome.Status status, IMcpGrantScope? grants)
   {

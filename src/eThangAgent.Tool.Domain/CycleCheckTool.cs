@@ -71,13 +71,7 @@ public sealed class CycleCheckTool : ITool
     [
             $"[cycle-check: {nodeCount} units, {edges.Count} edges, {entries.Count} entry point{(entries.Count == 1 ? "" : "s")}]",
         ];
-    foreach (DetectedCycle c in r.ReachableCycles)
-    {
-      string chain = string.Join(" -> ", c.Members.Concat([c.Members[0]]));
-      lines.Add(c.Verdict == CycleVerdict.DeadlockRisk
-          ? $"[cycle] {chain} — contains all-eager cycle: deadlock-risk"
-          : $"[cycle] {chain} — all edges deferred: latent (safe until a deferral is removed)");
-    }
+    AddCycleLines(lines, r);
     if (r.ReachableCycles.Count == 0)
     {
       lines.Add("[ok] no dependency cycles");
@@ -89,6 +83,17 @@ public sealed class CycleCheckTool : ITool
     }
 
     return new ToolResult(string.Join("\n", lines), false);
+  }
+
+  private static void AddCycleLines(List<string> lines, CycleReport report)
+  {
+    foreach (DetectedCycle c in report.ReachableCycles)
+    {
+      string chain = string.Join(" -> ", c.Members.Concat([c.Members[0]]));
+      lines.Add(c.Verdict == CycleVerdict.DeadlockRisk
+          ? $"[cycle] {chain} — contains all-eager cycle: deadlock-risk"
+          : $"[cycle] {chain} — all edges deferred: latent (safe until a deferral is removed)");
+    }
   }
 
   private static Result<ParsedArgs> ParseArguments(string jsonArguments)
@@ -149,22 +154,39 @@ public sealed class CycleCheckTool : ITool
   ///     both unit names non-empty.</summary>
   private static DomainError? ParseEdge(JsonElement e, List<DependencyEdge> edges)
   {
-    if (e.ValueKind != JsonValueKind.Object ||
-        !e.TryGetProperty("from", out JsonElement f) || f.ValueKind != JsonValueKind.String ||
-        !e.TryGetProperty("to", out JsonElement t) || t.ValueKind != JsonValueKind.String ||
-        !e.TryGetProperty("deferred", out JsonElement d) || d.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+    if (e.ValueKind != JsonValueKind.Object)
     {
-      return new DomainError("MalformedEdge", "Every edge must be an object with string 'from', string 'to', boolean 'deferred'.");
+      return MalformedEdge();
     }
 
-    if (f.GetString()!.Length == 0 || t.GetString()!.Length == 0)
+    if (!TryReadEdgeEnds(e, out JsonElement from, out JsonElement to, out JsonElement deferred))
+    {
+      return MalformedEdge();
+    }
+
+    string fromName = from.GetString()!;
+    string toName = to.GetString()!;
+    if (fromName.Length == 0 || toName.Length == 0)
     {
       return new DomainError("EmptyUnitName", "Unit names must be non-empty strings.");
     }
 
-    edges.Add(new DependencyEdge(f.GetString()!, t.GetString()!, d.GetBoolean()));
+    edges.Add(new DependencyEdge(fromName, toName, deferred.GetBoolean()));
     return null;
   }
+
+  private static bool TryReadEdgeEnds(JsonElement e, out JsonElement from, out JsonElement to, out JsonElement deferred)
+  {
+    from = default;
+    to = default;
+    deferred = default;
+    return e.TryGetProperty("from", out from) && from.ValueKind == JsonValueKind.String
+        && e.TryGetProperty("to", out to) && to.ValueKind == JsonValueKind.String
+        && e.TryGetProperty("deferred", out deferred) && deferred.ValueKind is JsonValueKind.True or JsonValueKind.False;
+  }
+
+  private static DomainError MalformedEdge() =>
+      new("MalformedEdge", "Every edge must be an object with string 'from', string 'to', boolean 'deferred'.");
 
   private static Result<List<string>> ParseEntries(JsonElement json)
   {

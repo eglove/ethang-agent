@@ -48,30 +48,7 @@ public sealed record OpenRouterManagementToolInput(
     }
 
     JsonElement json = baseParse.Value;
-    if (!json.TryGetProperty("action", out JsonElement actionEl))
-    {
-      return Result.Failure<OpenRouterManagementToolInput>(new DomainError("MissingParameter",
-          "'action' is required: exactly one of generation, generation_content, credits, activity, analytics_meta, analytics_query (case-sensitive)."));
-    }
-
-    if (actionEl.ValueKind != JsonValueKind.String)
-    {
-      return Result.Failure<OpenRouterManagementToolInput>(new DomainError(ToolErrorCodes.InvalidParameterType,
-          $"'action' must be a string, but got {actionEl.ValueKind}."));
-    }
-
-    string actionText = actionEl.GetString()!;
-    Result<OpenRouterManagementAction> action = actionText switch
-    {
-      "generation" => Result.Success(OpenRouterManagementAction.Generation),
-      "generation_content" => Result.Success(OpenRouterManagementAction.GenerationContent),
-      "credits" => Result.Success(OpenRouterManagementAction.Credits),
-      "activity" => Result.Success(OpenRouterManagementAction.Activity),
-      "analytics_meta" => Result.Success(OpenRouterManagementAction.AnalyticsMeta),
-      "analytics_query" => Result.Success(OpenRouterManagementAction.AnalyticsQuery),
-      _ => Result.Failure<OpenRouterManagementAction>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          $"'action' must be exactly one of generation, generation_content, credits, activity, analytics_meta, analytics_query (case-sensitive; got '{actionText}').")),
-    };
+    Result<OpenRouterManagementAction> action = ParseAction(json);
     if (!action.IsSuccess)
     {
       return Result.Failure<OpenRouterManagementToolInput>(action.Error);
@@ -83,141 +60,224 @@ public sealed record OpenRouterManagementToolInput(
       return Result.Failure<OpenRouterManagementToolInput>(unknown);
     }
 
-    string? generationId = null;
-    string? date = null;
-    string? groupBy = null;
-    IReadOnlyList<string>? metrics = null;
-    IReadOnlyList<string>? dimensions = null;
-    string? granularity = null;
-    string? timeRangeStart = null;
-    string? timeRangeEnd = null;
-    int? groupLimit = null;
-    int? limit = null;
-
-    if (action.Value is OpenRouterManagementAction.Generation or OpenRouterManagementAction.GenerationContent)
+    ActionFields fields = new();
+    DomainError? parse = ParseFields(json, action.Value, fields);
+    if (parse is not null)
     {
-      Result<string> idText = ToolArguments.RequireString(json, "id",
-          "For generation and generation_content, 'id' is the generation id (gen-...) from a response's usage metadata.");
-      if (!idText.IsSuccess)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(idText.Error);
-      }
-
-      Result<string> id = GenerationIdSpecification.Validate(idText.Value);
-      if (!id.IsSuccess)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(id.Error);
-      }
-      generationId = id.Value;
+      return Result.Failure<OpenRouterManagementToolInput>(parse);
     }
 
-    if (action.Value is OpenRouterManagementAction.Activity)
-    {
-      Result<string?> dateText = ToolArguments.OptionalString(json, "date");
-      if (!dateText.IsSuccess)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(dateText.Error);
-      }
-      date = dateText.Value;
-      if (date is { } d && !DateOnly.TryParseExact(d, "yyyy-MM-dd", CultureInfo.InvariantCulture,
-          DateTimeStyles.None, out _))
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            $"'date' must be YYYY-MM-DD (got '{d}')."));
-      }
+    OpenRouterManagementToolInput input = new(
+        action.Value, fields.GenerationId, fields.Date, fields.GroupBy, fields.Metrics,
+        fields.Dimensions, fields.Granularity, fields.TimeRangeStart, fields.TimeRangeEnd,
+        fields.GroupLimit, fields.Limit);
+    return Result.Success(input);
+  }
 
-      Result<string?> groupByText = ToolArguments.OptionalString(json, "group_by");
-      if (!groupByText.IsSuccess)
+  // Per-action field harvesting: each action's required and optional keys parse
+  // into the carrier; actions without extra keys parse nothing.
+  private static DomainError? ParseFields(
+      JsonElement json, OpenRouterManagementAction action, ActionFields fields) => action switch
       {
-        return Result.Failure<OpenRouterManagementToolInput>(groupByText.Error);
-      }
-      groupBy = groupByText.Value;
-      if (groupBy is { } g && g is not "workspace")
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            $"'group_by' must be exactly workspace (case-sensitive; got '{g}')."));
-      }
+        OpenRouterManagementAction.Generation or OpenRouterManagementAction.GenerationContent => ParseGenerationId(json, fields),
+        OpenRouterManagementAction.Activity => ParseActivity(json, fields),
+        OpenRouterManagementAction.Credits or OpenRouterManagementAction.AnalyticsMeta => null,
+        OpenRouterManagementAction.AnalyticsQuery => ParseAnalyticsQuery(json, fields),
+        _ => null,
+      };
+
+  // Mutable carrier for the per-action optional fields, populated by the
+  // per-action parsers below.
+  private sealed class ActionFields
+  {
+    public string? GenerationId { get; set; }
+    public string? Date { get; set; }
+    public string? GroupBy { get; set; }
+    public IReadOnlyList<string>? Metrics { get; set; }
+    public IReadOnlyList<string>? Dimensions { get; set; }
+    public string? Granularity { get; set; }
+    public string? TimeRangeStart { get; set; }
+    public string? TimeRangeEnd { get; set; }
+    public int? GroupLimit { get; set; }
+    public int? Limit { get; set; }
+  }
+
+  private static Result<OpenRouterManagementAction> ParseAction(JsonElement json)
+  {
+    if (!json.TryGetProperty("action", out JsonElement actionEl))
+    {
+      return Result.Failure<OpenRouterManagementAction>(new DomainError("MissingParameter",
+          "'action' is required: exactly one of generation, generation_content, credits, activity, analytics_meta, analytics_query (case-sensitive)."));
     }
 
-    if (action.Value is OpenRouterManagementAction.AnalyticsQuery)
+    if (actionEl.ValueKind != JsonValueKind.String)
     {
-      Result<IReadOnlyList<string>?> metricsText = ToolArguments.OptionalStringArray(json, "metrics");
-      if (!metricsText.IsSuccess)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(metricsText.Error);
-      }
-      metrics = metricsText.Value;
-      if (metrics is null or { Count: 0 })
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(new DomainError(ToolErrorCodes.MissingParameter,
-            "Missing required parameter 'metrics'. For analytics_query, 'metrics' is a non-empty array of field names (see analytics_meta)."));
-      }
-
-      Result<IReadOnlyList<string>?> dimensionsText = ToolArguments.OptionalStringArray(json, "dimensions");
-      if (!dimensionsText.IsSuccess)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(dimensionsText.Error);
-      }
-      dimensions = dimensionsText.Value;
-      if (dimensions is { Count: > 2 })
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            $"'dimensions' accepts at most 2 entries (got {dimensions.Count})."));
-      }
-
-      Result<string?> granularityText = ToolArguments.OptionalString(json, "granularity");
-      if (!granularityText.IsSuccess)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(granularityText.Error);
-      }
-      granularity = granularityText.Value;
-
-      Result<string?> startText = ToolArguments.OptionalString(json, "time_range_start");
-      if (!startText.IsSuccess)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(startText.Error);
-      }
-      timeRangeStart = startText.Value;
-      Result<string?> endText = ToolArguments.OptionalString(json, "time_range_end");
-      if (!endText.IsSuccess)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(endText.Error);
-      }
-      timeRangeEnd = endText.Value;
-      DomainError? range = TimeRangeError(timeRangeStart, timeRangeEnd);
-      if (range is not null)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(range);
-      }
-
-      Result<int?> groupLimitText = ToolArguments.OptionalInt(json, "group_limit");
-      if (!groupLimitText.IsSuccess)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(groupLimitText.Error);
-      }
-      groupLimit = groupLimitText.Value;
-      if (groupLimit is { } gl && gl < 1)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            $"'group_limit' must be >= 1 (got {gl})."));
-      }
-
-      Result<int?> limitText = ToolArguments.OptionalInt(json, "limit");
-      if (!limitText.IsSuccess)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(limitText.Error);
-      }
-      limit = limitText.Value;
-      if (limit is { } l && l < 1)
-      {
-        return Result.Failure<OpenRouterManagementToolInput>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            $"'limit' must be >= 1 (got {l})."));
-      }
+      return Result.Failure<OpenRouterManagementAction>(new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'action' must be a string, but got {actionEl.ValueKind}."));
     }
 
-    return Result.Success(new OpenRouterManagementToolInput(
-        action.Value, generationId, date, groupBy, metrics, dimensions, granularity,
-        timeRangeStart, timeRangeEnd, groupLimit, limit));
+    string actionText = actionEl.GetString()!;
+    return actionText switch
+    {
+      "generation" => Result.Success(OpenRouterManagementAction.Generation),
+      "generation_content" => Result.Success(OpenRouterManagementAction.GenerationContent),
+      "credits" => Result.Success(OpenRouterManagementAction.Credits),
+      "activity" => Result.Success(OpenRouterManagementAction.Activity),
+      "analytics_meta" => Result.Success(OpenRouterManagementAction.AnalyticsMeta),
+      "analytics_query" => Result.Success(OpenRouterManagementAction.AnalyticsQuery),
+      _ => Result.Failure<OpenRouterManagementAction>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'action' must be exactly one of generation, generation_content, credits, activity, analytics_meta, analytics_query (case-sensitive; got '{actionText}').")),
+    };
+  }
+
+  private static DomainError? ParseGenerationId(JsonElement json, ActionFields fields)
+  {
+    Result<string> idText = ToolArguments.RequireString(json, "id",
+        "For generation and generation_content, 'id' is the generation id (gen-...) from a response's usage metadata.");
+    if (!idText.IsSuccess)
+    {
+      return idText.Error;
+    }
+
+    Result<string> id = GenerationIdSpecification.Validate(idText.Value);
+    if (!id.IsSuccess)
+    {
+      return id.Error;
+    }
+
+    fields.GenerationId = id.Value;
+    return null;
+  }
+
+  private static DomainError? ParseActivity(JsonElement json, ActionFields fields)
+  {
+    Result<string?> dateText = ToolArguments.OptionalString(json, "date");
+    if (!dateText.IsSuccess)
+    {
+      return dateText.Error;
+    }
+
+    fields.Date = dateText.Value;
+    if (fields.Date is { } d && !DateOnly.TryParseExact(d, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+        DateTimeStyles.None, out _))
+    {
+      return new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'date' must be YYYY-MM-DD (got '{d}').");
+    }
+
+    Result<string?> groupByText = ToolArguments.OptionalString(json, "group_by");
+    if (!groupByText.IsSuccess)
+    {
+      return groupByText.Error;
+    }
+
+    fields.GroupBy = groupByText.Value;
+    return fields.GroupBy is { } g && g is not "workspace"
+        ? new DomainError(ToolErrorCodes.InvalidParameterValue,
+            $"'group_by' must be exactly workspace (case-sensitive; got '{g}').")
+        : null;
+  }
+
+  private static DomainError? ParseAnalyticsQuery(JsonElement json, ActionFields fields)
+  {
+    DomainError? metrics = ParseMetrics(json, fields);
+    if (metrics is not null)
+    {
+      return metrics;
+    }
+
+    DomainError? dimensions = ParseDimensions(json, fields);
+    if (dimensions is not null)
+    {
+      return dimensions;
+    }
+
+    Result<string?> granularityText = ToolArguments.OptionalString(json, "granularity");
+    if (!granularityText.IsSuccess)
+    {
+      return granularityText.Error;
+    }
+
+    fields.Granularity = granularityText.Value;
+    DomainError? range = ParseTimeRange(json, fields);
+    return range ?? ParseLimits(json, fields);
+  }
+
+  private static DomainError? ParseMetrics(JsonElement json, ActionFields fields)
+  {
+    Result<IReadOnlyList<string>?> metricsText = ToolArguments.OptionalStringArray(json, "metrics");
+    if (!metricsText.IsSuccess)
+    {
+      return metricsText.Error;
+    }
+
+    fields.Metrics = metricsText.Value;
+    return fields.Metrics is null or { Count: 0 }
+        ? new DomainError(ToolErrorCodes.MissingParameter,
+            "Missing required parameter 'metrics'. For analytics_query, 'metrics' is a non-empty array of field names (see analytics_meta).")
+        : null;
+  }
+
+  private static DomainError? ParseDimensions(JsonElement json, ActionFields fields)
+  {
+    Result<IReadOnlyList<string>?> dimensionsText = ToolArguments.OptionalStringArray(json, "dimensions");
+    if (!dimensionsText.IsSuccess)
+    {
+      return dimensionsText.Error;
+    }
+
+    fields.Dimensions = dimensionsText.Value;
+    return fields.Dimensions is { Count: > 2 }
+        ? new DomainError(ToolErrorCodes.InvalidParameterValue,
+            $"'dimensions' accepts at most 2 entries (got {fields.Dimensions.Count}).")
+        : null;
+  }
+
+  private static DomainError? ParseTimeRange(JsonElement json, ActionFields fields)
+  {
+    Result<string?> startText = ToolArguments.OptionalString(json, "time_range_start");
+    if (!startText.IsSuccess)
+    {
+      return startText.Error;
+    }
+
+    fields.TimeRangeStart = startText.Value;
+    Result<string?> endText = ToolArguments.OptionalString(json, "time_range_end");
+    if (!endText.IsSuccess)
+    {
+      return endText.Error;
+    }
+
+    fields.TimeRangeEnd = endText.Value;
+    return TimeRangeError(fields.TimeRangeStart, fields.TimeRangeEnd);
+  }
+
+  private static DomainError? ParseLimits(JsonElement json, ActionFields fields)
+  {
+    Result<int?> groupLimitText = ToolArguments.OptionalInt(json, "group_limit");
+    if (!groupLimitText.IsSuccess)
+    {
+      return groupLimitText.Error;
+    }
+
+    fields.GroupLimit = groupLimitText.Value;
+    if (fields.GroupLimit is { } gl && gl < 1)
+    {
+      return new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'group_limit' must be >= 1 (got {gl}).");
+    }
+
+    Result<int?> limitText = ToolArguments.OptionalInt(json, "limit");
+    if (!limitText.IsSuccess)
+    {
+      return limitText.Error;
+    }
+
+    fields.Limit = limitText.Value;
+    return fields.Limit is { } l && l < 1
+        ? new DomainError(ToolErrorCodes.InvalidParameterValue,
+            $"'limit' must be >= 1 (got {l}).")
+        : null;
   }
 
   /// <summary>Time-range rule: both bounds parse as ISO-8601 and start is not after end.</summary>

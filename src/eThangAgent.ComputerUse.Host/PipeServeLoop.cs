@@ -98,32 +98,45 @@ public static class PipeServeLoop
         return; // client hung up
       }
 
-      for (int i = 0; i < read; i++)
+      bool keepGoing = await ScanBufferAsync(server, broker, connectionId, buffer, read, lineBytes).ConfigureAwait(false);
+      if (!keepGoing)
       {
-        if (buffer[i] == (byte)'\n')
+        return;
+      }
+    }
+  }
+
+  /// <summary>Scans one read chunk byte by byte, accumulating into the line buffer and
+  ///     dispatching each completed frame. False means the connection must close
+  ///     (client hung up, fatal framing, or a frame the broker refuses).</summary>
+  private static async Task<bool> ScanBufferAsync(NamedPipeServerStream server, PipeServer broker, int connectionId, byte[] buffer, int read, List<byte> lineBytes)
+  {
+    for (int i = 0; i < read; i++)
+    {
+      if (buffer[i] == (byte)'\n')
+      {
+        // Newline is ASCII 0x0A, never part of a multi-byte UTF-8 sequence or an
+        // unescaped JSON string, so byte splitting is safe; the whole line decodes as UTF-8.
+        string frame = Encoding.UTF8.GetString([.. lineBytes]);
+        lineBytes.Clear();
+        if (!await HandleFrameAsync(server, broker, connectionId, frame).ConfigureAwait(false))
         {
-          // Newline is ASCII 0x0A, never part of a multi-byte UTF-8 sequence or an
-          // unescaped JSON string, so byte splitting is safe; the whole line decodes as UTF-8.
-          string frame = Encoding.UTF8.GetString([.. lineBytes]);
-          lineBytes.Clear();
-          bool keepGoing = await HandleFrameAsync(server, broker, connectionId, frame).ConfigureAwait(false);
-          if (!keepGoing)
-          {
-            return;
-          }
+          return false;
         }
-        else
+      }
+      else
+      {
+        lineBytes.Add(buffer[i]);
+        if (lineBytes.Count > BrokerConfig.MaxFrameBytes)
         {
-          lineBytes.Add(buffer[i]);
-          if (lineBytes.Count > BrokerConfig.MaxFrameBytes)
-          {
-            // A framing violation means the wire is not trustworthy; answer once, then close.
-            await WriteErrorAsync(server, BrokerResponse.Fail("invalid_request", $"frame exceeds the {BrokerConfig.MaxFrameBytes}-byte ceiling; closing.")).ConfigureAwait(false);
-            return;
-          }
+          // A framing violation means the wire is not trustworthy; answer once, then close.
+          await WriteErrorAsync(server, BrokerResponse.Fail("invalid_request", $"frame exceeds the {BrokerConfig.MaxFrameBytes}-byte ceiling; closing.")).ConfigureAwait(false);
+          return false;
         }
       }
     }
+
+    return true;
   }
 
   /// <summary>Dispatches one decoded frame and writes exactly one reply. False means

@@ -73,15 +73,15 @@ public static class DocxBlockWalker
     }
 
     Styles? styles = main.StyleDefinitionsPart?.Styles;
-    if (styles is null)
-    {
-      return id;
-    }
-
-    Style? style = styles.Elements<Style>()
-      .FirstOrDefault(s => string.Equals(s.StyleId?.Value, id, StringComparison.Ordinal));
-    return style?.StyleName?.Val?.Value ?? id;
+    return styles is null ? id : StyleDisplayNameOf(styles, id);
   }
+
+  /// <summary>The style's display name: the named style's name, or the raw id when
+  ///     the id exists but the style does not (never fabricated).</summary>
+  private static string StyleDisplayNameOf(Styles styles, string id)
+    => styles.Elements<Style>()
+      .FirstOrDefault(s => string.Equals(s.StyleId?.Value, id, StringComparison.Ordinal))
+      ?.StyleName?.Val?.Value ?? id;
 
   private static string TextOf(OpenXmlElement container)
     => string.Concat(FragmentsOf(container));

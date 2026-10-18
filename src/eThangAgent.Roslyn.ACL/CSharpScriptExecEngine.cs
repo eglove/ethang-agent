@@ -86,15 +86,7 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     ArgumentNullException.ThrowIfNull(program);
 
     string launchDirectory = Directory.GetCurrentDirectory();
-
-    ScriptGlobals globals = new(
-        _registry(),
-        _workspaceRoot(),
-        Path.GetTempPath(),
-        shellToken: cts.Token,
-        verificationSink: _verificationSink?.Invoke(),
-        execBudget: program.Budget);
-
+    ScriptGlobals globals = BuildGlobals(program, cts);
     Script<object> script = CSharpScript.Create(program.Text, ScriptOpts, typeof(ScriptGlobals));
 
     globals.BeginCapture();
@@ -102,12 +94,9 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     try
     {
       Compilation compilation = script.GetCompilation();
-      ImmutableArray<Diagnostic> compileDiagnostics = compilation.GetDiagnostics(ct);
-      List<Diagnostic> compileErrors = [.. compileDiagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)];
-      if (compileErrors.Count > 0)
+      if (CompileFailure(compilation, ct) is { } compileFailure)
       {
-        return new ExecRunResult(ExecRunStatus.Completed, string.Empty,
-            [.. compileErrors.Select(d => d.GetMessage(CultureInfo.InvariantCulture))]);
+        return compileFailure;
       }
 
       IMethodSymbol? entryPoint = compilation.GetEntryPoint(ct);
@@ -117,119 +106,28 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
       // here is a completed run with empty output.
       if (entryPoint is null)
       {
-        return new ExecRunResult(ExecRunStatus.Completed, string.Empty, [],
-            NestedDispatchCount: globals.NestedDispatchCount,
-            WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+        return NoEntryPointResult(globals, launchDirectory);
       }
 
       MemoryStream pe = new();
-      EmitResult emit = compilation.Emit(pe, options: null, cancellationToken: ct);
-      if (!emit.Success)
+      if (EmitFailure(compilation, pe, globals, launchDirectory, ct) is { } emitFailure)
       {
-        List<string> emitErrors = [.. emit.Diagnostics
-            .Where(d => d.Severity == DiagnosticSeverity.Error)
-            .Select(d => d.GetMessage(CultureInfo.InvariantCulture))];
-        return new ExecRunResult(ExecRunStatus.Completed, string.Empty, emitErrors,
-            NestedDispatchCount: globals.NestedDispatchCount,
-            WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+        return emitFailure;
       }
 
       pe.Position = 0;
       alc = new AssemblyLoadContext("eThangAgent-exec-" + Guid.NewGuid().ToString("N"), isCollectible: true);
       Assembly submissionAssembly = alc.LoadFromStream(pe);
+      Func<object[], Task<object>> executor = BindExecutor(submissionAssembly, entryPoint);
 
-      // Resolve the entry point exactly as ScriptBuilder.GetEntryPointRuntimeMethod
-      // does: the containing type's metadata name (scripts live in the global
-      // namespace) and the method's metadata name.
-      string entryTypeName = entryPoint.ContainingType.MetadataName;
-      Type entryType = submissionAssembly.GetType(entryTypeName, throwOnError: true)!;
-      // Named decision (S3011): the generated entry point is deliberately non-public —
-      // reading it IS the submission contract (Roslyn's own ScriptBuilder does the same).
-#pragma warning disable S3011 // Make sure that this accessibility bypass is safe here
-      MethodInfo entryMethod = entryType.GetMethod(entryPoint.MetadataName,
-          BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static
-          | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-          ?? throw new MissingMethodException(entryTypeName, entryPoint.MetadataName);
-#pragma warning restore S3011 // Make sure that this accessibility bypass is safe here
-      Func<object[], Task<object>> executor =
-          entryMethod.CreateDelegate<Func<object[], Task<object>>>();
-
-      // Scripts are synchronous model-authored code; they may legitimately block
-      // (Tools.Invoke, Shell). Schedule the submission on the worker pool with the
-      // caller's SynchronizationContext shed INSIDE the delegate: Task.Run alone still
-      // FLOWS the ambient SynchronizationContext (.NET 6+), which would make every
-      // internal await post back to a pump that synchronous script code may be
-      // blocking. Shedding inside keeps every continuation on pool threads, never on
-      // a UI pump — while ExecutionContext (AsyncLocal ambient state such as
-      // SubAgentSpawner.RunningChild) still flows: suppressing it broke
-      // agent.spawn parent resolution from inside exec scripts (2026-10-04 incident).
-      Task<object?> scheduled = Task.Run(async () =>
-      {
-        SynchronizationContext? callerContext = SynchronizationContext.Current;
-        SynchronizationContext.SetSynchronizationContext(null);
-        try
-        {
-          // First-submission states layout: index 0 is the globals; the generated
-          // <Factory> stores the submission instance into the next slot itself.
-          object[] submissionStates = new object[2];
-          submissionStates[0] = globals;
-          return (object?)await executor(submissionStates).ConfigureAwait(false);
-        }
-        finally
-        {
-          SynchronizationContext.SetSynchronizationContext(callerContext);
-        }
-      }, cts.Token);
-
-      // The await races the submission against the caller's token: script cancellation
-      // is cooperative (a script stuck in synchronous IL — a tight spin, a blocking
-      // call that ignores the token — cannot be interrupted). Awaiting the submission
-      // directly would wedge the turn busy forever despite a user stop.
-      // Named decision: on a token win the submission task is abandoned, not
-      // awaited — the spinning thread and its script object graph stay alive until
-      // process exit (bounded by the pool, not accumulated per call). The turn
-      // settling is worth more than the leak; the budget path already tolerated it.
-      // Event-driven cancel arm (doctrine R5.1: no timed waits): the token
-      // completes a one-shot task; WhenAny races it against the submission.
-      TaskCompletionSource<object?> cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
-      await using (cts.Token.Register(
-          static state => ((TaskCompletionSource<object?>)state!).TrySetResult(null), cancelled).ConfigureAwait(false))
-      {
-        Task completed = await Task.WhenAny(scheduled, cancelled.Task).ConfigureAwait(false);
-        if (completed != scheduled)
-        {
-          throw new OperationCanceledException(ct);
-        }
-      }
-
-      // scheduled completed here, so this await resumes synchronously. The entry-point
-      // delegate's result IS the script's return value (the <Initialize> task's result —
-      // no ScriptState wrapper exists on this path).
-      object? returnValue = await scheduled.ConfigureAwait(false);
+      object? returnValue = await RunSubmission(executor, globals, cts, ct).ConfigureAwait(false);
 
       // An OCE thrown from synchronous script surfaces (Shell killed by the budget or
       // a user stop) does NOT propagate as a fault: check the token explicitly and
       // classify the outcome rather than trusting the completion shape.
       ct.ThrowIfCancellationRequested();
 
-      List<string> outputLines = [.. globals.OutputLines];
-      if (returnValue is not null and not ScriptGlobals)
-      {
-        string text = returnValue switch
-        {
-          string s => s,
-          _ => System.Text.Json.JsonSerializer.Serialize(returnValue)
-        };
-        if (!string.IsNullOrEmpty(text))
-        {
-          outputLines.Add(text);
-        }
-      }
-
-      string output = string.Join("\n", outputLines);
-      return new ExecRunResult(ExecRunStatus.Completed, output, [],
-          NestedDispatchCount: globals.NestedDispatchCount,
-          WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+      return CompletedResult(returnValue, globals, launchDirectory);
     }
     catch (OperationCanceledException)
     {
@@ -240,34 +138,187 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)
     {
-      string output = string.Join("\n", globals.OutputLines);
-      // No engine-side [ScriptError] tag: ScriptToolException messages already carry
-      // their Error [CODE] tag, and the result formatter owns the "exec error
-      // [ScriptError]:" gutter — tagging here too double-wraps the surface.
-      return new ExecRunResult(ExecRunStatus.Completed, output, [ex.Message],
-          NestedDispatchCount: globals.NestedDispatchCount,
-          WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+      return FaultResult(ex, globals, launchDirectory);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
     finally
     {
       globals.EndCapture();
-      // Unload the collectible context once the run settles: the submission's
-      // assembly, metadata, and IL return to the OS. Unload is asynchronous by
-      // design — it marks the context; collection reclaims it when the last
-      // reference dies (an abandoned spin keeps its context alive, bounded by
-      // the pool — the named decision above).
-      alc?.Unload();
-      // Only a run whose ALC was created needs the drain: a compile-only
-      // failure path (or a no-entry-point script) never allocated one, so
-      // there is nothing unloaded to reclaim.
-      if (alc is not null)
-      {
-        DrainExecGarbage();
-      }
+      UnloadSubmission(alc);
     }
   }
 
+  private ScriptGlobals BuildGlobals(ExecProgram program, CancellationTokenSource cts) =>
+      new(_registry(),
+          _workspaceRoot(),
+          Path.GetTempPath(),
+          shellToken: cts.Token,
+          verificationSink: _verificationSink?.Invoke(),
+          execBudget: program.Budget);
+
+  /// <summary>Compile-diagnostic failure result, or null when the compilation is
+  ///     clean. Validation reads GetDiagnostics only — pure analysis, never
+  ///     Script.Compile() (the leak contract above).</summary>
+  private static ExecRunResult? CompileFailure(Compilation compilation, CancellationToken ct)
+  {
+    ImmutableArray<Diagnostic> compileDiagnostics = compilation.GetDiagnostics(ct);
+    List<Diagnostic> compileErrors = [.. compileDiagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)];
+    return compileErrors.Count == 0
+        ? null
+        : new ExecRunResult(ExecRunStatus.Completed, string.Empty,
+            [.. compileErrors.Select(d => d.GetMessage(CultureInfo.InvariantCulture))]);
+  }
+
+  private ExecRunResult NoEntryPointResult(ScriptGlobals globals, string launchDirectory) =>
+      new(ExecRunStatus.Completed, string.Empty, [],
+          NestedDispatchCount: globals.NestedDispatchCount,
+          WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+
+  /// <summary>Emit-diagnostic failure result, or null when the PE image emitted
+  ///     cleanly. <paramref name="pe"/> is left at position 0 for the caller.</summary>
+  private ExecRunResult? EmitFailure(
+      Compilation compilation, MemoryStream pe, ScriptGlobals globals, string launchDirectory, CancellationToken ct)
+  {
+    EmitResult emit = compilation.Emit(pe, options: null, cancellationToken: ct);
+    if (emit.Success)
+    {
+      return null;
+    }
+
+    List<string> emitErrors = [.. emit.Diagnostics
+        .Where(d => d.Severity == DiagnosticSeverity.Error)
+        .Select(d => d.GetMessage(CultureInfo.InvariantCulture))];
+    return new ExecRunResult(ExecRunStatus.Completed, string.Empty, emitErrors,
+        NestedDispatchCount: globals.NestedDispatchCount,
+        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+  }
+
+  /// <summary>Resolves the entry point exactly as ScriptBuilder.GetEntryPointRuntimeMethod
+  ///     does: the containing type's metadata name (scripts live in the global
+  ///     namespace) and the method's metadata name.</summary>
+  private static Func<object[], Task<object>> BindExecutor(Assembly submissionAssembly, IMethodSymbol entryPoint)
+  {
+    string entryTypeName = entryPoint.ContainingType.MetadataName;
+    Type entryType = submissionAssembly.GetType(entryTypeName, throwOnError: true)!;
+    // Named decision (S3011): the generated entry point is deliberately non-public —
+    // reading it IS the submission contract (Roslyn's own ScriptBuilder does the same).
+#pragma warning disable S3011 // Make sure that this accessibility bypass is safe here
+    MethodInfo entryMethod = entryType.GetMethod(entryPoint.MetadataName,
+        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static
+        | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+        ?? throw new MissingMethodException(entryTypeName, entryPoint.MetadataName);
+#pragma warning restore S3011 // Make sure that this accessibility bypass is safe here
+    return entryMethod.CreateDelegate<Func<object[], Task<object>>>();
+  }
+
+  /// <summary>Runs the compiled submission off the caller's synchronization context
+  ///     and races it against the caller's cancellation token.</summary>
+  private static async Task<object?> RunSubmission(
+      Func<object[], Task<object>> executor, ScriptGlobals globals, CancellationTokenSource cts, CancellationToken ct)
+  {
+    // Scripts are synchronous model-authored code; they may legitimately block
+    // (Tools.Invoke, Shell). Schedule the submission on the worker pool with the
+    // caller's SynchronizationContext shed INSIDE the delegate: Task.Run alone still
+    // FLOWS the ambient SynchronizationContext (.NET 6+), which would make every
+    // internal await post back to a pump that synchronous script code may be
+    // blocking. Shedding inside keeps every continuation on pool threads, never on
+    // a UI pump — while ExecutionContext (AsyncLocal ambient state such as
+    // SubAgentSpawner.RunningChild) still flows: suppressing it broke
+    // agent.spawn parent resolution from inside exec scripts (2026-10-04 incident).
+    Task<object?> scheduled = Task.Run(async () =>
+    {
+      SynchronizationContext? callerContext = SynchronizationContext.Current;
+      SynchronizationContext.SetSynchronizationContext(null);
+      try
+      {
+        // First-submission states layout: index 0 is the globals; the generated
+        // <Factory> stores the submission instance into the next slot itself.
+        object[] submissionStates = new object[2];
+        submissionStates[0] = globals;
+        return (object?)await executor(submissionStates).ConfigureAwait(false);
+      }
+      finally
+      {
+        SynchronizationContext.SetSynchronizationContext(callerContext);
+      }
+    }, cts.Token);
+
+    // The await races the submission against the caller's token: script cancellation
+    // is cooperative (a script stuck in synchronous IL — a tight spin, a blocking
+    // call that ignores the token — cannot be interrupted). Awaiting the submission
+    // directly would wedge the turn busy forever despite a user stop.
+    // Named decision: on a token win the submission task is abandoned, not
+    // awaited — the spinning thread and its script object graph stay alive until
+    // process exit (bounded by the pool, not accumulated per call). The turn
+    // settling is worth more than the leak; the budget path already tolerated it.
+    // Event-driven cancel arm (doctrine R5.1: no timed waits): the token
+    // completes a one-shot task; WhenAny races it against the submission.
+    TaskCompletionSource<object?> cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    await using (cts.Token.Register(
+        static state => ((TaskCompletionSource<object?>)state!).TrySetResult(null), cancelled).ConfigureAwait(false))
+    {
+      Task completed = await Task.WhenAny(scheduled, cancelled.Task).ConfigureAwait(false);
+      if (completed != scheduled)
+      {
+        throw new OperationCanceledException(ct);
+      }
+    }
+
+    // scheduled completed here, so this await resumes synchronously. The entry-point
+    // delegate's result IS the script's return value (the <Initialize> task's result —
+    // no ScriptState wrapper exists on this path).
+    return await scheduled.ConfigureAwait(false);
+  }
+
+  private ExecRunResult CompletedResult(object? returnValue, ScriptGlobals globals, string launchDirectory)
+  {
+    List<string> outputLines = [.. globals.OutputLines];
+    if (returnValue is not null and not ScriptGlobals)
+    {
+      string text = returnValue switch
+      {
+        string s => s,
+        _ => System.Text.Json.JsonSerializer.Serialize(returnValue)
+      };
+      if (!string.IsNullOrEmpty(text))
+      {
+        outputLines.Add(text);
+      }
+    }
+
+    string output = string.Join("\n", outputLines);
+    return new ExecRunResult(ExecRunStatus.Completed, output, [],
+        NestedDispatchCount: globals.NestedDispatchCount,
+        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+  }
+
+  private ExecRunResult FaultResult(Exception ex, ScriptGlobals globals, string launchDirectory)
+  {
+    string output = string.Join("\n", globals.OutputLines);
+    // No engine-side [ScriptError] tag: ScriptToolException messages already carry
+    // their Error [CODE] tag, and the result formatter owns the "exec error
+    // [ScriptError]:" gutter — tagging here too double-wraps the surface.
+    return new ExecRunResult(ExecRunStatus.Completed, output, [ex.Message],
+        NestedDispatchCount: globals.NestedDispatchCount,
+        WorkspaceRoot: _workspaceRoot(), LaunchDirectory: launchDirectory);
+  }
+
+  /// <summary>Unloads the collectible context once the run settles: the submission's
+  ///     assembly, metadata, and IL return to the OS. Unload is asynchronous by
+  ///     design — it marks the context; collection reclaims it when the last
+  ///     reference dies (an abandoned spin keeps its context alive, bounded by
+  ///     the pool — the named decision above).</summary>
+  private static void UnloadSubmission(AssemblyLoadContext? alc)
+  {
+    alc?.Unload();
+    // Only a run whose ALC was created needs the drain: a compile-only
+    // failure path (or a no-entry-point script) never allocated one, so
+    // there is nothing unloaded to reclaim.
+    if (alc is not null)
+    {
+      DrainExecGarbage();
+    }
+  }
   // THE DRAIN CONTRACT (2026-10-17 incident, 10-12 GB working set and ~7M handles
   // over one exec-heavy session): alc.Unload() only MARKS the collectible context
   // for unload — the submission's assembly, metadata, and IL stay alive until the

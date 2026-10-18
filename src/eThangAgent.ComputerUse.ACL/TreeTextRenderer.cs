@@ -120,6 +120,25 @@ public static class TreeTextRenderer
       _ = sb.Append(" = ").Append(Quote(Truncate(Flatten(e.Value))));
     }
 
+    List<string> flags = FlagsOf(e);
+    if (flags.Count > 0)
+    {
+      _ = sb.Append(" (").Append(string.Join(" ", flags)).Append(')');
+    }
+
+    List<string> actions = [.. e.Actions.Where(a => !IsDefaultAction(a))];
+    if (actions.Count > 0)
+    {
+      _ = sb.Append(" actions=[").Append(string.Join(",", actions)).Append(']');
+    }
+
+    _ = sb.Append('\n');
+  }
+
+  /// <summary>The row's state flags in the fixed brief order: pressable, editable,
+  ///     has_menu, focused, selected, default_action, disabled.</summary>
+  private static List<string> FlagsOf(CaptureAppElement e)
+  {
     List<string> flags = [];
     if (e.Pressable)
     {
@@ -156,18 +175,7 @@ public static class TreeTextRenderer
       flags.Add("disabled");
     }
 
-    if (flags.Count > 0)
-    {
-      _ = sb.Append(" (").Append(string.Join(" ", flags)).Append(')');
-    }
-
-    List<string> actions = [.. e.Actions.Where(a => !IsDefaultAction(a))];
-    if (actions.Count > 0)
-    {
-      _ = sb.Append(" actions=[").Append(string.Join(",", actions)).Append(']');
-    }
-
-    _ = sb.Append('\n');
+    return flags;
   }
 
   /// <summary>Trim to the cap by priority score, re-add ancestors of kept rows,
@@ -222,63 +230,32 @@ public static class TreeTextRenderer
   /// <summary>The brief's priority ranking, verbatim: focused +220, selected +240,
   ///     default_action +240, pressable+enabled +200, leaf control +100, editable
   ///     +120, has title +60, has_menu +30, has value +20, containers -120,
-  ///     zero-area -400.</summary>
+  ///     zero-area -400. Weights ride the rule table; Score sums the matching rules.
+  ///     </summary>
+  private static readonly (Func<CaptureAppElement, bool> Matches, int Weight)[] ScoreRules =
+  [
+    (static e => e.Focused, 220),
+    (static e => e.Selected, 240),
+    (static e => IsDefaultAction(e), 240),
+    (static e => e.Pressable && e.Enabled, 200),
+    (static e => IsLeaf(e), 100),
+    (static e => e.Editable, 120),
+    (static e => HasText(e.Title), 60),
+    (static e => e.HasMenu, 30),
+    (static e => HasText(e.Value), 20),
+    (static e => IsContainer(e), -120),
+    (static e => IsZeroArea(e), -400),
+  ];
+
   private static int Score(CaptureAppElement e)
   {
     int score = 0;
-    if (e.Focused)
+    foreach ((Func<CaptureAppElement, bool> matches, int weight) in ScoreRules)
     {
-      score += 220;
-    }
-
-    if (e.Selected)
-    {
-      score += 240;
-    }
-
-    if (IsDefaultAction(e))
-    {
-      score += 240;
-    }
-
-    if (e.Pressable && e.Enabled)
-    {
-      score += 200;
-    }
-
-    if (IsLeaf(e))
-    {
-      score += 100;
-    }
-
-    if (e.Editable)
-    {
-      score += 120;
-    }
-
-    if (HasText(e.Title))
-    {
-      score += 60;
-    }
-
-    if (e.HasMenu)
-    {
-      score += 30;
-    }
-
-    if (HasText(e.Value))
-    {
-      score += 20;
-    }
-
-    if (IsContainer(e))
-    {
-      score -= 120;
-    }
-
-    if (IsZeroArea(e))
-    {
-      score -= 400;
+      if (matches(e))
+      {
+        score += weight;
+      }
     }
 
     return score;

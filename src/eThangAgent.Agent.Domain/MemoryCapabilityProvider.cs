@@ -84,55 +84,48 @@ public sealed class MemoryCapabilityProvider(IMemoryRecallQuery recallQuery, IMe
       return Fail(new DomainError(InvalidArgument, $"unknown argument '{unknown}'."));
     }
 
-    Result<string?> query = OptionalString(root.Value, "query");
-    if (!query.IsSuccess)
+    // OptionalString/OptionalNumber already produce InvalidArgument errors describing
+    // the key: the sequential validations collapse to one args-or-error helper.
+    (RecallArgs args, DomainError? argsError) = ReadRecallArgs(root.Value);
+    if (argsError is { } invalid)
     {
-      return Fail(query.Error);
+      return Fail(invalid);
     }
-
-    Result<string?> queryMode = OptionalString(root.Value, "queryMode");
-    if (!queryMode.IsSuccess)
-    {
-      return Fail(queryMode.Error);
-    }
-
-    Result<string?> scope = OptionalString(root.Value, Scope);
-    if (!scope.IsSuccess)
-    {
-      return Fail(scope.Error);
-    }
-
-    Result<string?> branches = OptionalString(root.Value, Branches);
-    if (!branches.IsSuccess)
-    {
-      return Fail(branches.Error);
-    }
-
-    Result<string?> role = OptionalString(root.Value, "role");
-    if (!role.IsSuccess)
-    {
-      return Fail(role.Error);
-    }
-
-    Result<int> page = OptionalNumber(root.Value, "page", fallback: 1);
-    if (!page.IsSuccess)
-    {
-      return Fail(page.Error);
-    }
-
-    Result<int> pageSize = OptionalNumber(root.Value, "pageSize", fallback: 25);
-    if (!pageSize.IsSuccess)
-    {
-      return Fail(pageSize.Error);
-    }
-
     Result<RecallPage> recalled = await _recallQuery.Execute(
-        new RecallRequest(query.Value, queryMode.ValueOrNull ?? "literal", scope.ValueOrNull ?? "global",
-            branches.ValueOrNull ?? "active", role.Value, page.Value, pageSize.Value),
+        new RecallRequest(args.Query, args.QueryMode ?? "literal", args.ScopeText ?? "global",
+            args.BranchesText ?? "active", args.Role, args.Page, args.PageSize),
         ct).ConfigureAwait(false);
     return recalled.IsSuccess
         ? CapabilityInvocationResult.Ok(RenderPage(recalled.Value))
         : Fail(recalled.Error);
+  }
+
+  private sealed record RecallArgs(
+      string? Query, string? QueryMode, string? ScopeText, string? BranchesText, string? Role, int Page, int PageSize);
+
+  /// <summary>Reads the recall arguments' seven optional values in the original
+  ///     validation order: the args on success, the FIRST failure's error otherwise.</summary>
+  private static (RecallArgs Args, DomainError? Error) ReadRecallArgs(JsonElement root)
+  {
+    Result<string?> query = OptionalString(root, "query");
+    Result<string?> queryMode = OptionalString(root, "queryMode");
+    Result<string?> scope = OptionalString(root, Scope);
+    Result<string?> branches = OptionalString(root, Branches);
+    Result<string?> role = OptionalString(root, "role");
+    Result<int> page = OptionalNumber(root, "page", fallback: 1);
+    Result<int> pageSize = OptionalNumber(root, "pageSize", fallback: 25);
+
+    // First failure wins, in the original order (each Result carries ITS error; the
+    // per-result Error property is the failure's DomainError, or null).
+    DomainError?[] errors = [query.Error, queryMode.Error, scope.Error, branches.Error, role.Error, page.Error, pageSize.Error];
+    DomainError? failure = errors.FirstOrDefault(e => e is not null);
+    if (failure is not null)
+    {
+      return (new RecallArgs(null, null, null, null, null, 1, 25), failure);
+    }
+
+    return (new RecallArgs(query.Value, queryMode.Value, scope.Value, branches.Value,
+        role.Value, page.Value, pageSize.Value), null);
   }
 
   private async Task<CapabilityInvocationResult> Sessions(string json, CancellationToken ct)

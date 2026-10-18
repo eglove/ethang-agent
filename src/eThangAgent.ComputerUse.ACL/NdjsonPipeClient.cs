@@ -78,18 +78,33 @@ public sealed class NdjsonPipeClient : IAsyncDisposable
 
   private async Task HandshakeAsync(string token, int protocolVersion, string platform, CancellationToken ct)
   {
-    // authenticate: fixed id 0, expects {ok: true}.
+    await AuthenticateAsync(token, ct).ConfigureAwait(false);
+    await SayHelloAsync(protocolVersion, platform, ct).ConfigureAwait(false);
+  }
+
+  /// <summary>authenticate step: fixed id 0, expects {ok: true}. A wire error or any
+  ///     non-ok result is an auth failure - never retried.</summary>
+  private async Task AuthenticateAsync(string token, CancellationToken ct)
+  {
     BrokerRequest auth = BrokerRequest.Authenticate(token);
     BrokerReply authReply = await ExchangeAsync(auth, ct).ConfigureAwait(false);
-    if (authReply.Error is not null || authReply.Result?.ValueKind != JsonValueKind.Object
+    if (authReply.Error is not null)
+    {
+      throw new BrokerAuthException(authReply.Error.Message);
+    }
+
+    if (authReply.Result?.ValueKind != JsonValueKind.Object
         || !authReply.Result.Value.TryGetProperty("ok", out JsonElement okEl)
         || okEl.ValueKind != JsonValueKind.True)
     {
-      string message = authReply.Error is null ? "authenticate returned ok != true." : authReply.Error.Message;
-      throw new BrokerAuthException(message);
+      throw new BrokerAuthException("authenticate returned ok != true.");
     }
+  }
 
-    // hello: protocol version exchange; mismatch is fatal and never retried.
+  /// <summary>hello step: protocol version exchange; mismatch is fatal and never retried.
+  ///     Fail closed: BOTH keys are mandatory. A hello without them is a version mismatch.</summary>
+  private async Task SayHelloAsync(int protocolVersion, string platform, CancellationToken ct)
+  {
     BrokerRequest hello = new(1, "hello", JsonSerializer.SerializeToElement(new HelloParams(protocolVersion, platform), BrokerRequest.WireOptions));
     BrokerReply helloReply = await ExchangeAsync(hello, ct).ConfigureAwait(false);
     if (helloReply.Error is not null)
@@ -97,14 +112,19 @@ public sealed class NdjsonPipeClient : IAsyncDisposable
       throw new BrokerVersionException(helloReply.Error.Message);
     }
 
-    JsonElement? result = helloReply.Result;
-    if (result?.ValueKind != JsonValueKind.Object)
+    if (helloReply.Result?.ValueKind != JsonValueKind.Object)
     {
       throw new BrokerVersionException("hello returned no result object.");
     }
 
-    // Fail closed: BOTH keys are mandatory. A hello without them is a version mismatch.
-    if (!result.Value.TryGetProperty("protocol", out JsonElement protoEl)
+    EnsureProtocolVersion(helloReply.Result.Value, protocolVersion);
+    EnsurePlatform(helloReply.Result.Value, platform);
+  }
+
+  /// <summary>The hello result must carry a numeric protocol key matching the client's.</summary>
+  private static void EnsureProtocolVersion(JsonElement result, int protocolVersion)
+  {
+    if (!result.TryGetProperty("protocol", out JsonElement protoEl)
         || protoEl.ValueKind != JsonValueKind.Number || !protoEl.TryGetInt32(out int brokerVersion))
     {
       throw new BrokerVersionException("hello result is missing the protocol version.");
@@ -114,8 +134,13 @@ public sealed class NdjsonPipeClient : IAsyncDisposable
     {
       throw new BrokerVersionException($"protocol version mismatch: client {protocolVersion}, broker {brokerVersion}.");
     }
+  }
 
-    if (!result.Value.TryGetProperty("platform", out JsonElement platEl) || platEl.ValueKind != JsonValueKind.String)
+  /// <summary>The hello result must carry a string platform key matching the client's
+  ///     (case-insensitive; null means mismatch).</summary>
+  private static void EnsurePlatform(JsonElement result, string platform)
+  {
+    if (!result.TryGetProperty("platform", out JsonElement platEl) || platEl.ValueKind != JsonValueKind.String)
     {
       throw new BrokerVersionException("hello result is missing the platform.");
     }

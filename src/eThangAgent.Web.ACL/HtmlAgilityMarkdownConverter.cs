@@ -53,100 +53,104 @@ public sealed class HtmlAgilityMarkdownConverter : IHtmlToMarkdown
     }
   }
 
+  /// <summary>Per-node-kind renderers for the closed block vocabulary; any name
+  ///     without an entry renders its children (containers and unknown elements
+  ///     behave identically).</summary>
+  private static readonly Dictionary<string, Action<HtmlNode, Uri, StringBuilder>> NodeRenderers =
+      new(StringComparer.Ordinal)
+      {
+        ["h1"] = (node, baseUrl, md) => RenderHeading(node, 1, baseUrl, md),
+        ["h2"] = (node, baseUrl, md) => RenderHeading(node, 2, baseUrl, md),
+        ["h3"] = (node, baseUrl, md) => RenderHeading(node, 3, baseUrl, md),
+        ["h4"] = (node, baseUrl, md) => RenderHeading(node, 4, baseUrl, md),
+        ["h5"] = (node, baseUrl, md) => RenderHeading(node, 5, baseUrl, md),
+        ["h6"] = (node, baseUrl, md) => RenderHeading(node, 6, baseUrl, md),
+        ["p"] = (node, baseUrl, md) => _ = md.Append(Inline(node, baseUrl)).Append("\n\n"),
+        ["ul"] = (node, baseUrl, md) => RenderList(node, "-", baseUrl, md),
+        ["ol"] = (node, baseUrl, md) => RenderList(node, "1.", baseUrl, md),
+        ["pre"] = (node, baseUrl, md) => RenderPre(node, md),
+        ["table"] = RenderTable,
+        ["a"] = (node, baseUrl, md) => _ = md.Append(RenderAnchor(node, baseUrl)).Append("\n\n"),
+        ["img"] = (node, baseUrl, md) => _ = md.Append(RenderImage(node, baseUrl)).Append("\n\n"),
+        ["blockquote"] = RenderBlockquote,
+        ["hr"] = (node, baseUrl, md) => _ = md.Append("---\n\n"),
+        ["#text"] = (node, baseUrl, md) => RenderStrayText(node, md),
+      };
+
   private static void RenderNode(HtmlNode node, Uri baseUrl, StringBuilder md)
   {
-    switch (node.Name)
+    if (NodeRenderers.TryGetValue(node.Name, out Action<HtmlNode, Uri, StringBuilder>? render))
     {
-      case "h1" or "h2" or "h3" or "h4" or "h5" or "h6":
-        _ = md.Append(new string('#', node.Name[1] - '0')).Append(' ').Append(Inline(node, baseUrl)).Append("\n\n");
-        break;
-      case "p":
-        _ = md.Append(Inline(node, baseUrl)).Append("\n\n");
-        break;
-      case "ul":
-        RenderList(node, "-", baseUrl, md);
-        break;
-      case "ol":
-        RenderList(node, "1.", baseUrl, md);
-        break;
-      case "pre":
-        RenderPre(node, md);
-        break;
-      case "table":
-        RenderTable(node, baseUrl, md);
-        break;
-      case "a":
-        _ = md.Append(RenderAnchor(node, baseUrl)).Append("\n\n");
-        break;
-      case "img":
-        _ = md.Append(RenderImage(node, baseUrl)).Append("\n\n");
-        break;
-      case "blockquote":
-        _ = md.Append("> ").Append(Inline(node, baseUrl).Replace("\n", "\n> ", StringComparison.Ordinal)).Append("\n\n");
-        break;
-      case "hr":
-        _ = md.Append("---\n\n");
-        break;
-      case "div" or "article" or "section" or "main" or "header" or "figure" or "figcaption":
-      case "span" or "center" or "font" or "body":
-        RenderChildren(node, baseUrl, md);
-        break;
-      case "#text":
-        string stray = Collapse(node.InnerText);
-        if (stray.Length > 0)
-        {
-          _ = md.Append(stray).Append("\n\n");
-        }
-        break;
-      default:
-        RenderChildren(node, baseUrl, md);
-        break;
+      render(node, baseUrl, md);
+      return;
+    }
+
+    RenderChildren(node, baseUrl, md);
+  }
+
+  private static void RenderHeading(HtmlNode node, int level, Uri baseUrl, StringBuilder md)
+      => _ = md.Append(new string('#', level)).Append(' ').Append(Inline(node, baseUrl)).Append("\n\n");
+
+  private static void RenderBlockquote(HtmlNode node, Uri baseUrl, StringBuilder md)
+      => _ = md.Append("> ").Append(Inline(node, baseUrl).Replace("\n", "\n> ", StringComparison.Ordinal)).Append("\n\n");
+
+  private static void RenderStrayText(HtmlNode node, StringBuilder md)
+  {
+    string stray = Collapse(node.InnerText);
+    if (stray.Length > 0)
+    {
+      _ = md.Append(stray).Append("\n\n");
     }
   }
 
   private static string Inline(HtmlNode node, Uri baseUrl) => Collapse(InlineChildren(node, baseUrl));
+
+  /// <summary>Per-node-kind inline renderers; any name without an entry recurses
+  ///     into its children (unknown containers behave identically).</summary>
+  private static readonly Dictionary<string, Action<HtmlNode, Uri, StringBuilder>> InlineRenderers =
+      new(StringComparer.Ordinal)
+      {
+        ["b"] = (node, baseUrl, sb) => _ = sb.Append("**").Append(Inline(node, baseUrl)).Append("**"),
+        ["strong"] = (node, baseUrl, sb) => _ = sb.Append("**").Append(Inline(node, baseUrl)).Append("**"),
+        ["i"] = (node, baseUrl, sb) => _ = sb.Append('*').Append(Inline(node, baseUrl)).Append('*'),
+        ["em"] = (node, baseUrl, sb) => _ = sb.Append('*').Append(Inline(node, baseUrl)).Append('*'),
+        ["code"] = (node, baseUrl, sb) => _ = sb.Append('`').Append(Inline(node, baseUrl)).Append('`'),
+        ["a"] = (node, baseUrl, sb) => _ = sb.Append(InlineAnchor(node, baseUrl)),
+        ["img"] = (node, baseUrl, sb) => _ = sb.Append(InlineImage(node, baseUrl)),
+        ["br"] = (node, baseUrl, sb) => _ = sb.Append(' '),
+        ["#text"] = (node, baseUrl, sb) => _ = sb.Append(HtmlEntity.DeEntitize(node.InnerText)),
+      };
 
   private static string InlineChildren(HtmlNode node, Uri baseUrl)
   {
     StringBuilder sb = new();
     foreach (HtmlNode child in node.ChildNodes)
     {
-      switch (child.Name)
+      if (InlineRenderers.TryGetValue(child.Name, out Action<HtmlNode, Uri, StringBuilder>? render))
       {
-        case "b" or "strong":
-          _ = sb.Append("**").Append(Inline(child, baseUrl)).Append("**");
-          break;
-        case "i" or "em":
-          _ = sb.Append('*').Append(Inline(child, baseUrl)).Append('*');
-          break;
-        case "code":
-          _ = sb.Append('`').Append(Inline(child, baseUrl)).Append('`');
-          break;
-        case "a":
-          string href = child.GetAttributeValue("href", string.Empty);
-          string text = Inline(child, baseUrl);
-          _ = sb.Append(href.Length > 0
-              ? $"[{text}]({Absolute(href, baseUrl)})"
-              : text);
-          break;
-        case "img":
-          string src = child.GetAttributeValue("src", string.Empty);
-          string alt = child.GetAttributeValue("alt", string.Empty);
-          _ = sb.Append(src.Length > 0 ? $"![{alt}]({Absolute(src, baseUrl)})" : alt);
-          break;
-        case "br":
-          _ = sb.Append(' ');
-          break;
-        case "#text":
-          _ = sb.Append(HtmlEntity.DeEntitize(child.InnerText));
-          break;
-        default:
-          _ = sb.Append(InlineChildren(child, baseUrl));
-          break;
+        render(child, baseUrl, sb);
+      }
+      else
+      {
+        _ = sb.Append(InlineChildren(child, baseUrl));
       }
     }
 
     return sb.ToString();
+  }
+
+  private static string InlineAnchor(HtmlNode anchor, Uri baseUrl)
+  {
+    string href = anchor.GetAttributeValue("href", string.Empty);
+    string text = Inline(anchor, baseUrl);
+    return href.Length > 0 ? $"[{text}]({Absolute(href, baseUrl)})" : text;
+  }
+
+  private static string InlineImage(HtmlNode image, Uri baseUrl)
+  {
+    string src = image.GetAttributeValue("src", string.Empty);
+    string alt = image.GetAttributeValue("alt", string.Empty);
+    return src.Length > 0 ? $"![{alt}]({Absolute(src, baseUrl)})" : alt;
   }
 
   private static void RenderList(HtmlNode list, string marker, Uri baseUrl, StringBuilder md, int depth = 0)

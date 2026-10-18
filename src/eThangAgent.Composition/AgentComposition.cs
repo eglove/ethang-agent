@@ -409,7 +409,7 @@ public static class AgentComposition
         .AddSingleton(sp =>
         {
           SpawnGraphHandler graph = sp.GetRequiredService<SpawnGraphHandler>();
-          return new AgentCapabilityProvider(
+          return new AgentCapabilityProvider(new AgentProviderServices(
                   sp.GetRequiredService<IAgentSpawnCommand>(),
                   sp.GetRequiredService<IAgentQueries>(),
                   // The parent-context fallback (root spawning a child: RunningChild is
@@ -422,21 +422,21 @@ public static class AgentComposition
                   () => SubAgentSpawner.RunningChild ?? RootParentRecord(sp),
                   sp.GetRequiredService<IAgentRuntime>(),
                   sp.GetRequiredService<AgentLinkRegistry>(),
-                  locator: sp.GetRequiredService<ProcessMailboxLocator>(),
-                  eventsFor: id => sp.GetRequiredService<ProcessMailboxLocator>().EventsFor(id),
-                  wakeSource: sp.GetRequiredService<WaitWakeHub>(),
-                  clock: TimeProvider.System,
+                  Locator: sp.GetRequiredService<ProcessMailboxLocator>(),
+                  EventsFor: id => sp.GetRequiredService<ProcessMailboxLocator>().EventsFor(id),
+                  WakeSource: sp.GetRequiredService<WaitWakeHub>(),
+                  Clock: TimeProvider.System,
                   // Fail-fast join: agent.fanout's advertised contract - failed STARTS
                   // (DepthExceeded, InvalidSpawnRequest, ...) fail the join immediately
                   // and surface under their own error code.
-                  fanout: async (parent, children, ct) =>
+                  Fanout: async (parent, children, ct) =>
                   {
                     Result<SpawnGraphOutcome> joined = await graph.ExecuteAsync(parent,
                         new SpawnGraphRequest(Label: "", Children: children, Join: new JoinPolicy(true)), ct).ConfigureAwait(false);
                     return joined.IsSuccess
                         ? joined.Value.Render()
                         : "Error [" + joined.Error.Code + "]: " + joined.Error.Message;
-                  });
+                  }));
         })
         .AddSingleton(_ => EvidenceOptions.Default)
         .AddSingleton<IEvidenceRunner, CSharpEvidenceRunner>()

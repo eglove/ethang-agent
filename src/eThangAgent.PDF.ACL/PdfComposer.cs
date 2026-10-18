@@ -127,51 +127,74 @@ public static class PdfComposer
     switch (block)
     {
       case PdfMarkdownHeading heading:
-        column.Item().PaddingTop(heading.Level == 1 ? 0 : 8).Text(text =>
-        {
-          TextSpanDescriptor span = text.Span(heading.Text);
-          _ = heading.Level switch
-          {
-            1 => span.FontSize(22).Bold(),
-            2 => span.FontSize(17).Bold(),
-            _ => span.FontSize(14).Bold(),
-          };
-        });
+        RenderHeadingBlock(column, heading);
         break;
       case PdfMarkdownListItem item:
-        column.Item().PaddingTop(2).Row(row =>
-        {
-          _ = row.ConstantItem(20).Text(item.Ordered ? $"{item.Number}." : "\u2022");
-          row.RelativeItem().Text(text => RenderSpans(text, [new PdfMarkdownSpan(item.Text, false, false)]));
-        });
+        RenderListItemBlock(column, item);
         break;
       case PdfMarkdownTable table:
-        column.Item().PaddingTop(4).Table(t =>
-        {
-          t.ColumnsDefinition(columns =>
-          {
-            int cols = table.Rows.Count > 0 ? table.Rows[0].Count : 0;
-            for (int c = 0; c < cols; c++)
-            {
-              columns.RelativeColumn();
-            }
-          });
-          foreach (IReadOnlyList<string> cells in table.Rows)
-          {
-            foreach (string cell in cells)
-            {
-              _ = t.Cell().BorderBottom(1).BorderColor(Colors.Grey.Lighten2).Padding(3).Text(cell);
-            }
-          }
-        });
+        RenderTableBlock(column, table);
         break;
       case PdfMarkdownParagraph paragraph:
-        column.Item().PaddingTop(2).Text(text => RenderSpans(text, paragraph.Spans));
+        RenderParagraphBlock(column, paragraph);
         break;
       default:
         break;
     }
   }
+
+  private static void RenderHeadingBlock(ColumnDescriptor column, PdfMarkdownHeading heading)
+  {
+    column.Item().PaddingTop(heading.Level == 1 ? 0 : 8).Text(text =>
+    {
+      TextSpanDescriptor span = text.Span(heading.Text);
+      _ = heading.Level switch
+      {
+        1 => span.FontSize(22).Bold(),
+        2 => span.FontSize(17).Bold(),
+        _ => span.FontSize(14).Bold(),
+      };
+    });
+  }
+
+  private static void RenderListItemBlock(ColumnDescriptor column, PdfMarkdownListItem item)
+  {
+    column.Item().PaddingTop(2).Row(row =>
+    {
+      _ = row.ConstantItem(20).Text(item.Ordered ? $"{item.Number}." : "\u2022");
+      row.RelativeItem().Text(text => RenderSpans(text, [new PdfMarkdownSpan(item.Text, false, false)]));
+    });
+  }
+
+  private static void RenderTableBlock(ColumnDescriptor column, PdfMarkdownTable table)
+  {
+    column.Item().PaddingTop(4).Table(t =>
+    {
+      t.ColumnsDefinition(columns =>
+      {
+        int cols = table.Rows.Count > 0 ? table.Rows[0].Count : 0;
+        for (int c = 0; c < cols; c++)
+        {
+          columns.RelativeColumn();
+        }
+      });
+      foreach (IReadOnlyList<string> cells in table.Rows)
+      {
+        RenderTableRow(t, cells);
+      }
+    });
+  }
+
+  private static void RenderTableRow(TableDescriptor table, IReadOnlyList<string> cells)
+  {
+    foreach (string cell in cells)
+    {
+      _ = table.Cell().BorderBottom(1).BorderColor(Colors.Grey.Lighten2).Padding(3).Text(cell);
+    }
+  }
+
+  private static void RenderParagraphBlock(ColumnDescriptor column, PdfMarkdownParagraph paragraph)
+      => column.Item().PaddingTop(2).Text(text => RenderSpans(text, paragraph.Spans));
 
   private static void RenderSpans(TextDescriptor text, IReadOnlyList<PdfMarkdownSpan> spans)
   {
@@ -230,45 +253,9 @@ public static class PdfComposer
       FlushTable(tableLines, tableStart, blocks);
       tableLines = null;
 
-      if (trimmed.StartsWith("### ", StringComparison.Ordinal))
+      if (TryParseHeading(trimmed, i, paragraphLines, blocks) ||
+          TryParseListItem(trimmed, paragraphLines, blocks))
       {
-        FlushParagraph(paragraphLines, blocks);
-        blocks.Add(new PdfMarkdownHeading(3, trimmed[4..]));
-        continue;
-      }
-
-      if (trimmed.StartsWith("## ", StringComparison.Ordinal))
-      {
-        FlushParagraph(paragraphLines, blocks);
-        blocks.Add(new PdfMarkdownHeading(2, trimmed[3..]));
-        continue;
-      }
-
-      if (trimmed.StartsWith("# ", StringComparison.Ordinal))
-      {
-        FlushParagraph(paragraphLines, blocks);
-        blocks.Add(new PdfMarkdownHeading(1, trimmed[2..]));
-        continue;
-      }
-
-      if (trimmed.StartsWith('#'))
-      {
-        throw new PdfMarkdownInvalidException(i + 1);
-      }
-
-      if (trimmed.StartsWith("- ", StringComparison.Ordinal))
-      {
-        FlushParagraph(paragraphLines, blocks);
-        blocks.Add(new PdfMarkdownListItem(false, 0, trimmed[2..]));
-        continue;
-      }
-
-      int dot = trimmed.IndexOf(". ", StringComparison.Ordinal);
-      if (dot > 0 && trimmed[..dot].All(char.IsAsciiDigit)
-          && int.TryParse(trimmed[..dot], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int number))
-      {
-        FlushParagraph(paragraphLines, blocks);
-        blocks.Add(new PdfMarkdownListItem(true, number, trimmed[(dot + 2)..]));
         continue;
       }
 
@@ -278,6 +265,66 @@ public static class PdfComposer
     FlushParagraph(paragraphLines, blocks);
     FlushTable(tableLines, tableStart, blocks);
     return blocks;
+  }
+
+  /// <summary>Headings: '# ', '## ', '### ' (flushing any pending paragraph); a bare
+  ///     '#' line is a subset violation naming its line. False when the line is not a
+  ///     heading candidate.</summary>
+  private static bool TryParseHeading(string trimmed, int lineIndex, List<string> paragraphLines, List<PdfMarkdownBlock> blocks)
+  {
+    if (HeadingLevel(trimmed) is not { } level)
+    {
+      return RejectBareHash(trimmed, lineIndex);
+    }
+
+    FlushParagraph(paragraphLines, blocks);
+    blocks.Add(new PdfMarkdownHeading(level, trimmed[(level + 1)..]));
+    return true;
+  }
+
+  /// <summary>A '#' line that opens no heading form is a subset violation; any other
+  ///     non-heading line simply is not a heading.</summary>
+  private static bool RejectBareHash(string trimmed, int lineIndex)
+      => trimmed.StartsWith('#') ? throw new PdfMarkdownInvalidException(lineIndex + 1) : false;
+
+  /// <summary>The heading level the line opens ('# ', '## ', '### '), or null.</summary>
+  private static int? HeadingLevel(string trimmed)
+      => trimmed switch
+      {
+        _ when trimmed.StartsWith("### ", StringComparison.Ordinal) => 3,
+        _ when trimmed.StartsWith("## ", StringComparison.Ordinal) => 2,
+        _ when trimmed.StartsWith("# ", StringComparison.Ordinal) => 1,
+        _ => null,
+      };
+
+  /// <summary>List items: '- ' bullets and 'N. ' ordered entries (flushing any pending
+  ///     paragraph); false when the line is neither.</summary>
+  private static bool TryParseListItem(string trimmed, List<string> paragraphLines, List<PdfMarkdownBlock> blocks)
+  {
+    if (trimmed.StartsWith("- ", StringComparison.Ordinal))
+    {
+      FlushParagraph(paragraphLines, blocks);
+      blocks.Add(new PdfMarkdownListItem(false, 0, trimmed[2..]));
+      return true;
+    }
+
+    return TryParseOrderedItem(trimmed, paragraphLines, blocks);
+  }
+
+  /// <summary>An ordered entry: digits, then '. ' — the number must parse within int
+  ///     range; false when the line is not an ordered entry.</summary>
+  private static bool TryParseOrderedItem(string trimmed, List<string> paragraphLines, List<PdfMarkdownBlock> blocks)
+  {
+    int dot = trimmed.IndexOf(". ", StringComparison.Ordinal);
+    if (dot > 0 && trimmed[..dot].All(char.IsAsciiDigit)
+        && int.TryParse(trimmed[..dot], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int number))
+    {
+      FlushParagraph(paragraphLines, blocks);
+      blocks.Add(new PdfMarkdownListItem(true, number, trimmed[(dot + 2)..]));
+      return true;
+    }
+
+    return false;
   }
 
   /// <summary>A '|---|' separator row: every cell is only dashes/colons/spaces.</summary>
@@ -351,31 +398,40 @@ public static class PdfComposer
         spans.Add(new PdfMarkdownSpan(text[at..next], false, false));
       }
 
-      if (next == bold)
-      {
-        int close = text.IndexOf("**", bold + 2, StringComparison.Ordinal);
-        if (close < 0)
-        {
-          throw new PdfMarkdownInvalidException(0);
-        }
-
-        spans.Add(new PdfMarkdownSpan(text[(bold + 2)..close], true, false));
-        at = close + 2;
-      }
-      else
-      {
-        int close = text.IndexOf('*', italic + 1);
-        if (close < 0)
-        {
-          throw new PdfMarkdownInvalidException(0);
-        }
-
-        spans.Add(new PdfMarkdownSpan(text[(italic + 1)..close], false, true));
-        at = close + 1;
-      }
+      at = next == bold
+          ? TakeBoldSpan(text, bold, spans)
+          : TakeItalicSpan(text, italic, spans);
     }
 
     return spans;
+  }
+
+  /// <summary>Consumes one **bold** span from <paramref name="bold"/> and returns the
+  ///     index the scan resumes at; an unclosed ** marker is a violation.</summary>
+  private static int TakeBoldSpan(string text, int bold, List<PdfMarkdownSpan> spans)
+  {
+    int close = text.IndexOf("**", bold + 2, StringComparison.Ordinal);
+    if (close < 0)
+    {
+      throw new PdfMarkdownInvalidException(0);
+    }
+
+    spans.Add(new PdfMarkdownSpan(text[(bold + 2)..close], true, false));
+    return close + 2;
+  }
+
+  /// <summary>Consumes one *italic* span from <paramref name="italic"/> and returns the
+  ///     index the scan resumes at; an unclosed * marker is a violation.</summary>
+  private static int TakeItalicSpan(string text, int italic, List<PdfMarkdownSpan> spans)
+  {
+    int close = text.IndexOf('*', italic + 1);
+    if (close < 0)
+    {
+      throw new PdfMarkdownInvalidException(0);
+    }
+
+    spans.Add(new PdfMarkdownSpan(text[(italic + 1)..close], false, true));
+    return close + 1;
   }
 
   private static string Clamp(string message)

@@ -196,123 +196,176 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   {
     try
     {
-      LastTurnToolCalls = 0;
-      ShrankThisTurn = false;
-      _shrankThisTurnObserved = false;
-      _repeatGuard.Reset();
-      _readLedger.Reset();
-      // Auto-continuations used by this turn only: reset here, never carried between turns.
-      int autoContinuations = 0;
-      // Overflow recovery is turn-local (like autoContinuations): one forced compaction
-      // and one re-send per turn — a second overflow fails the turn, bounded.
-      bool overflowRecovered = false;
-      DrainInbox(inbox);
-      Conversation.AddUserMessage(text, imageParts);
-      Beat();
-      // No iteration cap by design: the loop runs until the model answers without
-      // tool calls. Termination is the model's job — but cancellation is checked
-      // every round, because nothing else in the loop is obliged to observe ct
-      // (fakes, cached providers, and instant tools may never see it).
-      bool autoCompactBlocked = false;
-      while (true)
-      {
-        ct.ThrowIfCancellationRequested();
-        Beat();
-        DrainInbox(inbox);
-        if (!autoCompactBlocked)
-        {
-          bool shrinkObserved = SetShrankIfObserved();
-          if (shrinkObserved)
-          {
-            callbacks?.OnContextShrunk?.Invoke();
-          }
-
-          bool compacted = !shrinkObserved && await TryCompactIfNeededAsync(callbacks, ct).ConfigureAwait(false);
-          autoCompactBlocked = compacted || shrinkObserved;
-        }
-        // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
-        // list, so handing it out directly would let every consumer of this request
-        // (retries, logging, tests) read messages added by later iterations.
-        ModelRequest request = new(
-            [.. Conversation.Messages], _tools.Definitions, _systemPrompt?.Build(), _sessionId);
-        // Stream-activity stamping: every fragment (content or reasoning) proves the
-        // provider stream is alive. The stamp rides the option, not the turn callbacks,
-        // so children get it without a UI surface. Null option: byte-identical legacy.
-        Action<string>? contentDelta = WrapStreamStamp(callbacks?.OnContentDelta, "content");
-        Action<string>? reasoningDelta = WrapStreamStamp(callbacks?.OnReasoningDelta, "reasoning");
-        Result<ModelResponse> result = await _provider.SendStreamingAsync(Config, request,
-            contentDelta, reasoningDelta, ct).ConfigureAwait(false);
-        if (!result.IsSuccess)
-        {
-          // A caller stop that landed DURING the provider call arrives here as a provider
-          // failure: the ACL maps every OperationCanceledException to ProviderTimeout and
-          // cannot tell a caller stop from a genuine timeout. Our own ct is the authority
-          // for who cancelled — take the interruption path (repair + TurnCancelled), never
-          // a "[turn failed] ProviderTimeout" line for the user's own stop.
-          if (ct.IsCancellationRequested)
-          {
-            RepairInterruptedToolCalls();
-            return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
-          }
-
-          // Context-window overflow recovery: the provider ACL's distinct code is the
-          // seam — the domain knows nothing about HTTP. One forced compaction (the
-          // utilization check cannot see the drift that just overflowed) and one
-          // re-send of the SAME request; a second overflow fails the turn.
-          if (result.Error.Code is ContextWindowExceededCode && !overflowRecovered)
-          {
-            Result<string>? recovered = await RecoverFromContextOverflowAsync(
-                result.Error, callbacks, ct).ConfigureAwait(false);
-            if (recovered is null)
-            {
-              overflowRecovered = true;
-              // The monitor's utilization report predates the overflow — re-running the
-              // threshold check on it would compact again on stale state. The turn rests
-              // the backstop here exactly as a successful threshold compaction does.
-              autoCompactBlocked = true;
-              continue;
-            }
-
-            return recovered;
-          }
-
-          // The failure becomes part of the transcript: a turn that dies on a provider
-          // error must not leave the conversation ending on a bare tool result with no
-          // record of why — the model (and any resumed session) reads this line.
-          string failure = $"{TurnFailedPrefix}Error [{result.Error.Code}]: {result.Error.Message}";
-          Conversation.AddSystemMessage(failure);
-          callbacks?.OnSystemMessage?.Invoke(failure);
-          return Result.Failure<string>(result.Error);
-        }
-
-        callbacks?.OnIterationEnd?.Invoke();
-
-        ModelResponse response = result.Value;
-        ReportUsage(request, response, callbacks);
-        SurfaceServerToolCalls(response, callbacks);
-        if (response.ToolCalls.Count == 0)
-        {
-          if (FinishWithoutToolCalls(response, ref autoContinuations, callbacks) is { } outcome)
-          {
-            return outcome;
-          }
-
-          continue;
-        }
-
-        Conversation.AddAssistantMessage(response.Content ?? "",
-            [.. response.ToolCalls.Select(tc => new ToolCall(tc.Id, tc.Name, tc.Arguments))]);
-        if (!await ExecuteToolCallsAsync(response.ToolCalls, callbacks, ct).ConfigureAwait(false))
-        {
-          return Result.Failure<string>(new DomainError(RepeatGuardStopCode, RuntimeErrors.RepeatGuardStop));
-        }
-      }
+      return await RunTurnAsync(text, callbacks, inbox, imageParts, ct).ConfigureAwait(false);
     }
     catch (OperationCanceledException)
     {
       RepairInterruptedToolCalls();
       return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
     }
+  }
+
+  /// <summary>Turn-local loop state: the bounded-retry counters an overflow recovery
+  ///     or an auto-continuation set for the REMAINDER of the turn (never carried
+  ///     between turns).</summary>
+  private sealed class TurnState
+  {
+    // Auto-continuations used by this turn only: reset at the turn's start, never
+    // carried between turns. Properties, not fields: the repo's naming rules prefix
+    // every field — including nested-class ones.
+    public int Continuations { get; set; }
+    // Overflow recovery is turn-local: one forced compaction and one re-send per
+    // turn — a second overflow fails the turn, bounded.
+    public bool OverflowRecovered { get; set; }
+    public bool AutoCompactBlocked { get; set; }
+  }
+
+  /// <summary>The turn loop proper (everything <see cref="SendMessage"/> advertises in
+  ///     its contract comment): drain, iterate model calls, execute tool calls, and
+  ///     manage context pressure, until the model answers without tool calls.</summary>
+  private async Task<Result<string>> RunTurnAsync(string text, TurnCallbacks? callbacks,
+      IAgentInbox? inbox, IReadOnlyList<MessagePart>? imageParts, CancellationToken ct)
+  {
+    LastTurnToolCalls = 0;
+    ShrankThisTurn = false;
+    _shrankThisTurnObserved = false;
+    _repeatGuard.Reset();
+    _readLedger.Reset();
+    TurnState state = new();
+    DrainInbox(inbox);
+    Conversation.AddUserMessage(text, imageParts);
+    Beat();
+    // No iteration cap by design: the loop runs until the model answers without
+    // tool calls. Termination is the model's job — but cancellation is checked
+    // every round, because nothing else in the loop is obliged to observe ct
+    // (fakes, cached providers, and instant tools may never see it).
+    while (true)
+    {
+      ct.ThrowIfCancellationRequested();
+      Beat();
+      DrainInbox(inbox);
+      await ManageContextAsync(state, callbacks, ct).ConfigureAwait(false);
+      // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
+      // list, so handing it out directly would let every consumer of this request
+      // (retries, logging, tests) read messages added by later iterations.
+      ModelRequest request = new(
+          [.. Conversation.Messages], _tools.Definitions, _systemPrompt?.Build(), _sessionId);
+      // Stream-activity stamping: every fragment (content or reasoning) proves the
+      // provider stream is alive. The stamp rides the option, not the turn callbacks,
+      // so children get it without a UI surface. Null option: byte-identical legacy.
+      Action<string>? contentDelta = WrapStreamStamp(callbacks?.OnContentDelta, "content");
+      Action<string>? reasoningDelta = WrapStreamStamp(callbacks?.OnReasoningDelta, "reasoning");
+      Result<ModelResponse> result = await _provider.SendStreamingAsync(Config, request,
+          contentDelta, reasoningDelta, ct).ConfigureAwait(false);
+      if (!result.IsSuccess)
+      {
+        Result<string>? failure = await HandleProviderFailureAsync(result.Error, state, callbacks, ct)
+            .ConfigureAwait(false);
+        if (failure is { } failureOutcome)
+        {
+          return failureOutcome;
+        }
+
+        continue; // overflow recovery ran: re-send
+      }
+
+      callbacks?.OnIterationEnd?.Invoke();
+
+      Result<string>? handled = await HandleSuccessAsync(result.Value, state, callbacks, ct).ConfigureAwait(false);
+      if (handled is { } handledOutcome)
+      {
+        return handledOutcome;
+      }
+    }
+  }
+
+  /// <summary>The successful-response phase: usage accounting, server-tool surfacing,
+  ///     the no-tool-call finish policy, or the tool-call batch execution. Returns the
+  ///     turn's terminal Result, or null to continue the loop.</summary>
+  private async Task<Result<string>?> HandleSuccessAsync(ModelResponse response, TurnState state,
+      TurnCallbacks? callbacks, CancellationToken ct)
+  {
+    // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
+    // list, so handing it out directly would let every consumer of this request
+    // (retries, logging, tests) read messages added by later iterations.
+    ReportUsage(new ModelRequest([.. Conversation.Messages], _tools.Definitions,
+        _systemPrompt?.Build(), _sessionId), response, callbacks);
+    SurfaceServerToolCalls(response, callbacks);
+    if (response.ToolCalls.Count == 0)
+    {
+      return FinishWithoutToolCalls(response, state, callbacks);
+    }
+
+    Conversation.AddAssistantMessage(response.Content ?? "",
+        [.. response.ToolCalls.Select(tc => new ToolCall(tc.Id, tc.Name, tc.Arguments))]);
+    return await ExecuteToolCallsAsync(response.ToolCalls, callbacks, ct).ConfigureAwait(false)
+        ? null
+        : Result.Failure<string>(new DomainError(RepeatGuardStopCode, RuntimeErrors.RepeatGuardStop));
+  }
+
+  /// <summary>The per-iteration context-pressure phase: the shrink observation, the
+  ///     threshold compaction, and the turn-local auto-compact backstop.</summary>
+  private async Task ManageContextAsync(TurnState state, TurnCallbacks? callbacks, CancellationToken ct)
+  {
+    if (state.AutoCompactBlocked)
+    {
+      return;
+    }
+
+    bool shrinkObserved = SetShrankIfObserved();
+    if (shrinkObserved)
+    {
+      callbacks?.OnContextShrunk?.Invoke();
+    }
+
+    bool compacted = !shrinkObserved && await TryCompactIfNeededAsync(callbacks, ct).ConfigureAwait(false);
+    state.AutoCompactBlocked = compacted || shrinkObserved;
+  }
+
+  /// <summary>A failed provider call: the caller-stop check, the one-shot overflow
+  ///     recovery, or the transcript turn-failure line. Returns the turn's terminal
+  ///     Result, or null when the loop may re-send (overflow recovery ran).</summary>
+  private async Task<Result<string>?> HandleProviderFailureAsync(DomainError error, TurnState state,
+      TurnCallbacks? callbacks, CancellationToken ct)
+  {
+    // A caller stop that landed DURING the provider call arrives here as a provider
+    // failure: the ACL maps every OperationCanceledException to ProviderTimeout and
+    // cannot tell a caller stop from a genuine timeout. Our own ct is the authority
+    // for who cancelled — take the interruption path (repair + TurnCancelled), never
+    // a "[turn failed] ProviderTimeout" line for the user's own stop.
+    if (ct.IsCancellationRequested)
+    {
+      RepairInterruptedToolCalls();
+      return Result.Failure<string>(new DomainError(TurnCancelledCode, RuntimeErrors.TurnCancelled));
+    }
+
+    // Context-window overflow recovery: the provider ACL's distinct code is the
+    // seam — the domain knows nothing about HTTP. One forced compaction (the
+    // utilization check cannot see the drift that just overflowed) and one
+    // re-send of the SAME request; a second overflow fails the turn.
+    if (error.Code is ContextWindowExceededCode && !state.OverflowRecovered)
+    {
+      Result<string>? recovered = await RecoverFromContextOverflowAsync(error, callbacks, ct).ConfigureAwait(false);
+      if (recovered is null)
+      {
+        state.OverflowRecovered = true;
+        // The monitor's utilization report predates the overflow — re-running the
+        // threshold check on it would compact again on stale state. The turn rests
+        // the backstop here exactly as a successful threshold compaction does.
+        state.AutoCompactBlocked = true;
+        return null;
+      }
+
+      return recovered;
+    }
+
+    // The failure becomes part of the transcript: a turn that dies on a provider
+    // error must not leave the conversation ending on a bare tool result with no
+    // record of why — the model (and any resumed session) reads this line.
+    string failure = $"{TurnFailedPrefix}Error [{error.Code}]: {error.Message}";
+    Conversation.AddSystemMessage(failure);
+    callbacks?.OnSystemMessage?.Invoke(failure);
+    return Result.Failure<string>(error);
   }
 
   /// <summary>Beats the wired heartbeat at a loop safe point, or no-op when none is
@@ -370,6 +423,48 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // NEITHER the reminder NOR the compactor — running the compactor on it fails
     // spuriously (CompactionImpossible on a tiny
     // conversation); skipping quietly is correct — the next honest report compacts.
+    if (UsageInflated(monitor))
+    {
+      return false;
+    }
+
+    // The policy is derived per iteration from the monitor's window: a mid-session
+    // model change (root rebuild) re-derives automatically.
+    CompactionPolicy policy = CompactionPolicy.For(monitor.Status.ContextWindow);
+    ShowSoftReminderIfPressured(policy, utilization, callbacks);
+    if (utilization < policy.CeilingPercent)
+    {
+      return false;
+    }
+
+    Result<CompactionOutcome> compacted =
+        await _contextCompactor.CompactAsync(Conversation, Config, ct).ConfigureAwait(false);
+    if (compacted.IsSuccess)
+    {
+      // History was replaced: nothing held before is held now; a successful
+      // compaction also starts a new pressure cycle.
+      _readLedger.Reset();
+      _softReminderShown = false;
+      NotifyCompacted(callbacks, compacted.Value);
+      return false;
+    }
+
+    // Graceful degradation: a System notice tells the model why nothing changed;
+    // the turn-local flag (this return value) keeps a broken compactor from spamming.
+    string notice =
+        $"[Context compaction failed: {compacted.Error.Code} {compacted.Error.Message}; continuing without compaction.]";
+    Conversation.AddSystemMessage(notice);
+    callbacks?.OnSystemMessage?.Invoke(notice);
+    return true;
+  }
+
+  /// <summary>Inflation guard: a provider-reported input-token count far beyond what
+  ///     the conversation itself could hold is server-tool accounting, not context. It
+  ///     fires NEITHER the reminder NOR the compactor — running the compactor on it
+  ///     fails spuriously (CompactionImpossible on a tiny conversation); skipping
+  ///     quietly is correct — the next honest report compacts.</summary>
+  private bool UsageInflated(IContextMonitor monitor)
+  {
     long estimateChars = _systemPrompt?.Build().Length ?? 0;
     foreach (Message message in Conversation.Messages)
     {
@@ -381,56 +476,45 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
 
     long estimateTokens = estimateChars / ContextEvictionPolicy.CharsPerTokenEstimate;
-    if (monitor.Status.LastInputTokens is { } reported
-        && reported > (long)(estimateTokens * MaxTrustedUsageOverEstimate))
+    return monitor.Status.LastInputTokens is { } reported
+        && reported > (long)(estimateTokens * MaxTrustedUsageOverEstimate);
+  }
+
+  /// <summary>The ONE-TIME soft reminder at or above the policy's soft level (and
+  ///     below its ceiling): a System message naming the pressure, the context_trim
+  ///     tool, and the ceiling; it never repeats until the pressure cycle resets.</summary>
+  private void ShowSoftReminderIfPressured(CompactionPolicy policy, double utilization, TurnCallbacks? callbacks)
+  {
+    if (utilization < policy.SoftReminderPercent || utilization >= policy.CeilingPercent || _softReminderShown)
     {
-      return false;
+      return;
     }
 
-    // The policy is derived per iteration from the monitor's window: a mid-session
-    // model change (root rebuild) re-derives automatically.
-    CompactionPolicy policy = CompactionPolicy.For(monitor.Status.ContextWindow);
-    if (utilization >= policy.SoftReminderPercent && utilization < policy.CeilingPercent && !_softReminderShown)
+    _softReminderShown = true;
+    string reminder = $"{SoftReminderPrefix} {utilization:0}% full — trim tool results you no longer need with context_trim; a forced cleanup runs at {policy.CeilingPercent:0}%.]";
+    Conversation.AddSystemMessage(reminder);
+    callbacks?.OnSystemMessage?.Invoke(reminder);
+  }
+
+  /// <summary>The observer surface every successful compaction fires — identical for
+  ///     the threshold backstop and the forced overflow recovery: ledger reset,
+  ///     pressure-cycle reset, the OnCompacted callback, the summary line the
+  ///     compaction left in the conversation surfaced verbatim, and the re-fired
+  ///     context snapshot.</summary>
+  private void NotifyCompacted(TurnCallbacks? callbacks, CompactionOutcome outcome)
+  {
+    // The summary message the compaction left in the conversation is surfaced
+    // verbatim: nothing the agent receives stays hidden from the host surface
+    // (live parity with the resume replay, which restores it as a system
+    // entry). A compactor that reports success without replacing the prefix
+    // leaves nothing to surface - and nothing was received, so none is fired.
+    if (Conversation.Messages.FirstOrDefault(m => m.IsSummary) is { } summary)
     {
-      _softReminderShown = true;
-      string reminder = $"{SoftReminderPrefix} {utilization:0}% full — trim tool results you no longer need with context_trim; a forced cleanup runs at {policy.CeilingPercent:0}%.]";
-      Conversation.AddSystemMessage(reminder);
-      callbacks?.OnSystemMessage?.Invoke(reminder);
+      callbacks?.OnSystemMessage?.Invoke(summary.Content);
     }
 
-    if (utilization < policy.CeilingPercent)
-    {
-      return false;
-    }
-
-    Result<CompactionOutcome> compacted =
-        await _contextCompactor.CompactAsync(Conversation, Config, ct).ConfigureAwait(false);
-    if (compacted.IsSuccess)
-    {
-      _readLedger.Reset();  // history was replaced: nothing held before is held now
-      _softReminderShown = false;  // a successful compaction starts a new pressure cycle
-      callbacks?.OnCompacted?.Invoke(compacted.Value);
-      // The summary message the compaction left in the conversation is surfaced
-      // verbatim: nothing the agent receives stays hidden from the host surface
-      // (live parity with the resume replay, which restores it as a system
-      // entry). A compactor that reports success without replacing the prefix
-      // leaves nothing to surface - and nothing was received, so none is fired.
-      if (Conversation.Messages.FirstOrDefault(m => m.IsSummary) is { } summary)
-      {
-        callbacks?.OnSystemMessage?.Invoke(summary.Content);
-      }
-
-      ReportUsageFromMonitor(callbacks);
-      return false;
-    }
-
-    // Graceful degradation: a System notice tells the model why nothing changed;
-    // the turn-local flag (this return value) keeps a broken compactor from spamming.
-    string notice =
-        $"[Context compaction failed: {compacted.Error.Code} {compacted.Error.Message}; continuing without compaction.]";
-    Conversation.AddSystemMessage(notice);
-    callbacks?.OnSystemMessage?.Invoke(notice);
-    return true;
+    callbacks?.OnCompacted?.Invoke(outcome);
+    ReportUsageFromMonitor(callbacks);
   }
 
   /// <summary>Forced compaction after a ContextWindowExceeded provider failure, bypassing
@@ -468,17 +552,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       return Result.Failure<string>(compacted.Error);
     }
 
-    // Same observer surface as the threshold backstop: outcome, the summary line the
-    // compaction left in the conversation, and a re-fired context snapshot.
+    // Same observer surface as the threshold backstop.
     _readLedger.Reset();  // history was replaced: nothing held before is held now
     _softReminderShown = false;  // a successful compaction starts a new pressure cycle
-    callbacks?.OnCompacted?.Invoke(compacted.Value);
-    if (Conversation.Messages.FirstOrDefault(m => m.IsSummary) is { } summary)
-    {
-      callbacks?.OnSystemMessage?.Invoke(summary.Content);
-    }
-
-    ReportUsageFromMonitor(callbacks);
+    NotifyCompacted(callbacks, compacted.Value);
     return null;
   }
 
@@ -487,7 +564,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     the model is nudged to continue (bounded — a pathological model cannot spin
   ///     forever; leniency with a visible cap, never a silent retry), and null is
   ///     returned so the loop continues. A complete answer is appended and returned.</summary>
-  private Result<string>? FinishWithoutToolCalls(ModelResponse response, ref int autoContinuations,
+  private Result<string>? FinishWithoutToolCalls(ModelResponse response, TurnState state,
       TurnCallbacks? callbacks)
   {
     string content = response.Content ?? "";
@@ -497,13 +574,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       return Result.Success(content);
     }
 
-    if (autoContinuations >= _maxAutoContinuations)
+    if (state.Continuations >= _maxAutoContinuations)
     {
       return Result.Failure<string>(new DomainError("MaxOutputContinuations",
           $"Output limit reached {_maxAutoContinuations + 1} times without a complete answer."));
     }
 
-    autoContinuations++;
+    state.Continuations++;
     Conversation.AddAssistantMessage(content);
     // An empty truncated response gets the empty-specific nudge: 'continue exactly
     // where you stopped' is meaningless when nothing surfaced, and it invites a
@@ -538,8 +615,17 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
 
     int systemPromptChars = request.SystemPrompt?.Length ?? 0;
+    long toolChars = request.Tools is null ? 0 : request.Tools.Sum(ToolDefinitionChars);
+    _contextMonitor.OnRequestUsage(usage,
+        new ContextComposition(systemPromptChars, MessageChars(request.Messages), toolChars));
+    callbacks?.OnContextUpdate?.Invoke(new ContextSnapshot(_contextMonitor.Status, _contextMonitor.Breakdown));
+  }
+
+  /// <summary>The message bucket of the UI character breakdown.</summary>
+  private static long MessageChars(IReadOnlyList<Message> messages)
+  {
     long messageChars = 0;
-    foreach (Message message in request.Messages)
+    foreach (Message message in messages)
     {
       messageChars += message.Content.Length;
       if (message.ToolCalls is { Count: > 0 } calls)
@@ -556,10 +642,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       }
     }
 
-    long toolChars = request.Tools is null ? 0 : request.Tools.Sum(ToolDefinitionChars);
-    _contextMonitor.OnRequestUsage(usage,
-        new ContextComposition(systemPromptChars, messageChars, toolChars));
-    callbacks?.OnContextUpdate?.Invoke(new ContextSnapshot(_contextMonitor.Status, _contextMonitor.Breakdown));
+    return messageChars;
   }
 
   /// <summary>Advertised-contract size of one tool definition, in characters. A named
@@ -597,69 +680,110 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       ToolCallRequest call = calls[i];
       LastTurnToolCalls++;
       callbacks?.OnToolCall?.Invoke(call.Name, call.Arguments, i + 1, calls.Count);
-      ITool? tool = _tools.Find(call.Name);
-      if (tool is ILedgerBoundTool ledgerTool && !ledgerTool.HasLedger)
-      {
-        tool = ledgerTool.WithLedger(_readLedger);
-      }
-
-      PublishProgress(ChildPhase.ToolExec, "tool:" + call.Name);
-      _heartbeat?.Beat(Id);
-      ToolResult toolResult = tool is null
-          // A registry that owns the grant policy explains the refusal in its own words
-          // (R1.3: GrantViolation, distinguishable from typo); a plain registry renders
-          // the standard UnknownTool line.
-          ? new ToolResult((_tools as FilteredToolRegistry)?.ExplainsRefusal(call.Name)
-              ?? $"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
-          : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
-      Conversation.AddToolResult(call.Id, toolResult.Content, ToParts(toolResult.Images));
-      if (toolResult.Content.Contains(ContextShrinkSentinel, StringComparison.Ordinal))
-      {
-        _shrankThisTurnObserved = true;
-        _softReminderShown = false;  // a context shrink starts a new pressure cycle
-        _readLedger.Reset();  // history was replaced: nothing held before is held now
-      }
-      // Call-identity normalization (issue #124): a tool declaring a semantic identity
-      // (exec's program body) keys the guard on it; envelope fields the model free-varies
-      // (title, timeoutSeconds) reset nothing. Non-declaring tools keep raw arguments.
-      // The guard itself prepends the tool name to whatever key it receives. The tool
-      // resolved above is reused — a second Find would make a granting registry audit
-      // the same denial twice.
-      string guardKey = tool is IToolCallIdentifiable identifiable
-          && identifiable.CallIdentity(call.Arguments) is { } identity
-              ? identity
-              : call.Arguments;
-      GuardOutcome outcome = _repeatGuard.Observe(call.Name, guardKey, toolResult.IsError, toolResult.Content);
-      if (outcome.NudgeLine is { } guardLine)
-      {
-        Conversation.AddSystemMessage(guardLine);
-        callbacks?.OnSystemMessage?.Invoke(guardLine);
-      }
-
-      _heartbeat?.Beat(Id);
-      PublishProgress(ChildPhase.Draining, "tool-result");
-      string summary = SummarizeToolResult(toolResult);
-      callbacks?.OnToolResult?.Invoke(call.Name, summary, toolResult.Content, toolResult.IsError,
-          toolResult.Title is null ? null : toolResult);
+      GuardOutcome outcome = await RunOneCallAsync(call, ResolveTool(call.Name), callbacks, ct)
+          .ConfigureAwait(false);
       if (outcome.EndTurn)
       {
         // The call after a critical error: the turn ends here. Remaining calls of the
         // batch get the synthetic interrupted result (protocol repair — the guard
         // never observes them, so they cannot extend or reset the streaks), a final
         // system line names why, and the caller fails the turn with RepeatGuardStop.
-        for (int j = i + 1; j < calls.Count; j++)
-        {
-          Conversation.AddToolResult(calls[j].Id, InterruptedToolResult);
-        }
-
-        string stopLine = RepeatGuardStopLine;
-        Conversation.AddSystemMessage(stopLine);
-        callbacks?.OnSystemMessage?.Invoke(stopLine);
+        EndBatchWithInterrupted(calls, i, callbacks);
         return false;
       }
     }
 
     return true;
+  }
+
+  /// <summary>One call's execution phase: execute, record the result, observe the
+  ///     repeat guard, and report to the observers.</summary>
+  private async Task<GuardOutcome> RunOneCallAsync(ToolCallRequest call, ITool? tool,
+      TurnCallbacks? callbacks, CancellationToken ct)
+  {
+    ToolResult toolResult = await ExecuteOneToolAsync(call, tool, ct).ConfigureAwait(false);
+    Conversation.AddToolResult(call.Id, toolResult.Content, ToParts(toolResult.Images));
+    ObserveShrinkSentinel(toolResult);
+
+    // Call-identity normalization (issue #124): a tool declaring a semantic identity
+    // (exec's program body) keys the guard on it; envelope fields the model free-varies
+    // (title, timeoutSeconds) reset nothing. Non-declaring tools keep raw arguments.
+    // The guard itself prepends the tool name to whatever key it receives. The tool
+    // resolved above is reused — a second Find would make a granting registry audit
+    // the same denial twice.
+    string guardKey = tool is IToolCallIdentifiable identifiable
+        && identifiable.CallIdentity(call.Arguments) is { } identity
+            ? identity
+            : call.Arguments;
+    GuardOutcome outcome = _repeatGuard.Observe(call.Name, guardKey, toolResult.IsError, toolResult.Content);
+    if (outcome.NudgeLine is { } guardLine)
+    {
+      Conversation.AddSystemMessage(guardLine);
+      callbacks?.OnSystemMessage?.Invoke(guardLine);
+    }
+
+    _heartbeat?.Beat(Id);
+    PublishProgress(ChildPhase.Draining, "tool-result");
+    string summary = SummarizeToolResult(toolResult);
+    callbacks?.OnToolResult?.Invoke(call.Name, summary, toolResult.Content, toolResult.IsError,
+        toolResult.Title is null ? null : toolResult);
+    return outcome;
+  }
+
+  /// <summary>A context-shrinking tool result resets the pressure cycle and the
+  ///     read ledger: history was replaced, so nothing held before is held now.</summary>
+  private void ObserveShrinkSentinel(ToolResult toolResult)
+  {
+    if (!toolResult.Content.Contains(ContextShrinkSentinel, StringComparison.Ordinal))
+    {
+      return;
+    }
+
+    _shrankThisTurnObserved = true;
+    _softReminderShown = false;  // a context shrink starts a new pressure cycle
+    _readLedger.Reset();  // history was replaced: nothing held before is held now
+  }
+
+  /// <summary>Resolves the call's tool, binding the read ledger to ledger-bound tools
+  ///     that carry none yet.</summary>
+  private ITool? ResolveTool(string name)
+  {
+    ITool? tool = _tools.Find(name);
+    if (tool is ILedgerBoundTool ledgerTool && !ledgerTool.HasLedger)
+    {
+      tool = ledgerTool.WithLedger(_readLedger);
+    }
+
+    return tool;
+  }
+
+  /// <summary>Executes one resolved tool call (or renders the unknown-tool refusal):
+  ///     a registry that owns the grant policy explains the refusal in its own words
+  ///     (R1.3: GrantViolation, distinguishable from typo); a plain registry renders
+  ///     the standard UnknownTool line.</summary>
+  private async Task<ToolResult> ExecuteOneToolAsync(ToolCallRequest call, ITool? tool, CancellationToken ct)
+  {
+    PublishProgress(ChildPhase.ToolExec, "tool:" + call.Name);
+    _heartbeat?.Beat(Id);
+    return tool is null
+        ? new ToolResult((_tools as FilteredToolRegistry)?.ExplainsRefusal(call.Name)
+            ?? $"Error [UnknownTool]: Unknown tool: {call.Name}.", true)
+        : await tool.ExecuteAsync(new RawToolInput(call.Name, call.Arguments), ct).ConfigureAwait(false);
+  }
+
+  /// <summary>The calls after the guard's stop get the synthetic interrupted result
+  ///     (protocol repair — the guard never observes them, so they cannot extend or
+  ///     reset the streaks), then a final system line names why.</summary>
+  private void EndBatchWithInterrupted(IReadOnlyList<ToolCallRequest> calls, int stoppedAt, TurnCallbacks? callbacks)
+  {
+    for (int j = stoppedAt + 1; j < calls.Count; j++)
+    {
+      Conversation.AddToolResult(calls[j].Id, InterruptedToolResult);
+    }
+
+    string stopLine = RepeatGuardStopLine;
+    Conversation.AddSystemMessage(stopLine);
+    callbacks?.OnSystemMessage?.Invoke(stopLine);
   }
 
 

@@ -23,41 +23,63 @@ public static partial class WindowCapture
       return true;
     }
 
-    bool anyAlpha = false;
-    byte firstB = 0, firstG = 0, firstR = 0;
-    bool firstTaken = false;
-    int rowStride = stride;
+    BlankScan scan = new(tolerance);
     int sampleStep = Math.Max(1, bgra.Length / 4 / 4096);
-    int sampled = 0;
     for (int y = 0; y < height; y++)
     {
-      int row = y * rowStride;
-      for (int x = 0; x + 3 < rowStride; x += 4 * sampleStep)
+      int row = y * stride;
+      for (int x = 0; x + 3 < stride; x += 4 * sampleStep)
       {
         int o = row + x;
-        byte b = bgra[o], g = bgra[o + 1], r = bgra[o + 2], a = bgra[o + 3];
-        if (a != 0)
-        {
-          anyAlpha = true;
-        }
-
-        if (!firstTaken)
-        {
-          firstB = b;
-          firstG = g;
-          firstR = r;
-          firstTaken = true;
-        }
-        else if (Math.Abs(b - firstB) > tolerance || Math.Abs(g - firstG) > tolerance || Math.Abs(r - firstR) > tolerance)
+        if (!scan.Sample(bgra[o], bgra[o + 1], bgra[o + 2], bgra[o + 3]))
         {
           return false; // two clearly different opaque-ish pixels: not blank
         }
-
-        sampled++;
       }
     }
 
-    return !anyAlpha || sampled <= 1; // fully transparent, or fewer than two distinct samples
+    return scan.IsBlankSoFar; // fully transparent, or fewer than two distinct samples
+  }
+
+  /// <summary>Accumulates the blank-detection scan state across sampled pixels: the
+  ///     any-alpha flag, the first sample's color, and the sample count. Sample
+  ///     returns false the moment two clearly different opaque-ish pixels prove the
+  ///     frame is not blank.</summary>
+  private struct BlankScan(int tolerance)
+  {
+    private readonly int Tolerance { get; } = tolerance;
+    private bool AnyAlpha { get; set; }
+    private byte FirstB { get; set; }
+    private byte FirstG { get; set; }
+    private byte FirstR { get; set; }
+    private bool FirstTaken { get; set; }
+    private int Sampled { get; set; }
+
+    public bool Sample(byte b, byte g, byte r, byte a)
+    {
+      if (a != 0)
+      {
+        AnyAlpha = true;
+      }
+
+      if (!FirstTaken)
+      {
+        FirstB = b;
+        FirstG = g;
+        FirstR = r;
+        FirstTaken = true;
+      }
+      else if (Math.Abs(b - FirstB) > Tolerance || Math.Abs(g - FirstG) > Tolerance || Math.Abs(r - FirstR) > Tolerance)
+      {
+        return false;
+      }
+
+      Sampled++;
+      return true;
+    }
+
+    /// <summary>Fully transparent, or fewer than two distinct samples.</summary>
+    public readonly bool IsBlankSoFar => !AnyAlpha || Sampled <= 1;
   }
   [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
   [LibraryImport("user32.dll")]

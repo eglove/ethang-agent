@@ -369,36 +369,57 @@ public sealed class DocxTool(
       extracted = [.. pull.Value];
     }
 
+    StringBuilder sb = RenderMediaLines(media, args.ImageNames, extracted, visionAccepts);
+    return new ToolResult(sb.ToString(), false, Images: extracted.Count > 0 ? extracted : null);
+  }
+
+  /// <summary>Renders the extract listing: one line per media part, attaching the
+  ///     pulled images in order to the parts the filter admits.</summary>
+  private static StringBuilder RenderMediaLines(List<DocxMediaInfo> media, IReadOnlyList<string>? filter,
+      List<ToolResultImage> extracted, bool visionAccepts)
+  {
     StringBuilder sb = new();
     int attachIndex = 0;
     foreach (DocxMediaInfo m in media)
     {
-      bool isAttachableType = m.MediaType is PngMediaType or JpegMediaType;
-      bool inFilter = args.ImageNames is null || args.ImageNames.Count == 0 || args.ImageNames.Contains(m.Name);
-      if (!isAttachableType)
-      {
-        _ = sb.AppendLine(CultureInfo.InvariantCulture,
-            $"{m.Name} {m.MediaType} {m.ByteCount} listed-only (ImageNotAttachable: PNG/JPEG only)");
-      }
-      else if (!visionAccepts)
-      {
-        _ = sb.AppendLine(CultureInfo.InvariantCulture,
-            $"{m.Name} {m.MediaType} {m.ByteCount} listed-only (ImageNotAttachable: model has no image input)");
-      }
-      else if (inFilter && attachIndex < extracted.Count)
-      {
-        _ = sb.AppendLine(CultureInfo.InvariantCulture, $"{m.Name} {m.MediaType} {m.ByteCount} attached");
-        attachIndex++;
-      }
-      else
-      {
-        _ = sb.AppendLine(CultureInfo.InvariantCulture,
-            $"{m.Name} {m.MediaType} {m.ByteCount} listed-only (ImageNotAttachable: not in the requested names)");
-      }
+      attachIndex += AppendMediaLine(sb, m, filter, extracted, attachIndex, visionAccepts);
     }
 
     sb.Length -= Environment.NewLine.Length;
-    return new ToolResult(sb.ToString(), false, Images: extracted.Count > 0 ? extracted : null);
+    return sb;
+  }
+
+  /// <summary>Appends one media part's listing line; returns 1 when the part consumed
+  ///     an attached image, 0 otherwise. The four outcomes mirror the original
+  ///     if/else-if chain: non-PNG/JPEG, no image input, attached, filtered out.</summary>
+  private static int AppendMediaLine(StringBuilder sb, DocxMediaInfo m, IReadOnlyList<string>? filter,
+      List<ToolResultImage> extracted, int attachIndex, bool visionAccepts)
+  {
+    bool isAttachableType = m.MediaType is PngMediaType or JpegMediaType;
+    bool inFilter = filter is null || filter.Count == 0 || filter.Contains(m.Name);
+    if (!isAttachableType)
+    {
+      _ = sb.AppendLine(CultureInfo.InvariantCulture,
+          $"{m.Name} {m.MediaType} {m.ByteCount} listed-only (ImageNotAttachable: PNG/JPEG only)");
+      return 0;
+    }
+
+    if (!visionAccepts)
+    {
+      _ = sb.AppendLine(CultureInfo.InvariantCulture,
+          $"{m.Name} {m.MediaType} {m.ByteCount} listed-only (ImageNotAttachable: model has no image input)");
+      return 0;
+    }
+
+    if (inFilter && attachIndex < extracted.Count)
+    {
+      _ = sb.AppendLine(CultureInfo.InvariantCulture, $"{m.Name} {m.MediaType} {m.ByteCount} attached");
+      return 1;
+    }
+
+    _ = sb.AppendLine(CultureInfo.InvariantCulture,
+        $"{m.Name} {m.MediaType} {m.ByteCount} listed-only (ImageNotAttachable: not in the requested names)");
+    return 0;
   }
 
   private static ToolResult Ok(string content) => new(content, false);

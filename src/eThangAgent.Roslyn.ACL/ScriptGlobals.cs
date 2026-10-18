@@ -362,19 +362,55 @@ public sealed class ScriptTools
   ///     validates its own envelope).</summary>
   public string Invoke(string name, object? args)
   {
-    Result<ResolvedCapability> resolved = _registry.Resolve(name);
-    if (!resolved.IsSuccess)
+    ResolvedCapability resolved = ResolveOrThrow(name);
+    string json = SerializeArguments(args);
+    JsonElement document = ParseArguments(json);
+    (TimeSpan budget, bool explicitBudget) = ResolveBudget(document, name);
+
+    // Counted here, past every pre-dispatch contract throw: a counted dispatch is one
+    // that actually reached the provider. The empty-output hint keys off this count.
+    _globals.CountNestedDispatch();
+
+    bool declaresTimeout = resolved.Action.Parameters
+        .Any(pr => pr.Name == ToolTimeout.ParameterName);
+    string stripped = PrepareArguments(document, json, budget, explicitBudget, declaresTimeout);
+
+    CapabilityInvocationResult result = Dispatch(name, resolved, stripped, budget);
+    if (result.IsError && IsContractError(result.Content))
     {
-      throw new ScriptToolException($"Error [UnknownAction]: {resolved.Error.Message}");
+      // Argument-shape violations have no legitimate continue-path: the script cannot
+      // branch its way out of a malformed call, so an in-band error here is exactly the
+      // buried-failure hazard the pre-dispatch throws already prevent. The nested-call
+      // attribution is inserted after the Error [CODE]: prefix so the wire contract holds.
+      throw new ScriptToolException(NestError(name, result.Content));
     }
 
-    string json = args switch
-    {
-      null => "{}",
-      string s => s,
-      _ => JsonSerializer.Serialize(args)
-    };
+    return result.Content;
+  }
 
+  /// <summary>Resolves the capability by name, throwing the UnknownAction contract
+  ///     error when the registry has no such action.</summary>
+  private ResolvedCapability ResolveOrThrow(string name)
+  {
+    Result<ResolvedCapability> resolved = _registry.Resolve(name);
+    return resolved.IsSuccess
+        ? resolved.Value
+        : throw new ScriptToolException($"Error [UnknownAction]: {resolved.Error.Message}");
+  }
+
+  /// <summary>Serializes the arguments to JSON: a string passes through verbatim,
+  ///     null becomes the empty object, anything else is JSON-serialized.</summary>
+  private static string SerializeArguments(object? args) => args switch
+  {
+    null => "{}",
+    string s => s,
+    _ => JsonSerializer.Serialize(args)
+  };
+
+  /// <summary>Parses the serialized arguments, throwing the InvalidJsonArguments
+  ///     contract error on malformed JSON or a non-object document.</summary>
+  private static JsonElement ParseArguments(string json)
+  {
     JsonElement document;
     try
     {
@@ -385,55 +421,62 @@ public sealed class ScriptTools
     {
       throw new ScriptToolException($"Error [InvalidJsonArguments]: Arguments are not valid JSON: {ex.Message}");
     }
-    if (document.ValueKind != JsonValueKind.Object)
-    {
-      throw new ScriptToolException("Error [InvalidJsonArguments]: Arguments must be a JSON object.");
-    }
 
+    return document.ValueKind != JsonValueKind.Object
+        ? throw new ScriptToolException("Error [InvalidJsonArguments]: Arguments must be a JSON object.")
+        : document;
+  }
+
+  /// <summary>Resolves the nested call's execution budget: an explicit timeoutSeconds
+  ///     wins; otherwise the enclosing exec call's budget is inherited (the named
+  ///     leniency decision); a budgetless caller with no explicit value, or any
+  ///     invalid explicit value, throws the corresponding contract error.</summary>
+  private (TimeSpan Budget, bool Explicit) ResolveBudget(JsonElement document, string name)
+  {
     Result<TimeSpan> parsedBudget = ToolTimeout.Parse(document);
-    TimeSpan budget;
-    bool explicitBudget = parsedBudget.IsSuccess;
     if (parsedBudget.IsSuccess)
     {
-      budget = parsedBudget.Value;
+      return (parsedBudget.Value, true);
     }
-    else if (parsedBudget.Error.Code == "MissingParameter" && _globals.ExecBudget is { } inherited)
+
+    if (parsedBudget.Error.Code == "MissingParameter" && _globals.ExecBudget is { } inherited)
     {
-      budget = inherited;
+      return (inherited, false);
     }
-    else if (parsedBudget.Error.Code == "MissingParameter")
+
+    if (parsedBudget.Error.Code == "MissingParameter")
     {
       throw new ScriptToolException(
           $"Error [MissingParameter]: nested call '{name}': {parsedBudget.Error.Message} (no enclosing exec budget to inherit)");
     }
-    else
-    {
-      throw new ScriptToolException(
-          $"Error [{parsedBudget.Error.Code}]: nested call '{name}': {parsedBudget.Error.Message}");
-    }
 
-    // Counted here, past every pre-dispatch contract throw: a counted dispatch is one
-    // that actually reached the provider. The empty-output hint keys off this count.
-    _globals.CountNestedDispatch();
+    throw new ScriptToolException(
+        $"Error [{parsedBudget.Error.Code}]: nested call '{name}': {parsedBudget.Error.Message}");
+  }
 
-    // Tools whose contract declares timeoutSeconds (ITool-backed actions) re-validate
-    // it themselves — they need it present: an explicit nested value passes through
-    // untouched, an inherited one is injected. Pure capability providers never declare
-    // it; strip the harness-reserved key so their strict parsers accept the rest.
-    bool declaresTimeout = resolved.Value.Action.Parameters
-        .Any(pr => pr.Name == ToolTimeout.ParameterName);
-    string stripped;
+  /// <summary>Produces the dispatched arguments: tools whose contract declares
+  ///     timeoutSeconds (ITool-backed actions) re-validate it themselves — they need
+  ///     it present: an explicit nested value passes through untouched, an inherited
+  ///     one is injected. Pure capability providers never declare it; strip the
+  ///     harness-reserved key so their strict parsers accept the rest.</summary>
+  private static string PrepareArguments(
+      JsonElement document, string json, TimeSpan budget, bool explicitBudget, bool declaresTimeout)
+  {
     if (declaresTimeout)
     {
       // Explicit budget: pass through. Inherited: inject it so the tool's own
       // strict parser sees the key its contract declares.
-      stripped = explicitBudget ? json : InjectTimeout(document, budget);
-    }
-    else
-    {
-      stripped = StripTimeout(document);
+      return explicitBudget ? json : InjectTimeout(document, budget);
     }
 
+    return StripTimeout(document);
+  }
+
+  /// <summary>Runs the dispatched invocation to completion: the registry call is
+  ///     scheduled off the caller's synchronization context (see the comment inside)
+  ///     and raced against a hard deadline timer, then awaited synchronously.</summary>
+  private CapabilityInvocationResult Dispatch(string name, ResolvedCapability resolved, string stripped, TimeSpan budget)
+  {
     // Offload to the worker pool before blocking: scripts are synchronous but the
     // registry is async, and awaiting inline deadlocks whenever this runs on a thread
     // whose SynchronizationContext must pump (e.g. Avalonia's UI thread). The caller's
@@ -454,7 +497,7 @@ public sealed class ScriptTools
         // even for a provider that ignores it — in-process work cannot be killed, so
         // that invocation is abandoned and its result discarded.
         cts.CancelAfter(budget);
-        Task<CapabilityInvocationResult> call = _registry.InvokeAsync(resolved.Value, stripped, cts.Token);
+        Task<CapabilityInvocationResult> call = _registry.InvokeAsync(resolved, stripped, cts.Token);
         TaskCompletionSource deadline = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using Timer timer = new(
             static state => ((TaskCompletionSource)state!).TrySetResult(),
@@ -465,15 +508,16 @@ public sealed class ScriptTools
           // Observe and drop the abandoned call's eventual fault so it cannot surface
           // as an unobserved task exception later in the process lifetime.
           _ = call.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-          return new CapabilityInvocationResult(ToolTimeout.TimedOut(name, budget).Content, true);
+          return TimedOut(name, budget);
         }
+
         try
         {
           return await call.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-          return new CapabilityInvocationResult(ToolTimeout.TimedOut(name, budget).Content, true);
+          return TimedOut(name, budget);
         }
       }
       finally
@@ -482,19 +526,13 @@ public sealed class ScriptTools
       }
     });
 
-    CapabilityInvocationResult result = scheduled.GetAwaiter().GetResult();
-    if (result.IsError && IsContractError(result.Content))
-    {
-      // Argument-shape violations have no legitimate continue-path: the script cannot
-      // branch its way out of a malformed call, so an in-band error here is exactly the
-      // buried-failure hazard the pre-dispatch throws already prevent. The nested-call
-      // attribution is inserted after the Error [CODE]: prefix so the wire contract holds.
-      throw new ScriptToolException(NestError(name, result.Content));
-    }
-
-    return result.Content;
+    return scheduled.GetAwaiter().GetResult();
   }
 
+  /// <summary>The in-band timeout outcome for a nested call the deadline (or the
+  ///     cooperative cancellation) retired.</summary>
+  private static CapabilityInvocationResult TimedOut(string name, TimeSpan budget) =>
+      new(ToolTimeout.TimedOut(name, budget).Content, true);
   /// <summary>Inserts "nested call '<paramref name="name"/>'": " after the leading
   ///     "Error [CODE]: " prefix (or prepends it when the content carries no such
   ///     prefix), so contract violations thrown from a script name the inner

@@ -26,6 +26,17 @@ dotnet_diagnostic.S1135.severity = none
 # test projects' deliberate-suppression note).
 dotnet_diagnostic.S125.severity = none
 
+# Parameterized Sonar rules are inactive by default in the SonarAnalyzer.CSharp
+# NuGet and are NOT activated by the global escalation above - they need
+# explicit entries (verified 2026-10: severity escalation alone leaves them
+# silent). Thresholds live in the rule defaults (S3776: 15, S1541: 10,
+# S107: 7, S138: 80) and are NOT overridden, so the local gate matches the
+# SonarQube Cloud 'Sonar way' profile exactly.
+dotnet_diagnostic.S3776.severity = error
+dotnet_diagnostic.S1541.severity = error
+dotnet_diagnostic.S107.severity = error
+dotnet_diagnostic.S138.severity = error
+
 # --- C# language/style preferences -------------------------------------------
 # Each entry states the preferred style; violations are errors via the global
 # escalation above (no per-rule severity suffixes anywhere in this file).
@@ -126,3 +137,36 @@ dotnet_naming_rule.private_fields_should_be_camelcase.style = camel_case
 dotnet_naming_symbols.private_fields.applicable_kinds = field
 dotnet_naming_style.camel_case.required_prefix = _
 dotnet_naming_style.camel_case.capitalization = camel_case
+
+# --- Named deviation: S107 scoped to one file --------------------------------
+# ModelConfig's primary constructor and its Create factory carry the model's
+# eighteen independent knobs (identity, budget, sampling, capabilities). They
+# are genuinely independent nullable settings, not a hidden abstraction: a
+# parameter object would be artificial (every call site sets a different
+# subset, and the record's positional shape is the public contract). The
+# refactor splits Create's validation body; the parameter count itself stays.
+[src/eThangAgent.Model.Domain/ModelConfig.cs]
+dotnet_diagnostic.S107.severity = none
+# --- Named deviation: S107 scoped to test fixture builders -------------------
+# TreeTextRendererTests.El and SkillManageToolTests.Def are test-data builder
+# methods whose defaulted, named-argument call sites construct record fixtures
+# (each parameter is one distinct fixture field, none of them collaborators):
+# a parameter object would obscure the fixtures per-field readability, so the
+# parameter count stays and the release is the named deviation.
+[tests/eThangAgent.ComputerUse.ACL.Tests/TreeTextRendererTests.cs]
+dotnet_diagnostic.S107.severity = none
+
+[tests/eThangAgent.Tool.Domain.Tests/SkillManageToolTests.cs]
+dotnet_diagnostic.S107.severity = none
+
+# --- Named deviation: S107 scoped to one file --------------------------------
+# AgentRecord.Spawned is a persisted-record factory whose nine parameters map
+# 1:1 onto independent AgentRecord columns (identity, parentage, depth, status,
+# model, label, task, creation time, contract) — exactly the shape the Storage
+# ACL persists. A parameter object would be artificial: every one of the ~70
+# call sites across src and tests sets a different subset positionally or by
+# name, so grouping would obscure the per-column readability the factory's
+# call sites rely on. The parameter count stays; the release is this named
+# deviation.
+[src/eThangAgent.Agent.Domain/AgentRecord.cs]
+dotnet_diagnostic.S107.severity = none

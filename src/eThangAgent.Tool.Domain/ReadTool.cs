@@ -78,12 +78,13 @@ public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files, Re
   private async Task<ToolResult> ReadAsync(ReadToolInput args, string path, CancellationToken ct)
   {
     Result<FileRead> read = await _files.ReadLinesAsync(path, args.StartLine, args.EndLine, ct).ConfigureAwait(false);
-    if (!read.IsSuccess)
-    {
-      return Err(read.Error);
-    }
+    return read.IsSuccess
+      ? HandleRead(args, path, read.Value)
+      : Err(read.Error);
+  }
 
-    FileRead file = read.Value;
+  private ToolResult HandleRead(ReadToolInput args, string path, FileRead file)
+  {
     if (file.LastLineRead == 0)
     {
       return Err(new DomainError("StartLineBeyondEof",
@@ -95,31 +96,52 @@ public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files, Re
 
     // Freshness: the verdict keys on the version the ACL captured at the read
     // moment, over the range actually delivered (after clamping).
-    FileCoverage coverage = _ledger?.Check(path, file.Version, args.StartLine, last)
-        ?? new FileCoverage([]);
+    FileCoverage coverage = CheckedCoverage(path, file, args.StartLine, last);
     bool forced = args.Force && !coverage.IsEmpty;
-    if (_ledger is not null && file.Version is not null)
-    {
-      _ledger.Record(path, file.Version, args.StartLine, last);
-    }
-
-    string tokenSuffix = file.Version is null ? string.Empty : $" | {file.Version.Token}";
-    string elisionSuffix = ElisionSuffix(coverage, forced, args.StartLine, last);
+    RecordRead(path, file, args.StartLine, last);
+    int width = last.ToString(CultureInfo.InvariantCulture).Length;
 
     StringBuilder sb = new();
-    _ = sb.AppendLine(CultureInfo.InvariantCulture,
-        $"[read {path} lines {args.StartLine}-{last} of {file.TotalLines} total{tokenSuffix}{elisionSuffix}]");
+    _ = sb.AppendLine(CultureInfo.InvariantCulture, $"{Header(args, path, file, last, coverage, forced)}");
+    AppendBody(sb, file.Lines, args.StartLine, coverage, forced, width);
+    AppendTail(sb, clamped, args, file);
+    return new ToolResult(sb.ToString(), false);
+  }
 
+  private FileCoverage CheckedCoverage(string path, FileRead file, int start, int last)
+      => _ledger?.Check(path, file.Version, start, last) ?? new FileCoverage([]);
+
+  private void RecordRead(string path, FileRead file, int startLine, int last)
+  {
+    if (_ledger is not null && file.Version is not null)
+    {
+      _ledger.Record(path, file.Version, startLine, last);
+    }
+  }
+
+  private static string Header(ReadToolInput args, string path, FileRead file, int last, FileCoverage coverage, bool forced)
+  {
+    string tokenSuffix = file.Version is null ? string.Empty : $" | {file.Version.Token}";
+    string elisionSuffix = ElisionSuffix(coverage, forced, args.StartLine, last);
+    return $"[read {path} lines {args.StartLine}-{last} of {file.TotalLines} total{tokenSuffix}{elisionSuffix}]";
+  }
+
+  private static void AppendBody(StringBuilder sb, IReadOnlyList<string> lines, int firstLine,
+      FileCoverage coverage, bool forced, int width)
+  {
     if (!forced && !coverage.IsEmpty)
     {
       // Elide: deliver only the lines the model does NOT already hold.
-      AppendUncoveredLines(sb, file.Lines, args.StartLine, coverage.Elided, width: last.ToString(CultureInfo.InvariantCulture).Length);
+      AppendUncoveredLines(sb, lines, firstLine, coverage.Elided, width);
     }
     else
     {
-      AppendAllLines(sb, file.Lines, args.StartLine, width: last.ToString(CultureInfo.InvariantCulture).Length);
+      AppendAllLines(sb, lines, firstLine, width);
     }
+  }
 
+  private static void AppendTail(StringBuilder sb, bool clamped, ReadToolInput args, FileRead file)
+  {
     if (clamped)
     {
       _ = sb.Append(CultureInfo.InvariantCulture, $"[warning] endLine {args.EndLine} exceeded file length ({file.TotalLines}); clamped");
@@ -128,8 +150,6 @@ public sealed class ReadTool(IPathResolver resolver, IFileSystemAccess files, Re
     {
       sb.Length -= Environment.NewLine.Length;  // trim trailing newline
     }
-
-    return new ToolResult(sb.ToString(), false);
   }
 
   /// <summary>Appends the lines of the delivered slice that fall OUTSIDE the held

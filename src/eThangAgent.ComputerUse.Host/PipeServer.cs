@@ -79,7 +79,7 @@ public sealed class PipeServer
   private readonly HashSet<int> _authenticated = [];
   private readonly bool _targetedInput;
 
-  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, Func<KeyChord, bool>? sendChord = null, Func<string, bool>? sendText = null, Func<string, int, int, int, int, bool>? sendDrag = null, Func<string, int, int, bool>? sendMouseButtonAt = null, Func<string, int, int, int, bool>? sendWheelAt = null, bool targetedInput = false)
+  public PipeServer(BrokerConfig config, IBrokerObserver? observer = null, Func<int>? foregroundPid = null, InputHooks? hooks = null, bool targetedInput = false)
   {
     _config = config ?? throw new ArgumentNullException(nameof(config));
     _targetedInput = targetedInput;
@@ -90,57 +90,17 @@ public sealed class PipeServer
     // a partial set throws ArgumentException naming the missing hooks (programmer
     // error: partial injection is what let wire tests live-fire). No honest-false
     // defaults exist in the resolution path.
-    bool anyHook = sendChord is not null || sendText is not null || sendDrag is not null
-      || sendMouseButtonAt is not null || sendWheelAt is not null;
-    if (anyHook)
-    {
-      List<string> missing = [];
-      if (sendChord is null)
-      {
-        missing.Add(nameof(sendChord));
-      }
-
-      if (sendText is null)
-      {
-        missing.Add(nameof(sendText));
-      }
-
-      if (sendDrag is null)
-      {
-        missing.Add(nameof(sendDrag));
-      }
-
-      if (sendMouseButtonAt is null)
-      {
-        missing.Add(nameof(sendMouseButtonAt));
-      }
-
-      if (sendWheelAt is null)
-      {
-        missing.Add(nameof(sendWheelAt));
-      }
-
-      if (missing.Count > 0)
-      {
-        throw new ArgumentException(
-          "partial input-hook injection is a programmer error (it silently live-fired wire tests); inject ALL input hooks or none. missing: " + string.Join(", ", missing),
-          nameof(sendChord));
-      }
-    }
+    bool anyHook = RequireCompleteHookSet(hooks);
 
     // The DEFAULT foreground read is the REAL one: production (Program.cs) wires no
     // explicit read, and the strategy=event / paste / targeted gates must consult the
     // actual foreground window. The -1 fake was the test factory's default and leaked
     // into the production path, refusing every gated dispatch forever.
-    InputDispatch = new InputDispatch(
+    InputDispatch = new InputDispatch(new InputDispatchServices(
         foregroundPid ?? InputDispatch.ReadForegroundPid,
-        sendChord ?? NativeInput.SendChord,
-        sendText ?? NativeInput.SendText,
-        sendDrag ?? NativeInput.SendDrag,
-        sendMouseButtonAt ?? NativeInput.SendMouseButtonAt,
-        sendWheelAt ?? NativeInput.SendWheelAt,
-        doubleBacked: anyHook,
-        targeted: targetedInput);
+        hooks ?? InputDispatch.RealHooks(),
+        DoubleBacked: anyHook,
+        Targeted: targetedInput));
     Observer = observer ?? new SkeletonObserver();
     Lease.OwnerLost += Observer.OnOwnerLost;
     Lease.OwnerLost += _ => InputDispatch.CancelActiveInput();
@@ -200,17 +160,24 @@ public sealed class PipeServer
 
 
   /// <summary>The non-handshake path: it requires this connection to be authenticated.</summary>
-  private BrokerResponse DispatchWhenAuthenticated(int id, string method, JsonElement? parameters, int connectionId)
-  {
-    return _authenticated.Contains(connectionId)
+  private BrokerResponse DispatchWhenAuthenticated(int id, string method, JsonElement? parameters, int connectionId) =>
+    _authenticated.Contains(connectionId)
       ? DispatchAuthenticated(id, method, parameters, connectionId)
       : BrokerResponse.Fail("not_authorized", $"{method} before authenticate on this connection.");
-  }
 
 
   /// <summary>The authenticated dispatch path: routing for hello, controller, observation,
   ///     and input methods once the connection has passed authenticate.</summary>
   private BrokerResponse DispatchAuthenticated(int id, string method, JsonElement? parameters, int connectionId)
+  {
+    return TryDispatchControllerOrObservation(method, parameters, connectionId)
+      ?? TryDispatchInput(id, method, parameters, connectionId)
+      ?? BrokerResponse.Fail("method_not_found", $"unknown method: {method}.");
+  }
+
+  /// <summary>The controller routes; observation falls through; null when the method
+  ///     is neither.</summary>
+  private BrokerResponse? TryDispatchControllerOrObservation(string method, JsonElement? parameters, int connectionId)
   {
     return method switch
     {
@@ -219,13 +186,25 @@ public sealed class PipeServer
       "controller_takeover" => HandleControllerTakeover(connectionId),
       "controller_stop" => HandleControllerStop(connectionId),
       "stop_computer_control" => HandleStopComputerControl(connectionId),
+      _ => TryDispatchObservation(method, parameters),
+    };
+  }
+
+  /// <summary>The observation routes; null when the method is not observational.</summary>
+  private BrokerResponse? TryDispatchObservation(string method, JsonElement? parameters)
+  {
+    return method switch
+    {
       "list_applications" => BrokerResponse.Ok(Observer.ListApplications() ?? JsonSerializer.SerializeToElement(Array.Empty<object>())),
       "list_windows" => BrokerResponse.Ok(Observer.ListWindows(parameters)),
       "capture_app" => CaptureApp(parameters),
-      _ when InputMethods.Contains(method) => HandleInputMethod(id, method, parameters, connectionId),
-      _ => BrokerResponse.Fail("method_not_found", $"unknown method: {method}."),
+      _ => null,
     };
   }
+
+  /// <summary>The input-method routes; null when the method drives no physical input.</summary>
+  private BrokerResponse? TryDispatchInput(int id, string method, JsonElement? parameters, int connectionId) =>
+    InputMethods.Contains(method) ? HandleInputMethod(id, method, parameters, connectionId) : null;
 
 
   /// <summary>Handles one RAW frame line: parsing strictness (invalid JSON, missing or
@@ -404,6 +383,75 @@ public sealed class PipeServer
     return BrokerResponse.Ok(capture);
   }
 
+  /// <summary>Re-review resolution contract: ZERO hooks => the REAL NativeInput surface on
+  ///     all five (the Program.cs production path). ANY hook => ALL FIVE are required -
+  ///     a partial set throws ArgumentException naming the missing hooks (programmer
+  ///     error: partial injection is what let wire tests live-fire). No honest-false
+  ///     defaults exist in the resolution path. Returns true when any hook was supplied.</summary>
+  private static bool RequireCompleteHookSet(InputHooks? hooks)
+  {
+    bool anyHook = hooks is not null;
+    if (!anyHook)
+    {
+      return false;
+    }
+
+    List<string> missing = MissingHooks(hooks!);
+    ThrowIfPartialInjection(missing);
+    return true;
+  }
+
+  /// <summary>A partial set is a programmer error (it silently live-fired wire tests):
+  ///     the exception names every missing hook.</summary>
+  private static void ThrowIfPartialInjection(List<string> missing)
+  {
+    if (missing.Count > 0)
+    {
+      throw new ArgumentException(
+        "partial input-hook injection is a programmer error (it silently live-fired wire tests); inject ALL input hooks or none. missing: " + string.Join(", ", missing),
+        nameof(missing));
+    }
+  }
+
+  /// <summary>The names of the hooks absent from an injected set (a full set yields none).</summary>
+  private static List<string> MissingHooks(InputHooks hooks)
+  {
+    // Local aliases keep the resolution contract's ORIGINAL lowercase hook names
+    // (nameof output) - the partial-injection message is asserted Ordinal by tests.
+    Func<KeyChord, bool>? sendChord = hooks.SendChord;
+    Func<string, bool>? sendText = hooks.SendText;
+    Func<string, int, int, int, int, bool>? sendDrag = hooks.SendDrag;
+    Func<string, int, int, bool>? sendMouseButtonAt = hooks.SendMouseButtonAt;
+    Func<string, int, int, int, bool>? sendWheelAt = hooks.SendWheelAt;
+    List<string> missing = [];
+    if (sendChord is null)
+    {
+      missing.Add(nameof(sendChord));
+    }
+
+    if (sendText is null)
+    {
+      missing.Add(nameof(sendText));
+    }
+
+    if (sendDrag is null)
+    {
+      missing.Add(nameof(sendDrag));
+    }
+
+    if (sendMouseButtonAt is null)
+    {
+      missing.Add(nameof(sendMouseButtonAt));
+    }
+
+    if (sendWheelAt is null)
+    {
+      missing.Add(nameof(sendWheelAt));
+    }
+
+    return missing;
+  }
+
   /// <summary>The input-method envelope (task 16 skeleton): the lease gate, then the
   ///     serialization gate, then task 17's dispatcher performs the physical action.
   ///     On the skeleton every input method answers unimplemented AFTER the gates -
@@ -423,57 +471,66 @@ public sealed class PipeServer
     }
 
     using InputOperation? operation = InputSerializer.TryBegin(method);
-    if (operation is null)
+    return operation is null
+      ? InputBusy(operationOwner: InputSerializer.CurrentMethod)
+      : RouteStartedInput(method, operation, parameters);
+  }
+
+  /// <summary>The serialization gate passed: paste routes through its own gate chain;
+  ///     every other input method dispatches directly.</summary>
+  private BrokerResponse RouteStartedInput(string method, InputOperation operation, JsonElement? parameters) =>
+    method == "paste" ? HandlePaste(operation, parameters) : DispatchNonPaste(method, parameters);
+
+  /// <summary>The paste routing (F6/F8 gate closure): paste gates like click for EVERY
+  ///     target - the foreground window must already be the target app BEFORE the
+  ///     clipboard is touched. The old element-targeted exemption was unenforceable
+  ///     (the element op never focused its window), so an ungated paste typed into
+  ///     whatever window had focus. A refused paste writes NOTHING to the clipboard
+  ///     and dispatches no chord.</summary>
+  private BrokerResponse HandlePaste(InputOperation operation, JsonElement? parameters)
+  {
+    int targetPid = InputRouter.TargetPid(parameters);
+    if (!InputDispatch.GateAllowsForPaste(targetPid))
     {
-      return InputBusy(operationOwner: InputSerializer.CurrentMethod);
+      return BrokerResponse.Fail("foreground_required",
+        $"paste requires the target app (pid {targetPid}) to be foreground (foreground pid: {InputDispatch.CurrentForegroundPid}); the clipboard was not touched.",
+        "action_sent=false");
     }
 
-    if (method == "paste")
+    // An element-targeted paste focuses the element first (the type_text F7 pattern)
+    // so the delivered text lands in the target field; a focus failure is the honest
+    // refusal - nothing dispatched.
+    int element = InputRouter.ElementIndex(parameters);
+    if (element >= 0)
     {
-      // F6/F8 (gate closure): paste gates like click for EVERY target - the foreground
-      // window must already be the target app BEFORE the clipboard is touched. The old
-      // element-targeted exemption was unenforceable (the element op never focused its
-      // window), so an ungated paste typed into whatever window had focus. A refused
-      // paste writes NOTHING to the clipboard and dispatches no chord.
-      int targetPid = InputRouter.TargetPid(parameters);
-      if (!InputDispatch.GateAllowsForPaste(targetPid))
+      BrokerResponse focused = InputDispatch.FocusElement(element);
+      if (focused.Error is not null)
       {
-        return BrokerResponse.Fail("foreground_required",
-          $"paste requires the target app (pid {targetPid}) to be foreground (foreground pid: {InputDispatch.CurrentForegroundPid}); the clipboard was not touched.",
-          "action_sent=false");
+        return focused;
       }
-
-      // An element-targeted paste focuses the element first (the type_text F7 pattern)
-      // so the delivered text lands in the target field; a focus failure is the honest
-      // refusal - nothing dispatched.
-      int element = InputRouter.ElementIndex(parameters);
-      if (element >= 0)
-      {
-        BrokerResponse focused = InputDispatch.FocusElement(element);
-        if (focused.Error is not null)
-        {
-          return focused;
-        }
-      }
-
-      // Targeted delivery (integration opt-in): the text goes to the focused window as
-      // messages - the clipboard is never touched and no global chord is injected.
-      if (_targetedInput)
-      {
-        string? text = parameters is { } tp && tp.TryGetProperty("text", out JsonElement textEl)
-          && textEl.ValueKind == JsonValueKind.String ? textEl.GetString() : null;
-        return text is null
-          ? InputRouter.PasteFailure()
-          : InputDispatch.PasteTargeted(text);
-      }
-
-      return InputRouter.Paste(operation, parameters);
     }
 
-    BrokerResponse routed = method == "element_perform_action" && InputRouter.RequiresActionName(parameters)
+    // Targeted delivery (integration opt-in): the text goes to the focused window as
+    // messages - the clipboard is never touched and no global chord is injected.
+    if (_targetedInput)
+    {
+      string? text = parameters is { } tp && tp.TryGetProperty("text", out JsonElement textEl)
+        && textEl.ValueKind == JsonValueKind.String ? textEl.GetString() : null;
+      return text is null
+        ? InputRouter.PasteFailure()
+        : InputDispatch.PasteTargeted(text);
+    }
+
+    return InputRouter.Paste(operation, parameters);
+  }
+
+  /// <summary>Every non-paste input method: the element_perform_action action-name
+  ///     requirement, then the dispatcher.</summary>
+  private BrokerResponse DispatchNonPaste(string method, JsonElement? parameters)
+  {
+    return method == "element_perform_action" && InputRouter.RequiresActionName(parameters)
       ? BrokerResponse.Fail("invalid_request", "element_perform_action requires params.action_name (string).")
       : InputDispatch.Dispatch(method, parameters);
-    return routed;
   }
 
 

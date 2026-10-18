@@ -81,28 +81,13 @@ public sealed class TodoTool(ITodoListStore store) : ITool
 
   private async Task<ToolResult> RunAsync(TodoInput input, CancellationToken ct)
   {
-    Result<string> read = await _store.GetValueAsync(StoreKey, ct).ConfigureAwait(false);
-    IReadOnlyList<TodoItem> doc;
-    if (read.IsSuccess)
+    LoadedDocument loaded = await LoadDocumentAsync(ct).ConfigureAwait(false);
+    if (loaded.Failure is not null)
     {
-      Result<IReadOnlyList<TodoItem>> parsedDoc = TodoDocument.Parse(read.Value);
-      if (!parsedDoc.IsSuccess)
-      {
-        return Corrupt(parsedDoc.Error);
-      }
-
-      doc = parsedDoc.Value;
-    }
-    // A missing key is an empty document, not an error.
-    else if (read.Error.Code == "KeyNotFound")
-    {
-      doc = TodoDocument.Empty;
-    }
-    else
-    {
-      return Err(read.Error);
+      return loaded.Failure;
     }
 
+    IReadOnlyList<TodoItem> doc = loaded.Doc;
     return input.Action switch
     {
       TodoAction.List => List(doc),
@@ -114,6 +99,28 @@ public sealed class TodoTool(ITodoListStore store) : ITool
       // Unnamed enum values cannot occur.
       _ => throw new InvalidOperationException("Unknown todo action."),
     };
+  }
+
+  private readonly record struct LoadedDocument(IReadOnlyList<TodoItem> Doc, ToolResult? Failure);
+
+  /// <summary>Loads the persisted document. A missing key is an empty document, not an
+  ///     error; a corrupt payload and a store failure both yield the error result to
+  ///     return instead of dispatching.</summary>
+  private async Task<LoadedDocument> LoadDocumentAsync(CancellationToken ct)
+  {
+    Result<string> read = await _store.GetValueAsync(StoreKey, ct).ConfigureAwait(false);
+    if (read.IsSuccess)
+    {
+      Result<IReadOnlyList<TodoItem>> parsedDoc = TodoDocument.Parse(read.Value);
+      return parsedDoc.IsSuccess
+        ? new LoadedDocument(parsedDoc.Value, null)
+        : new LoadedDocument(TodoDocument.Empty, Corrupt(parsedDoc.Error));
+    }
+
+    // A missing key is an empty document, not an error.
+    return read.Error.Code == "KeyNotFound"
+      ? new LoadedDocument(TodoDocument.Empty, null)
+      : new LoadedDocument(TodoDocument.Empty, Err(read.Error));
   }
 
   private static ToolResult List(IReadOnlyList<TodoItem> doc)

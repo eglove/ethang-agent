@@ -65,17 +65,11 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
   ///     never time). Hard-ceiling enforcement is a policy decision enacted elsewhere.</summary>
   public void OnUsage(TokenUsage usage)
   {
-    ChildBudgetAlertEvent? alert = null;
+    ChildBudgetAlertEvent? alert;
     lock (_gate)
     {
       _tokens += usage.InputTokens + usage.OutputTokens;
-      bool hard = ceilings?.MaxTokens is { } hardCeiling && _tokens >= hardCeiling;
-      if (ceilings?.MaxTokens is { } tokenCeiling && _tokens >= tokenCeiling * DefaultSoftThreshold
-          && _budgetAlerts.Add($"tokens:{(hard ? "hard" : "soft")}:{tokenCeiling}"))
-      {
-        alert = new ChildBudgetAlertEvent(ChildId, clock.GetUtcNow(),
-            hard ? "tokens:hard" : "tokens", _tokens, tokenCeiling, BurnRatePerMinute());
-      }
+      alert = BudgetAlertIfCrossed();
     }
 
     if (alert is not null)
@@ -86,6 +80,27 @@ public sealed class ChildSupervisor(AgentId childId, IAgentEvents events, TimePr
         HardCeilingReached = true;
       }
     }
+  }
+
+  /// <summary>The token-budget alert for the just-accumulated usage: raised the first
+  ///     time a non-null ceiling's soft threshold is crossed (once per
+  ///     hard/soft/ceiling key). Null when no ceiling or not yet crossed.</summary>
+  private ChildBudgetAlertEvent? BudgetAlertIfCrossed()
+  {
+    if (ceilings?.MaxTokens is not { } tokenCeiling || _tokens < tokenCeiling * DefaultSoftThreshold)
+    {
+      return null;
+    }
+
+    bool hard = _tokens >= tokenCeiling;
+    string alertKey = $"tokens:{(hard ? "hard" : "soft")}:{tokenCeiling}";
+    if (!_budgetAlerts.Add(alertKey))
+    {
+      return null;
+    }
+
+    string kind = hard ? "tokens:hard" : "tokens";
+    return new ChildBudgetAlertEvent(ChildId, clock.GetUtcNow(), kind, _tokens, tokenCeiling, BurnRatePerMinute());
   }
 
   /// <summary>Facts for policy: a hard ceiling was crossed and enforcement has not run yet.

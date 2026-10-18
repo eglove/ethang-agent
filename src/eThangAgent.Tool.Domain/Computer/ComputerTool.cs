@@ -188,23 +188,7 @@ public sealed class ComputerTool(IComputerAccess access, IImageInputCapability v
 
   private static bool RequestedPostState(ComputerToolInput v) => v.ReturnState is not (null or "none");
 
-  private static string ActionName(ComputerAction action) => action switch
-  {
-    ComputerAction.ListApps => "list_apps",
-    ComputerAction.ListWindows => "list_windows",
-    ComputerAction.Observe => "observe",
-    ComputerAction.Click => "click",
-    ComputerAction.Drag => "drag",
-    ComputerAction.Scroll => "scroll",
-    ComputerAction.Type => "type",
-    ComputerAction.SetValue => "set_value",
-    ComputerAction.SelectText => "select_text",
-    ComputerAction.Key => "key",
-    ComputerAction.Paste => "paste",
-    ComputerAction.PerformAction => "perform_action",
-    ComputerAction.Stop => "stop",
-    _ => throw new InvalidOperationException("unreachable: action is a validated enum value"),
-  };
+  private static string ActionName(ComputerAction action) => ActionNames[(int)action];
 
   private static ToolResult Err(DomainError error) => new($"Error [{error.Code}]: {error.Message}", true);
 }

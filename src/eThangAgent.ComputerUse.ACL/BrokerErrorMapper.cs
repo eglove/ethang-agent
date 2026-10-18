@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using eThangAgent.ToolDomain;
 
 namespace eThangAgent.ComputerUse.ACL;
@@ -14,26 +15,30 @@ public static class BrokerErrorMapper
   ///     verbatim - the broker wrote it for the model.</summary>
   public static ComputerOutcome.Failure Map(string wireCode, string message) => new(Surface(wireCode), message);
 
-  private static string Surface(string wireCode) => wireCode switch
+  /// <summary>The wire-code to surface-code table (spec 7's closed error set); unknown
+  ///     codes fall through to the conservative INTERNAL default. input_busy is ledgered
+  ///     as retryable (action_sent=false).</summary>
+  private static readonly FrozenDictionary<string, string> SurfaceMap = new Dictionary<string, string>(StringComparer.Ordinal)
   {
-    "permission_denied" => ComputerErrorCodes.ActionUnavailable,
-    "app_not_found" => ComputerErrorCodes.AppNotFound,
-    "ambiguous_app" => ComputerErrorCodes.AmbiguousApp,
-    "launch_failed" => ComputerErrorCodes.LaunchFailed,
-    "invalid_request" => ComputerErrorCodes.InvalidApp,
-    "element_unavailable" => ComputerErrorCodes.ElementUnavailable,
-    "not_settable" => ComputerErrorCodes.NotSettable,
-    "not_selectable" => ComputerErrorCodes.NotSelectable,
-    "action_unavailable" => ComputerErrorCodes.ActionUnavailable,
-    "foreground_required" => ComputerErrorCodes.ForegroundRequired,
-    "input_busy" => ComputerErrorCodes.Timeout, // ledgered ruling: retryable, action_sent=false
-    "controller_busy" => ComputerErrorCodes.ControllerBusy,
-    "internal" => ComputerErrorCodes.Internal,
-    "method_not_found" => ComputerErrorCodes.Internal,
-    "unimplemented" => ComputerErrorCodes.ActionUnavailable,
-    "timeout" => ComputerErrorCodes.Timeout,
-    "stale_state" => ComputerErrorCodes.StaleState,
-    "version_mismatch" => ComputerErrorCodes.VersionMismatch,
-    _ => ComputerErrorCodes.Internal,
-  };
+    ["permission_denied"] = ComputerErrorCodes.ActionUnavailable,
+    ["app_not_found"] = ComputerErrorCodes.AppNotFound,
+    ["ambiguous_app"] = ComputerErrorCodes.AmbiguousApp,
+    ["launch_failed"] = ComputerErrorCodes.LaunchFailed,
+    ["invalid_request"] = ComputerErrorCodes.InvalidApp,
+    ["element_unavailable"] = ComputerErrorCodes.ElementUnavailable,
+    ["not_settable"] = ComputerErrorCodes.NotSettable,
+    ["not_selectable"] = ComputerErrorCodes.NotSelectable,
+    ["action_unavailable"] = ComputerErrorCodes.ActionUnavailable,
+    ["foreground_required"] = ComputerErrorCodes.ForegroundRequired,
+    ["input_busy"] = ComputerErrorCodes.Timeout, // ledgered ruling: retryable, action_sent=false
+    ["controller_busy"] = ComputerErrorCodes.ControllerBusy,
+    ["internal"] = ComputerErrorCodes.Internal,
+    ["method_not_found"] = ComputerErrorCodes.Internal,
+    ["unimplemented"] = ComputerErrorCodes.ActionUnavailable,
+    ["timeout"] = ComputerErrorCodes.Timeout,
+    ["stale_state"] = ComputerErrorCodes.StaleState,
+    ["version_mismatch"] = ComputerErrorCodes.VersionMismatch,
+  }.ToFrozenDictionary(StringComparer.Ordinal);
+
+  private static string Surface(string wireCode) => SurfaceMap.GetValueOrDefault(wireCode, ComputerErrorCodes.Internal);
 }

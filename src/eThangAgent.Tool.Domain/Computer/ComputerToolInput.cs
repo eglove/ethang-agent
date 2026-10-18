@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json;
 using eThangAgent.SharedKernel;
 
@@ -49,264 +50,369 @@ public sealed record ComputerToolInput(
       return Fail(baseParse.Error);
     }
 
-    JsonElement json = baseParse.Value;
-    if (!json.TryGetProperty("action", out JsonElement actionEl))
-    {
-      return Fail(new DomainError("InvalidAction",
-          "'action' is required: exactly one of list_apps, list_windows, observe, click, drag, scroll, type, set_value, select_text, key, paste, perform_action, or stop (case-sensitive)."));
-    }
-
-    if (actionEl.ValueKind != JsonValueKind.String)
-    {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
-          $"'action' must be a string, but got {actionEl.ValueKind}."));
-    }
-
-    string actionText = actionEl.GetString()!;
-    Result<ComputerAction> action = actionText switch
-    {
-      "list_apps" => Result.Success(ComputerAction.ListApps),
-      "list_windows" => Result.Success(ComputerAction.ListWindows),
-      "observe" => Result.Success(ComputerAction.Observe),
-      "click" => Result.Success(ComputerAction.Click),
-      "drag" => Result.Success(ComputerAction.Drag),
-      "scroll" => Result.Success(ComputerAction.Scroll),
-      "type" => Result.Success(ComputerAction.Type),
-      "set_value" => Result.Success(ComputerAction.SetValue),
-      "select_text" => Result.Success(ComputerAction.SelectText),
-      "key" => Result.Success(ComputerAction.Key),
-      "paste" => Result.Success(ComputerAction.Paste),
-      "perform_action" => Result.Success(ComputerAction.PerformAction),
-      "stop" => Result.Success(ComputerAction.Stop),
-      _ => Result.Failure<ComputerAction>(new DomainError("InvalidAction",
-          $"'action' must be exactly one of list_apps, list_windows, observe, click, drag, scroll, type, set_value, select_text, key, paste, perform_action, or stop (case-sensitive; got '{actionText}').")),
-    };
+    Result<ComputerAction> action = ParseAction(baseParse.Value);
     if (!action.IsSuccess)
     {
       return Fail(action.Error);
     }
 
-    DomainError? unknown = ToolArguments.RejectUnknownParameters(json, Allowed(action.Value));
+    DomainError? unknown = ToolArguments.RejectUnknownParameters(baseParse.Value, Allowed(action.Value));
     return unknown is not null
       ? Fail(unknown)
-      : ParseFields(action.Value, json);
+      : ParseFields(action.Value, baseParse.Value);
   }
+
+  /// <summary>Reads and validates the required 'action' switch: present, a JSON
+  ///     string, and one of the thirteen admitted names (case-sensitive).</summary>
+  private static Result<ComputerAction> ParseAction(JsonElement json)
+    => json.TryGetProperty("action", out JsonElement actionEl) ? TypedAction(actionEl) : MissingAction();
+
+  private static Result<ComputerAction> TypedAction(JsonElement actionEl)
+    => actionEl.ValueKind == JsonValueKind.String ? MapAction(actionEl.GetString()!) : NotAString(actionEl);
+
+  private static Result<ComputerAction> MissingAction() => Result.Failure<ComputerAction>(new DomainError("InvalidAction",
+      "'action' is required: exactly one of list_apps, list_windows, observe, click, drag, scroll, type, set_value, select_text, key, paste, perform_action, or stop (case-sensitive)."));
+
+  private static Result<ComputerAction> NotAString(JsonElement actionEl) => Result.Failure<ComputerAction>(
+      new DomainError(ToolErrorCodes.InvalidParameterType,
+          $"'action' must be a string, but got {actionEl.ValueKind}."));
+
+  /// <summary>Maps the action name onto the enum; an unknown name is an
+  ///     InvalidAction typed error.</summary>
+  private static Result<ComputerAction> MapAction(string actionText) =>
+    ActionMap.TryGetValue(actionText, out ComputerAction action)
+        ? Result.Success(action)
+        : Result.Failure<ComputerAction>(new DomainError("InvalidAction",
+            $"'action' must be exactly one of list_apps, list_windows, observe, click, drag, scroll, type, set_value, select_text, key, paste, perform_action, or stop (case-sensitive; got '{actionText}')."));
+
+  private static readonly FrozenDictionary<string, ComputerAction> ActionMap = new Dictionary<string, ComputerAction>(StringComparer.Ordinal)
+  {
+    ["list_apps"] = ComputerAction.ListApps,
+    ["list_windows"] = ComputerAction.ListWindows,
+    ["observe"] = ComputerAction.Observe,
+    ["click"] = ComputerAction.Click,
+    ["drag"] = ComputerAction.Drag,
+    ["scroll"] = ComputerAction.Scroll,
+    ["type"] = ComputerAction.Type,
+    ["set_value"] = ComputerAction.SetValue,
+    ["select_text"] = ComputerAction.SelectText,
+    ["key"] = ComputerAction.Key,
+    ["paste"] = ComputerAction.Paste,
+    ["perform_action"] = ComputerAction.PerformAction,
+    ["stop"] = ComputerAction.Stop,
+  }.ToFrozenDictionary();
 
   /// <summary>The allowed argument keys per action (timeoutSeconds belongs to
   ///     every tool call). The list is echoed verbatim on UnknownParameter errors.
   ///     </summary>
-  private static string[] Allowed(ComputerAction action) => action switch
+  private static string[] Allowed(ComputerAction action) => AllowedMap[action];
+
+  private static readonly FrozenDictionary<ComputerAction, string[]> AllowedMap = new Dictionary<ComputerAction, string[]>
   {
-    ComputerAction.ListApps => ["action", ToolTimeout.ParameterName],
-    ComputerAction.ListWindows => ["action", ToolTimeout.ParameterName, "app_ref"],
-    ComputerAction.Observe => ["action", ToolTimeout.ParameterName, "app_ref", "include_screenshot", "disable_diffing"],
-    ComputerAction.Click => ["action", ToolTimeout.ParameterName, "target", "app_ref", "mouse_button", "click_count", "modifiers", "strategy", "return_state"],
-    ComputerAction.Drag => ["action", ToolTimeout.ParameterName, "from_target", "to", "app_ref", "modifiers", "return_state"],
-    ComputerAction.Scroll => ["action", ToolTimeout.ParameterName, "target", "scroll_direction", "scroll_amount", "app_ref", "strategy", "return_state"],
-    ComputerAction.Type => ["action", ToolTimeout.ParameterName, "text", "target", "app_ref", "strategy", "return_state"],
-    ComputerAction.SetValue => ["action", ToolTimeout.ParameterName, "target", "value", "app_ref", "strategy", "return_state"],
-    ComputerAction.SelectText => ["action", ToolTimeout.ParameterName, "target", "text", "prefix", "suffix", "selection_type", "app_ref", "return_state"],
-    ComputerAction.Key => ["action", ToolTimeout.ParameterName, "text", "repeat", "hold_seconds", "app_ref", "strategy", "return_state"],
-    ComputerAction.Paste => ["action", ToolTimeout.ParameterName, "text", "format", "target", "app_ref", "return_state"],
-    ComputerAction.PerformAction => ["action", ToolTimeout.ParameterName, "target", "action_name", "app_ref", "return_state"],
-    ComputerAction.Stop => ["action", ToolTimeout.ParameterName, "reason"],
-    _ => throw new InvalidOperationException("unreachable: action is a validated enum value"),
-  };
+    [ComputerAction.ListApps] = ["action", ToolTimeout.ParameterName],
+    [ComputerAction.ListWindows] = ["action", ToolTimeout.ParameterName, "app_ref"],
+    [ComputerAction.Observe] = ["action", ToolTimeout.ParameterName, "app_ref", "include_screenshot", "disable_diffing"],
+    [ComputerAction.Click] = ["action", ToolTimeout.ParameterName, "target", "app_ref", "mouse_button", "click_count", "modifiers", "strategy", "return_state"],
+    [ComputerAction.Drag] = ["action", ToolTimeout.ParameterName, "from_target", "to", "app_ref", "modifiers", "return_state"],
+    [ComputerAction.Scroll] = ["action", ToolTimeout.ParameterName, "target", "scroll_direction", "scroll_amount", "app_ref", "strategy", "return_state"],
+    [ComputerAction.Type] = ["action", ToolTimeout.ParameterName, "text", "target", "app_ref", "strategy", "return_state"],
+    [ComputerAction.SetValue] = ["action", ToolTimeout.ParameterName, "target", "value", "app_ref", "strategy", "return_state"],
+    [ComputerAction.SelectText] = ["action", ToolTimeout.ParameterName, "target", "text", "prefix", "suffix", "selection_type", "app_ref", "return_state"],
+    [ComputerAction.Key] = ["action", ToolTimeout.ParameterName, "text", "repeat", "hold_seconds", "app_ref", "strategy", "return_state"],
+    [ComputerAction.Paste] = ["action", ToolTimeout.ParameterName, "text", "format", "target", "app_ref", "return_state"],
+    [ComputerAction.PerformAction] = ["action", ToolTimeout.ParameterName, "target", "action_name", "app_ref", "return_state"],
+    [ComputerAction.Stop] = ["action", ToolTimeout.ParameterName, "reason"],
+  }.ToFrozenDictionary();
 
   /// <summary>Builds the seam command, applying the documented defaults for
   ///     every absent optional key. Only a successful parse reaches this.</summary>
-  public ComputerCommand ToCommand() => Action switch
-  {
-    ComputerAction.ListApps => new ComputerCommand.ListApps(),
-    ComputerAction.ListWindows => new ComputerCommand.ListWindows(AppRef!),
-    ComputerAction.Observe => new ComputerCommand.Observe(AppRef!, IncludeScreenshot ?? false, DisableDiffing ?? false),
-    ComputerAction.Click => new ComputerCommand.Click(Target!, AppRef, MouseButton ?? "left", ClickCount ?? 1, Modifiers ?? "", Strategy ?? "auto", ReturnState ?? "none"),
-    ComputerAction.Drag => new ComputerCommand.Drag(From!, To!, AppRef, Modifiers ?? "", ReturnState ?? "none"),
-    ComputerAction.Scroll => new ComputerCommand.Scroll(Target!, ScrollDirection!, ScrollAmount!.Value, AppRef, Strategy ?? "auto", ReturnState ?? "none"),
-    ComputerAction.Type => new ComputerCommand.TypeText(Text!, Target, AppRef, Strategy ?? "auto", ReturnState ?? "none"),
-    ComputerAction.SetValue => new ComputerCommand.SetValue(Target!, Value!, AppRef, Strategy ?? "auto", ReturnState ?? "none"),
-    ComputerAction.SelectText => new ComputerCommand.SelectText(Target!, Text!, Prefix, Suffix, SelectionType ?? "text", AppRef, ReturnState ?? "none"),
-    ComputerAction.Key => new ComputerCommand.Key(Text!, Repeat, HoldSeconds, AppRef, Strategy ?? "auto", ReturnState ?? "none"),
-    ComputerAction.Paste => new ComputerCommand.Paste(Text!, Target, AppRef, Format ?? "text", ReturnState ?? "none"),
-    ComputerAction.PerformAction => new ComputerCommand.PerformAction(Target!, ActionName!, AppRef, ReturnState ?? "none"),
-    ComputerAction.Stop => new ComputerCommand.Stop(Reason),
-    _ => throw new InvalidOperationException("unreachable: action is a validated enum value"),
-  };
+  public ComputerCommand ToCommand() => CommandBuilders[Action](this);
+
+  private static readonly FrozenDictionary<ComputerAction, Func<ComputerToolInput, ComputerCommand>> CommandBuilders
+      = new Dictionary<ComputerAction, Func<ComputerToolInput, ComputerCommand>>
+      {
+        [ComputerAction.ListApps] = _ => new ComputerCommand.ListApps(),
+        [ComputerAction.ListWindows] = v => new ComputerCommand.ListWindows(v.AppRef!),
+        [ComputerAction.Observe] = v => new ComputerCommand.Observe(v.AppRef!, v.IncludeScreenshot ?? false, v.DisableDiffing ?? false),
+        [ComputerAction.Click] = v => new ComputerCommand.Click(v.Target!, v.AppRef, v.MouseButton ?? "left", v.ClickCount ?? 1, v.Modifiers ?? "", v.Strategy ?? "auto", v.ReturnState ?? "none"),
+        [ComputerAction.Drag] = v => new ComputerCommand.Drag(v.From!, v.To!, v.AppRef, v.Modifiers ?? "", v.ReturnState ?? "none"),
+        [ComputerAction.Scroll] = v => new ComputerCommand.Scroll(v.Target!, v.ScrollDirection!, v.ScrollAmount!.Value, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none"),
+        [ComputerAction.Type] = v => new ComputerCommand.TypeText(v.Text!, v.Target, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none"),
+        [ComputerAction.SetValue] = v => new ComputerCommand.SetValue(v.Target!, v.Value!, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none"),
+        [ComputerAction.SelectText] = v => new ComputerCommand.SelectText(v.Target!, v.Text!, v.Prefix, v.Suffix, v.SelectionType ?? "text", v.AppRef, v.ReturnState ?? "none"),
+        [ComputerAction.Key] = v => new ComputerCommand.Key(v.Text!, v.Repeat, v.HoldSeconds, v.AppRef, v.Strategy ?? "auto", v.ReturnState ?? "none"),
+        [ComputerAction.Paste] = v => new ComputerCommand.Paste(v.Text!, v.Target, v.AppRef, v.Format ?? "text", v.ReturnState ?? "none"),
+        [ComputerAction.PerformAction] = v => new ComputerCommand.PerformAction(v.Target!, v.ActionName!, v.AppRef, v.ReturnState ?? "none"),
+        [ComputerAction.Stop] = v => new ComputerCommand.Stop(v.Reason),
+      }.ToFrozenDictionary();
 
   /// <summary>Parses the per-action fields against the already-validated action.
   ///     Sub-objects parse first (they carry their own typed errors), then the
   ///     optional scalars, then the per-action required and range checks.</summary>
   private static Result<ComputerToolInput> ParseFields(ComputerAction action, JsonElement json)
   {
-    ComputerAppRef? appRef = null;
-    if (Has(json, "app_ref"))
+    ParsedFields f = new();
+    DomainError? error = ParseSubObjects(json, f)
+        ?? ParseScalars(json, f)
+        ?? ParseStrings(json, f);
+    if (error is not null)
     {
-      Result<ComputerAppRef> parsed = ParseAppRef(json);
-      if (!parsed.IsSuccess)
-      {
-        return Fail(parsed.Error);
-      }
-
-      appRef = parsed.Value;
+      return Fail(error);
     }
 
-    ComputerTarget? target = null;
-    if (Has(json, "target"))
+    ComputerToolInput input = new(action, f._appRef, f._includeScreenshot, f._disableDiffing,
+        f._target, f._from, f._to, f._scrollAmount, f._scrollDirection, f._text, f._value,
+        f._prefix, f._suffix, f._selectionType, f._repeat, f._holdSeconds,
+        f._format, f._actionName, f._mouseButton, f._clickCount, f._modifiers,
+        f._strategy, f._returnState, f._reason);
+
+    return Validate(action, input);
+  }
+
+  // Mutable carrier for the per-action optional fields.
+  private sealed class ParsedFields
+  {
+    public ComputerAppRef? _appRef { get; set; }
+    public ComputerTarget? _target { get; set; }
+    public ComputerTarget? _from { get; set; }
+    public ComputerTarget? _to { get; set; }
+    public bool? _includeScreenshot { get; set; }
+    public bool? _disableDiffing { get; set; }
+    public int? _scrollAmount { get; set; }
+    public int? _clickCount { get; set; }
+    public int? _repeat { get; set; }
+    public double? _holdSeconds { get; set; }
+    public string? _scrollDirection { get; set; }
+    public string? _text { get; set; }
+    public string? _value { get; set; }
+    public string? _actionName { get; set; }
+    public string? _reason { get; set; }
+    public string? _prefix { get; set; }
+    public string? _suffix { get; set; }
+    public string? _selectionType { get; set; }
+    public string? _format { get; set; }
+    public string? _mouseButton { get; set; }
+    public string? _modifiers { get; set; }
+    public string? _strategy { get; set; }
+    public string? _returnState { get; set; }
+  }
+
+  // Sub-objects: app_ref and the three target shapes.
+  private static DomainError? ParseSubObjects(JsonElement json, ParsedFields f)
+  {
+    Result<ComputerAppRef?> appRef = ParseAppRefField(json);
+    if (!appRef.IsSuccess)
     {
-      Result<ComputerTarget> parsed = ParseTarget(json, "target");
-      if (!parsed.IsSuccess)
-      {
-        return Fail(parsed.Error);
-      }
-
-      target = parsed.Value;
+      return appRef.Error;
     }
+    f._appRef = appRef.Value;
 
-    ComputerTarget? from = null;
-    if (Has(json, "from_target"))
+    Result<ComputerTarget?> target = ParseTargetField(json, "target");
+    if (!target.IsSuccess)
     {
-      Result<ComputerTarget> parsed = ParseTarget(json, "from_target");
-      if (!parsed.IsSuccess)
-      {
-        return Fail(parsed.Error);
-      }
-
-      from = parsed.Value;
+      return target.Error;
     }
+    f._target = target.Value;
 
-    ComputerTarget? to = null;
-    if (Has(json, "to"))
+    Result<ComputerTarget?> from = ParseTargetField(json, "from_target");
+    if (!from.IsSuccess)
     {
-      Result<ComputerTarget> parsed = ParseTarget(json, "to");
-      if (!parsed.IsSuccess)
-      {
-        return Fail(parsed.Error);
-      }
-
-      to = parsed.Value;
+      return from.Error;
     }
+    f._from = from.Value;
 
+    Result<ComputerTarget?> to = ParseTargetField(json, "to");
+    if (!to.IsSuccess)
+    {
+      return to.Error;
+    }
+    f._to = to.Value;
+
+    return null;
+  }
+
+  // Scalar optionals: booleans, integers, and the fractional-seconds field.
+  private static DomainError? ParseScalars(JsonElement json, ParsedFields f)
+  {
     Result<bool?> includeScreenshot = ToolArguments.OptionalBool(json, "include_screenshot");
     if (!includeScreenshot.IsSuccess)
     {
-      return Fail(includeScreenshot.Error);
+      return includeScreenshot.Error;
     }
+    f._includeScreenshot = includeScreenshot.Value;
 
     Result<bool?> disableDiffing = ToolArguments.OptionalBool(json, "disable_diffing");
     if (!disableDiffing.IsSuccess)
     {
-      return Fail(disableDiffing.Error);
+      return disableDiffing.Error;
     }
+    f._disableDiffing = disableDiffing.Value;
 
     Result<int?> scrollAmount = ToolArguments.OptionalInt(json, "scroll_amount");
     if (!scrollAmount.IsSuccess)
     {
-      return Fail(scrollAmount.Error);
+      return scrollAmount.Error;
     }
+    f._scrollAmount = scrollAmount.Value;
 
     Result<int?> clickCount = ToolArguments.OptionalInt(json, "click_count");
     if (!clickCount.IsSuccess)
     {
-      return Fail(clickCount.Error);
+      return clickCount.Error;
     }
+    f._clickCount = clickCount.Value;
 
     Result<int?> repeat = ToolArguments.OptionalInt(json, "repeat");
     if (!repeat.IsSuccess)
     {
-      return Fail(repeat.Error);
+      return repeat.Error;
     }
-
-    Result<string?> scrollDirection = OptionalName(json, "scroll_direction");
-    if (!scrollDirection.IsSuccess)
-    {
-      return Fail(scrollDirection.Error);
-    }
-
-    Result<string?> text = ToolArguments.OptionalString(json, "text");
-    if (!text.IsSuccess)
-    {
-      return Fail(text.Error);
-    }
-
-    Result<string?> value = ToolArguments.OptionalString(json, "value");
-    if (!value.IsSuccess)
-    {
-      return Fail(value.Error);
-    }
-
-    Result<string?> actionName = ToolArguments.OptionalString(json, "action_name");
-    if (!actionName.IsSuccess)
-    {
-      return Fail(actionName.Error);
-    }
-
-    Result<string?> reason = ToolArguments.OptionalString(json, "reason");
-    if (!reason.IsSuccess)
-    {
-      return Fail(reason.Error);
-    }
-
-    Result<string?> prefix = ToolArguments.OptionalString(json, "prefix");
-    if (!prefix.IsSuccess)
-    {
-      return Fail(prefix.Error);
-    }
-
-    Result<string?> suffix = ToolArguments.OptionalString(json, "suffix");
-    if (!suffix.IsSuccess)
-    {
-      return Fail(suffix.Error);
-    }
-
-    Result<string?> selectionType = OptionalName(json, "selection_type");
-    if (!selectionType.IsSuccess)
-    {
-      return Fail(selectionType.Error);
-    }
+    f._repeat = repeat.Value;
 
     Result<double?> holdSeconds = OptionalSeconds(json, "hold_seconds");
     if (!holdSeconds.IsSuccess)
     {
-      return Fail(holdSeconds.Error);
+      return holdSeconds.Error;
     }
+    f._holdSeconds = holdSeconds.Value;
+
+    return null;
+  }
+
+  // String and enum-by-name optionals: two halves, each within the complexity gate.
+  private static DomainError? ParseStrings(JsonElement json, ParsedFields f)
+    => ParseStringsFirst(json, f) ?? ParseStringsSecond(json, f);
+
+  private static DomainError? ParseStringsFirst(JsonElement json, ParsedFields f)
+  {
+    Result<string?> scrollDirection = OptionalName(json, "scroll_direction");
+    if (!scrollDirection.IsSuccess)
+    {
+      return scrollDirection.Error;
+    }
+    f._scrollDirection = scrollDirection.Value;
+
+    Result<string?> text = ToolArguments.OptionalString(json, "text");
+    if (!text.IsSuccess)
+    {
+      return text.Error;
+    }
+    f._text = text.Value;
+
+    Result<string?> value = ToolArguments.OptionalString(json, "value");
+    if (!value.IsSuccess)
+    {
+      return value.Error;
+    }
+    f._value = value.Value;
+
+    Result<string?> actionName = ToolArguments.OptionalString(json, "action_name");
+    if (!actionName.IsSuccess)
+    {
+      return actionName.Error;
+    }
+    f._actionName = actionName.Value;
+
+    Result<string?> reason = ToolArguments.OptionalString(json, "reason");
+    if (!reason.IsSuccess)
+    {
+      return reason.Error;
+    }
+    f._reason = reason.Value;
+
+    return null;
+  }
+
+  private static DomainError? ParseStringsSecond(JsonElement json, ParsedFields f)
+  {
+
+    Result<string?> prefix = ToolArguments.OptionalString(json, "prefix");
+    if (!prefix.IsSuccess)
+    {
+      return prefix.Error;
+    }
+    f._prefix = prefix.Value;
+
+    Result<string?> suffix = ToolArguments.OptionalString(json, "suffix");
+    if (!suffix.IsSuccess)
+    {
+      return suffix.Error;
+    }
+    f._suffix = suffix.Value;
+
+    Result<string?> selectionType = OptionalName(json, "selection_type");
+    if (!selectionType.IsSuccess)
+    {
+      return selectionType.Error;
+    }
+    f._selectionType = selectionType.Value;
 
     Result<string?> format = OptionalName(json, "format");
     if (!format.IsSuccess)
     {
-      return Fail(format.Error);
+      return format.Error;
     }
+    f._format = format.Value;
 
     Result<string?> mouseButton = OptionalName(json, "mouse_button");
     if (!mouseButton.IsSuccess)
     {
-      return Fail(mouseButton.Error);
+      return mouseButton.Error;
     }
+    f._mouseButton = mouseButton.Value;
 
     Result<string?> modifiers = ToolArguments.OptionalString(json, "modifiers");
     if (!modifiers.IsSuccess)
     {
-      return Fail(modifiers.Error);
+      return modifiers.Error;
     }
+    f._modifiers = modifiers.Value;
 
     Result<string?> strategy = OptionalName(json, "strategy");
     if (!strategy.IsSuccess)
     {
-      return Fail(strategy.Error);
+      return strategy.Error;
     }
+    f._strategy = strategy.Value;
 
     Result<string?> returnState = OptionalName(json, "return_state");
     if (!returnState.IsSuccess)
     {
-      return Fail(returnState.Error);
+      return returnState.Error;
+    }
+    f._returnState = returnState.Value;
+
+    return null;
+  }
+
+  /// <summary>Optional app_ref: null when absent; the sub-object's typed error
+  ///     when present but malformed.</summary>
+  private static Result<ComputerAppRef?> ParseAppRefField(JsonElement json)
+  {
+    if (!Has(json, "app_ref"))
+    {
+      return Result.Success<ComputerAppRef?>(null);
     }
 
-    ComputerToolInput input = new(action, appRef, includeScreenshot.Value, disableDiffing.Value,
-        target, from, to, scrollAmount.Value, scrollDirection.Value, text.Value, value.Value,
-        prefix.Value, suffix.Value, selectionType.Value, repeat.Value, holdSeconds.Value,
-        format.Value, actionName.Value, mouseButton.Value, clickCount.Value, modifiers.Value,
-        strategy.Value, returnState.Value, reason.Value);
+    Result<ComputerAppRef> parsed = ParseAppRef(json);
+    return parsed.IsSuccess
+      ? Result.Success<ComputerAppRef?>(parsed.Value)
+      : Result.Failure<ComputerAppRef?>(parsed.Error);
+  }
 
-    return Validate(action, input);
+  /// <summary>Optional target-shaped sub-object: null when absent; the
+  ///     sub-object's typed error when present but malformed.</summary>
+  private static Result<ComputerTarget?> ParseTargetField(JsonElement json, string key)
+  {
+    if (!Has(json, key))
+    {
+      return Result.Success<ComputerTarget?>(null);
+    }
+
+    Result<ComputerTarget> parsed = ParseTarget(json, key);
+    return parsed.IsSuccess
+      ? Result.Success<ComputerTarget?>(parsed.Value)
+      : Result.Failure<ComputerTarget?>(parsed.Error);
   }
 
   /// <summary>Per-action required-key, membership, and range validation. Runs
@@ -314,80 +420,105 @@ public sealed record ComputerToolInput(
   ///     Ranges come from the tool contract: scroll 0..100, repeat 1..100, hold
   ///     seconds 0..30, click count >= 1 - violations are typed errors, never
   ///     clamped.</summary>
-  private static Result<ComputerToolInput> Validate(ComputerAction action, ComputerToolInput input) => action switch
-  {
-    ComputerAction.ListApps => Result.Success(input),
-    ComputerAction.ListWindows => Required(input, input.AppRef is not null, "app_ref",
-        "The 'list_windows' action requires app_ref: an object with exactly one of name (string), pid (integer), or aumid (string), optionally plus window_id (integer)."),
-    ComputerAction.Observe => Required(input, input.AppRef is not null, "app_ref",
-        "The 'observe' action requires app_ref: an object with exactly one of name (string), pid (integer), or aumid (string), optionally plus window_id (integer)."),
-    ComputerAction.Click => Required(input, input.Target is not null, "target",
-        "The 'click' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
-        .Bind(_ => ValidateClick(input)),
-    ComputerAction.Drag => Required(input, input.From is not null, "from_target",
-        "The 'drag' action requires from_target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
-        .Bind(_ => Required(input, input.To is not null, "to",
-        "The 'drag' action requires to: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}."))
-        .Bind(_ => ValidateModifiers(input))
-        .Bind(_ => ReturnStateCheck(input)),
-    ComputerAction.Scroll => Required(input, input.Target is not null, "target",
-        "The 'scroll' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
-        .Bind(_ => Required(input, input.ScrollDirection is not null, "scroll_direction",
-        "The 'scroll' action requires scroll_direction: exactly one of up, down, left, or right (case-sensitive)."))
-        .Bind(_ => Check(input, input.ScrollDirection is null or "up" or "down" or "left" or "right",
-            ToolErrorCodes.InvalidParameterValue, $"'scroll_direction' must be exactly one of up, down, left, right (case-sensitive), but got '{input.ScrollDirection}'."))
-        .Bind(_ => Required(input, input.ScrollAmount is not null, "scroll_amount",
-        "The 'scroll' action requires scroll_amount: an integer 0..100 (scroll pages)."))
-        .Bind(_ => Check(input, input.ScrollAmount is null or (>= 0 and <= 100),
-            ToolErrorCodes.InvalidParameterValue, $"'scroll_amount' must be 0..100 (got {input.ScrollAmount}); values are never clamped."))
-        .Bind(_ => DispatchChecks(input)),
-    ComputerAction.Type => Required(input, input.Text is not null, "text",
-        "The 'type' action requires text: the characters to type, non-empty.")
-        .Bind(_ => Check(input, input.Text == null || input.Text.Length > 0,
-            ToolErrorCodes.InvalidParameterValue, "'text' must be non-empty."))
-        .Bind(_ => DispatchChecks(input)),
-    ComputerAction.SetValue => Required(input, input.Target is not null, "target",
-        "The 'set_value' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
-        .Bind(_ => Required(input, input.Value is not null, "value",
-        "The 'set_value' action requires value: the replacement value, non-empty."))
-        .Bind(_ => Check(input, input.Value == null || input.Value.Length > 0,
-            ToolErrorCodes.InvalidParameterValue, "'value' must be non-empty."))
-        .Bind(_ => DispatchChecks(input)),
-    ComputerAction.SelectText => Required(input, input.Target is not null, "target",
-        "The 'select_text' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
-        .Bind(_ => Required(input, input.Text is not null, "text",
-        "The 'select_text' action requires text: the text to select, non-empty."))
-        .Bind(_ => Check(input, input.Text == null || input.Text.Length > 0,
-            ToolErrorCodes.InvalidParameterValue, "'text' must be non-empty."))
-        .Bind(_ => Check(input, input.SelectionType is null or "text" or "cursor_before" or "cursor_after",
-            ToolErrorCodes.InvalidParameterValue, $"'selection_type' must be exactly one of text, cursor_before, cursor_after (case-sensitive), but got '{input.SelectionType}'."))
-        .Bind(_ => ReturnStateCheck(input)),
-    ComputerAction.Key => Required(input, input.Text is not null, "text",
-        "The 'key' action requires text: a key name (a, Return, Tab, Up) or X-keysym chord (Control_L+a).")
-        .Bind(_ => Check(input, input.Text == null || input.Text.Length > 0,
-            ToolErrorCodes.InvalidParameterValue, "'text' must be non-empty."))
-        .Bind(_ => Check(input, input.Repeat is null or (>= 1 and <= 100),
-            ToolErrorCodes.InvalidParameterValue, $"'repeat' must be 1..100 (got {input.Repeat}); values are never clamped."))
-        .Bind(_ => Check(input, input.HoldSeconds is null or (>= 0 and <= 30),
-            ToolErrorCodes.InvalidParameterValue, $"'hold_seconds' must be 0..30 whole seconds (got {input.HoldSeconds}); values are never clamped or coerced."))
-        .Bind(_ => DispatchChecks(input)),
-    ComputerAction.Paste => Required(input, input.Text is not null, "text",
-        "The 'paste' action requires text: the content to place on the clipboard and paste, non-empty.")
-        .Bind(_ => Check(input, input.Text == null || input.Text.Length > 0,
-            ToolErrorCodes.InvalidParameterValue, "'text' must be non-empty."))
-        .Bind(_ => Check(input, input.Format is null or "text" or "md" or "html",
-            ToolErrorCodes.InvalidParameterValue, $"'format' must be exactly one of text, md, html (case-sensitive), but got '{input.Format}'."))
-        .Bind(_ => ReturnStateCheck(input)),
-    ComputerAction.PerformAction => Required(input, input.Target is not null, "target",
-        "The 'perform_action' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
-        .Bind(_ => Required(input, input.ActionName is not null, "action_name",
-        "The 'perform_action' action requires action_name: the element action to invoke (non-empty; must be one the element advertises)."))
-        .Bind(_ => Check(input, input.ActionName == null || input.ActionName.Length > 0,
-            ToolErrorCodes.InvalidParameterValue, "'action_name' must be non-empty."))
-        .Bind(_ => ReturnStateCheck(input)),
-    ComputerAction.Stop => Result.Success(input),
-    _ => throw new InvalidOperationException("unreachable: action is a validated enum value"),
-  };
+  private static Result<ComputerToolInput> Validate(ComputerAction action, ComputerToolInput input) =>
+    Validators[action](input);
+
+  private static readonly FrozenDictionary<ComputerAction, Func<ComputerToolInput, Result<ComputerToolInput>>> Validators
+      = new Dictionary<ComputerAction, Func<ComputerToolInput, Result<ComputerToolInput>>>
+      {
+        [ComputerAction.ListApps] = _ => Result.Success(_),
+        [ComputerAction.Stop] = _ => Result.Success(_),
+        [ComputerAction.ListWindows] = ValidateListWindows,
+        [ComputerAction.Observe] = ValidateObserve,
+        [ComputerAction.Click] = ValidateClickAction,
+        [ComputerAction.Drag] = ValidateDrag,
+        [ComputerAction.Scroll] = ValidateScroll,
+        [ComputerAction.Type] = ValidateType,
+        [ComputerAction.SetValue] = ValidateSetValue,
+        [ComputerAction.SelectText] = ValidateSelectText,
+        [ComputerAction.Key] = ValidateKey,
+        [ComputerAction.Paste] = ValidatePaste,
+        [ComputerAction.PerformAction] = ValidatePerformAction,
+      }.ToFrozenDictionary();
+
+  private static Result<ComputerToolInput> ValidateListWindows(ComputerToolInput input) => Required(input, input.AppRef is not null, "app_ref",
+      "The 'list_windows' action requires app_ref: an object with exactly one of name (string), pid (integer), or aumid (string), optionally plus window_id (integer).");
+
+  private static Result<ComputerToolInput> ValidateObserve(ComputerToolInput input) => Required(input, input.AppRef is not null, "app_ref",
+      "The 'observe' action requires app_ref: an object with exactly one of name (string), pid (integer), or aumid (string), optionally plus window_id (integer).");
+
+  private static Result<ComputerToolInput> ValidateClickAction(ComputerToolInput input) => Required(input, input.Target is not null, "target",
+      "The 'click' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
+      .Bind(_ => ValidateClick(input));
+
+  private static Result<ComputerToolInput> ValidateDrag(ComputerToolInput input) => Required(input, input.From is not null, "from_target",
+      "The 'drag' action requires from_target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
+      .Bind(_ => Required(input, input.To is not null, "to",
+      "The 'drag' action requires to: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}."))
+      .Bind(_ => ValidateModifiers(input))
+      .Bind(_ => ReturnStateCheck(input));
+
+  private static Result<ComputerToolInput> ValidateScroll(ComputerToolInput input) => Required(input, input.Target is not null, "target",
+      "The 'scroll' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
+      .Bind(_ => Required(input, input.ScrollDirection is not null, "scroll_direction",
+      "The 'scroll' action requires scroll_direction: exactly one of up, down, left, or right (case-sensitive)."))
+      .Bind(_ => Check(input, input.ScrollDirection is null or "up" or "down" or "left" or "right",
+          ToolErrorCodes.InvalidParameterValue, $"'scroll_direction' must be exactly one of up, down, left, right (case-sensitive), but got '{input.ScrollDirection}'."))
+      .Bind(_ => Required(input, input.ScrollAmount is not null, "scroll_amount",
+      "The 'scroll' action requires scroll_amount: an integer 0..100 (scroll pages)."))
+      .Bind(_ => Check(input, input.ScrollAmount is null or (>= 0 and <= 100),
+          ToolErrorCodes.InvalidParameterValue, $"'scroll_amount' must be 0..100 (got {input.ScrollAmount}); values are never clamped."))
+      .Bind(_ => DispatchChecks(input));
+
+  private static Result<ComputerToolInput> ValidateType(ComputerToolInput input) => Required(input, input.Text is not null, "text",
+      "The 'type' action requires text: the characters to type, non-empty.")
+      .Bind(_ => Check(input, input.Text == null || input.Text.Length > 0,
+          ToolErrorCodes.InvalidParameterValue, "'text' must be non-empty."))
+      .Bind(_ => DispatchChecks(input));
+
+  private static Result<ComputerToolInput> ValidateSetValue(ComputerToolInput input) => Required(input, input.Target is not null, "target",
+      "The 'set_value' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
+      .Bind(_ => Required(input, input.Value is not null, "value",
+      "The 'set_value' action requires value: the replacement value, non-empty."))
+      .Bind(_ => Check(input, input.Value == null || input.Value.Length > 0,
+          ToolErrorCodes.InvalidParameterValue, "'value' must be non-empty."))
+      .Bind(_ => DispatchChecks(input));
+
+  private static Result<ComputerToolInput> ValidateSelectText(ComputerToolInput input) => Required(input, input.Target is not null, "target",
+      "The 'select_text' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
+      .Bind(_ => Required(input, input.Text is not null, "text",
+      "The 'select_text' action requires text: the text to select, non-empty."))
+      .Bind(_ => Check(input, input.Text == null || input.Text.Length > 0,
+          ToolErrorCodes.InvalidParameterValue, "'text' must be non-empty."))
+      .Bind(_ => Check(input, input.SelectionType is null or "text" or "cursor_before" or "cursor_after",
+          ToolErrorCodes.InvalidParameterValue, $"'selection_type' must be exactly one of text, cursor_before, cursor_after (case-sensitive), but got '{input.SelectionType}'."))
+      .Bind(_ => ReturnStateCheck(input));
+
+  private static Result<ComputerToolInput> ValidateKey(ComputerToolInput input) => Required(input, input.Text is not null, "text",
+      "The 'key' action requires text: a key name (a, Return, Tab, Up) or X-keysym chord (Control_L+a).")
+      .Bind(_ => Check(input, input.Text == null || input.Text.Length > 0,
+          ToolErrorCodes.InvalidParameterValue, "'text' must be non-empty."))
+      .Bind(_ => Check(input, input.Repeat is null or (>= 1 and <= 100),
+          ToolErrorCodes.InvalidParameterValue, $"'repeat' must be 1..100 (got {input.Repeat}); values are never clamped."))
+      .Bind(_ => Check(input, input.HoldSeconds is null or (>= 0 and <= 30),
+          ToolErrorCodes.InvalidParameterValue, $"'hold_seconds' must be 0..30 whole seconds (got {input.HoldSeconds}); values are never clamped or coerced."))
+      .Bind(_ => DispatchChecks(input));
+
+  private static Result<ComputerToolInput> ValidatePaste(ComputerToolInput input) => Required(input, input.Text is not null, "text",
+      "The 'paste' action requires text: the content to place on the clipboard and paste, non-empty.")
+      .Bind(_ => Check(input, input.Text == null || input.Text.Length > 0,
+          ToolErrorCodes.InvalidParameterValue, "'text' must be non-empty."))
+      .Bind(_ => Check(input, input.Format is null or "text" or "md" or "html",
+          ToolErrorCodes.InvalidParameterValue, $"'format' must be exactly one of text, md, html (case-sensitive), but got '{input.Format}'."))
+      .Bind(_ => ReturnStateCheck(input));
+
+  private static Result<ComputerToolInput> ValidatePerformAction(ComputerToolInput input) => Required(input, input.Target is not null, "target",
+      "The 'perform_action' action requires target: {type: element, index: <int >= 0>} or {type: coordinate, x: <int >= 0>, y: <int >= 0>}.")
+      .Bind(_ => Required(input, input.ActionName is not null, "action_name",
+      "The 'perform_action' action requires action_name: the element action to invoke (non-empty; must be one the element advertises)."))
+      .Bind(_ => Check(input, input.ActionName == null || input.ActionName.Length > 0,
+          ToolErrorCodes.InvalidParameterValue, "'action_name' must be non-empty."))
+      .Bind(_ => ReturnStateCheck(input));
 
   /// <summary>Fails with MissingParameter naming the absent key when the
   ///     condition does not hold; succeeds otherwise.</summary>
@@ -512,28 +643,33 @@ public sealed record ComputerToolInput(
           $"'app_ref' must carry exactly one of name, pid, or aumid; got {selectors}."));
     }
 
-    int? windowId = null;
-    if (hasWindow(appRef))
-    {
-      Result<int?> parsed = ToolArguments.OptionalInt(appRef, "window_id");
-      if (!parsed.IsSuccess)
-      {
-        return Result.Failure<ComputerAppRef>(parsed.Error);
-      }
-
-      if (parsed.Value is not int positive || positive <= 0)
-      {
-        return Result.Failure<ComputerAppRef>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            "'window_id' must be a positive integer."));
-      }
-
-      windowId = positive;
-    }
-
-    return SelectSelector(appRef, hasPid, hasName, windowId);
+    Result<int?> windowId = ParseWindowId(appRef);
+    return !windowId.IsSuccess
+        ? Result.Failure<ComputerAppRef>(windowId.Error)
+        : SelectSelector(appRef, hasPid, hasName, windowId.Value);
   }
 
   private static bool hasWindow(JsonElement appRef) => Has(appRef, "window_id");
+
+  /// <summary>Optional window_id: null when absent; a typed error when present
+  ///     but not a positive integer.</summary>
+  private static Result<int?> ParseWindowId(JsonElement appRef)
+  {
+    if (!hasWindow(appRef))
+    {
+      return Result.Success<int?>(null);
+    }
+
+    Result<int?> parsed = ToolArguments.OptionalInt(appRef, "window_id");
+    return !parsed.IsSuccess
+        ? Result.Failure<int?>(parsed.Error)
+        : PositiveWindowId(parsed.Value);
+  }
+
+  private static Result<int?> PositiveWindowId(int? value) => value is int positive && positive > 0
+      ? Result.Success<int?>(positive)
+      : Result.Failure<int?>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "'window_id' must be a positive integer."));
 
   /// <summary>Parses the single selector key (validated upstream) and delegates
   ///     to the record factories; their ArgumentExceptions re-surface as

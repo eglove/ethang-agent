@@ -28,7 +28,7 @@ public class NotifyActionSurfaceTests
   }
 
   private static AgentCapabilityProvider MakeBare()
-      => new(new NoSpawn(), new NoQueries(), () => throw new InvalidOperationException("not exercised"), runtime: null, links: null);
+      => new(new AgentProviderServices(new NoSpawn(), new NoQueries(), () => throw new InvalidOperationException("not exercised")));
 
   private sealed class NoSpawn : IAgentSpawnCommand
   {

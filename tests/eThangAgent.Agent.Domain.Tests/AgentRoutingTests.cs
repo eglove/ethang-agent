@@ -67,8 +67,8 @@ public class AgentRoutingTests
   {
     FakeRuntime runtime = new();
     AgentLinkRegistry links = new();
-    AgentCapabilityProvider provider = new(
-        new FakeSpawnCommand(), new FakeQueries(chain), () => parent, runtime, links);
+    AgentCapabilityProvider provider = new(new AgentProviderServices(
+        new FakeSpawnCommand(), new FakeQueries(chain), () => parent, runtime, links));
     return (provider, runtime, links);
   }
 

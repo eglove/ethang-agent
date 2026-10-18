@@ -67,40 +67,53 @@ public partial class RealBrokerObserver : IBrokerObserver
         && shotEl.ValueKind == JsonValueKind.True;
     bool forceFull = parameters is { } pf && pf.TryGetProperty("snapshot_mode", out JsonElement modeEl)
         && modeEl.ValueKind == JsonValueKind.String && modeEl.GetString() == "force_full";
-    string? reqName = null;
-    string? reqAumid = null;
-    int? reqWindowId = null;
-    if (parameters is { } pr && pr.TryGetProperty("app_ref", out JsonElement ar2) && ar2.ValueKind == JsonValueKind.Object)
+
+    ReadAppRef(parameters, out string? reqName, out string? reqAumid, out int? reqWindowId);
+    return CaptureResolved(pid, includeScreenshot, forceFull, reqName, reqAumid, reqWindowId);
+  }
+
+  /// <summary>Reads the optional app_ref selectors (name / aumid / window_id) into the
+  ///     out parameters; absent selectors stay null.</summary>
+  private static void ReadAppRef(JsonElement? parameters, out string? reqName, out string? reqAumid, out int? reqWindowId)
+  {
+    reqName = null;
+    reqAumid = null;
+    reqWindowId = null;
+    if (parameters is not { } pr || !pr.TryGetProperty("app_ref", out JsonElement ar2) || ar2.ValueKind != JsonValueKind.Object)
     {
-      if (ar2.TryGetProperty("name", out JsonElement nm2) && nm2.ValueKind == JsonValueKind.String)
-      {
-        reqName = nm2.GetString();
-      }
-
-      if (ar2.TryGetProperty("aumid", out JsonElement am2) && am2.ValueKind == JsonValueKind.String)
-      {
-        reqAumid = am2.GetString();
-      }
-
-      if (ar2.TryGetProperty("window_id", out JsonElement wd2) && wd2.ValueKind == JsonValueKind.Number && wd2.TryGetInt32(out int wid2))
-      {
-        reqWindowId = wid2;
-      }
+      return;
     }
 
+    ReadAppRefName(ar2, out reqName, out reqAumid);
+    ReadWindowId(ar2, out reqWindowId);
+  }
+
+  private static void ReadAppRefName(JsonElement appRef, out string? reqName, out string? reqAumid)
+  {
+    reqName = appRef.TryGetProperty("name", out JsonElement nm2) && nm2.ValueKind == JsonValueKind.String
+      ? nm2.GetString()
+      : null;
+    reqAumid = appRef.TryGetProperty("aumid", out JsonElement am2) && am2.ValueKind == JsonValueKind.String
+      ? am2.GetString()
+      : null;
+  }
+
+  private static void ReadWindowId(JsonElement appRef, out int? reqWindowId)
+  {
+    reqWindowId = appRef.TryGetProperty("window_id", out JsonElement wd2) && wd2.ValueKind == JsonValueKind.Number && wd2.TryGetInt32(out int wid2)
+      ? wid2
+      : null;
+  }
+
+  /// <summary>The resolved capture path: app-ref resolution, the surface lifecycle
+  ///     observation, the walk, and the envelope.</summary>
+  private JsonElement? CaptureResolved(int pid, bool includeScreenshot, bool forceFull, string? reqName, string? reqAumid, int? reqWindowId)
+  {
     bool resolved = TryResolveAppRef(pid, reqName, reqAumid, reqWindowId,
         out AppRefResolution resolution2, out AppRefResolutionFailure? resolutionFailure);
     if (!resolved)
     {
-      // Typed resolution failures answer app_not_found / ambiguous_app per spec 2.2.
-      string code = resolutionFailure!.Kind == AppRefFailureKind.Ambiguous ? "ambiguous_app" : "app_not_found";
-      // M16: a vanished app's lifecycle is Closed (the tracker forgets the handle).
-      lock (_gate)
-      {
-        _ = _surfaces.Observe(pid.ToString(System.Globalization.CultureInfo.InvariantCulture), 0,
-          SurfaceKind.Window);
-      }
-      return JsonSerializer.SerializeToElement(new { error = new { code, message = resolutionFailure.Message } });
+      return ResolutionFailure(pid, resolutionFailure!);
     }
 
     int resolvedPid = resolution2.Pid;
@@ -108,13 +121,7 @@ public partial class RealBrokerObserver : IBrokerObserver
 
     string title = WindowTitle(target);
     NativeRect rect = WindowRect(target);
-    SurfaceLifecycle lifecycle;
-    lock (_gate)
-    {
-      lifecycle = _surfaces.Observe(
-          resolvedPid.ToString(System.Globalization.CultureInfo.InvariantCulture), target,
-          SurfaceClassifier.KindFor(WindowClassName(target), title));
-    }
+    SurfaceLifecycle lifecycle = ObserveSurface(resolvedPid, target, title);
 
     WalkResult? walk = WalkElements(target);
     if (walk is null)
@@ -159,6 +166,30 @@ public partial class RealBrokerObserver : IBrokerObserver
     return JsonSerializer.SerializeToElement(envelope);
   }
 
+  /// <summary>Typed resolution failures answer app_not_found / ambiguous_app per spec 2.2.
+  ///     M16: a vanished app's lifecycle is Closed (the tracker forgets the handle).</summary>
+  private JsonElement? ResolutionFailure(int pid, AppRefResolutionFailure failure)
+  {
+    string code = failure.Kind == AppRefFailureKind.Ambiguous ? "ambiguous_app" : "app_not_found";
+    lock (_gate)
+    {
+      _ = _surfaces.Observe(pid.ToString(System.Globalization.CultureInfo.InvariantCulture), 0,
+        SurfaceKind.Window);
+    }
+
+    return JsonSerializer.SerializeToElement(new { error = new { code, message = failure.Message } });
+  }
+
+  private SurfaceLifecycle ObserveSurface(int resolvedPid, nint target, string title)
+  {
+    lock (_gate)
+    {
+      return _surfaces.Observe(
+          resolvedPid.ToString(System.Globalization.CultureInfo.InvariantCulture), target,
+          SurfaceClassifier.KindFor(WindowClassName(target), title));
+    }
+  }
+
   public void OnOwnerLost(int ownerConnectionId)
   {
     lock (_gate)
@@ -177,11 +208,20 @@ public partial class RealBrokerObserver : IBrokerObserver
   ///     plus the value cell - the table the brief's diff contract compares.</summary>
   private static string Fingerprint(JsonElement elementRow)
   {
-    string title = elementRow.TryGetProperty("title", out JsonElement t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? string.Empty : string.Empty;
-    string value = elementRow.TryGetProperty("value", out JsonElement v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? string.Empty : string.Empty;
-    string role = elementRow.TryGetProperty("role", out JsonElement r) && r.ValueKind == JsonValueKind.String ? r.GetString() ?? string.Empty : string.Empty;
+    string title = StringCell(elementRow, "title");
+    string value = StringCell(elementRow, "value");
+    string role = StringCell(elementRow, "role");
     string index = elementRow.TryGetProperty("index", out JsonElement i) && i.ValueKind == JsonValueKind.Number ? i.GetRawText() : string.Empty;
     return index + "|" + role + "|" + title + "|" + value;
+  }
+
+  /// <summary>Reads one string property of the element row; absent or non-string
+  ///     properties read as empty.</summary>
+  private static string StringCell(JsonElement elementRow, string name)
+  {
+    return elementRow.TryGetProperty(name, out JsonElement el) && el.ValueKind == JsonValueKind.String
+      ? el.GetString() ?? string.Empty
+      : string.Empty;
   }
 
   /// <summary>The F9 snapshot decision over the per-window last-accepted table:
@@ -315,77 +355,99 @@ public partial class RealBrokerObserver : IBrokerObserver
   {
     try
     {
-      System.Windows.Rect bounds = element.Current.BoundingRectangle;
-      string role = element.Current.ControlType?.ProgrammaticName?.Replace("ControlType.", string.Empty, StringComparison.Ordinal) ?? "unknown";
-      string name = element.Current.Name ?? string.Empty;
-      bool pressable = element.TryGetCurrentPattern(InvokePattern.Pattern, out _);
-      bool toggleable = element.TryGetCurrentPattern(TogglePattern.Pattern, out _);
-      string[] actions = (pressable, toggleable) switch
-      {
-        (true, true) => ["press", "toggle"],
-        (true, false) => ["press"],
-        (false, true) => ["toggle"],
-        _ => [],
-      };
-      bool valueBacked = element.TryGetCurrentPattern(ValuePattern.Pattern, out _);
-      string? value = null;
-      if (valueBacked && element.TryGetCurrentPattern(ValuePattern.Pattern, out object? pattern) && pattern is ValuePattern vp)
-      {
-        try
-        {
-          value = vp.Current.Value;
-        }
-        catch (ElementNotAvailableException)
-        {
-          value = null;
-        }
-      }
-
-
-      bool selected = element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _);
-      bool hasMenu = element.Current.ControlType == ControlType.Menu;
-      return new
-      {
-        index,
-        role,
-        kind = depth == 0 ? "window" : "control",
-        title = name,
-        value,
-        bounds = new[] { (int)bounds.X, (int)bounds.Y, (int)bounds.Width, (int)bounds.Height },
-        enabled = element.Current.IsEnabled,
-        editable = valueBacked,
-        actions,
-        focused = element.Current.HasKeyboardFocus,
-        selected,
-        pressable = pressable || toggleable,
-        has_menu = hasMenu,
-        children_total = (int?)null,
-        children_shown = (int?)null,
-        children_offset = (int?)null,
-      };
+      return RowFromLiveElement(index, element, depth);
     }
     catch (ElementNotAvailableException)
     {
-      return new
-      {
-        index,
-        role = "unknown",
-        kind = "control",
-        title = string.Empty,
-        value = (string?)null,
-        bounds = new[] { 0, 0, 0, 0 },
-        enabled = false,
-        editable = false,
-        actions = Array.Empty<string>(),
-        focused = false,
-        selected = false,
-        pressable = false,
-        has_menu = false,
-        children_total = (int?)null,
-        children_shown = (int?)null,
-        children_offset = (int?)null,
-      };
+      return RowForUnavailableElement(index);
     }
+  }
+
+  private static object RowFromLiveElement(int index, AutomationElement element, int depth)
+  {
+    System.Windows.Rect bounds = element.Current.BoundingRectangle;
+    string role = element.Current.ControlType?.ProgrammaticName?.Replace("ControlType.", string.Empty, StringComparison.Ordinal) ?? "unknown";
+    string name = element.Current.Name ?? string.Empty;
+    bool pressable = element.TryGetCurrentPattern(InvokePattern.Pattern, out _);
+    bool toggleable = element.TryGetCurrentPattern(TogglePattern.Pattern, out _);
+    string[] actions = ActionsFor(pressable, toggleable);
+    bool valueBacked = element.TryGetCurrentPattern(ValuePattern.Pattern, out _);
+    string? value = ElementValue(element, valueBacked);
+    bool selected = element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _);
+    bool hasMenu = element.Current.ControlType == ControlType.Menu;
+    return new
+    {
+      index,
+      role,
+      kind = depth == 0 ? "window" : "control",
+      title = name,
+      value,
+      bounds = new[] { (int)bounds.X, (int)bounds.Y, (int)bounds.Width, (int)bounds.Height },
+      enabled = element.Current.IsEnabled,
+      editable = valueBacked,
+      actions,
+      focused = element.Current.HasKeyboardFocus,
+      selected,
+      pressable = pressable || toggleable,
+      has_menu = hasMenu,
+      children_total = (int?)null,
+      children_shown = (int?)null,
+      children_offset = (int?)null,
+    };
+  }
+
+  /// <summary>The action list from the pressable/toggleable pattern flags.</summary>
+  private static string[] ActionsFor(bool pressable, bool toggleable)
+  {
+    return (pressable, toggleable) switch
+    {
+      (true, true) => ["press", "toggle"],
+      (true, false) => ["press"],
+      (false, true) => ["toggle"],
+      _ => [],
+    };
+  }
+
+  /// <summary>Reads the Value pattern's current value; a value that vanishes
+  ///     mid-read (the element died between the pattern check and the read) is null.</summary>
+  private static string? ElementValue(AutomationElement element, bool valueBacked)
+  {
+    if (!valueBacked || !element.TryGetCurrentPattern(ValuePattern.Pattern, out object? pattern) || pattern is not ValuePattern vp)
+    {
+      return null;
+    }
+
+    try
+    {
+      return vp.Current.Value;
+    }
+    catch (ElementNotAvailableException)
+    {
+      return null;
+    }
+  }
+
+  private static object RowForUnavailableElement(int index)
+  {
+    return new
+    {
+      index,
+      role = "unknown",
+      kind = "control",
+      title = string.Empty,
+      value = (string?)null,
+      bounds = new[] { 0, 0, 0, 0 },
+      enabled = false,
+      editable = false,
+      actions = Array.Empty<string>(),
+      focused = false,
+      selected = false,
+      pressable = false,
+      has_menu = false,
+      children_total = (int?)null,
+      children_shown = (int?)null,
+      children_offset = (int?)null,
+    };
   }
 
   // ---- raster ----

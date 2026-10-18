@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json;
 using eThangAgent.ToolDomain;
 
@@ -23,6 +24,72 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
   private readonly FrameRegistry _frames = new();
   private readonly bool _ownsSupervisor = ownsSupervisor;
   private bool _hasLease;
+
+  /// <summary>Per-command ReturnState readers, keyed by the sealed case's runtime
+  ///     type: the dispatch-table form of the flat switch chain.</summary>
+  private static readonly FrozenDictionary<Type, Func<ComputerCommand, string?>> ReturnStateReaders =
+    new Dictionary<Type, Func<ComputerCommand, string?>>
+    {
+      [typeof(ComputerCommand.Click)] = static c => ((ComputerCommand.Click)c).ReturnState,
+      [typeof(ComputerCommand.Drag)] = static c => ((ComputerCommand.Drag)c).ReturnState,
+      [typeof(ComputerCommand.Scroll)] = static c => ((ComputerCommand.Scroll)c).ReturnState,
+      [typeof(ComputerCommand.TypeText)] = static c => ((ComputerCommand.TypeText)c).ReturnState,
+      [typeof(ComputerCommand.SetValue)] = static c => ((ComputerCommand.SetValue)c).ReturnState,
+      [typeof(ComputerCommand.SelectText)] = static c => ((ComputerCommand.SelectText)c).ReturnState,
+      [typeof(ComputerCommand.Key)] = static c => ((ComputerCommand.Key)c).ReturnState,
+      [typeof(ComputerCommand.Paste)] = static c => ((ComputerCommand.Paste)c).ReturnState,
+      [typeof(ComputerCommand.PerformAction)] = static c => ((ComputerCommand.PerformAction)c).ReturnState,
+    }.ToFrozenDictionary();
+
+  /// <summary>Per-command app-reference readers, keyed by the sealed case's runtime
+  ///     type: the dispatch-table form of the flat switch chain.</summary>
+  private static readonly FrozenDictionary<Type, Func<ComputerCommand, ComputerAppRef?>> AppReaders =
+    new Dictionary<Type, Func<ComputerCommand, ComputerAppRef?>>
+    {
+      [typeof(ComputerCommand.Click)] = static c => ((ComputerCommand.Click)c).App,
+      [typeof(ComputerCommand.Drag)] = static c => ((ComputerCommand.Drag)c).App,
+      [typeof(ComputerCommand.Scroll)] = static c => ((ComputerCommand.Scroll)c).App,
+      [typeof(ComputerCommand.TypeText)] = static c => ((ComputerCommand.TypeText)c).App,
+      [typeof(ComputerCommand.SetValue)] = static c => ((ComputerCommand.SetValue)c).App,
+      [typeof(ComputerCommand.SelectText)] = static c => ((ComputerCommand.SelectText)c).App,
+      [typeof(ComputerCommand.Key)] = static c => ((ComputerCommand.Key)c).App,
+      [typeof(ComputerCommand.Paste)] = static c => ((ComputerCommand.Paste)c).App,
+      [typeof(ComputerCommand.PerformAction)] = static c => ((ComputerCommand.PerformAction)c).App,
+    }.ToFrozenDictionary();
+
+  /// <summary>Per-command broker-method selectors, keyed by the sealed case's runtime
+  ///     type: the dispatch-table form of the flat switch chain. The Key entry keeps
+  ///     its hold/press derivation (hold_seconds &gt; 0 selects hold_key).</summary>
+  private static readonly FrozenDictionary<Type, Func<ComputerCommand, string>> MethodSelectors =
+    new Dictionary<Type, Func<ComputerCommand, string>>
+    {
+      [typeof(ComputerCommand.Click)] = static _ => "click",
+      [typeof(ComputerCommand.Drag)] = static _ => "drag",
+      [typeof(ComputerCommand.Scroll)] = static _ => "scroll",
+      [typeof(ComputerCommand.TypeText)] = static _ => "type_text",
+      [typeof(ComputerCommand.SetValue)] = static _ => "element_set_value",
+      [typeof(ComputerCommand.SelectText)] = static _ => "element_select_text",
+      [typeof(ComputerCommand.Key)] = static c => MethodForKey(((ComputerCommand.Key)c).HoldSeconds),
+      [typeof(ComputerCommand.Paste)] = static _ => "paste",
+      [typeof(ComputerCommand.PerformAction)] = static _ => "element_perform_action",
+    }.ToFrozenDictionary();
+
+  /// <summary>Per-command parameter builders, keyed by the sealed case's runtime type:
+  ///     the dispatch-table form of the flat switch chain. Commands outside the input
+  ///     path (never dispatched through ActionAsync) build an empty map.</summary>
+  private static readonly FrozenDictionary<Type, Func<ComputerCommand, Dictionary<string, object?>>> ParameterBuilders =
+    new Dictionary<Type, Func<ComputerCommand, Dictionary<string, object?>>>
+    {
+      [typeof(ComputerCommand.Click)] = static c => ParameterMapForClick((ComputerCommand.Click)c),
+      [typeof(ComputerCommand.Drag)] = static c => ParameterMapForDrag((ComputerCommand.Drag)c),
+      [typeof(ComputerCommand.Scroll)] = static c => ParameterMapForScroll((ComputerCommand.Scroll)c),
+      [typeof(ComputerCommand.TypeText)] = static c => ParameterMapForTypeText((ComputerCommand.TypeText)c),
+      [typeof(ComputerCommand.SetValue)] = static c => ParameterMapForSetValue((ComputerCommand.SetValue)c),
+      [typeof(ComputerCommand.SelectText)] = static c => ParameterMapForSelectText((ComputerCommand.SelectText)c),
+      [typeof(ComputerCommand.Key)] = static c => ParameterMapForKey((ComputerCommand.Key)c),
+      [typeof(ComputerCommand.Paste)] = static c => ParameterMapForPaste((ComputerCommand.Paste)c),
+      [typeof(ComputerCommand.PerformAction)] = static c => ParameterMapForPerformAction((ComputerCommand.PerformAction)c),
+    }.ToFrozenDictionary();
 
   /// <inheritdoc />
   public async Task<ComputerOutcome> ExecuteAsync(ComputerCommand command, CancellationToken ct = default)
@@ -108,19 +175,8 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     return outcome;
   }
 
-  private static string? ReturnStateOf(ComputerCommand command) => command switch
-  {
-    ComputerCommand.Click c => c.ReturnState,
-    ComputerCommand.Drag d => d.ReturnState,
-    ComputerCommand.Scroll s => s.ReturnState,
-    ComputerCommand.TypeText t => t.ReturnState,
-    ComputerCommand.SetValue v => v.ReturnState,
-    ComputerCommand.SelectText s => s.ReturnState,
-    ComputerCommand.Key k => k.ReturnState,
-    ComputerCommand.Paste p => p.ReturnState,
-    ComputerCommand.PerformAction a => a.ReturnState,
-    _ => null,
-  };
+  private static string? ReturnStateOf(ComputerCommand command) =>
+    ReturnStateReaders.TryGetValue(command.GetType(), out Func<ComputerCommand, string?>? reader) ? reader(command) : null;
 
   private static ComputerTarget? TargetOf(ComputerCommand command) => command switch
   {
@@ -144,168 +200,111 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
     ComputerTarget? primary = TargetOf(command);
     ComputerTarget? to = command is ComputerCommand.Drag d ? d.To : null;
 
-    FrameCoordinateResult.Hit? primaryHit = null;
-    FrameCoordinateResult.Hit? toHit = null;
-
-    if (primary is { } p)
+    ComputerOutcome.Failure? primaryFailure = ResolvePrimaryTarget(command, primary, out FrameCoordinateResult.Hit? primaryHit);
+    if (primaryFailure is not null)
     {
-      if (p.ElementIndex is { } index)
-      {
-        LedgerIndexCheck check = _ledger.ValidateIndex(LedgerKeyFor(AppOf(command)), index);
-        if (!check.Ok)
-        {
-          return (new ComputerOutcome.Failure(
-              check.Error ?? ComputerErrorCodes.ElementUnavailable,
-              check.Message ?? "element target does not resolve; observe first."), null, null);
-        }
-      }
-      else if (p.X is { } px && p.Y is { } py)
-      {
-        if (_frames.ResolveForCoordinate(FrameRegistry.LatestToken, px, py) is not FrameCoordinateResult.Hit ph)
-        {
-          return (new ComputerOutcome.Failure(
-              ComputerErrorCodes.StaleState,
-              "the coordinate target does not resolve against a delivered screenshot frame; observe with include_screenshot first."), null, null);
-        }
-
-        primaryHit = ph;
-      }
-      else
-      {
-        return (new ComputerOutcome.Failure(
-            ComputerErrorCodes.InvalidApp, "target carries neither element index nor coordinates."), null, null);
-      }
+      return (primaryFailure, null, null);
     }
 
-    if (to is { } toTarget)
-    {
-      if (toTarget.ElementIndex is { } toIndex)
-      {
-        LedgerIndexCheck toCheck = _ledger.ValidateIndex(LedgerKeyFor(AppOf(command)), toIndex);
-        if (!toCheck.Ok)
-        {
-          return (new ComputerOutcome.Failure(
-              toCheck.Error ?? ComputerErrorCodes.ElementUnavailable,
-              toCheck.Message ?? "drag 'to' element target does not resolve; observe first."), null, null);
-        }
-      }
-      else if (toTarget.X is { } tx && toTarget.Y is { } ty)
-      {
-        if (_frames.ResolveForCoordinate(FrameRegistry.LatestToken, tx, ty) is not FrameCoordinateResult.Hit th)
-        {
-          return (new ComputerOutcome.Failure(
-              ComputerErrorCodes.StaleState,
-              "the drag 'to' coordinate does not resolve against a delivered screenshot frame; observe with include_screenshot first."), null, null);
-        }
-
-        toHit = th;
-      }
-      else
-      {
-        return (new ComputerOutcome.Failure(
-            ComputerErrorCodes.InvalidApp, "drag 'to' carries neither element index nor coordinates."), null, null);
-      }
-    }
-
-    return (null, primaryHit, toHit);
+    ComputerOutcome.Failure? toFailure = ResolveDragToTarget(command, to, out FrameCoordinateResult.Hit? toHit);
+    return toFailure is not null ? (toFailure, null, null) : (null, primaryHit, toHit);
   }
 
-  private static ComputerAppRef? AppOf(ComputerCommand command) => command switch
+  /// <summary>Resolves the primary target: the ledger validates an element index
+  ///     (fail-closed ELEMENT_UNAVAILABLE/STALE_STATE), the frame registry resolves a
+  ///     coordinate against the newest delivered frame. Neither present is a typed
+  ///     InvalidApp failure. The resolved coordinate hit travels out through
+  ///     <paramref name="hit"/> so coordinates resolve exactly once (I11).</summary>
+  private ComputerOutcome.Failure? ResolvePrimaryTarget(
+      ComputerCommand command, ComputerTarget? target, out FrameCoordinateResult.Hit? hit)
   {
-    ComputerCommand.Click c => c.App,
-    ComputerCommand.Drag d => d.App,
-    ComputerCommand.Scroll s => s.App,
-    ComputerCommand.TypeText t => t.App,
-    ComputerCommand.SetValue v => v.App,
-    ComputerCommand.SelectText s => s.App,
-    ComputerCommand.Key k => k.App,
-    ComputerCommand.Paste p => p.App,
-    ComputerCommand.PerformAction a => a.App,
-    _ => null,
-  };
+    hit = null;
+    if (target is not { } p)
+    {
+      return null;
+    }
 
-  private static string MethodFor(ComputerCommand command) => command switch
+    if (p.ElementIndex is { } index)
+    {
+      LedgerIndexCheck check = _ledger.ValidateIndex(LedgerKeyFor(AppOf(command)), index);
+      return check.Ok
+        ? null
+        : new ComputerOutcome.Failure(
+            check.Error ?? ComputerErrorCodes.ElementUnavailable,
+            check.Message ?? "element target does not resolve; observe first.");
+    }
+
+    return p.X is { } px && p.Y is { } py
+      ? ResolveCoordinateTarget(_frames, px, py, out hit, "the coordinate target does not resolve against a delivered screenshot frame; observe with include_screenshot first.")
+      : new ComputerOutcome.Failure(ComputerErrorCodes.InvalidApp, "target carries neither element index nor coordinates.");
+  }
+
+  /// <summary>Resolves the drag 'to' target by the same fail-closed rules as the
+  ///     primary target (ledger for element indexes, frame registry for coordinates);
+  ///     the per-side failure messages name the drag 'to' slot.</summary>
+  private ComputerOutcome.Failure? ResolveDragToTarget(
+      ComputerCommand command, ComputerTarget? target, out FrameCoordinateResult.Hit? hit)
   {
-    ComputerCommand.Click => "click",
-    ComputerCommand.Drag => "drag",
-    ComputerCommand.Scroll => "scroll",
-    ComputerCommand.TypeText => "type_text",
-    ComputerCommand.SetValue => "element_set_value",
-    ComputerCommand.SelectText => "element_select_text",
-    ComputerCommand.Key k => k.HoldSeconds is { } hold && hold > 0 ? "hold_key" : "press_key",
-    ComputerCommand.Paste => "paste",
-    ComputerCommand.PerformAction => "element_perform_action",
-    _ => throw new InvalidOperationException("unreachable: ActionAsync only sees input commands"),
-  };
+    hit = null;
+    if (target is not { } toTarget)
+    {
+      return null;
+    }
+
+    if (toTarget.ElementIndex is { } toIndex)
+    {
+      LedgerIndexCheck toCheck = _ledger.ValidateIndex(LedgerKeyFor(AppOf(command)), toIndex);
+      return toCheck.Ok
+        ? null
+        : new ComputerOutcome.Failure(
+            toCheck.Error ?? ComputerErrorCodes.ElementUnavailable,
+            toCheck.Message ?? "drag 'to' element target does not resolve; observe first.");
+    }
+
+    return toTarget.X is { } tx && toTarget.Y is { } ty
+      ? ResolveCoordinateTarget(_frames, tx, ty, out hit, "the drag 'to' coordinate does not resolve against a delivered screenshot frame; observe with include_screenshot first.")
+      : new ComputerOutcome.Failure(ComputerErrorCodes.InvalidApp, "drag 'to' carries neither element index nor coordinates.");
+  }
+
+  /// <summary>Resolves one coordinate pair against the newest delivered frame
+  ///     (STALE_STATE on any miss); the hit travels out through <paramref name="hit"/>.</summary>
+  private static ComputerOutcome.Failure? ResolveCoordinateTarget(
+      FrameRegistry frames, int x, int y, out FrameCoordinateResult.Hit? hit, string failureMessage)
+  {
+    hit = null;
+    if (frames.ResolveForCoordinate(FrameRegistry.LatestToken, x, y) is not FrameCoordinateResult.Hit resolved)
+    {
+      return new ComputerOutcome.Failure(ComputerErrorCodes.StaleState, failureMessage);
+    }
+
+    hit = resolved;
+    return null;
+  }
+
+  private static ComputerAppRef? AppOf(ComputerCommand command) =>
+    AppReaders.TryGetValue(command.GetType(), out Func<ComputerCommand, ComputerAppRef?>? reader) ? reader(command) : null;
+
+  private static string MethodFor(ComputerCommand command) =>
+    MethodSelectors.TryGetValue(command.GetType(), out Func<ComputerCommand, string>? selector)
+      ? selector(command)
+      : throw new InvalidOperationException("unreachable: ActionAsync only sees input commands");
+
+  private static string MethodForKey(double? holdSeconds) => holdSeconds is { } hold && hold > 0 ? "hold_key" : "press_key";
 
   private static JsonElement ParametersFor(ComputerCommand command,
       FrameCoordinateResult.Hit? primaryHit, FrameCoordinateResult.Hit? toHit)
   {
-    Dictionary<string, object?> map = command switch
-    {
-      ComputerCommand.Click c => new()
-      {
-        ["mouse_button"] = c.MouseButton,
-        ["click_count"] = c.ClickCount,
-        ["modifiers"] = c.Modifiers,
-        ["strategy"] = c.Strategy,
-      },
-      ComputerCommand.Drag d => new() { ["modifiers"] = d.Modifiers },
-      ComputerCommand.Scroll s => new()
-      {
-        ["scroll_direction"] = s.ScrollDirection,
-        ["scroll_amount"] = s.ScrollAmount,
-        ["strategy"] = s.Strategy,
-      },
-      ComputerCommand.TypeText t => new() { ["text"] = t.Text, ["strategy"] = t.Strategy },
-      ComputerCommand.SetValue v => new() { ["value"] = v.Value, ["strategy"] = v.Strategy },
-      ComputerCommand.SelectText s => new()
-      {
-        ["text"] = s.Text,
-        ["prefix"] = s.Prefix,
-        ["suffix"] = s.Suffix,
-        ["selection_type"] = s.SelectionType,
-      },
-      ComputerCommand.Key k => new()
-      {
-        ["key"] = k.Text,
-        ["repeat"] = k.Repeat,
-        ["hold_seconds"] = k.HoldSeconds,
-        ["strategy"] = k.Strategy,
-      },
-      ComputerCommand.Paste p => new() { ["text"] = p.Text, ["format"] = p.Format },
-      ComputerCommand.PerformAction a => new() { ["action_name"] = a.Action },
-      _ => [],
-    };
+    Dictionary<string, object?> map = ParameterBuilders.TryGetValue(command.GetType(),
+        out Func<ComputerCommand, Dictionary<string, object?>>? build)
+      ? build(command)
+      : [];
 
     // The primary target resolves client-side once (I11): the broker receives the
     // resolved global screen point or the observation element index.
-    if (TargetOf(command) is { } primaryTarget)
-    {
-      if (primaryTarget.ElementIndex is { } index)
-      {
-        map["element"] = index;
-      }
-      else if (primaryHit is { } hit)
-      {
-        map["x"] = (int)hit.Resolution.X;
-        map["y"] = (int)hit.Resolution.Y;
-      }
-    }
+    ApplyPrimaryTarget(command, primaryHit, map);
 
     // C3: drag carries BOTH endpoints - the 'to' target resolves identically.
-    if (command is ComputerCommand.Drag drag)
-    {
-      if (drag.To.ElementIndex is { } toIndex)
-      {
-        map["to_element"] = toIndex;
-      }
-      else if (toHit is { } toPoint)
-      {
-        map["to_x"] = (int)toPoint.Resolution.X;
-        map["to_y"] = (int)toPoint.Resolution.Y;
-      }
-    }
+    ApplyDragToTarget(command, toHit, map);
 
     if (AppOf(command) is { } app)
     {
@@ -314,6 +313,89 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
 
     return JsonSerializer.SerializeToElement(map, BrokerWire.Options);
   }
+
+  private static void ApplyPrimaryTarget(ComputerCommand command, FrameCoordinateResult.Hit? primaryHit,
+      Dictionary<string, object?> map)
+  {
+    if (TargetOf(command) is not { } primaryTarget)
+    {
+      return;
+    }
+
+    if (primaryTarget.ElementIndex is { } index)
+    {
+      map["element"] = index;
+    }
+    else if (primaryHit is { } hit)
+    {
+      map["x"] = (int)hit.Resolution.X;
+      map["y"] = (int)hit.Resolution.Y;
+    }
+  }
+
+  private static void ApplyDragToTarget(ComputerCommand command, FrameCoordinateResult.Hit? toHit,
+      Dictionary<string, object?> map)
+  {
+    if (command is not ComputerCommand.Drag drag)
+    {
+      return;
+    }
+
+    if (drag.To.ElementIndex is { } toIndex)
+    {
+      map["to_element"] = toIndex;
+    }
+    else if (toHit is { } toPoint)
+    {
+      map["to_x"] = (int)toPoint.Resolution.X;
+      map["to_y"] = (int)toPoint.Resolution.Y;
+    }
+  }
+
+  private static Dictionary<string, object?> ParameterMapForClick(ComputerCommand.Click c) => new()
+  {
+    ["mouse_button"] = c.MouseButton,
+    ["click_count"] = c.ClickCount,
+    ["modifiers"] = c.Modifiers,
+    ["strategy"] = c.Strategy,
+  };
+
+  private static Dictionary<string, object?> ParameterMapForDrag(ComputerCommand.Drag d) => new() { ["modifiers"] = d.Modifiers };
+
+  private static Dictionary<string, object?> ParameterMapForScroll(ComputerCommand.Scroll s) => new()
+  {
+    ["scroll_direction"] = s.ScrollDirection,
+    ["scroll_amount"] = s.ScrollAmount,
+    ["strategy"] = s.Strategy,
+  };
+
+  private static Dictionary<string, object?> ParameterMapForTypeText(ComputerCommand.TypeText t) =>
+    new() { ["text"] = t.Text, ["strategy"] = t.Strategy };
+
+  private static Dictionary<string, object?> ParameterMapForSetValue(ComputerCommand.SetValue v) =>
+    new() { ["value"] = v.Value, ["strategy"] = v.Strategy };
+
+  private static Dictionary<string, object?> ParameterMapForSelectText(ComputerCommand.SelectText s) => new()
+  {
+    ["text"] = s.Text,
+    ["prefix"] = s.Prefix,
+    ["suffix"] = s.Suffix,
+    ["selection_type"] = s.SelectionType,
+  };
+
+  private static Dictionary<string, object?> ParameterMapForKey(ComputerCommand.Key k) => new()
+  {
+    ["key"] = k.Text,
+    ["repeat"] = k.Repeat,
+    ["hold_seconds"] = k.HoldSeconds,
+    ["strategy"] = k.Strategy,
+  };
+
+  private static Dictionary<string, object?> ParameterMapForPaste(ComputerCommand.Paste p) =>
+    new() { ["text"] = p.Text, ["format"] = p.Format };
+
+  private static Dictionary<string, object?> ParameterMapForPerformAction(ComputerCommand.PerformAction a) =>
+    new() { ["action_name"] = a.Action };
 
   private Task<ComputerOutcome?> EnsureLeaseAsync(CancellationToken ct) =>
     _hasLease ? Task.FromResult<ComputerOutcome?>(null) : TakeOverAsync(ct);
@@ -412,31 +494,41 @@ public sealed class BrokerComputerAccess(BrokerSupervisor supervisor, bool ownsS
         capture.Elements, treeShownToModel: treeShown, screenshotOnly: false);
     _ = stateId;
 
-    ToolResultImage? screenshot = null;
-    string? withheld = null;
-    ComputerFrameRef? frame = null;
-    if (capture.Screenshot is { } shot)
-    {
-      if (shot.Blank)
-      {
-        withheld = "the window's raster is uniform (no actionable content)";
-      }
-      else
-      {
-        byte[] png = Convert.FromBase64String(shot.Data);
-        DeliveredScreenshot delivered = ScreenshotEncoder.Encode(png);
-        screenshot = new ToolResultImage("image/jpeg", delivered.Base64);
-        ScreenshotWindowRect rect = new(capture.Window.Bounds[0], capture.Window.Bounds[1],
-            capture.Window.Bounds[2], capture.Window.Bounds[3]);
-        frame = _frames.Add(delivered.Width, delivered.Height, rect, actionable: true);
-      }
-    }
+    RegisterScreenshot(capture, out ToolResultImage? screenshot, out string? withheld, out ComputerFrameRef? frame);
 
     string treeText = TreeTextRenderer.Render(capture);
     IReadOnlyList<ComputerElement> elements = [.. capture.Elements.Select(e => new ComputerElement(
         e.Index, e.Role, e.Kind, e.Title, e.Value, e.Bounds, e.Enabled, e.Editable, e.Actions,
         e.Focused, e.Selected, e.Pressable, e.HasMenu, e.ChildrenTotal, e.ChildrenShown, e.ChildrenOffset))];
     return new ComputerOutcome.Observation(treeText, stateId, elements, frame, withheld, screenshot);
+  }
+
+  /// <summary>Re-encodes a delivered raster as the observation's screenshot frame: a
+  ///     blank raster is withheld with its reason, a delivered raster re-encodes through
+  ///     ScreenshotEncoder and registers as a coordinate frame over the window bounds.</summary>
+  private void RegisterScreenshot(CaptureAppResult capture, out ToolResultImage? screenshot,
+      out string? withheld, out ComputerFrameRef? frame)
+  {
+    screenshot = null;
+    withheld = null;
+    frame = null;
+    if (capture.Screenshot is not { } shot)
+    {
+      return;
+    }
+
+    if (shot.Blank)
+    {
+      withheld = "the window's raster is uniform (no actionable content)";
+      return;
+    }
+
+    byte[] png = Convert.FromBase64String(shot.Data);
+    DeliveredScreenshot delivered = ScreenshotEncoder.Encode(png);
+    screenshot = new ToolResultImage("image/jpeg", delivered.Base64);
+    ScreenshotWindowRect rect = new(capture.Window.Bounds[0], capture.Window.Bounds[1],
+        capture.Window.Bounds[2], capture.Window.Bounds[3]);
+    frame = _frames.Add(delivered.Width, delivered.Height, rect, actionable: true);
   }
 
   /// <summary>M14: for name/aumid refs the broker resolves the pid; the ledger key derives

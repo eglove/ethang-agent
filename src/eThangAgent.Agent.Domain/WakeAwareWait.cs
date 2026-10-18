@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.AgentDomain;
@@ -35,38 +36,37 @@ public sealed class WakeFilter
 
     foreach (string token in raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
     {
-      switch (token.ToUpperInvariant())
+      // TryGetValue distinguishes absent (invalid) from recognized: the recognized
+      // no-op tokens map to null ('message' — the user wake is always on — and
+      // 'settled' — settlement ends the wait on its own).
+      if (!TokenReasons.TryGetValue(token.ToUpperInvariant(), out WakeReason? reason))
       {
-        case "MESSAGE":
-          break; // always on; listing it is harmless
-        case "PROGRESS":
-          _ = reasons.Add(WakeReason.Progress);
-          break;
-        case "IDLE":
-          _ = reasons.Add(WakeReason.Idle);
-          break;
-        case "SETTLED":
-          break; // no-op: settlement ends the wait on its own
-        case "STATE":
-          _ = reasons.Add(WakeReason.StateWrite);
-          break;
-        case "STREAM":
-          _ = reasons.Add(WakeReason.StreamStall);
-          break;
-        case "BUDGET":
-          _ = reasons.Add(WakeReason.Budget);
-          break;
-        case "MAILBOX":
-          _ = reasons.Add(WakeReason.Mailbox);
-          break;
-        default:
-          return Result.Failure<WakeFilter>(new DomainError("InvalidActionInput",
-              $"'wakeOn' token '{token}' is not one of: message, progress, idle, settled, state, stream, budget, mailbox, all."));
+        return Result.Failure<WakeFilter>(new DomainError("InvalidActionInput",
+            $"'wakeOn' token '{token}' is not one of: message, progress, idle, settled, state, stream, budget, mailbox, all."));
+      }
+
+      if (reason is { } known)
+      {
+        _ = reasons.Add(known);
       }
     }
 
     return Result.Success(new WakeFilter(reasons));
   }
+
+  /// <summary>Token -> reason lookup: null marks a recognized no-op token.</summary>
+  private static readonly FrozenDictionary<string, WakeReason?> TokenReasons =
+      new Dictionary<string, WakeReason?>(StringComparer.Ordinal)
+      {
+        ["PROGRESS"] = WakeReason.Progress,
+        ["IDLE"] = WakeReason.Idle,
+        ["STATE"] = WakeReason.StateWrite,
+        ["STREAM"] = WakeReason.StreamStall,
+        ["BUDGET"] = WakeReason.Budget,
+        ["MAILBOX"] = WakeReason.Mailbox,
+        ["MESSAGE"] = null,
+        ["SETTLED"] = null,
+      }.ToFrozenDictionary();
 
   public bool Accepts(WakeReason reason)
       => reason == WakeReason.UserMessage || _reasons.Contains(reason);

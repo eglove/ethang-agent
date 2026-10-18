@@ -43,11 +43,7 @@ public static class ResponsesApiRequestCore
           AppendMessageContent(item, content);
           break;
         case "function_call":
-          toolCalls.Add(new ToolCallRequest(
-              item.GetProperty("call_id").GetString()!,
-              item.GetProperty("name").GetString()!,
-              item.TryGetProperty("arguments", out JsonElement args) && args.ValueKind == JsonValueKind.String
-                  ? args.GetString() ?? "" : ""));
+          toolCalls.Add(FunctionToolCall(item));
           break;
         default:
           if (ServerToolCallItem.TryParse(type, item, out ServerToolCall? call))
@@ -65,6 +61,18 @@ public static class ResponsesApiRequestCore
         ParseFinishReason(body, toolCalls.Count > 0),
         ParseUsage(body),
         serverToolCalls));
+  }
+
+  /// <summary>One function_call output item: the call_id and name are required wire
+  ///     members, the arguments string defaults to empty when absent.</summary>
+  private static ToolCallRequest FunctionToolCall(JsonElement item)
+  {
+    string arguments = item.TryGetProperty("arguments", out JsonElement args) && args.ValueKind == JsonValueKind.String
+        ? args.GetString() ?? "" : "";
+    return new ToolCallRequest(
+        item.GetProperty("call_id").GetString()!,
+        item.GetProperty("name").GetString()!,
+        arguments);
   }
 
   /// <summary>Maps the response status to the finish reason. "completed" (or a missing
@@ -160,23 +168,19 @@ public static class ResponsesApiRequestCore
       return null;
     }
 
-    int? cached = null;
-    if (u.TryGetProperty("input_tokens_details", out JsonElement details)
-        && details.ValueKind == JsonValueKind.Object
-        && TryGetInt(details, "cached_tokens", out int cachedValue))
-    {
-      cached = cachedValue;
-    }
-
-    int? serverToolCalls = null;
-    if (u.TryGetProperty("server_tool_use", out JsonElement serverUse)
-        && serverUse.ValueKind == JsonValueKind.Object
-        && TryGetInt(serverUse, "web_search_requests", out int webSearchRequests))
-    {
-      serverToolCalls = webSearchRequests;
-    }
-
+    int? cached = OptionalCount(u, "input_tokens_details", "cached_tokens");
+    int? serverToolCalls = OptionalCount(u, "server_tool_use", "web_search_requests");
     return new TokenUsage(input, output, cached, serverToolCalls);
+  }
+
+  /// <summary>An optional nested count: <c>parent.member.countName</c> when the nested
+  ///     object and its numeric count member are present, null otherwise.</summary>
+  private static int? OptionalCount(JsonElement parent, string member, string countName)
+  {
+    return parent.TryGetProperty(member, out JsonElement nested)
+        && nested.ValueKind == JsonValueKind.Object
+        && TryGetInt(nested, countName, out int value)
+        ? value : null;
   }
 
   private static bool TryGetInt(JsonElement parent, string name, out int value)

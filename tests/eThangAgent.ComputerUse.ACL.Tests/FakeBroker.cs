@@ -42,73 +42,17 @@ internal sealed class FakeBroker : IAsyncDisposable
     try
     {
       await _server.WaitForConnectionAsync(_cts.Token).ConfigureAwait(true);
-      string auth = await ReadLineAsync(_cts.Token).ConfigureAwait(true);
-      ReceivedAuthId = ExtractId(auth);
-      ReceivedAuth = ExtractToken(auth);
-      if (_mode == "auth")
+      if (await HandleAuthAsync().ConfigureAwait(true))
       {
-        await WriteLineAsync(JsonEncoder.Reply(0, JsonValue(new { ok = false, code = "not_authorized", message = "bad token" })), _cts.Token).ConfigureAwait(true);
         return;
       }
 
-      await WriteLineAsync(JsonEncoder.Reply(0, JsonValue(new { ok = true })), _cts.Token).ConfigureAwait(true);
-
-      string hello = await ReadLineAsync(_cts.Token).ConfigureAwait(true);
-      int helloId = ExtractId(hello);
-      if (_mode == "version")
+      if (await HandleHelloAsync().ConfigureAwait(true))
       {
-        await WriteLineAsync(JsonEncoder.Reply(helloId, JsonValue(new { protocol = 999, platform = "linux" })), _cts.Token).ConfigureAwait(true);
         return;
       }
 
-      if (_mode == "no-protocol")
-      {
-        await WriteLineAsync(JsonEncoder.Reply(helloId, JsonValue(new { platform = "windows" })), _cts.Token).ConfigureAwait(true);
-        return;
-      }
-
-      if (_mode == "no-platform")
-      {
-        await WriteLineAsync(JsonEncoder.Reply(helloId, JsonValue(new { protocol = 1 })), _cts.Token).ConfigureAwait(true);
-        return;
-      }
-
-      await WriteLineAsync(JsonEncoder.Reply(helloId, JsonValue(new { protocol = 1, platform = "windows" })), _cts.Token).ConfigureAwait(true);
-
-      if (_mode == "drop")
-      {
-        if (_server.IsConnected)
-        {
-          _server.Disconnect();
-        }
-
-        return;
-      }
-
-      while (!_cts.IsCancellationRequested)
-      {
-        string line = await ReadLineAsync(_cts.Token).ConfigureAwait(true);
-        int id = ExtractId(line);
-        if (_mode == "oversize")
-        {
-          await WriteLineAsync(JsonEncoder.Reply(id, JsonValue(new { big = new string('x', (65 * 1024 * 1024) + 100) })), _cts.Token).ConfigureAwait(true);
-        }
-        else
-        {
-          string echoParams = "null";
-          try
-          {
-            using JsonDocument d = JsonDocument.Parse(line);
-            echoParams = d.RootElement.TryGetProperty("params", out JsonElement pe) ? pe.GetRawText() : "null";
-          }
-          catch (JsonException ex)
-          {
-            echoParams = "\"parse-error: " + ex.Message + "\"";
-          }
-
-          await WriteLineAsync(JsonEncoder.Reply(id, "{" + JsonEncoder.Q("echoed_params") + ":" + echoParams + "}"), _cts.Token).ConfigureAwait(true);
-        }
-      }
+      await RunCommandLoopAsync().ConfigureAwait(true);
     }
     catch (OperationCanceledException)
     {
@@ -118,6 +62,92 @@ internal sealed class FakeBroker : IAsyncDisposable
     {
       // client hung up - fine for drop and oversize scenarios
     }
+  }
+
+  /// <summary>Reads the auth frame, records it, and (in the auth scenario) sends
+  ///     the rejection. Returns true when the scenario ends here.</summary>
+  private async Task<bool> HandleAuthAsync()
+  {
+    string auth = await ReadLineAsync(_cts.Token).ConfigureAwait(true);
+    ReceivedAuthId = ExtractId(auth);
+    ReceivedAuth = ExtractToken(auth);
+    if (_mode != "auth")
+    {
+      await WriteLineAsync(JsonEncoder.Reply(0, JsonValue(new { ok = true })), _cts.Token).ConfigureAwait(true);
+      return false;
+    }
+
+    await WriteLineAsync(JsonEncoder.Reply(0, JsonValue(new { ok = false, code = "not_authorized", message = "bad token" })), _cts.Token).ConfigureAwait(true);
+    return true;
+  }
+
+  /// <summary>Reads the hello frame and answers per the scenario (short protocol
+  ///     or platform replies, then the full hello). Returns true when the
+  ///     scenario ends after the hello phase (the drop scenario disconnects).</summary>
+  private async Task<bool> HandleHelloAsync()
+  {
+    string hello = await ReadLineAsync(_cts.Token).ConfigureAwait(true);
+    int helloId = ExtractId(hello);
+    object? shortReply = _mode switch
+    {
+      "version" => new { protocol = 999, platform = "linux" },
+      "no-protocol" => new { platform = "windows" },
+      "no-platform" => new { protocol = 1 },
+      _ => null,
+    };
+    if (shortReply is not null)
+    {
+      await WriteLineAsync(JsonEncoder.Reply(helloId, JsonValue(shortReply)), _cts.Token).ConfigureAwait(true);
+      return true;
+    }
+
+    await WriteLineAsync(JsonEncoder.Reply(helloId, JsonValue(new { protocol = 1, platform = "windows" })), _cts.Token).ConfigureAwait(true);
+    if (_mode != "drop")
+    {
+      return false;
+    }
+
+    if (_server.IsConnected)
+    {
+      _server.Disconnect();
+    }
+
+    return true;
+  }
+
+  /// <summary>Echo loop: every client frame is answered per the scenario
+  ///     (oversize payload or params echo) until cancelled.</summary>
+  private async Task RunCommandLoopAsync()
+  {
+    while (!_cts.IsCancellationRequested)
+    {
+      string line = await ReadLineAsync(_cts.Token).ConfigureAwait(true);
+      int id = ExtractId(line);
+      if (_mode == "oversize")
+      {
+        await WriteLineAsync(JsonEncoder.Reply(id, JsonValue(new { big = new string('x', (65 * 1024 * 1024) + 100) })), _cts.Token).ConfigureAwait(true);
+      }
+      else
+      {
+        await WriteLineAsync(JsonEncoder.Reply(id, EchoReply(line)), _cts.Token).ConfigureAwait(true);
+      }
+    }
+  }
+
+  private static string EchoReply(string line)
+  {
+    string echoParams = "null";
+    try
+    {
+      using JsonDocument d = JsonDocument.Parse(line);
+      echoParams = d.RootElement.TryGetProperty("params", out JsonElement pe) ? pe.GetRawText() : "null";
+    }
+    catch (JsonException ex)
+    {
+      echoParams = "\"parse-error: " + ex.Message + "\"";
+    }
+
+    return "{" + JsonEncoder.Q("echoed_params") + ":" + echoParams + "}";
   }
 
   public int ReceivedAuthId { get; private set; } = -1;

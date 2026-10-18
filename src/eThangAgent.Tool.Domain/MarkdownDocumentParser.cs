@@ -155,21 +155,16 @@ public static class MarkdownDocumentParser
       return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, $"each block must be an object or null, but got {b.ValueKind}."));
     }
 
-    if (!b.TryGetProperty("type", out JsonElement typeEl))
+    Result<string> type = ParseBlockType(b);
+    if (!type.IsSuccess)
     {
-      return FailMarkdownBlock(new DomainError(ToolErrorCodes.MissingParameter, "each block requires a 'type'."));
+      return FailMarkdownBlock(type.Error);
     }
 
-    if (typeEl.ValueKind != JsonValueKind.String)
-    {
-      return FailMarkdownBlock(new DomainError(ToolErrorCodes.InvalidParameterType, $"'type' must be a string, but got {typeEl.ValueKind}."));
-    }
-
-    string type = typeEl.GetString()!;
-    HashSet<string>? known = TypeFields(type);
+    HashSet<string>? known = TypeFields(type.Value);
     if (known is null)
     {
-      return FailMarkdownBlock(new DomainError("UnknownParameter", $"unknown block type '{type}'."));
+      return FailMarkdownBlock(new DomainError("UnknownParameter", $"unknown block type '{type.Value}'."));
     }
 
     // Unknown-field rejection: every property must be declared for this block type.
@@ -178,21 +173,45 @@ public static class MarkdownDocumentParser
         .FirstOrDefault(name => name != "type" && !known.Contains(name));
     return unknown is not null
       ? FailMarkdownBlock(new DomainError("UnknownParameter",
-          $"Unknown parameter(s): {unknown}. Allowed for '{type}': {string.Join(", ", known.OrderBy(k => k))}."))
-      : type switch
-      {
-        "text" => RequireText(b, "text").Map(text => (MarkdownBlock?)new TextBlock(text)),
-        "header" => ParseHeader(b),
-        "quote" => RequireText(b, "text").Map(text => (MarkdownBlock?)new QuoteBlock(text)),
-        "alert" => ParseAlert(b),
-        "codeBlock" => ParseCodeBlock(b),
-        "space" => ParseSpace(b),
-        "unorderedList" or "numberedList" => ParseList(b, type),
-        "taskList" => ParseTaskList(b),
-        "table" => ParseTable(b),
-        _ => FailMarkdownBlock(new DomainError("UnknownParameter", $"unknown block type '{type}'.")),
-      };
+          $"Unknown parameter(s): {unknown}. Allowed for '{type.Value}': {string.Join(", ", known.OrderBy(k => k))}."))
+      : DispatchBlock(b, type.Value);
   }
+
+  /// <summary>Extracts and validates a block's 'type' property: present and a string.</summary>
+  private static Result<string> ParseBlockType(JsonElement b)
+  {
+    if (!b.TryGetProperty("type", out JsonElement typeEl))
+    {
+      return Result.Failure<string>(new DomainError(ToolErrorCodes.MissingParameter, "each block requires a 'type'."));
+    }
+
+    if (typeEl.ValueKind != JsonValueKind.String)
+    {
+      return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType, $"'type' must be a string, but got {typeEl.ValueKind}."));
+    }
+
+    string type = typeEl.GetString()!;
+    return Result.Success(type);
+  }
+
+  private static Result<MarkdownBlock?> DispatchBlock(JsonElement b, string type) => type switch
+  {
+    "text" => RequireText(b, "text").Map(text => (MarkdownBlock?)new TextBlock(text)),
+    "header" => ParseHeader(b),
+    "quote" => RequireText(b, "text").Map(text => (MarkdownBlock?)new QuoteBlock(text)),
+    "alert" => ParseAlert(b),
+    "codeBlock" => ParseCodeBlock(b),
+    _ => DispatchBlockRest(b, type),
+  };
+
+  private static Result<MarkdownBlock?> DispatchBlockRest(JsonElement b, string type) => type switch
+  {
+    "space" => ParseSpace(b),
+    "unorderedList" or "numberedList" => ParseList(b, type),
+    "taskList" => ParseTaskList(b),
+    "table" => ParseTable(b),
+    _ => FailMarkdownBlock(new DomainError("UnknownParameter", $"unknown block type '{type}'.")),
+  };
 
   private static Result<MarkdownBlock?> ParseHeader(JsonElement b)
   {
@@ -595,17 +614,24 @@ public static class MarkdownDocumentParser
 
   private static HashSet<string>? TypeFields(string type) => type switch
   {
-    "text" => new HashSet<string>(StringComparer.Ordinal) { "text" },
-    "header" => new HashSet<string>(StringComparer.Ordinal) { "level", "text" },
-    "quote" => new HashSet<string>(StringComparer.Ordinal) { "text" },
-    "alert" => new HashSet<string>(StringComparer.Ordinal) { "alertType", "text" },
-    "codeBlock" => new HashSet<string>(StringComparer.Ordinal) { "language", "code" },
-    "space" => new HashSet<string>(StringComparer.Ordinal) { "count" },
-    "unorderedList" or "numberedList" => new HashSet<string>(StringComparer.Ordinal) { Items },
-    "taskList" => new HashSet<string>(StringComparer.Ordinal) { Items },
-    "table" => new HashSet<string>(StringComparer.Ordinal) { "headers", "rows" },
+    "text" => Fields("text"),
+    "header" => Fields("level", "text"),
+    "quote" => Fields("text"),
+    "alert" => Fields("alertType", "text"),
+    "codeBlock" => Fields("language", "code"),
+    _ => TypeFieldsRest(type),
+  };
+
+  private static HashSet<string>? TypeFieldsRest(string type) => type switch
+  {
+    "space" => Fields("count"),
+    "unorderedList" or "numberedList" => Fields(Items),
+    "taskList" => Fields(Items),
+    "table" => Fields("headers", "rows"),
     _ => null,
   };
+
+  private static HashSet<string> Fields(params string[] names) => [.. names];
 
   private static Result<MarkdownBlock?> FailMarkdownBlock(DomainError e) => Result.Failure<MarkdownBlock?>(e);
   private static Result<IReadOnlyList<ListItem>> FailList(DomainError e) => Result.Failure<IReadOnlyList<ListItem>>(e);

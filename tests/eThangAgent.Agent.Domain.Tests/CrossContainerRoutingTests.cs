@@ -95,10 +95,10 @@ public class CrossContainerRoutingTests
         ? new CountingLocator(foreignMailboxes)
         : null;
     AgentLinkRegistry links = new();
-    AgentCapabilityProvider provider = new(
+    AgentCapabilityProvider provider = new(new AgentProviderServices(
         new FakeSpawnCommand(), new FakeQueries(parent), () => parent,
-        runtime, links, locator: locator,
-        eventsFor: events is null ? null : _ => events);
+        runtime, links, Locator: locator,
+        EventsFor: events is null ? null : _ => events));
     return (provider, runtime, locator, links);
   }
 

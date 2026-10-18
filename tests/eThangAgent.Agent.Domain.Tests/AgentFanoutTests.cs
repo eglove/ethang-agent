@@ -12,7 +12,7 @@ public class AgentFanoutTests
       "m", null, "t", DateTimeOffset.UtcNow);
 
   private static AgentCapabilityProvider Make(Func<AgentRecord, SpawnRequest[], CancellationToken, Task<string>>? fanout)
-      => new(new NoSpawn(), new NoQueries(), Parent, runtime: null, links: null, fanout: fanout);
+      => new(new AgentProviderServices(new NoSpawn(), new NoQueries(), Parent, Fanout: fanout));
 
   private sealed class NoSpawn : IAgentSpawnCommand
   {

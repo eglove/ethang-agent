@@ -42,63 +42,19 @@ public sealed record ModelConfig(
       string? providerSettings = null,
       bool acceptsImageInput = false)
   {
-    if (string.IsNullOrWhiteSpace(modelId))
+    if (ValidateBasics(modelId, maxTokens) is { } basicsError)
     {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Model ID is required."));
+      return Result.Failure<ModelConfig>(basicsError);
     }
 
-    if (maxTokens < 1)
+    if (ValidateCore(temperature, contextWindow) is { } coreError)
     {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "MaxTokens must be positive."));
+      return Result.Failure<ModelConfig>(coreError);
     }
 
-    // float.IsFinite guards: NaN fails every range comparison vacuously, so each
-    // float knob's documented range is enforced against it explicitly.
-    if (!float.IsFinite(temperature) || temperature is < 0f or > 2f)
+    if (ValidateSampling(topP, topK, frequencyPenalty, presencePenalty, repetitionPenalty, minP, topA) is { } samplingError)
     {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "Temperature must be between 0 and 2."));
-    }
-
-    // Null = the window is not yet known (no catalog resolution yet): allowed and
-    // distinct from unbounded. A non-null window stays strictly validated.
-    if (contextWindow is { } w && w < 1)
-    {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidContextWindow", "Context window must be positive."));
-    }
-
-    if (topP is not null && (!float.IsFinite(topP.Value) || topP.Value is < 0f or > 1f))
-    {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "TopP must be between 0 and 1."));
-    }
-
-    if (topK < 0)
-    {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "TopK must be zero or greater."));
-    }
-
-    if (frequencyPenalty is not null && (!float.IsFinite(frequencyPenalty.Value) || frequencyPenalty.Value is < -2f or > 2f))
-    {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "FrequencyPenalty must be between -2 and 2."));
-    }
-
-    if (presencePenalty is not null && (!float.IsFinite(presencePenalty.Value) || presencePenalty.Value is < -2f or > 2f))
-    {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "PresencePenalty must be between -2 and 2."));
-    }
-
-    if (repetitionPenalty is not null && (!float.IsFinite(repetitionPenalty.Value) || repetitionPenalty.Value is < 0f or > 2f))
-    {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "RepetitionPenalty must be between 0 and 2."));
-    }
-
-    if (minP is not null && (!float.IsFinite(minP.Value) || minP.Value is < 0f or > 1f))
-    {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "MinP must be between 0 and 1."));
-    }
-
-    if (topA is not null && (!float.IsFinite(topA.Value) || topA.Value is < 0f or > 1f))
-    {
-      return Result.Failure<ModelConfig>(new DomainError("InvalidModel", "TopA must be between 0 and 1."));
+      return Result.Failure<ModelConfig>(samplingError);
     }
 
     ModelConfig config = new(
@@ -107,4 +63,82 @@ public sealed record ModelConfig(
         seed, verbosity, parallelToolCalls, providerSettings, acceptsImageInput);
     return Result.Success(config);
   }
+
+  /// <summary>Identity and token-budget validation: the checks every config must pass
+  ///     regardless of sampling shape. Returns the first failure, or null when valid.</summary>
+  private static DomainError? ValidateBasics(string modelId, int maxTokens)
+  {
+    return (modelId, maxTokens) switch
+    {
+      _ when string.IsNullOrWhiteSpace(modelId) => new DomainError("InvalidModel", "Model ID is required."),
+      _ when maxTokens < 1 => new DomainError("InvalidModel", "MaxTokens must be positive."),
+      _ => null,
+    };
+  }
+
+  /// <summary>Core numeric validation: temperature range and the context window.
+  ///     Returns the first failure, or null when valid.</summary>
+  private static DomainError? ValidateCore(float temperature, int? contextWindow)
+  {
+    if (!float.IsFinite(temperature) || temperature is < 0f or > 2f)
+    {
+      return new DomainError("InvalidModel", "Temperature must be between 0 and 2.");
+    }
+
+    // Null = the window is not yet known (no catalog resolution yet): allowed and
+    // distinct from unbounded. A non-null window stays strictly validated.
+    return contextWindow is { } w && w < 1
+        ? new DomainError("InvalidContextWindow", "Context window must be positive.")
+        : null;
+  }
+
+  /// <summary>Sampling-knob validation: the top-K floor plus every float knob's
+  ///     documented range. Returns the first failure (in the original check order:
+  ///     topP, topK, frequency, presence, repetition, minP, topA), or null when valid.</summary>
+  private static DomainError? ValidateSampling(
+      float? topP,
+      int? topK,
+      float? frequencyPenalty,
+      float? presencePenalty,
+      float? repetitionPenalty,
+      float? minP,
+      float? topA)
+  {
+    // float.IsFinite guards: NaN fails every range comparison vacuously, so each
+    // float knob's documented range is enforced against it explicitly. The checks
+    // run in the original order (topP, then topK, then the remaining knobs) so
+    // the first-failure error precedence is unchanged.
+    if (OutOfRange(topP, 0f, 1f))
+    {
+      return new DomainError("InvalidModel", "TopP must be between 0 and 1.");
+    }
+
+    if (topK < 0)
+    {
+      return new DomainError("InvalidModel", "TopK must be zero or greater.");
+    }
+
+    List<FloatRangeSpec> specs =
+    [
+        new(frequencyPenalty, -2f, 2f, "FrequencyPenalty must be between -2 and 2."),
+        new(presencePenalty, -2f, 2f, "PresencePenalty must be between -2 and 2."),
+        new(repetitionPenalty, 0f, 2f, "RepetitionPenalty must be between 0 and 2."),
+        new(minP, 0f, 1f, "MinP must be between 0 and 1."),
+        new(topA, 0f, 1f, "TopA must be between 0 and 1."),
+    ];
+    return specs
+        .Where(spec => OutOfRange(spec.Value, spec.Min, spec.Max))
+        .Select(spec => new DomainError("InvalidModel", spec.Message))
+        .FirstOrDefault();
+
+    // True when the knob is set and falls outside its inclusive range (NaN counts
+    // as outside: it fails every comparison vacuously, so the range is enforced
+    // against finiteness explicitly).
+    static bool OutOfRange(float? value, float min, float max) =>
+        value is { } v && (!float.IsFinite(v) || v < min || v > max);
+  }
+
+  /// <summary>One float knob's validation inputs: the value (null = no preference),
+  ///     its inclusive range, and the failure message naming the knob.</summary>
+  private sealed record FloatRangeSpec(float? Value, float Min, float Max, string Message);
 }

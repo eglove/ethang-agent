@@ -48,16 +48,10 @@ public abstract record EditToolInput(string Path, string Replacement)
       return Fail(unknown);
     }
 
-    bool hasRange = json.TryGetProperty(StartLineName, out _) || json.TryGetProperty(EndLineName, out _);
-    bool hasAnchor = json.TryGetProperty(OldName, out _)
-        || json.TryGetProperty(AllName, out _)
-        || json.TryGetProperty(OccurrencesName, out _);
-    if (hasRange && hasAnchor)
+    bool hasRange = HasRange(json);
+    if (hasRange && HasAnchor(json))
     {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          "Anchor parameters ('old', 'all', 'occurrences') cannot be combined with range parameters " +
-          "('startLine', 'endLine'). Provide exactly one mode: anchor (old + 'all'/'occurrences') " +
-          "or range (startLine + endLine)."));
+      return Fail(ModeConflict());
     }
 
     Result<string> path = RequireNonEmptyText(
@@ -80,6 +74,20 @@ public abstract record EditToolInput(string Path, string Replacement)
       : ParseAnchor(json, path.Value, replacement.Value);
     return parsed;
   }
+
+  private static bool HasRange(JsonElement json) =>
+      json.TryGetProperty(StartLineName, out _) || json.TryGetProperty(EndLineName, out _);
+
+  private static bool HasAnchor(JsonElement json) =>
+      json.TryGetProperty(OldName, out _)
+      || json.TryGetProperty(AllName, out _)
+      || json.TryGetProperty(OccurrencesName, out _);
+
+  private static DomainError ModeConflict() =>
+      new(ToolErrorCodes.InvalidParameterValue,
+          "Anchor parameters ('old', 'all', 'occurrences') cannot be combined with range parameters " +
+          "('startLine', 'endLine'). Provide exactly one mode: anchor (old + 'all'/'occurrences') " +
+          "or range (startLine + endLine).");
 
   /// <summary>Rejects an empty string after the type check passes.</summary>
   private static Result<string> RequireNonEmptyText(Result<string> text, string emptyMessage)

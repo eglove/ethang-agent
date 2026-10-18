@@ -71,7 +71,7 @@ public class AgentCapabilityProviderTests
     FakeSpawnCommand command = new(spawnReply ?? Result.Success(AgentId.NewId()), calls);
     FakeQueries queries = new();
     seed?.Invoke(queries);
-    return (new AgentCapabilityProvider(command, queries, () => parent, runtime), command, queries, calls);
+    return (new AgentCapabilityProvider(new AgentProviderServices(command, queries, () => parent, runtime)), command, queries, calls);
   }
 
   private sealed class FakeRuntime(AgentRunOutcome? outcome = null, DomainError? error = null, DomainError? resumeError = null) : IAgentRuntime
@@ -221,7 +221,7 @@ public class AgentCapabilityProviderTests
       fanned.AddRange(requests);
       return Task.FromResult("done");
     });
-    AgentCapabilityProvider provider = new(new NoopSpawn(), new FakeQueries(), () => parent, fanout: collector.FanoutAsync);
+    AgentCapabilityProvider provider = new(new AgentProviderServices(new NoopSpawn(), new FakeQueries(), () => parent, Fanout: collector.FanoutAsync));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("fanout",
                          /*lang=json,strict*/
@@ -239,7 +239,7 @@ public class AgentCapabilityProviderTests
   {
     AgentRecord parent = ParentAtDepth(0);
     FanoutChildrenCollector collector = new((_, requests, _) => Task.FromResult("unreachable"));
-    AgentCapabilityProvider provider = new(new NoopSpawn(), new FakeQueries(), () => parent, fanout: collector.FanoutAsync);
+    AgentCapabilityProvider provider = new(new AgentProviderServices(new NoopSpawn(), new FakeQueries(), () => parent, Fanout: collector.FanoutAsync));
 
     CapabilityInvocationResult result = await provider.InvokeAsync("fanout",
                          /*lang=json,strict*/

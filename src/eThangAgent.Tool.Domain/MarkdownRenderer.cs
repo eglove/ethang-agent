@@ -58,17 +58,33 @@ public static class MarkdownRenderer
 
   private static string RenderBlock(MarkdownBlock block) => block switch
   {
-    HeaderBlock h => new string('#', h.Level) + " " + h.Text,
+    HeaderBlock h => RenderHeader(h),
     TextBlock t => t.Text,
     QuoteBlock q => PrefixLines(q.Text, "> "),
-    AlertBlock a => "> [!" + AlertWord(a.Alert) + "]\n" + PrefixLines(a.Text, "> "),
-    CodeBlock c => "```" + (c.Language ?? "") + "\n" + c.Code + "\n```",
+    AlertBlock a => RenderAlert(a),
+    CodeBlock c => RenderCode(c),
+    _ => RenderBlockRest(block),
+  };
+
+  private static string RenderBlockRest(MarkdownBlock block) => block switch
+  {
     ListBlock l => RenderList(l.Items, l.Kind, level: 0),
-    TaskListBlock tl => string.Join("\n", tl.Items.Select(i => (i.IsComplete ? "[X] " : "[ ] ") + i.Label)),
+    TaskListBlock tl => RenderTaskList(tl),
     TableBlock tb => RenderTable(tb),
     SpaceBlock => throw new InvalidOperationException("space blocks are handled inline"), // unreachable
     _ => throw new InvalidOperationException($"Unknown block type: {block.GetType().Name}"),
   };
+
+  private static string RenderHeader(HeaderBlock h) => new string('#', h.Level) + " " + h.Text;
+
+  private static string RenderAlert(AlertBlock a) =>
+      "> [!" + AlertWord(a.Alert) + "]\n" + PrefixLines(a.Text, "> ");
+
+  private static string RenderCode(CodeBlock c) =>
+      "```" + (c.Language ?? "") + "\n" + c.Code + "\n```";
+
+  private static string RenderTaskList(TaskListBlock tl) =>
+      string.Join("\n", tl.Items.Select(i => (i.IsComplete ? "[X] " : "[ ] ") + i.Label));
 
   private static string AlertWord(AlertType type) => type switch
   {
@@ -161,14 +177,21 @@ public static class MarkdownRenderer
 
   private static string ScalarString(object value) => value switch
   {
-    bool b => b ? "true" : "false",
-    double d => d % 1 == 0 && Math.Abs(d) < 9.22e18 ? ((long)d).ToString(CultureInfo.InvariantCulture) : d.ToString(CultureInfo.InvariantCulture),
+    bool b => ScalarBool(b),
+    double d => ScalarDouble(d),
     float f => f.ToString(CultureInfo.InvariantCulture),
     int i => i.ToString(CultureInfo.InvariantCulture),
     long l => l.ToString(CultureInfo.InvariantCulture),
     decimal m => m.ToString(CultureInfo.InvariantCulture),
     _ => value.ToString() ?? "",
   };
+
+  private static string ScalarBool(bool b) => b ? "true" : "false";
+
+  private static string ScalarDouble(double d) =>
+      d % 1 == 0 && Math.Abs(d) < 9.22e18
+        ? ((long)d).ToString(CultureInfo.InvariantCulture)
+        : d.ToString(CultureInfo.InvariantCulture);
 
   private static string YamlScalar(string value)
   {

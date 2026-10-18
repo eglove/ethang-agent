@@ -38,26 +38,44 @@ public sealed record ContextSelection
     string trimmed = text.Trim();
     if (trimmed.StartsWith(LastPrefix, StringComparison.Ordinal))
     {
-      string countText = trimmed[LastPrefix.Length..];
-      return int.TryParse(countText, out int count) && count >= 0 && count != int.MaxValue
-          ? Result.Success(new ContextSelection(count, null, null))
-          : Fail($"'last N' needs a whole number N >= 0, but got '{countText}'.");
+      return ParseLast(trimmed);
     }
 
     int separator = trimmed.IndexOf("..", StringComparison.Ordinal);
     if (separator > 0)
     {
-      string startText = trimmed[..separator];
-      string endText = trimmed[(separator + 2)..];
-      bool parsedStart = int.TryParse(startText, out int start);
-      bool parsedEnd = int.TryParse(endText, out int end);
-      bool ok = parsedStart && parsedEnd && start >= 1 && start <= end;
-      return ok
-          ? Result.Success(new ContextSelection(null, start, end))
-          : Fail($"range selection needs 'S..E' with 1 <= S <= E, but got '{trimmed}'.");
+      return ParseRange(trimmed, separator);
     }
 
     // Bare position: exactly one message ('3' means '3..3').
+    return ParsePosition(trimmed);
+  }
+
+  /// <summary>Parses the 'last N' form: a whole number N >= 0.</summary>
+  private static Result<ContextSelection> ParseLast(string trimmed)
+  {
+    string countText = trimmed[LastPrefix.Length..];
+    return int.TryParse(countText, out int count) && count >= 0 && count != int.MaxValue
+        ? Result.Success(new ContextSelection(count, null, null))
+        : Fail($"'last N' needs a whole number N >= 0, but got '{countText}'.");
+  }
+
+  /// <summary>Parses the 'S..E' form: 1 &lt;= S &lt;= E, both within int range.</summary>
+  private static Result<ContextSelection> ParseRange(string trimmed, int separator)
+  {
+    string startText = trimmed[..separator];
+    string endText = trimmed[(separator + 2)..];
+    bool parsedStart = int.TryParse(startText, out int start);
+    bool parsedEnd = int.TryParse(endText, out int end);
+    bool ok = parsedStart && parsedEnd && start >= 1 && start <= end;
+    return ok
+        ? Result.Success(new ContextSelection(null, start, end))
+        : Fail($"range selection needs 'S..E' with 1 &lt;= S &lt;= E, but got '{trimmed}'.");
+  }
+
+  /// <summary>Parses the bare-position form: a single 1-based position.</summary>
+  private static Result<ContextSelection> ParsePosition(string trimmed)
+  {
     return int.TryParse(trimmed, out int single) && single >= 1
         ? Result.Success(new ContextSelection(null, single, single))
         : Fail($"selection must be 'last N', 'S..E', or a position, but got '{trimmed}'.");

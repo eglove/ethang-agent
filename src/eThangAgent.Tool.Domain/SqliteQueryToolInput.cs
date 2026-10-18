@@ -54,14 +54,17 @@ public sealed record SqliteQueryToolInput(string Path, string Sql, int MaxRows)
       return Fail(maxRows.Error);
     }
 
-    Result<int> bounded = maxRows.Value is { } rows && (rows < 1 || rows > MaxRowsLimit)
-      ? Result.Failure<int>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          $"'{MaxRowsName}' must be between 1 and {MaxRowsLimit} (got {rows})."))
-      : Result.Success(maxRows.Value ?? DefaultMaxRows);
-    return !bounded.IsSuccess
-      ? Fail(bounded.Error)
-      : Result.Success(new SqliteQueryToolInput(path.Value, sql.Value, bounded.Value));
+    Result<int> bounded = BoundMaxRows(maxRows.Value);
+    return bounded.IsSuccess
+      ? Result.Success(new SqliteQueryToolInput(path.Value, sql.Value, bounded.Value))
+      : Fail(bounded.Error);
   }
+
+  private static Result<int> BoundMaxRows(int? maxRows) =>
+      maxRows is { } rows && (rows < 1 || rows > MaxRowsLimit)
+        ? Result.Failure<int>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+            $"'{MaxRowsName}' must be between 1 and {MaxRowsLimit} (got {rows})."))
+        : Result.Success(maxRows ?? DefaultMaxRows);
 
   private static Result<string> RequireNonEmpty(Result<string> text, string emptyMessage) =>
       text.IsSuccess && text.Value.Length == 0

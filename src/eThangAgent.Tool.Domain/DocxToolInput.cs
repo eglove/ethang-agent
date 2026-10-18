@@ -46,29 +46,39 @@ public sealed record DocxToolInput(
     }
 
     JsonElement json = baseParse.Value;
+    Result<string> action = ParseActionName(json);
+    if (!action.IsSuccess)
+    {
+      return Fail(action.Error);
+    }
+
+    DomainError? unknown = ToolArguments.RejectUnknownParameters(json, Allowed(action.Value));
+    return unknown is not null
+      ? Fail(unknown)
+      : ParseAction(action.Value, json);
+  }
+
+  /// <summary>Reads the required 'action' discriminator: present, a string, and a
+  ///     validated member of the six actions.</summary>
+  private static Result<string> ParseActionName(JsonElement json)
+  {
     if (!json.TryGetProperty("action", out JsonElement actionEl))
     {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
+      return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "'action' is required: exactly one of read, edit, create, comments, revisions, or extract (case-sensitive)."));
     }
 
     if (actionEl.ValueKind != JsonValueKind.String)
     {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterType,
+      return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType,
           $"'action' must be a string, but got {actionEl.ValueKind}."));
     }
 
     string action = actionEl.GetString()!;
-    if (action is not ("read" or "edit" or "create" or "comments" or "revisions" or "extract"))
-    {
-      return Fail(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          $"'action' must be exactly one of read, edit, create, comments, revisions, extract (case-sensitive), but got '{action}'."));
-    }
-
-    DomainError? unknown = ToolArguments.RejectUnknownParameters(json, Allowed(action));
-    return unknown is not null
-      ? Fail(unknown)
-      : ParseAction(action, json);
+    return action is not ("read" or "edit" or "create" or "comments" or "revisions" or "extract")
+      ? Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          $"'action' must be exactly one of read, edit, create, comments, revisions, extract (case-sensitive), but got '{action}'."))
+      : Result.Success(action);
   }
 
   /// <summary>The allowed argument keys per action (timeoutSeconds belongs to
@@ -370,41 +380,60 @@ public sealed record DocxToolInput(
       return Result.Failure<DocxRevisionScope>(unknownKeys);
     }
 
+    Result<ScopeSelectors> selectors = ReadScopeSelectors(scope);
+    return selectors.IsSuccess
+      ? BuildScope(selectors.Value)
+      : Result.Failure<DocxRevisionScope>(selectors.Error);
+  }
+
+  /// <summary>The three optional scope selectors, read but not yet cross-validated.</summary>
+  private sealed record ScopeSelectors(bool? All, string? Author, string? Address);
+
+  /// <summary>Reads the three optional selector fields; a wrong kind on any of them
+  ///     is a typed error.</summary>
+  private static Result<ScopeSelectors> ReadScopeSelectors(JsonElement scope)
+  {
     Result<bool?> all = ToolArguments.OptionalBool(scope, "all");
     if (!all.IsSuccess)
     {
-      return Result.Failure<DocxRevisionScope>(all.Error);
+      return Result.Failure<ScopeSelectors>(all.Error);
     }
 
     Result<string?> author = ToolArguments.OptionalString(scope, "author");
     if (!author.IsSuccess)
     {
-      return Result.Failure<DocxRevisionScope>(author.Error);
+      return Result.Failure<ScopeSelectors>(author.Error);
     }
 
     Result<string?> address = ToolArguments.OptionalString(scope, "address");
-    if (!address.IsSuccess)
-    {
-      return Result.Failure<DocxRevisionScope>(address.Error);
-    }
+    return !address.IsSuccess
+      ? Result.Failure<ScopeSelectors>(address.Error)
+      : Result.Success(new ScopeSelectors(all.Value, author.Value, address.Value));
+  }
 
-    bool allSelected = all.Value == true;
-    int selectors = (allSelected ? 1 : 0) + (author.Value is not null ? 1 : 0) + (address.Value is not null ? 1 : 0);
-    if (selectors != 1)
+  /// <summary>Cross-validates the selectors - exactly one of them, a non-empty
+  ///     author, and a grammar-valid address - then constructs the scope through the
+  ///     record constructor, whose ArgumentException re-surfaces as a typed
+  ///     InvalidParameterValue.</summary>
+  private static Result<DocxRevisionScope> BuildScope(ScopeSelectors selectors)
+  {
+    bool allSelected = selectors.All == true;
+    int count = (allSelected ? 1 : 0) + (selectors.Author is not null ? 1 : 0) + (selectors.Address is not null ? 1 : 0);
+    if (count != 1)
     {
       return Result.Failure<DocxRevisionScope>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          $"'scope' must carry exactly one selector: all=true, a non-empty author, or a non-empty address; got {selectors}."));
+          $"'scope' must carry exactly one selector: all=true, a non-empty author, or a non-empty address; got {count}."));
     }
 
-    if (author.Value is not null && author.Value.Length == 0)
+    if (selectors.Author is not null && selectors.Author.Length == 0)
     {
       return Result.Failure<DocxRevisionScope>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "'scope.author' must be non-empty when given."));
     }
 
-    if (address.Value is not null)
+    if (selectors.Address is not null)
     {
-      Result<DocxAddress> parsedAddress = DocxAddress.Parse(address.Value);
+      Result<DocxAddress> parsedAddress = DocxAddress.Parse(selectors.Address);
       if (!parsedAddress.IsSuccess)
       {
         return Result.Failure<DocxRevisionScope>(parsedAddress.Error);
@@ -413,7 +442,7 @@ public sealed record DocxToolInput(
 
     try
     {
-      return Result.Success(new DocxRevisionScope(allSelected, author.Value, address.Value));
+      return Result.Success(new DocxRevisionScope(allSelected, selectors.Author, selectors.Address));
     }
     catch (ArgumentException ex)
     {
@@ -479,26 +508,44 @@ public sealed record DocxToolInput(
           $"Every operations element must be an object, but got {element.ValueKind}."));
     }
 
+    Result<string> opName = ParseOpName(element);
+    return opName.IsSuccess
+      ? DispatchOperation(element, opName.Value)
+      : Result.Failure<DocxOperation>(opName.Error);
+  }
+
+  /// <summary>Reads the required 'op' discriminator: present and a string.</summary>
+  private static Result<string> ParseOpName(JsonElement element)
+  {
     if (!element.TryGetProperty("op", out JsonElement opEl))
     {
-      return Result.Failure<DocxOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+      return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "Every operations element must carry 'op': exactly one of replaceParagraphText, setParagraphStyle, insertParagraph, deleteParagraph, setCellText, insertTableRow, deleteTableRow, applyRunFormatting, or findReplace (case-sensitive)."));
     }
 
-    if (opEl.ValueKind != JsonValueKind.String)
-    {
-      return Result.Failure<DocxOperation>(new DomainError(ToolErrorCodes.InvalidParameterType,
+    Result<string> op = opEl.ValueKind == JsonValueKind.String
+      ? Result.Success(opEl.GetString()!)
+      : Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType,
           $"'op' must be a string, but got {opEl.ValueKind}."));
-    }
+    return op;
+  }
 
-    string op = opEl.GetString()!;
-    return op switch
+  /// <summary>Dispatches a validated op name to its per-op parser.</summary>
+  private static Result<DocxOperation> DispatchOperation(JsonElement element, string op)
+    => op switch
     {
       "replaceParagraphText" => ParseReplaceParagraphText(element, op),
       "setParagraphStyle" => ParseSetParagraphStyle(element, op),
       "insertParagraph" => ParseInsertParagraph(element, op),
       "deleteParagraph" => ParseAddressOnly(element, op),
       "setCellText" => ParseSetCellText(element, op),
+      _ => DispatchRemainingOperation(element, op),
+    };
+
+  /// <summary>Dispatches the remaining validated op names to their per-op parsers.</summary>
+  private static Result<DocxOperation> DispatchRemainingOperation(JsonElement element, string op)
+    => op switch
+    {
       "insertTableRow" => ParseInsertTableRow(element, op),
       "deleteTableRow" => ParseDeleteTableRow(element, op),
       "applyRunFormatting" => ParseApplyRunFormatting(element, op),
@@ -506,7 +553,6 @@ public sealed record DocxToolInput(
       _ => Result.Failure<DocxOperation>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           $"'op' must be exactly one of replaceParagraphText, setParagraphStyle, insertParagraph, deleteParagraph, setCellText, insertTableRow, deleteTableRow, applyRunFormatting, or findReplace (case-sensitive), but got '{op}'.")),
     };
-  }
 
   private static Result<DocxOperation> ParseReplaceParagraphText(JsonElement op, string opName)
   {
@@ -718,37 +764,55 @@ public sealed record DocxToolInput(
       return Result.Failure<DocxRunFormat>(unknownKeys);
     }
 
+    Result<RunFormatFields> fields = ReadRunFormatFields(el);
+    return fields.IsSuccess
+      ? ConstructRunFormat(fields.Value)
+      : Result.Failure<DocxRunFormat>(fields.Error);
+  }
+
+  /// <summary>The five optional run-format fields, read but not yet cross-validated.</summary>
+  private sealed record RunFormatFields(bool? Bold, bool? Italic, bool? Underline, int? FontSizeHalfPoints, string? ColorHex);
+
+  /// <summary>Reads the five optional run-format fields; a wrong kind on any of them
+  ///     is a typed error.</summary>
+  private static Result<RunFormatFields> ReadRunFormatFields(JsonElement el)
+  {
     Result<bool?> bold = ToolArguments.OptionalBool(el, "bold");
     if (!bold.IsSuccess)
     {
-      return Result.Failure<DocxRunFormat>(bold.Error);
+      return Result.Failure<RunFormatFields>(bold.Error);
     }
 
     Result<bool?> italic = ToolArguments.OptionalBool(el, "italic");
     if (!italic.IsSuccess)
     {
-      return Result.Failure<DocxRunFormat>(italic.Error);
+      return Result.Failure<RunFormatFields>(italic.Error);
     }
 
     Result<bool?> underline = ToolArguments.OptionalBool(el, "underline");
     if (!underline.IsSuccess)
     {
-      return Result.Failure<DocxRunFormat>(underline.Error);
+      return Result.Failure<RunFormatFields>(underline.Error);
     }
 
     Result<int?> fontSize = ToolArguments.OptionalInt(el, "fontSizeHalfPoints");
     if (!fontSize.IsSuccess)
     {
-      return Result.Failure<DocxRunFormat>(fontSize.Error);
+      return Result.Failure<RunFormatFields>(fontSize.Error);
     }
 
     Result<string?> colorHex = ToolArguments.OptionalString(el, "colorHex");
-    if (!colorHex.IsSuccess)
-    {
-      return Result.Failure<DocxRunFormat>(colorHex.Error);
-    }
+    return !colorHex.IsSuccess
+      ? Result.Failure<RunFormatFields>(colorHex.Error)
+      : Result.Success(new RunFormatFields(bold.Value, italic.Value, underline.Value, fontSize.Value, colorHex.Value));
+  }
 
-    if (bold.Value is null && italic.Value is null && underline.Value is null && fontSize.Value is null && colorHex.Value is null)
+  /// <summary>Requires at least one selected field, then constructs the format
+  ///     through the record constructor, whose ArgumentException re-surfaces as a
+  ///     typed InvalidParameterValue.</summary>
+  private static Result<DocxRunFormat> ConstructRunFormat(RunFormatFields fields)
+  {
+    if (fields.Bold is null && fields.Italic is null && fields.Underline is null && fields.FontSizeHalfPoints is null && fields.ColorHex is null)
     {
       return Result.Failure<DocxRunFormat>(new DomainError(ToolErrorCodes.InvalidParameterValue,
           "'format' must carry at least one of bold, italic, underline, fontSizeHalfPoints, or colorHex; got none."));
@@ -756,7 +820,7 @@ public sealed record DocxToolInput(
 
     try
     {
-      return Result.Success(new DocxRunFormat(bold.Value, italic.Value, underline.Value, fontSize.Value, colorHex.Value));
+      return Result.Success(new DocxRunFormat(fields.Bold, fields.Italic, fields.Underline, fields.FontSizeHalfPoints, fields.ColorHex));
     }
     catch (ArgumentException ex)
     {

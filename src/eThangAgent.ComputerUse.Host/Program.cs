@@ -31,11 +31,12 @@ log.Write("serving pipe " + options.PipeName);
 RealBrokerObserver observer = new();
 PipeServer broker = options.TargetedInput
     ? new PipeServer(new BrokerConfig(options.PipeName, options.Token), observer,
-        sendChord: TargetedInputDelivery.SendChord,
-        sendText: TargetedInputDelivery.SendText,
-        sendDrag: TargetedInputDelivery.SendDrag,
-        sendMouseButtonAt: TargetedInputDelivery.SendMouseButtonAt,
-        sendWheelAt: TargetedInputDelivery.SendWheelAt,
+        hooks: new InputHooks(
+            TargetedInputDelivery.SendChord,
+            TargetedInputDelivery.SendText,
+            TargetedInputDelivery.SendDrag,
+            TargetedInputDelivery.SendMouseButtonAt,
+            TargetedInputDelivery.SendWheelAt),
         targetedInput: true)
     : new PipeServer(new BrokerConfig(options.PipeName, options.Token), observer);
 broker.InputDispatch.SetElementOps(observer.CreateElementOps());

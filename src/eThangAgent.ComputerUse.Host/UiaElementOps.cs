@@ -175,31 +175,7 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
     // does not advertise fails action_unavailable naming the action, never a wrong receipt.
     try
     {
-      switch (actionName)
-      {
-        case "press" or "invoke" or "click" when target.TryGetCurrentPattern(InvokePattern.Pattern, out object? invokePattern) && invokePattern is InvokePattern invoke:
-          invoke.Invoke();
-          return BrokerResponse.Accepted();
-
-        case "toggle" or "press" or "click" when target.TryGetCurrentPattern(TogglePattern.Pattern, out object? togglePattern) && togglePattern is TogglePattern toggle:
-          toggle.Toggle();
-          return BrokerResponse.Accepted();
-
-        case "expand" or "collapse" or "open" when target.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out object? expandPattern) && expandPattern is ExpandCollapsePattern expandCollapse:
-          if (actionName == "collapse")
-          {
-            expandCollapse.Collapse();
-          }
-          else
-          {
-            expandCollapse.Expand();
-          }
-          return BrokerResponse.Accepted();
-
-        default:
-          return BrokerResponse.Fail("action_unavailable",
-            $"element {element} does not support the requested action '{actionName}'; nothing ran.");
-      }
+      return RunAction(target, element, actionName);
     }
     catch (ElementNotAvailableException)
     {
@@ -210,6 +186,43 @@ public sealed class UiaElementOps(Func<int, AutomationElement?> resolver) : IEle
       return BrokerResponse.Fail("action_unavailable",
         $"element {element} rejected action '{actionName}' (COM {ex.HResult}); nothing ran.");
     }
+  }
+
+  /// <summary>The pattern dispatch: only run the pattern the element actually supports
+  ///     AND the model requested; an unadvertised action is the typed refusal.</summary>
+  private static BrokerResponse RunAction(AutomationElement target, int element, string actionName)
+  {
+    switch (actionName)
+    {
+      case "press" or "invoke" or "click" when target.TryGetCurrentPattern(InvokePattern.Pattern, out object? invokePattern) && invokePattern is InvokePattern invoke:
+        invoke.Invoke();
+        return BrokerResponse.Accepted();
+
+      case "toggle" or "press" or "click" when target.TryGetCurrentPattern(TogglePattern.Pattern, out object? togglePattern) && togglePattern is TogglePattern toggle:
+        toggle.Toggle();
+        return BrokerResponse.Accepted();
+
+      case "expand" or "collapse" or "open" when target.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out object? expandPattern) && expandPattern is ExpandCollapsePattern expandCollapse:
+        return RunExpandCollapse(expandCollapse, actionName);
+
+      default:
+        return BrokerResponse.Fail("action_unavailable",
+          $"element {element} does not support the requested action '{actionName}'; nothing ran.");
+    }
+  }
+
+  private static BrokerResponse RunExpandCollapse(ExpandCollapsePattern expandCollapse, string actionName)
+  {
+    if (actionName == "collapse")
+    {
+      expandCollapse.Collapse();
+    }
+    else
+    {
+      expandCollapse.Expand();
+    }
+
+    return BrokerResponse.Accepted();
   }
   public BrokerResponse SelectText(int element)
   {

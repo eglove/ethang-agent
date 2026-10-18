@@ -41,73 +41,92 @@ public sealed class FindFilesTool(IPathResolver resolver, IFileSearchAccess sear
   {
     ArgumentNullException.ThrowIfNull(input);
     Result<JsonElement> parsed = ToolArguments.ParseObject(input.JsonArguments);
-    if (!parsed.IsSuccess)
-    {
-      return Task.FromResult(Err(parsed.Error));
-    }
+    return !parsed.IsSuccess
+      ? Task.FromResult(Err(parsed.Error))
+      : RunParsed(input, parsed.Value, ct);
+  }
 
-    JsonElement json = parsed.Value;
+  private Task<ToolResult> RunParsed(RawToolInput input, JsonElement json, CancellationToken ct)
+  {
     if (ToolArguments.RejectUnknownParameters(json, ToolTimeout.ParameterName, "pattern", "path", "maxResults") is { } unknown)
     {
       return Task.FromResult(Err(unknown));
     }
 
-    if (!json.TryGetProperty("pattern", out JsonElement patternEl) || patternEl.ValueKind != JsonValueKind.String)
+    if (TryGetPattern(json, out string pattern) is { } patternError)
     {
-      return Task.FromResult(Err(new DomainError("InvalidParameter",
-          "'pattern' is required and must be a string (Win32 glob: * and ?).")));
+      return Task.FromResult(Err(patternError));
     }
 
-    string pattern = patternEl.GetString()!.Trim();
-    if (pattern.Length == 0)
+    if (ResolveScopedRoot(json, out string scopedRoot) is { } rootError)
     {
-      return Task.FromResult(Err(new DomainError("InvalidParameter",
-          "'pattern' must not be empty.")));
+      return Task.FromResult(Err(rootError));
     }
 
-    string scopedRoot;
-    if (json.TryGetProperty("path", out JsonElement pathEl))
+    if (TryGetMaxResults(json, out int maxResults) is { } maxError)
     {
-      if (pathEl.ValueKind != JsonValueKind.String)
-      {
-        return Task.FromResult(Err(new DomainError("InvalidParameter", "'path' must be a string.")));
-      }
-
-      Result<string> resolved = _resolver.Resolve(pathEl.GetString()!);
-      if (!resolved.IsSuccess)
-      {
-        return Task.FromResult(Err(resolved.Error));
-      }
-
-      scopedRoot = resolved.Value;
-    }
-    else
-    {
-      Result<string> root = _resolver.Resolve(".");
-      if (!root.IsSuccess)
-      {
-        return Task.FromResult(Err(root.Error));
-      }
-
-      scopedRoot = root.Value;
-    }
-
-    int maxResults = DefaultMaxResults;
-    if (json.TryGetProperty("maxResults", out JsonElement maxEl))
-    {
-      if (maxEl.ValueKind != JsonValueKind.Number || !maxEl.TryGetInt32(out int requested) || requested < 1)
-      {
-        return Task.FromResult(Err(new DomainError("InvalidParameter",
-            "'maxResults' must be a positive whole number.")));
-      }
-
-      maxResults = Math.Min(requested, MaxResultsCap);
+      return Task.FromResult(Err(maxError));
     }
 
     Result<ToolCallEnvelope> budget = ToolCallEnvelopeParser.Parse(input.Name, input.JsonArguments);
     return !budget.IsSuccess
       ? Task.FromResult(Err(budget.Error))
       : ToolExecution.RunAsync(input.Name, budget.Value.Timeout, token => SearchAsync(pattern, scopedRoot, maxResults, token), ct);
+  }
+
+  private static DomainError? TryGetPattern(JsonElement json, out string pattern)
+  {
+    pattern = string.Empty;
+    if (!json.TryGetProperty("pattern", out JsonElement patternEl) || patternEl.ValueKind != JsonValueKind.String)
+    {
+      return new DomainError("InvalidParameter",
+          "'pattern' is required and must be a string (Win32 glob: * and ?).");
+    }
+
+    pattern = patternEl.GetString()!.Trim();
+    return pattern.Length == 0
+      ? new DomainError("InvalidParameter", "'pattern' must not be empty.")
+      : null;
+  }
+
+  private DomainError? ResolveScopedRoot(JsonElement json, out string scopedRoot)
+  {
+    scopedRoot = string.Empty;
+    bool hasPath = json.TryGetProperty("path", out JsonElement pathEl);
+    if (!hasPath)
+    {
+      return ResolveRoot(".", out scopedRoot);
+    }
+
+    DomainError? kind = pathEl.ValueKind == JsonValueKind.String
+      ? null
+      : new DomainError("InvalidParameter", "'path' must be a string.");
+    return kind ?? ResolveRoot(pathEl.GetString()!, out scopedRoot);
+  }
+
+  private DomainError? ResolveRoot(string path, out string scopedRoot)
+  {
+    Result<string> resolved = _resolver.Resolve(path);
+    scopedRoot = resolved.IsSuccess ? resolved.Value : string.Empty;
+    return resolved.IsSuccess ? null : resolved.Error;
+  }
+
+  private static DomainError? TryGetMaxResults(JsonElement json, out int maxResults)
+  {
+    maxResults = DefaultMaxResults;
+    if (!json.TryGetProperty("maxResults", out JsonElement maxEl))
+    {
+      return null;
+    }
+
+    if (maxEl.ValueKind != JsonValueKind.Number || !maxEl.TryGetInt32(out int requested) || requested < 1)
+    {
+      return new DomainError("InvalidParameter",
+          "'maxResults' must be a positive whole number.");
+    }
+
+    maxResults = Math.Min(requested, MaxResultsCap);
+    return null;
   }
 
   private async Task<ToolResult> SearchAsync(string pattern, string scopedRoot, int maxResults, CancellationToken ct)

@@ -176,12 +176,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     string? detail = OptString(args, Detail);
     int? todoId = OptStepTodoId(args);
     PlanStepStatus? stepStatus = OptStepStatus(args);
-    if (title is null && detail is null && todoId is null && stepStatus is null)
-    {
-      throw new PlanInputException(
-          "at least one of 'title', 'detail', 'todoId', or 'status' is required for update-step.");
-    }
-
+    RequireAtLeastOneField(title, detail, todoId, stepStatus);
     Result<Plan> plan = await _service.GetAsync(id).ConfigureAwait(false);
     if (!plan.IsSuccess)
     {
@@ -199,6 +194,15 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
     return updated.IsSuccess
         ? CapabilityInvocationResult.Ok($"[plan] updated step {position} in #{id}")
         : await ResolveMutationErrorAsync(id, position, expected, updated.Error).ConfigureAwait(false);
+  }
+
+  private static void RequireAtLeastOneField(string? title, string? detail, int? todoId, PlanStepStatus? stepStatus)
+  {
+    if (title is null && detail is null && todoId is null && stepStatus is null)
+    {
+      throw new PlanInputException(
+          "at least one of 'title', 'detail', 'todoId', or 'status' is required for update-step.");
+    }
   }
 
   private async Task<CapabilityInvocationResult> RemoveStepAsync(string json)

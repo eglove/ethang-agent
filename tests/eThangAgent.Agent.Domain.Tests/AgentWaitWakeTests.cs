@@ -49,9 +49,9 @@ public class AgentWaitWakeTests
   private static AgentCapabilityProvider MakeProvider(IAgentRuntime runtime, IWaitWakeSource? source = null)
   {
     FakeSpawnCommand command = new(Result.Success(AgentId.NewId()), []);
-    return new AgentCapabilityProvider(command, new FakeQueries(),
+    return new AgentCapabilityProvider(new AgentProviderServices(command, new FakeQueries(),
         () => AgentRecord.Spawned(AgentId.NewId(), null, 0, "prov", null, "root", DateTimeOffset.UtcNow),
-        runtime, wakeSource: source);
+        runtime, WakeSource: source));
   }
 
   // Minimal fakes (the provider tests' own fakes are nested in that class):

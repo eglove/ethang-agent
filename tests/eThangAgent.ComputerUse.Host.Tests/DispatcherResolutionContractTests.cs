@@ -14,7 +14,7 @@ public class DispatcherResolutionContractTests
   {
     // sendChord alone is a partial set: the other four hooks are missing.
     ArgumentException invalid = Assert.Throws<ArgumentException>(() => new PipeServer(
-        new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => 1, sendChord: static _ => true));
+        new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => 1, hooks: new InputHooks(SendChord: static _ => true)));
     Assert.Contains("sendText", invalid.Message, StringComparison.Ordinal);
   }
 
@@ -24,7 +24,7 @@ public class DispatcherResolutionContractTests
     // chord + wheel present: text, drag, and the positioned button are missing.
     ArgumentException invalid = Assert.Throws<ArgumentException>(() => new PipeServer(
         new BrokerConfig("ignored-pipe", "t"), foregroundPid: () => 1,
-        sendChord: static _ => true, sendWheelAt: static (_, _, _, _) => true));
+        hooks: new InputHooks(SendChord: static _ => true, SendWheelAt: static (_, _, _, _) => true)));
     Assert.Contains("sendText", invalid.Message, StringComparison.Ordinal);
     Assert.Contains("sendDrag", invalid.Message, StringComparison.Ordinal);
     Assert.Contains("sendMouseButtonAt", invalid.Message, StringComparison.Ordinal);

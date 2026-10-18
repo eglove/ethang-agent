@@ -43,73 +43,41 @@ public static class ResponsesApiStreamCore
       CancellationToken ct)
   {
     ArgumentNullException.ThrowIfNull(response);
-    StringBuilder content = new();
-    Dictionary<string, StreamedToolCall> toolCalls = []; // keyed by output_index
-    Dictionary<int, ServerToolCall> serverToolCalls = []; // keyed by output_index
-    FinishReason finishReason = FinishReason.Stop;
-    TokenUsage? usage = null;
+    StreamState state = new()
+    {
+      OnContentDelta = onContentDelta,
+      OnReasoningDelta = onReasoningDelta,
+    };
     bool sawDone = false;
     try
     {
       using Stream stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
       using StreamReader reader = new(stream);
-      while (await reader.ReadLineAsync(ct).ConfigureAwait(false) is { } line)
+      while (true)
       {
-        if (line.Length == 0 || line.StartsWith(':'))
-        {
-          continue; // separator or keep-alive comment
-        }
-
-        if (line.StartsWith("event:", StringComparison.Ordinal))
-        {
-          continue; // the payload's "type" field is authoritative; event line is fallback
-        }
-
-        if (!line.StartsWith("data:", StringComparison.Ordinal))
-        {
-          continue;
-        }
-
-        string payload = line["data:".Length..].Trim();
-        if (payload == "[DONE]")
+        (string? payload, bool done) = await ReadNextDataPayloadAsync(reader, ct).ConfigureAwait(false);
+        if (done)
         {
           sawDone = true;
           break;
         }
 
-        if (payload.Length == 0)
+        if (payload is null)
         {
-          continue; // empty data payload falls through to the strict [DONE] contract
+          break; // stream ended — handled below as an interruption
         }
 
         using JsonDocument doc = JsonDocument.Parse(payload);
-        ApplyEvent(doc.RootElement, content, toolCalls, serverToolCalls, onContentDelta, onReasoningDelta,
-            ref finishReason, ref usage);
+        ApplyEvent(doc.RootElement, state);
       }
 
       // A stream that ends without [DONE] was cut off (connection drop, proxy kill),
       // not completed. Failing loudly beats returning a silently truncated response;
       // non-retryable because deltas already streamed to the observer.
-      string? assembled = content.Length > 0 ? content.ToString() : null;
-      if (toolCalls.Count > 0)
-      {
-        // Assembled function calls imply ToolCalls regardless of what (or whether)
-        // the terminal event said — the same contract the non-streaming parser
-        // applies, so a stream missing its terminal frame still dispatches the tool
-        // loop.
-        finishReason = FinishReason.ToolCalls;
-      }
-
-      Result<ModelResponse> result = !sawDone
-        ? Result.Failure<ModelResponse>(new DomainError("StreamInterrupted",
-            "Provider stream ended without its [DONE] terminator."))
-        : Result.Success(new ModelResponse(
-          assembled,
-          [.. toolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value.ToRequest())],
-          finishReason,
-          usage,
-          [.. serverToolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value)]));
-      return result;
+      return sawDone
+        ? Result.Success(state.ToResponse())
+        : Result.Failure<ModelResponse>(new DomainError("StreamInterrupted",
+            "Provider stream ended without its [DONE] terminator."));
     }
     catch (JsonException ex)
     {
@@ -129,20 +97,58 @@ public static class ResponsesApiStreamCore
     Reasoning,
   }
 
+  /// <summary>Reads the next data payload from the SSE stream: the [DONE] sentinel as
+  ///     <c>done</c>, the next JSON payload as <c>payload</c>, or a null payload at
+  ///     end-of-stream. Separator/keep-alive lines, "event:" lines (the payload's
+  ///     "type" field is authoritative), non-data lines, and empty data payloads are
+  ///     skipped; an empty data payload falls through to the strict [DONE] contract.</summary>
+  private static async Task<(string? Payload, bool Done)> ReadNextDataPayloadAsync(
+      StreamReader reader, CancellationToken ct)
+  {
+    while (await reader.ReadLineAsync(ct).ConfigureAwait(false) is { } line)
+    {
+      if (line.Length == 0 || line.StartsWith(':'))
+      {
+        continue; // separator or keep-alive comment
+      }
+
+      if (line.StartsWith("event:", StringComparison.Ordinal))
+      {
+        continue; // the payload's "type" field is authoritative; event line is fallback
+      }
+
+      if (!line.StartsWith("data:", StringComparison.Ordinal))
+      {
+        continue;
+      }
+
+      string payload = line["data:".Length..].Trim();
+      if (payload == "[DONE]")
+      {
+        return (null, true);
+      }
+
+      if (payload.Length > 0)
+      {
+        return (payload, false);
+      }
+
+      // empty data payload falls through to the strict [DONE] contract
+    }
+
+    return (null, false);
+  }
+
   /// <summary>Applies one typed event. Structural faults (malformed fragments) surface
   ///     as InvalidOperationException → the "Malformed provider stream" failure.</summary>
-  private static void ApplyEvent(JsonElement evt, StringBuilder content,
-      Dictionary<string, StreamedToolCall> toolCalls, Dictionary<int, ServerToolCall> serverToolCalls,
-      Action<string>? onContentDelta, Action<string>? onReasoningDelta,
-      ref FinishReason finishReason, ref TokenUsage? usage)
+  private static void ApplyEvent(JsonElement evt, StreamState state)
   {
-    string type = evt.TryGetProperty("type", out JsonElement t) && t.ValueKind == JsonValueKind.String
-        ? t.GetString()! : "";
+    string type = EventTypeOf(evt);
 
     switch (type)
     {
       case "response.output_item.added":
-        ApplyItemAdded(evt, toolCalls, serverToolCalls);
+        ApplyItemAdded(evt, state);
         return;
 
       case "response.output_item.done":
@@ -150,38 +156,50 @@ public static class ResponsesApiStreamCore
         // OpenRouter's added event for its "openrouter:<tool>" items carries
         // none. Done finalizes the call; a done for an unregistered item still
         // surfaces (tolerance, same contract as unknown item types).
-        ApplyItemDone(evt, serverToolCalls);
+        ApplyItemDone(evt, state);
         return;
 
       case "response.function_call_arguments.delta":
-        ApplyArgumentsDelta(evt, toolCalls);
+        ApplyArgumentsDelta(evt, state);
         return;
 
       case "response.function_call_arguments.done":
         // The final arguments string, authoritative over the accumulated deltas.
-        ApplyArgumentsDone(evt, toolCalls);
+        ApplyArgumentsDone(evt, state);
         return;
 
       case "response.completed":
       case "response.incomplete":
       case "response.done":
-        ApplyTerminal(evt, toolCalls, ref finishReason, ref usage);
+        ApplyTerminal(evt, state);
         return;
 
       default:
-        if (DeltaEvents.TryGetValue(type, out DeltaSink sink))
-        {
-          ApplyDelta(evt, sink, content, onContentDelta, onReasoningDelta);
-        }
-        else if (type == ContentPartDeltaEvent)
-        {
-          // OpenRouter's documented variant: the part type decides the sink.
-          ApplyDelta(evt, PartSinkOf(evt), content, onContentDelta, onReasoningDelta);
-        }
-
+        ApplyDefaultEvent(evt, type, state);
         return;
     }
   }
+
+  /// <summary>Events outside the canonical vocabulary: the recognized delta types feed
+  ///     their sink, everything else is ignored (the tolerance contract).</summary>
+  private static void ApplyDefaultEvent(JsonElement evt, string type, StreamState state)
+  {
+    if (DeltaEvents.TryGetValue(type, out DeltaSink sink))
+    {
+      ApplyDelta(evt, sink, state);
+      return;
+    }
+
+    if (type == ContentPartDeltaEvent)
+    {
+      // OpenRouter's documented variant: the part type decides the sink.
+      ApplyDelta(evt, PartSinkOf(evt), state);
+    }
+  }
+
+  private static string EventTypeOf(JsonElement evt)
+    => evt.TryGetProperty("type", out JsonElement t) && t.ValueKind == JsonValueKind.String
+        ? t.GetString()! : "";
 
   private static DeltaSink PartSinkOf(JsonElement evt)
     => evt.TryGetProperty("part", out JsonElement part)
@@ -197,34 +215,61 @@ public static class ResponsesApiStreamCore
   ///     items (web_search_call, openrouter:web_search, ...) register as surfaced
   ///     calls keyed by output index — they execute server-side and never enter the
   ///     message history.</summary>
-  private static void ApplyItemAdded(JsonElement evt, Dictionary<string, StreamedToolCall> toolCalls,
-      Dictionary<int, ServerToolCall> serverToolCalls)
+  private static void ApplyItemAdded(JsonElement evt, StreamState state)
   {
-    if (!evt.TryGetProperty("item", out JsonElement item) || item.ValueKind != JsonValueKind.Object
-        || !item.TryGetProperty("type", out JsonElement itemType)
-        || itemType.ValueKind != JsonValueKind.String)
+    if (!TryGetTypedItem(evt, out JsonElement item, out string addedType))
     {
       return;
     }
 
-    // Server-tool call items register as surfaced calls — they execute server-side
-    // and never enter the message history. The added event may carry no action yet
-    // (OpenRouter's openrouter:<tool> items do not); done finalizes the detail.
-    string addedType = itemType.GetString()!;
     if (addedType != "function_call")
     {
-      if (ServerToolCallItem.TryParse(addedType, item, out ServerToolCall? serverCall))
-      {
-        serverToolCalls[OutputIndexKeyAsInt(evt)] = serverCall;
-      }
-
+      // Server-tool call items register as surfaced calls — they execute server-side
+      // and never enter the message history. The added event may carry no action yet
+      // (OpenRouter's openrouter:<tool> items do not); done finalizes the detail.
+      RegisterServerToolCall(evt, addedType, item, state);
       return;
     }
 
-    string key = OutputIndexKey(evt);
-    if (!toolCalls.TryGetValue(key, out StreamedToolCall? fragment))
+    RegisterFunctionCall(evt, item, state);
+  }
+
+  /// <summary>The event's "item" object with its string "type": false when either
+  ///     member is absent or ill-typed (the tolerance contract).</summary>
+  private static bool TryGetTypedItem(JsonElement evt, out JsonElement item, out string itemType)
+  {
+    if (evt.TryGetProperty("item", out item) && item.ValueKind == JsonValueKind.Object
+        && item.TryGetProperty("type", out JsonElement typeEl)
+        && typeEl.ValueKind == JsonValueKind.String)
     {
-      toolCalls[key] = fragment = new StreamedToolCall();
+      itemType = typeEl.GetString()!;
+      return true;
+    }
+
+    itemType = "";
+    return false;
+  }
+
+  /// <summary>Registers a server-tool item as a surfaced call keyed by output index;
+  ///     unknown item types parse as false and are ignored (the tolerance contract).</summary>
+  private static void RegisterServerToolCall(JsonElement evt, string itemType, JsonElement item,
+      StreamState state)
+  {
+    if (ServerToolCallItem.TryParse(itemType, item, out ServerToolCall? serverCall))
+    {
+      state.ServerToolCalls[OutputIndexKeyAsInt(evt)] = serverCall;
+    }
+  }
+
+  /// <summary>Registers (or re-anchors) the streamed function call under the event's
+  ///     output index and applies the added event's complete call_id and name —
+  ///     arguments stream after.</summary>
+  private static void RegisterFunctionCall(JsonElement evt, JsonElement item, StreamState state)
+  {
+    string key = OutputIndexKey(evt);
+    if (!state.ToolCalls.TryGetValue(key, out StreamedToolCall? fragment))
+    {
+      state.ToolCalls[key] = fragment = new StreamedToolCall();
     }
 
     fragment.Id = item.TryGetProperty("call_id", out JsonElement callId) && callId.ValueKind == JsonValueKind.String
@@ -240,7 +285,7 @@ public static class ResponsesApiStreamCore
   ///     completed action (query/url/sources) the added event may have lacked: the
   ///     registered call is replaced. A done for an item never added still surfaces —
   ///     tolerance, the same contract the added event applies to unknown types.</summary>
-  private static void ApplyItemDone(JsonElement evt, Dictionary<int, ServerToolCall> serverToolCalls)
+  private static void ApplyItemDone(JsonElement evt, StreamState state)
   {
     if (!evt.TryGetProperty("item", out JsonElement item) || item.ValueKind != JsonValueKind.Object
         || !item.TryGetProperty("type", out JsonElement itemType)
@@ -255,7 +300,7 @@ public static class ResponsesApiStreamCore
       return;
     }
 
-    serverToolCalls[OutputIndexKeyAsInt(evt)] = serverCall;
+    state.ServerToolCalls[OutputIndexKeyAsInt(evt)] = serverCall;
   }
 
   /// <summary>The event's output_index as an int; an absent or non-numeric index
@@ -267,9 +312,9 @@ public static class ResponsesApiStreamCore
         : -1;
   }
 
-  private static void ApplyArgumentsDelta(JsonElement evt, Dictionary<string, StreamedToolCall> toolCalls)
+  private static void ApplyArgumentsDelta(JsonElement evt, StreamState state)
   {
-    if (!toolCalls.TryGetValue(OutputIndexKey(evt), out StreamedToolCall? fragment))
+    if (!state.ToolCalls.TryGetValue(OutputIndexKey(evt), out StreamedToolCall? fragment))
     {
       throw new InvalidOperationException(
           "Function-call arguments delta arrived before its output_item.added event.");
@@ -281,9 +326,9 @@ public static class ResponsesApiStreamCore
     }
   }
 
-  private static void ApplyArgumentsDone(JsonElement evt, Dictionary<string, StreamedToolCall> toolCalls)
+  private static void ApplyArgumentsDone(JsonElement evt, StreamState state)
   {
-    if (!toolCalls.TryGetValue(OutputIndexKey(evt), out StreamedToolCall? fragment))
+    if (!state.ToolCalls.TryGetValue(OutputIndexKey(evt), out StreamedToolCall? fragment))
     {
       throw new InvalidOperationException(
           "Function-call arguments done arrived before its output_item.added event.");
@@ -298,13 +343,12 @@ public static class ResponsesApiStreamCore
   /// <summary>The terminal event carries the final response object: usage rides it;
   ///     its status/incomplete_details decide the finish reason — with assembled
   ///     function calls outranking any status, matching the non-streaming parser.</summary>
-  private static void ApplyTerminal(JsonElement evt, Dictionary<string, StreamedToolCall> toolCalls,
-      ref FinishReason finishReason, ref TokenUsage? usage)
+  private static void ApplyTerminal(JsonElement evt, StreamState state)
   {
     if (evt.TryGetProperty("response", out JsonElement response) && response.ValueKind == JsonValueKind.Object)
     {
-      usage = ResponsesApiRequestCore.ParseUsage(response);
-      finishReason = ParseTerminalFinishReason(response, toolCalls.Count > 0);
+      state.Usage = ResponsesApiRequestCore.ParseUsage(response);
+      state.FinishReason = ParseTerminalFinishReason(response, state.ToolCalls.Count > 0);
     }
   }
 
@@ -360,8 +404,7 @@ public static class ResponsesApiStreamCore
     return reason;
   }
 
-  private static void ApplyDelta(JsonElement evt, DeltaSink sink, StringBuilder content,
-      Action<string>? onContentDelta, Action<string>? onReasoningDelta)
+  private static void ApplyDelta(JsonElement evt, DeltaSink sink, StreamState state)
   {
     if (!evt.TryGetProperty("delta", out JsonElement delta) || delta.ValueKind != JsonValueKind.String)
     {
@@ -376,12 +419,12 @@ public static class ResponsesApiStreamCore
 
     if (sink == DeltaSink.Content)
     {
-      _ = content.Append(text);
-      onContentDelta?.Invoke(text);
+      _ = state.Content.Append(text);
+      state.OnContentDelta?.Invoke(text);
     }
     else
     {
-      onReasoningDelta?.Invoke(text);
+      state.OnReasoningDelta?.Invoke(text);
     }
   }
 
@@ -414,5 +457,31 @@ public static class ResponsesApiStreamCore
         Name ?? throw new InvalidOperationException(
             $"Streamed tool call '{Id}' carried no function name."),
         _arguments.ToString());
+  }
+
+  /// <summary>Accumulates one stream's state: the content builder, the streamed tool
+  ///     calls keyed by output index, the surfaced server-tool calls keyed by output
+  ///     index, the terminal usage and finish reason, and the delta observers. One
+  ///     instance rides the whole stream read.</summary>
+  private sealed class StreamState
+  {
+    internal StringBuilder Content { get; } = new();
+    internal Dictionary<string, StreamedToolCall> ToolCalls { get; } = []; // keyed by output_index
+    internal Dictionary<int, ServerToolCall> ServerToolCalls { get; } = []; // keyed by output_index
+    internal FinishReason FinishReason { get; set; } = FinishReason.Stop;
+    internal TokenUsage? Usage { get; set; }
+    internal Action<string>? OnContentDelta { get; init; }
+    internal Action<string>? OnReasoningDelta { get; init; }
+
+    /// <summary>Assembles the final response. Assembled function calls imply
+    ///     ToolCalls regardless of what (or whether) the terminal event said — the
+    ///     same contract the non-streaming parser applies, so a stream missing its
+    ///     terminal frame still dispatches the tool loop.</summary>
+    internal ModelResponse ToResponse() => new(
+        Content.Length > 0 ? Content.ToString() : null,
+        [.. ToolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value.ToRequest())],
+        ToolCalls.Count > 0 ? FinishReason.ToolCalls : FinishReason,
+        Usage,
+        [.. ServerToolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value)]);
   }
 }

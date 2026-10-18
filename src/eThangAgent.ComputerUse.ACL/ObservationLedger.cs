@@ -25,46 +25,68 @@ public sealed class ObservationLedger
     ArgumentNullException.ThrowIfNull(window);
     ArgumentNullException.ThrowIfNull(fingerprint);
     ArgumentNullException.ThrowIfNull(elements);
-    int next = 1;
-    if (_entries.TryGetValue(window, out LedgerEntry? existing) && existing is not null)
-    {
-      next = existing.NextStateNumber + 1;
-    }
+    EnsureUniqueElementIndexes(elements);
+    int next = NextStateNumber(window);
 
+    SortedDictionary<int, LedgerElementRef> currentRefs = new(elements
+        .OrderBy(static e => e.Index)
+        .ToDictionary(static e => e.Index, static e => new LedgerElementRef(e.Role, e.Title ?? "")));
+
+    (int? modelVisibleState, SortedDictionary<int, LedgerElementRef>? modelVisibleRefs, LedgerWindow? baseline) =
+      ResolveBaseline(window, next, currentRefs, fingerprint, treeShownToModel, screenshotOnly);
+
+    LedgerWindow? currentFingerprint = screenshotOnly ? null : fingerprint;
+    _entries[window] = new LedgerEntry(next, currentRefs, currentFingerprint, baseline,
+        modelVisibleState, modelVisibleRefs);
+    return LedgerStateId(next);
+  }
+
+  /// <summary>The row's next state number: 1 before any observation, one past the
+  ///     previous row's number after.</summary>
+  private int NextStateNumber(LedgerKey window) =>
+    _entries.TryGetValue(window, out LedgerEntry? existing) && existing is not null
+      ? existing.NextStateNumber + 1
+      : 1;
+
+  /// <summary>The element table is keyed by each element's sparse Index, so duplicate
+  ///     indexes are a caller contract violation.</summary>
+  private static void EnsureUniqueElementIndexes(IReadOnlyList<CaptureAppElement> elements)
+  {
     int duplicate = elements.GroupBy(static e => e.Index).FirstOrDefault(static g => g.Count() > 1)?.Key ?? -1;
     if (duplicate >= 0)
     {
       throw new ArgumentException(
         $"duplicate element index {duplicate} in the capture table; the ledger keys refs by sparse index and requires them unique.", nameof(elements));
     }
+  }
 
-    SortedDictionary<int, LedgerElementRef> currentRefs = new(elements
-        .OrderBy(static e => e.Index)
-        .ToDictionary(static e => e.Index, static e => new LedgerElementRef(e.Role, e.Title ?? "")));
-
-    // A screenshot-only observation RESETS the diff baseline: the model has no
-    // tree to diff against until the next model-visible tree arrives.
-    int? modelVisibleState = null;
-    SortedDictionary<int, LedgerElementRef>? modelVisibleRefs = null;
-    LedgerWindow? baseline = null;
-    if (!screenshotOnly && _entries.TryGetValue(window, out LedgerEntry? prior) && prior is not null)
-    {
-      modelVisibleState = prior.ModelVisibleState;
-      modelVisibleRefs = prior.ModelVisibleRefs;
-      baseline = prior.BaselineFingerprint;
-    }
-
+  /// <summary>Carries the diff baseline across one observation. A screenshot-only
+  ///     observation RESETS the diff baseline: the model has no tree to diff against
+  ///     until the next model-visible tree arrives. A model-visible tree becomes the
+  ///     new baseline; otherwise the prior row's baseline is inherited.</summary>
+  private (int? State, SortedDictionary<int, LedgerElementRef>? Refs, LedgerWindow? Baseline) ResolveBaseline(
+      LedgerKey window, int next, SortedDictionary<int, LedgerElementRef> currentRefs,
+      LedgerWindow fingerprint, bool treeShownToModel, bool screenshotOnly)
+  {
     if (treeShownToModel && !screenshotOnly)
     {
-      modelVisibleState = next;
-      modelVisibleRefs = currentRefs;
-      baseline = fingerprint;
+      return (next, currentRefs, fingerprint);
     }
 
-    LedgerWindow? currentFingerprint = screenshotOnly ? null : fingerprint;
-    _entries[window] = new LedgerEntry(next, currentRefs, currentFingerprint, baseline,
-        modelVisibleState, modelVisibleRefs);
-    return LedgerStateId(next);
+    return screenshotOnly
+      ? (null, null, null)
+      : InheritedBaseline(window);
+  }
+
+  private (int? State, SortedDictionary<int, LedgerElementRef>? Refs, LedgerWindow? Baseline) InheritedBaseline(
+      LedgerKey window)
+  {
+    if (_entries.TryGetValue(window, out LedgerEntry? prior) && prior is not null)
+    {
+      return (prior.ModelVisibleState, prior.ModelVisibleRefs, prior.BaselineFingerprint);
+    }
+
+    return (null, null, null);
   }
 
   /// <summary>Validates an element index against the model's visible state:

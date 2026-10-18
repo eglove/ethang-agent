@@ -12,7 +12,7 @@ public class SpawnIsolationSurfaceTests
   public async Task SpawnDispatch_ForwardsIsolateInWorktree_ToTheRequest()
   {
     RecordingSpawn rec = new();
-    AgentCapabilityProvider provider = new(rec, new NoQueries(), Root);
+    AgentCapabilityProvider provider = new(new AgentProviderServices(rec, new NoQueries(), Root));
     CapabilityInvocationResult r = await provider.InvokeAsync("spawn",
         /*lang=json,strict*/ """{"taskPrompt":"do a thing","isolateInWorktree":true}""",
         ct: TestContext.Current.CancellationToken);
@@ -24,7 +24,7 @@ public class SpawnIsolationSurfaceTests
   [Fact]
   public async Task SpawnDispatch_BoolParsingIsStrict()
   {
-    AgentCapabilityProvider provider = new(new RecordingSpawn(), new NoQueries(), () => throw new InvalidOperationException("not exercised"));
+    AgentCapabilityProvider provider = new(new AgentProviderServices(new RecordingSpawn(), new NoQueries(), () => throw new InvalidOperationException("not exercised")));
     CapabilityInvocationResult r = await provider.InvokeAsync("spawn",
         /*lang=json,strict*/ """{"taskPrompt":"t","isolateInWorktree":"yes"}""",
         ct: TestContext.Current.CancellationToken);
@@ -36,7 +36,7 @@ public class SpawnIsolationSurfaceTests
   [Fact]
   public async Task SpawnDispatch_UnknownParameterStillRefused()
   {
-    AgentCapabilityProvider provider = new(new RecordingSpawn(), new NoQueries(), () => throw new InvalidOperationException("not exercised"));
+    AgentCapabilityProvider provider = new(new AgentProviderServices(new RecordingSpawn(), new NoQueries(), () => throw new InvalidOperationException("not exercised")));
     CapabilityInvocationResult r = await provider.InvokeAsync("spawn",
         /*lang=json,strict*/ """{"taskPrompt":"t","isolate":true}""",
         ct: TestContext.Current.CancellationToken);
@@ -64,12 +64,12 @@ public class SpawnIsolationSurfaceTests
   public async Task FanoutDispatch_ForwardsChildIsolationFlag_ToTheRequest()
   {
     List<SpawnRequest> sent = [];
-    AgentCapabilityProvider provider = new(new RecordingSpawn(), new NoQueries(), Root,
-        fanout: (parent, requests, ct) =>
+    AgentCapabilityProvider provider = new(new AgentProviderServices(new RecordingSpawn(), new NoQueries(), Root,
+        Fanout: (parent, requests, ct) =>
         {
           sent.AddRange(requests);
           return Task.FromResult("receipts: done");
-        });
+        }));
 
     CapabilityInvocationResult r = await provider.InvokeAsync("fanout",
         /*lang=json,strict*/ """{"children":[{"taskPrompt":"a","isolateInWorktree":true},{"taskPrompt":"b"}]}""",
@@ -82,7 +82,7 @@ public class SpawnIsolationSurfaceTests
   }
 
   private static AgentCapabilityProvider MakeBare()
-      => new(new RecordingSpawn(), new NoQueries(), () => throw new InvalidOperationException("not exercised"));
+      => new(new AgentProviderServices(new RecordingSpawn(), new NoQueries(), () => throw new InvalidOperationException("not exercised")));
 
   private sealed class RecordingSpawn : IAgentSpawnCommand
   {

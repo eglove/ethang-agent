@@ -90,65 +90,65 @@ public static class PdfManipulator
     int count = pageCount;
     for (int i = 0; i < operations.Count; i++)
     {
-      switch (operations[i])
+      if (ValidateOne(i, operations[i], ref count) is { } failure)
       {
-        case RotatePages rotate:
-          Result<bool>? rotateResult = ValidateRotate(i, rotate, count);
-          if (rotateResult is not null)
-          {
-            return rotateResult;
-          }
-
-          break;
-
-        case DeletePages delete:
-          Result<bool>? deleteResult = ValidateDelete(i, delete, count, out int afterDelete);
-          if (deleteResult is not null)
-          {
-            return deleteResult;
-          }
-
-          count = afterDelete;
-          break;
-
-        case ReorderPages reorder:
-          if (!IsFullPermutation(reorder.Order, count))
-          {
-            return FailOp(i, "reorderPages", PdfErrorCodes.InvalidPageRange,
-                $"'order' must be a full permutation of 1..{count} (got {reorder.Order.Count} entr{(reorder.Order.Count == 1 ? "y" : "ies")}).");
-          }
-
-          break;
-
-        case ExtractPages extract:
-          Result<bool>? extractResult = ValidateExtract(i, extract, count);
-          if (extractResult is not null)
-          {
-            return extractResult;
-          }
-
-          break;
-
-        case Merge merge:
-          Result<bool>? mergeResult = ValidateMerge(i, merge, ref count);
-          if (mergeResult is not null)
-          {
-            return mergeResult;
-          }
-
-          break;
-
-        case WatermarkText:
-        case SetMetadata:
-          break;
-
-        default:
-          return FailOp(i, "unknown", PdfErrorCodes.InvalidPageRange,
-              $"unsupported operation type '{operations[i].GetType().Name}'.");
+        return failure;
       }
     }
 
     return Result.Success(true);
+  }
+
+  /// <summary>Validates one operation against the running page count, updating
+  ///     <paramref name="count"/> for page-count-mutating operations (delete shrinks,
+  ///     merge grows); a non-null result is the batch's first violation.</summary>
+  private static Result<bool>? ValidateOne(int index, PdfOperation operation, ref int count)
+  {
+    switch (operation)
+    {
+      case RotatePages rotate:
+        return ValidateRotate(index, rotate, count);
+
+      case DeletePages delete:
+        if (ValidateDelete(index, delete, count) is { } deleteFailure)
+        {
+          return deleteFailure;
+        }
+
+        int current = count;
+        count = current - delete.Pages.Distinct().Count(page => page >= 1 && page <= current);
+        return null;
+
+      case ReorderPages reorder:
+        return ValidateReorder(index, reorder, count);
+
+      case ExtractPages extract:
+        return ValidateExtract(index, extract, count);
+
+      case Merge merge:
+        return ValidateMerge(index, merge, ref count);
+
+      case WatermarkText:
+      case SetMetadata:
+        return null;
+
+      default:
+        return FailOp(index, "unknown", PdfErrorCodes.InvalidPageRange,
+            $"unsupported operation type '{operation.GetType().Name}'.");
+    }
+  }
+
+
+  private static Result<bool>? ValidateReorder(int index, ReorderPages reorder, int count)
+  {
+    if (IsFullPermutation(reorder.Order, count))
+    {
+      return null;
+    }
+
+    string plural = reorder.Order.Count == 1 ? "y" : "ies";
+    return FailOp(index, "reorderPages", PdfErrorCodes.InvalidPageRange,
+        $"'order' must be a full permutation of 1..{count} (got {reorder.Order.Count} entr{plural}).");
   }
 
   private static Result<bool>? ValidateRotate(int index, RotatePages rotate, int count)
@@ -162,13 +162,13 @@ public static class PdfManipulator
       : null);
   }
 
-  private static Result<bool>? ValidateDelete(int index, DeletePages delete, int count, out int remaining)
+  private static Result<bool>? ValidateDelete(int index, DeletePages delete, int count)
   {
     int? bad = FirstOutOfRange(delete.Pages, count);
     Result<bool>? badPage = bad is not null
       ? FailOp(index, "deletePages", PdfErrorCodes.PageNotFound, PageOutOfRangeMessage(bad.Value, count))
       : null;
-    remaining = count - delete.Pages.Distinct().Count(page => page >= 1 && page <= count);
+    int remaining = count - delete.Pages.Distinct().Count(page => page >= 1 && page <= count);
     return badPage ?? (remaining < 1
       ? FailOp(index, "deletePages", PdfErrorCodes.InvalidPageRange,
           $"deleting {delete.Pages.Count} page(s) would remove every page of {count}.")

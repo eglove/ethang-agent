@@ -71,41 +71,47 @@ public sealed class StreamedTextNormalizer
 
       if (ch == '\n')
       {
-        if (_hold != HoldKind.None)
-        {
-          CommitHold(force: false, next: '\n');
-        }
-
-        AppendBreak();
+        HandleNewline();
         continue;
       }
 
-      if (_pendingBreaks > 0)
-      {
-        ResolvePending(ch);
-        continue;
-      }
-
-      if (_hold != HoldKind.None)
-      {
-        ContinueHold(ch);
-        continue;
-      }
-
-      if (StartsHold(ch))
-      {
-        OpenHold(ch);
-        continue;
-      }
-
-      if (!_lineScanned)
-      {
-        ScanFenceChar(ch);
-      }
-
-      _ = _text.Append(ch);
-      _lineColumn++;
+      AppendVisible(ch);
     }
+  }
+
+  private void HandleNewline()
+  {
+    if (_hold != HoldKind.None)
+    {
+      CommitHold(force: false, next: '\n');
+    }
+
+    AppendBreak();
+  }
+
+  // Dispatches one non-break character through the pending-break, hold, and
+  // fence-scan paths.
+  private void AppendVisible(char ch)
+  {
+    if (_pendingBreaks > 0)
+    {
+      ResolvePending(ch);
+      return;
+    }
+
+    if (_hold != HoldKind.None)
+    {
+      ContinueHold(ch);
+      return;
+    }
+
+    if (StartsHold(ch))
+    {
+      OpenHold(ch, breakPending: false);
+      return;
+    }
+
+    FeedNormal(ch);
   }
 
   /// <summary>The normalized text so far, with trailing line breaks trimmed.</summary>
@@ -161,12 +167,12 @@ public sealed class StreamedTextNormalizer
     return !OnlySpacesSinceLineStart();
   }
 
-  private void OpenHold(char ch)
+  private void OpenHold(char ch, bool breakPending)
   {
     _hold = ch is '`' or '~' ? HoldKind.FenceMarker : HoldKind.ListMarker;
     _held.Clear();
     _held.Add(ch);
-    _holdBreakPending = false;
+    _holdBreakPending = breakPending;
   }
 
   /// <summary>Resolves the pending break against the next line's first character.
@@ -190,42 +196,50 @@ public sealed class StreamedTextNormalizer
       return;
     }
 
-    char prev = _text[^1];
-    if (prev is '.' or '!' or '?' or '\u2026')
+    if (KeepsBreak(next))
     {
-      // Sentence-ending punctuation keeps its break; the character then starts the
-      // new line through the normal path (the fence scanner opens a real fence).
-      _pendingBreaks = 0;
-      _ = _text.Append('\n');
-      ResetLineState();
-      FeedNormal(next);
+      // Sentence-ending punctuation keeps its break, and bullet and quote
+      // markers always start a line (existing rules); the character then
+      // starts the new line through the normal path (the fence scanner opens
+      // a real fence).
+      CommitKeepBreak(next);
       return;
     }
 
-    if (next is '-' or '*' or '\u2022' or '>')
-    {
-      // Bullet and quote markers always start a line (existing rule).
-      _pendingBreaks = 0;
-      _ = _text.Append('\n');
-      ResetLineState();
-      FeedNormal(next);
-      return;
-    }
-
-    if (next is '`' or '~' || char.IsDigit(next))
+    if (StartsMarker(next))
     {
       // The marker may be a fence opener or list marker the model glued to this
       // line's end; hold until the run decides, then force the break or fall back.
-      _hold = next is '`' or '~' ? HoldKind.FenceMarker : HoldKind.ListMarker;
-      _held.Clear();
-      _held.Add(next);
-      _holdBreakPending = true;
+      OpenHold(next, breakPending: true);
       _pendingBreaks = 0;
       return;
     }
 
     EmitBreak(1, next);
     _pendingBreaks = 0;
+    FeedNormal(next);
+  }
+
+  // A single break that survives: sentence-ending punctuation keeps its break,
+  // and bullet and quote markers always start a line.
+  private bool KeepsBreak(char next)
+  {
+    char prev = _text[^1];
+    return prev is '.' or '!' or '?' or '\u2026' || next is '-' or '*' or '\u2022' or '>';
+  }
+
+  // A character that may open a glued fence or list marker: a fence marker, or
+  // any digit (the hold decides whether the run is a list marker or a decimal).
+  private static bool StartsMarker(char next)
+    => next is '`' or '~' || char.IsDigit(next);
+
+  // A break that survives the join rules: emit it, reset the line, and feed the
+  // next character through the normal path.
+  private void CommitKeepBreak(char next)
+  {
+    _pendingBreaks = 0;
+    _ = _text.Append('\n');
+    ResetLineState();
     FeedNormal(next);
   }
 
@@ -263,39 +277,13 @@ public sealed class StreamedTextNormalizer
   ///     verbatim and the incoming character (if any) processes normally.</summary>
   private void CommitHold(bool force, char next)
   {
-    HoldKind kind = _hold;
-    bool opener = kind == HoldKind.FenceMarker && _held.Count >= 3;
-    bool marker = kind == HoldKind.ListMarker && _held.Count >= 2
-        && !char.IsDigit(_held[^1]) && next == ' ';
-    if (force && (opener || marker))
+    if (force && ProvedMarker(next))
     {
-      // The separator space before a glued opener belongs to the old line's tail:
-      // the forced break replaces it.
-      while (_text.Length > 0 && _text[^1] == ' ')
-      {
-        _text.Length -= 1;
-      }
-
-      _ = _text.Append('\n');
-      ResetLineState();
-      foreach (char held in _held)
-      {
-        FeedNormal(held);
-      }
+      CommitForcedHold();
     }
     else
     {
-      if (_holdBreakPending)
-      {
-        EmitBreak(1, _held[0]);
-      }
-
-      foreach (char held in _held)
-      {
-        _ = _text.Append(held);
-        _lineColumn++;
-      }
-      _lineScanned = true; // joined mid-line content can never open a fence
+      CommitLiteralHold();
     }
 
     _hold = HoldKind.None;
@@ -307,6 +295,51 @@ public sealed class StreamedTextNormalizer
       FeedNormal(next);
     }
     // next == '\n': the caller (the Append break branch) issues the break itself.
+  }
+
+  // Whether the held run proved to be a fence opener (a marker run of three or
+  // more) or a list marker (digits, dot, space).
+  private bool ProvedMarker(char next)
+    => _hold == HoldKind.FenceMarker
+        ? _held.Count >= 3
+        : _hold == HoldKind.ListMarker && _held.Count >= 2
+            && !char.IsDigit(_held[^1]) && next == ' ';
+
+  // The held characters proved to be a marker: the separator spaces before a
+  // glued opener belong to the old line's tail and the forced break replaces
+  // them; the line state resets so the fence scanner opens the fence, and the
+  // held characters re-enter through the normal path.
+  private void CommitForcedHold()
+  {
+    while (_text.Length > 0 && _text[^1] == ' ')
+    {
+      _text.Length -= 1;
+    }
+
+    _ = _text.Append('\n');
+    ResetLineState();
+    foreach (char held in _held)
+    {
+      FeedNormal(held);
+    }
+  }
+
+  // A literal marker or decimal, or a hold ended by a line break: the pending
+  // break, if any, resolves by the classic join rules against the first held
+  // character, then the held characters append verbatim.
+  private void CommitLiteralHold()
+  {
+    if (_holdBreakPending)
+    {
+      EmitBreak(1, _held[0]);
+    }
+
+    foreach (char held in _held)
+    {
+      _ = _text.Append(held);
+      _lineColumn++;
+    }
+    _lineScanned = true; // joined mid-line content can never open a fence
   }
 
   /// <summary>Feeds one character through the normal (non-held) path: fence scan when
@@ -358,41 +391,54 @@ public sealed class StreamedTextNormalizer
   {
     if (ch is '`' or '~')
     {
-      if (_markerRun == 0)
-      {
-        if (_inFence && ch != _fenceChar)
-        {
-          _lineScanned = true; // a different marker can never close the open fence
-          return;
-        }
-
-        _markerChar = ch;
-        _markerRun = 1;
-        return;
-      }
-
-      if (ch != _markerChar)
-      {
-        _lineScanned = true;
-        return;
-      }
-
-      _markerRun++;
-      if (!_inFence && _markerRun >= 3)
-      {
-        _inFence = true;
-        _fenceChar = ch;
-        _fenceMarkerLength = _markerRun;
-        _lineScanned = true;
-      }
-      else if (_inFence && _markerRun >= _fenceMarkerLength)
-      {
-        _closingPending = true;
-      }
-
+      ScanMarkerChar(ch);
       return;
     }
 
+    ScanProseChar(ch);
+  }
+
+  // A fence-marker character: grow or start the run, open the fence at three or
+  // more markers outside a fence, or mark a closing run inside one.
+  private void ScanMarkerChar(char ch)
+  {
+    if (_markerRun == 0)
+    {
+      if (_inFence && ch != _fenceChar)
+      {
+        _lineScanned = true; // a different marker can never close the open fence
+        return;
+      }
+
+      _markerChar = ch;
+      _markerRun = 1;
+      return;
+    }
+
+    if (ch != _markerChar)
+    {
+      _lineScanned = true;
+      return;
+    }
+
+    _markerRun++;
+    if (!_inFence && _markerRun >= 3)
+    {
+      _inFence = true;
+      _fenceChar = ch;
+      _fenceMarkerLength = _markerRun;
+      _lineScanned = true;
+    }
+    else if (_inFence && _markerRun >= _fenceMarkerLength)
+    {
+      _closingPending = true;
+    }
+  }
+
+  // A non-marker character on a fence-candidate line: leading spaces keep the
+  // candidacy (up to three), anything else settles the line as prose.
+  private void ScanProseChar(char ch)
+  {
     if (ch == ' ' && _markerRun == 0)
     {
       if (_lineColumn >= 3)
@@ -418,8 +464,6 @@ public sealed class StreamedTextNormalizer
       return; // leading breaks are dropped
     }
 
-    char prev = _text[^1];
-
     // Two or more breaks mean paragraph separation: collapse to exactly one blank line.
     if (count >= 2)
     {
@@ -427,43 +471,36 @@ public sealed class StreamedTextNormalizer
       return;
     }
 
-    // Bullet and list markers always start a line.
-    if (next is '-' or '*' or '\u2022' or '>')
+    if (BreakSurvives(next))
     {
       _ = _text.Append('\n');
       return;
     }
 
-    // Sentence-ending punctuation keeps its break.
-    if (prev is '.' or '!' or '?' or '\u2026')
+    if (JoinsDirectly(next))
     {
-      _ = _text.Append('\n');
-      return;
-    }
-
-    // A bare wrap between two letters is mid-word — including CamelCase identifiers,
-    // which code-dense reasoning emits constantly — so join regardless of case. An
-    // unpunctuated sentence boundary before a capital joins too: identifier wraps
-    // vastly outnumber it, and a wrong join reads cheaper than a wrong break.
-    if (char.IsLetter(prev) && char.IsLetter(next))
-    {
-      return;
-    }
-
-    // Closing and comma punctuation attaches to the previous word: join directly.
-    if (next is ',' or '.' or ';' or ':' or ')')
-    {
-      return;
-    }
-
-    // A capital after a non-letter (digit, bracket) starts a heading or list entry.
-    if (char.IsUpper(next))
-    {
-      _ = _text.Append('\n');
       return;
     }
 
     // Everything else (opening brackets, clause wraps after punctuation) joins with a space.
     _ = _text.Append(' ');
   }
+
+  // A single break that must survive: bullet and list markers always start a
+  // line; sentence-ending punctuation keeps its break; a capital after a
+  // non-letter (digit, bracket) starts a heading or list entry.
+  private bool BreakSurvives(char next)
+    => next is '-' or '*' or '\u2022' or '>'
+        || _text[^1] is '.' or '!' or '?' or '\u2026'
+        || (char.IsUpper(next) && !char.IsLetter(_text[^1]));
+
+  // A single break that must vanish: a bare wrap between two letters is
+  // mid-word — including CamelCase identifiers, which code-dense reasoning
+  // emits constantly — so join regardless of case. An unpunctuated sentence
+  // boundary before a capital joins too: identifier wraps vastly outnumber it,
+  // and a wrong join reads cheaper than a wrong break. Closing and comma
+  // punctuation attaches to the previous word: join directly.
+  private bool JoinsDirectly(char next)
+    => (char.IsLetter(_text[^1]) && char.IsLetter(next))
+        || next is ',' or '.' or ';' or ':' or ')';
 }

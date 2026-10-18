@@ -96,45 +96,8 @@ public static class DocxMarkdownParser
 
       FlushTable(tableLines, tableStart, blocks);
       tableLines = null;
-
-      if (trimmed.StartsWith("### ", StringComparison.Ordinal))
+      if (StructuredLine(trimmed, i, paragraphLines, blocks))
       {
-        FlushParagraph(paragraphLines, blocks);
-        blocks.Add(new DocxMarkdownHeading(3, trimmed[4..]));
-        continue;
-      }
-
-      if (trimmed.StartsWith("## ", StringComparison.Ordinal))
-      {
-        FlushParagraph(paragraphLines, blocks);
-        blocks.Add(new DocxMarkdownHeading(2, trimmed[3..]));
-        continue;
-      }
-
-      if (trimmed.StartsWith("# ", StringComparison.Ordinal))
-      {
-        FlushParagraph(paragraphLines, blocks);
-        blocks.Add(new DocxMarkdownHeading(1, trimmed[2..]));
-        continue;
-      }
-
-      if (trimmed.StartsWith('#'))
-      {
-        throw new MarkdownInvalidException(i + 1);
-      }
-
-      if (trimmed.StartsWith("- ", StringComparison.Ordinal))
-      {
-        FlushParagraph(paragraphLines, blocks);
-        blocks.Add(new DocxMarkdownListItem(false, trimmed[2..]));
-        continue;
-      }
-
-      int dot = trimmed.IndexOf(". ", StringComparison.Ordinal);
-      if (dot > 0 && trimmed[..dot].All(char.IsAsciiDigit))
-      {
-        FlushParagraph(paragraphLines, blocks);
-        blocks.Add(new DocxMarkdownListItem(true, trimmed[(dot + 2)..]));
         continue;
       }
 
@@ -144,6 +107,63 @@ public static class DocxMarkdownParser
     FlushParagraph(paragraphLines, blocks);
     FlushTable(tableLines, tableStart, blocks);
     return blocks;
+  }
+
+  /// <summary>One structured (non-plain) line: heading, list item, or a bad
+  ///     heading marker. Returns true when the line was consumed as a block (the
+  ///     loop continues); plain paragraph lines fall through to the paragraph
+  ///     accumulator. The line number is the 1-based source line.</summary>
+  private static bool StructuredLine(string trimmed, int lineNo, List<string> paragraphLines, List<DocxMarkdownBlock> blocks)
+  {
+    if (trimmed.StartsWith("### ", StringComparison.Ordinal))
+    {
+      FlushParagraph(paragraphLines, blocks);
+      blocks.Add(new DocxMarkdownHeading(3, trimmed[4..]));
+      return true;
+    }
+
+    if (trimmed.StartsWith("## ", StringComparison.Ordinal))
+    {
+      FlushParagraph(paragraphLines, blocks);
+      blocks.Add(new DocxMarkdownHeading(2, trimmed[3..]));
+      return true;
+    }
+
+    if (trimmed.StartsWith("# ", StringComparison.Ordinal))
+    {
+      FlushParagraph(paragraphLines, blocks);
+      blocks.Add(new DocxMarkdownHeading(1, trimmed[2..]));
+      return true;
+    }
+
+    if (trimmed.StartsWith('#'))
+    {
+      throw new MarkdownInvalidException(lineNo + 1);
+    }
+
+    if (trimmed.StartsWith("- ", StringComparison.Ordinal))
+    {
+      FlushParagraph(paragraphLines, blocks);
+      blocks.Add(new DocxMarkdownListItem(false, trimmed[2..]));
+      return true;
+    }
+
+    return NumberedItem(trimmed, paragraphLines, blocks);
+  }
+
+  /// <summary>A '1. ' numbered list item: the prefix before ". " is all ASCII
+  ///     digits and non-empty. Returns true when the line was consumed.</summary>
+  private static bool NumberedItem(string trimmed, List<string> paragraphLines, List<DocxMarkdownBlock> blocks)
+  {
+    int dot = trimmed.IndexOf(". ", StringComparison.Ordinal);
+    if (dot > 0 && trimmed[..dot].All(char.IsAsciiDigit))
+    {
+      FlushParagraph(paragraphLines, blocks);
+      blocks.Add(new DocxMarkdownListItem(true, trimmed[(dot + 2)..]));
+      return true;
+    }
+
+    return false;
   }
 
   /// <summary>A '|---|' separator row: every cell is only dashes/colons/spaces.</summary>
@@ -220,30 +240,37 @@ public static class DocxMarkdownParser
         spans.Add(new DocxMarkdownSpan(text[at..next], false, false));
       }
 
-      if (next == bold)
-      {
-        int close = text.IndexOf("**", bold + 2, StringComparison.Ordinal);
-        if (close < 0)
-        {
-          throw new MarkdownInvalidException(0);
-        }
-
-        spans.Add(new DocxMarkdownSpan(text[(bold + 2)..close], true, false));
-        at = close + 2;
-      }
-      else
-      {
-        int close = text.IndexOf('*', italic + 1);
-        if (close < 0)
-        {
-          throw new MarkdownInvalidException(0);
-        }
-
-        spans.Add(new DocxMarkdownSpan(text[(italic + 1)..close], false, true));
-        at = close + 1;
-      }
+      at = next == bold ? BoldSpan(text, bold, spans) : ItalicSpan(text, italic, spans);
     }
 
     return spans;
+
+    // Consumes one **bold** span: the closing "**" must exist (an unclosed
+    // marker is a violation); returns the index after it.
+    static int BoldSpan(string text, int open, List<DocxMarkdownSpan> spans)
+    {
+      int close = text.IndexOf("**", open + 2, StringComparison.Ordinal);
+      if (close < 0)
+      {
+        throw new MarkdownInvalidException(0);
+      }
+
+      spans.Add(new DocxMarkdownSpan(text[(open + 2)..close], true, false));
+      return close + 2;
+    }
+
+    // Consumes one *italic* span: the closing '*' must exist (an unclosed
+    // marker is a violation); returns the index after it.
+    static int ItalicSpan(string text, int open, List<DocxMarkdownSpan> spans)
+    {
+      int close = text.IndexOf('*', open + 1);
+      if (close < 0)
+      {
+        throw new MarkdownInvalidException(0);
+      }
+
+      spans.Add(new DocxMarkdownSpan(text[(open + 1)..close], false, true));
+      return close + 1;
+    }
   }
 }

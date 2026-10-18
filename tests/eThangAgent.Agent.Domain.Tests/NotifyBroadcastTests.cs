@@ -98,8 +98,8 @@ public class NotifyBroadcastTests
       AgentRecord self, FakeQueries queries)
   {
     FakeRuntime runtime = new();
-    AgentCapabilityProvider provider = new(
-        new FakeSpawnCommand(), queries, () => self, runtime, links: null);
+    AgentCapabilityProvider provider = new(new AgentProviderServices(
+        new FakeSpawnCommand(), queries, () => self, runtime));
     return (provider, runtime);
   }
 
@@ -275,8 +275,8 @@ public class NotifyBroadcastTests
   public async Task NotifyActions_WithoutRuntime_FailNotAvailable()
   {
     AgentRecord root = Agent(null, 0, "root");
-    AgentCapabilityProvider provider = new(
-        new FakeSpawnCommand(), new FakeQueries(root), () => root, runtime: null, links: null);
+    AgentCapabilityProvider provider = new(new AgentProviderServices(
+        new FakeSpawnCommand(), new FakeQueries(root), () => root));
 
     CapabilityInvocationResult subtree = await provider.InvokeAsync("notify-subtree",
         /*lang=json,strict*/ "{\"text\":\"x\"}", TestContext.Current.CancellationToken);

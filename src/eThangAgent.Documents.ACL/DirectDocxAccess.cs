@@ -146,6 +146,31 @@ public sealed class DirectDocxAccess : IDocxAccess
 
   private static Result<DocxEditOutcome> EditCore(string path, FileVersion expectedVersion, IReadOnlyList<DocxOperation> operations)
   {
+    Result<DocxEditOutcome>? preflight = PreflightEdit(path, expectedVersion, operations);
+    if (preflight is not null)
+    {
+      return preflight;
+    }
+
+    try
+    {
+      return ApplyEdits(path, expectedVersion, operations);
+    }
+    catch (OpenXmlPackageException ex)
+    {
+      return FailEdit(DocxErrorCodes.CorruptDocument, $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
+    }
+    catch (IOException ex)
+    {
+      return FailEdit(DocxErrorCodes.CorruptDocument, $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
+    }
+  }
+
+  /// <summary>The edit preconditions that fail BEFORE the document is opened:
+  ///     operation count bounds, file existence, the version stat-check, and the
+  ///     sniffer gate. Returns null when every precondition holds.</summary>
+  private static Result<DocxEditOutcome>? PreflightEdit(string path, FileVersion expectedVersion, IReadOnlyList<DocxOperation> operations)
+  {
     if (operations.Count == 0)
     {
       return FailEdit(ToolErrorCodes.InvalidParameterValue, "The operations list must not be empty.");
@@ -170,57 +195,50 @@ public sealed class DirectDocxAccess : IDocxAccess
     }
 
     Result<string> sniff = DocxFormatSniffer.Inspect(path);
-    if (!sniff.IsSuccess)
+    return sniff.IsSuccess ? null : Result.Failure<DocxEditOutcome>(sniff.Error);
+  }
+
+  /// <summary>Opens the document editable, resolves+validates ALL operations
+  ///     BEFORE any mutation (the atomic contract), applies them, saves, re-stats.
+  ///     ChangedBlocks counts DISTINCT addressed blocks (one block touched by two
+  ///     operations counts once).</summary>
+  private static Result<DocxEditOutcome> ApplyEdits(string path, FileVersion expectedVersion, IReadOnlyList<DocxOperation> operations)
+  {
+    using WordprocessingDocument doc = WordprocessingDocument.Open(path, true, new OpenSettings
     {
-      return Result.Failure<DocxEditOutcome>(sniff.Error);
+      MaxCharactersInPart = DocxLimits.MaxCharactersInPart,
+    });
+    if (doc.MainDocumentPart?.Document?.Body is null)
+    {
+      return FailEdit(DocxErrorCodes.CorruptDocument, $"'{path}' has no readable document body.");
     }
 
-    try
+    List<ResolvedEdit> resolved = [];
+    foreach (DocxOperation op in operations)
     {
-      using WordprocessingDocument doc = WordprocessingDocument.Open(path, true, new OpenSettings
+      Result<IReadOnlyList<ResolvedEdit>> one = ResolveEdit(doc, op);
+      if (!one.IsSuccess)
       {
-        MaxCharactersInPart = DocxLimits.MaxCharactersInPart,
-      });
-      if (doc.MainDocumentPart?.Document?.Body is null)
-      {
-        return FailEdit(DocxErrorCodes.CorruptDocument, $"'{path}' has no readable document body.");
+        return Result.Failure<DocxEditOutcome>(one.Error); // atomic: nothing mutated yet
       }
 
-      List<ResolvedEdit> resolved = [];
-      foreach (DocxOperation op in operations)
-      {
-        Result<IReadOnlyList<ResolvedEdit>> one = ResolveEdit(doc, op);
-        if (!one.IsSuccess)
-        {
-          return Result.Failure<DocxEditOutcome>(one.Error); // atomic: nothing mutated yet
-        }
-
-        resolved.AddRange(one.Value);
-      }
-
-      HashSet<string> touched = [];
-      foreach (ResolvedEdit edit in resolved)
-      {
-        edit.Apply();
-        _ = touched.Add(edit.BlockKey);
-      }
-
-      if (touched.Count == 0)
-      {
-        return Result.Success(new DocxEditOutcome(expectedVersion, 0)); // pinned: zero matches skip the save
-      }
-
-      doc.Save();
-      return Result.Success(new DocxEditOutcome(StatAfter(path), touched.Count));
+      resolved.AddRange(one.Value);
     }
-    catch (OpenXmlPackageException ex)
+
+    HashSet<string> touched = [];
+    foreach (ResolvedEdit edit in resolved)
     {
-      return FailEdit(DocxErrorCodes.CorruptDocument, $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
+      edit.Apply();
+      _ = touched.Add(edit.BlockKey);
     }
-    catch (IOException ex)
+
+    if (touched.Count == 0)
     {
-      return FailEdit(DocxErrorCodes.CorruptDocument, $"'{path}' could not be opened as a Word package: {Clamp(ex.Message)}");
+      return Result.Success(new DocxEditOutcome(expectedVersion, 0)); // pinned: zero matches skip the save
     }
+
+    doc.Save();
+    return Result.Success(new DocxEditOutcome(StatAfter(path), touched.Count));
   }
 
   private static FileVersion StatAfter(string path)
@@ -231,14 +249,23 @@ public sealed class DirectDocxAccess : IDocxAccess
 
   private static Result<IReadOnlyList<ResolvedEdit>> ResolveEdit(WordprocessingDocument doc, DocxOperation op)
   {
-    MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
-    Body body = main.Document.Body ?? throw new InvalidOperationException("document has no body");
+    MainDocumentPart main = RequireMain(doc);
+    Body body = RequireBody(main);
     return op switch
     {
       ReplaceParagraphText text => ResolveParagraphOp(body, text.Address, "p", para => ReplaceText(para, text.Text)),
       SetParagraphStyle style => ResolveStyleOp(main, body, style),
       InsertParagraph insert => ResolveInsertParagraph(main, body, insert),
       DeleteParagraph delete => ResolveParagraphOp(body, delete.Address, "p", DeleteParagraphOp),
+      _ => ResolveStructuredOp(body, op),
+    };
+  }
+
+  /// <summary>Resolves the cell/row/format/find-replace operations (everything
+  ///     beyond the plain paragraph text/style/insert/delete family).</summary>
+  private static Result<IReadOnlyList<ResolvedEdit>> ResolveStructuredOp(Body body, DocxOperation op)
+    => op switch
+    {
       SetCellText cell => ResolveCellOp(body, cell),
       InsertTableRow row => ResolveInsertRow(body, row),
       DeleteTableRow row => ResolveDeleteRow(body, row),
@@ -246,7 +273,12 @@ public sealed class DirectDocxAccess : IDocxAccess
       FindReplace replace => ResolveFindReplace(body, replace),
       _ => FailResolved(ToolErrorCodes.InvalidParameterValue, $"Unknown edit operation '{op.GetType().Name}'."),
     };
-  }
+
+  private static MainDocumentPart RequireMain(WordprocessingDocument doc)
+    => doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
+
+  private static Body RequireBody(MainDocumentPart main)
+    => main.Document.Body ?? throw new InvalidOperationException("document has no body");
 
   /// <summary>Resolves a body-paragraph operation: the address must parse to the
   ///     Paragraph kind and resolve to a Paragraph element.</summary>
@@ -471,19 +503,31 @@ public sealed class DirectDocxAccess : IDocxAccess
         $"Style '{styleName}' was not found; the document has no styles part."));
     }
 
-    List<Style> paragraphStyles = [.. styles.Elements<Style>().Where(s => s.Type is null || s.Type == StyleValues.Paragraph)];
-    Style? match = paragraphStyles.FirstOrDefault(s => string.Equals(s.StyleName?.Val, styleName, StringComparison.Ordinal))
-      ?? paragraphStyles.FirstOrDefault(s => string.Equals(s.StyleId?.Value, styleName, StringComparison.Ordinal));
-    if (match is null)
-    {
-      List<string> available = [.. paragraphStyles
-        .Select(s => s.StyleName?.Val?.Value ?? s.StyleId?.Value ?? "(unnamed)")
-        .Distinct()];
-      return Result.Failure<string?>(new DomainError(DocxErrorCodes.StyleNotFound,
-        $"Style '{styleName}' was not found; available styles: {(available.Count == 0 ? "(none)" : string.Join(", ", available))}."));
-    }
+    List<Style> paragraphStyles = [.. styles.Elements<Style>().Where(IsParagraphStyle)];
+    Style? match = MatchStyle(paragraphStyles, styleName);
+    return match is null
+      ? Result.Failure<string?>(new DomainError(DocxErrorCodes.StyleNotFound, AvailableStylesMessage(paragraphStyles, styleName)))
+      : Result.Success(match.StyleId?.Value);
+  }
 
-    return Result.Success(match.StyleId?.Value);
+  private static bool IsParagraphStyle(Style style)
+    => style.Type is null || style.Type == StyleValues.Paragraph;
+
+  /// <summary>A style matches by its NAME first, then by its style id (both are
+  ///     addressable spellings of the same style).</summary>
+  private static Style? MatchStyle(List<Style> paragraphStyles, string styleName)
+    => paragraphStyles.FirstOrDefault(s => string.Equals(s.StyleName?.Val, styleName, StringComparison.Ordinal))
+      ?? paragraphStyles.FirstOrDefault(s => string.Equals(s.StyleId?.Value, styleName, StringComparison.Ordinal));
+
+  /// <summary>The StyleNotFound message listing the available paragraph style
+  ///     names (or '(none)' when the document defines no paragraph styles).</summary>
+  private static string AvailableStylesMessage(List<Style> paragraphStyles, string styleName)
+  {
+    List<string> available = [.. paragraphStyles
+      .Select(s => s.StyleName?.Val?.Value ?? s.StyleId?.Value ?? "(unnamed)")
+      .Distinct()];
+    string listed = available.Count == 0 ? "(none)" : string.Join(", ", available);
+    return $"Style '{styleName}' was not found; available styles: {listed}.";
   }
 
   private static void ApplyStyle(Paragraph para, string? styleId)
@@ -608,32 +652,40 @@ public sealed class DirectDocxAccess : IDocxAccess
         _ = run.InsertAt(properties, 0);
       }
 
-      if (format.Bold is not null)
-      {
-        properties.Bold = format.Bold.Value ? new Bold() : new Bold { Val = false };
-      }
+      ApplyRunFormatMembers(properties, format);
+    }
+  }
 
-      if (format.Italic is not null)
-      {
-        properties.Italic = format.Italic.Value ? new Italic() : new Italic { Val = false };
-      }
+  /// <summary>Stamps the non-null format members onto one run's properties; null
+  ///     members stay untouched (the on/off toggles write the explicit-off element
+  ///     when false, matching Word's toggle semantics).</summary>
+  private static void ApplyRunFormatMembers(RunProperties properties, DocxRunFormat format)
+  {
+    if (format.Bold is not null)
+    {
+      properties.Bold = format.Bold.Value ? new Bold() : new Bold { Val = false };
+    }
 
-      if (format.Underline is not null)
-      {
-        properties.Underline = format.Underline.Value
-          ? new Underline()
-          : new Underline { Val = UnderlineValues.None };
-      }
+    if (format.Italic is not null)
+    {
+      properties.Italic = format.Italic.Value ? new Italic() : new Italic { Val = false };
+    }
 
-      if (format.FontSizeHalfPoints is not null)
-      {
-        properties.FontSize = new FontSize { Val = format.FontSizeHalfPoints.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) };
-      }
+    if (format.Underline is not null)
+    {
+      properties.Underline = format.Underline.Value
+        ? new Underline()
+        : new Underline { Val = UnderlineValues.None };
+    }
 
-      if (format.ColorHex is not null)
-      {
-        properties.Color = new Color { Val = format.ColorHex };
-      }
+    if (format.FontSizeHalfPoints is not null)
+    {
+      properties.FontSize = new FontSize { Val = format.FontSizeHalfPoints.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+    }
+
+    if (format.ColorHex is not null)
+    {
+      properties.Color = new Color { Val = format.ColorHex };
     }
   }
 
@@ -827,17 +879,23 @@ public sealed class DirectDocxAccess : IDocxAccess
   private static string AnchorOf(WordprocessingDocument doc, DocxMap map, int commentId)
   {
     string idText = commentId.ToString(System.Globalization.CultureInfo.InvariantCulture);
-    MainDocumentPart? main = doc.MainDocumentPart;
-    CommentRangeStart? marker = main?.Document?.Descendants<CommentRangeStart>()
-      .FirstOrDefault(m => m.Id?.Value == idText)
+    CommentRangeStart? marker = MarkerOf(doc.MainDocumentPart, idText);
+    return marker is null ? string.Empty : AncestorAddressOf(map, marker);
+  }
+
+  /// <summary>The comment's commentRangeStart marker: searched in the document
+  ///     body first, then the header layers, then the footer layers.</summary>
+  private static CommentRangeStart? MarkerOf(MainDocumentPart? main, string idText)
+    => main?.Document?.Descendants<CommentRangeStart>().FirstOrDefault(m => m.Id?.Value == idText)
       ?? main?.HeaderParts.SelectMany(h => h.Header.Descendants<CommentRangeStart>()).FirstOrDefault(m => m.Id?.Value == idText)
       ?? main?.FooterParts.SelectMany(fo => fo.Footer.Descendants<CommentRangeStart>()).FirstOrDefault(m => m.Id?.Value == idText);
-    if (marker is null)
-    {
-      return string.Empty;
-    }
 
-    for (OpenXmlElement? at = marker; at is not null; at = at.Parent)
+  /// <summary>The first mappable ancestor address walking UP from an element:
+  ///     paragraphs and cells are mappable (header/footer paragraphs map through
+  ///     their own layer); anything else keeps walking to the root.</summary>
+  private static string AncestorAddressOf(DocxMap map, OpenXmlElement start)
+  {
+    for (OpenXmlElement? at = start; at is not null; at = at.Parent)
     {
       if (at is Paragraph or TableCell)
       {
@@ -857,7 +915,7 @@ public sealed class DirectDocxAccess : IDocxAccess
 
   private static Result<bool> AddComment(WordprocessingDocument doc, string address, string author, string text)
   {
-    MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
+    MainDocumentPart main = RequireMain(doc);
     DocxMap map = DocxElementMap.Build(doc);
     OpenXmlElement? target = ResolveAddressElement(map, address);
     if (target is null)
@@ -872,35 +930,51 @@ public sealed class DirectDocxAccess : IDocxAccess
         $"Address '{address}' addresses a whole table; anchor a paragraph or a cell."));
     }
 
-    Paragraph anchorPara = target switch
-    {
-      Paragraph para => para,
-      TableCell cell => cell.Elements<Paragraph>().FirstOrDefault() ?? throw new InvalidOperationException("cell has no paragraph"),
-      _ => throw new InvalidOperationException($"unexpected anchor element '{target.GetType().Name}'"),
-    };
-
+    Paragraph anchorPara = AnchorParagraphOf(target);
     WordprocessingCommentsPart commentsPart = main.WordprocessingCommentsPart ?? main.AddNewPart<WordprocessingCommentsPart>();
     commentsPart.Comments ??= new Comments();
-    int nextId = commentsPart.Comments.Elements<Comment>()
-      .Select(c => ParseCommentId(c.Id?.Value))
-      .DefaultIfEmpty(0)
-      .Max() + 1;
-    string idText = nextId.ToString(System.Globalization.CultureInfo.InvariantCulture);
-    commentsPart.Comments.Append(new Comment([new Paragraph([new Run([new Text(text) { Space = SpaceProcessingModeValues.Preserve }])])])
-    {
-      Id = idText,
-      Author = author,
-      Date = DateTime.UtcNow,
-    });
+    string idText = NextCommentId(commentsPart.Comments);
+    commentsPart.Comments.Append(BuildComment(idText, author, text));
     _ = anchorPara.InsertAt(new CommentRangeStart { Id = idText }, 0);
     anchorPara.Append(new CommentRangeEnd { Id = idText });
     anchorPara.Append(new Run([new CommentReference { Id = idText }]));
     return Result.Success(true);
   }
 
+  /// <summary>The paragraph a comment anchors to: the addressed paragraph itself,
+  ///     or the cell's first paragraph (a cell has at least one paragraph).</summary>
+  private static Paragraph AnchorParagraphOf(OpenXmlElement target)
+    => target switch
+    {
+      Paragraph para => para,
+      TableCell cell => cell.Elements<Paragraph>().FirstOrDefault() ?? throw new InvalidOperationException("cell has no paragraph"),
+      _ => throw new InvalidOperationException($"unexpected anchor element '{target.GetType().Name}'"),
+    };
+
+  /// <summary>The next comment id: max existing id + 1 (empty comments part
+  ///     starts at 1).</summary>
+  private static string NextCommentId(Comments comments)
+  {
+    int next = comments.Elements<Comment>()
+      .Select(c => ParseCommentId(c.Id?.Value))
+      .DefaultIfEmpty(0)
+      .Max() + 1;
+    return next.ToString(System.Globalization.CultureInfo.InvariantCulture);
+  }
+
+  /// <summary>The comments-part entry for one comment: its id, author, date, and
+  ///     a single-run paragraph carrying the comment text.</summary>
+  private static Comment BuildComment(string idText, string author, string text)
+    => new([new Paragraph([new Run([new Text(text) { Space = SpaceProcessingModeValues.Preserve }])])])
+    {
+      Id = idText,
+      Author = author,
+      Date = DateTime.UtcNow,
+    };
+
   private static Result<bool> DeleteComment(WordprocessingDocument doc, int commentId)
   {
-    MainDocumentPart main = doc.MainDocumentPart ?? throw new InvalidOperationException("package has no main document part");
+    MainDocumentPart main = RequireMain(doc);
     Comments? root = main.WordprocessingCommentsPart?.Comments;
     string idText = commentId.ToString(System.Globalization.CultureInfo.InvariantCulture);
     Comment? comment = root?.Elements<Comment>().FirstOrDefault(c => c.Id?.Value == idText);
@@ -910,17 +984,31 @@ public sealed class DirectDocxAccess : IDocxAccess
     }
 
     comment.Remove();
-    foreach (CommentRangeStart start in main.Document.Descendants<CommentRangeStart>().Where(m => m.Id?.Value == idText).ToList())
+    RemoveRangeMarkers(main.Document, idText);
+    RemoveReferences(main.Document, idText);
+    return Result.Success(true);
+  }
+
+  /// <summary>Removes every commentRangeStart/End marker carrying the id from the
+  ///     document body.</summary>
+  private static void RemoveRangeMarkers(Document document, string idText)
+  {
+    foreach (CommentRangeStart start in document.Descendants<CommentRangeStart>().Where(m => m.Id?.Value == idText).ToList())
     {
       start.Remove();
     }
 
-    foreach (CommentRangeEnd end in main.Document.Descendants<CommentRangeEnd>().Where(m => m.Id?.Value == idText).ToList())
+    foreach (CommentRangeEnd end in document.Descendants<CommentRangeEnd>().Where(m => m.Id?.Value == idText).ToList())
     {
       end.Remove();
     }
+  }
 
-    foreach (CommentReference reference in main.Document.Descendants<CommentReference>().Where(r => r.Id?.Value == idText).ToList())
+  /// <summary>Removes every commentReference carrying the id: a reference-only
+  ///     wrapper run (no text) goes with it, otherwise only the reference does.</summary>
+  private static void RemoveReferences(Document document, string idText)
+  {
+    foreach (CommentReference reference in document.Descendants<CommentReference>().Where(r => r.Id?.Value == idText).ToList())
     {
       OpenXmlElement parent = reference.Parent ?? throw new InvalidOperationException("orphan comment reference");
       if (parent is Run run && run.Elements<CommentReference>().Any() && !run.Elements<Text>().Any())
@@ -932,8 +1020,6 @@ public sealed class DirectDocxAccess : IDocxAccess
         reference.Remove();
       }
     }
-
-    return Result.Success(true);
   }
 
   /// <summary>Resolves an address to its ELEMENT through the map: body block,
@@ -949,17 +1035,33 @@ public sealed class DirectDocxAccess : IDocxAccess
     DocxAddress a = parsed.Value;
     return a.Kind switch
     {
-      DocxAddressKind.Paragraph when a.BodyIndex >= 1 && a.BodyIndex <= map.BodyBlocks.Count
-        => map.BodyBlocks[a.BodyIndex - 1] is Paragraph ? map.BodyBlocks[a.BodyIndex - 1] : null,
-      DocxAddressKind.Table when a.BodyIndex >= 1 && a.BodyIndex <= map.BodyBlocks.Count
-        => map.BodyBlocks[a.BodyIndex - 1] is Table ? map.BodyBlocks[a.BodyIndex - 1] : null,
-      DocxAddressKind.TableCell when a.BodyIndex >= 1 && a.BodyIndex <= map.BodyBlocks.Count
-        => map.BodyBlocks[a.BodyIndex - 1] is Table table ? CellElement(table, a.Row, a.Col) : null,
+      DocxAddressKind.Paragraph => BlockOfKind<Paragraph>(map, a.BodyIndex),
+      DocxAddressKind.Table => BlockOfKind<Table>(map, a.BodyIndex),
+      DocxAddressKind.TableCell => CellOfAddress(map, a),
       DocxAddressKind.HeaderParagraph or DocxAddressKind.FooterParagraph
         => map.ExtraParagraphs.FirstOrDefault(e => e.Address == address).Element,
       _ => null,
     };
   }
+
+  /// <summary>The body block at the 1-based flat index when it is the expected
+  ///     kind; null when the index is out of range or the block is another kind.</summary>
+  private static OpenXmlElement? BlockOfKind<TKind>(DocxMap map, int bodyIndex)
+    where TKind : OpenXmlElement
+  {
+    if (bodyIndex < 1 || bodyIndex > map.BodyBlocks.Count)
+    {
+      return null;
+    }
+
+    OpenXmlElement block = map.BodyBlocks[bodyIndex - 1];
+    return block is TKind ? block : null;
+  }
+
+  /// <summary>The addressed table cell element: the table block first, then the
+  ///     row/column lookup.</summary>
+  private static TableCell? CellOfAddress(DocxMap map, DocxAddress a)
+    => BlockOfKind<Table>(map, a.BodyIndex) is Table table ? CellElement(table, a.Row, a.Col) : null;
 
   private static TableCell? CellElement(Table table, int row, int col)
   {
@@ -1062,21 +1164,7 @@ public sealed class DirectDocxAccess : IDocxAccess
 
   /// <summary>The anchor of a change element: the first mappable ancestor.</summary>
   private static string AnchorOfElement(DocxMap map, OpenXmlElement change)
-  {
-    for (OpenXmlElement? at = change; at is not null; at = at.Parent)
-    {
-      if (at is Paragraph or TableCell)
-      {
-        string? address = DocxElementMap.AddressOf(map, at);
-        if (address is not null)
-        {
-          return address;
-        }
-      }
-    }
-
-    return string.Empty;
-  }
+    => AncestorAddressOf(map, change);
 
   private static Result<bool> ResolveRevisions(WordprocessingDocument doc, bool accept, DocxRevisionScope scope)
   {

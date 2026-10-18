@@ -60,64 +60,12 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
     List<SkillDefinition> skills = [];
 
     Result<IReadOnlyList<SkillDefinition>> builtIn = await _catalog.ListAsync(ct).ConfigureAwait(false);
-    if (builtIn.IsSuccess)
-    {
-      skills.AddRange(builtIn.Value);
-    }
-    else
-    {
-      warnings.Add($"[warning] built-in skills unavailable: {builtIn.Error.Message}");
-    }
+    AddBuiltIn(skills, warnings, builtIn);
 
     List<string> dedupCollisions = [];
-    Result<IReadOnlyList<SkillDefinition>> learnedResult = await _learned.ListAsync(ct).ConfigureAwait(false);
-    if (learnedResult.IsSuccess)
-    {
-      if (builtIn.IsSuccess)
-      {
-        // Presentation-layer dedup (spec #19 decision 2): a learned skill whose
-        // name already exists in the catalog is skipped here and announced —
-        // the composite catalog never sees learned rows, so this is the only
-        // site where the two sources can collide.
-        Dictionary<string, string> winnerLabelByName = builtIn.Value
-            .GroupBy(s => s.Name, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => SourceLabel(g.First().Source), StringComparer.Ordinal);
-        foreach (SkillDefinition learnedSkill in learnedResult.Value)
-        {
-          if (winnerLabelByName.TryGetValue(learnedSkill.Name, out string? winnerLabel))
-          {
-            dedupCollisions.Add($"[collision] {learnedSkill.Name} (learned) shadowed by {winnerLabel}");
-          }
-          else
-          {
-            skills.Add(learnedSkill);
-          }
-        }
-      }
-      else
-      {
-        // Dedup needs the catalog's names; with the catalog down the learned
-        // rows all render and nothing is announced.
-        skills.AddRange(learnedResult.Value);
-      }
-    }
-    else
-    {
-      warnings.Add($"[warning] learned skills unavailable: {learnedResult.Error.Message}");
-    }
+    await MergeLearnedAsync(skills, dedupCollisions, warnings, builtIn, ct).ConfigureAwait(false);
 
-    // Diagnostics are an optional catalog capability: the composite skill
-    // catalog carries them (collision + directory lines), bare catalogs do not.
-    List<string> diagnostics = [];
-    if (_catalog is ISkillCatalogDiagnostics withDiagnostics)
-    {
-      Result<IReadOnlyList<string>> reported =
-          await withDiagnostics.GetDiagnosticsAsync(ct).ConfigureAwait(false);
-      if (reported.IsSuccess)
-      {
-        diagnostics.AddRange(reported.Value.Select(RenderDiagnostic));
-      }
-    }
+    List<string> diagnostics = await GetDiagnosticsAsync(ct).ConfigureAwait(false);
 
     List<string> lines =
     [
@@ -131,6 +79,85 @@ public sealed class SkillListTool(ISkillCatalog catalog, ILearnedSkillStore lear
     ];
 
     return new ToolResult(string.Join("\n", lines), false);
+  }
+
+  private static void AddBuiltIn(List<SkillDefinition> skills, List<string> warnings,
+      Result<IReadOnlyList<SkillDefinition>> builtIn)
+  {
+    if (builtIn.IsSuccess)
+    {
+      skills.AddRange(builtIn.Value);
+    }
+    else
+    {
+      warnings.Add($"[warning] built-in skills unavailable: {builtIn.Error.Message}");
+    }
+  }
+
+  /// <summary>Merges the learned source into <paramref name="skills"/>: deduped
+  ///     against the catalog's names when the catalog is up, all rows rendered when
+  ///     it is down, and a source-failure warning on the warnings list.</summary>
+  private async Task MergeLearnedAsync(List<SkillDefinition> skills, List<string> dedupCollisions,
+      List<string> warnings, Result<IReadOnlyList<SkillDefinition>> builtIn, CancellationToken ct)
+  {
+    Result<IReadOnlyList<SkillDefinition>> learnedResult = await _learned.ListAsync(ct).ConfigureAwait(false);
+    if (!learnedResult.IsSuccess)
+    {
+      warnings.Add($"[warning] learned skills unavailable: {learnedResult.Error.Message}");
+      return;
+    }
+
+    if (builtIn.IsSuccess)
+    {
+      MergeLearnedWithDedup(skills, dedupCollisions, learnedResult.Value, builtIn.Value);
+    }
+    else
+    {
+      // Dedup needs the catalog's names; with the catalog down the learned
+      // rows all render and nothing is announced.
+      skills.AddRange(learnedResult.Value);
+    }
+  }
+
+  /// <summary>Presentation-layer dedup (spec #19 decision 2): a learned skill whose
+  ///     name already exists in the catalog is skipped here and announced —
+  ///     the composite catalog never sees learned rows, so this is the only
+  ///     site where the two sources can collide.</summary>
+  private static void MergeLearnedWithDedup(List<SkillDefinition> skills, List<string> dedupCollisions,
+      IReadOnlyList<SkillDefinition> learnedSkills, IReadOnlyList<SkillDefinition> builtInSkills)
+  {
+    Dictionary<string, string> winnerLabelByName = builtInSkills
+        .GroupBy(s => s.Name, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => SourceLabel(g.First().Source), StringComparer.Ordinal);
+    foreach (SkillDefinition learnedSkill in learnedSkills)
+    {
+      if (winnerLabelByName.TryGetValue(learnedSkill.Name, out string? winnerLabel))
+      {
+        dedupCollisions.Add($"[collision] {learnedSkill.Name} (learned) shadowed by {winnerLabel}");
+      }
+      else
+      {
+        skills.Add(learnedSkill);
+      }
+    }
+  }
+
+  private async Task<List<string>> GetDiagnosticsAsync(CancellationToken ct)
+  {
+    // Diagnostics are an optional catalog capability: the composite skill
+    // catalog carries them (collision + directory lines), bare catalogs do not.
+    List<string> diagnostics = [];
+    if (_catalog is ISkillCatalogDiagnostics withDiagnostics)
+    {
+      Result<IReadOnlyList<string>> reported =
+          await withDiagnostics.GetDiagnosticsAsync(ct).ConfigureAwait(false);
+      if (reported.IsSuccess)
+      {
+        diagnostics.AddRange(reported.Value.Select(RenderDiagnostic));
+      }
+    }
+
+    return diagnostics;
   }
 
   internal static string SourceLabel(SkillSource source) => source switch

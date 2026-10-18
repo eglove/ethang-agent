@@ -80,14 +80,38 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
   {
     try
     {
-      return actionName switch
+      return await DispatchAsync(actionName, jsonArguments).ConfigureAwait(false);
+    }
+    catch (StateInputException ex)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {ex.Message}");
+    }
+  }
+
+  /// <summary>Two-level dispatch: the outer switch halves the action vocabulary,
+  ///     the inner switches resolve each half (one flat switch would exceed the
+  ///     cyclomatic-complexity gate).</summary>
+  private Task<CapabilityInvocationResult> DispatchAsync(string actionName, string jsonArguments)
+      => actionName switch
+      {
+        "get" or "find" or "append" or "prune" or "set" or "delete" => DispatchFirstHalfAsync(actionName, jsonArguments),
+        _ => DispatchSecondHalfAsync(actionName, jsonArguments),
+      };
+
+  private async Task<CapabilityInvocationResult> DispatchFirstHalfAsync(string actionName, string jsonArguments)
+      => actionName switch
       {
         "get" => await GetAsync(jsonArguments).ConfigureAwait(false),
         "find" => await SearchAsync(jsonArguments).ConfigureAwait(false),
         "append" => await AppendAsync(jsonArguments).ConfigureAwait(false),
         "prune" => await PruneAsync(jsonArguments).ConfigureAwait(false),
         "set" => await SetAsync(jsonArguments).ConfigureAwait(false),
-        "delete" => await DeleteAsync(jsonArguments).ConfigureAwait(false),
+        _ => await DeleteAsync(jsonArguments).ConfigureAwait(false),
+      };
+
+  private async Task<CapabilityInvocationResult> DispatchSecondHalfAsync(string actionName, string jsonArguments)
+      => actionName switch
+      {
         "list" => await ListAsync(jsonArguments).ConfigureAwait(false),
         "transition" => await TransitionAsync(jsonArguments).ConfigureAwait(false),
         "verify" => await VerifyAsync(jsonArguments).ConfigureAwait(false),
@@ -95,12 +119,6 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
         "history" => await HistoryAsync(jsonArguments).ConfigureAwait(false),
         _ => CapabilityInvocationResult.Fail($"Error [UnknownAction]: Unknown action: {actionName}."),
       };
-    }
-    catch (StateInputException ex)
-    {
-      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {ex.Message}");
-    }
-  }
 
   private async Task<CapabilityInvocationResult> GetAsync(string json)
   {
@@ -111,52 +129,54 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
       return ToResult(await _service.GetAsync(key).ConfigureAwait(false));
     }
 
-    // Strict range validation: both-or-neither, start >= 1, end >= start.
-    if (!args.TryGetValue(StartLine, out JsonElement sEl) || sEl.ValueKind != JsonValueKind.Number || !sEl.TryGetInt32(out int start))
-    {
-      throw new StateInputException("'startLine' is required together with 'endLine' and must be an integer.");
-    }
+    (int start, int end) = ParseLineRange(args);
+    Result<string> value = await _service.GetAsync(key).ConfigureAwait(false);
+    return !value.IsSuccess
+        ? Gutter(value.Error)
+        : await RenderRange(key, value.Value, start, end).ConfigureAwait(false);
+  }
 
-    if (!args.TryGetValue(EndLine, out JsonElement eEl) || eEl.ValueKind != JsonValueKind.Number || !eEl.TryGetInt32(out int end))
-    {
-      throw new StateInputException("'endLine' is required together with 'startLine' and must be an integer.");
-    }
+  /// <summary>Strict range validation: both-or-neither, integers, start >= 1,
+  ///     end >= start.</summary>
+  private static (int Start, int End) ParseLineRange(Dictionary<string, JsonElement> args)
+  {
+    int start = ReqRangeInt(args, StartLine, $"'{StartLine}' is required together with '{EndLine}' and must be an integer.");
+    int end = ReqRangeInt(args, EndLine, $"'{EndLine}' is required together with '{StartLine}' and must be an integer.");
+    ValidateRange(start, end);
+    return (start, end);
+  }
 
+  private static void ValidateRange(int start, int end)
+  {
     if (start < 1)
     {
-      throw new StateInputException("'startLine' must be >= 1.");
+      throw new StateInputException($"'{StartLine}' must be >= 1.");
     }
 
     if (end < start)
     {
-      throw new StateInputException("'endLine' must be >= 'startLine'.");
+      throw new StateInputException($"'{EndLine}' must be >= '{StartLine}'.");
     }
+  }
 
-    Result<string> value = await _service.GetAsync(key).ConfigureAwait(false);
-    if (!value.IsSuccess)
-    {
-      return Gutter(value.Error);
-    }
+  private static int ReqRangeInt(Dictionary<string, JsonElement> args, string name, string failure)
+  {
+    return !args.TryGetValue(name, out JsonElement element) || element.ValueKind != JsonValueKind.Number
+            || !element.TryGetInt32(out int value)
+        ? throw new StateInputException(failure)
+        : value;
+  }
 
-    string[] lines = value.Value.Split('\n');
+  /// <summary>Renders the sliced lines under the envelope header; an end past the
+  ///     last line clamps with a visible note. The version, when resolvable, comes
+  ///     from ListAsync(ns) so IStateService signatures stay untouched.</summary>
+  private async Task<CapabilityInvocationResult> RenderRange(string key, string stored, int start, int end)
+  {
+    string[] lines = stored.Split('\n');
     int total = lines.Length;
     int clampedEnd = Math.Min(end, total);
     string slice = string.Join("\n", lines[(start - 1)..clampedEnd]);
-
-    // Version comes from ListAsync(ns) so IStateService signatures stay untouched.
-    string? versionPart = null;
-    int slashAt = key.IndexOf('/', StringComparison.Ordinal);
-    Result<IReadOnlyList<string>> keys = await _service.ListAsync(key[..slashAt]).ConfigureAwait(false);
-    if (keys.IsSuccess)
-    {
-      string prefix = key + " v";
-      string? match = keys.Value.FirstOrDefault(k => k.StartsWith(prefix, StringComparison.Ordinal));
-      if (match is not null)
-      {
-        versionPart = "v" + match[prefix.Length..];
-      }
-    }
-
+    string? versionPart = await ResolveVersionPart(key).ConfigureAwait(false);
     string header = versionPart is null
             ? $"[{key} | lines {start}-{clampedEnd} of {total}]"
             : $"[{key} {versionPart} | lines {start}-{clampedEnd} of {total}]";
@@ -167,6 +187,20 @@ public sealed class StateCapabilityProvider(IStateService service) : ICapability
     }
 
     return CapabilityInvocationResult.Ok(output);
+  }
+
+  private async Task<string?> ResolveVersionPart(string key)
+  {
+    int slashAt = key.IndexOf('/', StringComparison.Ordinal);
+    Result<IReadOnlyList<string>> keys = await _service.ListAsync(key[..slashAt]).ConfigureAwait(false);
+    if (!keys.IsSuccess)
+    {
+      return null;
+    }
+
+    string prefix = key + " v";
+    string? match = keys.Value.FirstOrDefault(k => k.StartsWith(prefix, StringComparison.Ordinal));
+    return match is not null ? "v" + match[prefix.Length..] : null;
   }
 
   private async Task<CapabilityInvocationResult> SearchAsync(string json)

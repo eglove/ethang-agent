@@ -40,8 +40,8 @@ public class AgentWaitHonestOutcomeTests
     // failure detail - the parent must read the failure annotation, not the text.
     AgentRunOutcome failed = new(id, AgentStatus.Failed, AgentFailureReason.Interrupted,
         "Now writing the failing tests...", "prov/child", 1);
-    AgentCapabilityProvider provider = new(
-        new NoopSpawn(), new QueriesStub(), Parent, runtime: new RuntimeOutcome(failed));
+    AgentCapabilityProvider provider = new(new AgentProviderServices(
+        new NoopSpawn(), new QueriesStub(), Parent, new RuntimeOutcome(failed)));
 
     string json = System.Text.Json.JsonSerializer.Serialize(new { id = id.ToString() });
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", json,
@@ -58,8 +58,8 @@ public class AgentWaitHonestOutcomeTests
     AgentId id = AgentId.NewId();
     AgentRunOutcome completed = new(id, AgentStatus.Completed, null,
         "the real report", "prov/child", 1);
-    AgentCapabilityProvider provider = new(
-        new NoopSpawn(), new QueriesStub(), Parent, runtime: new RuntimeOutcome(completed));
+    AgentCapabilityProvider provider = new(new AgentProviderServices(
+        new NoopSpawn(), new QueriesStub(), Parent, new RuntimeOutcome(completed)));
 
     string json = System.Text.Json.JsonSerializer.Serialize(new { id = id.ToString() });
     CapabilityInvocationResult result = await provider.InvokeAsync("wait", json,

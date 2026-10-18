@@ -23,39 +23,56 @@ public static class ServerToolCallItem
       return false;
     }
 
-    string? tool;
-    if (itemType.EndsWith(CallSuffix, StringComparison.Ordinal) && itemType.Length > CallSuffix.Length)
-    {
-      tool = itemType[..^CallSuffix.Length];
-    }
-    else if (itemType.StartsWith(OpenRouterPrefix, StringComparison.Ordinal) && itemType.Length > OpenRouterPrefix.Length)
-    {
-      tool = itemType[OpenRouterPrefix.Length..];
-    }
-    else
+    string? tool = ToolNameOf(itemType);
+    if (tool is null)
     {
       return false;
     }
 
+    call = ParseAction(item, tool);
+    return true;
+  }
+
+  /// <summary>The tool name stripped of its wire spelling: "&lt;tool&gt;_call" and
+  ///     "openrouter:&lt;tool&gt;" both yield "&lt;tool&gt;"; any other shape (or a
+  ///     bare prefix/suffix with no tool name) yields null — the tolerance contract.</summary>
+  private static string? ToolNameOf(string itemType)
+    => itemType.EndsWith(CallSuffix, StringComparison.Ordinal) && itemType.Length > CallSuffix.Length
+        ? itemType[..^CallSuffix.Length]
+        : StripOpenRouterPrefix(itemType);
+
+  private static string? StripOpenRouterPrefix(string itemType)
+    => itemType.StartsWith(OpenRouterPrefix, StringComparison.Ordinal) && itemType.Length > OpenRouterPrefix.Length
+        ? itemType[OpenRouterPrefix.Length..] : null;
+
+  /// <summary>The call's detail and sources from the item's "action" object: query
+  ///     wins over url for the detail, and the result URLs ride "sources" — all
+  ///     best-effort, never a parse failure.</summary>
+  private static ServerToolCall ParseAction(JsonElement item, string tool)
+  {
     string? detail = null;
     IReadOnlyList<string> sources = [];
     if (item.TryGetProperty("action", out JsonElement action) && action.ValueKind == JsonValueKind.Object)
     {
-      if (action.TryGetProperty("query", out JsonElement query) && query.ValueKind == JsonValueKind.String)
-      {
-        detail = query.GetString();
-      }
-      else if (action.TryGetProperty("url", out JsonElement url) && url.ValueKind == JsonValueKind.String)
-      {
-        detail = url.GetString();
-      }
-
+      detail = DetailOf(action);
       sources = ParseSources(action);
     }
 
-    call = new ServerToolCall(tool, detail, sources);
-    return true;
+    return new ServerToolCall(tool, detail, sources);
   }
+
+  /// <summary>The action's detail string: its "query" when present, else its "url"
+  ///     when present, else null.</summary>
+  private static string? DetailOf(JsonElement action)
+  {
+    string? query = StringMemberOf(action, "query");
+    return query is not null ? query : StringMemberOf(action, "url");
+  }
+
+  /// <summary>The parent's string member when present and well-typed, else null.</summary>
+  private static string? StringMemberOf(JsonElement parent, string name)
+    => parent.TryGetProperty(name, out JsonElement el) && el.ValueKind == JsonValueKind.String
+        ? el.GetString() : null;
 
   /// <summary>The action's result URLs: "sources" entries that are objects carrying a
   ///     string "url" member (the live web_search shape). Anything else — missing

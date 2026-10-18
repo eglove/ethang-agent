@@ -17,7 +17,26 @@ namespace eThangAgent.ComputerUse.Host;
 ///     screen point) and an element target routes through the
 ///     <see cref="IElementActionSink"/> (UIA invoke/scroll/focus); paste gates on the
 ///     foreground window like click; type_text with an element target focuses it first.</summary>
-public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord, bool> sendChord, Func<string, bool> sendText, Func<string, int, int, int, int, bool>? sendDrag = null, Func<string, int, int, bool>? sendMouseButtonAt = null, Func<string, int, int, int, bool>? sendWheelAt = null, bool doubleBacked = false, bool targeted = false)
+/// <summary>The five physical-input send hooks: chord, text, drag, positioned button,
+///     and positioned wheel. ALL FIVE are nullable because the resolution contract
+///     (PipeServer.RequireCompleteHookSet) must be able to carry a PARTIAL set to
+///     reject it - every absent hook resolves the documented fallback (no-op button,
+///     NativeInput chord/text/drag/wheel). Parameter object for the send-hook wiring
+///     (S107: constructor parameter count).</summary>
+public sealed record InputHooks(
+  Func<KeyChord, bool>? SendChord = null,
+  Func<string, bool>? SendText = null,
+  Func<string, int, int, int, int, bool>? SendDrag = null,
+  Func<string, int, int, bool>? SendMouseButtonAt = null,
+  Func<string, int, int, int, bool>? SendWheelAt = null);
+
+/// <summary>The dispatcher's collaborating services: the foreground-window read, the
+///     send hooks, and the two mode flags (double-backed wire-test surface, targeted
+///     delivery). Parameter object for <see cref="InputDispatch"/>'s primary
+///     constructor (S107: constructor parameter count).</summary>
+public sealed record InputDispatchServices(Func<int> ForegroundPid, InputHooks Hooks, bool DoubleBacked = false, bool Targeted = false);
+
+public sealed partial class InputDispatch(InputDispatchServices services)
 {
   private readonly List<HoldRecord> _activeHolds = [];
   private readonly Lock _holdGate = new();
@@ -26,12 +45,12 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
 
   /// <summary>The hold bookkeeping record: chord, start, and the key-up deadline.</summary>
   private sealed record HoldRecord(KeyChord Chord, DateTimeOffset StartedAt, TimeSpan Duration);
-  private readonly Func<int> _foregroundPid = foregroundPid;
-  private Func<KeyChord, bool> ChordTarget { get; } = sendChord;
-  private Func<string, bool> TextTarget { get; } = sendText;
-  private Func<string, int, int, bool> ButtonAtTarget { get; } = sendMouseButtonAt ?? NoButtonAt;
-  private Func<string, int, int, int, bool> WheelAtTarget { get; } = sendWheelAt ?? NativeInput.SendWheelAt;
-  private Func<string, int, int, int, int, bool> DragTarget { get; } = sendDrag ?? NativeInput.SendDrag;
+  private readonly Func<int> _foregroundPid = services.ForegroundPid;
+  private Func<KeyChord, bool> ChordTarget { get; } = services.Hooks.SendChord ?? NativeInput.SendChord;
+  private Func<string, bool> TextTarget { get; } = services.Hooks.SendText ?? NativeInput.SendText;
+  private Func<string, int, int, bool> ButtonAtTarget { get; } = services.Hooks.SendMouseButtonAt ?? NoButtonAt;
+  private Func<string, int, int, int, bool> WheelAtTarget { get; } = services.Hooks.SendWheelAt ?? NativeInput.SendWheelAt;
+  private Func<string, int, int, int, int, bool> DragTarget { get; } = services.Hooks.SendDrag ?? NativeInput.SendDrag;
   private int _dragCalls;
   private (int X, int Y) _lastDragFrom;
   private (int X, int Y) _lastDragTo;
@@ -42,12 +61,12 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   ///     double-backed wire-test surface); false means the REAL production dispatcher
   ///     (Create). Final-review NEW-1: the resolution must be observable so a test
   ///     factory can prove it never silently got the real SendInput path.</summary>
-  public bool IsDoubleBacked { get; } = doubleBacked;
+  public bool IsDoubleBacked { get; } = services.DoubleBacked;
 
   /// <summary>Targeted delivery mode (--input-targeted): every dispatch that would reach
   ///     a delivery hook gates on the target pid regardless of strategy, so injected
   ///     input can never land outside the verified foreground target.</summary>
-  public bool Targeted { get; } = targeted;
+  public bool Targeted { get; } = services.Targeted;
 
   /// <summary>Resolution-probe surface (re-review wave): the resolved hooks, exposed
   ///     read-only so tests can pin WHICH target each hook carries (real NativeInput
@@ -97,15 +116,20 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
 
   /// <summary>Production instance: real foreground read + real NativeInput dispatch.</summary>
   public static InputDispatch Create(Func<int>? foregroundPid = null) =>
-    new(foregroundPid ?? ReadForegroundPid, NativeInput.SendChord, NativeInput.SendText,
-      sendDrag: NativeInput.SendDrag, sendMouseButtonAt: NativeInput.SendMouseButtonAt, sendWheelAt: NativeInput.SendWheelAt);
+    new(new InputDispatchServices(foregroundPid ?? ReadForegroundPid, RealHooks()));
 
   /// <summary>Production: real foreground read + real NativeInput dispatch.</summary>
   public InputDispatch(Func<int>? foregroundPid = null)
-    : this(foregroundPid ?? ReadForegroundPid, NativeInput.SendChord, NativeInput.SendText,
-      sendDrag: NativeInput.SendDrag, sendMouseButtonAt: NativeInput.SendMouseButtonAt, sendWheelAt: NativeInput.SendWheelAt)
+    : this(new InputDispatchServices(foregroundPid ?? ReadForegroundPid, RealHooks()))
   {
   }
+
+  /// <summary>The real NativeInput surface on all five hooks - the zero-hook
+  ///     resolution contract's production wiring (shared by Create, the convenience
+  ///     constructor, and PipeServer's no-hook resolution).</summary>
+  internal static InputHooks RealHooks() =>
+    new(NativeInput.SendChord, NativeInput.SendText,
+      NativeInput.SendDrag, NativeInput.SendMouseButtonAt, NativeInput.SendWheelAt);
 
   /// <summary>How many dispatch operations were issued (delivery honesty: a refused
   ///     action must have issued zero; an accepted action more than zero).</summary>
@@ -313,45 +337,51 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
     }
 
     string button = Str(parameters, "mouse_button") ?? "left";
+    return parameters is { } p && p.TryGetProperty("element", out JsonElement el)
+      && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int element)
+      ? ClickElement(element)
+      : ClickCoordinate(parameters, button);
+  }
 
-    // Element target: route through the element path (F1a) - UIA invoke, never a
-    // coordinate click. A missing sink is the unresolvable-target refusal.
-    if (parameters is { } p && p.TryGetProperty("element", out JsonElement el)
-      && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int element))
+  /// <summary>Element target: route through the element path (F1a) - UIA invoke, never a
+  ///     coordinate click. A missing sink is the unresolvable-target refusal.</summary>
+  private BrokerResponse ClickElement(int element)
+  {
+    if (_elementOps is IElementActionSink sink)
     {
-      if (_elementOps is IElementActionSink sink)
+      BrokerResponse routed = sink.Invoke(element);
+      if (routed.Error is null)
       {
-        BrokerResponse routed = sink.Invoke(element);
-        if (routed.Error is null)
-        {
-          _ = Interlocked.Increment(ref _dispatchCount);
-        }
-
-        return routed;
+        _ = Interlocked.Increment(ref _dispatchCount);
       }
 
-      return BrokerResponse.Fail("invalid_request",
-        $"click requires a resolvable target (x/y or element); element {element} has no element surface wired; nothing was dispatched.",
-        "action_sent=false");
-    }
-
-    // Coordinate target: dispatch the positioned click (F1b) - MOVE row first, then
-    // the button rows at that position.
-    if (TryReadPoint(parameters, "x", "y", "element", out int x, out int y))
-    {
-      bool sent = ButtonAtTarget(button, x, y);
-      _ = Interlocked.Increment(ref _dispatchCount);
-      _ = Interlocked.Increment(ref _clickCalls);
-      LastClickPoint = (x, y);
-      LastClickButton = button;
-      return sent
-        ? BrokerResponse.Accepted()
-        : BrokerResponse.Fail("internal", "SendInput reported failure for the click.", "action_sent=false");
+      return routed;
     }
 
     return BrokerResponse.Fail("invalid_request",
-      "click requires a resolvable target (x/y or element); nothing was dispatched.",
+      $"click requires a resolvable target (x/y or element); element {element} has no element surface wired; nothing was dispatched.",
       "action_sent=false");
+  }
+
+  /// <summary>Coordinate target: dispatch the positioned click (F1b) - MOVE row first,
+  ///     then the button rows at that position.</summary>
+  private BrokerResponse ClickCoordinate(JsonElement? parameters, string button)
+  {
+    if (!TryReadPoint(parameters, "x", "y", "element", out int x, out int y))
+    {
+      return BrokerResponse.Fail("invalid_request",
+        "click requires a resolvable target (x/y or element); nothing was dispatched.",
+        "action_sent=false");
+    }
+
+    bool sent = ButtonAtTarget(button, x, y);
+    _ = Interlocked.Increment(ref _dispatchCount);
+    _ = Interlocked.Increment(ref _clickCalls);
+    LastClickPoint = (x, y);
+    LastClickButton = button;
+    return sent
+      ? BrokerResponse.Accepted()
+      : BrokerResponse.Fail("internal", "SendInput reported failure for the click.", "action_sent=false");
   }
 
   /// <summary>scroll (fix round 5, F3): vertical wheel injection AT the target. A
@@ -370,19 +400,11 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
         $"strategy=event requires the target window (pid {targetPid}) in the foreground; nothing was dispatched.");
     }
 
-    string? directionRaw = Str(parameters, "scroll_direction");
-    string direction = directionRaw ?? string.Empty;
-    if (!string.Equals(direction, "up", StringComparison.OrdinalIgnoreCase)
-      && !string.Equals(direction, "down", StringComparison.OrdinalIgnoreCase)
-      && !string.Equals(direction, "left", StringComparison.OrdinalIgnoreCase)
-      && !string.Equals(direction, "right", StringComparison.OrdinalIgnoreCase))
+    if (!TryReadScrollDirection(parameters, out string direction))
     {
       return BrokerResponse.Fail("invalid_request",
         "scroll requires params.scroll_direction (one of up, down, left, right); nothing was dispatched.");
     }
-
-    int pages = parameters is { } pa && pa.TryGetProperty("scroll_amount", out JsonElement amt)
-      && amt.ValueKind == JsonValueKind.Number && amt.TryGetInt32(out int amount) ? amount : 1;
 
     if (direction is "left" or "right")
     {
@@ -392,42 +414,63 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
         $"horizontal scroll ({direction}) is not available on this broker: the vertical wheel is the only injected axis; nothing was dispatched.");
     }
 
-    // Element target: the UIA scroll pattern through the element sink.
-    if (parameters is { } pe && pe.TryGetProperty("element", out JsonElement el)
-      && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int element))
-    {
-      if (_elementOps is IElementActionSink sink)
-      {
-        BrokerResponse routed = sink.Scroll(element, direction, pages);
-        if (routed.Error is null)
-        {
-          _ = Interlocked.Increment(ref _dispatchCount);
-        }
+    return parameters is { } pe && pe.TryGetProperty("element", out JsonElement el)
+      && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int element)
+      ? ScrollElement(element, direction, ScrollPages(parameters))
+      : ScrollCoordinate(parameters, direction);
+  }
 
-        return routed;
+  /// <summary>Reads and normalizes params.scroll_direction; false when it is missing
+  ///     or not one of up/down/left/right (case-insensitive).</summary>
+  private static bool TryReadScrollDirection(JsonElement? parameters, out string direction)
+  {
+    string directionRaw = Str(parameters, "scroll_direction") ?? string.Empty;
+    bool known = string.Equals(directionRaw, "up", StringComparison.OrdinalIgnoreCase)
+      || string.Equals(directionRaw, "down", StringComparison.OrdinalIgnoreCase)
+      || string.Equals(directionRaw, "left", StringComparison.OrdinalIgnoreCase)
+      || string.Equals(directionRaw, "right", StringComparison.OrdinalIgnoreCase);
+    direction = directionRaw;
+    return known;
+  }
+
+  /// <summary>Element target: the UIA scroll pattern through the element sink.</summary>
+  private BrokerResponse ScrollElement(int element, string direction, int pages)
+  {
+    if (_elementOps is IElementActionSink sink)
+    {
+      BrokerResponse routed = sink.Scroll(element, direction, pages);
+      if (routed.Error is null)
+      {
+        _ = Interlocked.Increment(ref _dispatchCount);
       }
 
-      return BrokerResponse.Fail("invalid_request",
-        $"scroll requires a resolvable target (x/y or element); element {element} has no element surface wired; nothing was dispatched.",
-        "action_sent=false");
-    }
-
-    // Coordinate target: position the cursor, then wheel.
-    if (TryReadPoint(parameters, "x", "y", "element", out int x, out int y))
-    {
-      bool sent = WheelAtTarget(direction, pages, x, y);
-      _ = Interlocked.Increment(ref _dispatchCount);
-      _ = Interlocked.Increment(ref _scrollCalls);
-      LastScrollPoint = (x, y);
-      LastScrollRequest = (direction, pages);
-      return sent
-        ? BrokerResponse.Accepted()
-        : BrokerResponse.Fail("internal", "SendInput reported failure for the scroll.", "action_sent=false");
+      return routed;
     }
 
     return BrokerResponse.Fail("invalid_request",
-      "scroll requires a resolvable target (x/y or element); nothing was dispatched.",
+      $"scroll requires a resolvable target (x/y or element); element {element} has no element surface wired; nothing was dispatched.",
       "action_sent=false");
+  }
+
+  /// <summary>Coordinate target: position the cursor, then wheel.</summary>
+  private BrokerResponse ScrollCoordinate(JsonElement? parameters, string direction)
+  {
+    if (!TryReadPoint(parameters, "x", "y", "element", out int x, out int y))
+    {
+      return BrokerResponse.Fail("invalid_request",
+        "scroll requires a resolvable target (x/y or element); nothing was dispatched.",
+        "action_sent=false");
+    }
+
+    int pages = ScrollPages(parameters);
+    bool sent = WheelAtTarget(direction, pages, x, y);
+    _ = Interlocked.Increment(ref _dispatchCount);
+    _ = Interlocked.Increment(ref _scrollCalls);
+    LastScrollPoint = (x, y);
+    LastScrollRequest = (direction, pages);
+    return sent
+      ? BrokerResponse.Accepted()
+      : BrokerResponse.Fail("internal", "SendInput reported failure for the scroll.", "action_sent=false");
   }
 
   /// <summary>The generic wired-path entry (I2): the router lands here.</summary>
@@ -458,24 +501,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
     }
     try
     {
-      return method switch
-      {
-        // strategy=event routes the chord through the same foreground gate the other
-        // senders use (F8): a background event chord would type into whatever window
-        // currently has focus. Strategy-less keys stay ungated.
-        "press_key" or "hold_key" when !GateAllows(Str(parameters, "strategy"), targetPid) =>
-          BrokerResponse.Fail("foreground_required",
-            $"strategy=event requires the target app (pid {targetPid}) to be foreground; nothing was dispatched."),
-        "press_key" => PressKey(KeyText(parameters)),
-        "hold_key" => HoldKey(KeyText(parameters), HoldSeconds(parameters)),
-        "type_text" => TypeText(Text(parameters) ?? "", parameters),
-        "click" => Click(parameters, targetPid),
-        "drag" => Drag(parameters, targetPid),
-        "scroll" => Scroll(parameters, targetPid),
-        "element_focus" or "element_set_value" or "element_perform_action"
-          or "element_select_text" or "element_press" => ElementPath(method, parameters),
-        _ => BrokerResponse.Fail("method_not_found", $"unknown input method: {method}."),
-      };
+      return RouteMethod(method, parameters, targetPid);
     }
     catch (KeyChordException ex)
     {
@@ -484,18 +510,75 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
     }
   }
 
+  /// <summary>The method router: the chord gate first, then the method switch.</summary>
+  private BrokerResponse RouteMethod(string method, JsonElement? parameters, int targetPid) =>
+    GateKeyMethods(method, parameters, targetPid) ?? RouteUngated(method, parameters, targetPid);
+
+  /// <summary>strategy=event routes the chord through the same foreground gate the other
+  ///     senders use (F8): a background event chord would type into whatever window
+  ///     currently has focus. Strategy-less keys stay ungated. Null when ungated.</summary>
+  private BrokerResponse? GateKeyMethods(string method, JsonElement? parameters, int targetPid) =>
+    method is "press_key" or "hold_key" && !GateAllows(Str(parameters, "strategy"), targetPid)
+      ? BrokerResponse.Fail("foreground_required",
+        $"strategy=event requires the target app (pid {targetPid}) to be foreground; nothing was dispatched.")
+      : null;
+
+  /// <summary>The ungated method switch: keyboard/text first, then the pointer and
+  ///     element paths.</summary>
+  private BrokerResponse RouteUngated(string method, JsonElement? parameters, int targetPid)
+  {
+    return method switch
+    {
+      "press_key" => PressKey(KeyText(parameters)),
+      "hold_key" => HoldKey(KeyText(parameters), HoldSeconds(parameters)),
+      "type_text" => TypeText(Text(parameters) ?? "", parameters),
+      _ => RoutePointer(method, parameters, targetPid),
+    };
+  }
+
+  /// <summary>The pointer routes: coordinate methods dispatch positioned sends; element
+  ///     methods route through the element path.</summary>
+  private BrokerResponse RoutePointer(string method, JsonElement? parameters, int targetPid)
+  {
+    return method switch
+    {
+      "click" => Click(parameters, targetPid),
+      "drag" => Drag(parameters, targetPid),
+      "scroll" => Scroll(parameters, targetPid),
+      _ => RouteElementMethod(method, parameters),
+    };
+  }
+
+  /// <summary>The element routes; unknown methods are the typed method_not_found.</summary>
+  private BrokerResponse RouteElementMethod(string method, JsonElement? parameters)
+  {
+    return method switch
+    {
+      "element_focus" or "element_set_value" or "element_perform_action"
+        or "element_select_text" or "element_press" => ElementPath(method, parameters),
+      _ => BrokerResponse.Fail("method_not_found", $"unknown input method: {method}."),
+    };
+  }
+
   /// <summary>Targeted mode: true when the dispatch would route to a delivery hook
   ///     (not the window-targeted element ops) for this method and target shape.</summary>
   private static bool ReachesDeliveryHook(string method, JsonElement? parameters)
   {
-    bool element = parameters is { } p && p.TryGetProperty("element", out _);
-    bool point = parameters is { } p2 && p2.TryGetProperty("x", out _) && p2.TryGetProperty("y", out _);
     return method switch
     {
       "press_key" or "hold_key" or "drag" or "type_text" => true,
-      "click" or "scroll" => !element && point,
+      "click" or "scroll" => TargetsPointNotElement(parameters),
       _ => false,
     };
+  }
+
+  /// <summary>True when the parameters carry a coordinate point and no element index -
+  ///     the shape that routes to a positioned delivery hook.</summary>
+  private static bool TargetsPointNotElement(JsonElement? parameters)
+  {
+    bool element = parameters is { } p && p.TryGetProperty("element", out _);
+    bool point = parameters is { } p2 && p2.TryGetProperty("x", out _) && p2.TryGetProperty("y", out _);
+    return !element && point;
   }
 
   /// <summary>The element resolver + real UIA ops (R1): set at broker composition from
@@ -521,13 +604,7 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
         "action_sent=false");
     }
 
-    string button = parameters is { } pb && pb.TryGetProperty("button", out JsonElement bt) && bt.ValueKind == JsonValueKind.String
-      ? bt.GetString()!
-      : "left";
-
-    bool fromOk = TryReadPoint(parameters, "x", "y", "element", out int fromX, out int fromY);
-    bool toOk = TryReadPoint(parameters, "to_x", "to_y", "to_element", out int toX, out int toY);
-    if (!fromOk || !toOk)
+    if (!TryReadDragEndpoints(parameters, out string button, out int fromX, out int fromY, out int toX, out int toY))
     {
       return BrokerResponse.Fail("invalid_request",
         "drag requires a resolvable from (x/y or element) and to (to_x/to_y or to_element); nothing was dispatched.",
@@ -544,32 +621,63 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
       : BrokerResponse.Fail("internal", "SendInput reported failure for the drag sequence.", "action_sent=false");
   }
 
+  /// <summary>Reads the drag's button and both endpoints; false when either endpoint
+  ///     is unresolvable (the typed invalid_request refusal answers).</summary>
+  private bool TryReadDragEndpoints(JsonElement? parameters, out string button, out int fromX, out int fromY, out int toX, out int toY)
+  {
+    button = parameters is { } pb && pb.TryGetProperty("button", out JsonElement bt) && bt.ValueKind == JsonValueKind.String
+      ? bt.GetString()!
+      : "left";
+    bool fromOk = TryReadPoint(parameters, "x", "y", "element", out fromX, out fromY);
+    bool toOk = TryReadPoint(parameters, "to_x", "to_y", "to_element", out toX, out toY);
+    return fromOk && toOk;
+  }
+
   /// <summary>Reads a screen point pair for drag endpoints; an element index resolves the
   ///     bounds center through the wired element ops (UIA BoundingRectangle cache).</summary>
   private bool TryReadPoint(JsonElement? parameters, string xName, string yName, string elementName, out int x, out int y)
   {
     x = 0;
     y = 0;
-    if (parameters is { } p
-      && p.TryGetProperty(xName, out JsonElement xEl) && xEl.ValueKind == JsonValueKind.Number && xEl.TryGetInt32(out x)
-      && p.TryGetProperty(yName, out JsonElement yEl) && yEl.ValueKind == JsonValueKind.Number && yEl.TryGetInt32(out y))
+    if (TryReadCoordinatePoint(parameters, xName, yName, out int coordinateX, out int coordinateY))
     {
+      x = coordinateX;
+      y = coordinateY;
       return true;
     }
 
-    if (parameters is { } p2
-      && p2.TryGetProperty(elementName, out JsonElement eEl) && eEl.ValueKind == JsonValueKind.Number && eEl.TryGetInt32(out int index))
-    {
-      if (_elementOps is { } ops && ops.TryResolveBoundsCenter(index, out x, out y))
-      {
-        return true;
-      }
+    return TryReadElementPoint(parameters, elementName, ref x, ref y);
+  }
 
-      x = 0;
-      y = 0;
+  /// <summary>Reads the explicit x/y coordinate pair.</summary>
+  private static bool TryReadCoordinatePoint(JsonElement? parameters, string xName, string yName, out int x, out int y)
+  {
+    x = 0;
+    y = 0;
+    return parameters is { } p
+      && p.TryGetProperty(xName, out JsonElement xEl) && xEl.ValueKind == JsonValueKind.Number && xEl.TryGetInt32(out x)
+      && p.TryGetProperty(yName, out JsonElement yEl) && yEl.ValueKind == JsonValueKind.Number && yEl.TryGetInt32(out y);
+  }
+
+  /// <summary>Resolves the element index's bounds center through the wired element ops;
+  ///     false leaves the point at zero (the unresolvable-target failure).</summary>
+  private bool TryReadElementPoint(JsonElement? parameters, string elementName, ref int x, ref int y)
+  {
+    if (parameters is not { } p
+      || !p.TryGetProperty(elementName, out JsonElement eEl) || eEl.ValueKind != JsonValueKind.Number || !eEl.TryGetInt32(out int index))
+    {
       return false;
     }
 
+    if (_elementOps is { } ops && ops.TryResolveBoundsCenter(index, out int centerX, out int centerY))
+    {
+      x = centerX;
+      y = centerY;
+      return true;
+    }
+
+    x = 0;
+    y = 0;
     return false;
   }
   private BrokerResponse ElementPath(string method, JsonElement? parameters)
@@ -597,16 +705,22 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
   ///     each method honestly; unknown methods stay typed refusals.</summary>
   private static BrokerResponse DispatchElementSink(IElementActionSink sink, string method, JsonElement? parameters)
   {
-    int element = parameters is { } p && p.TryGetProperty("element", out JsonElement el)
-      && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int index) ? index : -1;
-#pragma warning disable IDE0046 // Named decision: the missing-element guard names the refusal; the ternary form hides it.
-    if (element < 0)
-    {
-      return BrokerResponse.Fail("invalid_request",
+    return TryReadElementIndex(parameters, out int element)
+      ? RouteElementSink(sink, method, element, parameters)
+      : BrokerResponse.Fail("invalid_request",
         $"{method} requires params.element (integer index from the latest observation).");
-    }
-#pragma warning restore IDE0046
+  }
 
+  /// <summary>Reads params.element as an integer index; false when missing or not a number.</summary>
+  private static bool TryReadElementIndex(JsonElement? parameters, out int element)
+  {
+    element = -1;
+    return parameters is { } p && p.TryGetProperty("element", out JsonElement el)
+      && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out element);
+  }
+
+  private static BrokerResponse RouteElementSink(IElementActionSink sink, string method, int element, JsonElement? parameters)
+  {
     return method switch
     {
       "element_focus" => sink.Focus(element),
@@ -631,17 +745,10 @@ public sealed partial class InputDispatch(Func<int> foregroundPid, Func<KeyChord
 
   private static BrokerResponse DispatchElementOps(UiaElementOps ops, string method, JsonElement? parameters)
   {
-    int element = parameters is { } p && p.TryGetProperty("element", out JsonElement el)
-      && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int index) ? index : -1;
-    if (element < 0)
-    {
-      return BrokerResponse.Fail("invalid_request",
+    return TryReadElementIndex(parameters, out int element)
+      ? ElementOp(ops, method, element, parameters)
+      : BrokerResponse.Fail("invalid_request",
         $"{method} requires params.element (integer index from the latest observation).");
-#pragma warning disable IDE0046 // Named decision: the guard names the refusal once; the ternary form below reads worse.
-    }
-
-    return ElementOp(ops, method, element, parameters);
-#pragma warning restore IDE0046
   }
 
   private static BrokerResponse ElementOp(UiaElementOps ops, string method, int element, JsonElement? parameters)

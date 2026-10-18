@@ -21,15 +21,10 @@ public sealed record WriteMarkdownInput(
     }
 
     JsonElement json = baseParse.Value;
-
-    HashSet<string> known = new(["path", "document", "overwrite", ToolTimeout.ParameterName], StringComparer.Ordinal);
-    List<string> unknown = [.. json.EnumerateObject()
-        .Where(p => !known.Contains(p.Name))
-        .Select(p => p.Name)];
-    if (unknown.Count > 0)
+    DomainError? unknown = RejectUnknown(json);
+    if (unknown is not null)
     {
-      return Fail(new DomainError("UnknownParameter",
-          $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, document, overwrite, {ToolTimeout.ParameterName}."));
+      return Fail(unknown);
     }
 
     if (!json.TryGetProperty("document", out JsonElement docEl))
@@ -44,42 +39,67 @@ public sealed record WriteMarkdownInput(
       return Fail(parsedDoc.Error);
     }
 
-    string? path = null;
-    bool? overwrite = null;
+    Result<(string? Path, bool? Overwrite)> target = ParseTarget(json);
+    return target.IsSuccess
+      ? Result.Success<WriteMarkdownInput>(new(parsedDoc.Value, target.Value.Path, target.Value.Overwrite))
+      : Fail(target.Error);
+  }
 
-    if (json.TryGetProperty("path", out JsonElement pathEl))
+  private static DomainError? RejectUnknown(JsonElement json)
+  {
+    HashSet<string> known = new(["path", "document", "overwrite", ToolTimeout.ParameterName], StringComparer.Ordinal);
+    List<string> unknown = [.. json.EnumerateObject()
+        .Where(p => !known.Contains(p.Name))
+        .Select(p => p.Name)];
+    return unknown.Count > 0
+      ? new DomainError("UnknownParameter",
+          $"Unknown parameter(s): {string.Join(", ", unknown)}. Allowed: path, document, overwrite, {ToolTimeout.ParameterName}.")
+      : null;
+  }
+
+  /// <summary>'path' and 'overwrite' stand or fall together: a file target honors the
+  ///     overwrite gate (defaulting to create-only), and the gate alone is rejected.</summary>
+  private static Result<(string? Path, bool? Overwrite)> ParseTarget(JsonElement json)
+  {
+    if (!json.TryGetProperty("path", out JsonElement pathEl))
     {
-      if (pathEl.ValueKind != JsonValueKind.String)
-      {
-        return Fail(new DomainError("InvalidParameterType", "'path' must be a string."));
-      }
-
-      path = pathEl.GetString()!;
-      if (path.Length == 0)
-      {
-        return Fail(new DomainError("InvalidParameterValue", "'path' must be a non-empty string."));
-      }
-
-      // Omitted 'overwrite' defaults to refusing replacement (create-only), matching write.
-      if (!json.TryGetProperty("overwrite", out JsonElement owEl))
-      {
-        return Result.Success<WriteMarkdownInput>(new(parsedDoc.Value, path, Overwrite: false));
-      }
-
-      if (owEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-      {
-        return Fail(new DomainError("InvalidParameterType", "'overwrite' must be a boolean."));
-      }
-
-      overwrite = owEl.GetBoolean();
-    }
-    else if (json.TryGetProperty("overwrite", out _))
-    {
-      return Fail(new DomainError("UnknownParameter",
-          "'overwrite' is only valid together with 'path'; without a file target the rendered markdown is returned instead."));
+      return RequireNoOverwrite(json);
     }
 
-    return Result.Success<WriteMarkdownInput>(new(parsedDoc.Value, path, overwrite));
+    Result<string> path = RequireNonEmptyPath(pathEl);
+    if (!path.IsSuccess)
+    {
+      return Result.Failure<(string?, bool?)>(path.Error);
+    }
+
+    // Omitted 'overwrite' defaults to refusing replacement (create-only), matching write.
+    return json.TryGetProperty("overwrite", out JsonElement owEl)
+      ? RequireBooleanOverwrite(owEl, path.Value)
+      : Result.Success<(string?, bool?)>((path.Value, false));
+  }
+
+  private static Result<(string? Path, bool? Overwrite)> RequireBooleanOverwrite(JsonElement owEl, string path) =>
+      owEl.ValueKind is JsonValueKind.True or JsonValueKind.False
+        ? Result.Success<(string?, bool?)>((path, owEl.GetBoolean()))
+        : Result.Failure<(string?, bool?)>(new DomainError("InvalidParameterType", "'overwrite' must be a boolean."));
+
+  private static Result<(string? Path, bool? Overwrite)> RequireNoOverwrite(JsonElement json) =>
+      json.TryGetProperty("overwrite", out _)
+        ? Result.Failure<(string?, bool?)>(new DomainError("UnknownParameter",
+            "'overwrite' is only valid together with 'path'; without a file target the rendered markdown is returned instead."))
+        : Result.Success<(string?, bool?)>((null, null));
+
+  private static Result<string> RequireNonEmptyPath(JsonElement pathEl)
+  {
+    if (pathEl.ValueKind != JsonValueKind.String)
+    {
+      return Result.Failure<string>(new DomainError("InvalidParameterType", "'path' must be a string."));
+    }
+
+    string path = pathEl.GetString()!;
+    return path.Length > 0
+      ? Result.Success(path)
+      : Result.Failure<string>(new DomainError("InvalidParameterValue", "'path' must be a non-empty string."));
   }
 
   private static Result<WriteMarkdownInput> Fail(DomainError err) =>

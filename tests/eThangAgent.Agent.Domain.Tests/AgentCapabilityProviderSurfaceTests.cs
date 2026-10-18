@@ -41,7 +41,7 @@ public class AgentCapabilityProviderSurfaceTests
 
   /// <summary>The provider with every collaborator faked: only the Actions surface matters.</summary>
   private static AgentCapabilityProvider MakeBare()
-      => new(new NoSpawn(), new NoQueries(), () => throw new InvalidOperationException("not exercised"), runtime: null, links: null);
+      => new(new AgentProviderServices(new NoSpawn(), new NoQueries(), () => throw new InvalidOperationException("not exercised")));
 
   private sealed class NoSpawn : IAgentSpawnCommand
   {

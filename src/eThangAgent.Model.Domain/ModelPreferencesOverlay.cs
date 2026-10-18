@@ -19,21 +19,41 @@ public static class ModelPreferencesOverlay
     ArgumentNullException.ThrowIfNull(config);
     return prefs is null
         ? config
-        : config with
-        {
-          Temperature = prefs.Temperature ?? config.Temperature,
-          MaxTokens = prefs.MaxTokens ?? config.MaxTokens,
-          TopP = prefs.TopP ?? config.TopP,
-          TopK = prefs.TopK ?? config.TopK,
-          FrequencyPenalty = prefs.FrequencyPenalty ?? config.FrequencyPenalty,
-          PresencePenalty = prefs.PresencePenalty ?? config.PresencePenalty,
-          RepetitionPenalty = prefs.RepetitionPenalty ?? config.RepetitionPenalty,
-          MinP = prefs.MinP ?? config.MinP,
-          TopA = prefs.TopA ?? config.TopA,
-          Seed = prefs.Seed ?? config.Seed,
-          Verbosity = prefs.Verbosity ?? config.Verbosity,
-          ParallelToolCalls = prefs.ParallelToolCalls ?? config.ParallelToolCalls,
-          ProviderSettings = prefs.ProviderSettings ?? config.ProviderSettings,
-        };
+        : OverlayMisc(OverlayPenalties(OverlayCore(config, prefs), prefs), prefs);
   }
+
+  /// <summary>Core sampling knobs: temperature, max tokens, and the top-p/top-k
+  ///     cutoffs. A non-null preference replaces the config's value; null keeps it.</summary>
+  private static ModelConfig OverlayCore(ModelConfig config, SessionModelPreferences prefs) =>
+      config with
+      {
+        Temperature = prefs.Temperature ?? config.Temperature,
+        MaxTokens = prefs.MaxTokens ?? config.MaxTokens,
+        TopP = prefs.TopP ?? config.TopP,
+        TopK = prefs.TopK ?? config.TopK,
+      };
+
+  /// <summary>Penalty and cutoff knobs: frequency, presence, repetition, min-p, and
+  ///     top-a. A non-null preference replaces the config's value; null keeps it.</summary>
+  private static ModelConfig OverlayPenalties(ModelConfig config, SessionModelPreferences prefs) =>
+      config with
+      {
+        FrequencyPenalty = prefs.FrequencyPenalty ?? config.FrequencyPenalty,
+        PresencePenalty = prefs.PresencePenalty ?? config.PresencePenalty,
+        RepetitionPenalty = prefs.RepetitionPenalty ?? config.RepetitionPenalty,
+        MinP = prefs.MinP ?? config.MinP,
+        TopA = prefs.TopA ?? config.TopA,
+      };
+
+  /// <summary>Remaining knobs: seed, verbosity, parallel tool calls, and the opaque
+  ///     provider settings (copied verbatim, never parsed). A non-null preference
+  ///     replaces the config's value; null keeps it.</summary>
+  private static ModelConfig OverlayMisc(ModelConfig config, SessionModelPreferences prefs) =>
+      config with
+      {
+        Seed = prefs.Seed ?? config.Seed,
+        Verbosity = prefs.Verbosity ?? config.Verbosity,
+        ParallelToolCalls = prefs.ParallelToolCalls ?? config.ParallelToolCalls,
+        ProviderSettings = prefs.ProviderSettings ?? config.ProviderSettings,
+      };
 }

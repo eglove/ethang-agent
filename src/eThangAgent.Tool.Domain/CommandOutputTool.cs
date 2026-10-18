@@ -97,32 +97,40 @@ public sealed class CommandOutputTool(ICommandRunStore store) : ITool
       return Result.Failure<CommandOutputArgs>(budget.Error);
     }
 
+    ParsedProperties properties = ParseProperties(baseParse.Value);
+    return properties.Unknown.Count > 0
+      ? Result.Failure<CommandOutputArgs>(new DomainError("UnknownParameter",
+          $"Unknown parameter(s): {string.Join(", ", properties.Unknown)}. " +
+          "Supported: timeoutSeconds, id, tailLines."))
+      : Result.Success(new CommandOutputArgs(properties.Id, properties.TailLines));
+  }
+
+  private static ParsedProperties ParseProperties(JsonElement json)
+  {
     int? id = null;
     int tailLines = DefaultTailLines;
     List<string> unknown = [];
-    foreach (JsonProperty property in baseParse.Value.EnumerateObject())
+    foreach (JsonProperty property in json.EnumerateObject())
     {
       switch (property.Name)
       {
         case "id":
-          if (property.Value.ValueKind is not JsonValueKind.Number ||
-              !property.Value.TryGetInt32(out int parsedId) || parsedId < 1)
+          Result<int> parsedId = RequirePositive(property.Value, "'id' must be a positive whole number.");
+          if (!parsedId.IsSuccess)
           {
-            return Result.Failure<CommandOutputArgs>(new DomainError("InvalidParameterValue",
-                "'id' must be a positive whole number."));
+            return ParsedProperties.Failure(parsedId.Error, unknown);
           }
 
-          id = parsedId;
+          id = parsedId.Value;
           break;
         case "tailLines":
-          if (property.Value.ValueKind is not JsonValueKind.Number ||
-              !property.Value.TryGetInt32(out int parsedTail) || parsedTail < 1)
+          Result<int> parsedTail = RequirePositive(property.Value, "'tailLines' must be a positive whole number.");
+          if (!parsedTail.IsSuccess)
           {
-            return Result.Failure<CommandOutputArgs>(new DomainError("InvalidParameterValue",
-                "'tailLines' must be a positive whole number."));
+            return ParsedProperties.Failure(parsedTail.Error, unknown);
           }
 
-          tailLines = parsedTail;
+          tailLines = parsedTail.Value;
           break;
         case ToolTimeout.ParameterName:
           break;
@@ -132,11 +140,18 @@ public sealed class CommandOutputTool(ICommandRunStore store) : ITool
       }
     }
 
-    return unknown.Count > 0
-      ? Result.Failure<CommandOutputArgs>(new DomainError("UnknownParameter",
-          $"Unknown parameter(s): {string.Join(", ", unknown)}. " +
-          "Supported: timeoutSeconds, id, tailLines."))
-      : Result.Success(new CommandOutputArgs(id, tailLines));
+    return new ParsedProperties(id, tailLines, unknown);
+  }
+
+  private static Result<int> RequirePositive(JsonElement value, string message) =>
+      value.ValueKind is not JsonValueKind.Number || !value.TryGetInt32(out int parsed) || parsed < 1
+        ? Result.Failure<int>(new DomainError("InvalidParameterValue", message))
+        : Result.Success(parsed);
+
+  private sealed record ParsedProperties(int? Id, int TailLines, List<string> Unknown)
+  {
+    public static ParsedProperties Failure(DomainError error, List<string> unknownSoFar) =>
+        new(null, DefaultTailLines, [.. unknownSoFar, error.Message]);
   }
 
   private sealed record CommandOutputArgs(int? Id, int TailLines);

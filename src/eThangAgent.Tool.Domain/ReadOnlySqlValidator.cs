@@ -22,13 +22,22 @@ public static class ReadOnlySqlValidator
     }
 
     string first = NextWord(sql, SkipTrivia(sql, 0), out int _);
-    if (!first.Equals("SELECT", StringComparison.OrdinalIgnoreCase)
-        && !first.Equals("WITH", StringComparison.OrdinalIgnoreCase))
-    {
-      return Err($"The statement must begin with SELECT or WITH (got '{first}'). " +
-          "db_query only runs read-only queries; writes and pragmas are not allowed.");
-    }
+    DomainError? head = IsReadOnlyHead(first) ? null : HeadError(first);
+    return head ?? ScanAll(sql);
+  }
 
+  private static bool IsReadOnlyHead(string first) =>
+      first.Equals("SELECT", StringComparison.OrdinalIgnoreCase)
+      || first.Equals("WITH", StringComparison.OrdinalIgnoreCase);
+
+  private static DomainError HeadError(string first) => Err(
+      $"The statement must begin with SELECT or WITH (got '{first}'). " +
+      "db_query only runs read-only queries; writes and pragmas are not allowed.");
+
+  /// <summary>Token loop: walks the statement consuming one token or region at a
+  ///     time and returns the first hard error; a trailing-separator end is clean.</summary>
+  private static DomainError? ScanAll(string sql)
+  {
     bool sawAttach = false;
     int p = 0;
     while (p < sql.Length)
@@ -39,11 +48,13 @@ public static class ReadOnlySqlValidator
       {
         return error;
       }
+
       if (done)
       {
-        return sawAttach ? AttachError() : null;
+        break;
       }
     }
+
     return sawAttach ? AttachError() : null;
   }
 
@@ -53,42 +64,70 @@ public static class ReadOnlySqlValidator
   ///     <c>done</c> element reports a clean end at a trailing separator.</summary>
   private static (DomainError? Error, bool Done, bool Attach) ScanNext(string sql, ref int p)
   {
-    switch (sql[p])
+    char c = sql[p];
+    if (IsQuote(c))
     {
-      case '\'':
-        return (SkipQuoted(sql, ref p, '\'')
-            ? null : Err("Unterminated string literal — close the quote."), false, false);
-      case '"':
-        return (SkipQuoted(sql, ref p, '"')
-            ? null : Err("Unterminated quoted identifier — close the double quote."), false, false);
-      case '`':
-        return (SkipQuoted(sql, ref p, '`')
-            ? null : Err("Unterminated quoted identifier — close the backtick."), false, false);
-      case '[':
-        return ScanBracketed(sql, ref p);
-      case ';':
-        int after = SkipTrivia(sql, p + 1);
-        if (after < sql.Length)
-        {
-          return (Err("Multiple SQL statements are not allowed — run one query per call."), false, false);
-        }
-        p = after;
-        return (null, true, false);
-      default:
-        if (IsWordChar(sql[p]))
-        {
-          string word = NextWord(sql, p, out int end);
-          p = end;
-          bool attach = word.Equals("ATTACH", StringComparison.OrdinalIgnoreCase)
-              || word.Equals("DETACH", StringComparison.OrdinalIgnoreCase);
-          return (null, false, attach);
-        }
-        // Whitespace and comments (which may legally contain ';') are skipped as a
-        // unit; any other punctuation advances exactly one character.
-        int next = SkipTrivia(sql, p);
-        p = next > p ? next : p + 1;
-        return (null, false, false);
+      return ScanQuoted(sql, ref p, c);
     }
+
+    if (c == '[')
+    {
+      return ScanBracketed(sql, ref p);
+    }
+
+    (DomainError? Error, bool Done, bool Attach) result = c == ';'
+      ? ScanSeparator(sql, ref p)
+      : ScanWordOrPunctuation(sql, ref p);
+    return result;
+  }
+
+  private static bool IsQuote(char c) => c is '\'' or '"' or '`';
+
+  private static (DomainError? Error, bool Done, bool Attach) ScanQuoted(string sql, ref int p, char quote)
+  {
+    bool closed = SkipQuoted(sql, ref p, quote);
+    DomainError? error = quote switch
+    {
+      '\'' => closed ? null : Err("Unterminated string literal — close the quote."),
+      '"' => closed ? null : Err("Unterminated quoted identifier — close the double quote."),
+      _ => closed ? null : Err("Unterminated quoted identifier — close the backtick."),
+    };
+    return (error, false, false);
+  }
+
+  private static (DomainError? Error, bool Done, bool Attach) ScanSeparator(string sql, ref int p)
+  {
+    int after = SkipTrivia(sql, p + 1);
+    if (after < sql.Length)
+    {
+      return (Err("Multiple SQL statements are not allowed — run one query per call."), false, false);
+    }
+
+    p = after;
+    return (null, true, false);
+  }
+
+  private static (DomainError? Error, bool Done, bool Attach) ScanWordOrPunctuation(string sql, ref int p)
+  {
+    if (IsWordChar(sql[p]))
+    {
+      return ScanWord(sql, ref p);
+    }
+
+    // Whitespace and comments (which may legally contain ';') are skipped as a
+    // unit; any other punctuation advances exactly one character.
+    int next = SkipTrivia(sql, p);
+    p = next > p ? next : p + 1;
+    return (null, false, false);
+  }
+
+  private static (DomainError? Error, bool Done, bool Attach) ScanWord(string sql, ref int p)
+  {
+    string word = NextWord(sql, p, out int end);
+    p = end;
+    bool attach = word.Equals("ATTACH", StringComparison.OrdinalIgnoreCase)
+        || word.Equals("DETACH", StringComparison.OrdinalIgnoreCase);
+    return (null, false, attach);
   }
 
   private static (DomainError? Error, bool Done, bool Attach) ScanBracketed(string sql, ref int p)
@@ -98,6 +137,7 @@ public static class ReadOnlySqlValidator
     {
       return (Err("Unterminated bracketed identifier — close the bracket."), false, false);
     }
+
     p = close + 1;
     return (null, false, false);
   }
@@ -113,27 +153,59 @@ public static class ReadOnlySqlValidator
   {
     while (p < sql.Length)
     {
-      char c = sql[p];
-      if (char.IsWhiteSpace(c))
-      {
-        p++;
-      }
-      else if (c == '-' && p + 1 < sql.Length && sql[p + 1] == '-')
-      {
-        int eol = sql.IndexOf('\n', p + 2);
-        p = eol < 0 ? sql.Length : eol + 1;
-      }
-      else if (c == '/' && p + 1 < sql.Length && sql[p + 1] == '*')
-      {
-        int end = sql.IndexOf("*/", p + 2, StringComparison.Ordinal);
-        p = end < 0 ? sql.Length : end + 2;
-      }
-      else
+      int moved = SkipTriviaRun(sql, p);
+      if (moved == p)
       {
         break;
       }
+
+      p = moved;
     }
+
     return p;
+  }
+
+  /// <summary>Consumes one trivia element (whitespace run, line comment, or block
+  ///     comment) starting at <paramref name="p"/>; returns <paramref name="p"/>
+  ///     unchanged when the character there is not trivia.</summary>
+  private static int SkipTriviaRun(string sql, int p)
+  {
+    char c = sql[p];
+    if (char.IsWhiteSpace(c))
+    {
+      while (p < sql.Length && char.IsWhiteSpace(sql[p]))
+      {
+        p++;
+      }
+
+      return p;
+    }
+
+    if (IsLineComment(c, p, sql))
+    {
+      return LineCommentEnd(sql, p);
+    }
+
+    int moved = IsBlockComment(c, p, sql) ? BlockCommentEnd(sql, p) : p;
+    return moved;
+  }
+
+  private static bool IsLineComment(char c, int p, string sql) =>
+      c == '-' && p + 1 < sql.Length && sql[p + 1] == '-';
+
+  private static bool IsBlockComment(char c, int p, string sql) =>
+      c == '/' && p + 1 < sql.Length && sql[p + 1] == '*';
+
+  private static int LineCommentEnd(string sql, int p)
+  {
+    int eol = sql.IndexOf('\n', p + 2);
+    return eol < 0 ? sql.Length : eol + 1;
+  }
+
+  private static int BlockCommentEnd(string sql, int p)
+  {
+    int end = sql.IndexOf("*/", p + 2, StringComparison.Ordinal);
+    return end < 0 ? sql.Length : end + 2;
   }
 
   /// <summary>Advances past a region opened by <paramref name="quote"/>, where a doubled
@@ -157,6 +229,7 @@ public static class ReadOnlySqlValidator
         return true;
       }
     }
+
     return false;
   }
 
@@ -167,6 +240,7 @@ public static class ReadOnlySqlValidator
     {
       p++;
     }
+
     end = p;
     return sql[start..p];
   }

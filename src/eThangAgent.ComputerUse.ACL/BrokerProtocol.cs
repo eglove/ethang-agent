@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
 namespace eThangAgent.ComputerUse.ACL;
@@ -46,41 +47,75 @@ public sealed record BrokerReply(int Id, JsonElement? Result, BrokerWireError? E
 {
   /// <summary>Parses one reply frame; null when the frame is not a well-formed reply
   ///     (missing id, or neither result nor error present).</summary>
-  public static BrokerReply? Parse(string json)
+  public static BrokerReply? Parse(string json) => TryParseDocument(json) is not { } el ? null : TryBuildReply(el);
+
+  /// <summary>Parses the JSON document; only a JSON object qualifies as a frame root.</summary>
+  private static JsonElement? TryParseDocument(string json)
   {
-    JsonElement el;
     try
     {
       using JsonDocument doc = JsonDocument.Parse(json);
-      el = doc.RootElement.Clone();
+      JsonElement root = doc.RootElement.Clone();
+      return root.ValueKind == JsonValueKind.Object ? root : null;
     }
     catch (JsonException)
     {
       return null;
     }
+  }
 
-    if (el.ValueKind != JsonValueKind.Object || !el.TryGetProperty("id", out JsonElement idEl)
-        || idEl.ValueKind != JsonValueKind.Number || !idEl.TryGetInt32(out int id))
+  /// <summary>Assembles the reply from a parsed frame object: the id is mandatory, the
+  ///     payload slices are read independently, a frame carrying neither slice is
+  ///     not a reply, and a PRESENT-but-malformed error object invalidates the whole
+  ///     frame (the parse is fail-closed, never a guessed reply).</summary>
+  private static BrokerReply? TryBuildReply(JsonElement el)
+  {
+    if (!TryReadId(el, out int id) || !TryReadError(el, out BrokerWireError? error))
     {
       return null;
     }
 
-    JsonElement? result = el.TryGetProperty("result", out JsonElement r) ? r : null;
-    BrokerWireError? error = null;
-    if (el.TryGetProperty("error", out JsonElement e) && e.ValueKind == JsonValueKind.Object)
-    {
-      string? code = e.TryGetProperty("code", out JsonElement c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
-      string? message = e.TryGetProperty("message", out JsonElement m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null;
-      if (code is null)
-      {
-        return null;
-      }
+    JsonElement? result = ReadResult(el);
+    return result is null && error is null ? null : new BrokerReply(id, result, error);
+  }
 
-      string? details = e.TryGetProperty("details", out JsonElement d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
-      error = new BrokerWireError(code, message ?? "", details);
+  /// <summary>Reads the mandatory numeric id; false when absent or not a JSON number.</summary>
+  private static bool TryReadId(JsonElement el, out int id)
+  {
+    id = 0;
+    if (!el.TryGetProperty("id", out JsonElement idEl) || idEl.ValueKind != JsonValueKind.Number
+        || !idEl.TryGetInt32(out int parsed))
+    {
+      return false;
     }
 
-    return result is null && error is null ? null : new BrokerReply(id, result, error);
+    id = parsed;
+    return true;
+  }
+
+  /// <summary>Reads the optional result slice; absent when the key is missing.</summary>
+  private static JsonElement? ReadResult(JsonElement el) =>
+    el.TryGetProperty("result", out JsonElement r) ? r : null;
+
+  /// <summary>Reads the optional error slice: true means the slice was consumed (error
+  ///     null when it parsed to no error), false means the frame is malformed. A present
+  ///     error OBJECT without a string code is malformed and invalidates the frame.</summary>
+  private static bool TryReadError(JsonElement el, out BrokerWireError? error)
+  {
+    error = null;
+    if (!el.TryGetProperty("error", out JsonElement e) || e.ValueKind != JsonValueKind.Object)
+    {
+      return true; // no error slice: consumed, no error
+    }
+
+    string? code = Wire.Str(e, "code");
+    if (code is null)
+    {
+      return false; // present but malformed: the whole frame is invalid
+    }
+
+    error = new BrokerWireError(code, Wire.StrOr(e, "message") ?? "", Wire.StrOr(e, "details"));
+    return true;
   }
 }
 
@@ -120,54 +155,80 @@ public sealed record CaptureAppResult(
   public static CaptureAppResult? From(BrokerReply reply)
   {
     ArgumentNullException.ThrowIfNull(reply);
-    if (reply.Error is not null || reply.Result is not { } root || root.ValueKind != JsonValueKind.Object)
-    {
-      return null;
-    }
+    return reply.Error is not null || reply.Result is not { } root || root.ValueKind != JsonValueKind.Object
+      ? null
+      : TryBuildFromRoot(root);
+  }
 
-    string? stateId = Wire.Str(root, "state_id");
-    string? snapshotMode = Wire.Str(root, "snapshot_mode");
+  /// <summary>Builds the typed capture from a valid result object: header first, then
+  ///     the element table, then the optional screenshot - one parse phase per slice.</summary>
+  private static CaptureAppResult? TryBuildFromRoot(JsonElement root) => TryParseHeader(
+        root, out string? stateId, out string? snapshotMode, out CaptureAppApp? app, out CaptureAppWindow? window)
+    && TryParseElements(root, out List<CaptureAppElement>? elements)
+    && TryParseScreenshot(root, out CaptureAppScreenshot? screenshot)
+      ? new CaptureAppResult(stateId, snapshotMode, Wire.StrOr(root, "base_state_id"), app, window,
+          elements, screenshot, Wire.StrOr(root, "effect_evidence"))
+      : null;
+
+  /// <summary>Reads the mandatory header keys: state_id, a known snapshot_mode, and the
+  ///     app/window objects parsed through their typed records. Any miss fails the parse.</summary>
+  private static bool TryParseHeader(JsonElement root,
+      [NotNullWhen(true)] out string? stateId, [NotNullWhen(true)] out string? snapshotMode,
+      [NotNullWhen(true)] out CaptureAppApp? app, [NotNullWhen(true)] out CaptureAppWindow? window)
+  {
+    stateId = Wire.Str(root, "state_id");
+    snapshotMode = Wire.Str(root, "snapshot_mode");
+    app = null;
+    window = null;
     if (stateId is null || snapshotMode is not ("full" or "delta" or "no_change")
         || !root.TryGetProperty("app", out JsonElement appEl) || appEl.ValueKind != JsonValueKind.Object
         || !root.TryGetProperty("window", out JsonElement windowEl) || windowEl.ValueKind != JsonValueKind.Object)
     {
-      return null;
+      return false;
     }
 
-    CaptureAppApp? app = CaptureAppApp.From(appEl);
-    CaptureAppWindow? window = CaptureAppWindow.From(windowEl);
-    if (app is null || window is null)
+    app = CaptureAppApp.From(appEl);
+    window = CaptureAppWindow.From(windowEl);
+    return app is not null && window is not null;
+  }
+
+  /// <summary>Reads the element table: an absent or non-array 'elements' key yields an
+  ///     empty table; a row that fails its typed parse fails the whole capture.</summary>
+  private static bool TryParseElements(JsonElement root, [NotNullWhen(true)] out List<CaptureAppElement>? elements)
+  {
+    elements = [];
+    if (!root.TryGetProperty("elements", out JsonElement elementsEl)
+        || elementsEl.ValueKind != JsonValueKind.Array)
     {
-      return null;
+      return true;
     }
 
-    List<CaptureAppElement> elements = [];
-    if (root.TryGetProperty("elements", out JsonElement elementsEl) && elementsEl.ValueKind == JsonValueKind.Array)
+    foreach (JsonElement el in elementsEl.EnumerateArray())
     {
-      foreach (JsonElement el in elementsEl.EnumerateArray())
+      CaptureAppElement? element = CaptureAppElement.From(el);
+      if (element is null)
       {
-        CaptureAppElement? element = CaptureAppElement.From(el);
-        if (element is null)
-        {
-          return null;
-        }
-
-        elements.Add(element);
+        return false;
       }
+
+      elements.Add(element);
     }
 
-    CaptureAppScreenshot? screenshot = null;
-    if (root.TryGetProperty("screenshot", out JsonElement shotEl) && shotEl.ValueKind == JsonValueKind.Object)
+    return true;
+  }
+
+  /// <summary>Reads the optional screenshot: absent or non-object yields none; a present
+  ///     object that fails its typed parse fails the whole capture.</summary>
+  private static bool TryParseScreenshot(JsonElement root, out CaptureAppScreenshot? screenshot)
+  {
+    screenshot = null;
+    if (!root.TryGetProperty("screenshot", out JsonElement shotEl) || shotEl.ValueKind != JsonValueKind.Object)
     {
-      screenshot = CaptureAppScreenshot.From(shotEl);
-      if (screenshot is null)
-      {
-        return null;
-      }
+      return true;
     }
 
-    return new CaptureAppResult(stateId, snapshotMode, Wire.StrOr(root, "base_state_id"), app, window,
-      elements, screenshot, Wire.StrOr(root, "effect_evidence"));
+    screenshot = CaptureAppScreenshot.From(shotEl);
+    return screenshot is not null;
   }
 }
 
