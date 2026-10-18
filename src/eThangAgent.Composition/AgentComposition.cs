@@ -359,6 +359,9 @@ public static class AgentComposition
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
         .AddSingleton<PlanService>()
         .AddSingleton<IPlanTodoCleaner>(sp => new StateServicePlanTodoCleaner(sp.GetRequiredService<IStateService>()))
+        // The experiment ledger rides state keys (append-only), exactly as the todo tool
+        // rides todo/list: the tool (a later task) resolves this port, never IStateService.
+        .AddSingleton<IExperimentLedgerStore>(sp => new StateServiceExperimentLedgerStore(sp.GetRequiredService<IStateService>()))
         .AddSingleton<IAgentStore, SqliteAgentStore>()
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
