@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using eThangAgent.Desktop.ViewModels;
 
 namespace eThangAgent.Desktop.Views;
@@ -140,8 +141,15 @@ internal partial class AgentView : UserControl
     }
 
     // The per-row transcript viewer is the one inside the row Expander
-    // (MaxHeight=420); name it in the template so it is findable here.
-    ScrollViewer? viewer = expander.FindControl<ScrollViewer>("RowTranscriptScroll");
+    // (MaxHeight=420). FindControl cannot be used here: this handler fires from
+    // DataContext inheritance DURING ContentPresenter.ApplyTemplate (mid layout
+    // pass), before the template's name scope registers — FindControl threw
+    // 'Could not find parent name scope' and killed the dispatcher (the 2026-10-18
+    // spawn crash). Search the visual subtree instead; when the Expander's content
+    // has not materialized yet the wiring attaches on the NEXT DataContextChanged
+    // (the template re-apply raises inheritance changes again), so a miss is a
+    // deferred attach, never a lost one.
+    ScrollViewer? viewer = expander.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
     if (viewer is null)
     {
       return;

@@ -191,6 +191,11 @@ internal static class E2E
   }
 
 
+  /// <summary>A minimal Responses-API request body naming one model — how the mock
+  ///     concurrency test addresses the per-model scripts directly.</summary>
+  public static string RawCompletionBody(string model) =>
+      JsonSerializer.Serialize(new { model, stream = false, input = Array.Empty<object>() });
+
   /// <summary>Scripted assistant text reply in the Responses-API body shape.</summary>
   public static string RawCompletion(string content) =>
       JsonSerializer.Serialize(new

@@ -31,14 +31,36 @@ public sealed class WaitWakeHub(Action<string>? faultLog = null) : IWaitWakeSour
 {
   private readonly Lock _gate = new();
   private readonly List<Action<WakeSignal>> _observers = [];
+  // Sticky signals by reason: a pending user-steering fact persists until the inbox
+  // clears it, so a wait that subscribes LATER still wakes for it.
+  private readonly Dictionary<WakeReason, WakeSignal> _sticky = [];
   private readonly Action<string>? _faultLog = faultLog;
 
   public IDisposable Subscribe(Action<WakeSignal> observer)
   {
     ArgumentNullException.ThrowIfNull(observer);
+    WakeSignal[] pending;
     lock (_gate)
     {
       _observers.Add(observer);
+      pending = [.. _sticky.Values];
+    }
+
+    // Sticky delivery AFTER releasing the gate: a pending user message wakes the
+    // wait that subscribes while the message is still undelivered.
+    foreach (WakeSignal signal in pending)
+    {
+      try
+      {
+        observer(signal);
+      }
+#pragma warning disable CA1031 // Do not catch general exception types
+      // Named decision: the hub is a fault boundary — see the class summary.
+      catch (Exception ex)
+      {
+        _faultLog?.Invoke($"wait-wake subscriber fault: {ex.Message}");
+      }
+#pragma warning restore CA1031 // Do not catch general exception types
     }
 
     return new Lease(this, observer);
@@ -53,6 +75,48 @@ public sealed class WaitWakeHub(Action<string>? faultLog = null) : IWaitWakeSour
       snapshot = [.. _observers];
     }
 
+    Dispatch(signal, snapshot);
+  }
+
+  /// <summary>Registers a STICKY wake: delivered to current subscribers immediately AND
+  ///     to every subscriber that subscribes while it remains set — the pending-fact
+  ///     semantics the user-steering wake needs. The user message that lands while the
+  ///     parent is between safe points stays pending in the inbox; the wait that starts
+  ///     LATER must still wake for it (the ephemeral no-replay contract loses exactly
+  ///     that signal). ClearSticky stops further delivery — the inbox clears it when
+  ///     the message is actually delivered.</summary>
+  public void RegisterSticky(WakeSignal signal)
+  {
+    ArgumentNullException.ThrowIfNull(signal);
+    lock (_gate)
+    {
+      _sticky[signal.Reason] = signal;
+    }
+
+    Action<WakeSignal>[] stickySnapshot;
+    lock (_gate)
+    {
+      stickySnapshot = [.. _observers];
+    }
+
+    Dispatch(signal, stickySnapshot);
+  }
+
+  /// <summary>Clears the sticky signal for one reason: later subscribers no longer
+  ///     receive it. Idempotent.</summary>
+  public void ClearSticky(WakeReason reason)
+  {
+    lock (_gate)
+    {
+      _ = _sticky.Remove(reason);
+    }
+  }
+
+  /// <summary>Delivers one signal to a subscriber snapshot with fault containment:
+  ///     one throwing subscriber never prevents the remaining subscribers from being
+  ///     woken; faults surface through the optional fault log instead of escaping.</summary>
+  private void Dispatch(WakeSignal signal, Action<WakeSignal>[] snapshot)
+  {
     foreach (Action<WakeSignal> observer in snapshot)
     {
       try
@@ -60,9 +124,7 @@ public sealed class WaitWakeHub(Action<string>? faultLog = null) : IWaitWakeSour
         observer(signal);
       }
 #pragma warning disable CA1031 // Do not catch general exception types
-      // Named decision: the hub is a fault boundary — one throwing subscriber must
-      // never prevent the remaining subscribers from being woken. Faults are surfaced
-      // through the optional fault log instead of escaping.
+      // Named decision: the hub is a fault boundary — see the class summary.
       catch (Exception ex)
       {
         _faultLog?.Invoke($"wait-wake subscriber fault: {ex.Message}");

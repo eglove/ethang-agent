@@ -263,6 +263,22 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
         break;
       }
 
+      // CONCURRENT dispatch: each request is served on its own task — a delayed
+      // in-flight response must never block the loop from receiving and serving the
+      // next request. The steer-during-wait E2E depends on the parent's wait request
+      // being served while the child's delayed response is still pending; the
+      // sequential loop made the child's delay also delay the parent's requests,
+      // racing the wait's subscribe against the child's settlement (the E2E flake).
+      _ = Task.Run(() => DispatchAsync(ctx), _cts.Token);
+    }
+  }
+
+  /// <summary>Dispatches one request to its handler and closes the response. Fire-and-
+  ///     forget over the loop: the loop only accepts connections.</summary>
+  private async Task DispatchAsync(HttpListenerContext ctx)
+  {
+    try
+    {
       if (ctx.Request.Url!.AbsolutePath == "/api/v1/models")
       {
         await ServeCatalogAsync(ctx).ConfigureAwait(false);
@@ -275,6 +291,24 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
       {
         ctx.Response.StatusCode = 404;
       }
+    }
+#pragma warning disable CA1031 // Mock server: a handler fault must not kill the loop; the response closes so the client sees an error.
+    catch (Exception)
+#pragma warning restore CA1031
+    {
+      try
+      {
+        ctx.Response.StatusCode = 500;
+      }
+#pragma warning disable CA1031 // best-effort close
+      catch (Exception)
+#pragma warning restore CA1031
+      {
+        // connection already gone
+      }
+    }
+    finally
+    {
       ctx.Response.Close();
     }
   }
