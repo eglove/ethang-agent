@@ -242,6 +242,9 @@ public static class AgentComposition
           new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
           "Track a workspace task list."),
       new AgentToolBinding(
+          new ExperimentTool(sp.GetRequiredService<IExperimentLedgerStore>()),
+          "Record the scientific loop's hypotheses, predictions, verdicts, observations, conclusions, and skips."),
+      new AgentToolBinding(
           new ContextEditTool(sp.GetRequiredService<IConversationContextService>()),
           "Edit this conversation's own context (list, remove, shorten messages)."),
       new AgentToolBinding(

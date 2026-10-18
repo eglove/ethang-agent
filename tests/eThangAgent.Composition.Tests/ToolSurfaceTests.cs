@@ -36,6 +36,15 @@ public class ToolSurfaceTests
   }
 
   [Fact]
+  public void Root_Surface_Exposes_Experiment_Action()
+  {
+    using ServiceProvider services = Build();
+    AgentToolsProvider tools = services.GetRequiredService<AgentToolsProvider>();
+
+    Assert.Contains(tools.Actions, a => a.Name == "experiment");
+  }
+
+  [Fact]
   public void Root_Surface_Does_Not_Resolve_Clarify()
   {
     using ServiceProvider services = Build();
