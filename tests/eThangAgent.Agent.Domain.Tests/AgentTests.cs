@@ -110,12 +110,15 @@ public class AgentTests
   {
     // The tool loop has no iteration limit: it keeps calling tools until the
     // model answers without tool calls. 151 rounds — far beyond any former cap.
+    // The arguments vary per round: the repeat guard ends a turn of byte-identical
+    // calls (critical at the 13th, turn over on the 14th), and this test pins the
+    // unbounded loop, which must stay reachable for a varied-call loop.
     const int rounds = 151;
     Result<ModelResponse>[] responses =
     [
       .. Enumerable.Range(0, rounds)
-              .Select(_ => Result.Success(new ModelResponse(null,
-                  [new ToolCallRequest("c1", "loopy", "{}")])))
+              .Select(i => Result.Success(new ModelResponse(null,
+                  [new ToolCallRequest("c" + i, "loopy", "{\"round\":" + i + "}")])))
 ,
       Result.Success(new ModelResponse("finally done", [])),
     ];

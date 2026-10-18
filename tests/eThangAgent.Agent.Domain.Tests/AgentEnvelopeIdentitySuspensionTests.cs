@@ -10,7 +10,8 @@ namespace eThangAgent.AgentDomain.Tests;
 ///     identical successful exec call 195 times because it varied the envelope's title
 ///     each call. The loop must feed the guard the tool's SEMANTIC call identity, not
 ///     the raw envelope whose transport fields (title, timeoutSeconds) vary per call —
-///     the success-repetition breaker suspends the tool at the 13th identity-identical call.</summary>
+///     the success-repetition breaker escalates to the CRITICAL error at the 13th
+///     identity-identical call and ends the turn on the next one.</summary>
 public class AgentEnvelopeIdentitySuspensionTests
 {
   private static ModelConfig DefaultConfig =>
@@ -68,7 +69,7 @@ public class AgentEnvelopeIdentitySuspensionTests
   };
 
   [Fact]
-  public async Task ExecCalls_VaryingOnlyTitle_SameProgram_SuspendAtThirteenth()
+  public async Task ExecCalls_VaryingOnlyTitle_SameProgram_CriticalThenTurnEnd()
   {
     RecordingExecTool tool = new();
     List<Result<ModelResponse>> responses = [];
@@ -78,20 +79,21 @@ public class AgentEnvelopeIdentitySuspensionTests
           [new ToolCallRequest("c" + i, "exec", Envelope(i, "return 42;"))])));
     }
 
-    responses.Add(Result.Success(new ModelResponse("done", [])));
+    responses.Add(Result.Success(new ModelResponse("never reached", [])));
     ScriptedModelProvider provider = new([.. responses]);
     Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([tool]));
 
     Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
 
-    Assert.True(result.IsSuccess);
-    Assert.Equal(13, tool._executed); // the 14th call is refused without executing
-    Message refusal = agent.Conversation.Messages.Single(m => m.Role is Role.Tool && m.ToolCallId == "c14");
-    Assert.Contains("suspended", refusal.Content, StringComparison.Ordinal);
+    Assert.False(result.IsSuccess);
+    Assert.Equal(Agent.RepeatGuardStopCode, result.Error.Code);
+    Assert.Equal(14, tool._executed); // every identity-identical call executed
+    Assert.Contains(agent.Conversation.Messages,
+        m => m.Role is Role.System && m.Content.StartsWith("[repeat guard] CRITICAL:", StringComparison.Ordinal));
   }
 
   [Fact]
-  public async Task ExecCalls_DifferentPrograms_NeverSuspend()
+  public async Task ExecCalls_DifferentPrograms_NeverEndTurn()
   {
     RecordingExecTool tool = new();
     List<Result<ModelResponse>> responses = [];

@@ -51,6 +51,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     token fires mid-loop.</summary>
   public const string TurnCancelledCode = "TurnCancelled";
 
+  /// <summary>Error code returned (as a Result failure, never an exception) when the
+  ///     repeat guard ends the turn: the same call repeated past the critical error
+  ///     (the 14th breaker-counted call). A child's turn ends and settles back to the
+  ///     parent; at root the turn ends and control returns to the user.</summary>
+  public const string RepeatGuardStopCode = "RepeatGuardStop";
+
   /// <summary>Synthetic tool result appended for each tool call left unanswered by an
   ///     interruption. Verbatim contract: tells the model why its calls produced nothing.</summary>
   public const string InterruptedToolResult = "[turn interrupted by the user; this call never ran]";
@@ -59,6 +65,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     mid-turn: the persisted transcript records WHY the turn stopped instead of
   ///     ending on a bare tool result (the failure was previously UI-notice only).</summary>
   public const string TurnFailedPrefix = "[turn failed] ";
+
+  /// <summary>Verbatim final System line appended when the repeat guard ends the turn:
+  ///     the conversation ends on WHY the turn stopped, never on a bare tool result.</summary>
+  public const string RepeatGuardStopLine = "[repeat guard] turn ended: the same call repeated past the critical error";
 
   /// <summary>Verbatim prefix a tool result carries when the conversation shrank
   ///     during this turn (the context_edit tool's contract). The loop rests
@@ -292,7 +302,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
         Conversation.AddAssistantMessage(response.Content ?? "",
             [.. response.ToolCalls.Select(tc => new ToolCall(tc.Id, tc.Name, tc.Arguments))]);
-        await ExecuteToolCallsAsync(response.ToolCalls, callbacks, ct).ConfigureAwait(false);
+        if (!await ExecuteToolCallsAsync(response.ToolCalls, callbacks, ct).ConfigureAwait(false))
+        {
+          return Result.Failure<string>(new DomainError(RepeatGuardStopCode, RuntimeErrors.RepeatGuardStop));
+        }
       }
     }
     catch (OperationCanceledException)
@@ -570,8 +583,13 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   }
 
   /// <summary>Runs each requested tool call in order, appending its result to the
-  ///     conversation and reporting the call and its summary to the observers.</summary>
-  private async Task ExecuteToolCallsAsync(IReadOnlyList<ToolCallRequest> calls,
+  ///     conversation and reporting the call and its summary to the observers.
+  ///     Returns false when the repeat guard ended the turn (the call after a critical
+  ///     error): the remaining calls of the batch get the synthetic
+  ///     <see cref="InterruptedToolResult"/>, the final system line names why, and the
+  ///     caller must stop the turn. The guard's Observe never sees the synthetic
+  ///     results — they cannot extend or reset the streaks.</summary>
+  private async Task<bool> ExecuteToolCallsAsync(IReadOnlyList<ToolCallRequest> calls,
       TurnCallbacks? callbacks, CancellationToken ct)
   {
     for (int i = 0; i < calls.Count; i++)
@@ -579,17 +597,6 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       ToolCallRequest call = calls[i];
       LastTurnToolCalls++;
       callbacks?.OnToolCall?.Invoke(call.Name, call.Arguments, i + 1, calls.Count);
-      // Suspension enforcement: a tool the repeat guard suspended for this turn is
-      // refused without executing — the model reads the refusal as its tool result
-      // and must take a different approach. The refusal itself is not observed by
-      // the guard (it cannot extend or reset the streak).
-      if (_repeatGuard.IsSuspended(call.Name))
-      {
-        string refusal = $"Error [ToolSuspended]: Tool '{call.Name}' is suspended for the rest of this turn after repeated identical calls. Take a different approach.";
-        Conversation.AddToolResult(call.Id, refusal);
-        callbacks?.OnToolResult?.Invoke(call.Name, refusal, refusal, true, null);
-        continue;
-      }
       ITool? tool = _tools.Find(call.Name);
       if (tool is ILedgerBoundTool ledgerTool && !ledgerTool.HasLedger)
       {
@@ -622,17 +629,37 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
           && identifiable.CallIdentity(call.Arguments) is { } identity
               ? identity
               : call.Arguments;
-      if (_repeatGuard.Observe(call.Name, guardKey, toolResult.IsError, toolResult.Content) is { } guardLine)
+      GuardOutcome outcome = _repeatGuard.Observe(call.Name, guardKey, toolResult.IsError, toolResult.Content);
+      if (outcome.NudgeLine is { } guardLine)
       {
         Conversation.AddSystemMessage(guardLine);
         callbacks?.OnSystemMessage?.Invoke(guardLine);
       }
+
       _heartbeat?.Beat(Id);
       PublishProgress(ChildPhase.Draining, "tool-result");
       string summary = SummarizeToolResult(toolResult);
       callbacks?.OnToolResult?.Invoke(call.Name, summary, toolResult.Content, toolResult.IsError,
           toolResult.Title is null ? null : toolResult);
+      if (outcome.EndTurn)
+      {
+        // The call after a critical error: the turn ends here. Remaining calls of the
+        // batch get the synthetic interrupted result (protocol repair — the guard
+        // never observes them, so they cannot extend or reset the streaks), a final
+        // system line names why, and the caller fails the turn with RepeatGuardStop.
+        for (int j = i + 1; j < calls.Count; j++)
+        {
+          Conversation.AddToolResult(calls[j].Id, InterruptedToolResult);
+        }
+
+        string stopLine = RepeatGuardStopLine;
+        Conversation.AddSystemMessage(stopLine);
+        callbacks?.OnSystemMessage?.Invoke(stopLine);
+        return false;
+      }
     }
+
+    return true;
   }
 
 
