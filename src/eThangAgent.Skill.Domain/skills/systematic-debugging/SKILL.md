@@ -24,7 +24,7 @@ loop is not slower than guessing - it is what stops the guessing from repeating.
 
 ## When to Use
 
-Use for ANY technical issue:
+Use for any technical issue:
 - Test failures
 - Bugs in production
 - Unexpected behavior
@@ -32,7 +32,7 @@ Use for ANY technical issue:
 - Build failures
 - Integration issues
 
-**Use this ESPECIALLY when:**
+**Use this especially when:**
 - Under time pressure (emergencies make guessing tempting)
 - "Just one quick fix" seems obvious
 - You've already tried multiple fixes
@@ -42,7 +42,7 @@ Use for ANY technical issue:
 **Don't skip when:**
 - Issue seems simple (simple bugs have root causes too)
 - You're in a hurry (rushing guarantees rework)
-- Manager wants it fixed NOW (systematic is faster than thrashing)
+- Manager wants it fixed now (systematic is faster than thrashing)
 
 ## The Four Phases
 
@@ -51,7 +51,7 @@ the previous one is done.
 
 ### Phase 1: Root Cause Investigation
 
-**BEFORE attempting ANY fix:**
+**Before attempting any fix:**
 
 1. **Read Error Messages Carefully**
    - Don't skip past errors or warnings
@@ -73,17 +73,17 @@ the previous one is done.
 
 4. **Gather Evidence in Multi-Component Systems**
 
-   **WHEN system has multiple components (CI → build → signing, API → service → database):**
+   **When system has multiple components (CI → build → signing, API → service → database):**
 
-   **BEFORE proposing fixes, add diagnostic instrumentation:**
+   **Before proposing fixes, add diagnostic instrumentation:**
    ```text
-   For EACH component boundary:
+   For each component boundary:
      - Log what data enters component
      - Log what data exits component
      - Verify environment/config propagation
      - Check state at each layer
 
-   Run once to gather evidence showing WHERE it breaks
+   Run once to gather evidence showing where it breaks
    THEN analyze evidence to identify failing component
    THEN investigate that specific component
    ```
@@ -111,7 +111,7 @@ the previous one is done.
 
 5. **Trace Data Flow**
 
-   **WHEN error is deep in call stack:**
+   **When error is deep in call stack:**
 
    See `root-cause-tracing.md` in this directory for the complete backward tracing technique.
 
@@ -130,7 +130,7 @@ the previous one is done.
    - What works that's similar to what's broken?
 
 2. **Compare Against References**
-   - If implementing pattern, read reference implementation COMPLETELY
+   - If implementing pattern, read reference implementation completely
    - Don't skim - read every line
    - Understand the pattern fully before applying
 
@@ -154,13 +154,13 @@ the previous one is done.
    - Be specific, not vague
 
 2. **Test Minimally**
-   - Make the SMALLEST possible change to test hypothesis
+   - Make the smallest possible change to test hypothesis
    - One variable at a time
    - Don't fix multiple things at once
 
 3. **Verify Before Continuing**
    - Did it work? Yes → Phase 4
-   - Didn't work? Form NEW hypothesis
+   - Didn't work? Form new hypothesis
    - Don't add more fixes on top
 
 4. **When You Don't Know**
@@ -182,7 +182,7 @@ the previous one is done.
 
 2. **Implement Single Fix**
    - Address the root cause identified
-   - ONE change at a time
+   - One change at a time
    - No "while I'm here" improvements
    - No bundled refactoring
 
@@ -212,7 +212,7 @@ the previous one is done.
 
    **Discuss with your human partner before attempting more fixes**
 
-   This is NOT a failed hypothesis - this is a wrong architecture.
+   This is not a failed hypothesis - this is a wrong architecture.
 
 ## Loop checks - signals your reasoning has left the loop
 
@@ -256,9 +256,9 @@ evidence actually shows - which is why the loop is the faster path, not the slow
 | Prediction | What the evidence shows |
 |------------|-------------------------|
 | "Issue is simple, don't need process" | Simple issues have root causes too. Observation is usually one read of the error. |
-| "Emergency, no time for process" | Systematic debugging is FASTER than guess-and-check thrashing. The loop is the cheaper path under pressure. |
+| "Emergency, no time for process" | Systematic debugging is faster than guess-and-check thrashing. The loop is the cheaper path under pressure. |
 | "Just try this first, then investigate" | The first fix sets the pattern - and chosen without a prediction, its result can't separate cause from coincidence. |
-| "I'll write test after confirming fix works" | Untested fixes don't stick. No failing test first means no prediction to confirm - the test IS the experiment. |
+| "I'll write test after confirming fix works" | Untested fixes don't stick. No failing test first means no prediction to confirm - the test is the experiment. |
 | "Multiple fixes at once saves time" | Can't isolate what worked: a pass proves nothing about which change mattered, a fail eliminates nothing, and new bugs ride along. |
 | "Reference too long, I'll adapt the pattern" | Partial understanding guarantees bugs - the parts you skipped are what produces the failure. Read it completely. |
 | "I see the problem, let me fix it" | Seeing symptoms is not understanding root cause. The failure is an observation; the cause is an untested hypothesis. |
@@ -268,7 +268,7 @@ evidence actually shows - which is why the loop is the faster path, not the slow
 
 | Phase | Key Activities | Success Criteria |
 |-------|---------------|------------------|
-| **1. Root Cause** | Read errors, reproduce, check changes, gather evidence | Understand WHAT and WHY |
+| **1. Root Cause** | Read errors, reproduce, check changes, gather evidence | Understand what and why |
 | **2. Pattern** | Find working examples, compare | Identify differences |
 | **3. Hypothesis** | Form theory, test minimally | Confirmed or new hypothesis |
 | **4. Implementation** | Create test, fix, verify | Bug resolved, tests pass |
