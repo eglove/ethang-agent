@@ -12,14 +12,14 @@ public class EmbeddedSkillCatalogTests
       "commit-style-conventional", "commit-style-gitmoji",
         "commit-style-none", "dispatching-parallel-agents", "ethang-tools-mapping",
         "executing-plans", "finishing-a-development-branch", "grill", "receiving-code-review",
-        "requesting-code-review", "subagent-driven-development",
+        "requesting-code-review", "scientific-method", "subagent-driven-development",
         "systematic-debugging", "test-driven-development", "using-git-worktrees",
         "using-skills", "verification-before-completion", "writing-plans",
         "writing-skills",
     ];
 
   [Fact]
-  public async Task Lists_AllEighteenSkills_WithMetadata()
+  public async Task Lists_AllNineteenSkills_WithMetadata()
   {
     Result<IReadOnlyList<SkillDefinition>> r = await _catalog.ListAsync(TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
