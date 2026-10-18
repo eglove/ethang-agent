@@ -109,9 +109,38 @@ public sealed class ScriptGlobals
       psi.ArgumentList.Add(arg);
     }
 
+    // Declared outside the try so the finally can close it on every path.
+    nint job = nint.Zero;
     try
     {
       using Process p = Process.Start(psi)!;
+      // THE CONTAINMENT CONTRACT (2026-10-17 incident: 4 orphaned testhosts sat 6
+      // hours / ~625 MB and 24 dotnet build servers ~2.3 GB after children ran
+      // dotnet test/build via Shell): the spawned tree is assigned to a
+      // kill-on-close Job Object, so the tree dies when this call's Process
+      // handle is disposed (the using scope) — a detached grandchild (a
+      // testhost surviving its dotnet parent) is reaped with the call, and an
+      // app exit reaps everything still running. Best-effort per the MCP ACL's
+      // precedent: a job failure degrades to the explicit-kill path below.
+      // BUILD-SERVER DECISION (named, per the task brief): kill-on-close for ALL
+      // spawns, VBCSCompiler included. A killed build server costs one cold
+      // rebuild next call — and its own idle timer would have reaped it ~15
+      // minutes later anyway — while a surviving orphan costs gigabytes for
+      // hours. Correctness over speed; a per-invocation carve-out (attach the
+      // job only around dotnet test) would trust argv sniffing and leave every
+      // non-test spawn uncontained.
+      job = JobObject.Create();
+      if (job != nint.Zero && JobObject.Configure(job))
+      {
+        _ = JobObject.Attach(job, p);
+      }
+      else
+      {
+        // Named decision: job failure degrades to explicit-kill disposal (the
+        // MCP ACL's precedent) — containment weakens, the run still works.
+        _ = JobObject.Close(job);
+        job = nint.Zero;
+      }
       // Drain both pipes concurrently: sequential ReadToEnd calls deadlock when the
       // child fills the pipe that is not being read (chatty stderr under quiet stdout).
       // Named decision (S8949): the reads take CancellationToken.None — cancellation is
@@ -180,6 +209,15 @@ public sealed class ScriptGlobals
       return new ShellResult(-1, "", ex.Message);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
+    finally
+    {
+      // Closing the kill-on-close job reaps any tree member that outlived the
+      // direct child (the detached-grandchild shape) — on the success, failure,
+      // and cancellation paths alike. The job handle closing is also the
+      // kernel's reaping path when THIS process dies: every Shell tree is
+      // contained for the app's lifetime, not just this call's.
+      _ = JobObject.Close(job);
+    }
   }
 
   /// <summary>Reports one completed run to the optional verification sink.
