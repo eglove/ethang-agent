@@ -7,11 +7,24 @@ description: Drive new code with failing tests written first, then minimal passi
 
 ## Overview
 
-Write the test first. Watch it fail. Write minimal code to pass.
+This is the experiment leg of the scientific loop. RED is the falsifiable prediction:
+the failing test states what you expect the code to do and shows that the current code
+does not do it. GREEN is the experiment — the cheapest run that can confirm or refute
+that prediction. REFACTOR is the analysis leg, where the passing suite is the evidence
+that behavior was preserved while the shape changed.
 
-**Core principle:** If you didn't watch the test fail, you don't know if it tests the right thing.
+**Core principle: the failing test is the prediction that makes the work falsifiable.**
+A test that never failed predicts nothing: it cannot distinguish "this code works" from
+"this test would pass against anything". Watching it fail is what turns the test from a
+description of intent into evidence — the failure names the behavior that is missing,
+and its message tells you the failure is the one you expected rather than an accident of
+setup.
 
-**Violating the letter of the rules is violating the spirit of the rules.**
+The same reasoning settles the ordering question. Production code arrives only after a
+test that failed for the expected reason; code written first and tested afterwards has
+no prediction left to falsify, because the test is then shaped by the implementation it
+is supposed to judge. That is the whole of the rule — not a ritual, but the difference
+between a claim you can check and one you cannot.
 
 ## When to Use
 
@@ -26,23 +39,8 @@ Write the test first. Watch it fail. Write minimal code to pass.
 - Generated code
 - Configuration files
 
-Thinking "skip TDD just this once"? Stop. That's rationalization.
-
-## The Iron Law
-
-```text
-NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
-```
-
-Write code before the test? Delete it. Start over.
-
-**No exceptions:**
-- Don't keep it as "reference"
-- Don't "adapt" it while writing tests
-- Don't look at it
-- Delete means delete
-
-Implement fresh from tests. Period.
+Thinking "skip TDD just this once" is itself the signal: the work is about to proceed
+without a prediction. The loop checks below name that shape, and what to do about it.
 
 ## Red-Green-Refactor
 
@@ -112,7 +110,7 @@ Vague name, tests mock not code
 
 ### Verify RED - Watch It Fail
 
-**MANDATORY. Never skip.**
+**This step is the experiment; skipping it leaves the prediction untested.**
 
 ```bash
 dotnet test tests/MyProject.Tests --filter MyTestName
@@ -167,11 +165,12 @@ async function retryOperation<T>(
 Over-engineered
 </Bad>
 
-Don't add features, refactor other code, or "improve" beyond the test.
+Adding features, refactoring other code, or "improving" beyond the test widens the
+experiment past what the prediction covers.
 
 ### Verify GREEN - Watch It Pass
 
-**MANDATORY.**
+**Run it and read the result; an unrun check is no evidence.**
 
 ```bash
 dotnet test tests/MyProject.Tests --filter MyTestName
@@ -193,7 +192,7 @@ After green only:
 - Improve names
 - Extract helpers
 
-Keep tests green. Don't add behavior.
+Keep tests green; refactoring adds no behavior.
 
 ### Repeat
 
@@ -213,39 +212,47 @@ When writing or changing any test, follow these rules to keep tests honest:
 - Keep test-only code in test utilities, out of production classes
 - Understand a dependency's side effects before mocking it
 
-## Common Rationalizations
+## Predictions people get wrong
 
-| Excuse | Reality |
-|--------|---------|
-| "Too simple to test" | Simple code breaks. Test takes 30 seconds. |
-| "I'll test after" | Tests written after pass immediately — which proves nothing. They may test the wrong thing, test the implementation instead of the behavior, or miss the edge case you forgot. You never watched it fail, so you never proved it can catch the bug. Test-first forces that failure. |
-| "Tests after achieve same goals (spirit not ritual)" | Tests-after answer "what does this do?"; tests-first answer "what should this do?" Tests written after are biased by the code you already wrote — you verify the cases you remembered, not the ones you'd have discovered. Coverage without proof the tests work. |
-| "Already manually tested" | Manual testing is ad-hoc: no record of what you covered, no way to re-run it when the code changes, easy to forget cases under pressure. "Worked when I tried it" ≠ comprehensive. Automated tests run the same way every time. |
-| "Deleting X hours is wasteful" | Sunk cost fallacy — that time is already spent either way. The real choice: rewrite with TDD (high confidence) vs. keep it and bolt tests on after (low confidence, likely bugs). Keeping code you can't trust is the waste. |
-| "Keep as reference, write tests first" | You'll adapt it. That's testing after. Delete means delete. |
-| "Need to explore first" | Fine. Throw away exploration, start with TDD. |
-| "Test hard = design unclear" | Listen to test. Hard to test = hard to use. |
-| "TDD will slow me down" | TDD IS the pragmatic path: catches bugs before commit, prevents regressions, lets you refactor without fear. "Pragmatic" shortcuts mean debugging in production — slower, not faster. |
-| "Manual test faster" | Manual doesn't prove edge cases. You'll re-test every change. |
-| "Existing code has no tests" | You're improving it. Add tests for existing code. |
+Each row is a prediction that feels true and is not. The right column says what the
+evidence actually shows — which is why the loop is the faster path, not the slower one.
 
-## Red Flags - STOP and Start Over
+| Prediction | What the evidence shows |
+|------------|-------------------------|
+| "Too simple to test" | Simple code breaks too, and the test costs about 30 seconds. |
+| "I'll test after" | A test written after passes immediately, and a pass with no prior fail is no evidence: it may assert the wrong thing, describe the implementation instead of the behavior, or miss the case you forgot — you never watched it fail, so you never saw it catch a bug. Test-first produces that failure. |
+| "Tests after achieve same goals (spirit not ritual)" | Tests-after answer "what does this do?"; tests-first answer "what should this do?" A test written after is shaped by the code already there: it checks the cases you remembered, not the ones you would have discovered. Coverage without evidence the tests work. |
+| "Already manually tested" | Manual testing is ad hoc — no record of what was covered, no way to re-run it when the code changes, and the awkward cases are the ones forgotten under pressure. "It worked when I tried it" is one observation, not a repeatable one. |
+| "Deleting X hours is wasteful" | Sunk cost: those hours are spent either way. The real choice is rewriting with a prediction (high confidence) against keeping it and bolting tests on after (low confidence, likely bugs). Code you cannot trust is the waste. |
+| "Keep as reference, write tests first" | You'll adapt it, which is testing after by another route — it has to go. |
+| "Need to explore first" | Fine — throw the exploration away and start from a failing test. |
+| "Test hard = design unclear" | The friction is data: hard to test means hard to use. |
+| "TDD will slow me down" | The loop is the pragmatic path: bugs caught before commit, regressions prevented, refactoring without fear. The shortcut skips the prediction and pays for it in production debugging — slower, not faster. |
+| "Manual test faster" | Manual checks prove no edge cases, and every change means re-running them by hand. |
+| "Existing code has no tests" | You're improving it — add tests for the existing code. |
 
-- Code before test
-- Test after implementation
-- Test passes immediately
-- Can't explain why test failed
-- Tests added "later"
-- Rationalizing "just this once"
-- "I already manually tested it"
-- "Tests after achieve the same purpose"
-- "It's about spirit not ritual"
-- "Keep as reference" or "adapt existing code"
-- "Already spent X hours, deleting is wasteful"
-- "TDD is dogmatic, I'm being pragmatic"
-- "This is different because..."
+## Loop checks — signals the prediction is missing
 
-**All of these mean: Delete code. Start over with TDD.**
+These are self-checks, not verdicts. Each one marks a place where the prediction is
+missing — the work is proceeding without a check that could refute it. Catching one
+means returning to RED with a better-stated prediction, not apologizing.
+
+- Code written before its test — the change already exists, so any test written now is shaped by it.
+- A test written after the implementation — it can pass, but it was never seen to fail, so it proves nothing about the behavior.
+- A test that passes the first time it runs — either it covers existing behavior or it cannot separate working code from broken code.
+- A failure you cannot explain — an unexplained failure is not a red; the prediction is not stated precisely enough to read the result.
+- Tests deferred to "later" — later is after the code exists, which is testing after.
+- "Just this once" — the exception is exactly the case where the missing prediction goes unnoticed until production.
+- "I already manually tested it" — one ad-hoc observation, not a repeatable check.
+- "Tests after achieve the same purpose" — they answer a different question: what the code does, not what it should do.
+- "It's about spirit, not ritual" — the ritual is the evidence; without a watched failure there is nothing to appeal to.
+- "Keep it as reference" or "adapt the existing code" — the reference becomes the implementation, which is testing after.
+- "Already spent X hours, deleting is wasteful" — sunk cost; the time is gone either way and the untested code is the liability.
+- "TDD is dogmatic, I'm being pragmatic" — the pragmatic path is the one with a check in it; skipping the prediction moves the cost to production.
+- "This is different because..." — the exception is a hypothesis; name the observation that makes it true, or run the loop.
+
+When one of these shows up, the next step is the same in every case: state the
+prediction as a failing test, and let the failure tell you whether it is the right one.
 
 ## Example: Bug Fix
 
@@ -298,7 +305,8 @@ Before marking work complete:
 - [ ] Tests use real code (mocks only if unavoidable)
 - [ ] Edge cases and errors covered
 
-Can't check all boxes? You skipped TDD. Start over.
+A box left unchecked is a gap in the evidence: the work is not yet verified, and the
+missing check names what to do next.
 
 ## When Stuck
 
@@ -313,13 +321,10 @@ Can't check all boxes? You skipped TDD. Start over.
 
 Bug found? Write failing test reproducing it. Follow TDD cycle. Test proves fix and prevents regression.
 
-Never fix bugs without a test.
+A bug fix without a test has no prediction behind it: the test proves the fix and
+prevents the regression, so it comes first.
 
-## Final Rule
+---
 
-```text
-Production code → test exists and failed first
-Otherwise → not TDD
-```
-
-No exceptions without your human partner's permission.
+For the loop's routing across task types, see `scientific-method`. For the report leg —
+fresh evidence before any completion claim — use `verification-before-completion`.
