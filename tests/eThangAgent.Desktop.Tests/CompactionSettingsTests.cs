@@ -9,7 +9,7 @@ public class CompactionSettingsTests
   [Fact]
   public void Automatic_IsDefault_AndCarriesNullModelId()
   {
-    SettingsViewModel vm = new(null);
+    SettingsViewModel vm = new(new SettingsValues());
 
     Assert.Equal(CompactionModelOption.Automatic, vm.SelectedCompactionModel);
     Assert.Null(vm.SelectedCompactionModel.ModelId);
@@ -19,9 +19,11 @@ public class CompactionSettingsTests
   [Fact]
   public void SaveRequest_CarriesSelectedModelId_AutomaticCarriesNull()
   {
-    SettingsViewModel vm = new(null,
-        compactionModels: [CompactionModelOption.Automatic, new CompactionModelOption("glm-5.3-flash", "glm-5.3-flash")],
-        selectedCompactionModel: new CompactionModelOption("glm-5.3-flash", "glm-5.3-flash"));
+    SettingsViewModel vm = new(new SettingsValues
+    {
+      CompactionModels = [CompactionModelOption.Automatic, new CompactionModelOption("glm-5.3-flash", "glm-5.3-flash")],
+      SelectedCompactionModel = new CompactionModelOption("glm-5.3-flash", "glm-5.3-flash"),
+    });
     SettingsUpdate? received = null;
     vm.SaveRequested += (_, update) => received = update;
 

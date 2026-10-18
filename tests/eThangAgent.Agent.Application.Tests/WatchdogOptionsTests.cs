@@ -20,7 +20,7 @@ public class WatchdogOptionsTests
   [Fact]
   public void NegativeRssSustainedBreachTicks_Throws()
       => Assert.Throws<ArgumentOutOfRangeException>(() =>
-          new WatchdogOptions(RssSustainedBreachTicks: -1));
+          new WatchdogOptions(Rss: new RssOptions(SustainedBreachTicks: -1)));
 
   [Theory]
   [InlineData(0)]
@@ -37,7 +37,7 @@ public class WatchdogOptionsTests
   [Fact]
   public void NonPositiveRssThreshold_Throws()
       => Assert.Throws<ArgumentOutOfRangeException>(() =>
-          new WatchdogOptions(RssThresholdMb: 0));
+          new WatchdogOptions(Rss: new RssOptions(ThresholdMb: 0)));
 
   [Fact]
   public void Default_Singleton_IsValid()

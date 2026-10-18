@@ -85,13 +85,13 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   {
     try
     {
-      Result<HttpRequestMessage> created = CreateRequest(config, request, stream: false);
-      if (!created.IsSuccess)
+      Result<Dictionary<string, object?>> built = BuildBodyOrFail(config, request, stream: false);
+      if (!built.IsSuccess)
       {
-        return AttemptOutcome.Final(Result.Failure<ModelResponse>(created.Error));
+        return AttemptOutcome.Final(Result.Failure<ModelResponse>(built.Error));
       }
 
-      using HttpRequestMessage httpRequest = created.Value;
+      using HttpRequestMessage httpRequest = NewRequest(built.Value);
       using HttpResponseMessage response = await _http.SendAsync(httpRequest, ct).ConfigureAwait(false);
       return !response.IsSuccessStatusCode
         ? await StatusOutcomeAsync(response, ct).ConfigureAwait(false)
@@ -160,13 +160,13 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   {
     try
     {
-      Result<HttpRequestMessage> created = CreateRequest(config, request, stream: true);
-      if (!created.IsSuccess)
+      Result<Dictionary<string, object?>> built = BuildBodyOrFail(config, request, stream: true);
+      if (!built.IsSuccess)
       {
-        return AttemptOutcome.Final(Result.Failure<ModelResponse>(created.Error));
+        return AttemptOutcome.Final(Result.Failure<ModelResponse>(built.Error));
       }
 
-      using HttpRequestMessage httpRequest = created.Value;
+      using HttpRequestMessage httpRequest = NewRequest(built.Value);
       // Headers-read completion so the body surfaces incrementally instead of buffering.
       using HttpResponseMessage response = await _http.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
       if (!response.IsSuccessStatusCode)
@@ -197,7 +197,79 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
   }
 
-  private Result<HttpRequestMessage> CreateRequest(ModelConfig config, ModelRequest request, bool stream)
+  /// <summary>Builds the request body and returns the failure when it cannot be built;
+  ///     the successful body is handed back so the CALLER constructs the
+  ///     <see cref="HttpRequestMessage"/> and owns its disposal.</summary>
+  private static Result<Dictionary<string, object?>> BuildBodyOrFail(ModelConfig config, ModelRequest request, bool stream)
+  {
+    Result<Dictionary<string, object?>> built = BuildRequestBody(config, request, stream);
+    return built;
+  }
+
+  /// <summary>Creates the outbound request for a built body. The caller owns the
+  ///     returned instance and disposes it (its using statement).</summary>
+  private HttpRequestMessage NewRequest(Dictionary<string, object?> body)
+  {
+    HttpRequestMessage httpRequest = new(HttpMethod.Post, _config.Endpoint("/api/v1/responses"))
+    {
+      Content = JsonContent.Create(body)
+    };
+    httpRequest.Headers.Add("Authorization", $"Bearer {_config.ApiKey}");
+    return httpRequest;
+  }
+
+  /// <summary>Builds the responses-API body dictionary: the base fields, the system
+  ///     prompt and session id when present, the sampling knobs, then the OR-side
+  ///     provider settings. Every named failure (session id too long, malformed
+  ///     settings, malformed stop conditions) surfaces through the Result contract
+  ///     unchanged from the pre-extraction behavior.</summary>
+  private static Result<Dictionary<string, object?>> BuildRequestBody(ModelConfig config, ModelRequest request, bool stream)
+  {
+    Dictionary<string, object?> bodyDict = BaseBody(config, request);
+    DomainError? fault = AttachSessionId(bodyDict, request);
+    if (fault is null)
+    {
+      ApplySamplingKnobs(bodyDict, config);
+      if (stream)
+      {
+        // Usage rides the terminal response event on this surface; there is no
+        // stream_options include_usage flag (that key is chat-completions-only).
+        bodyDict["stream"] = true;
+      }
+
+      fault = ParseAndApplySettings(bodyDict, config, request);
+    }
+
+    return fault is { } failure
+        ? Result.Failure<Dictionary<string, object?>>(failure)
+        : Result.Success(bodyDict);
+  }
+
+  /// <summary>Stamps the provider pin (when one is configured), parses the
+  ///     provider settings, and applies them to the body; a parse fault or a
+  ///     malformed stop condition surfaces as the returned DomainError — never
+  ///     silently dropped.</summary>
+  private static DomainError? ParseAndApplySettings(Dictionary<string, object?> bodyDict,
+      ModelConfig config, ModelRequest request)
+  {
+    Result<OpenRouterRequestSettings?> settingsResult = ParseSettings(config.ProviderSettings);
+    if (!settingsResult.IsSuccess)
+    {
+      return settingsResult.Error;
+    }
+
+    if (!string.IsNullOrWhiteSpace(config.Provider))
+    {
+      bodyDict["provider"] = new { only = new[] { config.Provider } };
+    }
+
+    return ApplyProviderSettings(bodyDict, settingsResult.ValueOrNull, request, config);
+  }
+
+  /// <summary>The base body fields; the system prompt rides the responses API's
+  ///     system channel — a single top-level instruction string instead of a
+  ///     system-role message in the array.</summary>
+  private static Dictionary<string, object?> BaseBody(ModelConfig config, ModelRequest request)
   {
     Dictionary<string, object?> bodyDict = new()
     {
@@ -210,54 +282,47 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     };
     if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
     {
-      // The responses API's system channel: a single top-level instruction string
-      // instead of a system-role message in the array.
       bodyDict["instructions"] = request.SystemPrompt;
     }
 
-    // OpenRouter sticky sessions (prompt caching): the session id rides the body's
-    // top-level "session_id" field and OpenRouter uses it directly as the sticky
-    // routing key instead of deriving one from message hashing — the right key for
-    // multi-turn agentic requests whose opening messages change every turn.
-    // https://openrouter.ai/docs/guides/best-practices/prompt-caching
-    if (request.SessionId is { } sessionId)
-    {
-      if (sessionId.ToString().Length > MaxSessionIdCharacters)
-      {
-        return Result.Failure<HttpRequestMessage>(new DomainError("InvalidRequest",
-            $"SessionId exceeds the API's {MaxSessionIdCharacters}-character limit."));
-      }
+    return bodyDict;
+  }
 
-      bodyDict["session_id"] = sessionId.ToString();
+  /// <summary>Sets body["session_id"] for OpenRouter sticky sessions (prompt caching):
+  ///     the session id rides the body's top-level field and OpenRouter uses it
+  ///     directly as the sticky routing key instead of deriving one from message
+  ///     hashing — the right key for multi-turn agentic requests whose opening
+  ///     messages change every turn.
+  ///     https://openrouter.ai/docs/guides/best-practices/prompt-caching
+  ///     Returns the typed failure when the id exceeds the API's limit — a longer
+  ///     id is a named failure, never a truncated key.</summary>
+  private static DomainError? AttachSessionId(Dictionary<string, object?> bodyDict, ModelRequest request)
+  {
+    if (request.SessionId is not { } sessionId)
+    {
+      return null;
     }
 
-    ApplySamplingKnobs(bodyDict, config);
-    if (stream)
+    if (sessionId.ToString().Length > MaxSessionIdCharacters)
     {
-      // Usage rides the terminal response event on this surface; there is no
-      // stream_options include_usage flag (that key is chat-completions-only).
-      bodyDict["stream"] = true;
+      return new DomainError("InvalidRequest",
+          $"SessionId exceeds the API's {MaxSessionIdCharacters}-character limit.");
     }
 
-    // The OR-side request settings (routing, server-side tools, plugins, budgets)
-    // reach the wire here. Routing REPLACES the provider pinning (same "provider"
-    // key); with no routing configured the pinning stays exactly as before.
-    // Server-tool entries lead the tools array so user-defined tools follow;
-    // enabled plugins ride the "plugins" array. Default sections contribute zero
-    // keys, so a default ProviderSettings leaves the body unchanged.
+    bodyDict["session_id"] = sessionId.ToString();
+    return null;
+  }
 
-    if (!string.IsNullOrWhiteSpace(config.Provider))
-    {
-      bodyDict["provider"] = new { only = new[] { config.Provider } };
-    }
-
-    Result<OpenRouterRequestSettings?> settingsResult = ParseSettings(config.ProviderSettings);
-    if (!settingsResult.IsSuccess)
-    {
-      return Result.Failure<HttpRequestMessage>(settingsResult.Error);
-    }
-
-    OpenRouterRequestSettings? settings = settingsResult.ValueOrNull;
+  /// <summary>The OR-side request settings (routing, server-side tools, plugins,
+  ///     budgets) reach the wire here. Routing REPLACES the provider pinning (same
+  ///     "provider" key); with no routing configured the pinning stays exactly as
+  ///     before. Server-tool entries lead the tools array so user-defined tools
+  ///     follow; enabled plugins ride the "plugins" array. Default sections
+  ///     contribute zero keys, so a default ProviderSettings leaves the body
+  ///     unchanged. Returns the fault when the stop conditions are malformed.</summary>
+  private static DomainError? ApplyProviderSettings(Dictionary<string, object?> bodyDict,
+      OpenRouterRequestSettings? settings, ModelRequest request, ModelConfig config)
+  {
     if (settings?.Routing is { } routing && routing != EmptyRouting)
     {
       bodyDict["provider"] = RoutingBody(routing);
@@ -268,15 +333,9 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       bodyDict["max_tool_calls"] = maxToolCalls;
     }
 
-    if (settings?.ServerTools.StopServerToolsWhen is { } stopWhen)
+    if (ApplyStopConditions(bodyDict, settings) is { } stopFault)
     {
-      if (ValidateStopConditions(stopWhen) is { } fault)
-      {
-        return Result.Failure<HttpRequestMessage>(new DomainError("InvalidProviderSettings",
-            $"Malformed OpenRouter provider settings: {fault}"));
-      }
-
-      bodyDict["stop_server_tools_when"] = stopWhen;
+      return stopFault;
     }
 
     // Only sent when the user picked a level (the effort picker); OpenRouter's own
@@ -286,54 +345,79 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       bodyDict["reasoning"] = new { effort = OpenRouterReasoningEffort.ToWire(effort) };
     }
 
-    // The server-tool entries are computed ONCE; enablement (the tools key existing
-    // at all) derives from the entries themselves, so adding a twelfth tool can
-    // never desync the enablement check from the entries actually emitted.
-    List<object> serverToolEntries = [];
-    if (settings is not null)
+    ApplyServerTools(bodyDict, settings, request);
+    ApplyPlugins(bodyDict, settings);
+    return null;
+  }
+
+  /// <summary>Sets the stop_server_tools_when budget when configured; every condition
+  ///     is validated strictly at the send boundary — a malformed condition is a
+  ///     named InvalidProviderSettings failure, never a silently dropped filter,
+  ///     never a 400 from the provider.</summary>
+  private static DomainError? ApplyStopConditions(Dictionary<string, object?> bodyDict,
+      OpenRouterRequestSettings? settings)
+  {
+    if (settings?.ServerTools.StopServerToolsWhen is not { } stopWhen)
     {
-      serverToolEntries.AddRange(ServerToolEntries(settings.ServerTools));
+      return null;
     }
 
-    if (serverToolEntries.Count > 0 || request.Tools is { Count: > 0 })
+    if (ValidateStopConditions(stopWhen) is { } fault)
     {
-      List<object> tools = serverToolEntries;
-      if (request.Tools is { Count: > 0 })
-      {
-        tools.AddRange(request.Tools.Select(ResponsesApiRequestCore.TranslateTool));
-      }
+      return new DomainError("InvalidProviderSettings",
+          $"Malformed OpenRouter provider settings: {fault}");
+    }
 
+    bodyDict["stop_server_tools_when"] = stopWhen;
+    return null;
+  }
+
+  /// <summary>Sets the "tools" array when any tool is present: the server-tool
+  ///     entries lead so user-defined tools follow. The server-tool entries are
+  ///     computed ONCE; enablement (the tools key existing at all) derives from the
+  ///     entries themselves, so adding a twelfth tool can never desync the
+  ///     enablement check from the entries actually emitted.</summary>
+  private static void ApplyServerTools(Dictionary<string, object?> bodyDict,
+      OpenRouterRequestSettings? settings, ModelRequest request)
+  {
+    List<object> tools = settings is null ? [] : [.. ServerToolEntries(settings.ServerTools)];
+    if (request.Tools is { Count: > 0 })
+    {
+      tools.AddRange(request.Tools.Select(ResponsesApiRequestCore.TranslateTool));
+    }
+
+    if (tools.Count > 0)
+    {
       bodyDict["tools"] = tools.ToArray();
     }
+  }
 
+  /// <summary>Sets the "plugins" array when any plugin is enabled; each enabled
+  ///     plugin rides its entry keyed by the plugin id.</summary>
+  private static void ApplyPlugins(Dictionary<string, object?> bodyDict, OpenRouterRequestSettings? settings)
+  {
     if (settings?.Plugins is { } plugins && (plugins.WebGrounding || plugins.ResponseHealing))
     {
-      List<object> entries = [];
-      if (plugins.WebGrounding)
-      {
-        entries.Add(plugins.WebGroundingEngine is { } engine
-            ? new Dictionary<string, object?> { ["id"] = "web", ["engine"] = engine }
-            : new Dictionary<string, object?> { ["id"] = "web" });
-      }
+      bodyDict["plugins"] = PluginEntries(plugins).ToArray();
+    }
+  }
 
-      if (plugins.ResponseHealing)
-      {
-        entries.Add(new Dictionary<string, object?> { ["id"] = "response-healing" });
-      }
-
-      bodyDict["plugins"] = entries.ToArray();
+  private static List<object> PluginEntries(Plugins plugins)
+  {
+    List<object> entries = [];
+    if (plugins.WebGrounding)
+    {
+      entries.Add(plugins.WebGroundingEngine is { } engine
+          ? new Dictionary<string, object?> { ["id"] = "web", ["engine"] = engine }
+          : new Dictionary<string, object?> { ["id"] = "web" });
     }
 
-    // Ownership of the request transfers through the Result to the send path, whose
-    // using disposes it; CA2000 cannot see the transfer, hence the scoped deviation.
-#pragma warning disable CA2000 // Ownership transfers to the caller, which disposes it.
-    HttpRequestMessage httpRequest = new(HttpMethod.Post, _config.Endpoint("/api/v1/responses"))
+    if (plugins.ResponseHealing)
     {
-      Content = JsonContent.Create(bodyDict)
-    };
-#pragma warning restore CA2000
-    httpRequest.Headers.Add("Authorization", $"Bearer {_config.ApiKey}");
-    return Result.Success(httpRequest);
+      entries.Add(new Dictionary<string, object?> { ["id"] = "response-healing" });
+    }
+
+    return entries;
   }
 
   /// <summary>Strict stop-condition validation at the send boundary: every condition
@@ -359,6 +443,19 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   ///     (low | medium | high | xhigh | max).</summary>
   private static void ApplySamplingKnobs(Dictionary<string, object?> body, ModelConfig config)
   {
+    ApplyDistributionKnobs(body, config);
+    ApplyTuningKnobs(body, config);
+    if (config.Verbosity is { } verbosity)
+    {
+      body["verbosity"] = VerbosityWire(verbosity);
+    }
+  }
+
+  /// <summary>Emits the distribution-shaped sampling knobs (top_p, top_k, min_p,
+  ///     top_a) under their OpenRouter wire keys; null knobs never appear on the
+  ///     wire.</summary>
+  private static void ApplyDistributionKnobs(Dictionary<string, object?> body, ModelConfig config)
+  {
     if (config.TopP is { } topP)
     {
       body["top_p"] = topP;
@@ -369,6 +466,22 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       body["top_k"] = topK;
     }
 
+    if (config.MinP is { } minP)
+    {
+      body["min_p"] = minP;
+    }
+
+    if (config.TopA is { } topA)
+    {
+      body["top_a"] = topA;
+    }
+  }
+
+  /// <summary>Emits the tuning-shaped sampling knobs (frequency/presence/repetition
+  ///     penalties, seed, parallel tool calls) under their OpenRouter wire keys;
+  ///     null knobs never appear on the wire.</summary>
+  private static void ApplyTuningKnobs(Dictionary<string, object?> body, ModelConfig config)
+  {
     if (config.FrequencyPenalty is { } frequencyPenalty)
     {
       body["frequency_penalty"] = frequencyPenalty;
@@ -384,32 +497,9 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       body["repetition_penalty"] = repetitionPenalty;
     }
 
-    if (config.MinP is { } minP)
-    {
-      body["min_p"] = minP;
-    }
-
-    if (config.TopA is { } topA)
-    {
-      body["top_a"] = topA;
-    }
-
     if (config.Seed is { } seed)
     {
       body["seed"] = seed;
-    }
-
-    if (config.Verbosity is { } verbosity)
-    {
-      body["verbosity"] = verbosity switch
-      {
-        VerbosityLevel.Low => "low",
-        VerbosityLevel.Medium => "medium",
-        VerbosityLevel.High => "high",
-        VerbosityLevel.XHigh => "xhigh",
-        VerbosityLevel.Max => "max",
-        _ => throw new InvalidOperationException("Unknown verbosity level: " + verbosity),
-      };
     }
 
     if (config.ParallelToolCalls is { } parallelToolCalls)
@@ -418,6 +508,19 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
     }
   }
 
+  /// <summary>Maps a verbosity level to its wire string (low | medium | high |
+  ///     xhigh | max); an unknown level throws — the validated enum is never
+  ///     silently coerced.</summary>
+  private static string VerbosityWire(VerbosityLevel verbosity)
+      => verbosity switch
+      {
+        VerbosityLevel.Low => "low",
+        VerbosityLevel.Medium => "medium",
+        VerbosityLevel.High => "high",
+        VerbosityLevel.XHigh => "xhigh",
+        VerbosityLevel.Max => "max",
+        _ => throw new InvalidOperationException("Unknown verbosity level: " + verbosity),
+      };
   /// <summary>Parses the persisted provider settings: null/unset settings parse to
   ///     null and leave the body untouched; malformed JSON flows through the Result
   ///     error contract as a named InvalidProviderSettings failure — an expected
@@ -525,46 +628,66 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
   ///     information for whoever can act on it, never a bare status code.</summary>
   private static async Task<AttemptOutcome> StatusOutcomeAsync(HttpResponseMessage response, CancellationToken ct)
   {
-    string? detail = null;
-    try
-    {
-      string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-      if (body.Length > 0)
-      {
-        detail = body.Length <= MaxErrorBodyCharacters ? body : body[..MaxErrorBodyCharacters] + "…";
-      }
-    }
-    catch (Exception ex) when (ex is OperationCanceledException or IOException or InvalidOperationException
-        or NotSupportedException or ObjectDisposedException)
-    {
-      // Best effort: a body that cannot be read (disposed stream, cancelled read)
-      // leaves the message at the bare status — never replaces the failure.
-    }
-
-    Result<ModelResponse> failure = (int)response.StatusCode switch
-    {
-      429 => Result.Failure<ModelResponse>(new DomainError("RateLimited",
-          "OpenRouter rate limit exceeded.")),
-      408 => Result.Failure<ModelResponse>(new DomainError("ProviderTimeout",
-          "Request timed out.")),
-      // A 400 whose body names the context-length fault is its own failure: the
-      // agent loop — not the wire layer — decides what an overflow means (one
-      // forced compaction, one retry). Retryable stays false: the identical
-      // request would fail identically.
-      400 when IsContextOverflow(detail) => Result.Failure<ModelResponse>(new DomainError(ContextWindowExceeded,
-          detail is null
-              ? $"OpenRouter returned HTTP {(int)response.StatusCode}."
-              : $"OpenRouter returned HTTP {(int)response.StatusCode}: {detail}")),
-      _ => Result.Failure<ModelResponse>(new DomainError(ProviderError,
-          detail is null
-              ? $"OpenRouter returned HTTP {(int)response.StatusCode}."
-              : $"OpenRouter returned HTTP {(int)response.StatusCode}: {detail}")),
-    };
-    return new AttemptOutcome(failure,
+    string? detail = await ErrorDetailAsync(response, ct).ConfigureAwait(false);
+    return new AttemptOutcome(StatusFailure(response.StatusCode, detail),
         Retryable: response.StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests
             or >= HttpStatusCode.InternalServerError,
         RetryAfter: response.Headers.RetryAfter?.Delta);
   }
+
+  /// <summary>Caps an error body at the wire limit; the ellipsis rides only a
+  ///     body the cap actually trimmed.</summary>
+  private static string CappedLength(string body)
+      => body.Length <= MaxErrorBodyCharacters ? body : body[..MaxErrorBodyCharacters] + "…";
+
+  /// <summary>Reads (capped) the error body OpenRouter serves with a failed status:
+  ///     the provider's JSON error naming the actual fault — information for
+  ///     whoever can act on it. A body that cannot be read (disposed stream,
+  ///     cancelled read) returns null — best effort, it never replaces the failure
+  ///     with a read fault and leaves the message at the bare status.</summary>
+  private static async Task<string?> ErrorDetailAsync(HttpResponseMessage response, CancellationToken ct)
+  {
+    try
+    {
+      string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+      return body.Length switch
+      {
+        0 => null,
+        _ => CappedLength(body),
+      };
+    }
+    catch (Exception ex) when (ex is OperationCanceledException or IOException or InvalidOperationException
+        or NotSupportedException or ObjectDisposedException)
+    {
+      return null;
+    }
+  }
+
+  /// <summary>Maps an HTTP status to its error result: 429 is a rate limit, 408 a
+  ///     timeout, and a 400 whose body names the context-length fault is its own
+  ///     failure — the agent loop, not the wire layer, decides what an overflow
+  ///     means (one forced compaction, one retry). Everything else is a
+  ///     ProviderError. Retry classification stays with the caller.</summary>
+  private static Result<ModelResponse> StatusFailure(HttpStatusCode statusCode, string? detail)
+      => (int)statusCode switch
+      {
+        429 => Result.Failure<ModelResponse>(new DomainError("RateLimited",
+            "OpenRouter rate limit exceeded.")),
+        408 => Result.Failure<ModelResponse>(new DomainError("ProviderTimeout",
+            "Request timed out.")),
+        // Retryable stays false here: the identical request would fail identically.
+        400 when IsContextOverflow(detail) => Result.Failure<ModelResponse>(new DomainError(ContextWindowExceeded,
+            StatusDetail((int)statusCode, detail))),
+        _ => Result.Failure<ModelResponse>(new DomainError(ProviderError,
+            StatusDetail((int)statusCode, detail))),
+      };
+
+  /// <summary>The failed request's message: the bare status when no body could be
+  ///     read, the (capped) body otherwise.</summary>
+  private static string StatusDetail(int statusCode, string? detail)
+      => detail is null
+          ? $"OpenRouter returned HTTP {statusCode}."
+          : $"OpenRouter returned HTTP {statusCode}: {detail}";
 
   /// <summary>True when the (capped) error body names the context-length fault. A body
   ///     that cannot be read is not an overflow: classification stays conservative.</summary>

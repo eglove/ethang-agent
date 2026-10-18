@@ -40,7 +40,7 @@ public class DesktopPipelineSmokeTests
             ModelConfig.Create("mock/model", null, 256, 0.2f, 8192).Value!,
             new AgentHostOptions(
                 new FixedWorkspaceContext("app"),
-                new UnrootedPathResolver()), database: database.Database)
+                new UnrootedPathResolver()), database.Database)
         .BuildServiceProvider();
 
     Assert.Same(database.Database, services.GetRequiredService<AppDatabase>());

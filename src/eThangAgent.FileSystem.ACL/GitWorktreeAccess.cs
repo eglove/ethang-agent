@@ -72,13 +72,7 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
 
   public async Task<Result<WorktreeInfo>> CreateAsync(string repoRoot, string name, CancellationToken ct = default)
   {
-    if (name is null)
-    {
-      // WorktreeName.Create throws on null; expected failures stay Result-typed.
-      return Result.Failure<WorktreeInfo>(InvalidNameError("null"));
-    }
-
-    Result<WorktreeName> validated = WorktreeName.Create(name);
+    Result<WorktreeName> validated = ValidateName(name);
     if (!validated.IsSuccess)
     {
       return Result.Failure<WorktreeInfo>(validated.Error);
@@ -113,29 +107,10 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
           $"Branch '{branch}' already exists; pick a different worktree name."));
     }
 
-    if (Directory.Exists(targetPath))
+    Result<bool> cleared = await ClearStaleDirectoryAsync(repoRoot, targetPath, ct).ConfigureAwait(false);
+    if (!cleared.IsSuccess)
     {
-      // The path is not a registered worktree (checked above), so anything
-      // here is a stale remnant: prune git's dead admin data, then clear the
-      // directory so 'worktree add' can claim the path. Blast radius is
-      // bounded — validated names cannot traverse, and the directory sits in
-      // the reserved .worktrees/ area this class owns.
-      Result<GitRun> prune = await RunGitVerifiedAsync(repoRoot, ["worktree", "prune"], ct).ConfigureAwait(false);
-      if (!prune.IsSuccess)
-      {
-        return Result.Failure<WorktreeInfo>(prune.Error);
-      }
-
-      try
-      {
-        Directory.Delete(targetPath, true);
-      }
-      catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-      {
-        // Same crash family as the old exclude write: ToolExecution catches only
-        // cancellation, so a stale-dir removal failure must land as a named error.
-        return Result.Failure<WorktreeInfo>(StaleDirectoryRemovalFailed(targetPath, ex.Message));
-      }
+      return Result.Failure<WorktreeInfo>(cleared.Error);
     }
 
     _ = Directory.CreateDirectory(Path.Combine(repoRoot, WorktreesDir));
@@ -151,36 +126,74 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
       return Result.Failure<WorktreeInfo>(add.Error);
     }
 
-    GitRun head = await RunGitAsync(repoRoot, [RevParse, "--short=7", "HEAD"], ct).ConfigureAwait(false);
-    if (!head.Ok)
+    Result<string> head = await ResolveHeadAsync(repoRoot, ct).ConfigureAwait(false);
+    if (!head.IsSuccess)
     {
-      return Result.Failure<WorktreeInfo>(head.Err);
-    }
-
-    if (head.ExitCode != 0)
-    {
-      return Result.Failure<WorktreeInfo>(ToGitFailure(repoRoot, head.ExitCode, head.StdErr));
+      return Result.Failure<WorktreeInfo>(head.Error);
     }
 
     WorktreeInfo created = new(
         Name: validated.Value.Value,
         Path: targetPath,
         Branch: branch,
-        HeadShortSha: head.StdOut.Trim(),
+        HeadShortSha: head.Value,
         IsMain: false,
         IsDirty: false);
     return Result.Success(created);
   }
 
-  public async Task<Result<bool>> RemoveAsync(string repoRoot, string name, bool force, CancellationToken ct = default)
+  private static Result<WorktreeName> ValidateName(string name)
   {
     if (name is null)
     {
       // WorktreeName.Create throws on null; expected failures stay Result-typed.
-      return Result.Failure<bool>(InvalidNameError("null"));
+      return Result.Failure<WorktreeName>(InvalidNameError("null"));
     }
 
-    Result<WorktreeName> validated = WorktreeName.Create(name);
+    return WorktreeName.Create(name);
+  }
+
+  /// <summary>When a stale directory occupies the (unregistered) target path, prunes
+  ///     git's dead admin data, then clears the directory so 'worktree add' can
+  ///     claim the path. Blast radius is bounded — validated names cannot traverse,
+  ///     and the directory sits in the reserved .worktrees/ area this class owns.</summary>
+  private static async Task<Result<bool>> ClearStaleDirectoryAsync(string repoRoot, string targetPath, CancellationToken ct)
+  {
+    if (!Directory.Exists(targetPath))
+    {
+      return Result.Success(true);
+    }
+
+    Result<GitRun> prune = await RunGitVerifiedAsync(repoRoot, ["worktree", "prune"], ct).ConfigureAwait(false);
+    if (!prune.IsSuccess)
+    {
+      return Result.Failure<bool>(prune.Error);
+    }
+
+    try
+    {
+      Directory.Delete(targetPath, true);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+      // Same crash family as the old exclude write: ToolExecution catches only
+      // cancellation, so a stale-dir removal failure must land as a named error.
+      return Result.Failure<bool>(StaleDirectoryRemovalFailed(targetPath, ex.Message));
+    }
+
+    return Result.Success(true);
+  }
+
+  /// <summary>Resolves the short SHA of the current HEAD via 'rev-parse --short=7'.</summary>
+  private static async Task<Result<string>> ResolveHeadAsync(string repoRoot, CancellationToken ct)
+  {
+    Result<GitRun> head = await RunGitVerifiedAsync(repoRoot, [RevParse, "--short=7", "HEAD"], ct).ConfigureAwait(false);
+    return head.IsSuccess ? Result.Success(head.Value.StdOut.Trim()) : Result.Failure<string>(head.Error);
+  }
+
+  public async Task<Result<bool>> RemoveAsync(string repoRoot, string name, bool force, CancellationToken ct = default)
+  {
+    Result<WorktreeName> validated = ValidateName(name);
     if (!validated.IsSuccess)
     {
       return Result.Failure<bool>(validated.Error);
@@ -207,21 +220,32 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
           "The main worktree cannot be removed."));
     }
 
-    Result<bool> dirty = await IsDirtyAsync(registered.Value.Path, ct).ConfigureAwait(false);
-    if (!dirty.IsSuccess)
+    Result<bool> clean = await EnsureRemovableAsync(registered.Value.Path, validated.Value.Value, force, ct).ConfigureAwait(false);
+    if (!clean.IsSuccess)
     {
-      return Result.Failure<bool>(dirty.Error);
-    }
-
-    if (dirty.Value && !force)
-    {
-      return Result.Failure<bool>(new DomainError("WorktreeDirty",
-          $"Worktree '{validated.Value.Value}' has uncommitted changes; pass force to discard them."));
+      return Result.Failure<bool>(clean.Error);
     }
 
     string[] args = force ? ["worktree", "remove", "--force", targetPath] : ["worktree", "remove", targetPath];
     Result<GitRun> removed = await RunGitVerifiedAsync(repoRoot, args, ct).ConfigureAwait(false);
     return removed.IsSuccess ? Result.Success(true) : Result.Failure<bool>(removed.Error);
+  }
+
+  /// <summary>Refuses a dirty worktree unless <paramref name="force"/> discards
+  ///     its uncommitted changes — the documented dirty-worktree contract.</summary>
+  private static async Task<Result<bool>> EnsureRemovableAsync(string worktreePath, string name, bool force, CancellationToken ct)
+  {
+    Result<bool> dirty = await IsDirtyAsync(worktreePath, ct).ConfigureAwait(false);
+    if (!dirty.IsSuccess)
+    {
+      return Result.Failure<bool>(dirty.Error);
+    }
+
+    bool forceRequired = dirty.Value && !force;
+    return forceRequired
+        ? Result.Failure<bool>(new DomainError("WorktreeDirty",
+            $"Worktree '{name}' has uncommitted changes; pass force to discard them."))
+        : Result.Success(true);
   }
 
   /// <summary>Runs 'git -C WORKTREE status --porcelain' and reports whether
@@ -311,41 +335,14 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
   ///     crash the turn instead of reaching the model as an error result.</summary>
   private static async Task<Result<bool>> EnsureWorktreesExcludedAsync(string repoRoot, CancellationToken ct)
   {
-    GitRun resolved = await RunGitAsync(repoRoot,
-        [RevParse, "--path-format=absolute", "--git-path", "info/exclude"], ct).ConfigureAwait(false);
-    if (!resolved.Ok)
+    Result<string> resolved = await ResolveExcludePathAsync(repoRoot, ct).ConfigureAwait(false);
+    if (!resolved.IsSuccess)
     {
-      return Result.Failure<bool>(resolved.Err);
+      return Result.Failure<bool>(resolved.Error);
     }
 
-    if (resolved.ExitCode != 0)
-    {
-      return Result.Failure<bool>(ToGitFailure(repoRoot, resolved.ExitCode, resolved.StdErr));
-    }
-
-    string excludePath = resolved.StdOut.Trim();
-    if (excludePath.Length == 0)
-    {
-      return Result.Failure<bool>(ExcludeRegistrationFailed(repoRoot,
-          "git resolved an empty exclude path"));
-    }
-
-    // A directory that does not exist and cannot be created safely (a bare repo's
-    // admin area ships no info/) means there is no exclude file to register into —
-    // skip, not fail: exclusion is a courtesy, and writing a bogus TREE into a bare
-    // repo was the old bug this resolution exists to prevent.
-    string? excludeDir = Path.GetDirectoryName(excludePath);
-    if (excludeDir is not null && !Directory.Exists(excludeDir))
-    {
-      try
-      {
-        _ = Directory.CreateDirectory(excludeDir);
-      }
-      catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-      {
-        return Result.Success(true);
-      }
-    }
+    string excludePath = resolved.Value;
+    EnsureExcludeDirectory(excludePath);
 
     string existing = File.Exists(excludePath)
         ? await File.ReadAllTextAsync(excludePath, ct).ConfigureAwait(false)
@@ -364,6 +361,54 @@ public sealed class GitWorktreeAccess : IGitWorktreeAccess
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
     {
       return Result.Failure<bool>(ExcludeRegistrationFailed(excludePath, ex.Message));
+    }
+  }
+
+  /// <summary>Resolves the repository's exclude-file path BY GIT ('rev-parse
+  ///     --path-format=absolute --git-path') so every repo layout resolves
+  ///     correctly: a normal repository, a linked worktree (whose .git is a file
+  ///     with a gitdir pointer — hand-joining <c>root/.git/info</c> would throw
+  ///     IOException), and a bare repository alike.</summary>
+  private static async Task<Result<string>> ResolveExcludePathAsync(string repoRoot, CancellationToken ct)
+  {
+    GitRun resolved = await RunGitAsync(repoRoot,
+        [RevParse, "--path-format=absolute", "--git-path", "info/exclude"], ct).ConfigureAwait(false);
+    if (!resolved.Ok)
+    {
+      return Result.Failure<string>(resolved.Err);
+    }
+
+    if (resolved.ExitCode != 0)
+    {
+      return Result.Failure<string>(ToGitFailure(repoRoot, resolved.ExitCode, resolved.StdErr));
+    }
+
+    string excludePath = resolved.StdOut.Trim();
+    return excludePath.Length == 0
+        ? Result.Failure<string>(ExcludeRegistrationFailed(repoRoot, "git resolved an empty exclude path"))
+        : Result.Success(excludePath);
+  }
+
+  /// <summary>A directory that does not exist and cannot be created safely (a bare
+  ///     repo's admin area ships no info/) means there is no exclude file to register
+  ///     into — skip, not fail: exclusion is a courtesy, and writing a bogus TREE into
+  ///     a bare repo was the old bug this resolution exists to prevent.</summary>
+  private static void EnsureExcludeDirectory(string excludePath)
+  {
+    string? excludeDir = Path.GetDirectoryName(excludePath);
+    if (excludeDir is null || Directory.Exists(excludeDir))
+    {
+      return;
+    }
+
+    try
+    {
+      _ = Directory.CreateDirectory(excludeDir);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+      // Exclusion is a courtesy: an uncreatable directory simply skips the
+      // registration, exactly as before.
     }
   }
 

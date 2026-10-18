@@ -104,7 +104,7 @@ public class ProcessRssMonitorTests
         metrics,
         events,
         sustainedTicks is { } t
-            ? new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60), RssSustainedBreachTicks: t)
+            ? new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60), Rss: new RssOptions(SustainedBreachTicks: t))
             : new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)),
         clock);
     return (monitor, metrics, clock, events);

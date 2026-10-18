@@ -28,6 +28,29 @@ internal sealed record CompactionModelOption(string? ModelId, string Display)
   internal static readonly CompactionModelOption Automatic = new(null, "Automatic (cheapest capable)");
 }
 
+/// <summary>The values the settings modal opens with: the API keys and every
+///     persisted knob the view-model seeds itself from. Grouped so the view-model
+///     constructor keeps a readable parameter list; every member is optional and its
+///     absence preserves the previous default.</summary>
+internal sealed record SettingsValues
+{
+  public string? OpenRouterKey { get; init; }
+  public CommitStyle CommitStyle { get; init; } = CommitStyle.Conventional;
+  public IReadOnlyList<CompactionModelOption>? CompactionModels { get; init; }
+  public CompactionModelOption? SelectedCompactionModel { get; init; }
+  public string? WorkspaceRoot { get; init; }
+  public string? MaxConcurrentAgentsText { get; init; }
+  public string? DefaultModelText { get; init; }
+  public bool RemoteHost { get; init; }
+  public string? WatchdogTickText { get; init; }
+  public string? WatchdogIdleText { get; init; }
+  public string? WatchdogWrapUpText { get; init; }
+  public string? OpenRouterBaseUrlText { get; init; }
+  public bool ComputerUse { get; init; }
+  public string? SkillRegistryDefaultTarget { get; init; }
+  public string? OpenRouterManagementKey { get; init; }
+}
+
 internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle CommitStyle,
     string? CompactionModelId = null, string? CompactionWorkspaceKey = null,
     string? MaxConcurrentAgentsText = null, string? DefaultModelText = null, bool RemoteHost = false,
@@ -188,17 +211,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
       ?? ValidateWrapUp(WatchdogWrapUpText)
       ?? ValidateLabeledBaseUrl(OpenRouterBaseUrlText, "OpenRouter base URL");
 
-  public SettingsViewModel(string? openRouterKey, CommitStyle commitStyle = CommitStyle.Conventional,
-      IReadOnlyList<CompactionModelOption>? compactionModels = null,
-      CompactionModelOption? selectedCompactionModel = null,
-      string? workspaceRoot = null,
-      string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
-      string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
-      string? openRouterBaseUrlText = null,
-      bool computerUse = false,
-      string? skillRegistryDefaultTarget = null,
-      string? openRouterManagementKey = null)
+  public SettingsViewModel(SettingsValues values)
   {
+    ArgumentNullException.ThrowIfNull(values);
     // The command exists before the observable properties: setting those raises
     // the changed hooks, which requery save availability. The guard in the action
     // is load-bearing: ICommand.Execute does not consult CanExecute, and a disabled
@@ -219,28 +234,49 @@ internal sealed partial class SettingsViewModel : ObservableObject
           }
         },
         () => CanSave);
-    CompactionModels = compactionModels ?? [CompactionModelOption.Automatic];
-    OpenRouterKey = openRouterKey ?? string.Empty;
-    OpenRouterManagementKey = openRouterManagementKey ?? string.Empty;
-    MaxConcurrentAgentsText = maxConcurrentAgentsText ?? string.Empty;
-    DefaultModelText = defaultModelText ?? string.Empty;
-    RemoteHost = remoteHost;
-    ComputerUse = computerUse;
-    SkillRegistryTarget = skillRegistryDefaultTarget ?? string.Empty;
-    WatchdogTickText = watchdogTickText ?? string.Empty;
-    WatchdogIdleText = watchdogIdleText ?? string.Empty;
-    WatchdogWrapUpText = watchdogWrapUpText ?? string.Empty;
-    OpenRouterBaseUrlText = openRouterBaseUrlText ?? string.Empty;
-    SelectedCompactionModel = selectedCompactionModel ?? CompactionModelOption.Automatic;
-    WorkspaceRoot = workspaceRoot;
-    SelectedCommitStyle = commitStyle switch
-    {
-      CommitStyle.Conventional => CommitStyleOption.Conventional,
-      CommitStyle.Gitmoji => CommitStyleOption.Gitmoji,
-      CommitStyle.None => CommitStyleOption.None,
-      _ => CommitStyleOption.Conventional, // unnamed enum values cannot occur across the typed boundary
-    };
+    // Read-only properties: they must be assigned in the constructor body.
+    CompactionModels = values.CompactionModels ?? [CompactionModelOption.Automatic];
+    WorkspaceRoot = values.WorkspaceRoot;
+    SeedFrom(values);
   }
+
+  /// <summary>Seeds every observable property from the opening values. Runs AFTER
+  ///     SaveCommand exists: each assignment raises the changed hooks, which requery
+  ///     save availability.</summary>
+  private void SeedFrom(SettingsValues values)
+  {
+    SeedKeys(values);
+    SeedAgentKnobs(values);
+    SelectedCompactionModel = values.SelectedCompactionModel ?? CompactionModelOption.Automatic;
+    SelectedCommitStyle = StyleFor(values.CommitStyle);
+  }
+
+  private void SeedKeys(SettingsValues values)
+  {
+    OpenRouterKey = values.OpenRouterKey ?? string.Empty;
+    OpenRouterManagementKey = values.OpenRouterManagementKey ?? string.Empty;
+    OpenRouterBaseUrlText = values.OpenRouterBaseUrlText ?? string.Empty;
+    SkillRegistryTarget = values.SkillRegistryDefaultTarget ?? string.Empty;
+  }
+
+  private void SeedAgentKnobs(SettingsValues values)
+  {
+    MaxConcurrentAgentsText = values.MaxConcurrentAgentsText ?? string.Empty;
+    DefaultModelText = values.DefaultModelText ?? string.Empty;
+    RemoteHost = values.RemoteHost;
+    ComputerUse = values.ComputerUse;
+    WatchdogTickText = values.WatchdogTickText ?? string.Empty;
+    WatchdogIdleText = values.WatchdogIdleText ?? string.Empty;
+    WatchdogWrapUpText = values.WatchdogWrapUpText ?? string.Empty;
+  }
+
+  private static CommitStyleOption StyleFor(CommitStyle style) => style switch
+  {
+    CommitStyle.Conventional => CommitStyleOption.Conventional,
+    CommitStyle.Gitmoji => CommitStyleOption.Gitmoji,
+    CommitStyle.None => CommitStyleOption.None,
+    _ => CommitStyleOption.Conventional, // unnamed enum values cannot occur across the typed boundary
+  };
 
   // Validation edits must requery the Save button's CanExecute.
   partial void OnOpenRouterKeyChanged(string value) => SaveCommand.NotifyCanExecuteChanged();

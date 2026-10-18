@@ -101,16 +101,24 @@ internal partial class MainWindow : Window
   ///     rebind) on the shell.</summary>
   private async Task ShowSettingsDialogAsync()
   {
-    SettingsWindow dialog = new(_vm!.ConfiguredOpenRouterKey, _vm.ConfiguredCommitStyle,
-        await _vm.GetCompactionOptionsAsync(),
-        await _vm.GetSelectedCompactionModelAsync(),
-        _vm.SelectedTab?.Container.WorkspaceRoot,
-        _vm.ConfiguredMaxConcurrentAgents, _vm.ConfiguredDefaultModel, _vm.ConfiguredRemoteHost,
-        _vm.ConfiguredWatchdogTick, _vm.ConfiguredWatchdogIdle, _vm.ConfiguredWatchdogWrapUp,
-        _vm.ConfiguredOpenRouterBaseUrl,
-        _vm.ConfiguredComputerUse,
-        await _vm.GetSkillRegistryDefaultTargetAsync(),
-        _vm.ConfiguredOpenRouterManagementKey);
+    SettingsWindow dialog = new(new SettingsValues
+    {
+      OpenRouterKey = _vm!.ConfiguredOpenRouterKey,
+      CommitStyle = _vm.ConfiguredCommitStyle,
+      CompactionModels = await _vm.GetCompactionOptionsAsync(),
+      SelectedCompactionModel = await _vm.GetSelectedCompactionModelAsync(),
+      WorkspaceRoot = _vm.SelectedTab?.Container.WorkspaceRoot,
+      MaxConcurrentAgentsText = _vm.ConfiguredMaxConcurrentAgents,
+      DefaultModelText = _vm.ConfiguredDefaultModel,
+      RemoteHost = _vm.ConfiguredRemoteHost,
+      WatchdogTickText = _vm.ConfiguredWatchdogTick,
+      WatchdogIdleText = _vm.ConfiguredWatchdogIdle,
+      WatchdogWrapUpText = _vm.ConfiguredWatchdogWrapUp,
+      OpenRouterBaseUrlText = _vm.ConfiguredOpenRouterBaseUrl,
+      ComputerUse = _vm.ConfiguredComputerUse,
+      SkillRegistryDefaultTarget = await _vm.GetSkillRegistryDefaultTargetAsync(),
+      OpenRouterManagementKey = _vm.ConfiguredOpenRouterManagementKey,
+    });
     SettingsUpdate? update = await dialog.ShowDialog<SettingsUpdate?>(this);
     if (update is null)
     {

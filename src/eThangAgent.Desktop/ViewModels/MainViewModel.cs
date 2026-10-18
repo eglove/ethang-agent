@@ -214,7 +214,7 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>The commit style the settings modal prefills; the stored choice, or the
   ///     Conventional default when none is stored (matching the tool-side default).
   ///     Loaded from preferences at construction; updated when settings save.</summary>
-  public CommitStyle ConfiguredCommitStyle { get; private set; } = CommitStyle.Conventional;
+  public CommitStyle ConfiguredCommitStyle { get; private set; }
 
   public IRelayCommand OpenAgentCommand { get; }
 
@@ -253,15 +253,12 @@ internal sealed partial class MainViewModel : ObservableObject
   public MainViewModel(Func<string, string, Task<Result<AgentSession>>>? createSession,
       MainViewModelOptions? options = null)
   {
-    if (createSession is null && (options?.Settings is null || options.SessionFactory is null))
-    {
-      throw new ArgumentException(
-          "Either a session-creation delegate or both settings and a session factory are required.",
-          nameof(createSession));
-    }
+    EnsureSessionSource(createSession, options);
 
+    // Each member is an optional seam: a null one behaves exactly as the
+    // corresponding absent parameter always did.
     _preferences = options?.Preferences;
-    ConfiguredCommitStyle = options?.CommitStyle ?? CommitStyle.Conventional;
+    ConfiguredCommitStyle = CommitStyleOf(options);
     _streamSink = options?.UiStreamSink;
     _settings = options?.Settings;
     _sessionOpened = options?.SessionOpened;
@@ -269,45 +266,93 @@ internal sealed partial class MainViewModel : ObservableObject
     _sessionFactory = options?.SessionFactory;
     _keyProtector = options?.ApiKeyProtector;
     _sessionCatalog = options?.SessionCatalog;
-    _createSession = createSession ?? ((root, provider) =>
-        _sessionFactory!.CreateAsync(root, provider));
-    // Reads the factory at invocation (settings rebind reaches future resumes). A host
-    // composing sessions itself (no factory) degrades to a structured failure — resume
-    // needs the shared store the factory owns.
-    _resumeSession = sessionId => _sessionFactory is null
-        ? Task.FromResult(Result.Failure<AgentSession>(new DomainError("ResumeUnavailable",
-            "this host composed its sessions without a shared store; sessions cannot be resumed.")))
-        : _sessionFactory.ResumeAsync(sessionId);
+    _createSession = CreateSessionDelegate(createSession);
+    _resumeSession = CreateResumeDelegate();
 
     // Commands exist before the observable properties: setting those raises the
     // changed hooks, which requery command availability.
-    OpenAgentCommand = new RelayCommand(
-        () => OpenAgentRequested?.Invoke(this, EventArgs.Empty),
-        () => !IsOpeningAgent && HasConfiguredProvider);
-    OpenSessionsCommand = new RelayCommand(
-        () => SessionsRequested?.Invoke(this, EventArgs.Empty));
-    OpenSettingsCommand = new RelayCommand(() => SettingsRequested?.Invoke(this, EventArgs.Empty));
-    ChooseModelSettingsCommand = new RelayCommand(
-        () => ModelSettingsRequested?.Invoke(this, EventArgs.Empty),
-        () => HasSelectedTab);
-    OpenMcpServersCommand = new RelayCommand(
-        () => McpServersRequested?.Invoke(this, EventArgs.Empty),
-        () => HasSelectedTab);
+    OpenAgentCommand = CreateOpenAgentCommand();
+    OpenSessionsCommand = CreateOpenSessionsCommand();
+    OpenSettingsCommand = CreateOpenSettingsCommand();
+    ChooseModelSettingsCommand = CreateChooseModelSettingsCommand();
+    OpenMcpServersCommand = CreateOpenMcpServersCommand();
 
+    InitializeProviders(options);
+    Tabs.CollectionChanged += OnTabsChanged;
+  }
+
+  /// <summary>Refuses a shell with no session source at all: neither a creation
+  ///     delegate nor the settings/factory pair settings editing needs.</summary>
+  private static void EnsureSessionSource(Func<string, string, Task<Result<AgentSession>>>? createSession,
+      MainViewModelOptions? options)
+  {
+    if (createSession is null && (options?.Settings is null || options.SessionFactory is null))
+    {
+      throw new ArgumentException(
+          "Either a session-creation delegate or both settings and a session factory are required.",
+          nameof(createSession));
+    }
+  }
+
+  /// <summary>The commit style the settings modal prefills: the host-supplied one, or
+  ///     the Conventional default (the same one the tool side uses).</summary>
+  private static CommitStyle CommitStyleOf(MainViewModelOptions? options)
+      => options?.CommitStyle ?? CommitStyle.Conventional;
+
+  /// <summary>The session-creation delegate: the host-supplied one, else the factory's
+  ///     create. It reads the factory at invocation, so a settings-save rebind reaches
+  ///     future opens without touching the stored delegate.</summary>
+  private Func<string, string, Task<Result<AgentSession>>> CreateSessionDelegate(
+      Func<string, string, Task<Result<AgentSession>>>? createSession)
+      => createSession ?? ((root, provider) => _sessionFactory!.CreateAsync(root, provider));
+
+  /// <summary>The resume delegate: the factory's resume, read at invocation so a
+  ///     settings-save rebind reaches future resumes. A host composing sessions itself
+  ///     (no factory) degrades to a structured failure — resume needs the shared store
+  ///     the factory owns.</summary>
+  private Func<AgentId, Task<Result<AgentSession>>> CreateResumeDelegate()
+      => sessionId => _sessionFactory is null
+          ? Task.FromResult(Result.Failure<AgentSession>(new DomainError("ResumeUnavailable",
+              "this host composed its sessions without a shared store; sessions cannot be resumed.")))
+          : _sessionFactory.ResumeAsync(sessionId);
+
+  /// <summary>The Open Workspace command: gated on no open in flight and at least one
+  ///     configured provider.</summary>
+  private RelayCommand CreateOpenAgentCommand() => new(
+      () => OpenAgentRequested?.Invoke(this, EventArgs.Empty),
+      () => !IsOpeningAgent && HasConfiguredProvider);
+
+  private RelayCommand CreateOpenSessionsCommand() => new(
+      () => SessionsRequested?.Invoke(this, EventArgs.Empty));
+
+  private RelayCommand CreateOpenSettingsCommand() => new(
+      () => SettingsRequested?.Invoke(this, EventArgs.Empty));
+
+  /// <summary>The Model entry: gated on a selected tab (every provider has a picker).</summary>
+  private RelayCommand CreateChooseModelSettingsCommand() => new(
+      () => ModelSettingsRequested?.Invoke(this, EventArgs.Empty),
+      () => HasSelectedTab);
+
+  /// <summary>The MCP entry: gated on a selected tab (the dialog is per session).</summary>
+  private RelayCommand CreateOpenMcpServersCommand() => new(
+      () => McpServersRequested?.Invoke(this, EventArgs.Empty),
+      () => HasSelectedTab);
+
+  /// <summary>Seeds the provider surface: the configured providers (from the settings
+  ///     snapshot when present, else the host-supplied list) and the pre-selected one.</summary>
+  private void InitializeProviders(MainViewModelOptions? options)
+  {
     AvailableProviders = _settings is not null
         ? ProvidersFrom(_settings)
         : options?.AvailableProviders ?? [new(Providers.OpenRouter, Providers.DisplayName(Providers.OpenRouter))];
-    string preferred = options?.PreferredProviderId
-        ?? (AvailableProviders.Count > 0 ? AvailableProviders[0].Id : Providers.OpenRouter);
-    PreferredProviderId = ResolvePreferredProviderId(preferred);
-    Tabs.CollectionChanged += OnTabsChanged;
+    PreferredProviderId = ResolvePreferredProviderId(options?.PreferredProviderId);
   }
 
   /// <summary>Guard-style early returns: the requested provider when it is among the
   /// configured ones, else the first configured provider, else the OpenRouter default.</summary>
-  private string ResolvePreferredProviderId(string preferred)
+  private string ResolvePreferredProviderId(string? preferred)
   {
-    if (AvailableProviders.Any(p => p.Id == preferred))
+    if (preferred is not null && AvailableProviders.Any(p => p.Id == preferred))
     {
       return preferred;
     }
@@ -590,10 +635,38 @@ internal sealed partial class MainViewModel : ObservableObject
     }
 
     string? openRouterKey = Normalize(update.OpenRouterApiKey);
+    string? managementKey = Normalize(update.OpenRouterManagementKey);
 
+    await PersistSettingsTextAsync(update, openRouterKey, managementKey);
+    ConfiguredCommitStyle = update.CommitStyle;
+    PersistScopedSettings(update);
+
+    // Re-hydrate non-secrets from the store they just landed in — the loader's strict
+    // binding is the single interpretation of these values (no parallel with-mutators).
+    // (Deviation from the plan snippet's literal 'previous.OpenRouter.ApiKey': reading
+    // the PRE-save snapshot would resurrect keys this very save cleared — the update
+    // carries FULL field state and null keys mean cleared. The keys current to this
+    // save are the normalized update values, the same ones persisted above; deviating
+    // to re-apply them keeps both contracts — no loss on re-hydration (rebuilt carries
+    // none), no resurrection of cleared keys.)
+    AgentSettings rebuilt = _preferences is not null
+        ? await AgentSettingsLoader.LoadAsync(_preferences)
+        : BindFromUpdate(update); // test seam: no store, same strict binders
+    _settings = rebuilt.WithApiKeys(openRouterKey).WithManagementKey(managementKey);
+    _sessionFactory = _sessionFactory?.WithSettings(_settings);
+
+    PushLiveManagementKey(managementKey);
+    RefreshProviderSurface(_settings);
+  }
+
+  /// <summary>Persists every non-scoped field of a settings-modal update: the two
+  ///     keys (protected) and the plaintext knobs, each normalized defensively.
+  ///     Best effort, the same named decision as every other preference write.</summary>
+  private async Task PersistSettingsTextAsync(SettingsUpdate update, string? openRouterKey,
+      string? managementKey)
+  {
     await PersistApiKeyAsync(OpenRouterSettings.PreferenceKey, openRouterKey);
-    await PersistApiKeyAsync(OpenRouterSettings.ManagementKeyPreferenceKey,
-        Normalize(update.OpenRouterManagementKey));
+    await PersistApiKeyAsync(OpenRouterSettings.ManagementKeyPreferenceKey, managementKey);
     await PersistPreferenceAsync(AppPreferenceCommitStyleProvider.PreferenceKey,
         update.CommitStyle.ToString());
     await PersistPreferenceAsync(AgentPreferenceKeys.MaxConcurrentAgents,
@@ -612,8 +685,13 @@ internal sealed partial class MainViewModel : ObservableObject
         Normalize(update.OpenRouterBaseUrlText));
     await PersistPreferenceAsync(AgentPreferenceKeys.ComputerUseEnabled,
         update.ComputerUse ? "true" : "false");
-    ConfiguredCommitStyle = update.CommitStyle;
+  }
 
+  /// <summary>Persists the two scoped settings of a settings-modal update: the
+  ///     compaction summarizer (per selected tab's provider + workspace) and the
+  ///     skill-registry default target. Absent values delete their key.</summary>
+  private void PersistScopedSettings(SettingsUpdate update)
+  {
     // Compaction summarizer is per selected tab's (provider, workspace): unset means
     // Automatic — the cheapest capable catalog entry resolves at compaction time.
     if (update.CompactionWorkspaceKey is { } workspaceKey)
@@ -632,34 +710,26 @@ internal sealed partial class MainViewModel : ObservableObject
           ? _preferences?.DeleteAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget)
           : _preferences?.SetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget, registryTarget);
     }
+  }
 
-    // Re-hydrate non-secrets from the store they just landed in — the loader's strict
-    // binding is the single interpretation of these values (no parallel with-mutators).
-    // (Deviation from the plan snippet's literal 'previous.OpenRouter.ApiKey': reading
-    // the PRE-save snapshot would resurrect keys this very save cleared — the update
-    // carries FULL field state and null keys mean cleared. The keys current to this
-    // save are the normalized update values, the same ones persisted above; deviating
-    // to re-apply them keeps both contracts — no loss on re-hydration (rebuilt carries
-    // none), no resurrection of cleared keys.)
-    AgentSettings rebuilt = _preferences is not null
-        ? await AgentSettingsLoader.LoadAsync(_preferences)
-        : BindFromUpdate(update); // test seam: no store, same strict binders
-    _settings = rebuilt.WithApiKeys(openRouterKey)
-        .WithManagementKey(Normalize(update.OpenRouterManagementKey));
-    _sessionFactory = _sessionFactory?.WithSettings(_settings);
-
-    // Live management-key push: every open session's carrier takes the saved key
-    // immediately — the frozen OpenRouterConfiguration snapshot forced a session
-    // restart to pick a key up (2026-10-08). The openrouter_management tool reads
-    // the carrier at dispatch, so the NEXT call uses the key. Sessions without a
-    // carrier (headless stubs) skip the push silently.
-    string? liveManagementKey = Normalize(update.OpenRouterManagementKey);
+  /// <summary>Live management-key push: every open session's carrier takes the saved key
+  ///     immediately — the frozen OpenRouterConfiguration snapshot forced a session
+  ///     restart to pick a key up (2026-10-08). The openrouter_management tool reads
+  ///     the carrier at dispatch, so the NEXT call uses the key. Sessions without a
+  ///     carrier (headless stubs) skip the push silently.</summary>
+  private void PushLiveManagementKey(string? managementKey)
+  {
     foreach (AgentTabViewModel tab in Tabs)
     {
-      tab.Container.Services.GetService<OpenRouterManagementKeyCarrier>()?.Current = liveManagementKey;
+      tab.Container.Services.GetService<OpenRouterManagementKeyCarrier>()?.Current = managementKey;
     }
+  }
 
-    AvailableProviders = ProvidersFrom(_settings);
+  /// <summary>Re-derives the offered providers from the rebuilt settings and moves the
+  ///     pre-selection onto the first configured one when the current pick vanished.</summary>
+  private void RefreshProviderSurface(AgentSettings settings)
+  {
+    AvailableProviders = ProvidersFrom(settings);
     if (!AvailableProviders.Any(p => p.Id == PreferredProviderId) && AvailableProviders.Count > 0)
     {
       PreferredProviderId = AvailableProviders[0].Id;
@@ -955,7 +1025,36 @@ internal sealed partial class MainViewModel : ObservableObject
     // thread — transcript mutation is UI-thread-only — and land as regular notices.
     session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
         () => sessionVmRef?.AddSystemNotice(message));
-    AgentSessionViewModel sessionVm = new(
+    AgentSessionViewModel sessionVm = BuildSessionViewModel(session,
+        () => sessionVmRef ??
+            throw new InvalidOperationException("session view-model not initialized"),
+        id => sessionVmRef!.Status.ModelId = id);
+    sessionVmRef = sessionVm;
+
+    await RestorePinnedModelAsync(session, sessionVm);
+    await RestoreSessionPreferencesAsync(session, sessionVm);
+
+    // Resume replay: the persisted transcript (already hydrated into the session's
+    // conversation) renders into the transcript view. A fresh session replays nothing.
+    sessionVm.Transcript.Restore(session.Conversation.Messages);
+
+    AgentTabViewModel tab = new(session, sessionVm);
+    AttachTabWiring(session, tab);
+    Tabs.Add(tab);
+    _sessionOpened?.Invoke(session);
+    SelectedTab = tab;
+
+    await PersistProviderPreferenceAsync(session.ProviderName).ConfigureAwait(false);
+    return tab;
+  }
+
+  /// <summary>Builds the session view-model with its self-referencing stream sink and
+  ///     status hook. Both resolve the view-model lazily through the supplied accessors,
+  ///     so the instance is captured after construction.</summary>
+  private AgentSessionViewModel BuildSessionViewModel(AgentSession session,
+      Func<AgentSessionViewModel> currentViewModel, Action<string> updateStatusModel)
+  {
+    return new AgentSessionViewModel(
         // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
         // (CA1068) — adapt the parameter order at the call site.
         (command, ct, callbacks, onNotice) => session.Handler.Handle(command, callbacks, onNotice, ct),
@@ -968,12 +1067,11 @@ internal sealed partial class MainViewModel : ObservableObject
         {
           WorkspaceRoot = session.WorkspaceRoot,
           SystemPrompt = session.SystemPrompt,
-          UiStreamSink = _streamSink ?? (evt => (sessionVmRef ??
-              throw new InvalidOperationException("session view-model not initialized"))
+          UiStreamSink = _streamSink ?? (evt => currentViewModel()
               .ApplyUiStreamEventOnUIThreadAsync(evt)),
           Inbox = session.Inbox,
           ChildRuntime = session.ChildRuntime,
-          StatusModelUpdater = id => sessionVmRef!.Status.ModelId = id,
+          StatusModelUpdater = updateStatusModel,
           ModelPreferences = session.Preferences,
           CommandRunner = session.CommandRunner,
           SkillInvocation = session.SkillInvocation,
@@ -983,13 +1081,16 @@ internal sealed partial class MainViewModel : ObservableObject
           ChildEvents = session.Services.GetService<IAgentEvents>(),
           AgentStore = session.Services.GetService<IAgentStore>(),
         });
-    sessionVmRef = sessionVm;
+  }
 
-    // A session whose record carries a real pin (a previous selection, or a user's
-    // picker choice that already served a turn) shows that model in the status bar
-    // immediately: the selection notice fires only on the turn that CHANGES the pin,
-    // so a resumed or second-turn session would otherwise display the bootstrap
-    // fallback forever. Best effort - a store miss keeps the bootstrap id.
+  /// <summary>Shows the record's pinned model in the status bar immediately. A session
+  ///     whose record carries a real pin (a previous selection, or a user's picker
+  ///     choice that already served a turn) must display it at once: the selection
+  ///     notice fires only on the turn that CHANGES the pin, so a resumed or
+  ///     second-turn session would otherwise display the bootstrap fallback forever.
+  ///     Best effort — a store miss keeps the bootstrap id.</summary>
+  private static async Task RestorePinnedModelAsync(AgentSession session, AgentSessionViewModel sessionVm)
+  {
     // Named decision (CA1031): a status restore must never fail the session open.
 #pragma warning disable CA1031 // Do not catch general exception types
     try
@@ -1009,63 +1110,59 @@ internal sealed partial class MainViewModel : ObservableObject
       await Console.Error.WriteLineAsync($"status model restore failed: {ex.Message}");
     }
 #pragma warning restore CA1031 // Do not catch general exception types
+  }
 
-    // Restore the per-workspace model and effort choices (if any) BEFORE the tab can
-    // take a turn: both ride the session preferences, so the first turn resolves
-    // straight to them — no selection runs. A stale persisted model id is not
-    // re-validated — that would crawl the whole OpenRouter catalog on every open —
-    // it surfaces as a provider error on the next turn and the user re-picks.
-    if (session.Preferences is { } preferences)
+  /// <summary>Restores the per-workspace model, effort, sampling, and OpenRouter
+  ///     settings BEFORE the tab can take a turn: they all ride the session
+  ///     preferences, so the first turn resolves straight to them — no selection runs.
+  ///     A stale persisted model id is not re-validated — that would crawl the whole
+  ///     OpenRouter catalog on every open — it surfaces as a provider error on the
+  ///     next turn and the user re-picks.</summary>
+  private async Task RestoreSessionPreferencesAsync(AgentSession session, AgentSessionViewModel sessionVm)
+  {
+    if (session.Preferences is not { } preferences)
     {
-      string? restoredChoice = await ReadModelChoiceAsync(session.ProviderName, session.WorkspaceRoot);
-      if (restoredChoice is not null)
-      {
-        preferences.ModelId = restoredChoice;
-        sessionVm.Status.ModelId = restoredChoice;
-      }
-
-      ReasoningEffort? restoredEffort = await ReadEffortChoiceAsync(session.ProviderName, session.WorkspaceRoot);
-      if (restoredEffort is { } effort)
-      {
-        preferences.ReasoningEffort = effort;
-        sessionVm.Status.Effort = EffortLevels.DisplayName(effort);
-      }
-
-      // Restored sampling knobs and serialized OpenRouter settings ride the same
-      // live preferences: the first turn resolves straight to them, no re-pick.
-      IReadOnlyDictionary<string, string>? restoredKnobs =
-          await ReadSamplingPrefsAsync(session.ProviderName, session.WorkspaceRoot);
-      if (restoredKnobs is { } knobs)
-      {
-        ApplyRestoredKnobs(preferences, knobs);
-      }
-
-      string? restoredSettings = await ReadProviderSettingsAsync(session.ProviderName, session.WorkspaceRoot);
-      if (restoredSettings is not null)
-      {
-        preferences.ProviderSettings = restoredSettings;
-      }
+      return;
     }
 
-    // Resume replay: the persisted transcript (already hydrated into the session's
-    // conversation) renders into the transcript view. A fresh session replays nothing.
-    sessionVm.Transcript.Restore(session.Conversation.Messages);
+    string? restoredChoice = await ReadModelChoiceAsync(session.ProviderName, session.WorkspaceRoot);
+    if (restoredChoice is not null)
+    {
+      preferences.ModelId = restoredChoice;
+      sessionVm.Status.ModelId = restoredChoice;
+    }
 
-    AgentTabViewModel tab = new(session, sessionVm);
+    ReasoningEffort? restoredEffort = await ReadEffortChoiceAsync(session.ProviderName, session.WorkspaceRoot);
+    if (restoredEffort is { } effort)
+    {
+      preferences.ReasoningEffort = effort;
+      sessionVm.Status.Effort = EffortLevels.DisplayName(effort);
+    }
 
+    // Restored sampling knobs and serialized OpenRouter settings ride the same
+    // live preferences: the first turn resolves straight to them, no re-pick.
+    IReadOnlyDictionary<string, string>? restoredKnobs =
+        await ReadSamplingPrefsAsync(session.ProviderName, session.WorkspaceRoot);
+    if (restoredKnobs is { } knobs)
+    {
+      ApplyRestoredKnobs(preferences, knobs);
+    }
 
-    // W4.4: push the unread-steering badge from the session's child-event stream
-    // (deliver raises, drain/settle clear) - a subscription, never a poll.
+    string? restoredSettings = await ReadProviderSettingsAsync(session.ProviderName, session.WorkspaceRoot);
+    if (restoredSettings is not null)
+    {
+      preferences.ProviderSettings = restoredSettings;
+    }
+  }
+
+  /// <summary>Subscribes the tab's live surfaces: the unread-steering badge (W4.4 —
+  ///     deliver raises, drain/settle clear; a subscription, never a poll) and the
+  ///     statusline's git branch watcher (issue 1 — event-driven on .git changes; a
+  ///     session without the git seam, none in production, skips it).</summary>
+  private static void AttachTabWiring(AgentSession session, AgentTabViewModel tab)
+  {
     tab.AttachBadge(session.Services.GetService<IAgentEvents>());
-    // Statusline branch (issue 1): the workspace's git branch, event-driven on
-    // .git changes. A session without the git seam (none in production) skips it.
     tab.AttachBranchWatcher(session.Services.GetService<IGitQueryAccess>());
-    Tabs.Add(tab);
-    _sessionOpened?.Invoke(session);
-    SelectedTab = tab;
-
-    await PersistProviderPreferenceAsync(session.ProviderName).ConfigureAwait(false);
-    return tab;
   }
 
   /// <summary>Menu-bar entry point: raises the Sessions request. The view shows the
@@ -1273,15 +1370,35 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     save (a corrupt stored value degrades to unset — never coerced).</summary>
   private static void ApplyRestoredKnobs(SessionModelPreferences preferences, IReadOnlyDictionary<string, string> knobs)
   {
+    ApplySamplingKnobs(preferences, knobs);
+    ApplyPenaltyKnobs(preferences, knobs);
+    ApplyOutputKnobs(preferences, knobs);
+  }
+
+  /// <summary>Samples-per-token knobs: temperature, the two token caps, and the two
+  ///     nucleus/pool cutoffs. A corrupt stored value degrades to unset.</summary>
+  private static void ApplySamplingKnobs(SessionModelPreferences preferences, IReadOnlyDictionary<string, string> knobs)
+  {
     preferences.Temperature = ParseFloat(knobs, "temperature") ?? preferences.Temperature;
     preferences.MaxTokens = ParseInt(knobs, "maxTokens") ?? preferences.MaxTokens;
     preferences.TopP = ParseFloat(knobs, "topP") ?? preferences.TopP;
     preferences.TopK = ParseInt(knobs, "topK") ?? preferences.TopK;
+    preferences.MinP = ParseFloat(knobs, "minP") ?? preferences.MinP;
+    preferences.TopA = ParseFloat(knobs, "topA") ?? preferences.TopA;
+  }
+
+  /// <summary>Penalty knobs: the frequency, presence, and repetition scales.</summary>
+  private static void ApplyPenaltyKnobs(SessionModelPreferences preferences, IReadOnlyDictionary<string, string> knobs)
+  {
     preferences.FrequencyPenalty = ParseFloat(knobs, "frequencyPenalty") ?? preferences.FrequencyPenalty;
     preferences.PresencePenalty = ParseFloat(knobs, "presencePenalty") ?? preferences.PresencePenalty;
     preferences.RepetitionPenalty = ParseFloat(knobs, "repetitionPenalty") ?? preferences.RepetitionPenalty;
-    preferences.MinP = ParseFloat(knobs, "minP") ?? preferences.MinP;
-    preferences.TopA = ParseFloat(knobs, "topA") ?? preferences.TopA;
+  }
+
+  /// <summary>Determinism and output-shape knobs: the seed, the verbosity level, and the
+  ///     parallel-tool-calls switch.</summary>
+  private static void ApplyOutputKnobs(SessionModelPreferences preferences, IReadOnlyDictionary<string, string> knobs)
+  {
     preferences.Seed = ParseInt(knobs, "seed") ?? preferences.Seed;
     preferences.Verbosity = ParseVerbosity(knobs) ?? preferences.Verbosity;
     preferences.ParallelToolCalls = ParseBool(knobs, "parallelToolCalls") ?? preferences.ParallelToolCalls;

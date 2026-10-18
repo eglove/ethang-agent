@@ -331,17 +331,7 @@ public sealed record ServerTools(
   ///     Parse(Serialize(x)) equal to x.</summary>
   public bool Equals(ServerTools? other)
       => other is not null
-          && WebSearch == other.WebSearch
-          && WebFetch == other.WebFetch
-          && Datetime == other.Datetime
-          && ImageGeneration == other.ImageGeneration
-          && Shell == other.Shell
-          && ApplyPatch == other.ApplyPatch
-          && Fusion == other.Fusion
-          && Advisor == other.Advisor
-          && SearchModels == other.SearchModels
-          && ToolSearch == other.ToolSearch
-          && MaxToolCalls == other.MaxToolCalls
+          && TogglesEqual(this, other)
           && NullableSequenceEqual(StopServerToolsWhen, other.StopServerToolsWhen);
 
   /// <summary>Sequence hash consistent with Equals.</summary>
@@ -370,6 +360,30 @@ public sealed record ServerTools(
 
     return hash.ToHashCode();
   }
+
+  /// <summary>Equality over the enabled-tool toggles and budget scalar — the
+  ///     part of Equals that does not involve the array.</summary>
+  private static bool TogglesEqual(ServerTools left, ServerTools right)
+      => LeadingTogglesEqual(left, right) && TrailingTogglesEqual(left, right);
+
+  /// <summary>Equality over the first half of the enabled-tool toggles, in
+  ///     declared order.</summary>
+  private static bool LeadingTogglesEqual(ServerTools left, ServerTools right)
+      => left.WebSearch == right.WebSearch
+          && left.WebFetch == right.WebFetch
+          && left.Datetime == right.Datetime
+          && left.ImageGeneration == right.ImageGeneration
+          && left.Shell == right.Shell
+          && left.ApplyPatch == right.ApplyPatch;
+
+  /// <summary>Equality over the second half of the enabled-tool toggles and the
+  ///     budget scalar, in declared order.</summary>
+  private static bool TrailingTogglesEqual(ServerTools left, ServerTools right)
+      => left.Fusion == right.Fusion
+          && left.Advisor == right.Advisor
+          && left.SearchModels == right.SearchModels
+          && left.ToolSearch == right.ToolSearch
+          && left.MaxToolCalls == right.MaxToolCalls;
 
   private static bool NullableSequenceEqual(ServerToolStopCondition[]? left, ServerToolStopCondition[]? right)
       => left is null ? right is null : right is not null && left.SequenceEqual(right);
@@ -468,32 +482,45 @@ public sealed record ServerToolStopCondition
     public override ServerToolStopCondition Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
       using JsonDocument doc = JsonDocument.ParseValue(ref reader);
-      JsonElement root = doc.RootElement;
-      if (root.ValueKind != JsonValueKind.Object
-          || !root.TryGetProperty("type", out JsonElement typeEl)
-          || typeEl.ValueKind != JsonValueKind.String)
-      {
-        throw new JsonException("A stop_server_tools_when condition must be an object with a string 'type'.");
-      }
-
-      string type = typeEl.GetString()!;
+      string type = ConditionType(doc.RootElement);
       try
       {
-        return type switch
-        {
-          HasToolCall => new ServerToolStopCondition(type, RequireString(root, "tool_name", type), null, null, null, null),
-          StepCountIs => new ServerToolStopCondition(type, null, RequireInt(root, "step_count", type), null, null, null),
-          MaxTokensUsed => new ServerToolStopCondition(type, null, null, RequireInt(root, "max_tokens", type), null, null),
-          MaxCost => new ServerToolStopCondition(type, null, null, null, root.TryGetProperty("max_cost_in_dollars", out JsonElement cost) && cost.ValueKind == JsonValueKind.Number ? cost.GetDecimal() : throw new JsonException($"Stop condition '{type}' requires a number 'max_cost_in_dollars'."), null),
-          FinishReasonIs => new ServerToolStopCondition(type, null, null, null, null, RequireString(root, "reason", type)),
-          _ => throw new JsonException($"Unknown stop condition type '{type}'."),
-        };
+        return ParseCondition(type, doc.RootElement);
       }
       catch (KeyNotFoundException ex)
       {
         throw new JsonException($"Malformed stop condition '{type}': {ex.Message}", ex);
       }
     }
+
+    /// <summary>The condition's "type" member, validated as one string value:
+    ///     anything else — a non-object payload, a missing type, a non-string
+    ///     type — is a named JsonException, never silently coerced.</summary>
+    private static string ConditionType(JsonElement root)
+        => root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("type", out JsonElement typeEl)
+            && typeEl.ValueKind == JsonValueKind.String
+            ? typeEl.GetString()!
+            : throw new JsonException("A stop_server_tools_when condition must be an object with a string 'type'.");
+
+    /// <summary>Builds the condition the type names, dispatching on the type and
+    ///     requiring exactly that type's own field.</summary>
+    private static ServerToolStopCondition ParseCondition(string type, JsonElement root) => type switch
+    {
+      HasToolCall => new ServerToolStopCondition(type, RequireString(root, "tool_name", type), null, null, null, null),
+      StepCountIs => new ServerToolStopCondition(type, null, RequireInt(root, "step_count", type), null, null, null),
+      MaxTokensUsed => new ServerToolStopCondition(type, null, null, RequireInt(root, "max_tokens", type), null, null),
+      MaxCost => new ServerToolStopCondition(type, null, null, null, RequireDecimal(root, "max_cost_in_dollars", type), null),
+      FinishReasonIs => new ServerToolStopCondition(type, null, null, null, null, RequireString(root, "reason", type)),
+      _ => throw new JsonException($"Unknown stop condition type '{type}'."),
+    };
+
+    /// <summary>Reads the MaxCost condition's decimal value; anything but one
+    ///     number 'max_cost_in_dollars' is a named JsonException.</summary>
+    private static decimal RequireDecimal(JsonElement root, string name, string type)
+        => root.TryGetProperty(name, out JsonElement cost) && cost.ValueKind == JsonValueKind.Number
+            ? cost.GetDecimal()
+            : throw new JsonException($"Stop condition '{type}' requires a number '{name}'.");
 
     public override void Write(Utf8JsonWriter writer, ServerToolStopCondition value, JsonSerializerOptions options)
     {

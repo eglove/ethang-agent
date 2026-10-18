@@ -383,6 +383,13 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
 
   private static void BindRecord(SqliteCommand command, AgentRecord record)
   {
+    BindIdentity(command, record);
+    BindOutcome(command, record);
+  }
+
+  /// <summary>Binds the agent identity and lifecycle columns (id through created_at).</summary>
+  private static void BindIdentity(SqliteCommand command, AgentRecord record)
+  {
     Add(command, "@id", record.Id.ToString());
     Add(command, "@parent", (object?)record.ParentId?.ToString() ?? DBNull.Value);
     Add(command, "@depth", record.Depth);
@@ -393,6 +400,11 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     Add(command, "@label", (object?)record.Label ?? DBNull.Value);
     Add(command, "@prompt", record.TaskPrompt);
     Add(command, "@created", record.CreatedAt.ToString("o"));
+  }
+
+  /// <summary>Binds the run-outcome and context columns (completed_at through contract).</summary>
+  private static void BindOutcome(SqliteCommand command, AgentRecord record)
+  {
     Add(command, "@completed", (object?)record.CompletedAt?.ToString("o") ?? DBNull.Value);
     Add(command, "@report", (object?)record.FinalReport ?? DBNull.Value);
     Add(command, "@workspace", (object?)record.WorkspaceId ?? DBNull.Value);

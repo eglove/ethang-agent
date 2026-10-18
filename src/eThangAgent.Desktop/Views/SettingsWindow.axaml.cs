@@ -1,7 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using eThangAgent.Desktop.ViewModels;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Views;
 
@@ -20,22 +19,9 @@ internal partial class SettingsWindow : Window
 
   public SettingsWindow() => InitializeComponent();
 
-  public SettingsWindow(string? openRouterKey, CommitStyle commitStyle,
-      IReadOnlyList<CompactionModelOption>? compactionModels = null,
-      CompactionModelOption? selectedCompactionModel = null,
-      string? workspaceRoot = null,
-      string? maxConcurrentAgentsText = null, string? defaultModelText = null, bool remoteHost = false,
-      string? watchdogTickText = null, string? watchdogIdleText = null, string? watchdogWrapUpText = null,
-      string? openRouterBaseUrlText = null, bool computerUse = false,
-      string? skillRegistryDefaultTarget = null,
-      string? openRouterManagementKey = null) : this()
+  public SettingsWindow(SettingsValues values) : this()
   {
-    _vm = new SettingsViewModel(openRouterKey, commitStyle,
-        compactionModels, selectedCompactionModel, workspaceRoot,
-        maxConcurrentAgentsText, defaultModelText, remoteHost,
-        watchdogTickText, watchdogIdleText, watchdogWrapUpText,
-        openRouterBaseUrlText, computerUse, skillRegistryDefaultTarget,
-        openRouterManagementKey);
+    _vm = new SettingsViewModel(values);
     DataContext = _vm;
     _vm.SaveRequested += (_, update) => Close(update);
   }

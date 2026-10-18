@@ -104,7 +104,7 @@ public sealed record WorktreeToolInput(WorktreeAction Action, string? Name, bool
 
     Result<bool?> readForce = ToolArguments.OptionalBool(json, "force");
     return readForce.IsSuccess
-      ? Result.Success<bool?>(readForce.Value)
+      ? Result.Success(readForce.Value)
       : Result.Failure<bool?>(readForce.Error);
   }
 

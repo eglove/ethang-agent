@@ -513,36 +513,9 @@ internal partial class AgentView : UserControl
     // and Enter/Tab completion — Enter NEVER submits while the popup shows a
     // name that still needs completing (spec #28). Any other key falls through
     // to the TextBox's own handling.
-    if (vm.Autocomplete is { IsOpen: true } popup)
+    if (vm.Autocomplete is { IsOpen: true } popup && HandlePopupKey(popup, e))
     {
-      bool shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
-      if (e.Key == Key.Down)
-      {
-        e.Handled = true;
-        popup.MoveDown();
-        return;
-      }
-
-      if (e.Key == Key.Up)
-      {
-        e.Handled = true;
-        popup.MoveUp();
-        return;
-      }
-
-      if (e.Key == Key.Escape)
-      {
-        e.Handled = true;
-        popup.Close();
-        return;
-      }
-
-      if ((e.Key == Key.Tab || e.Key == Key.Enter) && !shift)
-      {
-        e.Handled = true; // suppress newline insertion and focus navigation
-        HandlePopupAcceptKey(popup, e.Key);
-        return;
-      }
+      return;
     }
 
     if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
@@ -551,6 +524,44 @@ internal partial class AgentView : UserControl
       SubmitInput();
     }
     // Shift+Enter falls through: TextBox inserts the newline.
+  }
+
+  /// <summary>Gives the open '/' autocomplete popup first refusal on the key:
+  ///     Up/Down navigate, Esc closes, and unshifted Tab/Enter accept the
+  ///     selection. Returns true when the popup consumed the key (the caller then
+  ///     stops); false means the key falls through to the TextBox.</summary>
+  private bool HandlePopupKey(SkillAutocompleteViewModel popup, KeyEventArgs e)
+  {
+    bool shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+    if (e.Key == Key.Down)
+    {
+      e.Handled = true;
+      popup.MoveDown();
+      return true;
+    }
+
+    if (e.Key == Key.Up)
+    {
+      e.Handled = true;
+      popup.MoveUp();
+      return true;
+    }
+
+    if (e.Key == Key.Escape)
+    {
+      e.Handled = true;
+      popup.Close();
+      return true;
+    }
+
+    if ((e.Key == Key.Tab || e.Key == Key.Enter) && !shift)
+    {
+      e.Handled = true; // suppress newline insertion and focus navigation
+      HandlePopupAcceptKey(popup, e.Key);
+      return true;
+    }
+
+    return false;
   }
 
   /// <summary>Applies the popup's accept key: a name that still needs completing

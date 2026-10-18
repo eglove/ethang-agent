@@ -18,6 +18,16 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     IWorktreeProvisioner? worktrees = null, IModelCatalog? catalog = null)
     : IAgentSpawnCommand
 {
+  /// <summary>Outcome of one contract-resolution stage: the (possibly updated) contract,
+  ///     or the failure that aborts the spawn. A null contract is a legitimate outcome —
+  ///     an unanchored, grant-free request persists no contract at all.</summary>
+  private sealed record ContractStage(SpawnContract? Contract, DomainError? Error)
+  {
+    public static ContractStage Keep(SpawnContract? contract) => new(contract, null);
+
+    public static ContractStage Fail(DomainError error) => new(null, error);
+  }
+
   private readonly SpawnOptions _spawn = spawn ?? throw new ArgumentNullException(nameof(spawn));
   private readonly IAgentStore _store = store ?? throw new ArgumentNullException(nameof(store));
   private readonly IAgentRuntime _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
@@ -36,40 +46,15 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
   {
     ArgumentNullException.ThrowIfNull(parent);
     ArgumentNullException.ThrowIfNull(request);
-    Violation? violation = _promptSpec.ViolationFor(request) ?? _modelSpec.ViolationFor(request);
-    if (violation is not null)
+    if (ValidateRequest(request) is { } violation)
     {
       return Result.Failure<AgentId>(new DomainError("InvalidSpawnRequest", violation.Message));
     }
 
-    // Grant validation + resolution (D9/A5, R1): privilege cannot grow down the tree.
-    // The parent's effective set is its OWN persisted resolution when it carries one
-    // (grandchild narrowing chains through it, R1.5); otherwise it is the session's
-    // child tool surface. The child's effective set is resolved once, validated, and
-    // PERSISTED on the contract — the record becomes self-describing, and the remote
-    // ChildHost path (which rebuilds the spawner from settings, without SpawnOptions)
-    // enforces identically.
-    SpawnContract? resolvedContract = request.Contract;
-    if (resolvedContract?.CapabilityGrants is { } grants)
+    ContractStage grants = ResolveContractGrants(parent, request.Contract);
+    if (grants.Error is { } grantsError)
     {
-      ToolGrantPolicy grantPolicy = new(grants);
-      if (grantPolicy.HasGrants)
-      {
-        IReadOnlySet<string> parentEffective = EffectiveSource(parent);
-        IReadOnlyList<string> widening = grantPolicy.WideningViolations(parentEffective);
-        if (widening.Count > 0)
-        {
-          return Result.Failure<AgentId>(new DomainError("InvalidSpawnRequest",
-              "capability grants widen beyond the parent's effective set: " + string.Join(", ", widening)));
-        }
-
-        IReadOnlySet<string> childEffective = grantPolicy.EffectiveTools(parentEffective);
-        resolvedContract = resolvedContract.WithEffectiveTools(childEffective);
-      }
-      else
-      {
-        resolvedContract = resolvedContract.WithEffectiveTools(EffectiveSource(parent));
-      }
+      return Result.Failure<AgentId>(grantsError);
     }
 
     // Spawn-time worktree isolation: a flagged request is provisioned a fresh worktree
@@ -77,40 +62,12 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     // child's entire re-rooted surface (files, exec, git) lands in the worktree and its
     // commits land on the worktree's branch, never the controller's checkout. The flag
     // and an explicit anchor are contradictory: refused before anything happens.
-    if (request.IsolateInWorktree)
+    ContractStage isolation = request.IsolateInWorktree
+        ? await ProvisionWorktreeAsync(parent, request, grants.Contract, ct).ConfigureAwait(false)
+        : ContractStage.Keep(grants.Contract);
+    if (isolation.Error is { } isolationError)
     {
-      if (!string.IsNullOrWhiteSpace(request.WorkspaceRoot))
-      {
-        return Result.Failure<AgentId>(new DomainError("InvalidSpawnRequest",
-            "isolateInWorktree and workspaceRoot are mutually exclusive: pick one."));
-      }
-
-      if (_worktrees is null)
-      {
-        return Result.Failure<AgentId>(new DomainError("InvalidSpawnRequest",
-            "isolateInWorktree requires a worktree provisioner; none is wired."));
-      }
-
-      string? isolationRoot = parent.Contract is { } isoParentJson
-          && SpawnContract.Decode(isoParentJson).WorkspaceRoot is { } isoParentAnchor
-              ? isoParentAnchor
-              : _spawn.WorkspaceRoot;
-      if (string.IsNullOrWhiteSpace(isolationRoot))
-      {
-        return Result.Failure<AgentId>(new DomainError("AnchorInvalid",
-            WorkspaceAnchorSpecification.InvalidPrefix + " isolation requested but no session workspace and no parent anchor establish a root to provision inside."));
-      }
-
-      string worktreeName = DeriveWorktreeName(request.Label, request.TaskPrompt);
-      Result<WorktreeProvision> provisioned = await _worktrees.CreateAsync(isolationRoot, worktreeName, ct).ConfigureAwait(false);
-      if (!provisioned.IsSuccess)
-      {
-        return Result.Failure<AgentId>(provisioned.Error);
-      }
-
-      resolvedContract = (resolvedContract ?? new SpawnContract())
-      with
-      { WorkspaceRoot = provisioned.Value.Path };
+      return Result.Failure<AgentId>(isolationError);
     }
 
     // Workspace anchor (worktree ladder, T5): an anchor on the request is validated
@@ -118,50 +75,15 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     // contract carries one (grandchild chains measure against it), else the session
     // workspace — and the FULL resolved path is persisted on the contract so the record
     // stays self-describing for later enforcement. A null/whitespace anchor keeps the
-    // byte-identical legacy path: no spec run, no persistence change.
-    if (!string.IsNullOrWhiteSpace(request.WorkspaceRoot))
+    // byte-identical legacy path: no spec run, no persistence change. An isolated
+    // request skips both: it was anchored at its freshly provisioned worktree above —
+    // the worktree IS the confinement, and the provisioned path must stand.
+    ContractStage anchored = request.IsolateInWorktree
+        ? ContractStage.Keep(isolation.Contract)
+        : ApplyAnchor(parent, request, isolation.Contract);
+    if (anchored.Error is { } anchoredError)
     {
-      string? effectiveRoot = parent.Contract is { } parentContractJson
-          && SpawnContract.Decode(parentContractJson).WorkspaceRoot is { } parentAnchor
-              ? parentAnchor
-              : _spawn.WorkspaceRoot;
-      if (string.IsNullOrWhiteSpace(effectiveRoot))
-      {
-        // Named refusal, never silent inheritance: an anchor cannot be validated
-        // without a root to measure containment against.
-        return Result.Failure<AgentId>(new DomainError("AnchorInvalid",
-            WorkspaceAnchorSpecification.InvalidPrefix + " the anchor '" + request.WorkspaceRoot
-                + "' cannot be validated: no session workspace and no parent anchor establish a root."));
-      }
-
-      WorkspaceAnchorSpecification anchorSpec = new(effectiveRoot);
-      if (anchorSpec.ViolationFor(request.WorkspaceRoot) is { } anchorViolation)
-      {
-        string message = anchorViolation.Message;
-        string code = message.StartsWith(WorkspaceAnchorSpecification.MissingPrefix, StringComparison.Ordinal)
-            ? "AnchorMissing"
-            : "AnchorInvalid";
-        return Result.Failure<AgentId>(new DomainError(code, message));
-      }
-
-      resolvedContract = (resolvedContract ?? new SpawnContract())
-      with
-      { WorkspaceRoot = ResolveAnchor(request.WorkspaceRoot) };
-    }
-    else if (!request.IsolateInWorktree
-        && parent.Contract is { } inheritedJson
-        && SpawnContract.Decode(inheritedJson).WorkspaceRoot is { } inheritedAnchor)
-    {
-      // Grandchild chains anchor by default (capability-surface re-rooting, spec
-      // decision 2): an anchored parent spawns anchored children - an unanchored
-      // grandchild would silently escape the parent's confinement at the session
-      // root. The inherited anchor is the parent's own canonical value; it was
-      // validated when the parent spawned and is never re-validated here. An isolated
-      // request skips inheritance: it was anchored at its freshly provisioned worktree
-      // above - the worktree IS the confinement, and the provisioned path must stand.
-      resolvedContract = (resolvedContract ?? new SpawnContract())
-      with
-      { WorkspaceRoot = inheritedAnchor };
+      return Result.Failure<AgentId>(anchoredError);
     }
 
     if (parent.Depth >= _options.MaxDepth)
@@ -171,15 +93,127 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     }
 
     Result<ModelConfig> resolved = await ResolveModelAsync(request, ct).ConfigureAwait(false);
-    if (!resolved.IsSuccess)
+    return resolved.IsSuccess
+      ? await PersistAndStartAsync(parent, request, anchored.Contract, resolved.Value, ct).ConfigureAwait(false)
+      : Result.Failure<AgentId>(resolved.Error);
+  }
+
+  private Violation? ValidateRequest(SpawnRequest request)
+      => _promptSpec.ViolationFor(request) ?? _modelSpec.ViolationFor(request);
+
+  /// <summary>Grant validation + resolution (D9/A5, R1): privilege cannot grow down the
+  ///     tree. The parent's effective set is its OWN persisted resolution when it carries
+  ///     one (grandchild narrowing chains through it, R1.5); otherwise it is the session's
+  ///     child tool surface. The child's effective set is resolved once, validated, and
+  ///     PERSISTED on the contract — the record becomes self-describing, and the remote
+  ///     ChildHost path (which rebuilds the spawner from settings, without SpawnOptions)
+  ///     enforces identically.</summary>
+  private ContractStage ResolveContractGrants(AgentRecord parent, SpawnContract? contract)
+  {
+    if (contract?.CapabilityGrants is not { } grants)
     {
-      return Result.Failure<AgentId>(resolved.Error);
+      return ContractStage.Keep(contract);
     }
 
-    ModelConfig modelConfig = resolved.Value;
+    ToolGrantPolicy grantPolicy = new(grants);
+    if (!grantPolicy.HasGrants)
+    {
+      return ContractStage.Keep(contract.WithEffectiveTools(EffectiveSource(parent)));
+    }
 
+    IReadOnlySet<string> parentEffective = EffectiveSource(parent);
+    IReadOnlyList<string> widening = grantPolicy.WideningViolations(parentEffective);
+    return widening.Count > 0
+      ? ContractStage.Fail(new DomainError("InvalidSpawnRequest",
+          "capability grants widen beyond the parent's effective set: " + string.Join(", ", widening)))
+      : ContractStage.Keep(contract.WithEffectiveTools(grantPolicy.EffectiveTools(parentEffective)));
+  }
+
+  /// <summary>Provisions the isolation worktree inside the parent's effective root and
+  ///     anchors the contract at the provisioned path.</summary>
+  private async Task<ContractStage> ProvisionWorktreeAsync(
+      AgentRecord parent, SpawnRequest request, SpawnContract? contract, CancellationToken ct)
+  {
+    if (!string.IsNullOrWhiteSpace(request.WorkspaceRoot))
+    {
+      return ContractStage.Fail(new DomainError("InvalidSpawnRequest",
+          "isolateInWorktree and workspaceRoot are mutually exclusive: pick one."));
+    }
+
+    if (_worktrees is null)
+    {
+      return ContractStage.Fail(new DomainError("InvalidSpawnRequest",
+          "isolateInWorktree requires a worktree provisioner; none is wired."));
+    }
+
+    string? isolationRoot = parent.Contract is { } isoParentJson
+        && SpawnContract.Decode(isoParentJson).WorkspaceRoot is { } isoParentAnchor
+            ? isoParentAnchor
+            : _spawn.WorkspaceRoot;
+    if (string.IsNullOrWhiteSpace(isolationRoot))
+    {
+      return ContractStage.Fail(new DomainError("AnchorInvalid",
+          WorkspaceAnchorSpecification.InvalidPrefix + " isolation requested but no session workspace and no parent anchor establish a root to provision inside."));
+    }
+
+    string worktreeName = DeriveWorktreeName(request.Label, request.TaskPrompt);
+    Result<WorktreeProvision> provisioned = await _worktrees.CreateAsync(isolationRoot, worktreeName, ct).ConfigureAwait(false);
+    return provisioned.IsSuccess
+      ? ContractStage.Keep((contract ?? new SpawnContract()) with { WorkspaceRoot = provisioned.Value.Path })
+      : ContractStage.Fail(provisioned.Error);
+  }
+
+  /// <summary>Applies the workspace-anchor rules to a non-isolated request: an explicit
+  ///     anchor is validated against the parent's effective root; without one, an anchored
+  ///     parent anchors the child by default (grandchild chains, spec decision 2) — the
+  ///     inherited anchor is the parent's own canonical value; it was validated when the
+  ///     parent spawned and is never re-validated here.</summary>
+  private ContractStage ApplyAnchor(AgentRecord parent, SpawnRequest request, SpawnContract? contract)
+      => !string.IsNullOrWhiteSpace(request.WorkspaceRoot)
+          ? ValidateAnchor(parent, request, contract)
+          : InheritAnchor(parent, contract);
+
+  private ContractStage ValidateAnchor(AgentRecord parent, SpawnRequest request, SpawnContract? contract)
+  {
+    string? effectiveRoot = parent.Contract is { } parentContractJson
+        && SpawnContract.Decode(parentContractJson).WorkspaceRoot is { } parentAnchor
+            ? parentAnchor
+            : _spawn.WorkspaceRoot;
+    if (string.IsNullOrWhiteSpace(effectiveRoot))
+    {
+      // Named refusal, never silent inheritance: an anchor cannot be validated
+      // without a root to measure containment against.
+      return ContractStage.Fail(new DomainError("AnchorInvalid",
+          WorkspaceAnchorSpecification.InvalidPrefix + " the anchor '" + request.WorkspaceRoot
+              + "' cannot be validated: no session workspace and no parent anchor establish a root."));
+    }
+
+    WorkspaceAnchorSpecification anchorSpec = new(effectiveRoot);
+    string anchor = request.WorkspaceRoot!;
+    if (anchorSpec.ViolationFor(anchor) is { } anchorViolation)
+    {
+      string message = anchorViolation.Message;
+      string code = message.StartsWith(WorkspaceAnchorSpecification.MissingPrefix, StringComparison.Ordinal)
+          ? "AnchorMissing"
+          : "AnchorInvalid";
+      return ContractStage.Fail(new DomainError(code, message));
+    }
+
+    return ContractStage.Keep((contract ?? new SpawnContract()) with { WorkspaceRoot = ResolveAnchor(anchor) });
+  }
+
+  private static ContractStage InheritAnchor(AgentRecord parent, SpawnContract? contract)
+      => parent.Contract is { } inheritedJson
+          && SpawnContract.Decode(inheritedJson).WorkspaceRoot is { } inheritedAnchor
+              ? ContractStage.Keep((contract ?? new SpawnContract()) with { WorkspaceRoot = inheritedAnchor })
+              : ContractStage.Keep(contract);
+
+  /// <summary>Persists the Running child record and hands it to the runtime.</summary>
+  private async Task<Result<AgentId>> PersistAndStartAsync(AgentRecord parent, SpawnRequest request,
+      SpawnContract? contract, ModelConfig modelConfig, CancellationToken ct)
+  {
     AgentRecord record = AgentRecord.Spawned(AgentId.NewId(), parent.Id, parent.Depth + 1, modelConfig.ModelId,
-        request.Label, request.TaskPrompt, DateTimeOffset.UtcNow, resolvedContract,
+        request.Label, request.TaskPrompt, DateTimeOffset.UtcNow, contract,
         provider: _spawn.ProviderName);
 
     Result<string> saved = await _store.SaveAsync(record, ct).ConfigureAwait(false);

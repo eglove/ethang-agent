@@ -983,16 +983,37 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   ///     always legal.</summary>
   private string? ValidateKnobs()
   {
+    return ValidateSamplingKnobs()
+        ?? ValidatePenaltyKnobs()
+        ?? ValidateChoiceKnobs();
+  }
+
+  /// <summary>The sampling-shape knobs: temperature, the token cap, top-p, and
+  ///     top-k, in the order their messages surface.</summary>
+  private string? ValidateSamplingKnobs()
+  {
     return ValidateFloat(KnobTemperature, 0f, 2f)
         ?? ValidateInt(KnobMaxTokens, minimum: 1)
         ?? ValidateFloat(KnobTopP, 0f, 1f)
-        ?? ValidateInt(KnobTopK, minimum: 0)
-        ?? ValidateFloat(KnobFrequencyPenalty, -2f, 2f)
+        ?? ValidateInt(KnobTopK, minimum: 0);
+  }
+
+  /// <summary>The penalty knobs plus the two alternative-sampling knobs, in the
+  ///     order their messages surface.</summary>
+  private string? ValidatePenaltyKnobs()
+  {
+    return ValidateFloat(KnobFrequencyPenalty, -2f, 2f)
         ?? ValidateFloat(KnobPresencePenalty, -2f, 2f)
         ?? ValidateFloat(KnobRepetitionPenalty, 0f, 2f)
         ?? ValidateFloat(KnobMinP, 0f, 1f)
-        ?? ValidateFloat(KnobTopA, 0f, 1f)
-        ?? ValidateInt(KnobSeed, minimum: int.MinValue)
+        ?? ValidateFloat(KnobTopA, 0f, 1f);
+  }
+
+  /// <summary>The seed and the two enumerated knobs, in the order their messages
+  ///     surface.</summary>
+  private string? ValidateChoiceKnobs()
+  {
+    return ValidateInt(KnobSeed, minimum: int.MinValue)
         ?? ValidateVerbosity()
         ?? ValidateParallelToolCalls();
   }

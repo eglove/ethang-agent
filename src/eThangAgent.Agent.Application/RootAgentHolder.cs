@@ -6,6 +6,14 @@ using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Agent.Application;
 
+/// <summary>The optional root-agent shaping collaborators, grouped: the system-prompt
+///     provider, the auto-continuation budget, and the context compactor. Null (legacy
+///     wiring) means every member falls back to the agent's own defaults.</summary>
+public sealed record RootDependencies(
+    ISystemPromptProvider? SystemPrompt = null,
+    int? MaxAutoContinuations = null,
+    IContextCompactor? ContextCompactor = null);
+
 /// <summary>Holds the root agent for a session and rebuilds it when its model changes.
 ///     The root agent is constructed lazily on the first message (see
 ///     <see cref="RootAgentResolver"/>): when no explicit model is configured, the model is
@@ -19,16 +27,14 @@ public sealed class RootAgentHolder(
     IModelProvider provider,
     Conversation conversation,
     IToolRegistry tools,
-    ISystemPromptProvider? systemPrompt = null,
-    int? maxAutoContinuations = null,
-    IContextCompactor? contextCompactor = null,
+    RootDependencies? dependencies = null,
     string? sessionId = null,
     Func<string?>? sessionIdSource = null)
 {
   private readonly IModelProvider _provider = provider ?? throw new ArgumentNullException(nameof(provider));
   private readonly Conversation _conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
   private readonly IToolRegistry _tools = tools ?? throw new ArgumentNullException(nameof(tools));
-  private readonly IContextCompactor? _contextCompactor = contextCompactor;
+  private readonly RootDependencies? _dependencies = dependencies;
   private readonly string? _sessionId = sessionId;
   private readonly Func<string?>? _sessionIdSource = sessionIdSource;
 
@@ -80,10 +86,10 @@ public sealed class RootAgentHolder(
           // a parent id that had no row). Legacy wiring without a session id keeps the
           // generated-id behavior.
           Id = rootId,
-          SystemPrompt = systemPrompt,
-          MaxAutoContinuations = maxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,
+          SystemPrompt = _dependencies?.SystemPrompt,
+          MaxAutoContinuations = _dependencies?.MaxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,
           ContextMonitor = Accountant,
-          ContextCompactor = _contextCompactor,
+          ContextCompactor = _dependencies?.ContextCompactor,
           SessionId = ResolveSessionId(),
         });
     return Current;

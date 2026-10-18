@@ -157,6 +157,18 @@ public sealed class OpenRouterManagementClient(HttpClient http, OpenRouterConfig
   private async Task<OpenRouterManagementOutcome> AnalyticsQueryAsync(
       OpenRouterManagementCommand.QueryAnalytics query, CancellationToken ct)
   {
+    using HttpRequestMessage request = new(HttpMethod.Post, _config.Endpoint("/api/v1/analytics/query"))
+    {
+      Content = new StringContent(JsonSerializer.Serialize(QueryBody(query)), System.Text.Encoding.UTF8, "application/json"),
+    };
+    Wire wire = await SendAsync(request, ct).ConfigureAwait(false);
+    return Record(wire, data => new OpenRouterManagementOutcome.Analytics(ParseAnalyticsResult(data)));
+  }
+
+  /// <summary>The analytics-query POST body: metrics is required; every other
+  ///     member rides the wire only when set.</summary>
+  private static Dictionary<string, object?> QueryBody(OpenRouterManagementCommand.QueryAnalytics query)
+  {
     Dictionary<string, object?> fields = new() { ["metrics"] = query.Metrics };
     if (query.Dimensions is { } dimensions)
     {
@@ -188,44 +200,51 @@ public sealed class OpenRouterManagementClient(HttpClient http, OpenRouterConfig
       fields["limit"] = limit;
     }
 
-    using HttpRequestMessage request = new(HttpMethod.Post, _config.Endpoint("/api/v1/analytics/query"))
-    {
-      Content = new StringContent(JsonSerializer.Serialize(fields), System.Text.Encoding.UTF8, "application/json"),
-    };
-    Wire wire = await SendAsync(request, ct).ConfigureAwait(false);
-    if (wire.Failure is { } failure)
-    {
-      return failure;
-    }
+    return fields;
+  }
 
-    if (!wire.Root!.Value.TryGetProperty("data", out JsonElement data) || data.ValueKind != JsonValueKind.Object)
-    {
-      return NoRecord();
-    }
+  /// <summary>The analytics result inside a parsed "data" object: the rows carry
+  ///     every member verbatim (strings as strings, everything else as raw JSON);
+  ///     row_count falls back to the parsed row count when the server omits it.</summary>
+  private static OpenRouterAnalyticsResult ParseAnalyticsResult(JsonElement data)
+  {
+    List<Dictionary<string, string>> rows = ParseAnalyticsRows(data);
+    return new OpenRouterAnalyticsResult(
+        rows,
+        LongOf(data, "row_count") ?? rows.Count,
+        data.TryGetProperty("truncated", out JsonElement truncated) && truncated.ValueKind == JsonValueKind.True,
+        LongOf(data, "next_offset"));
+  }
 
+  /// <summary>The analytics result's "rows" array: every member carried verbatim
+  ///     (strings as strings, everything else as raw JSON); a missing or
+  ///     non-array "rows" is an empty result — absence is an answer.</summary>
+  private static List<Dictionary<string, string>> ParseAnalyticsRows(JsonElement data)
+  {
     List<Dictionary<string, string>> rows = [];
     if (data.TryGetProperty("rows", out JsonElement rowsEl) && rowsEl.ValueKind == JsonValueKind.Array)
     {
       foreach (JsonElement row in rowsEl.EnumerateArray())
       {
-        Dictionary<string, string> values = [];
-        foreach (JsonProperty property in row.EnumerateObject())
-        {
-          values[property.Name] = property.Value.ValueKind == JsonValueKind.String
-              ? property.Value.GetString()!
-              : property.Value.GetRawText();
-        }
-        rows.Add(values);
+        rows.Add(AnalyticsRow(row));
       }
     }
 
-    return new OpenRouterManagementOutcome.Analytics(new OpenRouterAnalyticsResult(
-        rows,
-        LongOf(data, "row_count") ?? rows.Count,
-        data.TryGetProperty("truncated", out JsonElement truncated) && truncated.ValueKind == JsonValueKind.True,
-        LongOf(data, "next_offset")));
+    return rows;
   }
 
+  private static Dictionary<string, string> AnalyticsRow(JsonElement row)
+  {
+    Dictionary<string, string> values = [];
+    foreach (JsonProperty property in row.EnumerateObject())
+    {
+      values[property.Name] = property.Value.ValueKind == JsonValueKind.String
+          ? property.Value.GetString()!
+          : property.Value.GetRawText();
+    }
+
+    return values;
+  }
   private async Task<Wire> SendAsync(HttpRequestMessage request, CancellationToken ct)
   {
     Authorize(request);

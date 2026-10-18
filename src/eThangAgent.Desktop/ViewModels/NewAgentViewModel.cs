@@ -121,34 +121,54 @@ internal sealed partial class NewAgentViewModel : ObservableObject
         ? providers
         : throw new ArgumentException("At least one configured provider is required.", nameof(providers));
     SelectedProvider = providers.FirstOrDefault(p => p.Id == preferredProviderId) ?? providers[0];
-    ChooseWorkspaceCommand = new RelayCommand(() => WorkspaceRequested?.Invoke(this, EventArgs.Empty));
-    PickGlobalFileCommand = new RelayCommand(() => GlobalFilePickRequested?.Invoke(this, EventArgs.Empty));
-    PickWorkspaceFileCommand = new RelayCommand(() => WorkspaceFilePickRequested?.Invoke(this, EventArgs.Empty));
-    PickGlobalSkillDirectoryCommand = new RelayCommand(() => GlobalSkillDirectoryPickRequested?.Invoke(this, EventArgs.Empty));
-    PickWorkspaceSkillDirectoryCommand = new RelayCommand(() => WorkspaceSkillDirectoryPickRequested?.Invoke(this, EventArgs.Empty));
-    OpenCommand = new RelayCommand(() => OpenRequested?.Invoke(this, NewAgentChoice.FromRows(
-        SelectedProvider!.Id, WorkspaceRoot!, GlobalFiles, WorkspaceFiles,
-        GlobalSkillDirectories, WorkspaceSkillDirectories)));
-    foreach (SessionFileEntry entry in globalFiles ?? [])
-    {
-      GlobalFiles.Add(new SessionFileRow(entry.Path, entry.Enabled));
-    }
 
-    foreach (SessionFileEntry entry in workspaceFiles ?? [])
-    {
-      WorkspaceFiles.Add(new SessionFileRow(entry.Path, entry.Enabled));
-    }
+    CommandSet commands = CreateCommands();
+    ChooseWorkspaceCommand = commands.ChooseWorkspace;
+    PickGlobalFileCommand = commands.PickGlobalFile;
+    PickWorkspaceFileCommand = commands.PickWorkspaceFile;
+    PickGlobalSkillDirectoryCommand = commands.PickGlobalSkillDirectory;
+    PickWorkspaceSkillDirectoryCommand = commands.PickWorkspaceSkillDirectory;
+    OpenCommand = commands.Open;
 
-    foreach (SessionFileEntry entry in globalSkillDirectories ?? [])
-    {
-      GlobalSkillDirectories.Add(new SessionFileRow(entry.Path, entry.Enabled));
-    }
+    SeedRows(GlobalFiles, globalFiles);
+    SeedRows(WorkspaceFiles, workspaceFiles);
+    SeedRows(GlobalSkillDirectories, globalSkillDirectories);
+    SeedRows(WorkspaceSkillDirectories, workspaceSkillDirectories);
+  }
 
-    foreach (SessionFileEntry entry in workspaceSkillDirectories ?? [])
+  /// <summary>The dialog's command set, built in one place so the constructor stays
+  ///     a wiring list. Every command only raises its event - the view owns the
+  ///     pickers and the dialog's close.</summary>
+  private CommandSet CreateCommands() => new(
+      new RelayCommand(() => WorkspaceRequested?.Invoke(this, EventArgs.Empty)),
+      new RelayCommand(() => GlobalFilePickRequested?.Invoke(this, EventArgs.Empty)),
+      new RelayCommand(() => WorkspaceFilePickRequested?.Invoke(this, EventArgs.Empty)),
+      new RelayCommand(() => GlobalSkillDirectoryPickRequested?.Invoke(this, EventArgs.Empty)),
+      new RelayCommand(() => WorkspaceSkillDirectoryPickRequested?.Invoke(this, EventArgs.Empty)),
+      new RelayCommand(() => OpenRequested?.Invoke(this, NewAgentChoice.FromRows(
+          SelectedProvider!.Id, WorkspaceRoot!, GlobalFiles, WorkspaceFiles,
+          GlobalSkillDirectories, WorkspaceSkillDirectories))));
+
+  /// <summary>Appends one persisted entry list to a row list as checked rows. The
+  ///     constructor's seeding loop for every scope, and the workspace reload's
+  ///     refill.</summary>
+  private static void SeedRows(ObservableCollection<SessionFileRow> rows,
+      IReadOnlyList<SessionFileEntry>? entries)
+  {
+    foreach (SessionFileEntry entry in entries ?? [])
     {
-      WorkspaceSkillDirectories.Add(new SessionFileRow(entry.Path, entry.Enabled));
+      rows.Add(new SessionFileRow(entry.Path, entry.Enabled));
     }
   }
+
+  /// <summary>The commands the constructor wires onto its read-only properties.</summary>
+  private sealed record CommandSet(
+      ICommand ChooseWorkspace,
+      ICommand PickGlobalFile,
+      ICommand PickWorkspaceFile,
+      ICommand PickGlobalSkillDirectory,
+      ICommand PickWorkspaceSkillDirectory,
+      ICommand Open);
 
   /// <summary>Feeds the folder-picker result back in. An empty pick (cancelled
   ///     dialog) keeps the previous value.</summary>

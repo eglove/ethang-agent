@@ -64,93 +64,45 @@ public sealed class AppDatabase
     return connection;
   }
 
+  /// <summary>The ordered migration table: one entry per schema version, in application
+  ///     order. The runner walks it top to bottom, re-reading user_version before each
+  ///     step so a partially-migrated database resumes at exactly the right step.</summary>
+  private static readonly (int Version, Action<SqliteConnection> Apply)[] MigrationSteps =
+  [
+    (1, ApplyV1),
+    (2, ApplyV2),
+    (3, ApplyV3),
+    (4, ApplyV4),
+    (5, ApplyV5),
+    (6, ApplyV6),
+    (7, ApplyV7),
+    (8, ApplyV8),
+    (9, ApplyV9),
+    (10, ApplyV10),
+    (11, ApplyV11),
+    (12, ApplyV12),
+    (13, ApplyV13),
+    (14, ApplyV14),
+    (15, ApplyV15),
+    (16, ApplyV16),
+    (17, ApplyV17),
+  ];
+
   private void Migrate()
   {
     using SqliteConnection connection = Open();
-    if (GetVersion(connection) < 1)
+    foreach ((int version, Action<SqliteConnection> apply) in MigrationSteps)
     {
-      ApplyV1(connection);
-      SetVersion(connection, 1);
+      ApplyIfPending(connection, version, apply);
     }
-    if (GetVersion(connection) < 2)
+  }
+
+  private static void ApplyIfPending(SqliteConnection connection, int version, Action<SqliteConnection> apply)
+  {
+    if (GetVersion(connection) < version)
     {
-      ApplyV2(connection);
-      SetVersion(connection, 2);
-    }
-    if (GetVersion(connection) < 3)
-    {
-      ApplyV3(connection);
-      SetVersion(connection, 3);
-    }
-    if (GetVersion(connection) < 4)
-    {
-      ApplyV4(connection);
-      SetVersion(connection, 4);
-    }
-    if (GetVersion(connection) < 5)
-    {
-      ApplyV5(connection);
-      SetVersion(connection, 5);
-    }
-    if (GetVersion(connection) < 6)
-    {
-      ApplyV6(connection);
-      SetVersion(connection, 6);
-    }
-    if (GetVersion(connection) < 7)
-    {
-      ApplyV7(connection);
-      SetVersion(connection, 7);
-    }
-    if (GetVersion(connection) < 8)
-    {
-      ApplyV8(connection);
-      SetVersion(connection, 8);
-    }
-    if (GetVersion(connection) < 9)
-    {
-      ApplyV9(connection);
-      SetVersion(connection, 9);
-    }
-    if (GetVersion(connection) < 10)
-    {
-      ApplyV10(connection);
-      SetVersion(connection, 10);
-    }
-    if (GetVersion(connection) < 11)
-    {
-      ApplyV11(connection);
-      SetVersion(connection, 11);
-    }
-    if (GetVersion(connection) < 12)
-    {
-      ApplyV12(connection);
-      SetVersion(connection, 12);
-    }
-    if (GetVersion(connection) < 13)
-    {
-      ApplyV13(connection);
-      SetVersion(connection, 13);
-    }
-    if (GetVersion(connection) < 14)
-    {
-      ApplyV14(connection);
-      SetVersion(connection, 14);
-    }
-    if (GetVersion(connection) < 15)
-    {
-      ApplyV15(connection);
-      SetVersion(connection, 15);
-    }
-    if (GetVersion(connection) < 16)
-    {
-      ApplyV16(connection);
-      SetVersion(connection, 16);
-    }
-    if (GetVersion(connection) < 17)
-    {
-      ApplyV17(connection);
-      SetVersion(connection, 17);
+      apply(connection);
+      SetVersion(connection, version);
     }
   }
 

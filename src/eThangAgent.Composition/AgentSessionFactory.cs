@@ -78,8 +78,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(full, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(full, providerName, conversationSeed: null,
-        ResolveBootstrapModel(providerName), globalFiles, workspaceFiles,
-        globalDirectories, workspaceDirectories);
+        ResolveBootstrapModel(providerName),
+        new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories));
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
     {
@@ -169,8 +169,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(workspaceRoot, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(workspaceRoot, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(workspaceRoot, providerName, transcript.Value,
-        ResolveBootstrapModel(providerName), globalFiles, workspaceFiles,
-        globalDirectories, workspaceDirectories);
+        ResolveBootstrapModel(providerName),
+        new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories));
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
     {
@@ -324,45 +324,42 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     List<SkillDirectory> resolved = [];
     HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
 
-    Result<IReadOnlyList<SessionFileEntry>> global = SkillDirectoryPreferences.Parse(globalStored);
-    if (global.IsSuccess)
-    {
-      foreach (SessionFileEntry entry in global.Value)
-      {
-        if (!entry.Enabled)
-        {
-          continue;
-        }
-
-        // Full-path normalization keeps the case-insensitive comparison on the
-        // resolved form, not on whatever text the user typed.
-        string normalized = NormalizeDirectoryPath(entry.Path, workspaceRoot);
-        if (seen.Add(normalized))
-        {
-          resolved.Add(new SkillDirectory(entry.Path, SkillDirectoryScope.Global));
-        }
-      }
-    }
-
-    Result<IReadOnlyList<SessionFileEntry>> workspace = SkillDirectoryPreferences.Parse(workspaceStored);
-    if (workspace.IsSuccess)
-    {
-      foreach (SessionFileEntry entry in workspace.Value)
-      {
-        if (!entry.Enabled)
-        {
-          continue;
-        }
-
-        string normalized = NormalizeDirectoryPath(entry.Path, workspaceRoot);
-        if (seen.Add(normalized))
-        {
-          resolved.Add(new SkillDirectory(entry.Path, SkillDirectoryScope.Workspace));
-        }
-      }
-    }
+    // Global scope first, then workspace: the first scope to claim a path wins,
+    // so a workspace duplicate of a global path is skipped here.
+    AppendScopeEntries(resolved, seen, SkillDirectoryPreferences.Parse(globalStored),
+        SkillDirectoryScope.Global, workspaceRoot);
+    AppendScopeEntries(resolved, seen, SkillDirectoryPreferences.Parse(workspaceStored),
+        SkillDirectoryScope.Workspace, workspaceRoot);
 
     return resolved;
+  }
+
+  /// <summary>Appends one scope's enabled, not-yet-seen entries to
+  ///     <paramref name="resolved" />, stored order kept. A parse FAILURE contributes
+  ///     nothing (the raw strings still ride the carrier for a host overlay). Full-path
+  ///     normalization keeps the case-insensitive duplicate comparison on the resolved
+  ///     form, not on whatever text the user typed.</summary>
+  private static void AppendScopeEntries(List<SkillDirectory> resolved, HashSet<string> seen,
+      Result<IReadOnlyList<SessionFileEntry>> parsed, SkillDirectoryScope scope, string workspaceRoot)
+  {
+    if (!parsed.IsSuccess)
+    {
+      return;
+    }
+
+    foreach (SessionFileEntry entry in parsed.Value)
+    {
+      if (!entry.Enabled)
+      {
+        continue;
+      }
+
+      string normalized = NormalizeDirectoryPath(entry.Path, workspaceRoot);
+      if (seen.Add(normalized))
+      {
+        resolved.Add(new SkillDirectory(entry.Path, scope));
+      }
+    }
   }
 
   /// <summary>Full-path normalization for duplicate detection only: the resolved
@@ -388,8 +385,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   private ServiceProvider BuildContainer(string workspaceRoot, string providerName,
       IReadOnlyList<Message>? conversationSeed,
       ModelConfig defaultModel,
-      string? globalSessionFiles, string? workspaceSessionFiles,
-      string? globalSkillDirectories, string? workspaceSkillDirectories)
+      StoredPreferenceLists stored)
   {
     ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(_settings, providerName, defaultModel,
@@ -398,11 +394,14 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
                 // memories scope per opened directory, keyed in the shared DB.
                 new FixedWorkspaceContext(workspaceRoot),
                 new WorkspacePathResolver(workspaceRoot),
-                [new SessionFilesPromptProvider(workspaceRoot, globalSessionFiles, workspaceSessionFiles)]),
+                [new SessionFilesPromptProvider(workspaceRoot, stored.GlobalSessionFiles, stored.WorkspaceSessionFiles)]),
             _database,
-            conversationSeed,
-            _mailboxLocator,
-            ResolveComputerAccessProvider())
+            new CompositionOverrides
+            {
+              ConversationSeed = conversationSeed,
+              MailboxLocator = _mailboxLocator,
+              ComputerAccessProvider = ResolveComputerAccessProvider(),
+            })
         // Skill directories resolve HERE - the resolution site. The parse validates
         // shape only; a workspace path equal (case-insensitive, full-path normalized)
         // to an already-included global path is skipped with no error: the global
@@ -411,11 +410,21 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         // carrier filled below is the core-registered singleton the RemoteHost block
         // overlays onto the settings JSON.
         .AddSingleton(new ResolvedSkillDirectories(
-            ResolveSkillDirectories(globalSkillDirectories, workspaceSkillDirectories, workspaceRoot)))
+            ResolveSkillDirectories(stored.GlobalSkillDirectories, stored.WorkspaceSkillDirectories, workspaceRoot)))
         .BuildServiceProvider();
-    services.GetRequiredService<SkillDirectoriesCarrier>().Fill(globalSkillDirectories, workspaceSkillDirectories);
+    services.GetRequiredService<SkillDirectoriesCarrier>().Fill(stored.GlobalSkillDirectories, stored.WorkspaceSkillDirectories);
     return RegisterContainerMailboxSource(services);
   }
+
+  /// <summary>The raw stored preference lists a container build carries: the two
+  ///     session-file lists and the two skill-directory lists, each (global, workspace).
+  ///     Every member is optional - a store miss is null, and the session then opens
+  ///     with nothing injected and no configured skill directories.</summary>
+  private sealed record StoredPreferenceLists(
+      string? GlobalSessionFiles,
+      string? WorkspaceSessionFiles,
+      string? GlobalSkillDirectories,
+      string? WorkspaceSkillDirectories);
 
   /// <summary>Contributes THIS container's live-mailbox views to the process-wide
   ///     locator, carrying the container's event stream so a cross-container delivery

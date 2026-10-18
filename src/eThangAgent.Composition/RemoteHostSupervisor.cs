@@ -88,6 +88,25 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
       return;
     }
 
+    Process started = StartHostProcess(ct);
+    // The host prints a started line once its pipe exists; bounded wait per deadlock vigilance.
+    if (await WaitForStartedLineAsync(started, ct).ConfigureAwait(false))
+    {
+      return;
+    }
+
+    started.Refresh();
+    if (started.HasExited)
+    {
+      throw new InvalidOperationException("child host exited during startup.");
+    }
+  }
+
+  /// <summary>Starts the host process for this workspace, records it as the current host,
+  ///     and arms the death notice. A missing executable and a failed start are named
+  ///     startup failures.</summary>
+  private Process StartHostProcess(CancellationToken ct)
+  {
     string exe = _hostExePath();
     if (!File.Exists(exe))
     {
@@ -112,22 +131,23 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
         report("[host] the child host process exited; children it ran keep running and will re-attach on the next connection.");
       }
     }, _reportNotice, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+    return started;
+  }
 
-    // The host prints a started line once its pipe exists; bounded wait per deadlock vigilance.
+  /// <summary>Waits (bounded) for the host's started line. True when the host announced
+  ///     itself; false when the bound elapsed or the process exited first.</summary>
+  private static async Task<bool> WaitForStartedLineAsync(Process started, CancellationToken ct)
+  {
     for (int i = 0; i < 100 && !started.HasExited; i++)
     {
       string? line = await started.StandardOutput.ReadLineAsync(ct).ConfigureAwait(false);
       if (line is not null && line.StartsWith("host-starting", StringComparison.Ordinal))
       {
-        return;
+        return true;
       }
     }
 
-    started.Refresh();
-    if (started.HasExited)
-    {
-      throw new InvalidOperationException("child host exited during startup.");
-    }
+    return false;
   }
 
   /// <summary>Default exe resolution: walk up from the executing assembly to the repo

@@ -478,37 +478,9 @@ public sealed class OpenRouterCatalogClient(
     }
 
     string providerName = nameEl.GetString()!;
-    int contextLength = endpoint.TryGetProperty("context_length", out JsonElement ctx) && ctx.ValueKind == JsonValueKind.Number
-        ? ctx.GetInt32() : model.ContextLength;
-    int maxCompletionTokens = endpoint.TryGetProperty("max_completion_tokens", out JsonElement mct) && mct.ValueKind == JsonValueKind.Number
-        ? mct.GetInt32() : 0;
-
-    // The endpoints API's prices ARE the effective prices - verified against the
-    // live API and the website (Baidu $0.35/M served as 0.00000035 with
-    // discount: 0.75; the site shows $0.35 as the price paid). The discount field
-    // is promo metadata, not a multiplier: applying it double-discounts. The
-    // endpoint row overrides the model-level price only when it carries one.
-    decimal promptPrice = model.PromptPrice;
-    decimal completionPrice = model.CompletionPrice;
-    if (endpoint.TryGetProperty("pricing", out JsonElement pricing) && pricing.ValueKind == JsonValueKind.Object)
-    {
-      decimal ep = ParseDecimal(pricing, "prompt");
-      decimal ec = ParseDecimal(pricing, "completion");
-      if (ep > 0m)
-      {
-        promptPrice = ep;
-      }
-
-      if (ec > 0m)
-      {
-        completionPrice = ec;
-      }
-    }
-
-    double? latencyMs = endpoint.TryGetProperty("latency_last_30m", out JsonElement lat) && lat.ValueKind == JsonValueKind.Number
-        ? lat.GetDouble() : null;
-    double? throughput = endpoint.TryGetProperty("throughput_last_30m", out JsonElement thr) && thr.ValueKind == JsonValueKind.Number
-        ? thr.GetDouble() : null;
+    (int contextLength, int maxCompletionTokens) = ParseEndpointLimits(endpoint, model);
+    (decimal promptPrice, decimal completionPrice) = ParseEndpointPrices(endpoint, model);
+    (double? latencyMs, double? throughput) = ParseEndpointPerformance(endpoint);
 
     return new ModelProviderEntry(model.Id, providerName, promptPrice, completionPrice,
         contextLength, maxCompletionTokens, model.SupportsToolUse, model.SupportsVision,
@@ -516,6 +488,52 @@ public sealed class OpenRouterCatalogClient(
         model.Description);
   }
 
+  /// <summary>The endpoint row's context window and completion cap: each falls back
+  ///     to the model-level value when the endpoint omits it.</summary>
+  private static (int ContextLength, int MaxCompletionTokens) ParseEndpointLimits(
+      JsonElement endpoint, IntermediateModel model)
+      => (OptionalInt(endpoint, "context_length") ?? model.ContextLength,
+          OptionalInt(endpoint, "max_completion_tokens") ?? 0);
+
+  /// <summary>The endpoint row's effective prices. The endpoints API's prices ARE
+  ///     the effective prices - verified against the live API and the website
+  ///     (Baidu $0.35/M served as 0.00000035 with discount: 0.75; the site shows
+  ///     $0.35 as the price paid). The discount field is promo metadata, not a
+  ///     multiplier: applying it double-discounts. The endpoint row overrides the
+  ///     model-level price only when it carries one.</summary>
+  private static (decimal PromptPrice, decimal CompletionPrice) ParseEndpointPrices(
+      JsonElement endpoint, IntermediateModel model)
+  {
+    if (!endpoint.TryGetProperty("pricing", out JsonElement pricing) || pricing.ValueKind != JsonValueKind.Object)
+    {
+      return (model.PromptPrice, model.CompletionPrice);
+    }
+
+    return (OverridePositive(ParseDecimal(pricing, "prompt"), model.PromptPrice),
+        OverridePositive(ParseDecimal(pricing, "completion"), model.CompletionPrice));
+  }
+
+  /// <summary>The endpoint's price override: a price is taken only when the row
+  ///     carries a positive one — zero leaves the model-level value untouched.</summary>
+  private static decimal OverridePositive(decimal endpointPrice, decimal modelPrice)
+      => endpointPrice > 0m ? endpointPrice : modelPrice;
+
+  /// <summary>The endpoint row's observed performance over the trailing 30 days:
+  ///     null when the server omits a metric — absence is an answer.</summary>
+  private static (double? LatencyMs, double? Throughput) ParseEndpointPerformance(JsonElement endpoint)
+      => (OptionalDouble(endpoint, "latency_last_30m"), OptionalDouble(endpoint, "throughput_last_30m"));
+
+  /// <summary>Reads an optional integer property, null when absent or not a number.</summary>
+  private static int? OptionalInt(JsonElement parent, string name)
+      => parent.TryGetProperty(name, out JsonElement el) && el.ValueKind == JsonValueKind.Number
+          ? el.GetInt32()
+          : null;
+
+  /// <summary>Reads an optional double property, null when absent or not a number.</summary>
+  private static double? OptionalDouble(JsonElement parent, string name)
+      => parent.TryGetProperty(name, out JsonElement el) && el.ValueKind == JsonValueKind.Number
+          ? el.GetDouble()
+          : null;
   /// <summary>The row for a model whose per-provider endpoints are unknown (the
   ///     endpoints call failed or the model has none - the routing pseudo-models).
   ///     ProviderName is the top provider when known, else null: a fabricated name

@@ -143,39 +143,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       {
         NamedPipeChildTransport transport = _transport ?? throw new TransportClosedException("the runtime is not attached to a host pipe.");
         TransportEnvelope envelope = await transport.ReceiveAsync(ct).ConfigureAwait(false);
-        if (envelope.Kind == "declare")
-        {
-          DeclareCommand? declared = JsonSerializer.Deserialize<DeclareCommand>(envelope.Json);
-          if (declared is not null)
-          {
-            _declaredLive = [.. declared.LiveIds];
-          }
-        }
-        else if (envelope.Kind == "error")
-        {
-          // Host-side fault for one child (e.g. record not found, host ceiling): complete
-          // that child's waiters with a well-formed failure instead of leaving them hung.
-          HostError? fault = JsonSerializer.Deserialize<HostError>(envelope.Json);
-          if (fault is not null && _settling.TryRemove(fault.RecordId, out TaskCompletionSource<AgentRunOutcome>? faulted))
-          {
-            _ = faulted.TrySetResult(new AgentRunOutcome(new AgentId(fault.RecordId),
-                AgentStatus.Failed, AgentFailureReason.ProviderError,
-                "Error [HostFault]: " + fault.Message, "remote", 0));
-          }
-        }
-        else if (envelope.Kind == "settle")
-        {
-          SettleNotice? notice = JsonSerializer.Deserialize<SettleNotice>(envelope.Json);
-          if (notice is not null)
-          {
-            AgentStatus status = Enum.TryParse(notice.Status, out AgentStatus parsed)
-                ? parsed : AgentStatus.Failed;
-            AgentFailureReason? reason = Enum.TryParse(notice.Reason, out AgentFailureReason reasonParsed)
-                ? reasonParsed : null;
-            Settle(new AgentId(notice.RecordId), new AgentRunOutcome(new AgentId(notice.RecordId),
-                status, reason, notice.Report, "remote", 0));
-          }
-        }
+        DispatchEnvelope(envelope);
 
         await _transport.SendAsync(new TransportEnvelope("ack", "\"" + envelope.Sequence + "\"", envelope.Sequence), ct).ConfigureAwait(false);
       }
@@ -195,6 +163,63 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       _settling.Clear();
     }
 #pragma warning restore CA1031 // Do not catch general exception types
+  }
+
+  /// <summary>Routes one received envelope by kind: declare refreshes the live-id
+  /// set, error completes one child's waiters with a host fault, settle completes
+  /// them with the child's outcome. Unknown kinds are ignored (ack still sent).</summary>
+  private void DispatchEnvelope(TransportEnvelope envelope)
+  {
+    switch (envelope.Kind)
+    {
+      case "declare":
+        HandleDeclare(envelope.Json);
+        break;
+      case "error":
+        HandleHostError(envelope.Json);
+        break;
+      case "settle":
+        HandleSettle(envelope.Json);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private void HandleDeclare(string json)
+  {
+    DeclareCommand? declared = JsonSerializer.Deserialize<DeclareCommand>(json);
+    if (declared is not null)
+    {
+      _declaredLive = [.. declared.LiveIds];
+    }
+  }
+
+  private void HandleHostError(string json)
+  {
+    // Host-side fault for one child (e.g. record not found, host ceiling): complete
+    // that child's waiters with a well-formed failure instead of leaving them hung.
+    HostError? fault = JsonSerializer.Deserialize<HostError>(json);
+    if (fault is not null && _settling.TryRemove(fault.RecordId, out TaskCompletionSource<AgentRunOutcome>? faulted))
+    {
+      _ = faulted.TrySetResult(new AgentRunOutcome(new AgentId(fault.RecordId),
+          AgentStatus.Failed, AgentFailureReason.ProviderError,
+          "Error [HostFault]: " + fault.Message, "remote", 0));
+    }
+  }
+
+  private void HandleSettle(string json)
+  {
+    SettleNotice? notice = JsonSerializer.Deserialize<SettleNotice>(json);
+    if (notice is not null)
+    {
+      AgentStatus status = Enum.TryParse(notice.Status, out AgentStatus parsed)
+          ? parsed : AgentStatus.Failed;
+      AgentFailureReason? reason = Enum.TryParse(notice.Reason, out AgentFailureReason reasonParsed)
+          ? reasonParsed : null;
+      Settle(new AgentId(notice.RecordId), new AgentRunOutcome(new AgentId(notice.RecordId),
+          status, reason, notice.Report, "remote", 0));
+    }
   }
 
   /// <summary>Completes every waiter for one child, RETAINING the completed source as

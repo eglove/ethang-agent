@@ -1,5 +1,4 @@
 using eThangAgent.Desktop.ViewModels;
-using eThangAgent.ToolDomain;
 
 namespace eThangAgent.Desktop.Tests;
 
@@ -11,8 +10,11 @@ public class SettingsManagementKeyTests
   [Fact]
   public void Management_Key_Prefills_And_Saves_Trimmed()
   {
-    SettingsViewModel vm = new("sk-or-v1-abc", CommitStyle.Conventional,
-        skillRegistryDefaultTarget: null, openRouterManagementKey: "  sk-or-mng-1  ");
+    SettingsViewModel vm = new(new SettingsValues
+    {
+      OpenRouterKey = "sk-or-v1-abc",
+      OpenRouterManagementKey = "  sk-or-mng-1  ",
+    });
     Assert.Equal("  sk-or-mng-1  ", vm.OpenRouterManagementKey);
 
     SettingsUpdate? saved = null;
@@ -26,7 +28,7 @@ public class SettingsManagementKeyTests
   [Fact]
   public void Blank_Management_Key_Clears_And_Is_Legal()
   {
-    SettingsViewModel vm = new("sk-or-v1-abc", openRouterManagementKey: string.Empty);
+    SettingsViewModel vm = new(new SettingsValues { OpenRouterKey = "sk-or-v1-abc", OpenRouterManagementKey = string.Empty });
     Assert.True(vm.CanSave);
 
     SettingsUpdate? saved = null;
@@ -40,7 +42,7 @@ public class SettingsManagementKeyTests
   [Fact]
   public void Management_Key_Internal_Whitespace_Blocks_Save()
   {
-    SettingsViewModel vm = new("sk-or-v1-abc", openRouterManagementKey: "not a key");
+    SettingsViewModel vm = new(new SettingsValues { OpenRouterKey = "sk-or-v1-abc", OpenRouterManagementKey = "not a key" });
     Assert.False(vm.CanSave);
     Assert.NotNull(vm.ValidationError);
   }
@@ -48,7 +50,7 @@ public class SettingsManagementKeyTests
   [Fact]
   public void Management_Key_Change_Requeries_Save()
   {
-    SettingsViewModel vm = new("sk-or-v1-abc", openRouterManagementKey: "not a key");
+    SettingsViewModel vm = new(new SettingsValues { OpenRouterKey = "sk-or-v1-abc", OpenRouterManagementKey = "not a key" });
     Assert.False(vm.SaveCommand.CanExecute(null));
 
     vm.OpenRouterManagementKey = "sk-or-mng-1";

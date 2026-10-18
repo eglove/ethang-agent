@@ -11,7 +11,7 @@ public class SettingsViewModelTests
   [Fact]
   public void Fields_Prefill_With_Configured_Keys()
   {
-    SettingsViewModel vm = new("sk-or-v1-abc");
+    SettingsViewModel vm = new(new SettingsValues { OpenRouterKey = "sk-or-v1-abc" });
 
     Assert.Equal("sk-or-v1-abc", vm.OpenRouterKey);
     Assert.True(vm.CanSave);
@@ -21,7 +21,7 @@ public class SettingsViewModelTests
   [Fact]
   public void Save_Raises_Update_With_Trimmed_Keys()
   {
-    SettingsViewModel vm = new("  sk-or-v1-abc  ");
+    SettingsViewModel vm = new(new SettingsValues { OpenRouterKey = "  sk-or-v1-abc  " });
     SettingsUpdate? saved = null;
     vm.SaveRequested += (_, update) => saved = update;
 
@@ -34,7 +34,7 @@ public class SettingsViewModelTests
   [Fact]
   public void Blank_Field_Means_Cleared_And_Is_Legal()
   {
-    SettingsViewModel vm = new(string.Empty, CommitStyle.Conventional);
+    SettingsViewModel vm = new(new SettingsValues { OpenRouterKey = string.Empty });
     Assert.True(vm.CanSave);
 
     SettingsUpdate? saved = null;
@@ -48,7 +48,7 @@ public class SettingsViewModelTests
   [Fact]
   public void Internal_Whitespace_Is_Rejected_And_Blocks_Save()
   {
-    SettingsViewModel vm = new("not a valid key");
+    SettingsViewModel vm = new(new SettingsValues { OpenRouterKey = "not a valid key" });
 
     Assert.False(vm.CanSave);
     Assert.NotNull(vm.ValidationError);
@@ -63,7 +63,7 @@ public class SettingsViewModelTests
   [Fact]
   public void SaveCommand_Tracks_Validation_Changes()
   {
-    SettingsViewModel vm = new("bad key with spaces");
+    SettingsViewModel vm = new(new SettingsValues { OpenRouterKey = "bad key with spaces" });
     Assert.False(vm.SaveCommand.CanExecute(null));
 
     vm.OpenRouterKey = "sk-or-v1-abc";
@@ -75,7 +75,7 @@ public class SettingsViewModelTests
   [Fact]
   public void KeysVisible_Toggles_The_Mask()
   {
-    SettingsViewModel vm = new(null);
+    SettingsViewModel vm = new(new SettingsValues());
     Assert.Equal('•', vm.KeyPasswordChar);
 
     vm.KeysVisible = true;
@@ -86,7 +86,7 @@ public class SettingsViewModelTests
   [Fact]
   public void Commit_Style_Prefills_And_Saves_Through_The_Update()
   {
-    SettingsViewModel vm = new("key", CommitStyle.Gitmoji);
+    SettingsViewModel vm = new(new SettingsValues { OpenRouterKey = "key", CommitStyle = CommitStyle.Gitmoji });
     Assert.Equal(CommitStyle.Gitmoji, vm.SelectedCommitStyle.Style);
 
     SettingsUpdate? saved = null;
@@ -100,7 +100,7 @@ public class SettingsViewModelTests
   [Fact]
   public void Commit_Style_Offers_The_Three_Options_In_Display_Order()
   {
-    SettingsViewModel vm = new(null);
+    SettingsViewModel vm = new(new SettingsValues());
     Assert.Equal(3, vm.CommitStyles.Count);
     Assert.Equal(CommitStyle.Conventional, vm.CommitStyles[0].Style);
     Assert.Equal(CommitStyle.Gitmoji, vm.CommitStyles[1].Style);

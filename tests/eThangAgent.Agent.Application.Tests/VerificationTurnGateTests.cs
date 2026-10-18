@@ -63,8 +63,9 @@ public class VerificationTurnGateTests
       return new SendMessageCommandHandler(
           agent,
           Conversation,
-          changedFilesResolver: () => [("a.cs", Base)],
-          verificationGate: gate);
+          verification: new VerificationCollaborators(
+              gate,
+              ChangedFilesResolver: () => [("a.cs", Base)]));
     }
   }
 

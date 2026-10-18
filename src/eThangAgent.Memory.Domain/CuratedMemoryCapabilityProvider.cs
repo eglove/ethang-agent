@@ -429,20 +429,15 @@ public sealed class CuratedMemoryCapabilityProvider(
           "Provide at least one of: content, category, tags, usage_hint."));
     }
 
-    if (touchesContent && ValidateContent(args) is { } contentError)
+    if (ValidateTouchedFields(args, touchesContent, touchesTags) is { } fieldError)
     {
-      return Result.Failure<MemoryDelta>(contentError);
+      return Result.Failure<MemoryDelta>(fieldError);
     }
 
     Result<MemoryCategory?> category = ParseCategoryUpdate(args, touchesCategory);
     if (!category.IsSuccess)
     {
       return Result.Failure<MemoryDelta>(category.Error);
-    }
-
-    if (touchesTags && ValidateTags(args) is { } tagsError)
-    {
-      return Result.Failure<MemoryDelta>(tagsError);
     }
 
     Result<string?> usageHint = ParseOptionalHint(args);
@@ -456,6 +451,20 @@ public sealed class CuratedMemoryCapabilityProvider(
         : null;
     MemoryDelta delta = new(category.Value, tags, usageHint.Value);
     return Result.Success(delta);
+  }
+
+  /// <summary>Validates the touched free-form fields in one pass: content when
+  /// present, tags when present. Returns the first error, or null when both pass.</summary>
+  private static DomainError? ValidateTouchedFields(Dictionary<string, JsonElement> args, bool touchesContent, bool touchesTags)
+  {
+    DomainError? contentResult = touchesContent ? ValidateContent(args) : null;
+    if (contentResult is { } contentError)
+    {
+      return contentError;
+    }
+
+    DomainError? tagsResult = touchesTags ? ValidateTags(args) : null;
+    return tagsResult is { } tagsError ? tagsError : null;
   }
 
   private static Result<MemoryCategory?> ParseCategoryUpdate(Dictionary<string, JsonElement> args, bool touchesCategory)
@@ -557,7 +566,7 @@ public sealed class CuratedMemoryCapabilityProvider(
       return Fail(idError);
     }
 
-    if (!args.TryGetValue("confirm", out JsonElement confirm) || confirm.ValueKind != JsonValueKind.True)
+    if (!IsConfirmed(args))
     {
       return Fail(new DomainError("RemoveNotConfirmed",
           "'confirm' must be exactly boolean true to remove a memory."));
@@ -579,6 +588,11 @@ public sealed class CuratedMemoryCapabilityProvider(
     return removed;
   }
 
+  /// <summary>Strict confirmation gate: the JSON must carry "confirm" as exactly
+  /// boolean true - anything else (absent, false, string) fails.</summary>
+  private static bool IsConfirmed(Dictionary<string, JsonElement> args)
+      => args.TryGetValue("confirm", out JsonElement confirm) && confirm.ValueKind == JsonValueKind.True;
+
   /// <summary>Bulk delete over the visible corpus. Candidates resolve through the same
   /// search path as memories.search (visibility rules included); the scope filter
   /// narrows afterwards exactly as in search. A per-batch cap keeps one call from
@@ -587,39 +601,27 @@ public sealed class CuratedMemoryCapabilityProvider(
   {
     Dictionary<string, JsonElement> args = ParseArgs(json, Allowed("query", Category, "tags", Scope, "dry_run", "confirm"));
 
-    if (!args.TryGetValue("confirm", out JsonElement confirm) || confirm.ValueKind != JsonValueKind.True)
+    if (!IsConfirmed(args))
     {
       return Fail(new DomainError("PurgeNotConfirmed",
           "'confirm' must be exactly boolean true to purge memories."));
     }
 
-    IReadOnlyList<string> tagFilters = OptStringArray(args, "tags");
-    if (FirstInvalidTag(tagFilters) is { } invalidTag)
+    Result<PurgeFilters> filters = ParsePurgeFilters(args);
+    if (!filters.IsSuccess)
     {
-      return Fail(invalidTag);
-    }
-
-    Result<MemoryCategory?> category = ParseCategoryFilter(args);
-    if (!category.IsSuccess)
-    {
-      return Fail(category.Error);
-    }
-
-    Result<MemoryScope?> scope = ParseScopeFilter(args);
-    if (!scope.IsSuccess)
-    {
-      return Fail(scope.Error);
+      return Fail(filters.Error);
     }
 
     // One row past the cap is fetched so an over-cap sweep can be refused with a count.
     Result<IReadOnlyList<CuratedMemory>> candidates = await _store.SearchAsync(
-        _workspaceId(), OptString(args, "query"), category.Value, tagFilters, PurgeBatchCap + 1).ConfigureAwait(false);
+        _workspaceId(), OptString(args, "query"), filters.Value.CategoryFilter, filters.Value.TagFilters, PurgeBatchCap + 1).ConfigureAwait(false);
     if (!candidates.IsSuccess)
     {
       return Fail(candidates.Error);
     }
 
-    IReadOnlyList<CuratedMemory> rows = scope.Value is { } wanted
+    IReadOnlyList<CuratedMemory> rows = filters.Value.ScopeFilter is { } wanted
         ? [.. candidates.Value.Where(m => m.Scope == wanted)]
         : candidates.Value;
 
@@ -634,9 +636,7 @@ public sealed class CuratedMemoryCapabilityProvider(
         && dryRunElement.ValueKind == JsonValueKind.True;
     if (dryRun)
     {
-      List<string> dryLines = [$"[memories] dry run: {rows.Count} candidate(s) (0 memory(ies) deleted)"];
-      dryLines.AddRange(rows.Select(PurgeRowLine));
-      return CapabilityInvocationResult.Ok(string.Join("\n", dryLines));
+      return RenderPurge($"[memories] dry run: {rows.Count} candidate(s) (0 memory(ies) deleted)", rows);
     }
 
     if (rows.Count == 0)
@@ -645,14 +645,40 @@ public sealed class CuratedMemoryCapabilityProvider(
     }
 
     Result<int> deleted = await _store.DeleteManyAsync([.. rows.Select(m => m.Id)]).ConfigureAwait(false);
-    if (!deleted.IsSuccess)
+    return deleted.IsSuccess
+      ? RenderPurge($"[memories] purged {deleted.Value} memory(ies)", rows)
+      : Fail(deleted.Error);
+  }
+
+  /// <summary>The resolved purge filters: tags already validated, category and scope
+  /// parsed. The caller reports the error when the result fails.</summary>
+  private sealed record PurgeFilters(IReadOnlyList<string> TagFilters, MemoryCategory? CategoryFilter, MemoryScope? ScopeFilter);
+
+  private static Result<PurgeFilters> ParsePurgeFilters(Dictionary<string, JsonElement> args)
+  {
+    IReadOnlyList<string> tagFilters = OptStringArray(args, "tags");
+    if (FirstInvalidTag(tagFilters) is { } invalidTag)
     {
-      return Fail(deleted.Error);
+      return Result.Failure<PurgeFilters>(invalidTag);
     }
 
-    List<string> lines = [$"[memories] purged {deleted.Value} memory(ies)"];
+    Result<MemoryCategory?> category = ParseCategoryFilter(args);
+    if (!category.IsSuccess)
+    {
+      return Result.Failure<PurgeFilters>(category.Error);
+    }
+
+    Result<MemoryScope?> scope = ParseScopeFilter(args);
+    return scope.IsSuccess
+      ? Result.Success(new PurgeFilters(tagFilters, category.Value, scope.Value))
+      : Result.Failure<PurgeFilters>(scope.Error);
+  }
+
+  private static CapabilityInvocationResult RenderPurge(string header, IReadOnlyList<CuratedMemory> rows)
+  {
+    List<string> lines = [header];
     lines.AddRange(rows.Select(PurgeRowLine));
-    return CapabilityInvocationResult.Ok(string.Join("\n", lines));
+    return CapabilityInvocationResult.Ok(string.Join('\n', lines));
   }
 
   private static string PurgeRowLine(CuratedMemory memory)

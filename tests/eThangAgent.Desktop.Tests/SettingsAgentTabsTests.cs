@@ -12,14 +12,16 @@ public class SettingsAgentTabsTests
   [Fact]
   public void Save_CarriesAgentAndAdvancedFields()
   {
-    SettingsViewModel vm = new(null,
-        maxConcurrentAgentsText: " 6 ",
-        defaultModelText: " glm-5.3 ",
-        remoteHost: true,
-        watchdogTickText: " 00:00:02 ",
-        watchdogIdleText: " 00:15:00 ",
-        watchdogWrapUpText: " 2 ",
-        openRouterBaseUrlText: " https://openrouter.ai ");
+    SettingsViewModel vm = new(new SettingsValues
+    {
+      MaxConcurrentAgentsText = " 6 ",
+      DefaultModelText = " glm-5.3 ",
+      RemoteHost = true,
+      WatchdogTickText = " 00:00:02 ",
+      WatchdogIdleText = " 00:15:00 ",
+      WatchdogWrapUpText = " 2 ",
+      OpenRouterBaseUrlText = " https://openrouter.ai ",
+    });
 
     SettingsUpdate? saved = null;
     vm.SaveRequested += (_, update) => saved = update;
@@ -38,8 +40,7 @@ public class SettingsAgentTabsTests
   [Fact]
   public void ValidationError_RejectsBadMaxConcurrent()
   {
-    SettingsViewModel vm = new(null,
-        maxConcurrentAgentsText: "0");
+    SettingsViewModel vm = new(new SettingsValues { MaxConcurrentAgentsText = "0" });
 
     Assert.False(vm.CanSave);
     Assert.NotNull(vm.ValidationError);
@@ -49,8 +50,7 @@ public class SettingsAgentTabsTests
   [Fact]
   public void ValidationError_RejectsBareIntegerDuration()
   {
-    SettingsViewModel vm = new(null,
-        watchdogTickText: "5");
+    SettingsViewModel vm = new(new SettingsValues { WatchdogTickText = "5" });
 
     Assert.NotNull(vm.ValidationError);
     Assert.Contains("would bind as days", vm.ValidationError, StringComparison.Ordinal);
@@ -59,8 +59,7 @@ public class SettingsAgentTabsTests
   [Fact]
   public void ValidationError_RejectsBadAdvancedUrl()
   {
-    SettingsViewModel vm = new(null,
-        openRouterBaseUrlText: "nope");
+    SettingsViewModel vm = new(new SettingsValues { OpenRouterBaseUrlText = "nope" });
 
     Assert.NotNull(vm.ValidationError);
     Assert.Contains("absolute URI", vm.ValidationError, StringComparison.Ordinal);
@@ -69,13 +68,15 @@ public class SettingsAgentTabsTests
   [Fact]
   public void Blank_Fields_Are_Legal_Defaults()
   {
-    SettingsViewModel vm = new(null,
-        maxConcurrentAgentsText: "   ",
-        defaultModelText: " ",
-        watchdogTickText: "",
-        watchdogIdleText: "  ",
-        watchdogWrapUpText: " ",
-        openRouterBaseUrlText: "   ");
+    SettingsViewModel vm = new(new SettingsValues
+    {
+      MaxConcurrentAgentsText = "   ",
+      DefaultModelText = " ",
+      WatchdogTickText = "",
+      WatchdogIdleText = "  ",
+      WatchdogWrapUpText = " ",
+      OpenRouterBaseUrlText = "   ",
+    });
 
     Assert.True(vm.CanSave);
     Assert.Null(vm.ValidationError);

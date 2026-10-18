@@ -265,58 +265,11 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
 
       if (ctx.Request.Url!.AbsolutePath == "/api/v1/models")
       {
-        _ = CatalogRequested.TrySetResult();
-        if (CatalogGate is { } gate)
-        {
-          await gate.WaitAsync(_cts.Token).ConfigureAwait(false);
-        }
-        string body = _catalogResponse ?? /*lang=json,strict*/ """{"data":[]}""";
-        byte[] bytes = Encoding.UTF8.GetBytes(body);
-        ctx.Response.StatusCode = CatalogStatusCode;
-        ctx.Response.ContentType = "application/json";
-        ctx.Response.ContentLength64 = bytes.Length;
-        await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
+        await ServeCatalogAsync(ctx).ConfigureAwait(false);
       }
       else if (ctx.Request.Url.AbsolutePath == _responsesPath)
       {
-        using StreamReader reader = new(ctx.Request.InputStream);
-        string requestBody = await reader.ReadToEndAsync(_cts.Token).ConfigureAwait(false);
-        LastChatRequestBody = requestBody;
-        _requestBodies.Add(requestBody);
-        _responsesRequestPaths.Add(ctx.Request.Url.AbsolutePath);
-
-        try
-        {
-          if (TryGetRequestModel(requestBody) is { } requestModel
-              && _modelDelays.TryGetValue(requestModel, out TimeSpan delay))
-          {
-            await Task.Delay(delay, _cts.Token).ConfigureAwait(false);
-          }
-
-          string scriptedBody = NextScriptedBody(requestBody);
-          ctx.Response.StatusCode = 200;
-          if (RequestWantsStream(requestBody))
-          {
-            // The agent always requests SSE; serving canned responses as
-            // multi-chunk streams exercises real client-side chunk assembly.
-            ctx.Response.ContentType = "text/event-stream";
-            byte[] bytes = Encoding.UTF8.GetBytes(ToSse(scriptedBody));
-            await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
-          }
-          else
-          {
-            ctx.Response.ContentType = "application/json";
-            byte[] bytes = Encoding.UTF8.GetBytes(scriptedBody);
-            await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
-          }
-        }
-        catch (InvalidOperationException ex)
-        {
-          byte[] bytes = Encoding.UTF8.GetBytes(ex.Message);
-          ctx.Response.StatusCode = 500;
-          ctx.Response.ContentType = "text/plain";
-          await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
-        }
+        await ServeResponsesAsync(ctx).ConfigureAwait(false);
       }
       else
       {
@@ -324,6 +277,77 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
       }
       ctx.Response.Close();
     }
+  }
+
+  /// <summary>Serves the models-catalog endpoint: signals the catalog request, waits on
+  ///     the optional gate, then writes the scripted (or empty) catalog body.</summary>
+  private async Task ServeCatalogAsync(HttpListenerContext ctx)
+  {
+    _ = CatalogRequested.TrySetResult();
+    if (CatalogGate is { } gate)
+    {
+      await gate.WaitAsync(_cts.Token).ConfigureAwait(false);
+    }
+
+    string body = _catalogResponse ?? /*lang=json,strict*/ """{"data":[]}""";
+    byte[] bytes = Encoding.UTF8.GetBytes(body);
+    ctx.Response.StatusCode = CatalogStatusCode;
+    ctx.Response.ContentType = "application/json";
+    ctx.Response.ContentLength64 = bytes.Length;
+    await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
+  }
+
+  /// <summary>Serves one responses request: records the body, applies the per-model delay,
+  ///     then writes the scripted body as SSE or JSON. A broken script (placeholder with no
+  ///     observed child id) is refused as a 500 carrying the reason.</summary>
+  private async Task ServeResponsesAsync(HttpListenerContext ctx)
+  {
+    using StreamReader reader = new(ctx.Request.InputStream);
+    string requestBody = await reader.ReadToEndAsync(_cts.Token).ConfigureAwait(false);
+    LastChatRequestBody = requestBody;
+    _requestBodies.Add(requestBody);
+    _responsesRequestPaths.Add(ctx.Request.Url!.AbsolutePath);
+
+    try
+    {
+      await ApplyModelDelayAsync(requestBody).ConfigureAwait(false);
+      string scriptedBody = NextScriptedBody(requestBody);
+      ctx.Response.StatusCode = 200;
+      await WriteScriptedBodyAsync(ctx, requestBody, scriptedBody).ConfigureAwait(false);
+    }
+    catch (InvalidOperationException ex)
+    {
+      byte[] bytes = Encoding.UTF8.GetBytes(ex.Message);
+      ctx.Response.StatusCode = 500;
+      ctx.Response.ContentType = "text/plain";
+      await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
+    }
+  }
+
+  private async Task ApplyModelDelayAsync(string requestBody)
+  {
+    if (TryGetRequestModel(requestBody) is { } requestModel
+        && _modelDelays.TryGetValue(requestModel, out TimeSpan delay))
+    {
+      await Task.Delay(delay, _cts.Token).ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>Writes the scripted body in the shape the request asked for: SSE when the
+  ///     request set stream=true (exercising real client-side chunk assembly), else JSON.</summary>
+  private async Task WriteScriptedBodyAsync(HttpListenerContext ctx, string requestBody, string scriptedBody)
+  {
+    if (RequestWantsStream(requestBody))
+    {
+      ctx.Response.ContentType = "text/event-stream";
+      byte[] bytes = Encoding.UTF8.GetBytes(ToSse(scriptedBody));
+      await ctx.Response.OutputStream.WriteAsync(bytes, _cts.Token).ConfigureAwait(false);
+      return;
+    }
+
+    ctx.Response.ContentType = "application/json";
+    byte[] jsonBytes = Encoding.UTF8.GetBytes(scriptedBody);
+    await ctx.Response.OutputStream.WriteAsync(jsonBytes, _cts.Token).ConfigureAwait(false);
   }
 
   private static bool RequestWantsStream(string requestBody)
@@ -358,30 +382,7 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
       int outputIndex = 0;
       foreach (JsonElement item in output.EnumerateArray())
       {
-        string type = item.TryGetProperty("type", out JsonElement t) && t.ValueKind == JsonValueKind.String
-            ? t.GetString()! : "";
-        if (type == "message"
-            && item.TryGetProperty("content", out JsonElement content)
-            && content.ValueKind == JsonValueKind.Array)
-        {
-          foreach (JsonElement part in content.EnumerateArray())
-          {
-            if (part.ValueKind == JsonValueKind.Object
-                && part.TryGetProperty("type", out JsonElement partType)
-                && partType.ValueKind == JsonValueKind.String
-                && partType.GetString() == "output_text"
-                && part.TryGetProperty("text", out JsonElement text)
-                && text.ValueKind == JsonValueKind.String)
-            {
-              EmitTextDeltas(sse, text.GetString() ?? "");
-            }
-          }
-        }
-        else if (type == "function_call")
-        {
-          EmitFunctionCall(sse, outputIndex, item);
-        }
-
+        EmitItem(sse, outputIndex, item);
         outputIndex++;
       }
     }
@@ -392,6 +393,46 @@ internal sealed partial class MockOpenRouterServer(string responsesPath = "/api/
     _ = sse.Append("data: [DONE]\n\n");
     return sse.ToString();
   }
+
+  /// <summary>Emits one output item: a message's text parts as deltas, or a
+  ///     function_call as its added/arguments frames. Other item types emit nothing.</summary>
+  private static void EmitItem(StringBuilder sse, int outputIndex, JsonElement item)
+  {
+    string type = item.TryGetProperty("type", out JsonElement t) && t.ValueKind == JsonValueKind.String
+        ? t.GetString()! : "";
+    if (type == "message")
+    {
+      EmitMessageText(sse, item);
+    }
+    else if (type == "function_call")
+    {
+      EmitFunctionCall(sse, outputIndex, item);
+    }
+  }
+
+  private static void EmitMessageText(StringBuilder sse, JsonElement item)
+  {
+    if (!item.TryGetProperty("content", out JsonElement content) || content.ValueKind != JsonValueKind.Array)
+    {
+      return;
+    }
+
+    foreach (JsonElement part in content.EnumerateArray())
+    {
+      if (IsOutputTextPart(part))
+      {
+        EmitTextDeltas(sse, part.GetProperty("text").GetString() ?? "");
+      }
+    }
+  }
+
+  private static bool IsOutputTextPart(JsonElement part)
+      => part.ValueKind == JsonValueKind.Object
+          && part.TryGetProperty("type", out JsonElement partType)
+          && partType.ValueKind == JsonValueKind.String
+          && partType.GetString() == "output_text"
+          && part.TryGetProperty("text", out JsonElement text)
+          && text.ValueKind == JsonValueKind.String;
 
   /// <summary>One message text split across two output_text.delta frames.</summary>
   private static void EmitTextDeltas(StringBuilder sse, string text)

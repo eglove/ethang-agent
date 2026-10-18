@@ -8,6 +8,18 @@ using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Agent.Application;
 
+/// <summary>The root-resolution seam, grouped: the holder that rebuilds the root agent
+///     when its model changes and the resolver that picks the model to serve each turn.
+///     Both are wired together — one without the other has no meaning.</summary>
+public sealed record RootTurnServices(RootAgentHolder Holder, RootAgentResolver Resolver);
+
+/// <summary>The verification-gate collaborators, grouped: the gate deciding when a
+///     nudge is due and the resolver of the files changed since the last verification
+///     run. Both are wired together — one without the other has no meaning.</summary>
+public sealed record VerificationCollaborators(
+    VerificationGate Gate,
+    Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>> ChangedFilesResolver);
+
 /// <summary>
 /// Sends a user message through the agent loop and, after a SUCCESSFUL turn, offers the
 /// nudge policy a chance to append a reminder line as a System message. Failed turns are
@@ -16,27 +28,28 @@ namespace eThangAgent.Agent.Application;
 /// exactly as before (turns pass through, nothing is appended).
 /// </summary>
 /// <remarks>
-/// Root model resolution: when a <see cref="RootAgentHolder"/> + <see cref="RootAgentResolver"/>
-/// are supplied, each turn first resolves the model to serve (the user's live choice, the
-/// session pin, or the fallback), rebuilds the root agent when the model changed, and
-/// surfaces resolution notices via the onNotice callback. Without the holder/resolver the
-/// handler falls back to the single pre-built agent exactly as it did before this seam existed.
+/// Root model resolution: when the <see cref="RootTurnServices"/> seam is supplied, each
+/// turn first resolves the model to serve (the user's live choice, the session pin, or the
+/// fallback), rebuilds the root agent when the model changed, and surfaces resolution
+/// notices via the onNotice callback. Without the seam the handler falls back to the
+/// single pre-built agent exactly as it did before this seam existed.
 /// </remarks>
-public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversation = null,
-    INudgePolicy? policy = null, Func<int>? memoriesWritten = null, IAgentInbox? inbox = null,
-    RootAgentHolder? rootHolder = null, RootAgentResolver? rootResolver = null,
-    VerificationGate? verificationGate = null,
-    Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>? changedFilesResolver = null)
+public class SendMessageCommandHandler(
+    Ag? agent = null,
+    Conversation? conversation = null,
+    INudgePolicy? policy = null,
+    Func<int>? memoriesWritten = null,
+    IAgentInbox? inbox = null,
+    RootTurnServices? rootTurn = null,
+    VerificationCollaborators? verification = null)
 {
   private readonly Ag? _agent = agent;
   private readonly Conversation? _conversation = conversation;
   private readonly INudgePolicy? _nudgePolicy = policy;
   private readonly Func<int>? _memoriesWritten = memoriesWritten;
   private readonly IAgentInbox? _inbox = inbox;
-  private readonly RootAgentHolder? _rootHolder = rootHolder;
-  private readonly RootAgentResolver? _rootResolver = rootResolver;
-  private readonly VerificationGate? _verificationGate = verificationGate;
-  private readonly Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>>? _changedFilesResolver = changedFilesResolver;
+  private readonly RootTurnServices? _rootTurn = rootTurn;
+  private readonly VerificationCollaborators? _verification = verification;
   private int _turnCount;
 
   public async Task<Result<string>> Handle(SendMessageCommand command,
@@ -68,31 +81,50 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
       return result;
     }
 
-    if (_conversation is not null && _nudgePolicy is not null && _memoriesWritten is not null)
-    {
-      string? line = _nudgePolicy.Evaluate(
-          new NudgeContext(turnNumber, active.LastTurnToolCalls, _memoriesWritten()));
-      if (line is not null)
-      {
-        _conversation.AddSystemMessage(line);
-        callbacks?.OnSystemMessage?.Invoke(line);
-      }
-    }
-
-    // Gate B (spec #24): one bounded verification nudge per turn when files
-    // changed without a fresh verification run. Both collaborators must be
-    // present; absent means byte-identical legacy behavior.
-    if (_verificationGate is { Enabled: true } gate && _changedFilesResolver is { } resolver)
-    {
-      string? nudge = gate.NudgeLine(resolver());
-      if (nudge is not null && _conversation is not null)
-      {
-        _conversation.AddSystemMessage(nudge);
-        callbacks?.OnSystemMessage?.Invoke(nudge);
-      }
-    }
-
+    ApplyNudge(turnNumber, active, callbacks);
+    ApplyVerificationGate(callbacks);
     return result;
+  }
+
+  /// <summary>After a SUCCESSFUL turn, offers the nudge policy a chance to append a
+  ///     reminder line as a System message. Active only when the conversation, the
+  ///     policy, and the memory-write counter are all supplied.</summary>
+  private void ApplyNudge(int turnNumber, Ag active, TurnCallbacks? callbacks)
+  {
+    if (_conversation is null || _nudgePolicy is null || _memoriesWritten is null)
+    {
+      return;
+    }
+
+    string? line = _nudgePolicy.Evaluate(
+        new NudgeContext(turnNumber, active.LastTurnToolCalls, _memoriesWritten()));
+    if (line is null)
+    {
+      return;
+    }
+
+    _conversation.AddSystemMessage(line);
+    callbacks?.OnSystemMessage?.Invoke(line);
+  }
+
+  /// <summary>Gate B (spec #24): one bounded verification nudge per turn when files
+  ///     changed without a fresh verification run. Both collaborators must be present;
+  ///     absent means byte-identical legacy behavior.</summary>
+  private void ApplyVerificationGate(TurnCallbacks? callbacks)
+  {
+    if (_verification is not { } collaborators || collaborators.Gate is not { Enabled: true } gate)
+    {
+      return;
+    }
+
+    string? nudge = gate.NudgeLine(collaborators.ChangedFilesResolver());
+    if (nudge is null || _conversation is null)
+    {
+      return;
+    }
+
+    _conversation.AddSystemMessage(nudge);
+    callbacks?.OnSystemMessage?.Invoke(nudge);
   }
 
   /// <summary>Resolves the agent to serve this turn. When the root holder/resolver seam is
@@ -101,19 +133,19 @@ public class SendMessageCommandHandler(Ag? agent = null, Conversation? conversat
   ///     Without the seam, returns the single pre-built agent.</summary>
   private async Task<Ag> ResolveAgentAsync(Action<string>? onNotice, CancellationToken ct)
   {
-    if (_rootHolder is null || _rootResolver is null)
+    if (_rootTurn is not { } services)
     {
       return _agent ?? throw new InvalidOperationException(
           "SendMessageCommandHandler has no agent and no root holder; one must be supplied.");
     }
 
-    (ModelConfig config, string? notice) = await _rootResolver.ResolveAsync(ct)
+    (ModelConfig config, string? notice) = await services.Resolver.ResolveAsync(ct)
         .ConfigureAwait(false);
     if (notice is not null)
     {
       onNotice?.Invoke(notice);
     }
 
-    return _rootHolder.Build(_rootHolder.Current, config);
+    return services.Holder.Build(services.Holder.Current, config);
   }
 }

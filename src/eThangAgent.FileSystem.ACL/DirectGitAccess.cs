@@ -306,29 +306,19 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
   {
     // Outside a repository 'git diff --cached' exits 129 with usage text, so
     // probe repo-ness explicitly first.
-    GitRun probe = await RunGitAsync(repoPath, [RevParse, "--git-dir"], ct).ConfigureAwait(false);
-    if (!probe.Ok)
+    Result<GitRun> probe = await RunGitVerifiedAsync(repoPath, [RevParse, "--git-dir"], ct).ConfigureAwait(false);
+    if (!probe.IsSuccess)
     {
-      return Result.Failure<GitCommitOutcome>(probe.Err);
+      return Result.Failure<GitCommitOutcome>(probe.Error);
     }
 
-    if (probe.ExitCode != 0)
+    Result<GitRun> indexRes = await RunGitVerifiedAsync(repoPath, ["diff", "--cached", "--name-only"], ct).ConfigureAwait(false);
+    if (!indexRes.IsSuccess)
     {
-      return Result.Failure<GitCommitOutcome>(ToGitFailure(repoPath, probe.ExitCode, probe.StdErr));
+      return Result.Failure<GitCommitOutcome>(indexRes.Error);
     }
 
-    GitRun indexRes = await RunGitAsync(repoPath, ["diff", "--cached", "--name-only"], ct).ConfigureAwait(false);
-    if (!indexRes.Ok)
-    {
-      return Result.Failure<GitCommitOutcome>(indexRes.Err);
-    }
-
-    if (indexRes.ExitCode != 0)
-    {
-      return Result.Failure<GitCommitOutcome>(ToGitFailure(repoPath, indexRes.ExitCode, indexRes.StdErr));
-    }
-
-    if (string.IsNullOrWhiteSpace(indexRes.StdOut))
+    if (string.IsNullOrWhiteSpace(indexRes.Value.StdOut))
     {
       return Result.Failure<GitCommitOutcome>(new DomainError("NothingStaged",
           $"The index is empty; there is nothing to commit in {repoPath}. " +
@@ -340,6 +330,27 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     // --cleanup=verbatim keeps the message byte-for-byte; git's default
     // 'whitespace' cleanup silently collapses blank lines and would make the
     // committed message differ from what we report.
+    Result<GitRun> committed = await CommitIndexAsync(repoPath, message, ct).ConfigureAwait(false);
+    if (!committed.IsSuccess)
+    {
+      return Result.Failure<GitCommitOutcome>(committed.Error);
+    }
+
+    Result<(string Hash, string Branch)> resolved = await ResolveHeadIdentityAsync(repoPath, ct).ConfigureAwait(false);
+    if (!resolved.IsSuccess)
+    {
+      return Result.Failure<GitCommitOutcome>(resolved.Error);
+    }
+
+    GitCommitOutcome outcome = new(resolved.Value.Hash, resolved.Value.Branch, message);
+    return Result.Success(outcome);
+  }
+
+  /// <summary>Commits the current index via a temp message file so multi-line
+  ///     messages survive verbatim, deleting the file afterwards (best effort —
+  ///     the commit itself already succeeded).</summary>
+  private static async Task<Result<GitRun>> CommitIndexAsync(string repoPath, string message, CancellationToken ct)
+  {
     string tmp = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
     try
     {
@@ -355,16 +366,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       }
 #pragma warning restore CA2007
 
-      GitRun commitRes = await RunGitAsync(repoPath, ["commit", "--cleanup=verbatim", "-F", tmp], ct).ConfigureAwait(false);
-      if (!commitRes.Ok)
-      {
-        return Result.Failure<GitCommitOutcome>(commitRes.Err);
-      }
-
-      if (commitRes.ExitCode != 0)
-      {
-        return Result.Failure<GitCommitOutcome>(ToGitFailure(repoPath, commitRes.ExitCode, commitRes.StdErr));
-      }
+      return await RunGitVerifiedAsync(repoPath, ["commit", "--cleanup=verbatim", "-F", tmp], ct).ConfigureAwait(false);
     }
     finally
     {
@@ -377,31 +379,22 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       catch (Exception) { /* best effort: the commit itself already succeeded */ }
 #pragma warning restore CA1031 // Do not catch general exception types
     }
+  }
 
-    GitRun hashRes = await RunGitAsync(repoPath, [RevParse, "--short", "HEAD"], ct).ConfigureAwait(false);
-    if (!hashRes.Ok)
+  /// <summary>Resolves the committed HEAD's short hash and abbreviated branch
+  ///     name — the outcome's identity pair.</summary>
+  private static async Task<Result<(string Hash, string Branch)>> ResolveHeadIdentityAsync(string repoPath, CancellationToken ct)
+  {
+    Result<GitRun> hashRes = await RunGitVerifiedAsync(repoPath, [RevParse, "--short", "HEAD"], ct).ConfigureAwait(false);
+    if (!hashRes.IsSuccess)
     {
-      return Result.Failure<GitCommitOutcome>(hashRes.Err);
+      return Result.Failure<(string Hash, string Branch)>(hashRes.Error);
     }
 
-    if (hashRes.ExitCode != 0)
-    {
-      return Result.Failure<GitCommitOutcome>(ToGitFailure(repoPath, hashRes.ExitCode, hashRes.StdErr));
-    }
-
-    GitRun branchRes = await RunGitAsync(repoPath, [RevParse, "--abbrev-ref", "HEAD"], ct).ConfigureAwait(false);
-    if (!branchRes.Ok)
-    {
-      return Result.Failure<GitCommitOutcome>(branchRes.Err);
-    }
-
-    if (branchRes.ExitCode != 0)
-    {
-      return Result.Failure<GitCommitOutcome>(ToGitFailure(repoPath, branchRes.ExitCode, branchRes.StdErr));
-    }
-
-    GitCommitOutcome committed = new(hashRes.StdOut.Trim(), branchRes.StdOut.Trim(), message);
-    return Result.Success(committed);
+    Result<GitRun> branchRes = await RunGitVerifiedAsync(repoPath, [RevParse, "--abbrev-ref", "HEAD"], ct).ConfigureAwait(false);
+    return !branchRes.IsSuccess
+        ? Result.Failure<(string Hash, string Branch)>(branchRes.Error)
+        : Result.Success((hashRes.Value.StdOut.Trim(), branchRes.Value.StdOut.Trim()));
   }
 
   /// <summary>Result of a single git CLI invocation. <see cref="Ok"/> is false only

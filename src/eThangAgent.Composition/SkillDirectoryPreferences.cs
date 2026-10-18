@@ -20,6 +20,12 @@ public static class SkillDirectoryPreferences
   ///     workspace-scoped shape the session-file lists use.</summary>
   public const string WorkspacePrefix = "skill_directories:ws:";
 
+  /// <summary>The named failure code every parse error carries.</summary>
+  private const string ErrorCode = "InvalidSkillDirectories";
+
+  /// <summary>The noun the parse errors name this list by.</summary>
+  private const string EntryNoun = "skill directory";
+
   public static string WorkspaceKey(string workspaceRoot) => WorkspacePrefix + workspaceRoot;
 
   /// <summary>Parses a stored preference value. Success carries the entries in
@@ -28,70 +34,8 @@ public static class SkillDirectoryPreferences
   ///     SHAPE only: duplicate-path resolution (a workspace path equal,
   ///     case-insensitively, to a global path) lives at the factory's resolution
   ///     site, where the global entry wins and the workspace duplicate is skipped.</summary>
-  public static Result<IReadOnlyList<SessionFileEntry>> Parse(string? stored)
-  {
-    if (string.IsNullOrWhiteSpace(stored))
-    {
-      return Result.Success<IReadOnlyList<SessionFileEntry>>([]);
-    }
-
-    List<SessionFileEntry> entries = [];
-    try
-    {
-      using JsonDocument document = JsonDocument.Parse(stored);
-      if (document.RootElement.ValueKind is not JsonValueKind.Array)
-      {
-        return Result.Failure<IReadOnlyList<SessionFileEntry>>(new DomainError("InvalidSkillDirectories",
-            "skill directory preference must be a JSON array of {path, enabled} entries."));
-      }
-
-      int index = 0;
-      foreach (JsonElement element in document.RootElement.EnumerateArray())
-      {
-        index++;
-        JsonElement? pathMatched = null;
-        JsonElement? enabledMatched = null;
-        if (element.ValueKind is JsonValueKind.Object)
-        {
-          foreach (JsonProperty property in element.EnumerateObject())
-          {
-            bool isPath = property.Name.Equals("Path", StringComparison.OrdinalIgnoreCase);
-            bool isEnabled = property.Name.Equals("Enabled", StringComparison.OrdinalIgnoreCase);
-            if (isPath && property.Value.ValueKind is JsonValueKind.String)
-            {
-              pathMatched = property.Value;
-            }
-            else if (isEnabled && property.Value.ValueKind is JsonValueKind.True or JsonValueKind.False)
-            {
-              enabledMatched = property.Value;
-            }
-          }
-        }
-
-        if (pathMatched is not { } path || enabledMatched is not { } enabled)
-        {
-          return Result.Failure<IReadOnlyList<SessionFileEntry>>(new DomainError("InvalidSkillDirectories",
-              $"skill directory entry {index} must be an object with a string 'path' and a boolean 'enabled'."));
-        }
-
-        string pathText = path.GetString()!;
-        if (string.IsNullOrWhiteSpace(pathText))
-        {
-          return Result.Failure<IReadOnlyList<SessionFileEntry>>(new DomainError("InvalidSkillDirectories",
-              $"skill directory entry {index} has a blank path."));
-        }
-
-        entries.Add(new SessionFileEntry(pathText, enabled.GetBoolean()));
-      }
-    }
-    catch (JsonException ex)
-    {
-      return Result.Failure<IReadOnlyList<SessionFileEntry>>(new DomainError("InvalidSkillDirectories",
-          "skill directory preference is not valid JSON: " + ex.Message));
-    }
-
-    return Result.Success<IReadOnlyList<SessionFileEntry>>(entries);
-  }
+  public static Result<IReadOnlyList<SessionFileEntry>> Parse(string? stored) =>
+      PreferenceEntryListParser.Parse(stored, ErrorCode, EntryNoun);
 
   /// <summary>Serializes entries back to the stored JSON shape.</summary>
   public static string Serialize(IReadOnlyList<SessionFileEntry> entries) =>

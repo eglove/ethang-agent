@@ -40,18 +40,25 @@ public class CuratedMemoryCapabilityProviderTests
     }
   }
 
-  private static CuratedMemory Row(
-      Guid? id = null,
-      string workspaceId = Workspace,
-      MemoryCategory category = MemoryCategory.Insight,
-      IReadOnlyList<string>? tags = null,
-      string content = "seed content",
-      string? usageHint = null,
-      MemoryScope scope = MemoryScope.Workspace,
-      string? provenance = null,
-      int version = 1) => new(
-      id ?? Guid.NewGuid(), workspaceId, category, tags ?? [], content, usageHint,
-      scope, provenance, version, FixedNow, FixedNow);
+  /// <summary>Optional overrides for <see cref="Row"/>; defaults match the seed row.</summary>
+  private sealed record RowOptions(
+      Guid? Id = null,
+      string WorkspaceId = Workspace,
+      MemoryCategory Category = MemoryCategory.Insight,
+      IReadOnlyList<string>? Tags = null,
+      string Content = "seed content",
+      string? UsageHint = null,
+      MemoryScope Scope = MemoryScope.Workspace,
+      string? Provenance = null,
+      int Version = 1);
+
+  private static CuratedMemory Row(RowOptions? options = null)
+  {
+    RowOptions o = options ?? new RowOptions();
+    return new CuratedMemory(
+        o.Id ?? Guid.NewGuid(), o.WorkspaceId, o.Category, o.Tags ?? [], o.Content, o.UsageHint,
+        o.Scope, o.Provenance, o.Version, FixedNow, FixedNow);
+  }
 
   // ---- provider shape ----
 
@@ -79,10 +86,10 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Search_RendersHeader_Row_AndHintLines_Exactly()
   {
     Harness h = new();
-    h.Store._rows[KnownId] = Row(
-        id: KnownId, scope: MemoryScope.Global, workspaceId: "",
-        category: MemoryCategory.Preference, tags: ["api", "sql"],
-        content: "Prefer explicit over implicit.", usageHint: "Cite in reviews.");
+    h.Store._rows[KnownId] = Row(new RowOptions(
+        Id: KnownId, Scope: MemoryScope.Global, WorkspaceId: "",
+        Category: MemoryCategory.Preference, Tags: ["api", "sql"],
+        Content: "Prefer explicit over implicit.", UsageHint: "Cite in reviews."));
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}", ct: TestContext.Current.CancellationToken);
 
@@ -147,7 +154,7 @@ public class CuratedMemoryCapabilityProviderTests
     Harness h = new();
     string longContent = new('x', 300);
     string longHint = new('y', 150);
-    h.Store._rows[KnownId] = Row(id: KnownId, content: longContent, usageHint: longHint);
+    h.Store._rows[KnownId] = Row(new RowOptions(Id: KnownId, Content: longContent, UsageHint: longHint));
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("search", "{}", ct: TestContext.Current.CancellationToken);
 
@@ -213,8 +220,8 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Search_ScopeFilter_NarrowsVisibleRows()
   {
     Harness h = new();
-    CuratedMemory wsRow = Row(content: "ws note", scope: MemoryScope.Workspace, workspaceId: Workspace);
-    CuratedMemory globalRow = Row(content: "global note", scope: MemoryScope.Global, workspaceId: "");
+    CuratedMemory wsRow = Row(new RowOptions(Content: "ws note", Scope: MemoryScope.Workspace, WorkspaceId: Workspace));
+    CuratedMemory globalRow = Row(new RowOptions(Content: "global note", Scope: MemoryScope.Global, WorkspaceId: ""));
     h.Store._rows[wsRow.Id] = wsRow;
     h.Store._rows[globalRow.Id] = globalRow;
 
@@ -442,7 +449,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Add_TokenIdenticalContent_BlockedWithLikelyDuplicate_NamesStoredIdAndVersion()
   {
     Harness h = new();
-    CuratedMemory stored = Row(content: "prefer explicit over implicit");
+    CuratedMemory stored = Row(new RowOptions(Content: "prefer explicit over implicit"));
     h.Store._rows[stored.Id] = stored;
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
@@ -460,7 +467,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Add_ExactlyAtThreshold_IsBlocked()
   {
     Harness h = new();
-    CuratedMemory stored = Row(content: "alpha beta gamma delta");
+    CuratedMemory stored = Row(new RowOptions(Content: "alpha beta gamma delta"));
     h.Store._rows[stored.Id] = stored;
 
     // {alpha,beta,gamma} against {alpha,beta,gamma,delta}: J = 3/4 = 0.75.
@@ -475,7 +482,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Add_BelowThreshold_IsAllowed()
   {
     Harness h = new();
-    CuratedMemory stored = Row(content: "alpha beta gamma delta");
+    CuratedMemory stored = Row(new RowOptions(Content: "alpha beta gamma delta"));
     h.Store._rows[stored.Id] = stored;
 
     // {alpha,beta,gamma,epsilon} against {alpha,beta,gamma,delta}: J = 3/5 = 0.6.
@@ -490,7 +497,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Add_SimilarRowInOtherWorkspace_IsInvisible_DoesNotBlock()
   {
     Harness h = new();
-    CuratedMemory foreign = Row(workspaceId: "some-other-ws", content: "prefer explicit over implicit");
+    CuratedMemory foreign = Row(new RowOptions(WorkspaceId: "some-other-ws", Content: "prefer explicit over implicit"));
     h.Store._rows[foreign.Id] = foreign;
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
@@ -503,7 +510,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Add_GlobalRow_DuplicatesBlock_FromAnyWorkspace()
   {
     Harness h = new();
-    CuratedMemory globalRow = Row(scope: MemoryScope.Global, workspaceId: "", content: "always run dotnet format before committing");
+    CuratedMemory globalRow = Row(new RowOptions(Scope: MemoryScope.Global, WorkspaceId: "", Content: "always run dotnet format before committing"));
     h.Store._rows[globalRow.Id] = globalRow;
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
@@ -520,7 +527,7 @@ public class CuratedMemoryCapabilityProviderTests
     // content through the FTS query: a superset of an older memory's tokens would
     // never MATCH it, and the duplicate would slip through.
     Harness h = new();
-    CuratedMemory stored = Row(content: "alpha beta gamma");
+    CuratedMemory stored = Row(new RowOptions(Content: "alpha beta gamma"));
     h.Store._rows[stored.Id] = stored;
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("add",
@@ -537,9 +544,9 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Update_HappyPath_AppliesDeltas_BumpsVersion_UsesClock_NeverBumpsCounter()
   {
     Harness h = new();
-    h.Store._rows[KnownId] = Row(
-        id: KnownId, version: 2, content: "old body", tags: ["legacy"],
-        category: MemoryCategory.Insight, usageHint: "keep me", provenance: "orig-session");
+    h.Store._rows[KnownId] = Row(new RowOptions(
+        Id: KnownId, Version: 2, Content: "old body", Tags: ["legacy"],
+        Category: MemoryCategory.Insight, UsageHint: "keep me", Provenance: "orig-session"));
     h.ClockValue = FixedNow.AddMinutes(5);
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("update",
@@ -598,7 +605,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Update_StaleExpectedVersion_SurfacesVersionConflictNamingCurrent()
   {
     Harness h = new();
-    h.Store._rows[KnownId] = Row(id: KnownId, version: 3, content: "current truth");
+    h.Store._rows[KnownId] = Row(new RowOptions(Id: KnownId, Version: 3, Content: "current truth"));
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("update",
         $$"""{"id":"{{KnownId}}","expected_version":2,"content":"stale write"}""", ct: TestContext.Current.CancellationToken);
@@ -624,7 +631,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Remove_HappyPath_RemovesRow_ExactOutput()
   {
     Harness h = new();
-    h.Store._rows[KnownId] = Row(id: KnownId);
+    h.Store._rows[KnownId] = Row(new RowOptions(Id: KnownId));
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("remove",
         $$"""{"id":"{{KnownId}}","confirm":true}""", ct: TestContext.Current.CancellationToken);
@@ -675,7 +682,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Prune_DryRunTrue_ReportsCandidatesWithoutDeleting()
   {
     Harness h = new();
-    CuratedMemory doomed = Row(content: "stale prune me");
+    CuratedMemory doomed = Row(new RowOptions(Content: "stale prune me"));
     h.Store._rows[doomed.Id] = doomed;
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("purge",
@@ -690,8 +697,8 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Prune_HappyPath_DeletesVisibleMatches_ExactOutput()
   {
     Harness h = new();
-    CuratedMemory doomed = Row(content: "stale prune me");
-    CuratedMemory kept = Row(content: "fresh keep me");
+    CuratedMemory doomed = Row(new RowOptions(Content: "stale prune me"));
+    CuratedMemory kept = Row(new RowOptions(Content: "fresh keep me"));
     h.Store._rows[doomed.Id] = doomed;
     h.Store._rows[kept.Id] = kept;
 
@@ -719,7 +726,7 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Prune_StoreFailure_SurfacesTypedError()
   {
     Harness h = new();
-    h.Store._rows[KnownId] = Row(id: KnownId);
+    h.Store._rows[KnownId] = Row(new RowOptions(Id: KnownId));
     h.Store._deleteManyResultOverride = Result.Failure<int>(new DomainError(CuratedMemoryErrors.StorageError, "disk on fire"));
 
     CapabilityInvocationResult result = await h.Provider().InvokeAsync("purge",
@@ -735,7 +742,7 @@ public class CuratedMemoryCapabilityProviderTests
     Harness h = new();
     for (int i = 0; i < 201; i++)
     {
-      CuratedMemory row = Row(content: "bulk row " + i);
+      CuratedMemory row = Row(new RowOptions(Content: "bulk row " + i));
       h.Store._rows[row.Id] = row;
     }
 
@@ -755,7 +762,7 @@ public class CuratedMemoryCapabilityProviderTests
     List<Guid> doomedIds = [];
     for (int i = 0; i < 200; i++)
     {
-      CuratedMemory row = Row(content: "bulk row " + i);
+      CuratedMemory row = Row(new RowOptions(Content: "bulk row " + i));
       h.Store._rows[row.Id] = row;
       doomedIds.Add(row.Id);
     }
@@ -772,8 +779,8 @@ public class CuratedMemoryCapabilityProviderTests
   public async Task Prune_Visibility_ForeignWorkspaceRowsNeverSelected()
   {
     Harness h = new();
-    CuratedMemory foreign = Row(workspaceId: "other-ws", content: "foreign but prunable sounding");
-    CuratedMemory mine = Row(content: "mine and prunable sounding");
+    CuratedMemory foreign = Row(new RowOptions(WorkspaceId: "other-ws", Content: "foreign but prunable sounding"));
+    CuratedMemory mine = Row(new RowOptions(Content: "mine and prunable sounding"));
     h.Store._rows[foreign.Id] = foreign;
     h.Store._rows[mine.Id] = mine;
 

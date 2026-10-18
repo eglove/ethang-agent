@@ -119,27 +119,10 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
   {
     List<string> warnings = [];
     List<SkillDefinition> catalogSkills = [];
-
-    Result<IReadOnlyList<SkillDefinition>> fromCatalog = await _catalog.ListAsync(ct).ConfigureAwait(false);
-    if (fromCatalog.IsSuccess)
-    {
-      catalogSkills.AddRange(fromCatalog.Value);
-    }
-    else
-    {
-      warnings.Add($"[warning] built-in skills unavailable: {fromCatalog.Error.Message}");
-    }
-
     List<SkillDefinition> learnedSkills = [];
-    Result<IReadOnlyList<SkillDefinition>> fromLearned = await _learned.ListAsync(ct).ConfigureAwait(false);
-    if (fromLearned.IsSuccess)
-    {
-      learnedSkills.AddRange(fromLearned.Value);
-    }
-    else
-    {
-      warnings.Add($"[warning] learned skills unavailable: {fromLearned.Error.Message}");
-    }
+
+    bool catalogLoaded = await LoadCatalogSkillsAsync(catalogSkills, warnings, ct).ConfigureAwait(false);
+    await LoadLearnedSkillsAsync(learnedSkills, warnings, ct).ConfigureAwait(false);
 
     // MANUAL skills never appear anywhere in the block.
     catalogSkills = [.. catalogSkills.Where(s => !s.Manual)];
@@ -151,19 +134,83 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
     // the only site where the two sources can collide. When the catalog load
     // failed there is nothing to dedup against: the learned group renders
     // whole (the degradation contract).
-    List<string> learnedDedupCollisions = [];
+    (List<SkillDefinition> mergedSkills, List<string> mergeCollisions) =
+        MergeLearned(catalogSkills, learnedSkills, catalogLoaded);
+
+    Group[] groups = BuildGroups(catalogSkills, mergedSkills);
+
+    List<string> diagnosticLines = [];
+    await CollectDiagnosticsAsync(diagnosticLines, warnings, ct).ConfigureAwait(false);
+
+    return new Listing(groups, diagnosticLines, mergeCollisions, warnings).FitToBudget();
+  }
+
+  /// <summary>Loads the built-in/directory catalog rows into <paramref name="catalogSkills" />.
+  ///     A load failure is never fatal: it contributes a '[warning] built-in skills
+  ///     unavailable: &lt;message&gt;' line and reports false, which disables the learned
+  ///     dedup (nothing to dedup against).</summary>
+  private async Task<bool> LoadCatalogSkillsAsync(List<SkillDefinition> catalogSkills,
+      List<string> warnings, CancellationToken ct)
+  {
+    Result<IReadOnlyList<SkillDefinition>> fromCatalog = await _catalog.ListAsync(ct).ConfigureAwait(false);
     if (fromCatalog.IsSuccess)
     {
-      Dictionary<string, string> winnerLabelByName = catalogSkills
-          .GroupBy(s => s.Name, StringComparer.Ordinal)
-          .ToDictionary(g => g.Key, g => DescribeWinner(g.First()), StringComparer.Ordinal);
-      HashSet<string> shadowed = [.. winnerLabelByName.Keys];
-      learnedDedupCollisions.AddRange(learnedSkills
-          .Where(s => shadowed.Contains(s.Name))
-          .Select(s => $"[collision] {s.Name} (learned) shadowed by {winnerLabelByName[s.Name]}"));
-      learnedSkills = [.. learnedSkills.Where(s => !shadowed.Contains(s.Name))];
+      catalogSkills.AddRange(fromCatalog.Value);
+      return true;
     }
 
+    warnings.Add($"[warning] built-in skills unavailable: {fromCatalog.Error.Message}");
+    return false;
+  }
+
+  /// <summary>Loads the learned rows into <paramref name="learnedSkills" />; a load
+  ///     failure contributes a '[warning] learned skills unavailable: &lt;message&gt;' line
+  ///     and the group renders whatever loaded (nothing).</summary>
+  private async Task LoadLearnedSkillsAsync(List<SkillDefinition> learnedSkills,
+      List<string> warnings, CancellationToken ct)
+  {
+    Result<IReadOnlyList<SkillDefinition>> fromLearned = await _learned.ListAsync(ct).ConfigureAwait(false);
+    if (fromLearned.IsSuccess)
+    {
+      learnedSkills.AddRange(fromLearned.Value);
+    }
+    else
+    {
+      warnings.Add($"[warning] learned skills unavailable: {fromLearned.Error.Message}");
+    }
+  }
+
+  /// <summary>Presentation-layer dedup: returns the learned rows that survive (a name
+  ///     already held by a catalog row is SKIPPED) plus the '[collision] &lt;name&gt;
+  ///     (learned) shadowed by &lt;winner&gt;' lines announcing each skip. When the catalog
+  ///     load failed there is nothing to dedup against and the learned rows pass
+  ///     through whole.</summary>
+  private (List<SkillDefinition> Skills, List<string> Collisions) MergeLearned(
+      List<SkillDefinition> catalogSkills, List<SkillDefinition> learnedSkills, bool catalogLoaded)
+  {
+    List<string> collisions = [];
+    if (!catalogLoaded)
+    {
+      return (learnedSkills, collisions);
+    }
+
+    Dictionary<string, string> winnerLabelByName = catalogSkills
+        .GroupBy(s => s.Name, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => DescribeWinner(g.First()), StringComparer.Ordinal);
+    HashSet<string> shadowed = [.. winnerLabelByName.Keys];
+    collisions.AddRange(learnedSkills
+        .Where(s => shadowed.Contains(s.Name))
+        .Select(s => $"[collision] {s.Name} (learned) shadowed by {winnerLabelByName[s.Name]}"));
+    return ([.. learnedSkills.Where(s => !shadowed.Contains(s.Name))], collisions);
+  }
+
+  /// <summary>Splits the catalog rows into the three rendered source groups and appends
+  ///     the learned group. Render order per the contract: Built-in, Global, Workspace,
+  ///     Learned. The overflow passes iterate the array in REVERSE - lowest precedence
+  ///     first (Learned, then Workspace, then Global; Built-in descriptions drop last) -
+  ///     within a group from the END of the list.</summary>
+  private Group[] BuildGroups(List<SkillDefinition> catalogSkills, List<SkillDefinition> learnedSkills)
+  {
     List<SkillDefinition> builtInGroup = [];
     List<SkillDefinition> globalGroup = [];
     List<SkillDefinition> workspaceGroup = [];
@@ -183,113 +230,190 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
       }
     }
 
-    // Render order per the contract: Built-in, Global, Workspace, Learned. The
-    // overflow passes iterate the array in REVERSE - lowest precedence first
-    // (Learned, then Workspace, then Global; Built-in descriptions drop last) -
-    // within a group from the END of the list.
-    Group[] groups =
+    return
     [
         new Group("Built-in", builtInGroup),
         new Group("Global directory skills", globalGroup),
         new Group("Workspace directory skills", workspaceGroup),
         new Group("Learned", learnedSkills),
     ];
+  }
 
-    List<string> diagnosticLines = [];
-    if (_catalog is ISkillCatalogDiagnostics withDiagnostics)
+  /// <summary>Collects the catalog's diagnostic lines: collision lines already carry
+  ///     their '[collision] ' prefix and render verbatim, every OTHER diagnostic
+  ///     (directory load failures, built-in catalog unavailability) becomes
+  ///     '[warning] &lt;text&gt;' - the composite catalog never fails ListAsync, so this
+  ///     side-band is the ONLY signal that a configured directory failed to load.</summary>
+  private async Task CollectDiagnosticsAsync(List<string> diagnosticLines, List<string> warnings,
+      CancellationToken ct)
+  {
+    if (_catalog is not ISkillCatalogDiagnostics withDiagnostics)
     {
-      Result<IReadOnlyList<string>> diagnostics = await withDiagnostics.GetDiagnosticsAsync(ct).ConfigureAwait(false);
-      if (diagnostics.IsSuccess)
-      {
-        // Collision lines already carry their '[collision] ' prefix and render
-        // verbatim; every OTHER diagnostic (directory load failures, built-in
-        // catalog unavailability) becomes '[warning] <text>' - the composite
-        // catalog never fails ListAsync, so this side-band is the ONLY signal
-        // that a configured directory failed to load.
-        diagnosticLines = [.. diagnostics.Value.Select(RenderDiagnostic)];
-      }
-      else
-      {
-        warnings.Add($"[warning] catalog diagnostics unavailable: {diagnostics.Error.Message}");
-      }
+      return;
     }
 
-    int total = groups.Sum(g => g.Skills.Count);
-
-    string Render()
+    Result<IReadOnlyList<string>> diagnostics = await withDiagnostics.GetDiagnosticsAsync(ct).ConfigureAwait(false);
+    if (diagnostics.IsSuccess)
     {
-      List<string> lines = [Header];
-      foreach (Group group in groups)
+      diagnosticLines.AddRange(diagnostics.Value.Select(RenderDiagnostic));
+      return;
+    }
+
+    warnings.Add($"[warning] catalog diagnostics unavailable: {diagnostics.Error.Message}");
+  }
+
+  /// <summary>The mutable render state for ONE listing build: the source groups, the
+  ///     diagnostic / collision / warning lines appended after the entries, and the
+  ///     budget-fit loop. Minted per build and never shared.</summary>
+  private sealed class Listing(Group[] groups, List<string> diagnosticLines,
+      List<string> collisions, List<string> warnings)
+  {
+    private readonly Group[] _groups = groups;
+    private readonly List<string> _diagnosticLines = diagnosticLines;
+    private readonly List<string> _collisions = collisions;
+    private readonly List<string> _warnings = warnings;
+    private readonly int _total = groups.Sum(g => g.Skills.Count);
+
+    /// <summary>Renders the block and fits it to <see cref="SkillListingBudget.MaxChars" />.
+    ///     A render that already fits is returned as-is (a block holding nothing but the
+    ///     header renders the empty string); otherwise the deterministic overflow passes
+    ///     run - strip descriptions, then drop whole entries, lowest-precedence group
+    ///     first - re-rendering and re-measuring each step so the RETURNED block never
+    ///     exceeds the budget.</summary>
+    public string FitToBudget()
+    {
+      string text = Render();
+      if (text.Length <= SkillListingBudget.MaxChars)
       {
-        bool hasEntries = false;
-        for (int i = 0; group.Skills.Count > i; i++)
+        return text.Length == Header.Length ? string.Empty : text;
+      }
+
+      // Overflow: the render that just exceeded the budget is not the finish line -
+      // each pass re-renders and re-measures, and the loop exits on the first render
+      // that fits, so the RETURNED block never exceeds the budget.
+      while (true)
+      {
+        // Pass 1 - strip descriptions, lowest-precedence group first, from the END
+        // of each group. Entry lines drop ONLY after every description is gone.
+        text = Render();
+        if (text.Length <= SkillListingBudget.MaxChars)
         {
-          if (!group.Present[i])
-          {
-            continue;
-          }
+          break;
+        }
 
-          if (!hasEntries)
-          {
-            lines.Add("## " + group.Title);
-            hasEntries = true;
-          }
+        if (StripDescription())
+        {
+          continue;
+        }
 
-          lines.Add(group.ShowDescription[i]
-              ? $"- {group.Skills[i].Name}: {Truncate(group.Skills[i].Description)}"
-              : $"- {group.Skills[i].Name}");
+        // Pass 2 - drop whole entry lines in the same order until the block fits;
+        // the marker's CURRENT length is reserved while entries drop (re-measured
+        // every iteration), so the finished block stays inside the budget.
+        if (!DropEntry())
+        {
+          break; // pathological collision flood: nothing left to drop
         }
       }
 
-      lines.AddRange(diagnosticLines);
-      lines.AddRange(learnedDedupCollisions);
-      lines.AddRange(warnings);
+      return Render();
+    }
 
-      int shown = groups.Sum(g => g.Present.Count(p => p));
-      int droppedDescriptions = groups.Sum(g => g.Present.Zip(g.ShowDescription, (present, show) => present && !show ? 1 : 0).Sum());
-      int droppedEntries = groups.Sum(g => g.Present.Count(p => !p));
+    private string Render()
+    {
+      List<string> lines = [Header];
+      foreach (Group group in _groups)
+      {
+        AppendGroupLines(lines, group);
+      }
+
+      lines.AddRange(_diagnosticLines);
+      lines.AddRange(_collisions);
+      lines.AddRange(_warnings);
+
+      int shown = _groups.Sum(g => g.Present.Count(p => p));
+      int droppedDescriptions = _groups.Sum(g => g.Present.Zip(g.ShowDescription, (present, show) => present && !show ? 1 : 0).Sum());
+      int droppedEntries = _groups.Sum(g => g.Present.Count(p => !p));
       if (droppedDescriptions > 0 || droppedEntries > 0)
       {
-        lines.Add(Marker(shown, total, droppedDescriptions, droppedEntries));
+        lines.Add(Marker(shown, _total, droppedDescriptions, droppedEntries));
       }
 
       return string.Join("\n", lines);
     }
 
-    string text = Render();
-    if (text.Length <= SkillListingBudget.MaxChars)
+    /// <summary>Appends one group's header (only when it has at least one shown entry)
+    ///     and its entry lines, in stored order.</summary>
+    private static void AppendGroupLines(List<string> lines, Group group)
     {
-      return text.Length == Header.Length ? string.Empty : text;
-    }
-
-    // Overflow: the render that just exceeded the budget is not the finish line -
-    // each pass re-renders and re-measures, and the loop exits on the first render
-    // that fits, so the RETURNED block never exceeds the budget.
-    while (true)
-    {
-      // Pass 1 - strip descriptions, lowest-precedence group first, from the END
-      // of each group. Entry lines drop ONLY after every description is gone.
-      text = Render();
-      if (text.Length <= SkillListingBudget.MaxChars)
+      bool hasEntries = false;
+      for (int i = 0; group.Skills.Count > i; i++)
       {
-        break;
-      }
+        if (!group.Present[i])
+        {
+          continue;
+        }
 
-      if (StripDescription(groups))
-      {
-        continue;
-      }
+        if (!hasEntries)
+        {
+          lines.Add("## " + group.Title);
+          hasEntries = true;
+        }
 
-      // Pass 2 - drop whole entry lines in the same order until the block fits;
-      // the marker's CURRENT length is reserved while entries drop (re-measured
-      // every iteration), so the finished block stays inside the budget.
-      if (!DropEntry(groups))
-      {
-        break; // pathological collision flood: nothing left to drop
+        lines.Add(group.ShowDescription[i]
+            ? $"- {group.Skills[i].Name}: {Truncate(group.Skills[i].Description)}"
+            : $"- {group.Skills[i].Name}");
       }
     }
 
-    return Render();
+    /// <summary>One description-stripping step: the next bare '- name' conversion,
+    ///     lowest-precedence group first, within a group from the END of the list.
+    ///     Returns false when no shown description remains.</summary>
+    private bool StripDescription()
+    {
+      for (int gi = _groups.Length - 1; 0 <= gi; gi--)
+      {
+        Group group = _groups[gi];
+        for (int i = group.Skills.Count - 1; 0 <= i; i--)
+        {
+          if (group.Present[i] && group.ShowDescription[i])
+          {
+            group.ShowDescription[i] = false;
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
+    /// <summary>One entry-dropping step: removes one whole entry line - only after
+    ///     every description is stripped - in the same group order, from the END of
+    ///     the list. Returns false when no entry remains.</summary>
+    private bool DropEntry()
+    {
+      for (int gi = _groups.Length - 1; 0 <= gi; gi--)
+      {
+        Group group = _groups[gi];
+        for (int i = group.Skills.Count - 1; 0 <= i; i--)
+        {
+          if (group.Present[i])
+          {
+            group.Present[i] = false;
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
+    private static string Truncate(string description) =>
+        description.Length <= SkillListingBudget.DescriptionLimit
+            ? description
+            : description[..SkillListingBudget.DescriptionLimit] + '…';
+
+    private static string Marker(int shown, int total, int droppedDescriptions, int droppedEntries) =>
+        $"[skills listing truncated: showed {shown} of {total} skills; dropped {droppedDescriptions} descriptions and {droppedEntries} entries — call skill_list for the full catalog]";
   }
 
   /// <summary>Full-path normalization for Origin-to-directory matching: canonical
@@ -358,56 +482,6 @@ public sealed class SkillsListingPromptProvider(ISkillCatalog catalog, ILearnedS
   ///     prefix here (the SkillListTool convention).</summary>
   private static string RenderDiagnostic(string line) =>
       line.StartsWith(CollisionPrefix, StringComparison.Ordinal) ? line : "[warning] " + line;
-
-  private static string Truncate(string description) =>
-      description.Length <= SkillListingBudget.DescriptionLimit
-          ? description
-          : description[..SkillListingBudget.DescriptionLimit] + '…';
-
-  private static string Marker(int shown, int total, int droppedDescriptions, int droppedEntries) =>
-      $"[skills listing truncated: showed {shown} of {total} skills; dropped {droppedDescriptions} descriptions and {droppedEntries} entries — call skill_list for the full catalog]";
-
-  /// <summary>One description-stripping step: the next bare '- name' conversion,
-  ///     lowest-precedence group first, within a group from the END of the list.
-  ///     Returns false when no shown description remains.</summary>
-  private static bool StripDescription(Group[] groups)
-  {
-    for (int gi = groups.Length - 1; 0 <= gi; gi--)
-    {
-      Group group = groups[gi];
-      for (int i = group.Skills.Count - 1; 0 <= i; i--)
-      {
-        if (group.Present[i] && group.ShowDescription[i])
-        {
-          group.ShowDescription[i] = false;
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  /// <summary>One entry-dropping step: removes one whole entry line - only after
-  ///     every description is stripped - in the same group order, from the END of
-  ///     the list. Returns false when no entry remains.</summary>
-  private static bool DropEntry(Group[] groups)
-  {
-    for (int gi = groups.Length - 1; 0 <= gi; gi--)
-    {
-      Group group = groups[gi];
-      for (int i = group.Skills.Count - 1; 0 <= i; i--)
-      {
-        if (group.Present[i])
-        {
-          group.Present[i] = false;
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
 
   private sealed class Group(string header, List<SkillDefinition> skills)
   {

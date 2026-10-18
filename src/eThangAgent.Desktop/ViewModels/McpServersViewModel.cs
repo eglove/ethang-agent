@@ -255,14 +255,30 @@ internal sealed partial class McpServersViewModel : ObservableObject
     FormTransportIndex = row.Transport == McpTransport.Stdio ? 0 : 1;
     FormCommandOrUrl = row.CommandOrUrl;
     McpServerConfig? stored = LoadStored(row.Id);
+    ApplyStoredJson(stored);
+    FormScopeIndex = 0;
+    ApplyStoredTrust(stored);
+    FormError = null;
+    ActionError = null;
+  }
+
+  /// <summary>Prefills the form's JSON shapes from the stored row. A missing row
+  ///     (store fault) falls back to the blank-form defaults so the form still
+  ///     opens.</summary>
+  private void ApplyStoredJson(McpServerConfig? stored)
+  {
     FormArgsJson = stored?.ArgsJson ?? "[]";
     FormEnvJson = stored?.EnvJson ?? "{}";
     FormHeadersJson = stored?.HeadersJson ?? "{}";
-    FormScopeIndex = 0;
+  }
+
+  /// <summary>Prefills the form's trust-relevant fields - the pinned version and
+  ///     the gate - from the stored row (issue #107: a blanked pin would read as a
+  ///     version CHANGE and spuriously re-open approval).</summary>
+  private void ApplyStoredTrust(McpServerConfig? stored)
+  {
     FormPinnedVersion = stored?.PinnedVersion ?? string.Empty;
     FormGateMutating = stored?.GateMode == McpGateMode.Mutating;
-    FormError = null;
-    ActionError = null;
   }
 
   /// <summary>The stored row for one id - the form prefills from the store, not the
@@ -366,64 +382,7 @@ internal sealed partial class McpServersViewModel : ObservableObject
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
-      if (Editing is { } editing)
-      {
-        Result<McpServerConfig> current = _store.GetAsync(editing.Id, _workspaceId).GetAwaiter().GetResult();
-        if (!current.IsSuccess)
-        {
-          FormError = current.Error.Message;
-          return;
-        }
-
-        // Issue #107: the trust decision was about THAT launch - command (name,
-        // transport, command line), args, env, headers, and pinned version are all
-        // its parts. Any change flips an approved server back to pending; scope and
-        // formatting-only JSON renormalization do not.
-        bool trustChanged = !string.Equals(current.Value.Name, FormName.Trim(), StringComparison.Ordinal)
-            || current.Value.Transport != transport
-            || !string.Equals(current.Value.CommandOrUrl, FormCommandOrUrl.Trim(), StringComparison.Ordinal)
-            || !string.Equals(current.Value.ArgsJson, NormalizeJson(FormArgsJson, "[]"), StringComparison.Ordinal)
-            || !string.Equals(current.Value.EnvJson, NormalizeJson(FormEnvJson, "{}"), StringComparison.Ordinal)
-            || !string.Equals(current.Value.HeadersJson, NormalizeJson(FormHeadersJson, "{}"), StringComparison.Ordinal)
-            || !string.Equals(current.Value.PinnedVersion ?? "",
-                string.IsNullOrWhiteSpace(FormPinnedVersion) ? "" : FormPinnedVersion.Trim(), StringComparison.Ordinal);
-        McpApprovalState approval = trustChanged
-            ? McpApprovalState.Pending // the trust decision was about the OLD launch
-            : current.Value.ApprovalState;
-        McpServerConfig updated = current.Value with
-        {
-          Name = FormName.Trim(),
-          Transport = transport,
-          CommandOrUrl = FormCommandOrUrl.Trim(),
-          ArgsJson = NormalizeJson(FormArgsJson, "[]"),
-          EnvJson = NormalizeJson(FormEnvJson, "{}"),
-          HeadersJson = NormalizeJson(FormHeadersJson, "{}"),
-          ApprovalState = approval,
-          PinnedVersion = string.IsNullOrWhiteSpace(FormPinnedVersion) ? null : FormPinnedVersion.Trim(),
-          GateMode = FormGateMutating ? McpGateMode.Mutating : McpGateMode.None,
-        };
-        Result<McpServerConfig> saved = _store.UpdateAsync(updated).GetAwaiter().GetResult();
-        FormError = saved.IsSuccess ? null : saved.Error.Message;
-      }
-      else
-      {
-        McpServerConfig created = new(
-            0,
-            FormName.Trim(),
-            transport,
-            FormCommandOrUrl.Trim(),
-            NormalizeJson(FormArgsJson, "[]"),
-            NormalizeJson(FormEnvJson, "{}"),
-            NormalizeJson(FormHeadersJson, "{}"),
-            FormScopeIndex == 1 ? null : _workspaceId, // 1 = global; 0 = this workspace
-            McpApprovalState.Pending, // the trust event is a separate, deliberate click
-            string.IsNullOrWhiteSpace(FormPinnedVersion) ? null : FormPinnedVersion.Trim(),
-            DateTimeOffset.UtcNow,
-            FormGateMutating ? McpGateMode.Mutating : McpGateMode.None);
-        Result<McpServerConfig> saved = _store.AddAsync(created).GetAwaiter().GetResult();
-        FormError = saved.IsSuccess ? null : saved.Error.Message;
-      }
-
+      FormError = Editing is { } editing ? UpdateExisting(editing, transport) : AddNew(transport);
       if (FormError is null)
       {
         IsFormOpen = false;
@@ -437,6 +396,75 @@ internal sealed partial class McpServersViewModel : ObservableObject
     }
 #pragma warning restore CA1031
   }
+
+  /// <summary>Writes the form over the edited row and returns the resulting form
+  ///     error (null on success). Editing a server's IDENTITY re-opens approval:
+  ///     the trust decision was about THAT launch (issue #107).</summary>
+  private string? UpdateExisting(McpServerRow editing, McpTransport transport)
+  {
+    Result<McpServerConfig> current = _store.GetAsync(editing.Id, _workspaceId).GetAwaiter().GetResult();
+    if (!current.IsSuccess)
+    {
+      return current.Error.Message;
+    }
+
+    McpServerConfig updated = current.Value with
+    {
+      Name = FormName.Trim(),
+      Transport = transport,
+      CommandOrUrl = FormCommandOrUrl.Trim(),
+      ArgsJson = NormalizeJson(FormArgsJson, "[]"),
+      EnvJson = NormalizeJson(FormEnvJson, "{}"),
+      HeadersJson = NormalizeJson(FormHeadersJson, "{}"),
+      ApprovalState = TrustChanged(current.Value, transport)
+          ? McpApprovalState.Pending // the trust decision was about the OLD launch
+          : current.Value.ApprovalState,
+      PinnedVersion = PinnedVersionOrNull(),
+      GateMode = FormGateMutating ? McpGateMode.Mutating : McpGateMode.None,
+    };
+    Result<McpServerConfig> saved = _store.UpdateAsync(updated).GetAwaiter().GetResult();
+    return saved.IsSuccess ? null : saved.Error.Message;
+  }
+
+  /// <summary>Adds the form as a new pending row and returns the resulting form
+  ///     error (null on success). The trust event is a separate, deliberate click.</summary>
+  private string? AddNew(McpTransport transport)
+  {
+    McpServerConfig created = new(
+        0,
+        FormName.Trim(),
+        transport,
+        FormCommandOrUrl.Trim(),
+        NormalizeJson(FormArgsJson, "[]"),
+        NormalizeJson(FormEnvJson, "{}"),
+        NormalizeJson(FormHeadersJson, "{}"),
+        FormScopeIndex == 1 ? null : _workspaceId, // 1 = global; 0 = this workspace
+        McpApprovalState.Pending, // the trust event is a separate, deliberate click
+        PinnedVersionOrNull(),
+        DateTimeOffset.UtcNow,
+        FormGateMutating ? McpGateMode.Mutating : McpGateMode.None);
+    Result<McpServerConfig> saved = _store.AddAsync(created).GetAwaiter().GetResult();
+    return saved.IsSuccess ? null : saved.Error.Message;
+  }
+
+  /// <summary>Whether the form's launch identity differs from the stored row's
+  ///     (issue #107): name, transport, command line, args, env, headers, and
+  ///     pinned version are all parts of the trust decision. Scope and
+  ///     formatting-only JSON renormalization are not.</summary>
+  private bool TrustChanged(McpServerConfig current, McpTransport transport)
+  {
+    return !string.Equals(current.Name, FormName.Trim(), StringComparison.Ordinal)
+        || current.Transport != transport
+        || !string.Equals(current.CommandOrUrl, FormCommandOrUrl.Trim(), StringComparison.Ordinal)
+        || !string.Equals(current.ArgsJson, NormalizeJson(FormArgsJson, "[]"), StringComparison.Ordinal)
+        || !string.Equals(current.EnvJson, NormalizeJson(FormEnvJson, "{}"), StringComparison.Ordinal)
+        || !string.Equals(current.HeadersJson, NormalizeJson(FormHeadersJson, "{}"), StringComparison.Ordinal)
+        || !string.Equals(current.PinnedVersion ?? "", PinnedVersionOrNull() ?? "", StringComparison.Ordinal);
+  }
+
+  /// <summary>The form's pinned version, trimmed; blank means no pin.</summary>
+  private string? PinnedVersionOrNull() =>
+      string.IsNullOrWhiteSpace(FormPinnedVersion) ? null : FormPinnedVersion.Trim();
 
   private static string NormalizeJson(string text, string empty)
   {

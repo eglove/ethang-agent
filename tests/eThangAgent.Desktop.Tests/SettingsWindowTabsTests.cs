@@ -2,8 +2,8 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using eThangAgent.Desktop.ViewModels;
 using eThangAgent.Desktop.Views;
-using eThangAgent.ToolDomain;
 
 
 namespace eThangAgent.Desktop.Tests;
@@ -77,7 +77,7 @@ public class SettingsWindowTabsTests
     window.Show();
     _ = window.GetControl<Button>("SaveButton");
     Button cancel = window.GetControl<Button>("CancelButton");
-    _ = window.GetControl<Avalonia.Controls.TextBlock>("ValidationErrorText");
+    _ = window.GetControl<TextBlock>("ValidationErrorText");
 
     // The footer must not live inside the TabControl (shared across tabs).
     Assert.False(IsDescendantOf(cancel, window.GetControl<TabControl>("SettingsTabs")),
@@ -88,7 +88,7 @@ public class SettingsWindowTabsTests
   [AvaloniaFact]
   public void Skills_Tab_Carries_The_Registry_Target_Row()
   {
-    SettingsWindow window = new(null, CommitStyle.Conventional);
+    SettingsWindow window = new(new SettingsValues());
     window.Show();
     TabControl tabs = window.GetControl<TabControl>("SettingsTabs");
     tabs.SelectedIndex = 1;

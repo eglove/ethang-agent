@@ -34,30 +34,35 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
 #pragma warning restore CA1031, S108
   }
 
+  /// <summary>Optional identity/provenance fields for MakeMemory, grouped into one
+  ///     record so the helper stays under the S107 parameter budget.</summary>
+  private sealed record MemoryOptions(
+      Guid? Id = null,
+      string? ProvenanceSession = null,
+      int Version = 1,
+      DateTimeOffset? CreatedAt = null,
+      DateTimeOffset? UpdatedAt = null);
+
   private static CuratedMemory MakeMemory(
-      Guid? id = null,
       string workspaceId = "ws-1",
       MemoryScope scope = MemoryScope.Workspace,
       MemoryCategory category = MemoryCategory.Convention,
       IReadOnlyList<string>? tags = null,
       string content = "default content body",
       string? usageHint = null,
-      string? provenanceSession = null,
-      int version = 1,
-      DateTimeOffset? createdAt = null,
-      DateTimeOffset? updatedAt = null)
+      MemoryOptions? options = null)
       => new(
-          id ?? Guid.NewGuid(),
+          options?.Id ?? Guid.NewGuid(),
           workspaceId,
           category,
           tags ?? ["api"],
           content,
           usageHint,
           scope,
-          provenanceSession,
-          version,
-          createdAt ?? Timestamp,
-          updatedAt ?? Timestamp);
+          options?.ProvenanceSession,
+          options?.Version ?? 1,
+          options?.CreatedAt ?? Timestamp,
+          options?.UpdatedAt ?? Timestamp);
 
   /// <summary>Full-field comparison: tags compare as sequences, since
   /// IReadOnlyList equality on the record is referential and a persisted row's
@@ -103,19 +108,14 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
         content: "Retry with backoff when the API rate-limits.",
         usageHint: "Cite when writing retry logic.",
         scope: MemoryScope.Workspace,
-        provenanceSession: "session-abc123",
-        version: 1,
-        createdAt: Timestamp,
-        updatedAt: Timestamp.AddMinutes(1));
+        options: new(ProvenanceSession: "session-abc123", CreatedAt: Timestamp, UpdatedAt: Timestamp.AddMinutes(1)));
     CuratedMemory withoutProvenance = MakeMemory(
         workspaceId: "",
         scope: MemoryScope.Global,
         category: MemoryCategory.Preference,
         tags: ["style"],
         content: "Prefer explicit over clever.",
-        usageHint: null,
-        provenanceSession: null,
-        version: 3);
+        options: new(Version: 3));
 
     Result<CuratedMemory> addedWith = await _store.AddAsync(withProvenance, ct: TestContext.Current.CancellationToken);
     Result<CuratedMemory> addedWithout = await _store.AddAsync(withoutProvenance, ct: TestContext.Current.CancellationToken);
@@ -317,7 +317,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
     List<Guid> idsAscending = [.. Enumerable.Range(0, 6).Select(_ => Guid.NewGuid()).OrderBy(g => g.ToString(), StringComparer.Ordinal)];
     foreach (Guid id in Enumerable.Reverse(idsAscending))
     {
-      _ = await _store.AddAsync(MakeMemory(id: id, content: "tiebreaker probe"), ct: TestContext.Current.CancellationToken);
+      _ = await _store.AddAsync(MakeMemory(content: "tiebreaker probe", options: new(Id: id)), ct: TestContext.Current.CancellationToken);
     }
 
     Result<IReadOnlyList<CuratedMemory>> searched = await _store.SearchAsync("ws-1", null, null, null, 10, ct: TestContext.Current.CancellationToken);
@@ -488,9 +488,9 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   [Fact]
   public async Task Search_EmptyQuery_ReturnsNewestUpdatedFirst()
   {
-    CuratedMemory oldest = MakeMemory(content: "first written", updatedAt: Timestamp);
-    CuratedMemory newest = MakeMemory(content: "last written", updatedAt: Timestamp.AddHours(2));
-    CuratedMemory middle = MakeMemory(content: "in between", updatedAt: Timestamp.AddHours(1));
+    CuratedMemory oldest = MakeMemory(content: "first written", options: new(UpdatedAt: Timestamp));
+    CuratedMemory newest = MakeMemory(content: "last written", options: new(UpdatedAt: Timestamp.AddHours(2)));
+    CuratedMemory middle = MakeMemory(content: "in between", options: new(UpdatedAt: Timestamp.AddHours(1)));
     _ = await _store.AddAsync(oldest, ct: TestContext.Current.CancellationToken);
     _ = await _store.AddAsync(newest, ct: TestContext.Current.CancellationToken);
     _ = await _store.AddAsync(middle, ct: TestContext.Current.CancellationToken);
@@ -512,7 +512,7 @@ public sealed class SqliteCuratedMemoryStoreTests : IDisposable
   {
     for (int i = 0; i < 5; i++)
     {
-      _ = await _store.AddAsync(MakeMemory(content: $"limit probe {i}", updatedAt: Timestamp.AddMinutes(i)), ct: TestContext.Current.CancellationToken);
+      _ = await _store.AddAsync(MakeMemory(content: $"limit probe {i}", options: new(UpdatedAt: Timestamp.AddMinutes(i))), ct: TestContext.Current.CancellationToken);
     }
 
     Result<IReadOnlyList<CuratedMemory>> limited = await _store.SearchAsync("ws-1", null, null, null, 3, ct: TestContext.Current.CancellationToken);

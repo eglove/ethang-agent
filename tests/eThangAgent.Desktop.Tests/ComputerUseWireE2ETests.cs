@@ -25,6 +25,50 @@ public sealed class ComputerUseWireE2ETests
     }
   }
 
+  /// <summary>True when one provider request body carries the screenshot as an
+  ///     input_image part on the function_call_output item for <paramref name="callId"/>.</summary>
+  private static bool BodyCarriesScreenshot(string body, string callId)
+  {
+    using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(body);
+    if (!doc.RootElement.TryGetProperty("input", out System.Text.Json.JsonElement input)
+        || input.ValueKind != System.Text.Json.JsonValueKind.Array)
+    {
+      return false;
+    }
+
+    foreach (System.Text.Json.JsonElement item in input.EnumerateArray())
+    {
+      if (IsScreenshotOutputFor(item, callId, out System.Text.Json.JsonElement output)
+          && OutputHasImagePart(output))
+      {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private static bool IsScreenshotOutputFor(System.Text.Json.JsonElement item, string callId,
+      out System.Text.Json.JsonElement output)
+  {
+    output = default;
+    return item.ValueKind == System.Text.Json.JsonValueKind.Object
+        && item.TryGetProperty("type", out System.Text.Json.JsonElement type)
+        && type.GetString() == "function_call_output"
+        && item.TryGetProperty("call_id", out System.Text.Json.JsonElement callIdElement)
+        && callIdElement.GetString() == callId
+        && item.TryGetProperty("output", out output)
+        && output.ValueKind == System.Text.Json.JsonValueKind.Array;
+  }
+
+  private static bool OutputHasImagePart(System.Text.Json.JsonElement output)
+      => output.EnumerateArray().Any(part =>
+          part.TryGetProperty("type", out System.Text.Json.JsonElement partType)
+          && partType.GetString() == "input_image"
+          && part.TryGetProperty("image_url", out System.Text.Json.JsonElement url)
+          && url.GetString() is { } imageUrl
+          && imageUrl.StartsWith("data:image/png;base64,", StringComparison.Ordinal));
+
   private sealed class FakeComputerAccessProvider : IComputerAccessProvider
   {
     public IComputerAccess? ForWorkspace(string workspaceRoot) => new FakeComputerAccess();
@@ -51,45 +95,9 @@ public sealed class ComputerUseWireE2ETests
     await E2E.RunTurnAsync(harness.Vm, "look at the screen").ConfigureAwait(true);
     await E2E.RunTurnAsync(harness.Vm, "and again").ConfigureAwait(true);
 
-    IReadOnlyList<string> bodies = harness.Mock.RequestBodies;
     // The screenshot rides as an input_image part inside the function_call_output item
     // whose call_id matches the computer tool call that produced it.
-    bool imageOnWire = false;
-    foreach (string body in bodies)
-    {
-      using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(body);
-      if (!doc.RootElement.TryGetProperty("input", out System.Text.Json.JsonElement input)
-          || input.ValueKind != System.Text.Json.JsonValueKind.Array)
-      {
-        continue;
-      }
-
-      foreach (System.Text.Json.JsonElement item in input.EnumerateArray())
-      {
-        if (item.ValueKind != System.Text.Json.JsonValueKind.Object
-            || !item.TryGetProperty("type", out System.Text.Json.JsonElement type)
-            || type.GetString() != "function_call_output"
-            || !item.TryGetProperty("call_id", out System.Text.Json.JsonElement callId)
-            || callId.GetString() != "c1"
-            || !item.TryGetProperty("output", out System.Text.Json.JsonElement output)
-            || output.ValueKind != System.Text.Json.JsonValueKind.Array)
-        {
-          continue;
-        }
-
-        foreach (System.Text.Json.JsonElement part in output.EnumerateArray())
-        {
-          if (part.TryGetProperty("type", out System.Text.Json.JsonElement partType)
-              && partType.GetString() == "input_image"
-              && part.TryGetProperty("image_url", out System.Text.Json.JsonElement url)
-              && url.GetString() is { } imageUrl
-              && imageUrl.StartsWith("data:image/png;base64,", StringComparison.Ordinal))
-          {
-            imageOnWire = true;
-          }
-        }
-      }
-    }
+    bool imageOnWire = harness.Mock.RequestBodies.Any(body => BodyCarriesScreenshot(body, "c1"));
     Assert.True(imageOnWire, "the provider request must carry the screenshot image part");
   }
 

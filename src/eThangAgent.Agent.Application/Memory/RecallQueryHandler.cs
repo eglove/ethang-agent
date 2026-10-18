@@ -19,14 +19,9 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
   public async Task<Result<RecallPage>> Execute(RecallRequest request, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(request);
-    if (request.Page < 1)
+    if (ValidatePaging(request) is { } pagingError)
     {
-      return InvalidArgument("page must be at least 1.");
-    }
-
-    if (request.PageSize is < 1 or > 200)
-    {
-      return InvalidArgument("pageSize must be between 1 and 200.");
+      return InvalidArgument(pagingError);
     }
 
     Result<SessionScope> parsedScope = SessionScope.Parse(request.Scope);
@@ -35,29 +30,15 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
       return Result.Failure<RecallPage>(parsedScope.Error);
     }
 
-    if (!string.Equals(request.QueryMode, "literal", StringComparison.Ordinal) &&
-        !string.Equals(request.QueryMode, "regex", StringComparison.Ordinal))
+    if (ValidateQueryShape(request) is { } shapeError)
     {
-      return InvalidArgument("queryMode must be 'literal' or 'regex'.");
+      return InvalidArgument(shapeError);
     }
 
-    if (request.Role is not null &&
-        !string.Equals(request.Role, "user", StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(request.Role, "assistant", StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(request.Role, "tool", StringComparison.OrdinalIgnoreCase))
+    Result<BranchMode> branchMode = ParseBranches(request.Branches);
+    if (!branchMode.IsSuccess)
     {
-      return InvalidArgument("role must be 'user', 'assistant', or 'tool'.");
-    }
-
-    BranchMode? branchMode = request.Branches switch
-    {
-      "active" => BranchMode.ActivePath,
-      "all" => BranchMode.AllBranches,
-      _ => null,
-    };
-    if (branchMode is not { } mode)
-    {
-      return InvalidArgument("branches must be 'active' or 'all'.");
+      return Result.Failure<RecallPage>(branchMode.Error);
     }
 
     Result<List<SessionCorpus>> corpora = await BuildCorporaAsync(parsedScope.Value, ct).ConfigureAwait(false);
@@ -68,7 +49,7 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
 
     MemoryQueryPlan plan = MemoryQueryPlan.Plan(request.Query, request.QueryMode);
     SearchOutcome outcome = SearchService.Search(
-        corpora.Value, plan, parsedScope.Value, mode, request.Role, request.Page, request.PageSize);
+        corpora.Value, plan, parsedScope.Value, branchMode.Value, request.Role, request.Page, request.PageSize);
 
     return outcome switch
     {
@@ -77,6 +58,38 @@ public sealed class RecallQueryHandler(IAgentStore store) : IMemoryRecallQuery
       _ => throw new NotSupportedException($"Unhandled search outcome {outcome.GetType().Name}."),
     };
   }
+
+  /// <summary>Paging bounds, validated first: page starts at 1, pageSize spans 1..200.</summary>
+  private static string? ValidatePaging(RecallRequest request)
+      => request.Page < 1 ? "page must be at least 1." : ValidatePageSize(request.PageSize);
+
+  private static string? ValidatePageSize(int pageSize)
+      => pageSize is < 1 or > 200 ? "pageSize must be between 1 and 200." : null;
+
+  /// <summary>Query shape after the scope: queryMode must name a known planner, role when
+  ///     present must name a known transcript role.</summary>
+  private static string? ValidateQueryShape(RecallRequest request)
+      => !string.Equals(request.QueryMode, "literal", StringComparison.Ordinal) &&
+          !string.Equals(request.QueryMode, "regex", StringComparison.Ordinal)
+            ? "queryMode must be 'literal' or 'regex'."
+            : ValidateRole(request.Role);
+
+  private static string? ValidateRole(string? role)
+      => role is not null &&
+        !string.Equals(role, "user", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(role, "tool", StringComparison.OrdinalIgnoreCase)
+          ? "role must be 'user', 'assistant', or 'tool'."
+          : null;
+
+  /// <summary>Branch lineage: 'active' walks the active path, 'all' walks every branch;
+  ///     anything else (including null) is a typed invalid-argument failure.</summary>
+  private static Result<BranchMode> ParseBranches(string? branches) => branches switch
+  {
+    "active" => Result.Success(BranchMode.ActivePath),
+    "all" => Result.Success(BranchMode.AllBranches),
+    _ => Result.Failure<BranchMode>(new DomainError("InvalidArgument", "branches must be 'active' or 'all'.")),
+  };
 
   private static RecallPage Project(SearchResult result)
   {

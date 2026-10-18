@@ -29,6 +29,23 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Composition;
 
+/// <summary>The optional per-container overrides a host may supply to
+///     <see cref="AgentComposition.AddEThangAgentCore"/> beyond the shared database: a
+///     conversation seed, a process-wide mailbox locator, and the computer-use access
+///     provider. Grouped so the composition entry point keeps a readable parameter list;
+///     every member is optional and its absence preserves the single-session default.</summary>
+public sealed record CompositionOverrides
+{
+  /// <summary>Messages the session conversation starts from.</summary>
+  public IEnumerable<Message>? ConversationSeed { get; init; }
+
+  /// <summary>The process-wide mailbox locator for cross-container delivery.</summary>
+  public ProcessMailboxLocator? MailboxLocator { get; init; }
+
+  /// <summary>The computer-use access provider; null disables the computer tool.</summary>
+  public IComputerAccessProvider? ComputerAccessProvider { get; init; }
+}
+
 public static class AgentComposition
 {
   /// <summary>Registers every host-agnostic piece of the agent: the selected AI
@@ -37,15 +54,18 @@ public static class AgentComposition
   ///     exactly three decisions via AgentHostOptions. Registration order and lifetimes
   ///     mirror the CLI composition root this replaces.
   ///     <paramref name="database"/> lets multi-session hosts share ONE app database;
-  ///     when omitted each container constructs its own (single-session hosts).</summary>
+  ///     when omitted each container constructs its own (single-session hosts).
+  ///     <paramref name="overrides"/> carries the remaining optional per-container knobs.</summary>
   /// <exception cref="ArgumentException">providerName is not a known provider id.</exception>
   /// <exception cref="InvalidOperationException">the selected provider has no configured API key.</exception>
   public static IServiceCollection AddEThangAgentCore(this IServiceCollection services,
       AgentSettings settings, string providerName, ModelConfig defaultModel, AgentHostOptions host,
-      AppDatabase? database = null, IEnumerable<Message>? conversationSeed = null,
-      ProcessMailboxLocator? mailboxLocator = null,
-      IComputerAccessProvider? computerAccessProvider = null)
+      AppDatabase? database = null, CompositionOverrides? overrides = null)
   {
+    CompositionOverrides knobs = overrides ?? new CompositionOverrides();
+    IEnumerable<Message>? conversationSeed = knobs.ConversationSeed;
+    ProcessMailboxLocator? mailboxLocator = knobs.MailboxLocator;
+    IComputerAccessProvider? computerAccessProvider = knobs.ComputerAccessProvider;
     ArgumentNullException.ThrowIfNull(settings);
     ArgumentNullException.ThrowIfNull(defaultModel);
     ArgumentNullException.ThrowIfNull(host);
@@ -56,6 +76,39 @@ public static class AgentComposition
           nameof(providerName));
     }
 
+    // Registration ORDER is the contract: each group below appends its registrations in
+    // the exact sequence the single chain used, so DI resolution order and lifetimes stay
+    // identical to the one-chain form this replaced.
+    IServiceCollection wired = AddPlatformServices(services, settings, providerName, defaultModel, conversationSeed);
+    wired = AddAgentTools(wired, settings);
+    wired = AddPersistenceServices(wired, host, database, providerName);
+    wired = AddSkillServices(wired, settings);
+    wired = AddWakeAndMailboxServices(wired, mailboxLocator);
+    wired = AddModelServices(wired, providerName);
+    wired = AddSubAgentServices(wired, settings, providerName);
+    wired = AddCapabilityServices(wired);
+    wired = AddCapabilityRegistry(wired);
+    wired = AddExecAndLoopRegistry(wired, settings);
+    wired = AddSystemPrompts(wired, host);
+    wired = AddRootAgentServices(wired, settings, providerName, defaultModel, computerAccessProvider);
+    wired = AddVerificationServices(wired, settings);
+
+    // Runtime selection (R3.4): in-process by default; RemoteHost = true routes child
+    // starts through the out-of-process ChildHost under RemoteHostSupervisor.
+    if (settings.RemoteHost)
+    {
+      wired = AddRemoteHostServices(wired, settings);
+    }
+
+    return wired;
+  }
+
+  /// <summary>The selected provider's transport, the conversation, and the platform ACLs
+  ///     (file system, file search, git, worktrees, exec, web, skill registry, documents).
+  ///     Registered first: every later group resolves these seams.</summary>
+  private static IServiceCollection AddPlatformServices(IServiceCollection services, AgentSettings settings,
+      string providerName, ModelConfig defaultModel, IEnumerable<Message>? conversationSeed)
+  {
     IServiceCollection wired = AddProviderServices(services, settings, providerName)
         .AddSingleton(defaultModel)
         // Seed hydrates a resumed session's transcript; a fresh session passes null
@@ -81,127 +134,174 @@ public static class AgentComposition
         .AddSingleton<ISkillsShAccess, HttpSkillsShAccess>()
         .AddSingleton<IHtmlToMarkdown, HtmlAgilityMarkdownConverter>()
         .AddSingleton<IDocxAccess, DirectDocxAccess>()
-        .AddSingleton<IPdfAccess, DirectPdfAccess>()
-        .AddSingleton(sp => new AgentToolsProvider("agent",
-        [
-            new AgentToolBinding(
-                    new ReadTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IFileSystemAccess>()),
-                    "Read lines from a text file."),
-                new AgentToolBinding(
-                    new ReadImageTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IFileSystemAccess>(),
-                        new SessionImageInputCapability(sp)),
-                    "Read one image file from the workspace and attach it to the result."),
-                new AgentToolBinding(
-                    new DocxTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IDocxAccess>(),
-                        new SessionImageInputCapability(sp)),
-                    "Read, edit, create, and inspect .docx documents."),
-                new AgentToolBinding(
-                    new PdfTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IPdfAccess>(),
-                        new SessionImageInputCapability(sp)),
-                    "Read, render, create, and manipulate PDF documents."),
-                new AgentToolBinding(
-                    new WriteTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IFileWriteAccess>()),
-                    "Create or overwrite a workspace file."),
-                new AgentToolBinding(
-                    new WriteMarkdownTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IFileWriteAccess>()),
-                    "Render a structured JSON document into markdown; return it or write it to a workspace file."),
-                new AgentToolBinding(
-                    new EditTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IFileEditAccess>()),
-                    "Edit a file by exact literal replacement."),
-                new AgentToolBinding(
-                    new FindFilesTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IFileSearchAccess>()),
-                    "Search the workspace for files by name pattern (Win32 glob: * and ?)."),
-                new AgentToolBinding(
-                    new DbSchemaTool(sp.GetRequiredService<ISelfDatabaseAccess>()),
-                    "List the tables, columns, and indexes of the agent's own app database."),
-                new AgentToolBinding(
-                    new DbQueryTool(sp.GetRequiredService<ISelfDatabaseAccess>()),
-                    "Run one read-only SQL query against the agent's own app database."),
-                new AgentToolBinding(
-                    new SqliteQueryTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<ISqliteFileAccess>()),
-                    "Run one read-only SQL query against any SQLite file in the workspace."),
-                new AgentToolBinding(
-                    new SkillListTool(sp.GetRequiredService<ISkillCatalog>(),
-                        sp.GetRequiredService<ILearnedSkillStore>()),
-                    "List available skills."),
-                new AgentToolBinding(
-                    new SkillViewTool(sp.GetRequiredService<ISkillCatalog>(),
-                        sp.GetRequiredService<ILearnedSkillStore>()),
-                    "Load a skill's full content by name."),
-                new AgentToolBinding(
-                    new SkillManageTool(sp.GetRequiredService<ISkillCatalog>(),
-                        sp.GetRequiredService<ILearnedSkillStore>(),
-                        sp.GetRequiredService<Func<DateTimeOffset>>()),
-                    "Create, update, or delete learned skills."),
-                new AgentToolBinding(
-                    sp.GetRequiredService<SkillSearchTool>(),
-                    "Search the skills.sh directory for community skills."),
-                new AgentToolBinding(
-                    sp.GetRequiredService<SkillRegistryTool>(),
-                    "Install, update, or uninstall community skills."),
-                new AgentToolBinding(
-                    sp.GetRequiredService<SkillInvokeTool>(),
-                    "Invoke a named catalog skill on the user's behalf (including manual skills)."),
-                new AgentToolBinding(
-                    new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
-                    "Track a workspace task list."),
-                new AgentToolBinding(
-                    new ContextEditTool(sp.GetRequiredService<IConversationContextService>()),
-                    "Edit this conversation's own context (list, remove, shorten messages)."),
-                new AgentToolBinding(
-                    new ContextTrimTool(sp.GetRequiredService<IConversationContextService>()),
-                    "Trim tool results this conversation no longer needs (marker-preserving cleanup)."),
-                new AgentToolBinding(
-                    new GitStatusTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IGitQueryAccess>()),
-                    "Show branch and working-tree status."),
-                new AgentToolBinding(
-                    new WorkingDiffTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IGitQueryAccess>()),
-                    "Show staged/unstaged/all working-tree diff, bounded."),
-                new AgentToolBinding(
-                    new GitCommitTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IGitCommitAccess>(),
-                        sp.GetRequiredService<ICommitStyleProvider>(),
-                        sp.GetRequiredService<VerificationGate>()),
-                    "Commit the current index with a validated conventional or gitmoji message."),
-                new AgentToolBinding(
-                    new WorktreeTool(sp.GetRequiredService<IPathResolver>(),
-                        sp.GetRequiredService<IGitWorktreeAccess>()),
-                    "List git worktrees, or create/remove one under .worktrees."),
-                new AgentToolBinding(
-                    new CommandOutputTool(sp.GetRequiredService<ICommandRunStore>()),
-                    "Read the stored output of a user command run (a ! command the user ran in chat)."),
-                new AgentToolBinding(
-                    new WebFetchTool(sp.GetRequiredService<IWebAccess>(),
-                        sp.GetRequiredService<IHtmlToMarkdown>()),
-                    "Fetch a web page or resource over HTTP(S) and return readable text (HTML converted to markdown; other text verbatim)."),
-                new AgentToolBinding(
-                    new OpenRouterManagementTool(sp.GetRequiredService<IOpenRouterManagementAccess>()),
-                    "Manage OpenRouter provisioning keys through the OpenRouter Management API (list, create, get, update, delete, current)."),
+        .AddSingleton<IPdfAccess, DirectPdfAccess>();
+    return wired;
+  }
 
-                // Pure graph math, no external access: safe for sub-agents too.
-                new AgentToolBinding(
-                    new CycleCheckTool(),
-                    "Detect dependency cycles in a supplied construction graph and classify deadlock risk."),
-                // MCP dispatch (issue #104): the model's single door to configured MCP
-                // servers; the definition budget stays flat (B1). The SHARED access
-                // (issue #106): the loop tool and the Desktop status view see the same
-                // pooled sessions.
-                new AgentToolBinding(
-                    new McpTool(sp.GetRequiredService<IMcpServerAccess>(), new AmbientMcpGrantScopeAdapter()),
-                    "Call tools on configured MCP servers through one dispatch surface (list, call)."),
-                .. ComputerToolBindings(sp, settings),
-        ]))
+  /// <summary>The agent's tool surface: every built-in tool binding plus the
+  ///     settings-gated computer tool.</summary>
+  private static IServiceCollection AddAgentTools(IServiceCollection wired, AgentSettings settings) =>
+      wired.AddSingleton(sp => new AgentToolsProvider("agent", AgentToolBindings(sp, settings)));
+
+  /// <summary>The full binding list in registration order: file and document tools, then
+  ///     database and skill tools, context and git tools, workspace tools, and the
+  ///     settings-gated computer tool.</summary>
+  private static IReadOnlyList<AgentToolBinding> AgentToolBindings(IServiceProvider sp, AgentSettings settings) =>
+  [
+      .. FileToolBindings(sp),
+      .. DataToolBindings(sp),
+      .. ContextAndGitToolBindings(sp),
+      .. WorkspaceToolBindings(sp),
+      .. ComputerToolBindings(sp, settings),
+  ];
+
+  /// <summary>File and document tool bindings: read, image, docx, pdf, write,
+  ///     write-markdown, edit, and file-name search.</summary>
+  private static IReadOnlyList<AgentToolBinding> FileToolBindings(IServiceProvider sp) =>
+  [
+      new AgentToolBinding(
+          new ReadTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IFileSystemAccess>()),
+          "Read lines from a text file."),
+      new AgentToolBinding(
+          new ReadImageTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IFileSystemAccess>(),
+              new SessionImageInputCapability(sp)),
+          "Read one image file from the workspace and attach it to the result."),
+      new AgentToolBinding(
+          new DocxTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IDocxAccess>(),
+              new SessionImageInputCapability(sp)),
+          "Read, edit, create, and inspect .docx documents."),
+      new AgentToolBinding(
+          new PdfTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IPdfAccess>(),
+              new SessionImageInputCapability(sp)),
+          "Read, render, create, and manipulate PDF documents."),
+      new AgentToolBinding(
+          new WriteTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IFileWriteAccess>()),
+          "Create or overwrite a workspace file."),
+      new AgentToolBinding(
+          new WriteMarkdownTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IFileWriteAccess>()),
+          "Render a structured JSON document into markdown; return it or write it to a workspace file."),
+      new AgentToolBinding(
+          new EditTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IFileEditAccess>()),
+          "Edit a file by exact literal replacement."),
+      new AgentToolBinding(
+          new FindFilesTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IFileSearchAccess>()),
+          "Search the workspace for files by name pattern (Win32 glob: * and ?)."),
+  ];
+
+  /// <summary>Database and skill tool bindings: the agent's own database, workspace
+  ///     SQLite files, the skill catalog tools, and skill invocation.</summary>
+  private static IReadOnlyList<AgentToolBinding> DataToolBindings(IServiceProvider sp) =>
+  [
+      new AgentToolBinding(
+          new DbSchemaTool(sp.GetRequiredService<ISelfDatabaseAccess>()),
+          "List the tables, columns, and indexes of the agent's own app database."),
+      new AgentToolBinding(
+          new DbQueryTool(sp.GetRequiredService<ISelfDatabaseAccess>()),
+          "Run one read-only SQL query against the agent's own app database."),
+      new AgentToolBinding(
+          new SqliteQueryTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<ISqliteFileAccess>()),
+          "Run one read-only SQL query against any SQLite file in the workspace."),
+      new AgentToolBinding(
+          new SkillListTool(sp.GetRequiredService<ISkillCatalog>(),
+              sp.GetRequiredService<ILearnedSkillStore>()),
+          "List available skills."),
+      new AgentToolBinding(
+          new SkillViewTool(sp.GetRequiredService<ISkillCatalog>(),
+              sp.GetRequiredService<ILearnedSkillStore>()),
+          "Load a skill's full content by name."),
+      new AgentToolBinding(
+          new SkillManageTool(sp.GetRequiredService<ISkillCatalog>(),
+              sp.GetRequiredService<ILearnedSkillStore>(),
+              sp.GetRequiredService<Func<DateTimeOffset>>()),
+          "Create, update, or delete learned skills."),
+      new AgentToolBinding(
+          sp.GetRequiredService<SkillSearchTool>(),
+          "Search the skills.sh directory for community skills."),
+      new AgentToolBinding(
+          sp.GetRequiredService<SkillRegistryTool>(),
+          "Install, update, or uninstall community skills."),
+      new AgentToolBinding(
+          sp.GetRequiredService<SkillInvokeTool>(),
+          "Invoke a named catalog skill on the user's behalf (including manual skills)."),
+  ];
+
+  /// <summary>Context and git tool bindings: the workspace task list, context edit and
+  ///     trim, git status, diff, commit, and worktrees.</summary>
+  private static IReadOnlyList<AgentToolBinding> ContextAndGitToolBindings(IServiceProvider sp) =>
+  [
+      new AgentToolBinding(
+          new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
+          "Track a workspace task list."),
+      new AgentToolBinding(
+          new ContextEditTool(sp.GetRequiredService<IConversationContextService>()),
+          "Edit this conversation's own context (list, remove, shorten messages)."),
+      new AgentToolBinding(
+          new ContextTrimTool(sp.GetRequiredService<IConversationContextService>()),
+          "Trim tool results this conversation no longer needs (marker-preserving cleanup)."),
+      new AgentToolBinding(
+          new GitStatusTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IGitQueryAccess>()),
+          "Show branch and working-tree status."),
+      new AgentToolBinding(
+          new WorkingDiffTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IGitQueryAccess>()),
+          "Show staged/unstaged/all working-tree diff, bounded."),
+      new AgentToolBinding(
+          new GitCommitTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IGitCommitAccess>(),
+              sp.GetRequiredService<ICommitStyleProvider>(),
+              sp.GetRequiredService<VerificationGate>()),
+          "Commit the current index with a validated conventional or gitmoji message."),
+      new AgentToolBinding(
+          new WorktreeTool(sp.GetRequiredService<IPathResolver>(),
+              sp.GetRequiredService<IGitWorktreeAccess>()),
+          "List git worktrees, or create/remove one under .worktrees."),
+  ];
+
+  /// <summary>Workspace tool bindings: user-command read-back, web fetch, the OpenRouter
+  ///     management surface, the pure-graph cycle check, and MCP dispatch.</summary>
+  private static IReadOnlyList<AgentToolBinding> WorkspaceToolBindings(IServiceProvider sp) =>
+  [
+      new AgentToolBinding(
+          new CommandOutputTool(sp.GetRequiredService<ICommandRunStore>()),
+          "Read the stored output of a user command run (a ! command the user ran in chat)."),
+      new AgentToolBinding(
+          new WebFetchTool(sp.GetRequiredService<IWebAccess>(),
+              sp.GetRequiredService<IHtmlToMarkdown>()),
+          "Fetch a web page or resource over HTTP(S) and return readable text (HTML converted to markdown; other text verbatim)."),
+      new AgentToolBinding(
+          new OpenRouterManagementTool(sp.GetRequiredService<IOpenRouterManagementAccess>()),
+          "Manage OpenRouter provisioning keys through the OpenRouter Management API (list, create, get, update, delete, current)."),
+
+      // Pure graph math, no external access: safe for sub-agents too.
+      new AgentToolBinding(
+          new CycleCheckTool(),
+          "Detect dependency cycles in a supplied construction graph and classify deadlock risk."),
+      // MCP dispatch (issue #104): the model's single door to configured MCP
+      // servers; the definition budget stays flat (B1). The SHARED access
+      // (issue #106): the loop tool and the Desktop status view see the same
+      // pooled sessions.
+      new AgentToolBinding(
+          new McpTool(sp.GetRequiredService<IMcpServerAccess>(), new AmbientMcpGrantScopeAdapter()),
+          "Call tools on configured MCP servers through one dispatch surface (list, call)."),
+  ];
+
+  /// <summary>Host-supplied workspace identity, the app database, the storage-backed stores, the
+  ///     context-window and compaction plumbing, and the shell and user-command surface.
+  /// </summary>
+  private static IServiceCollection AddPersistenceServices(IServiceCollection wired, AgentHostOptions host,
+      AppDatabase? database, string providerName)
+  {
+    return wired
         .AddSingleton(host.WorkspaceContext)
         .AddSingleton(host.PathResolver)
         // One app-owned database: hosts opening several sessions pass a shared
@@ -262,7 +362,15 @@ public static class AgentComposition
         .AddSingleton<IAgentStore, SqliteAgentStore>()
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
-            sp.GetRequiredService<AppDatabase>()))
+            sp.GetRequiredService<AppDatabase>()));
+  }
+
+  /// <summary>The composite skill catalog, its hot-reload watcher, the registry service and tools,
+  ///     and the shared skill-invocation core.
+  /// </summary>
+  private static IServiceCollection AddSkillServices(IServiceCollection wired, AgentSettings settings)
+  {
+    return wired
         // Composite skill catalog (skill-routing Phase 1, Task 7): built-ins plus
         // file skills loaded through the directory-source ACL from the resolved
         // skill-directory configuration. When nothing is configured the composite
@@ -310,7 +418,15 @@ public static class AgentComposition
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
         .AddSingleton<SqliteCuratedMemoryStore>()
-        .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>())
+        .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>());
+  }
+
+  /// <summary>The wait wake bus and its adapters, the root inbox, the mailbox stores, the supervisor
+  ///     and mailbox registries, and the nudge policy.
+  /// </summary>
+  private static IServiceCollection AddWakeAndMailboxServices(IServiceCollection wired, ProcessMailboxLocator? mailboxLocator)
+  {
+    return wired
         // The wait wake bus (spec #62): one hub per session; the child-event adapter and
         // the state-change adapter feed it; the root inbox decorator fires the
         // unconditional user wake. Ephemeral, in-process — remote waits keep today's
@@ -343,11 +459,15 @@ public static class AgentComposition
         // gets its own, which changes nothing (its source is itself).
         .AddSingleton(_ => mailboxLocator ?? new ProcessMailboxLocator())
         .AddSingleton<SessionMemoryWriteCounter>()
-        .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy())
-        ;
+        .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy());
+  }
 
-    wired = AddModelServices(wired, providerName);
-    wired = wired
+  /// <summary>The sub-agent stack: the workspace anchor scope, the spawner and its services, the
+  ///     runtime, and the spawn command.
+  /// </summary>
+  private static IServiceCollection AddSubAgentServices(IServiceCollection wired, AgentSettings settings, string providerName)
+  {
+    return wired
         // The workspace anchor scope (worktree ladder, T7): one instance per session
         // container, written by the spawner around an anchored child's run and read
         // by the exec engine's workspace resolver. AsyncLocal-backed, so the anchor
@@ -398,7 +518,15 @@ public static class AgentComposition
                 ProviderName: providerName),
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<IWorktreeProvisioner>(),
-            sp.GetRequiredService<IModelCatalog>()))
+            sp.GetRequiredService<IModelCatalog>()));
+  }
+
+  /// <summary>The query handlers, the link registry, the spawn-graph handler, and the capability
+  ///     providers every agent surface shares.
+  /// </summary>
+  private static IServiceCollection AddCapabilityServices(IServiceCollection wired)
+  {
+    return wired
         .AddSingleton<IAgentQueries, AgentQueries>()
         .AddSingleton<IMemoryRecallQuery, RecallQueryHandler>()
         .AddSingleton<IMemorySessionsQuery, SessionsQueryHandler>()
@@ -451,7 +579,15 @@ public static class AgentComposition
             () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
             () => SubAgentSpawner.RunningChild?.Id.ToString(),
             sp.GetRequiredService<SessionMemoryWriteCounter>().Increment,
-            () => DateTimeOffset.UtcNow))
+            () => DateTimeOffset.UtcNow));
+  }
+
+  /// <summary>The capability registry and its deferred factory - the deadlock-safe lazy resolution
+  ///     the registration comments describe.
+  /// </summary>
+  private static IServiceCollection AddCapabilityRegistry(IServiceCollection wired)
+  {
+    return wired
         .AddSingleton<ICapabilityRegistry>(sp =>
             CapabilityRegistry.Create(AgentSurface(sp, sp.GetRequiredService<AgentToolsProvider>())))
         // MUST stay lazy inside this closure: the agent surface reaches back to
@@ -500,7 +636,14 @@ public static class AgentComposition
           }
 
           return () => ResolveSurface();
-        })
+        });
+  }
+
+  /// <summary>The exec engine, the exec tool, and the loop's tool registry.
+  /// </summary>
+  private static IServiceCollection AddExecAndLoopRegistry(IServiceCollection wired, AgentSettings settings)
+  {
+    return wired
         .AddSingleton<IExecEngine>(sp => new CSharpScriptExecEngine(
             sp.GetRequiredService<Func<ICapabilityRegistry>>(),
             // Registry and workspace are both resolved per execution so concurrent
@@ -531,7 +674,15 @@ public static class AgentComposition
                 new PdfTool(sp.GetRequiredService<IPathResolver>(),
                     sp.GetRequiredService<IPdfAccess>(),
                     new SessionImageInputCapability(sp)),
-                .. ComputerLoopTools(sp, settings)]))
+                .. ComputerLoopTools(sp, settings)]));
+  }
+
+  /// <summary>The composite system prompt: skills bootstrap and listing, the static identity, the
+  ///     exec guide, the memory guide, context hygiene, and any frontend-appended providers.
+  /// </summary>
+  private static IServiceCollection AddSystemPrompts(IServiceCollection wired, AgentHostOptions host)
+  {
+    return wired
         .AddSingleton<ISystemPromptProvider>(sp => new CompositeSystemPromptProvider(
         [
             new SkillsBootstrapPromptProvider(sp.GetRequiredService<ISkillCatalog>(),
@@ -547,7 +698,16 @@ public static class AgentComposition
                 new CuratedMemoryGuidePromptProvider(),
                 new ContextHygienePromptProvider(),
                 ..host.ExtraPromptProviders,
-        ]))
+        ]));
+  }
+
+  /// <summary>The root agent's collaborators: child options, the image capability, the computer
+  ///     access provider, model preferences, the lazy root holder and resolver, and the root turn handler.
+  /// </summary>
+  private static IServiceCollection AddRootAgentServices(IServiceCollection wired, AgentSettings settings,
+      string providerName, ModelConfig defaultModel, IComputerAccessProvider? computerAccessProvider)
+  {
+    return wired
         .AddSingleton(subAgents(settings, defaultModel.ModelId))
         // Root agent is built lazily on the first turn (and rebuilt on every model
         // change) by RootAgentHolder; the root is NOT known at container build time.
@@ -568,8 +728,9 @@ public static class AgentComposition
             sp.GetRequiredService<IModelProvider>(),
             sp.GetRequiredService<Conversation>(),
             sp.GetRequiredService<IToolRegistry>(),
-            sp.GetRequiredService<ISystemPromptProvider>(),
-            contextCompactor: sp.GetRequiredService<DefaultContextCompactor>(),
+            dependencies: new RootDependencies(
+                SystemPrompt: sp.GetRequiredService<ISystemPromptProvider>(),
+                ContextCompactor: sp.GetRequiredService<DefaultContextCompactor>()),
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.
@@ -590,19 +751,22 @@ public static class AgentComposition
             sp.GetRequiredService<INudgePolicy>(),
             () => sp.GetRequiredService<SessionMemoryWriteCounter>().Count,
             sp.GetRequiredService<IAgentInbox>(),
-            sp.GetRequiredService<RootAgentHolder>(),
-            sp.GetRequiredService<RootAgentResolver>(),
-            verificationGate: sp.GetRequiredService<VerificationGate>(),
-            changedFilesResolver: () =>
-            {
-              Result<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>> status =
-                  sp.GetRequiredService<IGitCommitAccess>().StatusAsync(
-                      sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)
-                      .GetAwaiter().GetResult();
-              return status.IsSuccess ? status.Value : [];
-            }))
+            rootTurn: new RootTurnServices(
+                sp.GetRequiredService<RootAgentHolder>(),
+                sp.GetRequiredService<RootAgentResolver>()),
+            verification: new VerificationCollaborators(
+                sp.GetRequiredService<VerificationGate>(),
+                ChangedFilesResolver(sp))))
         .AddSingleton<IConversationContextService>(sp => new ConversationContextServiceAdapter(sp.GetRequiredService<Conversation>()))
-        .AddSingleton<RootSessionLifecycle>()
+        .AddSingleton<RootSessionLifecycle>();
+  }
+
+  /// <summary>The verification ledger, its specifications and gate, and the skill-directory carriers
+  ///     every container resolves.
+  /// </summary>
+  private static IServiceCollection AddVerificationServices(IServiceCollection wired, AgentSettings settings)
+  {
+    return wired
         // Skill-directory config rides EVERY container (skill-routing Phase 1): the
         // factory fills the carrier at open/resume, and the RemoteHost block below
         // overlays the values onto the settings JSON - so BOTH containers (the app's
@@ -618,14 +782,15 @@ public static class AgentComposition
             sp.GetRequiredService<VerificationFreshnessSpecification>(),
             settings.VerificationGateEnabled))
         .AddSingleton<SkillDirectoriesCarrier>()
-        .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)))
-        ;
+        .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)));
+  }
 
-    // Runtime selection (R3.4): in-process by default; RemoteHost = true routes child
-    // starts through the out-of-process ChildHost under RemoteHostSupervisor.
-    if (settings.RemoteHost)
-    {
-      wired = wired
+  /// <summary>Runtime selection (R3.4): the out-of-process ChildHost supervisor and the wire runtime
+  ///     that replaces the in-process one.
+  /// </summary>
+  private static IServiceCollection AddRemoteHostServices(IServiceCollection wired, AgentSettings settings)
+  {
+    return wired
           .AddSingleton<SessionFilesCarrier>()
           .AddSingleton(sp => new RemoteHostSupervisor(
               sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
@@ -645,10 +810,8 @@ public static class AgentComposition
           // A connection attempt at registration would race the host's single accept.
           .AddSingleton<RemoteAgentRuntime>()
           .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<RemoteAgentRuntime>());
-    }
-
-    return wired;
   }
+
 
   /// <summary>Resolves skill directories from the settings-carried stored lists - the
   ///     config shape a host built from serialized AgentSettings (the remote
@@ -808,6 +971,18 @@ public static class AgentComposition
         .Concat(sp.GetRequiredService<CuratedMemoryCapabilityProvider>().Actions.Select(a => a.Name));
     return [.. names];
   }
+
+  /// <summary>The verification gate's changed-files resolver: git status over the session
+  ///     workspace, an empty list when the status query fails. Extracted verbatim from the
+  ///     handler registration lambda so the registration reads as data, not plumbing.</summary>
+  private static Func<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>> ChangedFilesResolver(IServiceProvider sp) => () =>
+  {
+    Result<IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)>> status =
+        sp.GetRequiredService<IGitCommitAccess>().StatusAsync(
+            sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)
+            .GetAwaiter().GetResult();
+    return status.IsSuccess ? status.Value : [];
+  };
 
   /// <summary>The 'computer' tool, bound only when the host's settings enable computer use
   ///     (settings.ComputerUse from the computer_use_enabled preference). The access instance is

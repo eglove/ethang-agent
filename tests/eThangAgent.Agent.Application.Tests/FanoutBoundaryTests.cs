@@ -66,15 +66,19 @@ public class FanoutBoundaryTests
     RecordingSpawnCommand spawns = new(reply ?? (_ => Result.Success(AgentId.NewId())));
     OneShotRuntime runtime = new();
     SpawnGraphHandler graph = new(spawns, runtime);
-    AgentCapabilityProvider provider = new(spawns, new NoQueries(), () => parent, runtime,
-        fanout: async (p, children, ct) =>
+    AgentCapabilityProvider provider = new(new AgentProviderServices(
+        SpawnCommand: spawns,
+        Queries: new NoQueries(),
+        ParentContext: () => parent,
+        Runtime: runtime,
+        Fanout: async (p, children, ct) =>
         {
           Result<SpawnGraphOutcome> joined = await graph.ExecuteAsync(p,
               new SpawnGraphRequest(Label: "", Children: children, Join: new JoinPolicy(true)), ct).ConfigureAwait(true);
           return joined.IsSuccess
               ? joined.Value.Render()
               : "Error [" + joined.Error.Code + "]: " + joined.Error.Message;
-        });
+        }));
     return (provider, spawns);
   }
 

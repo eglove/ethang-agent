@@ -80,8 +80,7 @@ public class SettingsViewModelSkillRegistryTests
   // ── helpers (the SettingsViewModelSkillDirectoriesTests shell shape) ──
 
   private static SettingsViewModel CreateDialog(string? stored) => new(
-      null, CommitStyle.Conventional,
-      skillRegistryDefaultTarget: stored);
+      new SettingsValues { SkillRegistryDefaultTarget = stored });
 
   private static SettingsUpdate MinimalUpdate() =>
       new(null, CommitStyle.Conventional);

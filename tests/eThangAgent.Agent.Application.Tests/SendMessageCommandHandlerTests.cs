@@ -60,7 +60,8 @@ public class SendMessageCommandHandlerTests
     SessionModelPreferences preferences = new() { ModelId = "m/x" };
     RootAgentResolver resolver = new(context, preferences);
     SendMessageCommandHandler handler = new(
-        conversation: conversation, rootHolder: holder, rootResolver: resolver);
+        conversation: conversation,
+        rootTurn: new RootTurnServices(holder, resolver));
     List<string> notices = [];
 
     Result<string> result = await handler.Handle(
