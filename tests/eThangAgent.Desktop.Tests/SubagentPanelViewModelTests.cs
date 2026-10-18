@@ -309,6 +309,25 @@ public class SubagentPanelViewModelTests
   }
 
   [Fact]
+  public void Each_Row_Owns_An_Independent_Scroll_Controller()
+  {
+    using SubagentPanelViewModel panel = new(store: null);
+    panel.Attach(new TestEventStream());
+    panel.OnEvent(Started(AgentId.NewId()));
+    panel.OnEvent(Started(AgentId.NewId()));
+
+    TranscriptScrollController first = panel.Rows[0].Scroll;
+    TranscriptScrollController second = panel.Rows[1].Scroll;
+    Assert.NotSame(first, second);
+
+    // Unsticking one row's controller must not touch the other row's.
+    first.ObserveScroll(1000, 200, 0);   // pinned at the bottom: stuck
+    Assert.True(first.ShouldAutoScroll(isUserEntry: false));
+    first.ObserveScroll(1000, 200, 500); // a real scroll up: unstuck
+    Assert.False(first.ShouldAutoScroll(isUserEntry: false));
+    Assert.True(second.ShouldAutoScroll(isUserEntry: false));
+  }
+  [Fact]
   public async Task Late_Message_Renders_Once_After_Settle()
   {
     AgentId id = AgentId.NewId();
