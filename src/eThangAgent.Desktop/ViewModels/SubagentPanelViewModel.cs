@@ -30,6 +30,10 @@ internal sealed partial class SubagentRowViewModel(
   private int _lastRenderedCount;
   private bool _terminalFailed;
 
+  /// <summary>Set once the post-settle final refresh has rendered; a settled row's
+  ///     transcript is then frozen until re-activation clears the flag.</summary>
+  private bool _finalRefreshDone;
+
   public AgentId Id { get; } = id;
 
   public string Label { get; } = label;
@@ -49,6 +53,11 @@ internal sealed partial class SubagentRowViewModel(
 
   /// <summary>The row's status chip: the phase while running, the terminal state after.</summary>
   public string StatusDisplay => IsRunning ? PhaseLabel : TerminalDisplay;
+
+  /// <summary>Whether the next refresh pass should read this row's transcript: a
+  ///     running row polls continuously; a settled row polls only until its ONE
+  ///     post-settle final refresh has rendered.</summary>
+  internal bool NeedsTranscriptRefresh => IsRunning || !_finalRefreshDone;
 
   private string TerminalDisplay { get; set; } = "done";
 
@@ -97,6 +106,7 @@ internal sealed partial class SubagentRowViewModel(
     IsRunning = true;
     PhaseLabel = "starting";
     _terminalFailed = false;
+    _finalRefreshDone = false; // polling resumes: the restart appends from _lastRenderedCount onward
     OnPropertyChanged(nameof(StatusDisplay));
     OnPropertyChanged(nameof(StatusBrush));
   }
@@ -104,10 +114,15 @@ internal sealed partial class SubagentRowViewModel(
   /// <summary>Refreshes the transcript from the store (UI thread by contract): appends
   ///     only what landed since the last refresh, so a growing transcript never
   ///     re-renders wholesale. A store miss keeps the last state — the next refresh
-  ///     retries. The FIRST refresh replays everything (initial attach).</summary>
+  ///     retries. The FIRST refresh replays everything (initial attach). A settled
+  ///     row still gets exactly ONE final refresh: the store may hold messages
+  ///     persisted after the settle event fired (a resume's messages, a late parent
+  ///     message) — after that successful read the row is frozen until re-activation
+  ///     (ApplyRunning) clears the flag and polling resumes. A store miss on the
+  ///     final pass does NOT freeze: the next refresh retries, per the miss contract.</summary>
   public async Task RefreshTranscriptAsync()
   {
-    if (_store is null || !IsRunning)
+    if (_store is null || (!IsRunning && _finalRefreshDone))
     {
       return;
     }
@@ -116,6 +131,11 @@ internal sealed partial class SubagentRowViewModel(
     if (!persisted.IsSuccess)
     {
       return;
+    }
+
+    if (!IsRunning)
+    {
+      _finalRefreshDone = true;
     }
 
     IReadOnlyList<Message> messages = persisted.Value;
@@ -172,7 +192,8 @@ internal sealed partial class SubagentRowViewModel(
 ///     stream; rows add on ChildStartedEvent, phase labels update on progress, rows
 ///     mark terminal on ChildSettledEvent. A bounded refresh timer (the view's
 ///     existing 80 ms timer cadence is too hot for store reads; 500 ms) pulls
-///     transcripts for RUNNING rows only. Panel visibility follows row presence:
+///     transcripts for rows that still need one: RUNNING rows, plus settled rows
+///     awaiting their one post-settle final refresh. Panel visibility follows row presence:
 ///     no rows ever = collapsed (the main chat owns the full width). Null stream
 ///     (headless hosts) attaches nothing. Threading: events arrive on stream
 ///     threads — the marshal wrapper posts state mutations onto the UI thread.</summary>
@@ -232,7 +253,7 @@ internal sealed partial class SubagentPanelViewModel(IAgentStore? store) : Obser
       MidRefreshHook?.Invoke();
       foreach (SubagentRowViewModel row in snapshot)
       {
-        if (row.IsRunning)
+        if (row.NeedsTranscriptRefresh)
         {
           await row.RefreshTranscriptAsync().ConfigureAwait(true);
         }

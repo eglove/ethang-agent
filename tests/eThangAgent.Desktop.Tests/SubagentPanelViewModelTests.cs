@@ -307,4 +307,61 @@ public class SubagentPanelViewModelTests
     Assert.True(firstRow.IsExpanded);
     Assert.Equal(firstRow, panel.SelectedRow);
   }
+
+  [Fact]
+  public async Task Late_Message_Renders_Once_After_Settle()
+  {
+    AgentId id = AgentId.NewId();
+    List<Message> transcript =
+    [
+      new Message(Role.User, "check the claims", DateTimeOffset.UtcNow),
+    ];
+    TestFixtures.TranscriptStore store = new(transcript);
+    using SubagentPanelViewModel panel = new(store);
+    panel.Attach(new TestEventStream());
+    panel.OnEvent(Started(id));
+
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    _ = Assert.Single(panel.Rows[0].Transcript.Entries);
+
+    // The row settles; the store then holds a message persisted AFTER the settle
+    // event fired (a resume's message, a late parent message). Exactly ONE final
+    // refresh picks it up...
+    panel.OnEvent(new ChildSettledEvent(id, DateTimeOffset.UtcNow, AgentStatus.Completed, null, 0));
+    transcript.Add(new Message(Role.Assistant, "final answer", DateTimeOffset.UtcNow));
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    Assert.Equal(2, panel.Rows[0].Transcript.Entries.Count);
+
+    // ...and a SECOND refresh appends nothing - the final refresh is done.
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    Assert.Equal(2, panel.Rows[0].Transcript.Entries.Count);
+  }
+
+  [Fact]
+  public async Task Reactivated_Row_Resumes_Transcript_Polling()
+  {
+    AgentId id = AgentId.NewId();
+    List<Message> transcript =
+    [
+      new Message(Role.User, "check the claims", DateTimeOffset.UtcNow),
+    ];
+    TestFixtures.TranscriptStore store = new(transcript);
+    using SubagentPanelViewModel panel = new(store);
+    panel.Attach(new TestEventStream());
+    panel.OnEvent(Started(id));
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    _ = Assert.Single(panel.Rows[0].Transcript.Entries);
+
+    panel.OnEvent(new ChildSettledEvent(id, DateTimeOffset.UtcNow, AgentStatus.Completed, null, 0));
+    transcript.Add(new Message(Role.Assistant, "final answer", DateTimeOffset.UtcNow));
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    Assert.Equal(2, panel.Rows[0].Transcript.Entries.Count);
+
+    // Re-activation (the watchdog's same-id restart): polling resumes and the
+    // next persisted message appends again.
+    panel.OnEvent(Started(id));
+    transcript.Add(new Message(Role.User, "follow-up question", DateTimeOffset.UtcNow));
+    await panel.RefreshRunningTranscriptsAsync().ConfigureAwait(true);
+    Assert.Equal(3, panel.Rows[0].Transcript.Entries.Count);
+  }
 }
