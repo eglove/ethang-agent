@@ -273,7 +273,8 @@
                           the wrapping TextBlocks measuring at their single-line width,
                           overflowing instead of wrapping (task 7a). -->
                 <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}" Margin="0,2"
-                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          DataContextChanged="OnRowDataContextChanged">
                   <Expander.Header>
                     <DockPanel HorizontalAlignment="Stretch">
                       <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0"
@@ -283,8 +284,12 @@
                     </DockPanel>
                   </Expander.Header>
                   <!-- HorizontalScrollBarVisibility=Disabled: the viewport pins the
-                        content width so wrapped text never overflows (task 7b). -->
-                  <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto"
+                        content width so wrapped text never overflows (task 7b).
+                        x:Name=RowTranscriptScroll: the per-row sticky auto-scroll
+                        wiring (task 8) finds THIS viewer per row - the wiring
+                        attaches on the Expander's DataContextChanged and hooks
+                        ScrollChanged plus the row transcript's Entries feed. -->
+                  <ScrollViewer x:Name="RowTranscriptScroll" MaxHeight="420" VerticalScrollBarVisibility="Auto"
                                 HorizontalScrollBarVisibility="Disabled">
                     <ItemsControl ItemsSource="{Binding Transcript.Entries, Mode=OneWay}" Margin="4,4">
                       <ItemsControl.DataTemplates>

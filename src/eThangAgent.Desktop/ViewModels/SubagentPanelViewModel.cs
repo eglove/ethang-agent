@@ -42,6 +42,12 @@ internal sealed partial class SubagentRowViewModel(
   ///     persistence replayed as it lands.</summary>
   public TranscriptViewModel Transcript { get; } = new();
 
+  /// <summary>The row transcript's sticky auto-scroll state — one controller per
+  ///     row so each subagent transcript follows, pauses, and re-pins
+  ///     independently (task 8). Lives on the row VM (not the view) so a rebuilt
+  ///     view inherits the sticky state, the same shape the main chat uses.</summary>
+  public TranscriptScrollController Scroll { get; } = new();
+
   [ObservableProperty]
   public partial bool IsRunning { get; set; } = true;
 
