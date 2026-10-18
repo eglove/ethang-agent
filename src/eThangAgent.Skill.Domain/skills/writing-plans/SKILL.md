@@ -7,6 +7,10 @@ description: Write a detailed, bite-sized implementation plan from an approved s
 
 ## Overview
 
+This is the prediction leg of the scientific loop: a plan's acceptance criteria are the
+predictions, and each criterion names the check that would falsify it. The plan is the
+experiment design.
+
 Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
 
 Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.
@@ -65,7 +69,7 @@ independently testable deliverable.
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use experiment-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** [One sentence describing what this builds]
 
@@ -160,14 +164,14 @@ After saving the plan, offer execution choice:
 
 **"Plan complete and stored as plan record `#<id>`. Two execution options:**
 
-**1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
+**1. Experiment-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
 
 **2. Inline Execution** - Execute tasks in this session using executing-plans, batch execution with checkpoints
 
 **Which approach?"**
 
-**If Subagent-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use subagent-driven-development
+**If Experiment-Driven chosen:**
+- **REQUIRED SUB-SKILL:** Use experiment-driven-development
 - Fresh subagent per task + two-stage review
 
 **If Inline Execution chosen:**

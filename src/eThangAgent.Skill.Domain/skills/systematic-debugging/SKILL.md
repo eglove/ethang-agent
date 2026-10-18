@@ -7,21 +7,24 @@ description: Find root causes before fixing symptoms: reproduce, isolate, hypoth
 
 ## Overview
 
-**Core principle:** ALWAYS find root cause before attempting fixes. Symptom fixes are failure.
+This is the debugging instantiation of the scientific loop. Phase 1 is observation and
+Phase 2 is pattern analysis; Phase 3 is the experiment; Phase 4 is the report. The
+discipline is unchanged - root cause before fixes, one hypothesis at a time, a minimal
+test that proves it - and the loop says why each part earns its place.
 
-**Violating the letter of this process is violating the spirit of debugging.**
+**Core principle: a fix without a stated prediction is a guess.** Before touching code,
+state what you expect the fix to change and the check that would prove it wrong. That
+pair - prediction and falsifying check - is what turns a change into an experiment. A
+change with neither is a guess that happened to be typed into an editor: if it works you
+learn nothing about why, and if it fails you have no information about what to try next.
 
-## The Iron Law
-
-```text
-NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST
-```
-
-If you haven't completed Phase 1, you cannot propose fixes.
+A symptom fix is the special case worth naming: it makes the observation go away
+without explaining it, so the same cause returns somewhere the fix does not reach. The
+loop is not slower than guessing - it is what stops the guessing from repeating.
 
 ## When to Use
 
-Use for ANY technical issue:
+Use for any technical issue:
 - Test failures
 - Bugs in production
 - Unexpected behavior
@@ -29,7 +32,7 @@ Use for ANY technical issue:
 - Build failures
 - Integration issues
 
-**Use this ESPECIALLY when:**
+**Use this especially when:**
 - Under time pressure (emergencies make guessing tempting)
 - "Just one quick fix" seems obvious
 - You've already tried multiple fixes
@@ -39,15 +42,16 @@ Use for ANY technical issue:
 **Don't skip when:**
 - Issue seems simple (simple bugs have root causes too)
 - You're in a hurry (rushing guarantees rework)
-- Manager wants it fixed NOW (systematic is faster than thrashing)
+- Manager wants it fixed now (systematic is faster than thrashing)
 
 ## The Four Phases
 
-You MUST complete each phase before proceeding to the next.
+Each phase rests on the one before it - the next phase's evidence means nothing until
+the previous one is done.
 
 ### Phase 1: Root Cause Investigation
 
-**BEFORE attempting ANY fix:**
+**Before attempting any fix:**
 
 1. **Read Error Messages Carefully**
    - Don't skip past errors or warnings
@@ -69,17 +73,17 @@ You MUST complete each phase before proceeding to the next.
 
 4. **Gather Evidence in Multi-Component Systems**
 
-   **WHEN system has multiple components (CI → build → signing, API → service → database):**
+   **When system has multiple components (CI → build → signing, API → service → database):**
 
-   **BEFORE proposing fixes, add diagnostic instrumentation:**
+   **Before proposing fixes, add diagnostic instrumentation:**
    ```text
-   For EACH component boundary:
+   For each component boundary:
      - Log what data enters component
      - Log what data exits component
      - Verify environment/config propagation
      - Check state at each layer
 
-   Run once to gather evidence showing WHERE it breaks
+   Run once to gather evidence showing where it breaks
    THEN analyze evidence to identify failing component
    THEN investigate that specific component
    ```
@@ -107,7 +111,7 @@ You MUST complete each phase before proceeding to the next.
 
 5. **Trace Data Flow**
 
-   **WHEN error is deep in call stack:**
+   **When error is deep in call stack:**
 
    See `root-cause-tracing.md` in this directory for the complete backward tracing technique.
 
@@ -126,7 +130,7 @@ You MUST complete each phase before proceeding to the next.
    - What works that's similar to what's broken?
 
 2. **Compare Against References**
-   - If implementing pattern, read reference implementation COMPLETELY
+   - If implementing pattern, read reference implementation completely
    - Don't skim - read every line
    - Understand the pattern fully before applying
 
@@ -150,14 +154,14 @@ You MUST complete each phase before proceeding to the next.
    - Be specific, not vague
 
 2. **Test Minimally**
-   - Make the SMALLEST possible change to test hypothesis
+   - Make the smallest possible change to test hypothesis
    - One variable at a time
    - Don't fix multiple things at once
 
 3. **Verify Before Continuing**
    - Did it work? Yes → Phase 4
-   - Didn't work? Form NEW hypothesis
-   - DON'T add more fixes on top
+   - Didn't work? Form new hypothesis
+   - Don't add more fixes on top
 
 4. **When You Don't Know**
    - Say "I don't understand X"
@@ -173,12 +177,12 @@ You MUST complete each phase before proceeding to the next.
    - Simplest possible reproduction
    - Automated test if possible
    - One-off test script if no framework
-   - MUST have before fixing
+   - The test comes before the fix
    - Use the `test-driven-development` skill for writing proper failing tests
 
 2. **Implement Single Fix**
    - Address the root cause identified
-   - ONE change at a time
+   - One change at a time
    - No "while I'm here" improvements
    - No bundled refactoring
 
@@ -189,11 +193,10 @@ You MUST complete each phase before proceeding to the next.
    - Use the `verification-before-completion` skill before claiming success
 
 4. **If Fix Doesn't Work**
-   - STOP
    - Count: How many fixes have you tried?
    - If < 3: Return to Phase 1, re-analyze with new information
-   - **If ≥ 3: STOP and question the architecture (step 5 below)**
-   - DON'T attempt Fix #4 without architectural discussion
+   - **If ≥ 3: question the architecture (step 5 below)**
+   - Fix #4 needs an architectural discussion first.
 
 5. **If 3+ Fixes Failed: Question Architecture**
 
@@ -202,63 +205,70 @@ You MUST complete each phase before proceeding to the next.
    - Fixes require "massive refactoring" to implement
    - Each fix creates new symptoms elsewhere
 
-   **STOP and question fundamentals:**
+   **Question the fundamentals:**
    - Is this pattern fundamentally sound?
    - Are we "sticking with it through sheer inertia"?
    - Should we refactor architecture vs. continue fixing symptoms?
 
    **Discuss with your human partner before attempting more fixes**
 
-   This is NOT a failed hypothesis - this is a wrong architecture.
+   This is not a failed hypothesis - this is a wrong architecture.
 
-## Red Flags - STOP and Follow Process
+## Loop checks - signals your reasoning has left the loop
 
-If you catch yourself thinking:
-- "Quick fix for now, investigate later"
-- "Just try changing X and see if it works"
-- "Add multiple changes, run tests"
-- "Skip the test, I'll manually verify"
-- "It's probably X, let me fix that"
-- "I don't fully understand but this might work"
-- "Pattern says X but I'll adapt it differently"
-- "Here are the main problems: [lists fixes without investigation]"
-- Proposing solutions before tracing data flow
-- **"One more fix attempt" (when already tried 2+)**
-- **Each fix reveals new problem in different place**
+These are self-checks, not verdicts. If you catch yourself thinking one of them, the
+hypothesis is being assumed rather than tested - go back to observation and gather the
+evidence that would make it a hypothesis instead.
 
-**ALL of these mean: STOP. Return to Phase 1.**
+- "Quick fix for now, investigate later" - the fix is being chosen before the cause is known.
+- "Just try changing X and see if it works" - no prediction, so the result cannot be read.
+- "Add multiple changes, run tests" - several variables at once; a pass or a fail explains nothing.
+- "Skip the test, I'll manually verify" - the check is not repeatable, so it is not evidence.
+- "It's probably X, let me fix that" - "probably" marks a guess; state the observation X would explain.
+- "I don't fully understand but this might work" - the experiment has no falsifying check.
+- "Pattern says X but I'll adapt it differently" - the reference is being assumed, not read.
+- "Here are the main problems: [lists fixes without investigation]" - conclusions before observation.
+- Proposing solutions before tracing data flow - the symptom is being treated as the cause.
+- "One more fix attempt" (when already tried 2+) - the accumulated failures are evidence against the current hypothesis, not an argument for repeating it.
+- Each fix reveals a new problem in a different place - the evidence now points at the architecture rather than at any single cause.
 
-**If 3+ fixes failed:** Question the architecture (see Phase 4.5)
+If 3+ fixes have failed: question the architecture (see Phase 4.5).
 
-## your human partner's Signals You're Doing It Wrong
+## Signals from your human partner
 
-**Watch for these redirections:**
-- "Is that not happening?" - You assumed without verifying
-- "Will it show us...?" - You should have added evidence gathering
-- "Stop guessing" - You're proposing fixes without understanding
-- "Ultra-think this" - Question fundamentals, not just symptoms
-- "We're stuck?" (frustrated) - Your approach isn't working
+Your partner reads the transcript, not your intentions, and their redirections are
+observations you have not yet made. Each one names a hypothesis that is running
+untested:
 
-**When you see these:** STOP. Return to Phase 1.
+- "Is that not happening?" - you assumed without verifying; the observation is missing.
+- "Will it show us...?" - the evidence-gathering step was skipped; add the instrumentation.
+- "Stop guessing" - fixes are being proposed without an understanding of the cause.
+- "Ultra-think this" - the fundamentals need questioning, not just the symptom.
+- "We're stuck?" (frustrated) - the current approach is not producing evidence; change it.
 
-## Common Rationalizations
+When you see these, the loop has an untested hypothesis in it. Return to observation.
 
-| Excuse | Reality |
-|--------|---------|
-| "Issue is simple, don't need process" | Simple issues have root causes too. Process is fast for simple bugs. |
-| "Emergency, no time for process" | Systematic debugging is FASTER than guess-and-check thrashing. |
-| "Just try this first, then investigate" | First fix sets the pattern. Do it right from the start. |
-| "I'll write test after confirming fix works" | Untested fixes don't stick. Test first proves it. |
-| "Multiple fixes at once saves time" | Can't isolate what worked. Causes new bugs. |
-| "Reference too long, I'll adapt the pattern" | Partial understanding guarantees bugs. Read it completely. |
-| "I see the problem, let me fix it" | Seeing symptoms ≠ understanding root cause. |
-| "One more fix attempt" (after 2+ failures) | 3+ failures = architectural problem. Question pattern, don't fix again. |
+## Predictions people get wrong
+
+Each row is a prediction that feels true and is not. The right column says what the
+evidence actually shows - which is why the loop is the faster path, not the slower one.
+
+| Prediction | What the evidence shows |
+|------------|-------------------------|
+| "Issue is simple, don't need process" | Simple issues have root causes too. Observation is usually one read of the error. |
+| "Emergency, no time for process" | Systematic debugging is faster than guess-and-check thrashing. The loop is the cheaper path under pressure. |
+| "Just try this first, then investigate" | The first fix sets the pattern - and chosen without a prediction, its result can't separate cause from coincidence. |
+| "I'll write test after confirming fix works" | Untested fixes don't stick. No failing test first means no prediction to confirm - the test is the experiment. |
+| "Multiple fixes at once saves time" | Can't isolate what worked: a pass proves nothing about which change mattered, a fail eliminates nothing, and new bugs ride along. |
+| "Reference too long, I'll adapt the pattern" | Partial understanding guarantees bugs - the parts you skipped are what produces the failure. Read it completely. |
+| "I see the problem, let me fix it" | Seeing symptoms is not understanding root cause. The failure is an observation; the cause is an untested hypothesis. |
+| "One more fix attempt" (after 2+ failures) | 3+ failures is evidence of an architecture problem, not a nearly-right fix. Question the pattern. |
 
 ## Quick Reference
 
 | Phase | Key Activities | Success Criteria |
 |-------|---------------|------------------|
-| **1. Root Cause** | Read errors, reproduce, check changes, gather evidence | Understand WHAT and WHY |
+| **1. Root Cause** | Read errors, reproduce, check changes, gather evidence | Understand what and why |
 | **2. Pattern** | Find working examples, compare | Identify differences |
 | **3. Hypothesis** | Form theory, test minimally | Confirmed or new hypothesis |
 | **4. Implementation** | Create test, fix, verify | Bug resolved, tests pass |
@@ -281,3 +291,9 @@ These techniques are part of systematic debugging and available in this director
 - **`root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger
 - **`defense-in-depth.md`** - Add validation at multiple layers after finding root cause
 - **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
+
+---
+
+For the report leg - fresh evidence before any completion claim - use the
+`verification-before-completion` skill. For how the loop routes across task types, see
+`scientific-method`.

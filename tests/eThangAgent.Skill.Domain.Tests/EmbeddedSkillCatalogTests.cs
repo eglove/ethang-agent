@@ -11,15 +11,14 @@ public class EmbeddedSkillCatalogTests
   [
       "commit-style-conventional", "commit-style-gitmoji",
         "commit-style-none", "dispatching-parallel-agents", "ethang-tools-mapping",
-        "executing-plans", "finishing-a-development-branch", "grill", "receiving-code-review",
-        "requesting-code-review", "subagent-driven-development",
-        "systematic-debugging", "test-driven-development", "using-git-worktrees",
-        "using-skills", "verification-before-completion", "writing-plans",
-        "writing-skills",
+        "executing-plans", "experiment-driven-development", "finishing-a-development-branch", "grill",
+        "receiving-code-review", "requesting-code-review", "scientific-method", "systematic-debugging",
+        "test-driven-development", "using-git-worktrees", "using-skills",
+        "verification-before-completion", "writing-plans", "writing-skills",
     ];
 
   [Fact]
-  public async Task Lists_AllEighteenSkills_WithMetadata()
+  public async Task Lists_AllNineteenSkills_WithMetadata()
   {
     Result<IReadOnlyList<SkillDefinition>> r = await _catalog.ListAsync(TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
@@ -38,7 +37,16 @@ public class EmbeddedSkillCatalogTests
   {
     Result<SkillDefinition> r = await _catalog.GetAsync("grill", ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
-    Assert.StartsWith("Interview the user", r.Value.Body, StringComparison.Ordinal);   // body preserved verbatim after frontmatter split
+    string body = r.Value.Body;
+    // Body preserved verbatim after frontmatter split: the frontmatter is gone and the
+    // skill's own prose survives intact. The opening is pinned positionally, so a leaked
+    // fence, a leaked key, or a shifted first line all fail here rather than passing
+    // because the prose merely appears somewhere.
+    Assert.StartsWith("This is the observation leg of the scientific loop", body, StringComparison.Ordinal);
+    Assert.False(body.StartsWith("---", StringComparison.Ordinal), "frontmatter fence leaked into the body");
+    Assert.DoesNotContain("description:", body, StringComparison.Ordinal);
+    Assert.DoesNotContain("name: grill", body, StringComparison.Ordinal);
+    Assert.Contains("Interview the user relentlessly", body, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -48,7 +56,7 @@ public class EmbeddedSkillCatalogTests
     // report must carry a RED-transcript artifact (command + failing output
     // verbatim), the task reviewer audits it, and the TDD skill's checklist
     // tells the implementer to capture it.
-    Result<SkillDefinition> sdd = await _catalog.GetAsync("subagent-driven-development", ct: TestContext.Current.CancellationToken);
+    Result<SkillDefinition> sdd = await _catalog.GetAsync("experiment-driven-development", ct: TestContext.Current.CancellationToken);
     Assert.True(sdd.IsSuccess);
     Assert.Contains("RED transcript", sdd.Value.Body, StringComparison.Ordinal);
     Assert.Contains("exact test command", sdd.Value.Body, StringComparison.Ordinal);
@@ -57,6 +65,33 @@ public class EmbeddedSkillCatalogTests
     Result<SkillDefinition> tdd = await _catalog.GetAsync("test-driven-development", ct: TestContext.Current.CancellationToken);
     Assert.True(tdd.IsSuccess);
     Assert.Contains("RED transcript", tdd.Value.Body, StringComparison.Ordinal);
+  }
+
+  private static readonly (string Skill, string LegHeader, string Anchor)[] PipelineLegHeaders =
+  [
+      ("grill", "This is the observation leg of the scientific loop", "Interview the user relentlessly"),
+      ("writing-plans", "This is the prediction leg of the scientific loop", "Write comprehensive implementation plans"),
+      ("experiment-driven-development", "This carries the experiment and external-verdict legs", "Execute a plan by dispatching"),
+      ("requesting-code-review", "This is the external-verdict leg", "Dispatch a code reviewer subagent"),
+      ("receiving-code-review", "This is the analysis leg", "Code review requires technical evaluation"),
+  ];
+
+  [Fact]
+  public async Task PipelineSkills_NameTheLegBeforeTheOpeningProse()
+  {
+    // Grand plan: the pipeline skills name which loop leg they carry, so the
+    // router's table and the carrying skill agree on the same vocabulary.
+    foreach ((string skill, string legHeader, string anchor) in PipelineLegHeaders)
+    {
+      Result<SkillDefinition> r = await _catalog.GetAsync(skill, ct: TestContext.Current.CancellationToken);
+      Assert.True(r.IsSuccess, skill);
+      string body = r.Value.Body;
+      int legIndex = body.IndexOf(legHeader, StringComparison.Ordinal);
+      Assert.True(legIndex >= 0, $"{skill}: missing leg header '{legHeader}'");
+      int anchorIndex = body.IndexOf(anchor, StringComparison.Ordinal);
+      Assert.True(anchorIndex >= 0, $"{skill}: missing anchor '{anchor}'");
+      Assert.True(anchorIndex > legIndex, $"{skill}: leg header must precede '{anchor}'");
+    }
   }
 
   [Fact]
