@@ -7,6 +7,9 @@ description: Treat review feedback as information: verify each point before acti
 
 ## Overview
 
+This is the analysis leg: review findings are observations that refine the hypothesis —
+verify each before implementing, and push back with evidence when one is wrong.
+
 Code review requires technical evaluation, not emotional performance.
 
 **Core principle:** Verify before implementing. Ask before assuming. Technical correctness over social comfort.

@@ -38,7 +38,11 @@ public class EmbeddedSkillCatalogTests
   {
     Result<SkillDefinition> r = await _catalog.GetAsync("grill", ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
-    Assert.StartsWith("Interview the user", r.Value.Body, StringComparison.Ordinal);   // body preserved verbatim after frontmatter split
+    // Body preserved verbatim after frontmatter split: the frontmatter is gone and the
+    // skill's own opening prose survives intact. (The body's first line is no longer
+    // pinned to that prose — a skill may open with a framing paragraph.)
+    Assert.DoesNotContain("description:", r.Value.Body, StringComparison.Ordinal);
+    Assert.Contains("Interview the user relentlessly", r.Value.Body, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -57,6 +61,32 @@ public class EmbeddedSkillCatalogTests
     Result<SkillDefinition> tdd = await _catalog.GetAsync("test-driven-development", ct: TestContext.Current.CancellationToken);
     Assert.True(tdd.IsSuccess);
     Assert.Contains("RED transcript", tdd.Value.Body, StringComparison.Ordinal);
+  }
+
+  private static readonly (string Skill, string LegHeader, string Anchor)[] PipelineLegHeaders =
+  [
+      ("grill", "This is the observation leg of the scientific loop", "Interview the user relentlessly"),
+      ("writing-plans", "This is the prediction leg of the scientific loop", "Write comprehensive implementation plans"),
+      ("subagent-driven-development", "This carries the experiment and external-verdict legs", "Execute a plan by dispatching"),
+      ("requesting-code-review", "This is the external-verdict leg", "Dispatch a code reviewer subagent"),
+      ("receiving-code-review", "This is the analysis leg", "Code review requires technical evaluation"),
+  ];
+
+  [Fact]
+  public async Task PipelineSkills_OpenWithLegMappingHeader_NamingTheScientificLoopLeg()
+  {
+    // Grand plan: the pipeline skills name which loop leg they carry, so the
+    // router's table and the carrying skill agree on the same vocabulary.
+    foreach ((string skill, string legHeader, string anchor) in PipelineLegHeaders)
+    {
+      Result<SkillDefinition> r = await _catalog.GetAsync(skill, ct: TestContext.Current.CancellationToken);
+      Assert.True(r.IsSuccess, skill);
+      string body = r.Value.Body;
+      int legIndex = body.IndexOf(legHeader, StringComparison.Ordinal);
+      Assert.True(legIndex >= 0, $"{skill}: missing leg header '{legHeader}'");
+      int anchorIndex = body.IndexOf(anchor, StringComparison.Ordinal);
+      Assert.True(anchorIndex > legIndex, $"{skill}: leg header must precede '{anchor}'");
+    }
   }
 
   [Fact]

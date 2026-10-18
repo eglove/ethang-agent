@@ -5,6 +5,10 @@ description: Execute plan tasks through fresh subagents with two-stage review be
 
 # Subagent-Driven Development
 
+This carries the experiment and external-verdict legs of the scientific loop: each task
+is an experiment run by a fresh implementer, and each review is an external verdict the
+implementer cannot self-grade.
+
 Execute a plan by dispatching a fresh implementer subagent per task, a task review (spec compliance + code quality) after each, and a broad whole-branch review at the end. The plan, ledger, briefs, and reports live in workspace state — the database is the record.
 
 **Why subagents:** You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They should never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination work.

@@ -7,6 +7,10 @@ description: Write a detailed, bite-sized implementation plan from an approved s
 
 ## Overview
 
+This is the prediction leg of the scientific loop: a plan's acceptance criteria are the
+predictions, and each criterion names the check that would falsify it. The plan is the
+experiment design.
+
 Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
 
 Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.

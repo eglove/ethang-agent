@@ -3,6 +3,10 @@ name: grill
 description: Interview the user to extract real requirements before creative work begins. Use when a request is thin or underspecified and the real goal, constraints, and success criteria are unclear.
 ---
 
+This is the observation leg of the scientific loop: the interview is where the task's
+question is formed and the evidence — what the user already knows — is gathered before
+any hypothesis is stated.
+
 Interview the user relentlessly until you reach a shared understanding. Map their
 request as a **design tree**: every decision branches into the decisions that hang
 off it. This skill runs whenever the input is thin — a bare

@@ -5,6 +5,9 @@ description: Request structured code review of completed work before integrating
 
 # Requesting Code Review
 
+This is the external-verdict leg: a reviewer who did not write the change grades it — the
+loop's check against self-grading.
+
 Dispatch a code reviewer subagent to catch issues before they cascade. The reviewer gets precisely crafted context for evaluation — never your session's history.
 
 **Core principle:** Review early, review often.
