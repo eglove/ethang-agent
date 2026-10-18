@@ -74,13 +74,18 @@ internal sealed class ThrowingProvider : IModelProvider
       => throw new InvalidOperationException("provider exploded");
 }
 
-/// <summary>Always answers with one tool call — drives the loop until a budget stops it.</summary>
+/// <summary>Always answers with one tool call — drives the loop until a budget stops it.
+///     The call's arguments vary per round: the repeat guard ends a turn whose calls are
+///     byte-identical (critical at the 13th, turn over on the 14th), and these tests pin
+///     the INTERRUPT path, which must stay reachable for a varied-call loop.</summary>
 internal sealed class LoopingProvider : IModelProvider
 {
+  private int _round;
+
   public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
       CancellationToken ct = default)
       => Task.FromResult(Result.Success(new ModelResponse(null,
-          [new ToolCallRequest("call_1", "loop", "{}")])));
+          [new ToolCallRequest("call_1", "loop", "{\"round\":" + _round++ + "}")])));
 }
 
 /// <summary>Hands out one shared provider instance and records every Create call.</summary>

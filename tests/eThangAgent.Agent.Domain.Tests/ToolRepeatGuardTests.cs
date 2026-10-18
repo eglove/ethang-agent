@@ -1,8 +1,8 @@
 namespace eThangAgent.AgentDomain.Tests;
 
-/// <summary>Pure policy: identical tool calls failing in a row trip a "[repeat guard]"
-///     System nudge at the 2nd failure (and again at the 5th); any success or a
-///     different call resets the streak.</summary>
+/// <summary>Identical-args failure nudges: the same tool call failing in a row trips a
+///     "[repeat guard]" System nudge at the 2nd failure (and again at the 5th); any
+///     success or a different call resets the streak.</summary>
 public class ToolRepeatGuardTests
 {
   private const string Error = "Error [MissingParameter]: Missing required parameter 'timeoutSeconds'.";
@@ -12,7 +12,7 @@ public class ToolRepeatGuardTests
   {
     ToolRepeatGuard guard = new();
 
-    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", isError: true, Error));
+    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", isError: true, Error).NudgeLine);
   }
 
   [Fact]
@@ -21,13 +21,13 @@ public class ToolRepeatGuardTests
     ToolRepeatGuard guard = new();
 
     _ = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", isError: true, Error);
-    string? nudge = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", isError: true, Error);
+    GuardOutcome nudge = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", isError: true, Error);
 
-    Assert.NotNull(nudge);
-    Assert.StartsWith("[repeat guard]", nudge, StringComparison.Ordinal);
-    Assert.Contains("'read'", nudge, StringComparison.Ordinal);
-    Assert.Contains("failed 2 consecutive times", nudge, StringComparison.Ordinal);
-    Assert.Contains(Error, nudge, StringComparison.Ordinal);
+    Assert.NotNull(nudge.NudgeLine);
+    Assert.StartsWith("[repeat guard]", nudge.NudgeLine, StringComparison.Ordinal);
+    Assert.Contains("'read'", nudge.NudgeLine, StringComparison.Ordinal);
+    Assert.Contains("failed 2 consecutive times", nudge.NudgeLine, StringComparison.Ordinal);
+    Assert.Contains(Error, nudge.NudgeLine, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -39,11 +39,11 @@ public class ToolRepeatGuardTests
 
     // The 3rd failure fires the BREAKER nudge (cross-argument policy), not silence:
     // the identical-args nudge fired at 2, the breaker takes over at 3.
-    string? breaker = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
-    Assert.NotNull(breaker);
-    Assert.Contains("any arguments", breaker, StringComparison.Ordinal);
+    GuardOutcome breaker = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
+    Assert.NotNull(breaker.NudgeLine);
+    Assert.Contains("any arguments", breaker.NudgeLine, StringComparison.Ordinal);
     // The 4th identical failure: no further nudge from either policy.
-    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error));
+    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error).NudgeLine);
   }
 
   [Fact]
@@ -55,10 +55,10 @@ public class ToolRepeatGuardTests
       _ = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
     }
 
-    string? nudge = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
+    GuardOutcome nudge = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
 
-    Assert.NotNull(nudge);
-    Assert.Contains("failed 5 consecutive times", nudge, StringComparison.Ordinal);
+    Assert.NotNull(nudge.NudgeLine);
+    Assert.Contains("failed 5 consecutive times", nudge.NudgeLine, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -67,12 +67,12 @@ public class ToolRepeatGuardTests
     ToolRepeatGuard guard = new();
     _ = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
 
-    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", isError: false, "file content"));
-    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error)); // fresh streak: 1
-    string? nudge = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
+    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", isError: false, "file content").NudgeLine);
+    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error).NudgeLine); // fresh streak: 1
+    GuardOutcome nudge = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
 
-    Assert.NotNull(nudge);
-    Assert.Contains("failed 2 consecutive times", nudge, StringComparison.Ordinal);
+    Assert.NotNull(nudge.NudgeLine);
+    Assert.Contains("failed 2 consecutive times", nudge.NudgeLine, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -81,7 +81,7 @@ public class ToolRepeatGuardTests
     ToolRepeatGuard guard = new();
     _ = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error);
 
-    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":2}", true, Error));
+    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":2}", true, Error).NudgeLine);
   }
 
   [Fact]
@@ -92,7 +92,7 @@ public class ToolRepeatGuardTests
     _ = guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error); // nudged
     _ = guard.Observe("write", /*lang=json,strict*/ "{\"p\":1}", true, Error); // different call
 
-    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error)); // streak restarts at 1
+    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{\"p\":1}", true, Error).NudgeLine); // streak restarts at 1
   }
 
   [Fact]
@@ -100,11 +100,11 @@ public class ToolRepeatGuardTests
   {
     ToolRepeatGuard guard = new();
     _ = guard.Observe("read", /*lang=json,strict*/ "{}", true, "Error [Boom]: first line\r\nsecond line");
-    string? nudge = guard.Observe("read", /*lang=json,strict*/ "{}", true, "Error [Boom]: first line\r\nsecond line");
+    GuardOutcome nudge = guard.Observe("read", /*lang=json,strict*/ "{}", true, "Error [Boom]: first line\r\nsecond line");
 
-    Assert.NotNull(nudge);
-    Assert.Contains("(Error [Boom]: first line)", nudge, StringComparison.Ordinal);
-    Assert.DoesNotContain("second line", nudge, StringComparison.Ordinal);
+    Assert.NotNull(nudge.NudgeLine);
+    Assert.Contains("(Error [Boom]: first line)", nudge.NudgeLine, StringComparison.Ordinal);
+    Assert.DoesNotContain("second line", nudge.NudgeLine, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -114,11 +114,11 @@ public class ToolRepeatGuardTests
     string longError = prefix + new string('x', 300);
     ToolRepeatGuard guard = new();
     _ = guard.Observe("read", /*lang=json,strict*/ "{}", true, longError);
-    string? nudge = guard.Observe("read", /*lang=json,strict*/ "{}", true, longError);
+    GuardOutcome nudge = guard.Observe("read", /*lang=json,strict*/ "{}", true, longError);
 
-    Assert.NotNull(nudge);
+    Assert.NotNull(nudge.NudgeLine);
     string expectedHead = prefix + new string('x', ToolRepeatGuard.MaxErrorHeadLength - prefix.Length) + "…";
-    Assert.Contains(expectedHead, nudge, StringComparison.Ordinal);
+    Assert.Contains(expectedHead, nudge.NudgeLine, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -128,6 +128,6 @@ public class ToolRepeatGuardTests
     _ = guard.Observe("read", /*lang=json,strict*/ "{}", true, Error);
     guard.Reset();
 
-    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{}", true, Error));
+    Assert.Null(guard.Observe("read", /*lang=json,strict*/ "{}", true, Error).NudgeLine);
   }
 }
