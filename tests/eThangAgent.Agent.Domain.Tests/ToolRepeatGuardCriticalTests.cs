@@ -116,6 +116,27 @@ public class ToolRepeatGuardCriticalTests
   }
 
   [Fact]
+  public void FourteenthCall_IdenticalToThirteenth_EndTurnNotPlainNudge()
+  {
+    // The identical-args streak branch must never swallow a terminal outcome: the
+    // 14th call repeats the 13th's arguments, so the identical-args streak hits its
+    // nudge threshold on the very call that must end the turn.
+    ToolRepeatGuard guard = new();
+    for (int i = 1; i <= 12; i++)
+    {
+      _ = guard.Observe("exec", Args(i), true, Error);
+    }
+
+    GuardOutcome thirteenth = guard.Observe("exec", Args(13), true, Error);
+    Assert.True(thirteenth.Critical);
+    Assert.False(thirteenth.EndTurn);
+
+    GuardOutcome fourteenth = guard.Observe("exec", Args(13), true, Error);
+    Assert.True(fourteenth.EndTurn);
+    Assert.Null(fourteenth.NudgeLine);
+  }
+
+  [Fact]
   public void Reset_ClearsCriticalFiredState()
   {
     ToolRepeatGuard guard = new();

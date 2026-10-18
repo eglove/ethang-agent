@@ -96,6 +96,11 @@ public sealed class ToolRepeatGuard
     }
 
     _streak++;
+    if (outcome.EndTurn || outcome.Critical)
+    {
+      return outcome;  // a terminal outcome is never swallowed by the streak nudge
+    }
+
     return _streak is FirstNudgeAt or SecondNudgeAt
         ? new GuardOutcome(Format(name, _streak, errorContent), false, false)
         : outcome;
