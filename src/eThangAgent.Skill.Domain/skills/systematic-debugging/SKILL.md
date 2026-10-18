@@ -161,7 +161,7 @@ the previous one is done.
 3. **Verify Before Continuing**
    - Did it work? Yes → Phase 4
    - Didn't work? Form NEW hypothesis
-   - DON'T add more fixes on top
+   - Don't add more fixes on top
 
 4. **When You Don't Know**
    - Say "I don't understand X"
@@ -259,7 +259,7 @@ evidence actually shows - which is why the loop is the faster path, not the slow
 | "Emergency, no time for process" | Systematic debugging is FASTER than guess-and-check thrashing. The loop is the cheaper path under pressure. |
 | "Just try this first, then investigate" | The first fix sets the pattern - and chosen without a prediction, its result can't separate cause from coincidence. |
 | "I'll write test after confirming fix works" | Untested fixes don't stick. No failing test first means no prediction to confirm - the test IS the experiment. |
-| "Multiple fixes at once saves time" | Can't isolate what worked. A pass proves nothing about which change mattered; a fail eliminates nothing. |
+| "Multiple fixes at once saves time" | Can't isolate what worked: a pass proves nothing about which change mattered, a fail eliminates nothing, and new bugs ride along. |
 | "Reference too long, I'll adapt the pattern" | Partial understanding guarantees bugs - the parts you skipped are what produces the failure. Read it completely. |
 | "I see the problem, let me fix it" | Seeing symptoms is not understanding root cause. The failure is an observation; the cause is an untested hypothesis. |
 | "One more fix attempt" (after 2+ failures) | 3+ failures is evidence of an architecture problem, not a nearly-right fix. Question the pattern. |
