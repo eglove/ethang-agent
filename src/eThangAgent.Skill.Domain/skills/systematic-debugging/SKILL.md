@@ -46,7 +46,8 @@ Use for ANY technical issue:
 
 ## The Four Phases
 
-You MUST complete each phase before proceeding to the next.
+Each phase rests on the one before it - the next phase's evidence means nothing until
+the previous one is done.
 
 ### Phase 1: Root Cause Investigation
 
@@ -176,7 +177,7 @@ You MUST complete each phase before proceeding to the next.
    - Simplest possible reproduction
    - Automated test if possible
    - One-off test script if no framework
-   - MUST have before fixing
+   - The test comes before the fix
    - Use the `test-driven-development` skill for writing proper failing tests
 
 2. **Implement Single Fix**
@@ -192,11 +193,10 @@ You MUST complete each phase before proceeding to the next.
    - Use the `verification-before-completion` skill before claiming success
 
 4. **If Fix Doesn't Work**
-   - STOP
    - Count: How many fixes have you tried?
    - If < 3: Return to Phase 1, re-analyze with new information
-   - **If ≥ 3: STOP and question the architecture (step 5 below)**
-   - DON'T attempt Fix #4 without architectural discussion
+   - **If ≥ 3: question the architecture (step 5 below)**
+   - Fix #4 needs an architectural discussion first.
 
 5. **If 3+ Fixes Failed: Question Architecture**
 
@@ -205,12 +205,14 @@ You MUST complete each phase before proceeding to the next.
    - Fixes require "massive refactoring" to implement
    - Each fix creates new symptoms elsewhere
 
-   **STOP and question fundamentals:**
+   **Question the fundamentals:**
    - Is this pattern fundamentally sound?
    - Are we "sticking with it through sheer inertia"?
    - Should we refactor architecture vs. continue fixing symptoms?
 
    **Discuss with your human partner before attempting more fixes**
+
+   This is NOT a failed hypothesis - this is a wrong architecture.
 
 ## Loop checks - signals your reasoning has left the loop
 
@@ -229,9 +231,6 @@ evidence that would make it a hypothesis instead.
 - Proposing solutions before tracing data flow - the symptom is being treated as the cause.
 - "One more fix attempt" (when already tried 2+) - the accumulated failures are evidence against the current hypothesis, not an argument for repeating it.
 - Each fix reveals a new problem in a different place - the evidence now points at the architecture rather than at any single cause.
-
-Each of these means the hypothesis is being assumed rather than tested - return to
-observation and let the evidence name the cause.
 
 If 3+ fixes have failed: question the architecture (see Phase 4.5).
 
@@ -256,14 +255,14 @@ evidence actually shows - which is why the loop is the faster path, not the slow
 
 | Prediction | What the evidence shows |
 |------------|-------------------------|
-| "Issue is simple, don't need process" | Simple issues have root causes too. The loop is fast for simple bugs - observation is usually one read of the error. |
-| "Emergency, no time for process" | Systematic debugging is FASTER than guess-and-check thrashing. Under time pressure the loop is the cheaper path, not the luxury one. |
-| "Just try this first, then investigate" | The first fix sets the pattern, and it was chosen without a prediction - so its result cannot distinguish cause from coincidence. Observe first; then the first fix is an experiment. |
-| "I'll write test after confirming fix works" | An untested fix doesn't stick: without a failing test first there is no prediction to confirm and no evidence the change addressed the cause rather than the symptom. The test first IS the experiment. |
-| "Multiple fixes at once saves time" | Can't isolate what worked - several variables changed, so a pass proves nothing about which one mattered and a fail eliminates nothing. That is how new bugs get introduced alongside the old one. |
-| "Reference too long, I'll adapt the pattern" | Partial understanding guarantees bugs: the parts you skipped are exactly the parts whose absence produces the failure. Read it completely, then the differences you find are evidence. |
-| "I see the problem, let me fix it" | Seeing symptoms is not understanding root cause - the visible failure is an observation, and the cause is a hypothesis that has not been tested. |
-| "One more fix attempt" (after 2+ failures) | 3+ failures is evidence of an architectural problem, not of a fix that was nearly right. Question the pattern instead of fixing again. |
+| "Issue is simple, don't need process" | Simple issues have root causes too. Observation is usually one read of the error. |
+| "Emergency, no time for process" | Systematic debugging is FASTER than guess-and-check thrashing. The loop is the cheaper path under pressure. |
+| "Just try this first, then investigate" | The first fix sets the pattern - and chosen without a prediction, its result can't separate cause from coincidence. |
+| "I'll write test after confirming fix works" | Untested fixes don't stick. No failing test first means no prediction to confirm - the test IS the experiment. |
+| "Multiple fixes at once saves time" | Can't isolate what worked. A pass proves nothing about which change mattered; a fail eliminates nothing. |
+| "Reference too long, I'll adapt the pattern" | Partial understanding guarantees bugs - the parts you skipped are what produces the failure. Read it completely. |
+| "I see the problem, let me fix it" | Seeing symptoms is not understanding root cause. The failure is an observation; the cause is an untested hypothesis. |
+| "One more fix attempt" (after 2+ failures) | 3+ failures is evidence of an architecture problem, not a nearly-right fix. Question the pattern. |
 
 ## Quick Reference
 
