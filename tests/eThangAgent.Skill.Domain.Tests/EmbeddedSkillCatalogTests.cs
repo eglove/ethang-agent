@@ -11,11 +11,10 @@ public class EmbeddedSkillCatalogTests
   [
       "commit-style-conventional", "commit-style-gitmoji",
         "commit-style-none", "dispatching-parallel-agents", "ethang-tools-mapping",
-        "executing-plans", "finishing-a-development-branch", "grill", "receiving-code-review",
-        "requesting-code-review", "scientific-method", "subagent-driven-development",
-        "systematic-debugging", "test-driven-development", "using-git-worktrees",
-        "using-skills", "verification-before-completion", "writing-plans",
-        "writing-skills",
+        "executing-plans", "experiment-driven-development", "finishing-a-development-branch", "grill",
+        "receiving-code-review", "requesting-code-review", "scientific-method", "systematic-debugging",
+        "test-driven-development", "using-git-worktrees", "using-skills",
+        "verification-before-completion", "writing-plans", "writing-skills",
     ];
 
   [Fact]
@@ -57,7 +56,7 @@ public class EmbeddedSkillCatalogTests
     // report must carry a RED-transcript artifact (command + failing output
     // verbatim), the task reviewer audits it, and the TDD skill's checklist
     // tells the implementer to capture it.
-    Result<SkillDefinition> sdd = await _catalog.GetAsync("subagent-driven-development", ct: TestContext.Current.CancellationToken);
+    Result<SkillDefinition> sdd = await _catalog.GetAsync("experiment-driven-development", ct: TestContext.Current.CancellationToken);
     Assert.True(sdd.IsSuccess);
     Assert.Contains("RED transcript", sdd.Value.Body, StringComparison.Ordinal);
     Assert.Contains("exact test command", sdd.Value.Body, StringComparison.Ordinal);
@@ -72,7 +71,7 @@ public class EmbeddedSkillCatalogTests
   [
       ("grill", "This is the observation leg of the scientific loop", "Interview the user relentlessly"),
       ("writing-plans", "This is the prediction leg of the scientific loop", "Write comprehensive implementation plans"),
-      ("subagent-driven-development", "This carries the experiment and external-verdict legs", "Execute a plan by dispatching"),
+      ("experiment-driven-development", "This carries the experiment and external-verdict legs", "Execute a plan by dispatching"),
       ("requesting-code-review", "This is the external-verdict leg", "Dispatch a code reviewer subagent"),
       ("receiving-code-review", "This is the analysis leg", "Code review requires technical evaluation"),
   ];

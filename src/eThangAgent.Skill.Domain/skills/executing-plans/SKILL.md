@@ -11,7 +11,7 @@ Load plan, review critically, execute all tasks, report when complete.
 
 **Announce at start:** "I'm using the executing-plans skill to implement this plan."
 
-**Note:** This harness always has subagents — if you are executing a plan with independent tasks in this session, prefer subagent-driven-development instead of this skill.
+**Note:** This harness always has subagents — if you are executing a plan with independent tasks in this session, prefer experiment-driven-development instead of this skill.
 
 ## The Process
 

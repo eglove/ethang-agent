@@ -1,9 +1,9 @@
 ---
-name: subagent-driven-development
+name: experiment-driven-development
 description: Execute plan tasks through fresh subagents with two-stage review between tasks. Use when a plan has independent tasks that benefit from isolated execution and review.
 ---
 
-# Subagent-Driven Development
+# Experiment-Driven Development
 
 This carries the experiment and external-verdict legs of the scientific loop: each task
 is an experiment run by a fresh implementer, and each review is an external verdict the
@@ -32,7 +32,7 @@ digraph when_to_use {
     "Have implementation plan?" [shape=diamond];
     "Tasks mostly independent?" [shape=diamond];
     "Stay in this session?" [shape=diamond];
-    "subagent-driven-development" [shape=box];
+    "experiment-driven-development" [shape=box];
     "executing-plans" [shape=box];
     "Manual execution or grill first" [shape=box];
 
@@ -40,7 +40,7 @@ digraph when_to_use {
     "Have implementation plan?" -> "Manual execution or grill first" [label="no"];
     "Tasks mostly independent?" -> "Stay in this session?" [label="yes"];
     "Tasks mostly independent?" -> "Manual execution or grill first" [label="no - tightly coupled"];
-    "Stay in this session?" -> "subagent-driven-development" [label="yes"];
+    "Stay in this session?" -> "experiment-driven-development" [label="yes"];
     "Stay in this session?" -> "executing-plans" [label="no"];
 }
 ```
@@ -344,7 +344,7 @@ Use finishing-a-development-branch.
 ## Example Workflow
 
 ```text
-You: I'm using Subagent-Driven Development to execute this plan.
+You: I'm using Experiment-Driven Development to execute this plan.
 
 [Setup: worktree verified]
 [plan.show <plan-id> once; note Global Constraints]
