@@ -234,7 +234,7 @@ matching skill over improvising and load the full body with `skill_view`. Skills
 three sources with fixed precedence: built-in > file > learned.
 
 - **Built-in skills** ship with the app: the development-methodology set (debugging,
-  brainstorming, TDD, planning, code review, worktrees, sub-agent driving, verification),
+  grill, TDD, planning, code review, worktrees, sub-agent driving, verification),
   the `using-skills` session contract, the tools-mapping skill, and one commit-guidance skill
   per commit style.
 - **File skills** load from directories you configure in the **Open Workspace**

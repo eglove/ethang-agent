@@ -91,14 +91,14 @@ public class SkillViewToolTests
   [Fact]
   public async Task BuiltInHit_AnnotationExact_BodyVerbatim_RecordsNoUsage()
   {
-    (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(builtIns: [Def("brainstorming", "First line.\nSecond line.")]);
+    (SkillViewTool? tool, FakeLearnedStore? store) = MakeTool(builtIns: [Def("sample-skill", "First line.\nSecond line.")]);
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_view",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"name":"brainstorming"}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"name":"sample-skill"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.False(result.IsError);
-    Assert.Equal("[skill brainstorming | builtin | v1]\nFirst line.\nSecond line.",
+    Assert.Equal("[skill sample-skill | builtin | v1]\nFirst line.\nSecond line.",
         result.Content);
     Assert.Empty(store.UsageCalls);
   }

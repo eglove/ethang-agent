@@ -5,7 +5,7 @@ description: Interview the user to extract real requirements before creative wor
 
 Interview the user relentlessly until you reach a shared understanding. Map their
 request as a **design tree**: every decision branches into the decisions that hang
-off it. This skill runs BEFORE brainstorming whenever the input is thin — a bare
+off it. This skill runs whenever the input is thin — a bare
 question, a one-line request — because a plan built on an unexamined ask wastes
 the whole downstream process.
 
@@ -50,5 +50,5 @@ The _decisions_ are the user's: put each to them and wait.
 
 The session is done when the frontier is empty: every branch of the design tree
 visited, nothing left silently assumed. Do not act on the request until the user
-confirms you have reached a shared understanding — then hand off to brainstorming
-(or straight to work, if the request turned out to be bounded).
+confirms you have reached a shared understanding — then hand off to writing-plans
+for an unbounded request, or straight to work when it turned out to be bounded.

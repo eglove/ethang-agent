@@ -31,7 +31,7 @@ public class SkillListToolTests
 
   [Theory]
   [InlineData(/*lang=json,strict*/ """{"timeoutSeconds":120,"verbose":true}""")]
-  [InlineData(/*lang=json,strict*/ """{"timeoutSeconds":120,"name":"brainstorming"}""")]
+  [InlineData(/*lang=json,strict*/ """{"timeoutSeconds":120,"name":"sample-skill"}""")]
   public async Task AnyParameter_IsRejected(string args)
   {
     ToolResult result = await MakeTool().ExecuteAsync(new RawToolInput("skill_list", args), ct: TestContext.Current.CancellationToken);
@@ -70,7 +70,7 @@ public class SkillListToolTests
   {
     string longDescription = new('d', 61);
     SkillListTool tool = new(
-        new FakeCatalog([Def("brainstorming", longDescription)]),
+        new FakeCatalog([Def("sample-skill", longDescription)]),
         new FakeLearnedStore(
             [Def("my-skill", "Remember deployment quirks", version: 3, source: SkillSource.Learned)]));
 
@@ -78,8 +78,8 @@ public class SkillListToolTests
 
     string expected =
         "[skills: 2 available]\n" +
-        $"{"brainstorming",-20} builtin v1  {new string('d', 60)}\u2026\n" +
-        $"{"my-skill",-20} learned v3  Remember deployment quirks";
+        $"{"my-skill",-20} learned v3  Remember deployment quirks\n" +
+        $"{"sample-skill",-20} builtin v1  {new string('d', 60)}\u2026";
     Assert.False(result.IsError);
     Assert.Equal(expected, result.Content);
   }
@@ -256,12 +256,12 @@ public class SkillListToolTests
   [Fact]
   public async Task LearnedStoreFailure_AppendsWarning_StillSucceeds()
   {
-    ToolResult result = await MakeTool([Def("brainstorming", "short")], failStoreList: true)
+    ToolResult result = await MakeTool([Def("sample-skill", "short")], failStoreList: true)
             .ExecuteAsync(new RawToolInput("skill_list", /*lang=json,strict*/ "{\"timeoutSeconds\":120}"), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal(
         "[skills: 1 available]\n" +
-        $"{"brainstorming",-20} builtin v1  short\n" +
+        $"{"sample-skill",-20} builtin v1  short\n" +
         "[warning] learned skills unavailable: store down",
         result.Content);
   }

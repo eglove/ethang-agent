@@ -9,7 +9,7 @@ public class EmbeddedSkillCatalogTests
 
   private static readonly string[] ExpectedNames =
   [
-      "brainstorming", "commit-style-conventional", "commit-style-gitmoji",
+      "commit-style-conventional", "commit-style-gitmoji",
         "commit-style-none", "dispatching-parallel-agents", "ethang-tools-mapping",
         "executing-plans", "finishing-a-development-branch", "grill", "receiving-code-review",
         "requesting-code-review", "subagent-driven-development",
@@ -19,7 +19,7 @@ public class EmbeddedSkillCatalogTests
     ];
 
   [Fact]
-  public async Task Lists_AllNineteenSkills_WithMetadata()
+  public async Task Lists_AllEighteenSkills_WithMetadata()
   {
     Result<IReadOnlyList<SkillDefinition>> r = await _catalog.ListAsync(TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
@@ -34,21 +34,11 @@ public class EmbeddedSkillCatalogTests
   }
 
   [Fact]
-  public async Task Get_ReturnsVerbatimBody_MarkersIntact()
+  public async Task Get_ReturnsVerbatimBody_AfterFrontmatterSplit()
   {
-    Result<SkillDefinition> r = await _catalog.GetAsync("brainstorming", ct: TestContext.Current.CancellationToken);
+    Result<SkillDefinition> r = await _catalog.GetAsync("grill", ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
-    Assert.Contains("HARD-GATE", r.Value.Body, StringComparison.Ordinal);          // verbatim upstream marker
-    Assert.StartsWith("# Brainstorming", r.Value.Body, StringComparison.Ordinal);   // body preserved verbatim after frontmatter split
-  }
-
-  [Fact]
-  public async Task Brainstorming_Does_Not_Mandate_OneQuestionAtATime()
-  {
-    // Grand plan: the LLM formats its own questions — the one-at-a-time rule is gone.
-    Result<SkillDefinition> r = await _catalog.GetAsync("brainstorming", ct: TestContext.Current.CancellationToken);
-    Assert.True(r.IsSuccess);
-    Assert.DoesNotContain("one at a time", r.Value.Body, StringComparison.OrdinalIgnoreCase);
+    Assert.StartsWith("Interview the user", r.Value.Body, StringComparison.Ordinal);   // body preserved verbatim after frontmatter split
   }
 
   [Fact]

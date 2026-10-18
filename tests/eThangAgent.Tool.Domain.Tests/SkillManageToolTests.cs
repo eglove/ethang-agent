@@ -175,11 +175,11 @@ public class SkillManageToolTests
   public async Task Create_OverBuiltIn_NameCollision_StoreNeverCalled()
   {
     (SkillManageTool? tool, FakeCatalog? catalog, FakeLearnedStore? store) =
-        MakeTool(builtIns: [Def("brainstorming", "Built-in body.")]);
+        MakeTool(builtIns: [Def("sample-skill", "Built-in body.")]);
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Create","name":"brainstorming","description":"d","body":"b"}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"action":"Create","name":"sample-skill","description":"d","body":"b"}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("NameCollision", result.Content, StringComparison.Ordinal);
@@ -299,11 +299,11 @@ public class SkillManageToolTests
   public async Task Update_BuiltIn_BuiltInImmutable_StoreNeverCalled()
   {
     (SkillManageTool? tool, FakeCatalog? catalog, FakeLearnedStore? store) =
-        MakeTool(builtIns: [Def("brainstorming", "Built-in body.")]);
+        MakeTool(builtIns: [Def("sample-skill", "Built-in body.")]);
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Update","name":"brainstorming","body":"New body."}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"action":"Update","name":"sample-skill","body":"New body."}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("BuiltInImmutable", result.Content, StringComparison.Ordinal);
@@ -436,11 +436,11 @@ public class SkillManageToolTests
   public async Task Delete_BuiltIn_BuiltInImmutable_StoreNeverCalled()
   {
     (SkillManageTool? tool, FakeCatalog? catalog, FakeLearnedStore? store) =
-        MakeTool(builtIns: [Def("brainstorming", "Built-in body.")]);
+        MakeTool(builtIns: [Def("sample-skill", "Built-in body.")]);
 
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("skill_manage",
                                  /*lang=json,strict*/
-                                 """{"timeoutSeconds":120,"action":"Delete","name":"brainstorming","confirm":true}"""), ct: TestContext.Current.CancellationToken);
+                                 """{"timeoutSeconds":120,"action":"Delete","name":"sample-skill","confirm":true}"""), ct: TestContext.Current.CancellationToken);
 
     Assert.True(result.IsError);
     Assert.Contains("BuiltInImmutable", result.Content, StringComparison.Ordinal);

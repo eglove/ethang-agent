@@ -5,7 +5,7 @@ namespace eThangAgent.Skill.Domain.Tests;
 public class SkillSpecificationsTests
 {
   [Theory]
-  [InlineData("brainstorming")]
+  [InlineData("grill")]
   [InlineData("a")]
   [InlineData("abc-123")]
   public void ValidNames_Pass(string name) =>
@@ -13,7 +13,7 @@ public class SkillSpecificationsTests
 
   [Theory]
   [InlineData("")]
-  [InlineData("Brainstorming")]
+  [InlineData("Grill")]
   [InlineData("-lead")]
   [InlineData("has space")]
   [InlineData("way-too-long-0123456789012345678901234567890123456789012345678901234567890123")]
