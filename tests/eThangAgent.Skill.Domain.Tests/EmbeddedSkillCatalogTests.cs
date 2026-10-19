@@ -67,6 +67,40 @@ public class EmbeddedSkillCatalogTests
     Assert.Contains("RED transcript", tdd.Value.Body, StringComparison.Ordinal);
   }
 
+  [Fact]
+  public async Task FlowSkill_Carries_PredictionAndVerdictContracts_InBothTemplates()
+  {
+    // The ledger only binds a claim to evidence if the flow's own dispatch templates
+    // make the implementer record a prediction before experimenting and a verdict after,
+    // and make the reviewer audit the ledger instead of trusting the report's prose.
+    Result<SkillDefinition> r = await _catalog.GetAsync("experiment-driven-development", ct: TestContext.Current.CancellationToken);
+    Assert.True(r.IsSuccess);
+    string body = r.Value.Body;
+
+    // Implementer dispatch template: prediction before the experiment, verdict after.
+    Assert.Contains("record-prediction", body, StringComparison.Ordinal);
+    Assert.Contains("falsifiedBy", body, StringComparison.Ordinal);
+    Assert.Contains("record-verdict", body, StringComparison.Ordinal);
+    Assert.Contains("record-skip", body, StringComparison.Ordinal);
+    Assert.Contains("VERDICT: <in report:", body, StringComparison.Ordinal);
+
+    // Task reviewer template: the ledger audit and its escalation rule.
+    Assert.Contains("LEDGER AUDIT", body, StringComparison.Ordinal);
+    Assert.Contains("NEEDS_CONTEXT, not a", body, StringComparison.Ordinal);
+
+    // Ordering, pinned positionally (the file's own precedent): a prediction block that
+    // drifted below the report paragraph would still contain every phrase above while
+    // telling the implementer to predict after it already reported.
+    int predictionIndex = body.IndexOf("record-prediction", StringComparison.Ordinal);
+    int reportIndex = body.IndexOf("Write your FULL report", StringComparison.Ordinal);
+    Assert.True(reportIndex >= 0, "missing the report paragraph");
+    Assert.True(predictionIndex < reportIndex, "the prediction requirement must precede the report paragraph");
+    int auditIndex = body.IndexOf("LEDGER AUDIT", StringComparison.Ordinal);
+    int qualityIndex = body.IndexOf("2. TASK QUALITY", StringComparison.Ordinal);
+    Assert.True(qualityIndex >= 0, "missing the task-quality review item");
+    Assert.True(auditIndex > qualityIndex, "the ledger audit must follow the task-quality item");
+  }
+
   private static readonly (string Skill, string LegHeader, string Anchor)[] PipelineLegHeaders =
   [
       ("grill", "This is the observation leg of the scientific loop", "Interview the user relentlessly"),

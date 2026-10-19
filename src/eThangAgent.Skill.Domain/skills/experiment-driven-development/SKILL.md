@@ -408,13 +408,26 @@ Interfaces from earlier tasks you will build on:
 
 Ambiguity resolutions: <rulings you already made, or "none">
 
+Before you experiment, record what you expect. Call the `experiment` tool with
+action `record-prediction`, the plan's slug, the hypothesis id this task tests, the
+claim, and `falsifiedBy` — the exact command whose output would prove the claim
+wrong. Then run that command. A prediction you never named is a change you cannot
+be wrong about, which means your report can only ever confirm itself.
+
+After you run it, record the outcome with action `record-verdict`: the prediction id,
+`confirmed`, `refuted`, or `inconclusive`, and the evidence (the command and what it
+actually printed). A refuted prediction is a result, not a failure — say what it
+eliminated. If the task genuinely needs no experiment (a pure rename, a docs edit),
+record action `record-skip` with the reason instead.
+
 Write your FULL report — what you did, files touched, test commands with
 output summaries, self-review notes — to
   state.set key="sdd.<slug>/task-N-report" value=<full report>
 The report MUST include the RED transcript for every new test: the exact test
 command you ran and the verbatim failing output, captured when you watched it
 fail — before implementing. If no test changed this round, state why RED does
-not apply.
+not apply. The report also carries your prediction's verdict: the falsifying
+command, its fresh output, and what the output says about the claim.
 Appending later fix rounds goes to the SAME key with CAS.
 
 Return ONLY this contract, nothing else:
@@ -422,6 +435,7 @@ STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 COMMITS: <list>
 TESTS: <one line>
 RED: <in report: exact command + verbatim failing output, or "n/a — no test changed">
+VERDICT: <in report: prediction id, confirmed|refuted|inconclusive, or "skip — <reason>">
 CONCERNS: <none, or one line each>
 
 Rules:
@@ -457,6 +471,13 @@ Review for BOTH, with separate verdicts:
 2. TASK QUALITY — approve, or findings rated Critical / Important / Minor.
    Judge correctness, test honesty (do tests assert the behavior?), and fit
    with surrounding code.
+3. LEDGER AUDIT — the implementer's prediction and verdict are in the plan's ledger
+   (call `experiment` with action `list` and the plan's slug). Check that the
+   prediction names a real falsifying command, that the verdict's evidence shows that
+   command's actual output, and that the verdict word matches what the output shows.
+   A report claiming success with no verdict in the ledger is NEEDS_CONTEXT, not a
+   pass: the claim is untested, and untested claims are what this review exists to
+   catch.
 
 You may mark items "⚠️ Cannot verify from diff" — the controller resolves those.
 
