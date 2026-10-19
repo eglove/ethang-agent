@@ -234,13 +234,16 @@ public static class AgentComposition
           "Invoke a named catalog skill on the user's behalf (including manual skills)."),
   ];
 
-  /// <summary>Context and git tool bindings: the workspace task list, context edit and
-  ///     trim, git status, diff, commit, and worktrees.</summary>
+  /// <summary>Context and git tool bindings: the workspace task list, the experiment
+  ///     ledger, context edit and trim, git status, diff, commit, and worktrees.</summary>
   private static IReadOnlyList<AgentToolBinding> ContextAndGitToolBindings(IServiceProvider sp) =>
   [
       new AgentToolBinding(
           new TodoTool(new StateServiceTodoListStore(sp.GetRequiredService<IStateService>())),
           "Track a workspace task list."),
+      new AgentToolBinding(
+          new ExperimentTool(sp.GetRequiredService<IExperimentLedgerStore>()),
+          "Record the scientific loop's hypotheses, predictions, verdicts, observations, conclusions, and skips."),
       new AgentToolBinding(
           new ContextEditTool(sp.GetRequiredService<IConversationContextService>()),
           "Edit this conversation's own context (list, remove, shorten messages)."),
@@ -359,6 +362,9 @@ public static class AgentComposition
             sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
         .AddSingleton<PlanService>()
         .AddSingleton<IPlanTodoCleaner>(sp => new StateServicePlanTodoCleaner(sp.GetRequiredService<IStateService>()))
+        // The experiment ledger rides state keys (append-only), exactly as the todo tool
+        // rides todo/list: the tool (a later task) resolves this port, never IStateService.
+        .AddSingleton<IExperimentLedgerStore>(sp => new StateServiceExperimentLedgerStore(sp.GetRequiredService<IStateService>()))
         .AddSingleton<IAgentStore, SqliteAgentStore>()
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
