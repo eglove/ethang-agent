@@ -61,14 +61,28 @@ public class ScientificLoopE2ETests
         openContent, StringComparison.Ordinal);
 
     string closedContent = E2E.GetLastToolMessage(host.Mock.RequestBodies[2]);
-    Assert.Contains($"[experiment] verdict 1 recorded in {Ledger}", closedContent, StringComparison.Ordinal);
-    Assert.Contains("verdict 1 (prediction 1): confirmed", closedContent, StringComparison.Ordinal);
+    // The exec program joins four results with '|'. Splitting pins WHICH segment satisfies
+    // each assertion, so a passing check can never ride a neighbouring segment's text.
+    string[] segments = closedContent.Split('|');
+    Assert.Equal(4, segments.Length);
+    string verdictSegment = segments[0];
+    string closedSegment = segments[1];
+    string refusedSegment = segments[2];
+    string afterSegment = segments[3];
+
+    Assert.Contains($"[experiment] verdict 1 recorded in {Ledger}", verdictSegment, StringComparison.Ordinal);
+    Assert.Contains("verdict 1 (prediction 1): confirmed", closedSegment, StringComparison.Ordinal);
     // The predicate moved: no prediction is open, so the gate passes.
-    Assert.Contains($"[experiment] {Ledger}: 3 record(s), 0 open prediction(s)", closedContent, StringComparison.Ordinal);
-    // A verdict against a nonexistent prediction is refused, and nothing is appended: the
-    // post-refusal listing still reports the same three records.
-    Assert.Contains("Error [PredictionNotFound]", closedContent, StringComparison.Ordinal);
-    Assert.DoesNotContain("4 record(s)", closedContent, StringComparison.Ordinal);
+    Assert.Contains($"[experiment] {Ledger}: 3 record(s), 0 open prediction(s)", closedSegment, StringComparison.Ordinal);
+
+    // A verdict against a nonexistent prediction is refused, and names its reason.
+    Assert.Contains("Error [PredictionNotFound]", refusedSegment, StringComparison.Ordinal);
+    // The unchanged-ledger half, pinned to the WHOLE post-refusal listing rather than to a
+    // record count: the listing is rendered from the ledger, so a refusal that appends
+    // anything at all — one record or ten — makes the after-segment differ from the
+    // closed-segment. Byte equality catches every leak size; a magic count caught only one.
+    Assert.Contains($"[experiment] {Ledger}: 3 record(s), 0 open prediction(s)", afterSegment, StringComparison.Ordinal);
+    Assert.Equal(closedSegment, afterSegment);
 
     string assistant = string.Join("", host.Vm.Transcript.Entries
         .OfType<AssistantTextEntry>().Select(a => a.Text));
