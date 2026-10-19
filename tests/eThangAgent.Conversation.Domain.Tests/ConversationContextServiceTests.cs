@@ -80,6 +80,22 @@ public class ConversationContextServiceTests
     Assert.Equal(4, conversation.Messages.Count);
   }
 
+  // Issue #222 (same root cause as context_trim): while context_edit runs, its own
+  // call is the trailing unanswered message. A shrink that keeps that call must pass.
+  [Fact]
+  public void Remove_WhileItsOwnCallIsInFlight_Succeeds()
+  {
+    Conversation conversation = SeededConversation();
+    conversation.AddAssistantMessage("", [new ToolCall("c2", "context_edit", "{}")]);
+    ConversationContextService service = new(conversation);
+
+    Result<string> removed = service.Remove("2..3");
+
+    Assert.True(removed.IsSuccess);
+    Assert.Equal(3, conversation.Messages.Count);
+    Assert.Equal("c2", conversation.Messages[^1].ToolCalls![0].Id);   // in-flight call kept
+  }
+
   [Fact]
   public void Remove_LeavesAssistantHead_Fails_OrphanHead()
   {

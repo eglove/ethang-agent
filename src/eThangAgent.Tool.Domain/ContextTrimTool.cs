@@ -21,8 +21,9 @@ public sealed class ContextTrimTool(IConversationContextService service) : ITool
 
   public ToolDefinition Definition { get; } = new(
       "context_trim",
-      "Lightweight cleanup of THIS conversation's tool results. action is exactly Trim " +
-      "or Shorten (case-sensitive); selection is 'last N', 'S..E', or a bare position " +
+      "Lightweight cleanup of THIS conversation's tool results. timeoutSeconds, action, " +
+      "and selection are mandatory: action is exactly Trim or Shorten (case-sensitive); " +
+      "selection is 'last N', 'S..E', or a bare position " +
       "(1-based, current list - run context_edit List to see it). Trim replaces the " +
       "selected tool results with one-line markers preserving what produced them and " +
       "how to re-fetch it; Shorten replaces ONE selected tool result with your excerpt " +
@@ -41,7 +42,7 @@ public sealed class ContextTrimTool(IConversationContextService service) : ITool
           new ToolParameter(TextName, ToolParameterType.Text,
               "Shorten only: the excerpt to keep for the selected tool result. Non-empty."),
       ],
-      ["timeoutSeconds", "action"]);
+      ["timeoutSeconds", "action", "selection"]);
 
   public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
   {

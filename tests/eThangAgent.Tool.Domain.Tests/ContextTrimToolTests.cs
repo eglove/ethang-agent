@@ -34,11 +34,14 @@ public class ContextTrimToolTests
   private static RawToolInput Input(string json) => new("context_trim", json);
 
   [Fact]
-  public void Definition_ExposesTwoActions_RequiresOnlyTimeout()
+  public void Definition_ExposesTwoActions_RequiresTimeoutActionAndSelection()
   {
+    // Issue #222: ValidateForAction rejects a missing 'selection' for BOTH actions, so
+    // the declared schema must say so - a caller reading the schema must be able to
+    // tell that selection is mandatory.
     ContextTrimTool tool = new(new FakeContextService());
     Assert.Equal("context_trim", tool.Definition.Name);
-    Assert.Equal(["timeoutSeconds", "action"], tool.Definition.RequiredParameters);
+    Assert.Equal(["timeoutSeconds", "action", "selection"], tool.Definition.RequiredParameters);
     Assert.Equal(4, tool.Definition.Parameters.Count);
   }
 

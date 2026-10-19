@@ -125,7 +125,10 @@ public class Conversation(IEnumerable<Message>? seed = null)
   /// <summary>Replaces the whole message list (compaction). The aggregate enforces its
   ///     protocol invariants before mutating: the replacement is non-empty, every tool
   ///     result answers an earlier assistant tool call, and every assistant tool call
-  ///     receives a later result. Violations leave the conversation untouched.</summary>
+  ///     receives a later result — except the single trailing unanswered call, which is
+  ///     the call currently executing (issue #222: a context-shrinking tool mutates the
+  ///     conversation while its own call is still in flight, so refusing that one call
+  ///     made every trim fail). Violations leave the conversation untouched.</summary>
   public Result<bool> Compact(IReadOnlyList<Message> updated)
   {
     ArgumentNullException.ThrowIfNull(updated);
@@ -148,10 +151,12 @@ public class Conversation(IEnumerable<Message>? seed = null)
 
   /// <summary>Checks the tool-call/result pairing protocol over a candidate replacement:
   ///     every tool result answers an earlier assistant tool call, and every assistant
-  ///     tool call receives a later tool result. Null when the replacement is valid,
-  ///     otherwise the first violated invariant.</summary>
+  ///     tool call receives a later tool result — save the single trailing unanswered
+  ///     call, which is the call in flight while a tool mutates the conversation. Null
+  ///     when the replacement is valid, otherwise the first violated invariant.</summary>
   private static DomainError? ValidateReplacement(IReadOnlyList<Message> updated)
   {
+    HashSet<string> inFlight = InFlightCallIds(updated);
     for (int i = 0; i < updated.Count; i++)
     {
       if (ValidateToolResult(updated, i) is { } resultError)
@@ -159,13 +164,26 @@ public class Conversation(IEnumerable<Message>? seed = null)
         return resultError;
       }
 
-      if (ValidateToolCalls(updated, i) is { } callsError)
+      if (ValidateToolCalls(updated, i, inFlight) is { } callsError)
       {
         return callsError;
       }
     }
 
     return null;
+  }
+
+  /// <summary>The calls considered in flight: every tool call of the LAST message when
+  ///     that message is an assistant message carrying calls. The loop appends the
+  ///     assistant message before dispatching, so while a tool runs its own call — and
+  ///     every sibling of a parallel batch — is trailing with no result yet. Empty when
+  ///     the trailing message carries no calls, granting no leniency at all.</summary>
+  private static HashSet<string> InFlightCallIds(IReadOnlyList<Message> updated)
+  {
+    Message last = updated[^1];
+    return last.Role is Role.Assistant && last.ToolCalls is { Count: > 0 } calls
+        ? calls.Select(call => call.Id).ToHashSet(StringComparer.Ordinal)
+        : new HashSet<string>(StringComparer.Ordinal);
   }
 
   /// <summary>Checks the tool result at <paramref name="index"/>: it must carry a tool
@@ -193,8 +211,10 @@ public class Conversation(IEnumerable<Message>? seed = null)
   }
 
   /// <summary>Checks every tool call of the assistant message at <paramref name="index"/>:
-  ///     each must receive a later tool result. Null when all are answered.</summary>
-  private static DomainError? ValidateToolCalls(IReadOnlyList<Message> updated, int index)
+  ///     each must receive a later tool result, except the calls in
+  ///     <paramref name="inFlight"/> (the trailing batch still executing). Null when all
+  ///     are answered.</summary>
+  private static DomainError? ValidateToolCalls(IReadOnlyList<Message> updated, int index, HashSet<string> inFlight)
   {
     Message message = updated[index];
     if (message.Role is not Role.Assistant || message.ToolCalls is not { Count: > 0 } calls)
@@ -203,7 +223,8 @@ public class Conversation(IEnumerable<Message>? seed = null)
     }
 
     ToolCall? unanswered = calls.FirstOrDefault(call =>
-        !updated.Skip(index + 1).Any(m => m.Role is Role.Tool && m.ToolCallId == call.Id));
+        !inFlight.Contains(call.Id)
+        && !updated.Skip(index + 1).Any(m => m.Role is Role.Tool && m.ToolCallId == call.Id));
     return unanswered is null
         ? null
         : new DomainError("UnansweredToolCall",
