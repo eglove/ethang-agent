@@ -30,16 +30,33 @@ but never recorded.
 
 ### The ledger gate
 
-Then check the experiment ledger for this plan. Run `experiment` with `action: list` and
-the plan's `slug`; the header line reports the open-prediction count:
+Then check the experiment ledger for this plan. The slug is the plan's own namespace — the
+same `<slug>` this flow's briefs and reports are keyed under, and the one in the plan's
+ledger key `sci.<slug>/ledger` as recorded in the session's own ledger. You already know it
+from the flow you ran, so read it from those records instead of inventing one: a guessed
+slug reads a different ledger and answers a question nobody asked.
+
+Run `experiment` with `action: list` and that `slug`. The tool reports one of three states,
+and each one means something different.
+
+```text
+[experiment] sci.<slug>/ledger: empty
+```
+
+The key exists and holds no records — or the slug names a ledger that is not this plan's.
+Confirm the slug against the plan's own records before reading anything into this line. When
+the slug is confirmed and the ledger is empty, the branch made no prediction to leave open
+and the gate is satisfied. When the slug cannot be confirmed, say so plainly — "I could not
+find the ledger for sci.<slug>" — and stop there rather than presenting the menu.
 
 ```text
 [experiment] sci.<slug>/ledger: <N> record(s), <M> open prediction(s)
 ```
 
-**An open prediction is an untested claim.** It names a check that would refute it and no
-one has run that check yet, so the branch carries a belief nobody has tested. When `<M>` is
-greater than zero, do not present the menu. Report what is open and stop:
+**An open prediction is an untested claim.** It names a check that would refute it and no one
+has run that check yet, so the branch carries a belief nobody has tested. When `<M>` is
+greater than zero the gate is not satisfied: report what is open and stop instead of
+presenting the menu.
 
 ```text
 <M> prediction(s) still open in sci.<slug>/ledger. Each one names a check that would
@@ -47,13 +64,12 @@ refute it; none has been run. Close them before this branch is integrated:
 
 [Show each open prediction line verbatim]
 
-Record the verdict with `experiment` (action `record-verdict`), or record a skip if the
-prediction is being deliberately dropped.
+Record the verdict with `experiment` (action `record-verdict`), or record a skip with
+`record-skip` if the prediction is being deliberately dropped.
 ```
 
-When `<M>` is zero — every prediction carries a verdict or a recorded skip — continue to
-Step 2. A ledger that does not exist yet is not a failure: report that no ledger was found
-and continue, because a branch finished without one never made a prediction to leave open.
+When `<M>` is zero, every prediction carries a verdict or a recorded skip, so the gate is
+satisfied.
 
 Then continue to Step 2.
 

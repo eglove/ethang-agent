@@ -107,7 +107,19 @@ public class EmbeddedSkillCatalogTests
     Assert.Contains("### The ledger gate", body, StringComparison.Ordinal);
     Assert.Contains("open prediction", body, StringComparison.Ordinal);
     Assert.Contains("record-verdict", body, StringComparison.Ordinal);
+    Assert.Contains("record-skip", body, StringComparison.Ordinal);
     Assert.Contains("An untested prediction is a belief, not a result", body, StringComparison.Ordinal);
+    // The slug is read from the plan's own records, never guessed: a guessed slug reads
+    // a different ledger and an empty one cannot be told from an absent one.
+    Assert.Contains("Confirm the slug against the plan's own records", body, StringComparison.Ordinal);
+    // Ordering, pinned positionally (the file's own precedent): a gate that drifted below
+    // the continuation line would still contain every phrase above while blocking nothing.
+    int gateIndex = body.IndexOf("### The ledger gate", StringComparison.Ordinal);
+    int openPredictionIndex = body.IndexOf("open prediction", StringComparison.Ordinal);
+    int continueIndex = body.IndexOf("Then continue to Step 2.", StringComparison.Ordinal);
+    Assert.True(continueIndex >= 0, "missing the Step 2 continuation line");
+    Assert.True(gateIndex < continueIndex, "the ledger gate must precede 'Then continue to Step 2.'");
+    Assert.True(openPredictionIndex < continueIndex, "the open-prediction rule must precede 'Then continue to Step 2.'");
   }
 
   [Fact]
