@@ -185,9 +185,9 @@ and completely, and don't rush it into implementation.
 ### 3. Review the task
 
 Per-task reviews are task-scoped gates; the broad review happens once, at the
-end. Never skip it, and never accept a report missing either verdict — spec
-compliance AND task quality are both required. Implementer self-review never
-replaces the task review.
+end. Never skip it, and never accept a report missing any of the three verdicts —
+spec compliance, task quality, AND the ledger audit are all required. Implementer
+self-review never replaces the task review.
 
 - **The reviewer runs the diff itself.** Give the reviewer child the BASE and
   HEAD commit ids; it produces the commit list, stat, and full diff in its own
@@ -408,17 +408,22 @@ Interfaces from earlier tasks you will build on:
 
 Ambiguity resolutions: <rulings you already made, or "none">
 
-Before you experiment, record what you expect. Call the `experiment` tool with
-action `record-prediction`, the plan's slug, the hypothesis id this task tests, the
-claim, and `falsifiedBy` — the exact command whose output would prove the claim
-wrong. Then run that command. A prediction you never named is a change you cannot
-be wrong about, which means your report can only ever confirm itself.
+Before you experiment, record what you expect. If this plan's ledger has no
+hypothesis yet, record one first with action `record-hypothesis` and `text` stating
+what you expect to be true; its output line names the id your prediction then
+references. Then call the `experiment` tool with action `record-prediction`, `slug`
+(the plan's slug), `id` (the hypothesis id this task tests), `text` (the claim), and
+`falsifiedBy` — the exact command whose output would prove the claim wrong. Then run
+that command. A prediction you never named is a change you cannot be wrong about,
+which means your report can only ever confirm itself.
 
-After you run it, record the outcome with action `record-verdict`: the prediction id,
-`confirmed`, `refuted`, or `inconclusive`, and the evidence (the command and what it
-actually printed). A refuted prediction is a result, not a failure — say what it
-eliminated. If the task genuinely needs no experiment (a pure rename, a docs edit),
-record action `record-skip` with the reason instead.
+After you run it, record the outcome with action `record-verdict`: `id` (the
+prediction id), `verdict` (`confirmed`, `refuted`, or `inconclusive`), and `evidence`
+(the command and what it actually printed). A refuted prediction is a result, not a
+failure — say what it eliminated. If the task genuinely needs no experiment (a pure
+rename, a docs edit), record action `record-skip` with `text` stating the reason and
+`id` naming the prediction it closes where one exists; its output line names the skip
+id your report then carries.
 
 Write your FULL report — what you did, files touched, test commands with
 output summaries, self-review notes — to
@@ -435,7 +440,7 @@ STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 COMMITS: <list>
 TESTS: <one line>
 RED: <in report: exact command + verbatim failing output, or "n/a — no test changed">
-VERDICT: <in report: prediction id, confirmed|refuted|inconclusive, or "skip — <reason>">
+VERDICT: <in report: prediction id, confirmed|refuted|inconclusive, or "skip <id> — <reason>">
 CONCERNS: <none, or one line each>
 
 Rules:
@@ -465,7 +470,7 @@ Do not trust the report's description of the diff; verify against it.
 Global constraints binding this task (verbatim from the plan):
 <pasted constraint lines>
 
-Review for BOTH, with separate verdicts:
+Review for ALL THREE, with separate verdicts:
 1. SPEC COMPLIANCE ✅/❌ — every brief requirement present; nothing extra.
    List anything missing, extra, or diverging from exact values.
 2. TASK QUALITY — approve, or findings rated Critical / Important / Minor.
@@ -475,13 +480,16 @@ Review for BOTH, with separate verdicts:
    (call `experiment` with action `list` and the plan's slug). Check that the
    prediction names a real falsifying command, that the verdict's evidence shows that
    command's actual output, and that the verdict word matches what the output shows.
-   A report claiming success with no verdict in the ledger is NEEDS_CONTEXT, not a
-   pass: the claim is untested, and untested claims are what this review exists to
-   catch.
+   When the report claims a skip instead, the ledger carries a `skip <id>: <reason>`
+   line (or `skip <id> (prediction <p>): <reason>`) and the id the report names is
+   that row. Read the listing header's open prediction count and confirm it is zero
+   before approving. A report claiming success with no verdict in the ledger is
+   NEEDS_CONTEXT, not a pass, and so is a claimed skip with no skip row: the claim is
+   untested, and untested claims are what this review exists to catch.
 
 You may mark items "⚠️ Cannot verify from diff" — the controller resolves those.
 
-Return: both verdicts, findings as a numbered list with severity + file:line,
+Return: all three verdicts, findings as a numbered list with severity + file:line,
 and any ⚠️ items. No praise padding.
 ```
 

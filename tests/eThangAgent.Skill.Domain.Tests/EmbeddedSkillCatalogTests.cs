@@ -68,37 +68,72 @@ public class EmbeddedSkillCatalogTests
   }
 
   [Fact]
-  public async Task FlowSkill_Carries_PredictionAndVerdictContracts_InBothTemplates()
+  public async Task FlowTemplates_Carry_ExecutableLedgerContracts_InTheirOwnSections()
   {
     // The ledger only binds a claim to evidence if the flow's own dispatch templates
     // make the implementer record a prediction before experimenting and a verdict after,
     // and make the reviewer audit the ledger instead of trusting the report's prose.
+    // Every assertion is scoped to the template that must carry it: a body-wide IndexOf
+    // cannot tell "inside the implementer's contract block" from "inside the example
+    // workflow", so a moved block would still pass.
     Result<SkillDefinition> r = await _catalog.GetAsync("experiment-driven-development", ct: TestContext.Current.CancellationToken);
     Assert.True(r.IsSuccess);
     string body = r.Value.Body;
 
-    // Implementer dispatch template: prediction before the experiment, verdict after.
-    Assert.Contains("record-prediction", body, StringComparison.Ordinal);
-    Assert.Contains("falsifiedBy", body, StringComparison.Ordinal);
-    Assert.Contains("record-verdict", body, StringComparison.Ordinal);
-    Assert.Contains("record-skip", body, StringComparison.Ordinal);
-    Assert.Contains("VERDICT: <in report:", body, StringComparison.Ordinal);
+    string implementer = FencedSection(body, "## Implementer Dispatch Template");
+    // The tool's real parameter names, in backticks: it rejects unknown keys strictly, so
+    // a described parameter invites {"reason": ...} and an InvalidParameterValue.
+    Assert.Contains("`slug`", implementer, StringComparison.Ordinal);
+    Assert.Contains("`id`", implementer, StringComparison.Ordinal);
+    Assert.Contains("`text`", implementer, StringComparison.Ordinal);
+    Assert.Contains("`falsifiedBy`", implementer, StringComparison.Ordinal);
+    Assert.Contains("record-prediction", implementer, StringComparison.Ordinal);
+    Assert.Contains("record-verdict", implementer, StringComparison.Ordinal);
+    Assert.Contains("record-skip", implementer, StringComparison.Ordinal);
+    // A prediction hard-requires an existing hypothesis id, so the template must say how
+    // to establish one: without it the mandated call fails on first use, and the natural
+    // recovery is the skip that bypasses the ledger.
+    Assert.Contains("record-hypothesis", implementer, StringComparison.Ordinal);
+    // A skip is a ledger record carrying an id, never a free-text reason: a report-only
+    // skip leaves the ledger empty, and the finish gate reads empty as satisfied.
+    Assert.Contains("skip <id> — <reason>", implementer, StringComparison.Ordinal);
+    Assert.Contains("VERDICT: <in report:", implementer, StringComparison.Ordinal);
+    // Ordering inside the template: prediction before the report, contract line after RED.
+    Assert.True(implementer.IndexOf("record-prediction", StringComparison.Ordinal) <
+        implementer.IndexOf("Write your FULL report", StringComparison.Ordinal),
+        "the prediction requirement must precede the report paragraph");
+    Assert.True(implementer.IndexOf("RED: <in report:", StringComparison.Ordinal) <
+        implementer.IndexOf("VERDICT: <in report:", StringComparison.Ordinal),
+        "the VERDICT line must follow the RED line in the returned contract");
 
-    // Task reviewer template: the ledger audit and its escalation rule.
-    Assert.Contains("LEDGER AUDIT", body, StringComparison.Ordinal);
-    Assert.Contains("NEEDS_CONTEXT, not a", body, StringComparison.Ordinal);
+    string reviewer = FencedSection(body, "## Task Reviewer Template");
+    Assert.Contains("LEDGER AUDIT", reviewer, StringComparison.Ordinal);
+    Assert.Contains("NEEDS_CONTEXT, not a", reviewer, StringComparison.Ordinal);
+    // The audit names the skip row and the count the finish gate keys off, so a claimed
+    // skip and an open prediction are both caught rather than trusted.
+    Assert.Contains("skip <id>", reviewer, StringComparison.Ordinal);
+    Assert.Contains("open prediction", reviewer, StringComparison.Ordinal);
+    // Three numbered items mean three verdicts: framing and return line must agree, or a
+    // reviewer can read item 3 as advisory and still believe it answered.
+    Assert.Contains("Review for ALL THREE", reviewer, StringComparison.Ordinal);
+    Assert.Contains("Return: all three verdicts", reviewer, StringComparison.Ordinal);
+    Assert.True(reviewer.IndexOf("LEDGER AUDIT", StringComparison.Ordinal) >
+        reviewer.IndexOf("2. TASK QUALITY", StringComparison.Ordinal),
+        "the ledger audit must follow the task-quality item");
+  }
 
-    // Ordering, pinned positionally (the file's own precedent): a prediction block that
-    // drifted below the report paragraph would still contain every phrase above while
-    // telling the implementer to predict after it already reported.
-    int predictionIndex = body.IndexOf("record-prediction", StringComparison.Ordinal);
-    int reportIndex = body.IndexOf("Write your FULL report", StringComparison.Ordinal);
-    Assert.True(reportIndex >= 0, "missing the report paragraph");
-    Assert.True(predictionIndex < reportIndex, "the prediction requirement must precede the report paragraph");
-    int auditIndex = body.IndexOf("LEDGER AUDIT", StringComparison.Ordinal);
-    int qualityIndex = body.IndexOf("2. TASK QUALITY", StringComparison.Ordinal);
-    Assert.True(qualityIndex >= 0, "missing the task-quality review item");
-    Assert.True(auditIndex > qualityIndex, "the ledger audit must follow the task-quality item");
+  /// <summary>The fenced <c>text</c> block under a heading, fences excluded, so an
+  ///     assertion cannot be satisfied by prose in another section.</summary>
+  private static string FencedSection(string body, string heading)
+  {
+    int headingIndex = body.IndexOf(heading, StringComparison.Ordinal);
+    Assert.True(headingIndex >= 0, $"missing section '{heading}'");
+    int open = body.IndexOf("```text\n", headingIndex, StringComparison.Ordinal);
+    Assert.True(open >= 0, $"missing the fenced block under '{heading}'");
+    int contentStart = open + "```text\n".Length;
+    int close = body.IndexOf("\n```", contentStart, StringComparison.Ordinal);
+    Assert.True(close >= 0, $"unclosed fence under '{heading}'");
+    return body[contentStart..close];
   }
 
   private static readonly (string Skill, string LegHeader, string Anchor)[] PipelineLegHeaders =
