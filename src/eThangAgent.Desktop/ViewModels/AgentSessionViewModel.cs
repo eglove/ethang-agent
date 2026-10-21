@@ -600,8 +600,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
     else
     {
+      // The persisted count: the continuous sink (when this session has one) is the
+      // authority on what already landed and skips it; without a sink the turn's own
+      // starting count is the slice boundary.
       await _lifecycle.AppendExchangeAsync(
-          _rootId, _conversation, messageCountBefore, result, ReportPersistenceError);
+          _rootId, _conversation, messageCountBefore, ReportPersistenceError);
     }
 
     // Non-streaming fallback: if no deltas were delivered, show the final text as a notice.

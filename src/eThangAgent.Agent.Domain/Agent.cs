@@ -143,8 +143,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   // property initializer) so the subscription sees no earlier state; seed messages
   // from resume hydration were persisted by their original run and are not re-sent.
   /// <summary>The live transcript subscription handle; null when no sink is wired.
-  ///     Observable for hosts and tests: non-null means the loop persists incrementally.</summary>
-  internal IDisposable? TranscriptSubscription { get; } = options?.TranscriptSink is { } transcriptSink
+  ///     Observable, and DISPOSABLE by whoever owns this agent's lifetime: a host that
+  ///     rebuilds an agent over the same conversation (the root holder) retires the old
+  ///     subscription, because two live subscriptions would push every message twice.
+  ///     Non-null means the loop persists incrementally.</summary>
+  public IDisposable? TranscriptSubscription { get; } = options?.TranscriptSink is { } transcriptSink
       ? SubscribeSink(conversation, transcriptSink)
       : null;
 

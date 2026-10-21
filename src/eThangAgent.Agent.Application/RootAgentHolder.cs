@@ -7,12 +7,14 @@ using Ag = eThangAgent.AgentDomain.Agent;
 namespace eThangAgent.Agent.Application;
 
 /// <summary>The optional root-agent shaping collaborators, grouped: the system-prompt
-///     provider, the auto-continuation budget, and the context compactor. Null (legacy
-///     wiring) means every member falls back to the agent's own defaults.</summary>
+///     provider, the auto-continuation budget, the context compactor, and the continuous
+///     transcript sink. Null (legacy wiring) means every member falls back to the agent's
+///     own defaults - including "persist nothing during the run".</summary>
 public sealed record RootDependencies(
     ISystemPromptProvider? SystemPrompt = null,
     int? MaxAutoContinuations = null,
-    IContextCompactor? ContextCompactor = null);
+    IContextCompactor? ContextCompactor = null,
+    IChildTranscriptStore? TranscriptSink = null);
 
 /// <summary>Holds the root agent for a session and rebuilds it when its model changes.
 ///     The root agent is constructed lazily on the first message (see
@@ -60,7 +62,12 @@ public sealed class RootAgentHolder(
 
   /// <summary>Builds (or rebuilds) the root agent with <paramref name="config"/>. The shared
   ///     conversation and dependencies are reused, so a rebuild preserves all message history
-  ///     and in-flight state. Idempotent when <paramref name="config"/> matches the current model.</summary>
+  ///     and in-flight state. Idempotent when <paramref name="config"/> matches the current model.
+  ///     <para>Spec D9: the root persists every message at the safe point it is added, exactly
+  ///     as a child run does — the sink rides <see cref="AgentOptions.TranscriptSink"/> and the
+  ///     agent subscribes it to the shared conversation. Because EVERY build subscribes, the
+  ///     holder retires the previous build's subscription first: two live root subscriptions
+  ///     would push every message twice, and a doubled turn corrupts resume.</para></summary>
   public Ag Build(Ag? existing, ModelConfig config)
   {
     ArgumentNullException.ThrowIfNull(config);
@@ -69,29 +76,41 @@ public sealed class RootAgentHolder(
       return existing;
     }
 
+    RetireTranscriptSubscription();
     CurrentConfig = config;
     CurrentSessionId = ResolveSessionId();
-    AgentId? rootId = ResolveSessionId() is { } idText && Guid.TryParse(idText, out Guid parsed)
-        ? new AgentId(parsed)
-        : null;
     // One accountant per window: a rebuild with a different model (hence window)
     // restarts accounting — mixing windows in one accumulator would lie about totals.
     Accountant = new ContextAccountant(config.ContextWindow);
-    Current = new Ag(_provider, _conversation, config, _tools,
-        new AgentOptions
-        {
-          // The root agent's in-memory identity IS the persisted root row id: children
-          // spawned by the root record this id as their ParentId, so a fresh random id
-          // here would phantom-parent every child (2026-10-04: all children pointed at
-          // a parent id that had no row). Legacy wiring without a session id keeps the
-          // generated-id behavior.
-          Id = rootId,
-          SystemPrompt = _dependencies?.SystemPrompt,
-          MaxAutoContinuations = _dependencies?.MaxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,
-          ContextMonitor = Accountant,
-          ContextCompactor = _dependencies?.ContextCompactor,
-          SessionId = ResolveSessionId(),
-        });
+    Current = new Ag(_provider, _conversation, config, _tools, BuildOptions());
     return Current;
   }
+
+  /// <summary>The construction options for a build: the root's persisted identity, the
+  ///     session's shaping collaborators, and the continuous transcript sink.</summary>
+  private AgentOptions BuildOptions() => new()
+  {
+    // The root agent's in-memory identity IS the persisted root row id: children spawned
+    // by the root record this id as their ParentId, so a fresh random id here would
+    // phantom-parent every child (2026-10-04: all children pointed at a parent id that
+    // had no row). Legacy wiring without a session id keeps the generated-id behavior.
+    Id = ResolveRootId(),
+    SystemPrompt = _dependencies?.SystemPrompt,
+    MaxAutoContinuations = _dependencies?.MaxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,
+    ContextMonitor = Accountant,
+    ContextCompactor = _dependencies?.ContextCompactor,
+    TranscriptSink = _dependencies?.TranscriptSink,
+    SessionId = ResolveSessionId(),
+  };
+
+  /// <summary>The persisted root id parsed out of the session identity, or null when the
+  ///     wiring carries no id (legacy) or it is not a GUID.</summary>
+  private AgentId? ResolveRootId() => ResolveSessionId() is { } idText && Guid.TryParse(idText, out Guid parsed)
+      ? new AgentId(parsed)
+      : null;
+
+  /// <summary>Ends the previous build's transcript subscription. The agent owns the handle
+  ///     (it is the object that subscribed); the holder owns the agent's lifetime, so the
+  ///     retirement belongs here. Null for a legacy no-sink build.</summary>
+  private void RetireTranscriptSubscription() => Current?.TranscriptSubscription?.Dispose();
 }

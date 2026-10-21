@@ -43,6 +43,46 @@ internal sealed class CtRecordingStore : IAgentStore
       => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
 }
 
+/// <summary>Records appends like <see cref="CtRecordingStore"/> but SUSPENDS inside the
+///     store write, so a second drainer really can interleave with the first — the
+///     condition the single-flight drain exists for.</summary>
+internal sealed class YieldingRecordingStore : IAgentStore
+{
+  public System.Collections.ObjectModel.Collection<(AgentId AgentId, Message Message)> AppendedMessages { get; } = [];
+
+  public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(record.Id.ToString()));
+
+  public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(record.Id.ToString()));
+
+  public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
+      => Task.FromResult(Result.Failure<AgentRecord>(new DomainError("NotFound", "no records")));
+
+  public async Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
+  {
+    await Task.Yield();
+    lock (AppendedMessages)
+    {
+      AppendedMessages.Add((id, message));
+    }
+
+    return Result.Success(id.ToString());
+  }
+
+  public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(id.ToString()));
+
+  public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
+      => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
+
+  public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+      => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
+
+  public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+      => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
+}
+
 public class ChildTranscriptStoreTests
 {
   [Fact]
@@ -115,5 +155,31 @@ public class ChildTranscriptStoreTests
 
     _ = Assert.Single(store.ReplacedTranscripts);
     Assert.Equal(1, await sink.FlushedCount().ConfigureAwait(true));
+  }
+  /// <summary>Regression (2026-10-19): Appends are fire-and-forget from the loop's
+  ///     mutation callback, so several can be in flight at once. The drain used to peek a
+  ///     message, await the store write, then dequeue with no single-flight guard - two
+  ///     concurrent drainers peeked the SAME head and the second Dequeue threw
+  ///     InvalidOperationException("Queue empty"), failing the child run intermittently
+  ///     (~1 in 10 nested-spawn E2E runs). Every message must land exactly once, in order,
+  ///     and no append may fault.</summary>
+  [Fact]
+  public async Task ConcurrentAppends_AllPersistExactlyOnceInOrder_WithoutFaulting()
+  {
+    // A YIELDING store: the race needs the drain to suspend inside its store write, which
+    // a synchronously-completing fake never does (the bug hid behind that).
+    YieldingRecordingStore store = new();
+    AgentId id = new(Guid.NewGuid());
+#pragma warning disable CA2007
+    await using ChildTranscriptStore sink = new(store, id);
+#pragma warning restore CA2007
+    Message[] messages = [.. Enumerable.Range(0, 16)
+        .Select(i => new Message(Role.User, $"m{i}", DateTimeOffset.UtcNow))];
+
+    Task[] appends = [.. messages.Select(sink.AppendAsync)];
+    await Task.WhenAll(appends).ConfigureAwait(true);
+
+    Assert.Equal(messages.Select(m => m.Content), store.AppendedMessages.Select(e => e.Message.Content));
+    Assert.Equal(messages.Length, await sink.FlushedCount().ConfigureAwait(true));
   }
 }

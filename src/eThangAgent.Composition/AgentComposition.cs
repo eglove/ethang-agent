@@ -730,13 +730,22 @@ public static class AgentComposition
                 BrokerRegistry.DefaultPipeNameFor)))
         .AddSingleton<SessionModelPreferences>()
         .AddSingleton<RootSessionIdentity>()
+        // Spec D9: ONE continuous transcript sink per container, shared by the root agent
+        // (which subscribes it to the conversation) and the end-of-turn lifecycle (which
+        // reads its flushed baseline so nothing is appended twice). The root id is read
+        // through the carrier LAZILY: the factory fills RootSessionIdentity only after the
+        // container builds, and the sink is constructed before that.
+        .AddSingleton(sp => new RootTranscriptSink(
+            sp.GetRequiredService<IAgentStore>(),
+            () => sp.GetRequiredService<RootSessionIdentity>().Id))
         .AddSingleton(sp => new RootAgentHolder(
             sp.GetRequiredService<IModelProvider>(),
             sp.GetRequiredService<Conversation>(),
             sp.GetRequiredService<IToolRegistry>(),
             dependencies: new RootDependencies(
                 SystemPrompt: sp.GetRequiredService<ISystemPromptProvider>(),
-                ContextCompactor: sp.GetRequiredService<DefaultContextCompactor>()),
+                ContextCompactor: sp.GetRequiredService<DefaultContextCompactor>(),
+                TranscriptSink: sp.GetRequiredService<RootTranscriptSink>()),
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.
@@ -764,7 +773,11 @@ public static class AgentComposition
                 sp.GetRequiredService<VerificationGate>(),
                 ChangedFilesResolver(sp))))
         .AddSingleton<IConversationContextService>(sp => new ConversationContextServiceAdapter(sp.GetRequiredService<Conversation>()))
-        .AddSingleton<RootSessionLifecycle>();
+        // The end-of-turn append shares the container's sink, so its skip boundary IS what
+        // the continuous write already persisted.
+        .AddSingleton(sp => new RootSessionLifecycle(
+            sp.GetRequiredService<IAgentStore>(),
+            sp.GetRequiredService<RootTranscriptSink>()));
   }
 
   /// <summary>The verification ledger, its specifications and gate, and the skill-directory carriers
