@@ -161,6 +161,30 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public ObservableCollection<AgentTabViewModel> Tabs { get; } = [];
 
+  /// <summary>The app-wide memory indicator (spec D14): usage against the derived
+  ///     limit, the largest consumers, and the decisions the governor has taken.
+  ///     App-wide, because the budget is app-wide: one indicator serves every
+  ///     conversation, and it is READ-ONLY - the user declined a manual reclaim, so
+  ///     the governor owns the ladder alone.</summary>
+  public ResourceIndicatorViewModel Resource { get; } = new();
+
+  /// <summary>How many conversations are open right now. The governor's per-
+  ///     conversation share is derived from this count, so the indicator and the
+  ///     governor always agree on how the budget is split.</summary>
+  public int OpenConversationCount => Tabs.Count;
+
+  /// <summary>Whether the indicator's details (the consumers and the governor's
+  ///     decisions) are shown. A toggle in the same bar, not a separate panel: the
+  ///     data is two short lists, and a window would be more chrome than it deserves.</summary>
+  [ObservableProperty]
+  public partial bool IsResourceDetailsOpen { get; set; }
+
+  /// <summary>Shows or hides the indicator's details. A VIEW toggle only - it changes
+  ///     what is on screen and nothing else. The governor's decisions are read-only,
+  ///     so no command here can act on the governor.</summary>
+  public IRelayCommand ToggleResourceDetailsCommand { get; }
+
+
   public bool HasTabs => Tabs.Count > 0;
 
   /// <summary>True when a tab is selected — drives the Model menu entry's visibility
@@ -278,6 +302,7 @@ internal sealed partial class MainViewModel : ObservableObject
     OpenSettingsCommand = CreateOpenSettingsCommand();
     ChooseModelSettingsCommand = CreateChooseModelSettingsCommand();
     OpenMcpServersCommand = CreateOpenMcpServersCommand();
+    ToggleResourceDetailsCommand = new RelayCommand(() => IsResourceDetailsOpen = !IsResourceDetailsOpen);
 
     InitializeProviders(options);
     Tabs.CollectionChanged += OnTabsChanged;

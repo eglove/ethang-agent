@@ -56,8 +56,56 @@
          retained across selection changes (grand-plan BUG 2). IsSelected toggles
          visibility: switches are visibility flips, no transcript re-render storm,
          and each view's spinner/elapsed timers keep running for background tabs. -->
-    <Grid Grid.Column="1" RowDefinitions="Auto,*">
-      <TabControl x:Name="AgentTabs" Classes="compact-tabs" Grid.Row="0"
+    <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*">
+
+      <!-- Resource indicator (spec D14): app-wide, because the budget is app-wide.
+           READ-ONLY - it reports what IS, and offers no action on the governor.
+           The details toggle reveals the consumers and the decisions inline, in the
+           same bar: a full panel would be more chrome than the data deserves. -->
+      <Border x:Name="ResourceBar" Grid.Row="0" Padding="10,5"
+              Background="#FF23232E">
+        <StackPanel Spacing="4">
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock Text="Memory" FontWeight="SemiBold" FontSize="12"
+                       VerticalAlignment="Center"/>
+            <TextBlock x:Name="ResourceUsageText" Text="{Binding Resource.UsageDisplay}"
+                       FontSize="12" VerticalAlignment="Center"/>
+            <ProgressBar x:Name="ResourceUsageBar" Width="140" Height="6"
+                         Minimum="0" Maximum="1" Value="{Binding Resource.UsageFraction}"
+                         VerticalAlignment="Center"/>
+            <TextBlock x:Name="ResourceLevelText" Text="{Binding Resource.LevelDisplay}"
+                       FontSize="12" VerticalAlignment="Center"/>
+            <Button x:Name="ResourceDetailsButton" Content="Details" Padding="6,1"
+                    FontSize="11" Command="{Binding ToggleResourceDetailsCommand}"
+                    ToolTip.Tip="Show the memory consumers and the governor's decisions"/>
+          </StackPanel>
+
+          <!-- The details: the largest consumers and the governor's audit trail. -->
+          <StackPanel x:Name="ResourceDetailsPanel" Spacing="4"
+                      IsVisible="{Binding IsResourceDetailsOpen}">
+            <TextBlock Text="Largest consumers" FontWeight="SemiBold" FontSize="11"/>
+            <ItemsControl x:Name="ResourceConsumersList" ItemsSource="{Binding Resource.Consumers}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock FontSize="11" Opacity="0.85" Text="{Binding}"
+                             TextWrapping="Wrap"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="Decisions" FontWeight="SemiBold" FontSize="11"/>
+            <ItemsControl x:Name="ResourceDecisionsList" ItemsSource="{Binding Resource.RecentDecisions}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock FontSize="11" Opacity="0.85" Text="{Binding}"
+                             TextWrapping="Wrap"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <TabControl x:Name="AgentTabs" Classes="compact-tabs" Grid.Row="1"
                   ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
         <TabControl.Styles>
           <Style Selector="TabControl.compact-tabs TabItem">
@@ -96,7 +144,7 @@
         </TabControl.ContentTemplate>
       </TabControl>
 
-      <ItemsControl x:Name="KeepAliveHost" Grid.Row="1" ItemsSource="{Binding Tabs}"
+      <ItemsControl x:Name="KeepAliveHost" Grid.Row="2" ItemsSource="{Binding Tabs}"
                     Focusable="False">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>
@@ -115,7 +163,7 @@
       </ItemsControl>
 
       <!-- Empty shell: shown when no tab is open. -->
-      <StackPanel x:Name="EmptyState" Grid.Row="1" VerticalAlignment="Center" Spacing="10"
+      <StackPanel x:Name="EmptyState" Grid.Row="2" VerticalAlignment="Center" Spacing="10"
                   IsVisible="{Binding !HasTabs}">
         <TextBlock
             Text="No agent is open.&#x0a;'Open Workspace' chooses the directory the agent works from."

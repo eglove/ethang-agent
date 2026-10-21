@@ -111,6 +111,57 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   /// <summary>The pipe name (exposed for tests and diagnostics).</summary>
   public string HostPipeName { get; }
 
+  /// <summary>The host process's id while it is running, or null when no host is
+  ///     live. The app observes each conversation's memory through this handle: every
+  ///     conversation runs in its OWN host process (spec D6), so the host's working set
+  ///     IS that conversation's memory. Null is an honest 'no host right now', never a
+  ///     fabricated id - the observer then reports the conversation as absent rather
+  ///     than counting some other process's memory as its own.</summary>
+  public int? HostProcessId
+  {
+    get
+    {
+      Process? host = Host;
+      if (host is null || host.HasExited)
+      {
+        return null;
+      }
+
+      try
+      {
+        return host.Id;
+      }
+      catch (InvalidOperationException)
+      {
+        // The process was reaped between the check and the read.
+        return null;
+      }
+    }
+  }
+
+  /// <summary>Stops this conversation's host process (spec D3's kill rung). The host's
+  ///     children keep running - they re-attach to the next host that serves this
+  ///     conversation - but the host's OWN memory (the model runtimes, the exec engine,
+  ///     and everything else it hosts) is released. Best effort: a host that is already
+  ///     gone is the desired end state, not a failure.</summary>
+  public void StopHost()
+  {
+    Process? host = Host;
+    if (host is null || host.HasExited)
+    {
+      return;
+    }
+
+    try
+    {
+      host.Kill(entireProcessTree: false);
+    }
+    catch (InvalidOperationException)
+    {
+      // The process exited between the check and the kill.
+    }
+  }
+
   /// <summary>Connects (or re-connects) to the host's pipe and starts the runtime's
   ///     settle pump. Returns the declared live set the repair pass consumes.</summary>
   public async Task<IReadOnlyCollection<Guid>> AttachAsync(RemoteAgentRuntime runtime, CancellationToken ct = default)

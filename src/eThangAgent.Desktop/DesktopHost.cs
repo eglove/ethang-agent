@@ -194,6 +194,27 @@ internal static class DesktopHost
               new AgentWatchdog(session.RootId, ServicesFor(session))),
           SessionClosed = rootId => watchdogLoop.Detach(rootId),
         });
+    // Spec D4/D14: the resource governor runs on its OWN fast clock, independent of
+    // the one-minute agent-idle watchdog: the watchdog asks 'is a sub-agent stuck?',
+    // the governor asks 'is the machine filling up?' every couple of seconds. It is
+    // the component that acts BEFORE the app becomes unusable.
+    // The observation reads each open conversation's HOST process (every conversation
+    // runs in its own host process, spec D6) plus the app process itself.
+    ResourceHostObservation observation = new(() => LiveHosts(vm));
+    ResourceHostEnactment enactment = new(conversationId => FindHost(vm, conversationId));
+    ResourceGovernor governor = new(
+        new MachineResources(), observation, enactment, boot.WatchdogEvents,
+        watchdogOptions, TimeProvider.System, () => vm.OpenConversationCount);
+    ResourceIndicatorFeed feed = new(vm.Resource, observation, boot.WatchdogEvents);
+    ResourceGovernorLoop resourceLoop = new(governor, governor.RecommendedInterval, TimeProvider.System,
+        async tick =>
+        {
+          // The tick arrives on the governor's background clock; the chrome is
+          // UI-thread-only, so the update is marshalled there.
+          await Dispatcher.UIThread.InvokeAsync(
+              async () => await feed.PublishAsync(tick, CancellationToken.None)).ConfigureAwait(false);
+        });
+
     MainWindow window = new(vm);
 
     // Named decision (CA2000): the source's lifetime is the window's lifetime - disposal
@@ -205,6 +226,12 @@ internal static class DesktopHost
     _ = Task.Run(() => watchdogLoop.RunAsync(watchdogCts.Token))
         .ContinueWith(
             static t => _ = Console.Error.WriteLineAsync("watchdog loop faulted: " + t.Exception),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+    _ = Task.Run(() => resourceLoop.RunAsync(watchdogCts.Token))
+        .ContinueWith(
+            static t => _ = Console.Error.WriteLineAsync("resource governor loop faulted: " + t.Exception),
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
@@ -222,6 +249,45 @@ internal static class DesktopHost
     return window;
   }
 
+
+
+  /// <summary>The live conversation hosts: one handle per open tab whose host process
+  ///     is running. A tab whose host has not started (or has died) contributes
+  ///     nothing - the observation then reports that conversation as absent rather
+  ///     than counting some other process's memory as its own.</summary>
+  private static List<ResourceHostHandle> LiveHosts(MainViewModel vm)
+  {
+    List<ResourceHostHandle> handles = [];
+    foreach (AgentSession container in vm.Tabs.Select(tab => tab.Container))
+    {
+      RemoteHostSupervisor? supervisor = container.Services.GetService<RemoteHostSupervisor>();
+      if (supervisor?.HostProcessId is { } processId)
+      {
+        handles.Add(new ResourceHostHandle(container.RootId.ToString(), processId));
+      }
+    }
+
+    return handles;
+  }
+
+  /// <summary>The supervisor owning one conversation's host, by conversation id. Null
+  ///     when no open tab serves that conversation - the enactment then refuses with a
+  ///     named error instead of acting on the wrong host.</summary>
+  private static ResourceHostRegistration? FindHost(MainViewModel vm, string conversationId)
+  {
+    foreach (AgentSession container in vm.Tabs.Select(tab => tab.Container))
+    {
+      if (!string.Equals(container.RootId.ToString(), conversationId, StringComparison.Ordinal))
+      {
+        continue;
+      }
+
+      RemoteHostSupervisor? supervisor = container.Services.GetService<RemoteHostSupervisor>();
+      return supervisor is null ? null : new ResourceHostRegistration(conversationId, supervisor);
+    }
+
+    return null;
+  }
   /// <summary>Shows the startup-error dialog on the UI thread and shuts down with exit code 1
   ///     when it closes. Safe to call from any thread.</summary>
   public static async Task ShowErrorAndExitAsync(

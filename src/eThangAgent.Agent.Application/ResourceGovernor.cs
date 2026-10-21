@@ -6,14 +6,20 @@ namespace eThangAgent.Agent.Application;
 
 /// <summary>One tick's outcome, for tests and for the indicator panel.
 ///     <see cref="Failure"/> is null when nothing was enacted or the enactment succeeded;
-///     a non-null value names the enactment failure the governor recorded.</summary>
+///     a non-null value names the enactment failure the governor recorded.
+///     <para><see cref="BudgetBytes"/> is the PER-CONVERSATION share the decision was
+///     made against; <see cref="TotalBytes"/> is the app-wide budget the same derivation
+///     produced (null when the tick could not derive one - a failed machine probe).
+///     The indicator renders against the app-wide total, because the indicator is
+///     app-wide; the share is what the governor itself decided on.</para></summary>
 public sealed record ResourceGovernorTick(
     ResourceLevel Level,
     string? ConversationId,
     ResourceAction Action,
     long UsageBytes,
     long BudgetBytes,
-    DomainError? Failure = null);
+    DomainError? Failure = null,
+    long? TotalBytes = null);
 
 /// <summary>The resource governor (spec D3/D4/D5): observes every open conversation,
 ///     derives the machine budget, decides a level and the next ladder rung for the
@@ -61,7 +67,7 @@ public sealed class ResourceGovernor(
     if (all.Count == 0)
     {
       _episodes.Clear();
-      return new ResourceGovernorTick(ResourceLevel.Normal, null, ResourceAction.None, 0, budget.TotalBytes);
+      return new ResourceGovernorTick(ResourceLevel.Normal, null, ResourceAction.None, 0, budget.TotalBytes, TotalBytes: budget.TotalBytes);
     }
 
     PruneClosedEpisodes(all);
@@ -89,7 +95,7 @@ public sealed class ResourceGovernor(
       }
 
       return new ResourceGovernorTick(level, worst.ConversationId, ResourceAction.None,
-          worst.UsageBytes, budget.PerConversationBytes);
+          worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes);
     }
 
     if (!rising)
@@ -98,7 +104,7 @@ public sealed class ResourceGovernor(
       // episode's rungs, and pressure that IS growing earns the next one. No cooldown and
       // no level comparison - the attempted set is the only thing that stops a repeat.
       return new ResourceGovernorTick(level, worst.ConversationId, ResourceAction.None,
-          worst.UsageBytes, budget.PerConversationBytes);
+          worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes);
     }
 
     ResourceAction action = ResourcePolicy.NextAction(level, episode.Attempted);
@@ -108,7 +114,7 @@ public sealed class ResourceGovernor(
       // rung, and re-enacting that rung on every rising sample would restart the app in a
       // loop. Each rung is enacted at most once per episode.
       return new ResourceGovernorTick(level, worst.ConversationId, ResourceAction.None,
-          worst.UsageBytes, budget.PerConversationBytes);
+          worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes);
     }
 
     await AppendAsync(level, worst, action, budget, ct).ConfigureAwait(false);
@@ -123,11 +129,11 @@ public sealed class ResourceGovernor(
     {
       await AppendEnactmentFailureAsync(worst, action, enacted.Error, ct).ConfigureAwait(false);
       return new ResourceGovernorTick(level, worst.ConversationId, action,
-          worst.UsageBytes, budget.PerConversationBytes, enacted.Error);
+          worst.UsageBytes, budget.PerConversationBytes, enacted.Error, budget.TotalBytes);
     }
 
     return new ResourceGovernorTick(level, worst.ConversationId, action,
-        worst.UsageBytes, budget.PerConversationBytes);
+        worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes);
   }
 
   /// <summary>Drops episode state for conversations that are no longer open - the
