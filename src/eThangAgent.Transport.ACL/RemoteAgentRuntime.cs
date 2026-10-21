@@ -24,6 +24,23 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   public RemoteAgentRuntime(NamedPipeChildTransport? transport)
       => _transport = transport;
 
+  /// <summary>Creates a runtime with an explicit root-turn budget (tests). The budget is
+  ///     the upper bound on how long ONE turn may wait for its settle before the caller is
+  ///     told the turn was unaddressable — the guard that keeps a silent host from
+  ///     stranding a caller forever.</summary>
+  public RemoteAgentRuntime(NamedPipeChildTransport? transport, TimeSpan rootTurnBudget)
+  {
+    ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(rootTurnBudget, TimeSpan.Zero);
+    _transport = transport;
+    RootTurnBudget = rootTurnBudget;
+  }
+
+  /// <summary>How long one root turn may wait for its settle. A host that takes a turn and
+  ///     never answers it cannot strand the caller: past this bound the turn fails
+  ///     <c>TurnUnaddressable</c>. Ten minutes is generous for a real turn and finite for
+  ///     a broken one.</summary>
+  public TimeSpan RootTurnBudget { get; } = TimeSpan.FromMinutes(10);
+
   private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentRunOutcome>> _settling = [];
   private readonly ConcurrentDictionary<Guid, byte> _owned = [];
 
@@ -151,13 +168,27 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   /// <summary>Sends one root turn to the conversation host and streams its events back
   ///     (spec D6). The app runs no agent work: it forwards the user's input and renders
   ///     what the host streams. The returned Result carries the settled payload when the
-  ///     host settles the turn; a disconnected transport, connection loss, or cancellation
-  ///     is a typed failure — never a hang.</summary>
+  ///     host settles the turn.
+  /// <para>EVERY path settles the caller — this method never hangs. The failures are
+  /// typed and distinct: <c>InvalidTurnId</c> when the id is empty or already in flight,
+  /// <c>HostUnavailable</c> when there is no live connection, <c>TurnCancelled</c> when
+  /// the caller cancelled, and <c>TurnUnaddressable</c> when the host took the turn but
+  /// never settled it within <see cref="RootTurnBudget"/> (a host that cannot address the
+  /// request — e.g. one that dropped an unrecoverable turn id — would otherwise strand the
+  /// caller forever).</para></summary>
   public async Task<Result<string>> SendRootTurnAsync(
       RootTurnRequest request, Action<RootTurnEvent> onEvent, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(request);
     ArgumentNullException.ThrowIfNull(onEvent);
+    // The codec refuses an empty turn id on PARSE; the send path must match, or the waiter
+    // would be registered under a key the host can never address (review finding 1).
+    if (string.IsNullOrWhiteSpace(request.TurnId))
+    {
+      return Result.Failure<string>(new DomainError("InvalidTurnId",
+          "a root turn needs a non-empty turn id."));
+    }
+
     NamedPipeChildTransport? transport = _transport;
     if (transport is null || _hostLost)
     {
@@ -165,24 +196,40 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     }
 
     TaskCompletionSource<Result<string>> settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    _rootTurns[request.TurnId] = new RootTurnWaiter(onEvent, settled);
+    // TryAdd, never indexer assignment: two turns sharing a TurnId would otherwise OVERWRITE
+    // the first waiter, which then hangs forever while the second completes, and the
+    // finally would remove the second's entry so a late settle for the first is dropped too
+    // (review finding 1). A collision is refused instead of silently orphaning a caller.
+    if (!_rootTurns.TryAdd(request.TurnId, new RootTurnWaiter(onEvent, settled)))
+    {
+      return Result.Failure<string>(new DomainError("InvalidTurnId",
+          "a root turn with id '" + request.TurnId + "' is already in flight."));
+    }
+
     try
     {
       await transport.SendAsync(new TransportEnvelope("root-turn",
           RootTurnProtocol.SerializeRequest(request), Interlocked.Increment(ref _sequence)), ct)
           .ConfigureAwait(false);
-      return await settled.Task.WaitAsync(ct).ConfigureAwait(false);
+      return await settled.Task.WaitAsync(RootTurnBudget, ct).ConfigureAwait(false);
     }
     catch (OperationCanceledException)
     {
       return Result.Failure<string>(new DomainError("TurnCancelled", "the turn was stopped."));
+    }
+    catch (TimeoutException)
+    {
+      // The host accepted the frame but never settled the turn: the request was
+      // unaddressable on its side. Bounded, typed, never a hang (review finding 2).
+      return Result.Failure<string>(new DomainError("TurnUnaddressable",
+          "the conversation host did not settle the turn within " + RootTurnBudget + "."));
     }
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)
     {
       // Named decision (CA1031): the send path is the transport's fault boundary — ANY
       // failure to put the frame on the wire is the declared HostUnavailable outcome.
-      return HostUnavailable("the conversation host refused the turn: " + ex.Message);
+      return HostUnavailable("the root turn could not be put on the wire: " + ex.Message);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
     finally
@@ -206,7 +253,20 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       return;
     }
 
-    waiter.OnEvent(evt);
+    // The callback is USER-supplied code running on the pump thread: a throw must not
+    // fault the pump and take every other child's connection down with it (review
+    // minor c). The event is still routed and the turn still settles.
+    try
+    {
+      waiter.OnEvent(evt);
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+    {
+      // Named decision (CA1031): a caller's callback fault is the caller's problem, not
+      // the wire's — it is contained here so the connection survives.
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
     if (string.Equals(evt.Kind, "settled", StringComparison.Ordinal))
     {
       _ = waiter.Settled.TrySetResult(Result.Success(evt.Payload));

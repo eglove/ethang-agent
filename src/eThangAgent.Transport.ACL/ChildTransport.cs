@@ -3,11 +3,16 @@ using System.Text.Json;
 namespace eThangAgent.Transport.ACL;
 
 /// <summary>One wire message between the app and the child host. Kind mirrors a domain
-///     operation (start | deliver | interrupt | event | settle | ack); Json carries the
-///     domain-shaped payload; Sequence orders at-least-once delivery and pairs acks.</summary>
+///     operation (start | deliver | interrupt | event | settle | ack | root-turn |
+///     root-turn-event); Json carries the domain-shaped payload; Sequence orders
+///     at-least-once delivery and pairs acks.</summary>
 public sealed record TransportEnvelope(string Kind, string Json, long Sequence)
 {
-  public static readonly string[] KnownKinds = ["start", "deliver", "interrupt", "event", "settle", "ack"];
+  /// <summary>Every kind this protocol defines. The root-turn pair rides the same framing
+  ///     and the same receive pumps as the child-run kinds — they are wire kinds, not a
+  ///     separate channel.</summary>
+  public static readonly string[] KnownKinds =
+      ["start", "deliver", "interrupt", "event", "settle", "ack", "root-turn", "root-turn-event"];
 }
 
 /// <summary>The child-host transport seam (FR-X2). The domain never references this

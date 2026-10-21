@@ -11,15 +11,18 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     construction rather than by a second, drifting copy.</summary>
 internal sealed class FakeConversationHost : IAsyncDisposable
 {
-  /// <summary>The input marker that makes the host TAKE a turn and never settle it —
-  ///     the connection-loss test's way of holding a waiter open.</summary>
+  /// <summary>The input marker that makes the host TAKE a turn and HOLD it — no settle is
+  ///     emitted until <see cref="ReleaseHeldTurnsAsync"/>. The connection-loss and
+  ///     duplicate-id tests need a genuinely pending waiter.</summary>
   public const string SilentInput = "silent";
 
   private readonly NamedPipeServerStream _server;
   private readonly CancellationTokenSource _cts = new();
   private readonly Task _pump;
   private readonly List<RootTurnRequest> _received = [];
+  private readonly List<string> _held = [];
   private readonly Lock _gate = new();
+  private readonly SemaphoreSlim _writeGate = new(1, 1);
 
   private FakeConversationHost(NamedPipeServerStream server, string pipeName)
   {
@@ -52,6 +55,23 @@ internal sealed class FakeConversationHost : IAsyncDisposable
     return new FakeConversationHost(server, pipeName);
   }
 
+  /// <summary>Settles every turn the host is holding. Lets a test keep a waiter pending
+  ///     for as long as it needs, then prove that waiter still completes.</summary>
+  public async Task ReleaseHeldTurnsAsync()
+  {
+    string[] turnIds;
+    lock (_gate)
+    {
+      turnIds = [.. _held];
+      _held.Clear();
+    }
+
+    foreach (string turnId in turnIds)
+    {
+      await EmitAsync(new RootTurnEvent(turnId, "settled", "released")).ConfigureAwait(false);
+    }
+  }
+
   private async Task ServeAsync()
   {
     try
@@ -69,11 +89,15 @@ internal sealed class FakeConversationHost : IAsyncDisposable
         lock (_gate)
         {
           _received.Add(request);
+          if (string.Equals(request.Input, SilentInput, StringComparison.Ordinal))
+          {
+            _held.Add(request.TurnId);
+          }
         }
 
         if (string.Equals(request.Input, SilentInput, StringComparison.Ordinal))
         {
-          continue; // takes the turn, never settles it: the waiter stays open
+          continue; // takes the turn, never settles it until released: the waiter stays open
         }
 
         foreach (string chunk in new[] { "he", "llo" })
@@ -94,9 +118,22 @@ internal sealed class FakeConversationHost : IAsyncDisposable
 #pragma warning restore CA1031 // Do not catch general exception types
   }
 
-  private Task EmitAsync(RootTurnEvent evt)
-      => TransportFraming.WriteAsync(_server,
-          new TransportEnvelope("root-turn-event", RootTurnProtocol.SerializeEvent(evt), 0), _cts.Token);
+  /// <summary>Writes one root-turn event. Serialized against the serve loop's own writes:
+  ///     two writers on one pipe would interleave frames.</summary>
+  private async Task EmitAsync(RootTurnEvent evt)
+  {
+    await _writeGate.WaitAsync(_cts.Token).ConfigureAwait(false);
+    try
+    {
+      await TransportFraming.WriteAsync(_server,
+          new TransportEnvelope("root-turn-event", RootTurnProtocol.SerializeEvent(evt), 0), _cts.Token)
+          .ConfigureAwait(false);
+    }
+    finally
+    {
+      _ = _writeGate.Release();
+    }
+  }
 
   /// <summary>Simulates host death: the pipe closes, so the app-side runtime observes a
   ///     disconnected transport instead of a peer that simply stopped talking.</summary>
@@ -118,6 +155,7 @@ internal sealed class FakeConversationHost : IAsyncDisposable
       // expected teardown
     }
 
+    _writeGate.Dispose();
     _cts.Dispose();
   }
 }

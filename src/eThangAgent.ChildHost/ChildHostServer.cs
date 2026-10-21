@@ -216,11 +216,15 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 
   /// <summary>Handles one root turn (spec D6): the app forwards the user's input and the
   ///     host answers with that turn's event stream. The runner that actually EXECUTES the
-  ///     turn is task 9's work; until it is wired, the host answers every turn with a TYPED
-  ///     settle failure rather than silence — the app-side caller always receives a
-  ///     well-formed outcome and can never hang waiting for a host that does not run turns
-  ///     yet. A malformed request is a peer fault, never a host crash: the turn id is
-  ///     recovered leniently so the settle can still be addressed.</summary>
+  ///     turn is task 9's work; until it is wired, the host answers every ADDRESSABLE turn
+  ///     with a typed settle failure rather than silence.
+  /// <para>An UNADDRESSABLE turn — one whose id cannot be recovered from the payload — is
+  /// dropped here with no reply, because there is no id to address a settle to. This method
+  /// therefore does NOT by itself guarantee the caller settles; that guarantee belongs to
+  /// the app side, where <c>RemoteAgentRuntime.SendRootTurnAsync</c> bounds every turn by
+  /// its root-turn budget and fails <c>TurnUnaddressable</c> when no settle arrives. The
+  /// two halves together mean no caller hangs. A malformed request is a peer fault, never a
+  /// host crash.</para></summary>
   private async Task HandleRootTurnAsync(TransportEnvelope envelope)
   {
     string turnId = ReadTurnIdLeniently(envelope.Json);
