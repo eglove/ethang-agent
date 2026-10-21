@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Measurement instrument only: it is NOT part of eThangAgent.slnx (the
+         SkillActivationEval precedent - a diagnostic must not break the
+         solution gates), and it opts out of the repo-wide analyzer-as-error
+         gate so the probe itself never blocks the build it measures. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <NoWarn>$(NoWarn);CA2007;S1215;S3776;S1541;S1155;S108;S138</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/eThangAgent.Roslyn.ACL/eThangAgent.Roslyn.ACL.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.Tool.Domain/eThangAgent.Tool.Domain.csproj" />
+    <ProjectReference Include="../../src/eThangAgent.Capability.Domain/eThangAgent.Capability.Domain.csproj" />
+  </ItemGroup>
+</Project>

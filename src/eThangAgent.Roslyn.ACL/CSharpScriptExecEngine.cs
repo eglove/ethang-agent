@@ -275,11 +275,12 @@ public sealed class CSharpScriptExecEngine(Func<ICapabilityRegistry> registry,
     List<string> outputLines = [.. globals.OutputLines];
     if (returnValue is not null and not ScriptGlobals)
     {
-      string text = returnValue switch
-      {
-        string s => s,
-        _ => System.Text.Json.JsonSerializer.Serialize(returnValue)
-      };
+      // The projection (ScriptValueJson) is what keeps the collectible
+      // submission assembly reclaimable: System.Text.Json must never see a type
+      // declared in the submission - it would cache that type in a static
+      // options singleton and pin the whole context for the process lifetime
+      // (the 2026-10-19 leak: 15 GB working set, 9.3M handles).
+      string text = ScriptValueJson.Serialize(returnValue);
       if (!string.IsNullOrEmpty(text))
       {
         outputLines.Add(text);

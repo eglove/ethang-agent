@@ -261,12 +261,12 @@ public sealed class ScriptGlobals
   /// Also capture any text written to Console.Out.</summary>
   public void Output(object? value)
   {
-    string text = value switch
-    {
-      null => "",
-      string s => s,
-      _ => JsonSerializer.Serialize(value)
-    };
+    // The projection (ScriptValueJson) is what keeps the collectible
+    // submission assembly reclaimable: System.Text.Json must never see a type
+    // declared in the submission - it would cache that type in a static
+    // options singleton and pin the whole context for the process lifetime
+    // (the 2026-10-19 leak: 15 GB working set, 9.3M handles).
+    string text = value is null ? "" : ScriptValueJson.Serialize(value);
     _outputLines.Enqueue(text);
   }
 
@@ -399,12 +399,19 @@ public sealed class ScriptTools
   }
 
   /// <summary>Serializes the arguments to JSON: a string passes through verbatim,
-  ///     null becomes the empty object, anything else is JSON-serialized.</summary>
+  ///     null becomes the empty object, anything else is JSON-serialized.
+  ///     The projection (ScriptValueJson) is what keeps the collectible
+  ///     submission assembly reclaimable: a script that passes an anonymous
+  ///     object to a tool (Tools.Invoke("read", new { path = "x" })) hands
+  ///     System.Text.Json a type declared in the submission - and the serializer
+  ///     would cache it in a static options singleton, pinning the collectible
+  ///     context for the process lifetime (the 2026-10-19 leak: 15 GB working
+  ///     set, 9.3M handles).</summary>
   private static string SerializeArguments(object? args) => args switch
   {
     null => "{}",
     string s => s,
-    _ => JsonSerializer.Serialize(args)
+    _ => ScriptValueJson.Serialize(args)
   };
 
   /// <summary>Parses the serialized arguments, throwing the InvalidJsonArguments
