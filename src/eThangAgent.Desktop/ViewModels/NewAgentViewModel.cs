@@ -68,7 +68,11 @@ internal sealed partial class NewAgentViewModel : ObservableObject
 
   public ICommand ChooseWorkspaceCommand { get; }
 
-  public ICommand OpenCommand { get; }
+  /// <summary>The Open command: GATED by <see cref="CanOpen"/>, so the button
+  ///     stays disabled until a provider AND a workspace are chosen. The command
+  ///     type is IRelayCommand (not ICommand) so the generated change hooks can
+  ///     requery its availability when the provider or the workspace changes.</summary>
+  public IRelayCommand OpenCommand { get; }
 
   public ICommand PickGlobalFileCommand { get; }
 
@@ -102,10 +106,12 @@ internal sealed partial class NewAgentViewModel : ObservableObject
 
   [ObservableProperty]
   [NotifyPropertyChangedFor(nameof(CanOpen))]
+  [NotifyCanExecuteChangedFor(nameof(OpenCommand))]
   public partial ProviderOption? SelectedProvider { get; set; }
 
   [ObservableProperty]
   [NotifyPropertyChangedFor(nameof(CanOpen))]
+  [NotifyCanExecuteChangedFor(nameof(OpenCommand))]
   public partial string? WorkspaceRoot { get; set; }
 
   /// <summary>Open is only actionable once BOTH a provider and a workspace are chosen.</summary>
@@ -120,8 +126,10 @@ internal sealed partial class NewAgentViewModel : ObservableObject
     Providers = providers is { Count: > 0 }
         ? providers
         : throw new ArgumentException("At least one configured provider is required.", nameof(providers));
-    SelectedProvider = providers.FirstOrDefault(p => p.Id == preferredProviderId) ?? providers[0];
 
+    // The commands exist BEFORE the selected provider is assigned: assigning it
+    // raises the generated change hook, which requeries the Open command's
+    // availability - a command that does not exist yet would fault there.
     CommandSet commands = CreateCommands();
     ChooseWorkspaceCommand = commands.ChooseWorkspace;
     PickGlobalFileCommand = commands.PickGlobalFile;
@@ -129,6 +137,8 @@ internal sealed partial class NewAgentViewModel : ObservableObject
     PickGlobalSkillDirectoryCommand = commands.PickGlobalSkillDirectory;
     PickWorkspaceSkillDirectoryCommand = commands.PickWorkspaceSkillDirectory;
     OpenCommand = commands.Open;
+
+    SelectedProvider = providers.FirstOrDefault(p => p.Id == preferredProviderId) ?? providers[0];
 
     SeedRows(GlobalFiles, globalFiles);
     SeedRows(WorkspaceFiles, workspaceFiles);
@@ -145,9 +155,32 @@ internal sealed partial class NewAgentViewModel : ObservableObject
       new RelayCommand(() => WorkspaceFilePickRequested?.Invoke(this, EventArgs.Empty)),
       new RelayCommand(() => GlobalSkillDirectoryPickRequested?.Invoke(this, EventArgs.Empty)),
       new RelayCommand(() => WorkspaceSkillDirectoryPickRequested?.Invoke(this, EventArgs.Empty)),
-      new RelayCommand(() => OpenRequested?.Invoke(this, NewAgentChoice.FromRows(
-          SelectedProvider!.Id, WorkspaceRoot!, GlobalFiles, WorkspaceFiles,
-          GlobalSkillDirectories, WorkspaceSkillDirectories))));
+      // The Open command is GATED by CanOpen: until a provider AND a workspace
+      // are chosen, the button stays disabled. It was always enabled before
+      // (the no-canExecute overload), so pressing Open with no workspace
+      // reached the shell with a null root and crashed the app on 2026-10-20.
+      // The action's OWN guard is load-bearing: ICommand.Execute does not
+      // consult CanExecute, so a programmatic Execute must not raise a choice
+      // over a missing workspace either.
+      new RelayCommand(Open, () => CanOpen));
+
+  /// <summary>The Open action: raises the confirmed choice. It refuses a missing
+  ///     provider or workspace by NOT raising the event at all - the dialog
+  ///     stays open, and nothing downstream ever sees a half-built choice. The
+  ///     null-forgiving operators that used to sit here (SelectedProvider! /
+  ///     WorkspaceRoot!) suppressed the compiler's null warning and let a null
+  ///     workspace reach Path.GetFullPath downstream; they are gone.</summary>
+  private void Open()
+  {
+    if (SelectedProvider is not { } provider || string.IsNullOrWhiteSpace(WorkspaceRoot))
+    {
+      return;
+    }
+
+    OpenRequested?.Invoke(this, NewAgentChoice.FromRows(
+        provider.Id, WorkspaceRoot, GlobalFiles, WorkspaceFiles,
+        GlobalSkillDirectories, WorkspaceSkillDirectories));
+  }
 
   /// <summary>Appends one persisted entry list to a row list as checked rows. The
   ///     constructor's seeding loop for every scope, and the workspace reload's
@@ -161,14 +194,16 @@ internal sealed partial class NewAgentViewModel : ObservableObject
     }
   }
 
-  /// <summary>The commands the constructor wires onto its read-only properties.</summary>
+  /// <summary>The commands the constructor wires onto its read-only properties.
+  ///     Open is an IRelayCommand: the generated change hooks requery its
+  ///     availability when the provider or the workspace changes.</summary>
   private sealed record CommandSet(
       ICommand ChooseWorkspace,
       ICommand PickGlobalFile,
       ICommand PickWorkspaceFile,
       ICommand PickGlobalSkillDirectory,
       ICommand PickWorkspaceSkillDirectory,
-      ICommand Open);
+      IRelayCommand Open);
 
   /// <summary>Feeds the folder-picker result back in. An empty pick (cancelled
   ///     dialog) keeps the previous value.</summary>

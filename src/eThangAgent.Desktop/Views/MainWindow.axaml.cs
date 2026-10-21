@@ -88,7 +88,17 @@ internal partial class MainWindow : Window
       return; // user cancelled — no-op
     }
 
-    await _vm.ApplyLaunchFilesAsync(choice);
+    // The launch files are applied FIRST so the new session's container build
+    // reads the just-saved lists. A refusal here (a missing workspace root) is
+    // a NAMED failure, not an exception: the shell surfaces it and stops -
+    // the 2026-10-20 crash was an ArgumentNullException escaping this handler.
+    Result<bool> applied = await _vm.ApplyLaunchFilesAsync(choice);
+    if (!applied.IsSuccess)
+    {
+      await ShowOpenFailedAsync(applied.Error.Message);
+      return;
+    }
+
     Result<AgentTabViewModel> result = await _vm.OpenAgentAsync(choice.WorkspaceRoot, choice.ProviderId);
     if (!result.IsSuccess)
     {

@@ -57,8 +57,9 @@ public class LaunchSkillDirectoriesPersistenceTests
     FakePreferenceStore store = new();
     MainViewModel shell = CreateSettingsShell(store);
 
-    await shell.ApplyLaunchFilesAsync(new NewAgentChoice("openrouter", WsRoot,
+    Result<bool> applied = await shell.ApplyLaunchFilesAsync(new NewAgentChoice("openrouter", WsRoot,
         [], [], [new SessionFileEntry(@"C:\skills\global", true)], []));
+    Assert.True(applied.IsSuccess);
 
     string expected = SkillDirectoryPreferences.Serialize(
         [new SessionFileEntry(@"C:\skills\global", true)]);
@@ -74,8 +75,9 @@ public class LaunchSkillDirectoriesPersistenceTests
     FakePreferenceStore store = new();
     MainViewModel shell = CreateSettingsShell(store);
 
-    await shell.ApplyLaunchFilesAsync(new NewAgentChoice("openrouter", WsRoot,
+    Result<bool> applied = await shell.ApplyLaunchFilesAsync(new NewAgentChoice("openrouter", WsRoot,
         [], [], [], [new SessionFileEntry(@"C:\skills\ws", true)]));
+    Assert.True(applied.IsSuccess);
 
     string expected = SkillDirectoryPreferences.Serialize(
         [new SessionFileEntry(@"C:\skills\ws", true)]);
@@ -93,8 +95,9 @@ public class LaunchSkillDirectoriesPersistenceTests
         [new SessionFileEntry(@"C:\skills\global", true)]);
     MainViewModel shell = CreateSettingsShell(store);
 
-    await shell.ApplyLaunchFilesAsync(new NewAgentChoice("openrouter", WsRoot,
+    Result<bool> applied = await shell.ApplyLaunchFilesAsync(new NewAgentChoice("openrouter", WsRoot,
         [], [], [], []));
+    Assert.True(applied.IsSuccess);
 
     // An empty list DELETEs the preference — never an empty-array value.
     Assert.Contains(SkillDirectoryPreferences.GlobalKey, store.Deletions);
@@ -110,7 +113,7 @@ public class LaunchSkillDirectoriesPersistenceTests
     Exception? failure = await Record.ExceptionAsync(() => shell.ApplyLaunchFilesAsync(
         new NewAgentChoice("openrouter", WsRoot,
             [], [], [new SessionFileEntry(@"C:\skills\global", true)],
-            [new SessionFileEntry(@"C:\skills\ws", true)])));
+            [new SessionFileEntry(@"C:\skills\ws", true)]))).ConfigureAwait(true);
 
     Assert.Null(failure);
     Assert.Empty(await shell.GetGlobalSkillDirectoriesAsync());

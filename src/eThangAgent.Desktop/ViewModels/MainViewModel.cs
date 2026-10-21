@@ -471,8 +471,16 @@ internal sealed partial class MainViewModel : ObservableObject
       return [];
     }
 
+    // The root is resolved through the same guard the launch path uses:
+    // an unresolvable path is a NAMED failure, not an escaping exception.
+    Result<string> resolved = ResolveWorkspaceRoot(workspaceRoot);
+    if (!resolved.IsSuccess)
+    {
+      return [];
+    }
+
     string? stored = await _preferences.GetAsync(
-        SessionFilePreferences.WorkspaceKey(Path.GetFullPath(workspaceRoot)));
+        SessionFilePreferences.WorkspaceKey(resolved.Value));
     Result<IReadOnlyList<SessionFileEntry>> parsedWs = SessionFilePreferences.Parse(stored);
     return parsedWs.IsSuccess ? parsedWs.Value : [];
   }
@@ -500,8 +508,14 @@ internal sealed partial class MainViewModel : ObservableObject
       return [];
     }
 
+    Result<string> resolved = ResolveWorkspaceRoot(workspaceRoot);
+    if (!resolved.IsSuccess)
+    {
+      return [];
+    }
+
     string? stored = await _preferences.GetAsync(
-        SkillDirectoryPreferences.WorkspaceKey(Path.GetFullPath(workspaceRoot)));
+        SkillDirectoryPreferences.WorkspaceKey(resolved.Value));
     Result<IReadOnlyList<SessionFileEntry>> parsedWs = SkillDirectoryPreferences.Parse(stored);
     return parsedWs.IsSuccess ? parsedWs.Value : [];
   }
@@ -889,13 +903,18 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     existing tab instead — the same directory may be open under both providers.</summary>
   public async Task<Result<AgentTabViewModel>> OpenAgentAsync(string workspaceRoot, string providerName)
   {
-    if (string.IsNullOrWhiteSpace(workspaceRoot))
+    // The root is VALIDATED, not trusted: a blank or unresolvable path must
+    // fail with a NAMED error, never an exception. Path.GetFullPath throws on
+    // both (ArgumentNullException / ArgumentException), and this method runs
+    // inside the launch handler - an escaping exception took the whole
+    // process down on 2026-10-20.
+    Result<string> resolved = ResolveWorkspaceRoot(workspaceRoot);
+    if (!resolved.IsSuccess)
     {
-      return Result.Failure<AgentTabViewModel>(new DomainError("InvalidWorkspace",
-          "workspace root must be a non-empty directory path."));
+      return Result.Failure<AgentTabViewModel>(resolved.Error);
     }
 
-    string full = Path.GetFullPath(workspaceRoot);
+    string full = resolved.Value;
     AgentTabViewModel? existing = Tabs.FirstOrDefault(t =>
         string.Equals(t.Container.WorkspaceRoot, full, StringComparison.OrdinalIgnoreCase)
         && string.Equals(t.Container.ProviderName, providerName, StringComparison.Ordinal));
@@ -936,25 +955,64 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     state — an empty list deletes its key (nothing configured), a non-empty
   ///     one serializes verbatim. Best effort, the same named decision as every
   ///     other preference write. Call BEFORE OpenAgentAsync so the new session's
-  ///     container build reads the just-saved lists.</summary>
-  public async Task ApplyLaunchFilesAsync(NewAgentChoice choice)
+  ///     container build reads the just-saved lists.
+  ///     <para>The workspace root is VALIDATED here, not trusted: the workspace-scoped
+  ///     keys are derived from it, and Path.GetFullPath throws on a null or blank
+  ///     path (the 2026-10-20 crash: an ArgumentNullException inside the dialog's
+  ///     async-void handler took the whole process down). A missing root is a NAMED
+  ///     failure, never an exception, and it persists NOTHING.</para></summary>
+  public async Task<Result<bool>> ApplyLaunchFilesAsync(NewAgentChoice choice)
   {
     ArgumentNullException.ThrowIfNull(choice);
+
+    Result<string> root = ResolveWorkspaceRoot(choice.WorkspaceRoot);
+    if (!root.IsSuccess)
+    {
+      return Result.Failure<bool>(root.Error);
+    }
+
     if (_preferences is null)
     {
-      return; // test seam: nothing is remembered
+      return Result.Success(true); // test seam: nothing is remembered
     }
 
     await PersistFileListAsync(SessionFilePreferences.GlobalKey, choice.GlobalFiles,
         SessionFilePreferences.Serialize);
     await PersistFileListAsync(
-        SessionFilePreferences.WorkspaceKey(Path.GetFullPath(choice.WorkspaceRoot)),
+        SessionFilePreferences.WorkspaceKey(root.Value),
         choice.WorkspaceFiles, SessionFilePreferences.Serialize);
     await PersistFileListAsync(SkillDirectoryPreferences.GlobalKey, choice.GlobalSkillDirectories,
         SkillDirectoryPreferences.Serialize);
     await PersistFileListAsync(
-        SkillDirectoryPreferences.WorkspaceKey(Path.GetFullPath(choice.WorkspaceRoot)),
+        SkillDirectoryPreferences.WorkspaceKey(root.Value),
         choice.WorkspaceSkillDirectories, SkillDirectoryPreferences.Serialize);
+
+    return Result.Success(true);
+  }
+
+  /// <summary>Resolves the launch choice's workspace root to its full path, or
+  ///     fails with a NAMED error. A null or blank root is refused outright
+  ///     (InvalidWorkspace) — it can never reach Path.GetFullPath, which throws on
+  ///     both. A path that cannot be resolved (an embedded null character, a
+  ///     malformed path) is refused the same way, with the reason in the message.</summary>
+  private static Result<string> ResolveWorkspaceRoot(string? workspaceRoot)
+  {
+    if (string.IsNullOrWhiteSpace(workspaceRoot))
+    {
+      return Result.Failure<string>(new DomainError("InvalidWorkspace",
+          "workspace root must be a non-empty directory path."));
+    }
+
+    try
+    {
+      return Result.Success(Path.GetFullPath(workspaceRoot));
+    }
+    catch (Exception ex) when (
+        ex is ArgumentException or NotSupportedException or PathTooLongException)
+    {
+      return Result.Failure<string>(new DomainError("InvalidWorkspace",
+          "workspace root could not be resolved: " + ex.Message));
+    }
   }
 
   /// <summary>Writes one file/directory list preference: an empty list deletes the
