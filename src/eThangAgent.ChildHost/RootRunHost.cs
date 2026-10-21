@@ -55,6 +55,7 @@ public sealed class RootRunHost : IDisposable
   // concurrent callers never start two reads.
   private readonly Lock _hydrationGate = new();
   private Task? _hydration;
+  private volatile bool _seedRefused;
 
   /// <summary>Builds the runner over a host's own headless container.</summary>
   public RootRunHost(SessionHost host, AgentId rootId, Conversation conversation)
@@ -119,19 +120,6 @@ public sealed class RootRunHost : IDisposable
       return rejected;
     }
 
-    // Seed validation BEFORE the gate: a refused turn never enters the queue and never
-    // touches the conversation.
-    // Seed validation BEFORE the gate: a refused turn never enters the queue and never
-    // touches the conversation.
-    if (request.Seed is { Count: > 2 })
-    {
-      Result<string> refused = Result.Failure<string>(new DomainError("InvalidSeed",
-          "a root turn seed may carry at most one exchange (two lines); a longer seed carries "
-          + "no roles and would be silently mislabelled."));
-      Emit(request, onEvent, "settled", DescribeFailure(refused.Error));
-      return refused;
-    }
-
     try
     {
       await _turnGate.WaitAsync(ct).ConfigureAwait(false);
@@ -140,8 +128,9 @@ public sealed class RootRunHost : IDisposable
     {
       // Same contract the handler's own cancellation path honors: a stop during the wait for
       // the gate fails the turn as TurnCancelled, never as a raw exception across the
-      // Task<Result<string>> seam.
-      return Result.Failure<string>(new DomainError("TurnCancelled", "the turn was cancelled."));
+      // Task<Result<string>> seam - and it SETTLES (fix round 3, finding 1): the app reads
+      // the outcome from the settled event, so silence makes it wait out its whole budget.
+      return SettleCancelled(request, onEvent);
     }
 
     try
@@ -150,8 +139,9 @@ public sealed class RootRunHost : IDisposable
     }
     catch (OperationCanceledException)
     {
-      return Result.Failure<string>(new DomainError("TurnCancelled", "the turn was cancelled."));
+      return SettleCancelled(request, onEvent);
     }
+
     finally
     {
       _ = _turnGate.Release();
@@ -163,6 +153,17 @@ public sealed class RootRunHost : IDisposable
       Action<RootTurnEvent> onEvent, CancellationToken ct)
   {
     await HydrateAsync(request, ct).ConfigureAwait(false);
+
+    if (_seedRefused)
+    {
+      // The seed is only consulted when the store had nothing, so the refusal surfaces HERE
+      // with a typed settle rather than at the top of the turn (fix round 3, finding 2).
+      Result<string> refused = Result.Failure<string>(new DomainError("InvalidSeed",
+          "a root turn seed may carry at most one exchange (two lines); a longer seed carries "
+          + "no roles and would be silently mislabelled."));
+      Emit(request, onEvent, "settled", DescribeFailure(refused.Error));
+      return refused;
+    }
 
     SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
     TurnCallbacks callbacks = new(
@@ -234,6 +235,22 @@ public sealed class RootRunHost : IDisposable
       return;
     }
 
+    // A cancelled or abandoned hydration must NEVER mutate the conversation (fix round 3,
+    // finding 3): the latch is cleared on failure and a later turn starts its own hydration,
+    // so an orphan that seeded here would duplicate the prefix and land it out of order.
+    ct.ThrowIfCancellationRequested();
+
+    // The seed refusal lives HERE, not at the top of the turn (fix round 3, finding 2): the
+    // seed is only a FALLBACK, so a long seed must not refuse a turn whose history came from
+    // the authoritative store.
+    if (seed is { Count: > 2 })
+    {
+      // Recorded on the runner rather than thrown: the refusal is discovered deep inside the
+      // hydration task, and the turn path reads it after awaiting that task.
+      _seedRefused = true;
+      return;
+    }
+
     HydrateFromSeed(seed);
   }
 
@@ -252,10 +269,17 @@ public sealed class RootRunHost : IDisposable
     {
       transcript = await store.GetTranscriptAsync(RootId, ct).ConfigureAwait(false);
     }
+    catch (OperationCanceledException)
+    {
+      // Cancellation is NOT 'the store has nothing' (fix round 3, finding 3): treating it as
+      // empty fell through to the seed path and mutated an abandoned conversation.
+      throw;
+    }
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception)
     {
-      // Named decision (CA1031): hydration is best-effort — the seed path covers it.
+      // Named decision (CA1031): a store that genuinely cannot be read leaves the seed path
+      // to run, because a turn with less history is better than a turn that never starts.
       return false;
     }
 #pragma warning restore CA1031 // Do not catch general exception types
@@ -270,10 +294,16 @@ public sealed class RootRunHost : IDisposable
   }
 
   /// <summary>Applies the request's seed — the app's own view of the history — when the
-  ///     store had nothing. Roles are inferred from the seed's own shape: the protocol
-  ///     carries plain text lines, so the FIRST line is the user's opening message and
-  ///     every later line is assistant output, which is exactly the shape a session's
-  ///     transcript takes before any tool call.</summary>
+  ///     store had nothing.
+  ///     <para>ROLE INFERENCE IS A HEURISTIC, NOT A CONTRACT. <see cref="RootTurnRequest.Seed"/>
+  ///     is a plain list of text lines and carries NO ROLES, so this maps the first line to
+  ///     <see cref="Role.User"/> and every later line to <see cref="Role.Assistant"/>. That is
+  ///     only truthful for a SINGLE exchange (one user message, one answer). For any longer
+  ///     history it would silently relabel every user message after the first as assistant
+  ///     output, so the caller refuses a seed longer than two lines instead of approximating
+  ///     it (see <see cref="HydrateCoreAsync"/>). A multi-exchange resume needs a
+  ///     role-carrying seed field in the protocol; until that exists, a refusal is honest and
+  ///     a mislabelled history is a silent quality bug.</para></summary>
   private void HydrateFromSeed(IReadOnlyList<string>? seed)
   {
     if (seed is null || seed.Count == 0)
@@ -292,6 +322,18 @@ public sealed class RootRunHost : IDisposable
     }
 
     Conversation.Seed(history);
+  }
+
+  /// <summary>Emits the typed cancellation settle and returns it. Both cancellation paths
+  ///     (the gate wait and the turn body) go through here, so no cancellation can return
+  ///     without telling the app what happened.</summary>
+  private static Result<string> SettleCancelled(RootTurnRequest request,
+      Action<RootTurnEvent> onEvent)
+  {
+    Result<string> cancelled = Result.Failure<string>(
+        new DomainError("TurnCancelled", "the turn was cancelled."));
+    Emit(request, onEvent, "settled", DescribeFailure(cancelled.Error));
+    return cancelled;
   }
 
   /// <summary>The wire form of a failure: the app renders this line verbatim.</summary>

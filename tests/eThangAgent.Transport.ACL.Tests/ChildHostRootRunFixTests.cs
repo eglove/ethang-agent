@@ -334,7 +334,7 @@ public sealed class ChildHostRootRunFixTests
     // fill is a fallback for the host's empty carrier, never a clobber.
     RootSessionIdentity preFilled = new() { Id = new AgentId(Guid.NewGuid()) };
     using ScriptedRootHost host = ScriptedRootHost.Start("the answer", ["the ", "answer"],
-        identity: preFilled);
+        options: new ScriptedOptions(Identity: preFilled));
 
     Assert.Equal(preFilled.Id, host.RootIdentity.Id);
     Assert.NotEqual(host.Runner.RootId, host.RootIdentity.Id);

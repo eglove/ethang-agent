@@ -10,6 +10,18 @@ using Ag = eThangAgent.AgentDomain.Agent;
 
 namespace eThangAgent.Transport.ACL.Tests;
 
+/// <summary>The optional per-host knobs a test may supply: a pre-filled root identity
+///     carrier and a mid-turn park. Grouped so the host factory stays inside the
+///     parameter budget as seams accumulate.</summary>
+internal sealed record ScriptedOptions(RootSessionIdentity? Identity = null, ScriptedPark? Park = null);
+
+/// <summary>The optional mid-turn park a streaming test needs: an ASYNC hook that runs
+///     between the provider's deltas, so a test can hold a turn open on a genuine yield
+///     (not a blocking wait) while it drives other work.</summary>
+#pragma warning disable CA1812 // Instantiated by the gate tests, not by this file.
+internal sealed record ScriptedPark(Func<Task> BetweenDeltas);
+#pragma warning restore CA1812
+
 /// <summary>A composed host container for ONE root turn, with the model provider as the only
 ///     fake. Everything between the runner and the provider is REAL: the real
 ///     <see cref="RootRunHost"/>, the real <see cref="SendMessageCommandHandler"/>, the real
@@ -53,15 +65,18 @@ internal sealed class ScriptedRootHost : IDisposable
   ///     completes with <paramref name="answer"/>. <paramref name="betweenDeltas"/> runs
   ///     between the first and second delta, so a test can observe what the caller had
   ///     received mid-turn. <paramref name="providerError"/> fails the provider call instead.
-  ///     <paramref name="identity"/> supplies a pre-filled root identity carrier.</summary>
+  ///     <paramref name="options"/> supplies the grouped knobs (a pre-filled root identity
+  ///     carrier and a mid-turn park).</summary>
   public static ScriptedRootHost Start(string answer, IReadOnlyList<string> deltas,
       Action? betweenDeltas = null, DomainError? providerError = null,
-      RootSessionIdentity? identity = null, IReadOnlyList<Message>? storedHistory = null,
-      TimeSpan? storeDelay = null)
+      IReadOnlyList<Message>? storedHistory = null, TimeSpan? storeDelay = null,
+      ScriptedOptions? options = null)
   {
+    RootSessionIdentity? identity = options?.Identity;
+    ScriptedPark? park = options?.Park;
     Conversation conversation = new();
     IToolRegistry tools = new EmptyToolRegistry();
-    ScriptedProvider provider = new(answer, deltas, betweenDeltas, providerError);
+    ScriptedProvider provider = new(answer, deltas, betweenDeltas, providerError, park?.BetweenDeltas);
     ModelConfig config = ModelConfig.Create("scripted/model", null, 4096, 0f, 200_000).Value!;
     AgentId rootId = AgentId.NewId();
     Ag agent = new(provider, conversation, config, tools, new AgentOptions { Id = rootId });
@@ -110,7 +125,8 @@ internal sealed class ScriptedRootHost : IDisposable
       string answer,
       IReadOnlyList<string> deltas,
       Action? betweenDeltas,
-      DomainError? providerError) : IModelProvider
+      DomainError? providerError,
+      Func<Task>? parkBetweenDeltas) : IModelProvider
   {
     private int _calls;
     private IReadOnlyList<Message> _lastRequest = [];
@@ -148,7 +164,7 @@ internal sealed class ScriptedRootHost : IDisposable
         CancellationToken ct = default)
         => SendStreamingAsync(config, request, null, null, ct);
 
-    public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
+    public async Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
         Action<string>? onContentDelta = null, Action<string>? onReasoningDelta = null,
         CancellationToken ct = default)
     {
@@ -160,7 +176,7 @@ internal sealed class ScriptedRootHost : IDisposable
       }
       if (providerError is not null)
       {
-        return Task.FromResult(Result.Failure<ModelResponse>(providerError));
+        return Result.Failure<ModelResponse>(providerError);
       }
 
       for (int index = 0; index < deltas.Count; index++)
@@ -169,10 +185,14 @@ internal sealed class ScriptedRootHost : IDisposable
         if (index == 0)
         {
           betweenDeltas?.Invoke();
+          if (parkBetweenDeltas is not null)
+          {
+            await parkBetweenDeltas().ConfigureAwait(false);
+          }
         }
       }
 
-      return Task.FromResult(Result.Success(new ModelResponse(answer, [])));
+      return Result.Success(new ModelResponse(answer, []));
     }
   }
 
@@ -185,8 +205,6 @@ internal sealed class ScriptedRootHost : IDisposable
   ///     directly observable.</para></summary>
   internal sealed class RecordingStore(IReadOnlyList<Message> transcript, TimeSpan delay) : IAgentStore
   {
-    private int _appended;
-
     /// <summary>A deliberately SLOW read: concurrency defects only appear when the store
     ///     read is wide enough for a second turn to arrive inside it.</summary>
     public async Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id,
@@ -197,10 +215,7 @@ internal sealed class ScriptedRootHost : IDisposable
     }
 
     public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
-    {
-      _ = Interlocked.Increment(ref _appended);
-      return Task.FromResult(Result.Success("ok"));
-    }
+        => Task.FromResult(Result.Success("ok"));
 
     public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages,
         CancellationToken ct = default)
