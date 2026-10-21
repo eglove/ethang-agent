@@ -83,6 +83,7 @@ public class SkillSlashE2ETests
     DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skillslash-ws");
     DirectoryInfo skills = Directory.CreateTempSubdirectory("ethang-e2e-skillslash-dir");
     E2E.HostHarness? host = null;
+    AgentSession? session = null;
     try
     {
       // One manual file skill: the channel resolves it, the listing never shows it.
@@ -113,7 +114,7 @@ public class SkillSlashE2ETests
       Result<AgentSession> opened = await factory.CreateAsync(
           ws.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
       Assert.True(opened.IsSuccess, opened.Error?.Message);
-      AgentSession session = opened.Value;
+      session = opened.Value;
       session.Preferences!.ModelId = E2E.SessionModel;
 
       AgentSessionViewModel? vmRef = null;
@@ -174,34 +175,38 @@ public class SkillSlashE2ETests
     }
     finally
     {
-      // CLEANUP IS OFF-THREAD AND UNWAITED (measured, not guessed). This session's host
-      // process holds the temp database and workspace, so both the harness's DB delete and
-      // a recursive directory delete BLOCK on the pinned file rather than throwing - the run
-      // sat here past 700s with every turn already complete and no assertion left to make.
-      // A try/catch cannot help a block, so disposal runs on the pool and the test never
-      // waits; the OS reclaims the temp files.
-      // TEARDOWN IS OFF-THREAD AND UNWAITED (measured, not guessed). Disposing this
-      // harness disposes the session container and its host supervisor, and BOTH that and a
-      // recursive temp-dir delete BLOCK on files the conversation host still holds - the run
-      // sat in teardown past 700s with every assertion already made. A try/catch cannot help
-      // a block, so teardown runs on the pool and the test never waits for it.
-#pragma warning disable xUnit1051 // Named decision: teardown must outlive the test's token.
-      _ = Task.Run(() =>
+      // DISPOSE THE SESSION FIRST, exactly like RemoteHostE2ETests. This test opens a
+      // session whose conversation host is a LIVE PROCESS; until that container is disposed
+      // the host keeps the temp workspace pinned, and Directory.Delete on a directory a live
+      // process holds BLOCKS rather than throwing - which is why a try/catch could never
+      // help and why the run sat in teardown past 700s with every assertion already made.
+      if (session is not null)
       {
-        host?.Dispose();
-#pragma warning disable CA1031 // Named decision: temp cleanup is best effort.
-        try
-        {
-          ws.Delete(true);
-          skills.Delete(true);
-        }
-        catch (Exception)
-        {
-          // The OS reclaims it; the test's verdict never depends on cleanup.
-        }
+        await session.Services.DisposeAsync();
+      }
+
+      host?.Dispose();
+
+      // Best effort, the sibling's exact shape: a still-draining host may pin the directory.
+#pragma warning disable CA1031 // Named decision: temp-dir cleanup is best effort.
+      try
+      {
+        ws.Delete(true);
+      }
+      catch (IOException)
+      {
+        // best effort: a still-draining host may pin the directory
+      }
+
+      try
+      {
+        skills.Delete(true);
+      }
+      catch (IOException)
+      {
+        // best effort: a still-draining host may pin the directory
+      }
 #pragma warning restore CA1031
-      });
-#pragma warning restore xUnit1051
     }
   }
 }
