@@ -304,7 +304,7 @@ public sealed class ScriptGlobals
   private ShellResult OutputCeilingFailure(OutputCeiling ceiling) => new(-1, ceiling.Render(),
       WithProgramStderr(
           "Error [OutputCeiling]: the program produced more than "
-          + OutputCeiling.HumanBytes(Ceilings.OutputKillBytes)
+          + OutputCeiling.DescribeCap(Ceilings.OutputKillBytes)
           + " of output and was stopped.",
           ceiling.RenderStderr()));
 
@@ -469,6 +469,21 @@ public sealed record ScriptCeilings
     ArgumentOutOfRangeException.ThrowIfNegativeOrZero(spawnProcessCount);
     ArgumentOutOfRangeException.ThrowIfNegativeOrZero(outputTruncateBytes);
     ArgumentOutOfRangeException.ThrowIfNegativeOrZero(outputKillBytes);
+    // The two output caps are ORDERED, not independent: a kill cap at or below the
+    // truncate cap stops the run at the very moment the head fills, so the head renders
+    // with NO marker and only the error line keeps the result from being silent — the
+    // exact silent truncation the ceiling exists to prevent. Validated here, at
+    // construction, naming the offending field (never clamped, never deferred to the
+    // ceiling where Shell's catch-all would degrade it into an unactionable error).
+    if (outputKillBytes <= outputTruncateBytes)
+    {
+      throw new ArgumentOutOfRangeException(nameof(outputKillBytes), outputKillBytes,
+          "outputKillBytes must be greater than outputTruncateBytes ("
+          + outputTruncateBytes.ToString(CultureInfo.InvariantCulture)
+          + "); otherwise the run is stopped the moment the head fills and the truncation"
+          + " marker can never be rendered.");
+    }
+
     SpawnMemoryBytes = spawnMemoryBytes;
     SpawnProcessCount = spawnProcessCount;
     OutputTruncateBytes = outputTruncateBytes;

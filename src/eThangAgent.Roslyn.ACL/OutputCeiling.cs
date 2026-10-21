@@ -10,15 +10,22 @@ namespace eThangAgent.Roslyn.ACL;
 ///     model must always be able to tell truncation from a short result.
 ///     <para>BOTH pipes feed ONE ceiling, so the bound is on the run's TOTAL output
 ///     rather than per stream — a program writing 5 MB to stdout and 5 MB to stderr has
-///     produced 10 MB. The two streams keep their own heads (a stdout chunk never eats
-///     stderr's room), but they draw from one shared room budget, and a stream that was
-///     clipped — or dropped entirely once the budget ran out — carries the marker so a
-///     clipped stream is never mistaken for a complete one.</para>
+///     produced 10 MB. There is ONE shared room for the whole run: whichever pump
+///     appends first consumes it, so a chatty stream can take the entire room and leave
+///     the other stream with nothing but its marker. Each stream keeps its own head
+///     buffer and its own clipped flag, and a stream that was clipped — or dropped
+///     entirely once the room ran out — carries the marker, so a clipped stream is never
+///     mistaken for a complete one. A stream that fit is rendered verbatim with no
+///     marker.</para>
 ///     <para>Thread-safe by construction: the two pipe pumps append concurrently.</para>
-///     <para>Named decision: the caps are measured in CHARACTERS of the decoded capture
-///     (the pipes are already decoded to strings), not in wire bytes. The ceiling bounds
-///     what the model would otherwise read, which is the decoded text — a UTF-8 byte
-///     count would need a second, redundant accounting of the same buffer.</para></summary>
+///     <para>UNIT — the single authoritative statement: both caps are counted in
+///     CHARACTERS of the decoded capture, not in wire bytes. The pipes are already
+///     decoded to strings, and the ceiling bounds what the model would otherwise READ,
+///     which is the decoded text; a UTF-8 byte count would need a second, redundant
+///     accounting of the same buffer. Every rendered limit says "characters" for this
+///     reason. The <c>ScriptCeilings.OutputTruncateBytes</c>/<c>OutputKillBytes</c>
+///     fields and this class's parameter names keep the word "Bytes" for contract
+///     continuity with the plan that reserved them; the COUNT is characters.</para></summary>
 internal sealed class OutputCeiling(long truncateBytes, long killBytes)
 {
   /// <summary>The marker line appended to a clipped stream. Names the limit and the
@@ -35,7 +42,7 @@ internal sealed class OutputCeiling(long truncateBytes, long killBytes)
   private bool _stdoutClipped;
   private bool _stderrClipped;
 
-  /// <summary>True when any byte of the run's output was dropped. The head is what
+  /// <summary>True when any character of the run's output was dropped. The head is what
   ///     survives, so a truncated result is never mistaken for a short one.</summary>
   public bool Truncated { get; private set; }
 
@@ -47,8 +54,8 @@ internal sealed class OutputCeiling(long truncateBytes, long killBytes)
 
   /// <summary>Appends one chunk from either pipe; returns false when the run must be
   ///     stopped. The chunk is counted against the shared total BEFORE any room check,
-  ///     so the kill cap sees the run's real output volume even when every byte of it
-  ///     was clipped away.</summary>
+  ///     so the kill cap sees the run's real output volume even when every character of
+  ///     it was clipped away.</summary>
   public bool Append(string text, bool isErrorStream)
   {
     if (string.IsNullOrEmpty(text))
@@ -121,21 +128,29 @@ internal sealed class OutputCeiling(long truncateBytes, long killBytes)
         return body;
       }
 
-      // The limit rides the marker so the model can size its next run against it. The
-      // stream name is spelled out when the OTHER stream exists too, because a clipped
-      // stderr under a complete stdout is otherwise easy to miss.
-      string limit = TruncationMarker + " (limit " + HumanBytes(truncateBytes)
-          + (isErrorStream ? ", stderr" : ", stdout") + ")";
+      // The limit rides the marker so the model can size its next run against it, and it
+      // is rendered in the unit the cap actually counts (characters — see the class
+      // summary's UNIT paragraph) rather than a rounded byte magnitude. The stream name
+      // is spelled out because a clipped stderr under a complete stdout is otherwise easy
+      // to miss.
+      string limit = TruncationMarker + " (limit " + truncateBytes.ToString(CultureInfo.InvariantCulture)
+          + " characters" + (isErrorStream ? ", stderr" : ", stdout") + ")";
       return body.Length == 0 ? limit : body + Environment.NewLine + limit;
     }
   }
 
-  /// <summary>A byte count in the unit the ceiling contract speaks in, so a limit reads
-  ///     as "64 KB" or "8 MB" rather than a unitless number.</summary>
-  internal static string HumanBytes(long bytes) => bytes switch
+  /// <summary>A cap rendered in the unit it counts (characters — see the class summary's
+  ///     UNIT paragraph), with a parenthesised magnitude so a large cap still reads at a
+  ///     glance: "8388608 characters (8 MB)".</summary>
+  internal static string DescribeCap(long characters) =>
+      characters.ToString(CultureInfo.InvariantCulture) + " characters (" + Magnitude(characters) + ")";
+
+  /// <summary>The cap's magnitude for at-a-glance reading. A parenthetical aid only —
+  ///     the authoritative unit is the character count beside it.</summary>
+  private static string Magnitude(long characters) => characters switch
   {
-    >= 1024L * 1024L => (bytes / (double)(1024L * 1024L)).ToString("0.#", CultureInfo.InvariantCulture) + " MB",
-    >= 1024L => (bytes / 1024.0).ToString("0.#", CultureInfo.InvariantCulture) + " KB",
-    _ => bytes.ToString(CultureInfo.InvariantCulture) + " bytes",
+    >= 1024L * 1024L => (characters / (double)(1024L * 1024L)).ToString("0.#", CultureInfo.InvariantCulture) + " MB",
+    >= 1024L => (characters / 1024.0).ToString("0.#", CultureInfo.InvariantCulture) + " KB",
+    _ => characters.ToString(CultureInfo.InvariantCulture) + " characters",
   };
 }
