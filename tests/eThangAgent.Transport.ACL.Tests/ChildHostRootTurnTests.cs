@@ -22,7 +22,7 @@ public class ChildHostRootTurnTests
   ///     production default is far longer, but the CONTRACT under test is that a bound
   ///     exists and fails typed — the value itself is not the subject.</summary>
   private static readonly RootTurnBudget ShortBudget = new(
-      Idle: TimeSpan.FromMilliseconds(500), Ceiling: TimeSpan.FromSeconds(2));
+      TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(2));
 
   [Fact]
   public async Task RootTurn_StreamsDeltasThenSettles()
@@ -396,7 +396,7 @@ public class ChildHostRootTurnTests
     // Idle window far SHORTER than the turn's total duration, but longer than the gap
     // between deltas: only a progress-blind bound could fail this.
     RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
-        Idle: TimeSpan.FromSeconds(1), Ceiling: TimeSpan.FromMinutes(5)));
+        TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(5)));
     using CancellationTokenSource loop = new();
     _ = runtime.RunReceiveLoopAsync(loop.Token);
     List<RootTurnEvent> events = [];
@@ -421,7 +421,7 @@ public class ChildHostRootTurnTests
     await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
 #pragma warning restore CA2007
     RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
-        Idle: TimeSpan.FromMilliseconds(500), Ceiling: TimeSpan.FromMinutes(5)));
+        TimeSpan.FromMilliseconds(500), TimeSpan.FromMinutes(5)));
     using CancellationTokenSource loop = new();
     _ = runtime.RunReceiveLoopAsync(loop.Token);
 
@@ -446,7 +446,7 @@ public class ChildHostRootTurnTests
     await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
 #pragma warning restore CA2007
     RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
-        Idle: TimeSpan.FromMilliseconds(500), Ceiling: TimeSpan.FromSeconds(2)));
+        TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(2)));
     using CancellationTokenSource loop = new();
     _ = runtime.RunReceiveLoopAsync(loop.Token);
     List<RootTurnEvent> events = [];
@@ -473,7 +473,7 @@ public class ChildHostRootTurnTests
     await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
 #pragma warning restore CA2007
     RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
-        Idle: TimeSpan.FromMilliseconds(400), Ceiling: TimeSpan.FromMinutes(5)));
+        TimeSpan.FromMilliseconds(400), TimeSpan.FromMinutes(5)));
     using CancellationTokenSource loop = new();
     _ = runtime.RunReceiveLoopAsync(loop.Token);
 
@@ -523,7 +523,7 @@ public class ChildHostRootTurnTests
     try
     {
       RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
-          Idle: TimeSpan.FromMilliseconds(500), Ceiling: TimeSpan.FromSeconds(5)));
+          TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(5)));
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
 
@@ -553,28 +553,23 @@ public class ChildHostRootTurnTests
     }
   }
   [Fact]
-  public async Task RootTurn_BoundedSendFailure_TearsDownTheConnection_SoASecondTurnFailsFast()
+  public async Task RootTurn_BoundedSendFailure_SecondTurnIsNotBlockedOnTheGate()
   {
-    // The abandoned send wedges the transport's single write gate FOREVER (a blocked pipe
-    // write cannot be cancelled by any token, so NamedPipeChildTransport never reaches its
-    // finally). A bounded send that leaves a permanently wedged gate is worse than the hang
-    // it replaced, so the failure must be treated as CONNECTION LOST: the second turn fails
-    // fast with a typed error instead of blocking on the gate.
-    //
-    // This test deliberately does NOT dispose the peer first — that is exactly what hid the
-    // defect: the old test's teardown released the writer, so it proved nothing about the
-    // production path. Here the peer stays alive and unread, and the runtime must recover
-    // on its own.
+    // SUPERSEDED BY THE CONTROLLER RULING. This test used to assert that a bounded send
+    // FAILED THE WHOLE CONNECTION (so a second turn failed fast on the lost flag). The
+    // ruling established that the write is CANCELLED — which releases the gate — so the
+    // connection SURVIVES and the correct assertion is that a second turn is not blocked.
+    // It still fails if the write is abandoned: an abandoned write holds the gate and the
+    // second turn waits out its own send window.
     NonReadingPeer peer = await NonReadingPeer.StartAsync().ConfigureAwait(true);
     NamedPipeChildTransport app = await ConnectAsync(peer.PipeName).ConfigureAwait(true);
     try
     {
       RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
-          Idle: TimeSpan.FromMilliseconds(400), Ceiling: TimeSpan.FromSeconds(10)));
+          TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(10)));
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
 
-      // Turn 1: a frame large enough to block, so the send bound fires.
       Task<Result<string>> first = runtime.SendRootTurnAsync(
           new RootTurnRequest("turn-big", new string('x', 1024 * 1024), []), _ => { },
           TestContext.Current.CancellationToken);
@@ -585,11 +580,10 @@ public class ChildHostRootTurnTests
       Assert.False(firstResult.IsSuccess);
       Assert.Equal("HostUnavailable", firstResult.Error.Code);
 
-      // Turn 2: a SMALL frame that would write instantly on a free gate. The distinguishing
-      // property is not "it failed" — the DEFECT also fails it, by blocking on the wedged
-      // gate for its own full send window and then blaming the host for not reading. The
-      // fix must (a) fail it essentially at once, because the connection is known lost, and
-      // (b) report CONNECTION LOSS, not a send timeout.
+      // The peer drains so the pipe buffer is not the thing under test.
+      peer.StartDraining();
+      await Task.Delay(200, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
       System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
       Task<Result<string>> second = runtime.SendRootTurnAsync(
           new RootTurnRequest("turn-small", "hello", []), _ => { },
@@ -598,29 +592,10 @@ public class ChildHostRootTurnTests
           TestContext.Current.CancellationToken)).ConfigureAwait(true);
       elapsed.Stop();
       Assert.True(secondDone == second,
-          "the second turn blocked on the wedged write gate: the bounded send never tore the connection down");
-      Result<string> secondResult = await second.ConfigureAwait(true);
-      Assert.False(secondResult.IsSuccess);
-      Assert.Equal("HostUnavailable", secondResult.Error.Code);
-      // (a) It must not have waited out another send window on the wedged gate.
-      Assert.True(elapsed.Elapsed < TimeSpan.FromMilliseconds(250),
-          "the second turn waited " + elapsed.Elapsed + " — it blocked on the wedged write gate");
-      // (b) The diagnosis must be connection loss, not the send bound's "not reading".
-      Assert.DoesNotContain("not reading", secondResult.Error.Message, StringComparison.OrdinalIgnoreCase);
-
-      // (c) The WEDGED GATE ITSELF must be gone, not merely bypassed by the lost flag.
-      //     A child-path send shares the same transport and gate, so probe it directly: if
-      //     the gate were still held, this write would block forever. It must fault (the
-      //     transport is disposed) rather than hang.
-      Task<Result<AgentId>> childStart = runtime.Start(
-          AgentRecord.Spawned(AgentId.NewId(), null, 1, "m/sub", "after-wedge", "task", DateTimeOffset.UtcNow),
-          TestContext.Current.CancellationToken);
-      Task childDone = await Task.WhenAny(childStart, Task.Delay(TimeSpan.FromSeconds(5),
-          TestContext.Current.CancellationToken)).ConfigureAwait(true);
-      Assert.True(childDone == childStart,
-          "a child-path send blocked: the wedged write gate was never released");
-      Result<AgentId> childResult = await childStart.ConfigureAwait(true);
-      Assert.False(childResult.IsSuccess);
+          "the second turn blocked on the write gate: the bounded write was abandoned, not cancelled");
+      // It may fail (this peer never answers a turn) — the point is that it was not BLOCKED.
+      Assert.True(elapsed.Elapsed < TimeSpan.FromMilliseconds(900),
+          "the second turn waited " + elapsed.Elapsed + ", i.e. it hit the send bound on a wedged gate");
     }
     finally
     {
@@ -628,7 +603,6 @@ public class ChildHostRootTurnTests
       await app.DisposeAsync().ConfigureAwait(true);
     }
   }
-
   [Fact]
   public async Task RootTurn_AfterABoundedSendFailure_ReAttachRestoresService()
   {
@@ -640,7 +614,7 @@ public class ChildHostRootTurnTests
     try
     {
       RemoteAgentRuntime runtime = new(dead, new RootTurnBudget(
-          Idle: TimeSpan.FromMilliseconds(400), Ceiling: TimeSpan.FromSeconds(10)));
+          TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(10)));
       using CancellationTokenSource firstLoop = new();
       _ = runtime.RunReceiveLoopAsync(firstLoop.Token);
 
@@ -684,7 +658,7 @@ public class ChildHostRootTurnTests
     try
     {
       RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
-          Idle: TimeSpan.FromMilliseconds(400), Ceiling: TimeSpan.FromSeconds(10)));
+          TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(10)));
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
 
@@ -717,7 +691,7 @@ public class ChildHostRootTurnTests
     try
     {
       RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
-          Idle: TimeSpan.FromSeconds(30), Ceiling: TimeSpan.FromMinutes(5)));
+          TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5)));
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
       using CancellationTokenSource turn = new();
@@ -736,6 +710,142 @@ public class ChildHostRootTurnTests
     {
       await peer.DisposeAsync().ConfigureAwait(true);
       await app.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
+  [Fact]
+  public async Task RootTurn_BoundedSendFailure_KeepsTheConnection_AndTheGateIsFree()
+  {
+    // CONTROLLER RULING: the send bound's token is passed to SendAsync, so a blocked write is
+    // CANCELLED — which releases the transport's single write gate — rather than abandoned.
+    // The connection therefore SURVIVES: tearing it down would kill in-flight child runs for
+    // a defect that cancellation already handles.
+    //
+    // This is the assertion finding 4 said was missing: proof the GATE is free, not merely
+    // that the lost flag short-circuits later sends. A direct send on the SAME transport is
+    // the only thing that proves it — the lost-flag refusal never touches the gate.
+    NonReadingPeer peer = await NonReadingPeer.StartAsync().ConfigureAwait(true);
+    NamedPipeChildTransport app = await ConnectAsync(peer.PipeName).ConfigureAwait(true);
+    try
+    {
+      RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+          TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(10)));
+      using CancellationTokenSource loop = new();
+      _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+      Task<Result<string>> turn = runtime.SendRootTurnAsync(
+          new RootTurnRequest("turn-big", new string('x', 1024 * 1024), []), _ => { },
+          TestContext.Current.CancellationToken);
+      Task done = await Task.WhenAny(turn, Task.Delay(Limit, TestContext.Current.CancellationToken))
+          .ConfigureAwait(true);
+      Assert.True(done == turn, "the bounded send never returned");
+      Result<string> result = await turn.ConfigureAwait(true);
+      Assert.False(result.IsSuccess);
+      Assert.Equal("HostUnavailable", result.Error.Code);
+
+      // THE GATE PROOF. The peer must DRAIN first: a peer that never reads leaves the pipe
+      // buffer full, so even a tiny write blocks regardless of the gate — which would make
+      // this assertion measure the buffer, not the gate. With the buffer draining, a small
+      // write completing proves the gate itself is free.
+      peer.StartDraining();
+      await Task.Delay(200, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Task smallSend = app.SendAsync(new TransportEnvelope("ack", "\"1\"", 1),
+          TestContext.Current.CancellationToken);
+      Task smallDone = await Task.WhenAny(smallSend, Task.Delay(TimeSpan.FromSeconds(5),
+          TestContext.Current.CancellationToken)).ConfigureAwait(true);
+      Assert.True(smallDone == smallSend,
+          "the write gate is still held after the bounded send: the abandoned write was never cancelled");
+      await smallSend.ConfigureAwait(true);
+
+      // And the connection is alive: the runtime is not in the lost state.
+      Assert.False(runtime.HostLost, "the connection was torn down for a defect cancellation already handles");
+    }
+    finally
+    {
+      await peer.DisposeAsync().ConfigureAwait(true);
+      await app.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
+  [Fact]
+  public async Task RootTurn_CallerCancelDuringSend_ReleasesTheGate_AndChildSendsStillWork()
+  {
+    // Finding 2: a caller cancel used to return TurnCancelled BEFORE any teardown, leaving
+    // the abandoned write holding the gate — so a CHILD send on the same transport blocked
+    // unbounded. With the ruling the write is cancelled, which releases the gate.
+    NonReadingPeer peer = await NonReadingPeer.StartAsync().ConfigureAwait(true);
+    NamedPipeChildTransport app = await ConnectAsync(peer.PipeName).ConfigureAwait(true);
+    try
+    {
+      RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+          TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5)));
+      using CancellationTokenSource loop = new();
+      _ = runtime.RunReceiveLoopAsync(loop.Token);
+      using CancellationTokenSource turn = new();
+
+      Task<Result<string>> pending = runtime.SendRootTurnAsync(
+          new RootTurnRequest("turn-cancel", new string('x', 1024 * 1024), []), _ => { }, turn.Token);
+      await Task.Delay(300, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      await turn.CancelAsync().ConfigureAwait(true);
+
+      Result<string> result = await pending.WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.False(result.IsSuccess);
+      Assert.Equal("TurnCancelled", result.Error.Code);
+
+      // THE POINT: the gate must be free, so a write on the same transport completes. The
+      // peer drains first so the assertion measures the GATE, not a full pipe buffer.
+      peer.StartDraining();
+      await Task.Delay(200, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Task smallSend = app.SendAsync(new TransportEnvelope("ack", "\"1\"", 1),
+          TestContext.Current.CancellationToken);
+      Task smallDone = await Task.WhenAny(smallSend, Task.Delay(TimeSpan.FromSeconds(5),
+          TestContext.Current.CancellationToken)).ConfigureAwait(true);
+      Assert.True(smallDone == smallSend,
+          "a caller cancel wedged the write gate: the cancelled write was abandoned, not cancelled");
+      await smallSend.ConfigureAwait(true);
+    }
+    finally
+    {
+      await peer.DisposeAsync().ConfigureAwait(true);
+      await app.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
+  [Fact]
+  public async Task RootTurn_ReAttach_IsNotClobberedByTheStalePump()
+  {
+    // Finding 1: disposing the old transport faults the OLD pump, whose catch sets
+    // _hostLost = true — AFTER ReplaceTransport cleared it. The fresh connection is then
+    // refused as "not connected". Run the swap repeatedly: the race is intermittent, so one
+    // pass proves little.
+    for (int attempt = 0; attempt < 8; attempt++)
+    {
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using FakeConversationHost host = FakeConversationHost.Start();
+      await using NamedPipeChildTransport first = await ConnectAsync(host.PipeName).ConfigureAwait(true);
+#pragma warning restore CA2007
+      RemoteAgentRuntime runtime = new(first);
+      using CancellationTokenSource firstLoop = new();
+      _ = runtime.RunReceiveLoopAsync(firstLoop.Token);
+
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using FakeConversationHost second = FakeConversationHost.Start();
+      await using NamedPipeChildTransport fresh = await ConnectAsync(second.PipeName).ConfigureAwait(true);
+#pragma warning restore CA2007
+      runtime.ReplaceTransport(fresh);
+      using CancellationTokenSource secondLoop = new();
+      _ = runtime.RunReceiveLoopAsync(secondLoop.Token);
+
+      // Give the stale pump time to fault and (wrongly) clobber the flag.
+      await Task.Delay(200, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      Result<string> result = await runtime.SendRootTurnAsync(
+          new RootTurnRequest("turn-" + attempt, "hello", []), _ => { },
+          TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(result.IsSuccess,
+          "attempt " + attempt + ": the stale pump clobbered the fresh connection: " + result.Error?.Message);
     }
   }
 

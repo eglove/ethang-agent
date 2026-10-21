@@ -117,6 +117,21 @@ public class RootTurnProtocolTests
   }
 
   [Fact]
+  public void RootTurnBudget_WithExpression_CannotBypassValidation()
+  {
+    // Finding 3: validation in a property INITIALIZER runs only in the constructor, so a
+    // 'with' expression could smuggle in a zero idle. The guard must hold on every path.
+    RootTurnBudget valid = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5));
+
+    _ = Assert.Throws<ArgumentOutOfRangeException>(
+        () => valid with { Idle = TimeSpan.Zero });
+    _ = Assert.Throws<ArgumentOutOfRangeException>(
+        () => valid with { Ceiling = TimeSpan.Zero });
+    _ = Assert.Throws<ArgumentOutOfRangeException>(
+        () => valid with { Idle = TimeSpan.FromSeconds(-1) });
+  }
+
+  [Fact]
   public void RootTurnBudget_AcceptsPositiveBounds()
   {
     RootTurnBudget budget = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5));

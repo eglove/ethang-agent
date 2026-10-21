@@ -58,6 +58,33 @@ internal sealed class NonReadingPeer : IAsyncDisposable
     return Task.FromResult(peer);
   }
 
+  /// <summary>Starts draining the pipe as fast as it can. A peer that never reads leaves the
+  ///     pipe buffer FULL, so even a tiny write blocks no matter what the write gate is
+  ///     doing — which makes "is the gate free?" untestable against it. Draining first is
+  ///     what isolates the gate from the buffer.</summary>
+  public void StartDraining()
+  {
+    _ = Task.Run(async () =>
+    {
+      byte[] buffer = new byte[65536];
+      try
+      {
+        while (!_cts.IsCancellationRequested)
+        {
+          int read = await _server.ReadAsync(buffer, _cts.Token).ConfigureAwait(false);
+          if (read == 0)
+          {
+            return;
+          }
+        }
+      }
+      catch (Exception ex) when (ex is OperationCanceledException or IOException)
+      {
+        // expected teardown
+      }
+    }, _cts.Token);
+  }
+
   /// <summary>Drains the pipe at 4KB per 50ms until the connection dies. Deliberately slow
   ///     enough that a 1MB write cannot finish inside a short bound.</summary>
   private async Task DrainSlowlyAsync(NamedPipeServerStream server)

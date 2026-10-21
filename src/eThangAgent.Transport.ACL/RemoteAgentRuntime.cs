@@ -47,6 +47,12 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   ///     immediately with the declared failure instead of waiting for a host that will
   ///     never answer.</summary>
   private volatile bool _hostLost;
+
+  /// <summary>True when this runtime believes its connection is gone (a pump fault or a
+  ///     declared connection loss). Exposed so a host can decide whether to re-attach, and so
+  ///     tests can assert that a recoverable failure did NOT tear the connection down.</summary>
+  public bool HostLost => _hostLost;
+
   private Guid[] _declaredLive = [];
   private long _sequence;
   private long _turnGeneration;
@@ -213,34 +219,32 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     {
       // The SEND is bounded too: a peer that accepts and never reads blocks the write
       // forever, so putting the frame on the wire must not be the one unbounded step.
-      Task send = transport.SendAsync(new TransportEnvelope("root-turn",
-          RootTurnProtocol.SerializeRequest(request with { Generation = generation }),
-          Interlocked.Increment(ref _sequence)), ct);
+      //
+      // The bound's token is passed to SendAsync (controller ruling). A named-pipe write
+      // DOES observe its token: cancelling it settles the write Canceled and releases the
+      // transport's single write gate, so the connection stays usable. (An earlier version
+      // of this code claimed a blocked pipe write "cannot be cancelled by ANY token" and
+      // tore the whole connection down on that false premise — killing in-flight child runs
+      // for a defect cancellation already handles.)
       using CancellationTokenSource sendTick = CancellationTokenSource.CreateLinkedTokenSource(ct);
       sendTick.CancelAfter(TurnBudget.Idle);
-      TaskCompletionSource<bool> sendExpired = new(TaskCreationOptions.RunContinuationsAsynchronously);
-      using CancellationTokenRegistration sendRegistration =
-          sendTick.Token.Register(() => sendExpired.TrySetResult(true));
-      Task sendWinner = await Task.WhenAny(send, sendExpired.Task).ConfigureAwait(false);
-      if (sendWinner != send)
+      Task send = transport.SendAsync(new TransportEnvelope("root-turn",
+          RootTurnProtocol.SerializeRequest(request with { Generation = generation }),
+          Interlocked.Increment(ref _sequence)), sendTick.Token);
+      try
       {
-        // A CALLER cancel wins the race too (the tick is linked to ct): that is the caller's
-        // doing, not the host's, and must say so rather than blame the peer.
-        ct.ThrowIfCancellationRequested();
-        // The write is abandoned mid-flight. A blocked pipe write cannot be cancelled by ANY
-        // token, so NamedPipeChildTransport never reaches its finally and its single write
-        // gate stays held FOREVER — every later send (root turns AND child start/deliver/
-        // interrupt, which share the transport) would block on it with no bound at all. A
-        // bounded send that leaves a permanently wedged gate is worse than the hang it
-        // replaced, so the connection is treated as LOST: mark it, fail every pending waiter,
-        // and tear the transport down so the gate dies with it and a re-attach is required.
-        MarkConnectionLost("the root turn could not be put on the wire within "
-            + TurnBudget.Idle + " (the host stopped consuming frames).");
-        return HostUnavailable("the conversation host connection was lost: the turn could not be "
-            + "put on the wire within " + TurnBudget.Idle + " (the host stopped consuming frames).");
+        await send.ConfigureAwait(false);
       }
-
-      await send.ConfigureAwait(false);
+      catch (OperationCanceledException)
+      {
+        // The caller's stop wins over the bound: it is the caller's doing, not the host's.
+        // Either way the write was CANCELLED (not abandoned), so the gate is free.
+        ct.ThrowIfCancellationRequested();
+        // The bound fired and the write was cancelled: the gate is released and the
+        // connection survives, so this is a turn-level failure, not a connection failure.
+        return HostUnavailable("the root turn could not be put on the wire within "
+            + TurnBudget.Idle + " (the host stopped consuming frames).");
+      }
       return await AwaitSettleAsync(waiter, ct).ConfigureAwait(false);
     }
     catch (OperationCanceledException)
@@ -347,34 +351,6 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     }
   }
 
-  /// <summary>Declares the connection LOST and tears the transport down. Used when a bounded
-  ///     send is abandoned: the abandoned write holds the transport's single write gate
-  ///     forever (a blocked pipe write is not cancellable), so the only safe recovery is to
-  ///     kill the transport — the gate dies with it — fail everything pending, and require a
-  ///     re-attach. Without this, EVERY later send on the same transport blocks unbounded,
-  ///     including child start/deliver/interrupt.</summary>
-  private void MarkConnectionLost(string reason)
-  {
-    _hostLost = true;
-    FailPendingRootTurns();
-    NamedPipeChildTransport? transport = Interlocked.Exchange(ref _transport, null);
-    if (transport is not null)
-    {
-      // Disposing releases the wedged gate (the write faults out) and the peer sees EOF.
-      _ = Task.Run(async () => await transport.DisposeAsync().ConfigureAwait(false)).ConfigureAwait(false);
-    }
-
-    // Child runs on this connection cannot be reached any more: complete their waits with
-    // the declared failure rather than leaving them pending on a dead pipe.
-    foreach (TaskCompletionSource<AgentRunOutcome> source in _settling.Values)
-    {
-      _ = source.TrySetResult(new AgentRunOutcome(new AgentId(Guid.NewGuid()), AgentStatus.Failed,
-          AgentFailureReason.ProviderError, "Error [ProviderError]: " + reason, "remote", 0));
-    }
-
-    _settling.Clear();
-  }
-
   /// <summary>Completes every pending root-turn waiter with the declared failure. Called
   ///     from the pump's fault path: connection loss must never leave a caller waiting.</summary>
   private void FailPendingRootTurns()
@@ -390,6 +366,12 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 
   private async Task PumpAsync(CancellationToken ct)
   {
+    // The pump serves ONE connection: capture it so a fault can be attributed to the
+    // connection that actually failed. Without this a SUPERSEDED pump's fault would clobber
+    // the state of the fresh connection ReplaceTransport just installed (the re-attach race:
+    // the stale pump set _hostLost after the swap cleared it, so the new connection was
+    // refused as "not connected").
+    NamedPipeChildTransport? served = _transport;
     try
     {
       while (!ct.IsCancellationRequested)
@@ -407,13 +389,20 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception)
     {
-      foreach (TaskCompletionSource<AgentRunOutcome> source in _settling.Values)
+      // SUPERSEDED PUMP: a newer transport was installed while this one was faulting, so
+      // this failure belongs to a connection nobody uses any more. Acting on it would
+      // clobber the fresh connection's live state — exactly the re-attach race.
+      if (!ReferenceEquals(Volatile.Read(ref _transport), served))
       {
-        _ = source.TrySetResult(new AgentRunOutcome(new AgentId(Guid.NewGuid()), AgentStatus.Failed,
+        return;
+      }
+
+      foreach (KeyValuePair<Guid, TaskCompletionSource<AgentRunOutcome>> entry in _settling)
+      {
+        _ = entry.Value.TrySetResult(new AgentRunOutcome(new AgentId(entry.Key), AgentStatus.Failed,
             AgentFailureReason.ProviderError, "Error [ProviderError]: child host connection lost.", "remote", 0));
       }
 
-      _settling.Clear();
       // Root turns in flight are the app's user-facing work: they must fail with the
       // typed HostUnavailable outcome, never hang on a host that is gone (spec D6).
       FailPendingRootTurns();
