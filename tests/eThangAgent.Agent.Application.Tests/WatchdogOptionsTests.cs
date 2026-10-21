@@ -42,4 +42,15 @@ public class WatchdogOptionsTests
   [Fact]
   public void Default_Singleton_IsValid()
       => Assert.Equal(TimeSpan.FromSeconds(60), WatchdogOptions.Default.TickInterval);
+
+  [Fact]
+  public void ResourceTickInterval_DefaultsToTwoSeconds()
+      => Assert.Equal(TimeSpan.FromSeconds(2), new WatchdogOptions().ResourceTickInterval);
+
+  [Theory]
+  [InlineData(0)]
+  [InlineData(-1)]
+  public void NonPositiveResourceTickInterval_Throws(int seconds)
+      => Assert.Throws<ArgumentOutOfRangeException>(() =>
+          new WatchdogOptions(ResourceTickInterval: TimeSpan.FromSeconds(seconds)));
 }

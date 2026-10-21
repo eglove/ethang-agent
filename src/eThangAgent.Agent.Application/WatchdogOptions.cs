@@ -37,7 +37,8 @@ public sealed class WatchdogOptions(
   TimeSpan? IdleThreshold = null,
   TimeSpan? SettleWait = null,
   int MaxWrapUpAttempts = 1,
-  RssOptions? Rss = null)
+  RssOptions? Rss = null,
+  TimeSpan? ResourceTickInterval = null)
 {
   public static WatchdogOptions Default { get; } = new();
 
@@ -51,6 +52,16 @@ public sealed class WatchdogOptions(
   public double RssThresholdMb { get; } = Rss?.ThresholdMb ?? 4096;
   public TimeSpan RssReReportInterval { get; } = Rss?.ReReportInterval ?? TimeSpan.FromMinutes(10);
   public int RssSustainedBreachTicks { get; } = Rss?.SustainedBreachTicks ?? 5;
+
+  /// <summary>The resource governor's own fast clock (spec D4) - deliberately separate
+  ///     from <see cref="TickInterval"/>: the watchdog asks whether a sub-agent is stuck
+  ///     once a minute, the governor asks whether the machine is filling up every couple
+  ///     of seconds.</summary>
+  public TimeSpan ResourceTickInterval { get; } = Positive(ResourceTickInterval ?? TimeSpan.FromSeconds(2), nameof(ResourceTickInterval));
+  /// <summary>The resource governor's own fast clock (spec D4) - deliberately separate
+  ///     from <see cref="TickInterval"/>: the watchdog asks whether a sub-agent is stuck
+  ///     once a minute, the governor asks whether the machine is filling up every couple
+  ///     of seconds.</summary>
 
   private static TimeSpan Positive(TimeSpan value, string paramName) => value > TimeSpan.Zero
       ? value
