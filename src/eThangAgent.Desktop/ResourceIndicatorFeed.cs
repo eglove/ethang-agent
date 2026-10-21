@@ -1,22 +1,28 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
-using eThangAgent.Composition;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Desktop;
 
-/// <summary>One open conversation's host: the conversation id the governor names, and
-///     the supervisor that owns that conversation's host process. The supervisor is
-///     null when the conversation has no host process yet (its host was never
-///     launched, or it died) - a rung that acts on a process then refuses with a
-///     named error instead of dereferencing nothing.</summary>
-internal sealed record ResourceHostRegistration(string ConversationId, RemoteHostSupervisor? Supervisor)
+/// <summary>One open conversation's host: the conversation id the governor names,
+///     and the MECHANISMS the rungs act through. A conversation with no host process
+///     yet (its host was never launched, or it died) carries no process id and no
+///     stop mechanism - a rung that acts on a process then refuses with a named
+///     error instead of dereferencing nothing.</summary>
+internal sealed record ResourceHostRegistration(string ConversationId)
 {
   /// <summary>The conversation's host process id, when one is running. The reclaim rung
   ///     acts on THIS process: a rung keyed by a conversation that trimmed the APP's
   ///     working set had a target and an effect that disagreed.</summary>
   public int? HostProcessId { get; init; }
+
+  /// <summary>Stops this conversation's host process, when there is one. The kill and
+  ///     restart rungs act through it, so a rung that stops a process and a test that
+  ///     watches one stop share ONE path - the seam is the mechanism, the rung is the
+  ///     decision. Null means the conversation has no host process to stop, and the
+  ///     rung refuses with a named error.</summary>
+  public Action? StopHost { get; init; }
 }
 
 /// <summary>The indicator's feed: it turns one governor tick into the numbers and

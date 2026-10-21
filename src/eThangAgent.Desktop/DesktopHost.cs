@@ -290,7 +290,11 @@ internal static class DesktopHost
       RemoteHostSupervisor? supervisor = container.Services.GetService<RemoteHostSupervisor>();
       return supervisor is null
           ? null
-          : new ResourceHostRegistration(conversationId, supervisor) { HostProcessId = supervisor.HostProcessId };
+          : new ResourceHostRegistration(conversationId)
+          {
+            HostProcessId = supervisor.HostProcessId,
+            StopHost = supervisor.StopHost,
+          };
     }
 
     return null;

@@ -187,17 +187,11 @@ internal sealed partial class ResourceIndicatorViewModel : ObservableObject
 
   /// <summary>The raw rung names, in the words the reader can act on. "KillProgram"
   ///     is a MISNOMER in production - the app stops the whole conversation host
-  ///     process - so the phrase says what actually happens.</summary>
-  private static string RungPhrase(string rung) => rung switch
-  {
-    "Steer" => "steer the conversation",
-    "KillProgram" => "stop the conversation's host process",
-    "ReclaimMemory" => "free the conversation's memory",
-    "RestartConversation" => "restart the conversation",
-    "RestartApp" => "restart the app",
-    "None" => "do nothing",
-    _ => "act on the conversation",
-  };
+  ///     process - so the phrase says what actually happens.
+  ///     <para>ONE table, TWO readers: the enforcement seam names its refusals with
+  ///     the same phrases, so a refusal recorded in the audit trail reads the way
+  ///     the decision that caused it does.</para></summary>
+  private static string RungPhrase(string rung) => ResourceRungPhrases.Of(rung);
 
   /// <summary>The failure shape, translated: "conversation c1 -&gt; Steer failed:
   ///     RungRefused: ..." becomes "could not steer the conversation for conversation
@@ -232,6 +226,14 @@ internal sealed partial class ResourceIndicatorViewModel : ObservableObject
     result = result.Replace("(Act; ", "(acting; ", StringComparison.Ordinal);
     result = result.Replace("(Emergency; ", "(critical; ", StringComparison.Ordinal);
     result = result.Replace("(Normal; ", "(normal; ", StringComparison.Ordinal);
+    // The level names arrive in BOTH forms: the governor writes the bare name
+    // ((Emergency; ...)), while a row written by ANOTHER component (the agent
+    // watchdog) can carry the type-qualified form (ResourceLevel.Emergency).
+    // Matching only the bare form leaked the domain vocabulary into the chrome.
+    result = result.Replace("ResourceLevel.Notice", "watch", StringComparison.Ordinal);
+    result = result.Replace("ResourceLevel.Act", "acting", StringComparison.Ordinal);
+    result = result.Replace("ResourceLevel.Emergency", "critical", StringComparison.Ordinal);
+    result = result.Replace("ResourceLevel.Normal", "normal", StringComparison.Ordinal);
     result = result.Replace("harness budget", "app budget", StringComparison.Ordinal);
     result = result.Replace("harness", "app", StringComparison.Ordinal);
     result = result.Replace("RungRefused", "refused", StringComparison.Ordinal);

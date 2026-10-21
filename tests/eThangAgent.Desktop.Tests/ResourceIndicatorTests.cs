@@ -249,6 +249,32 @@ public sealed class ResourceIndicatorTests
     Assert.Contains("watch", line, StringComparison.OrdinalIgnoreCase);
   }
 
+  /// <summary>The plain-language translation is a DENYLIST, so a row written by
+  ///     ANOTHER component - the AGENT watchdog, not the governor - can carry the
+  ///     domain's level in its TYPE-QUALIFIED form and slip through every bare-name
+  ///     substitution. The re-reviewer measured the leak: a rendered line read
+  ///     'Agent app budget exceeded; ResourceLevel.Emergency; stop the conversation's
+  ///     host process failed on agent abc'. The type-qualified forms are matched too,
+  ///     so the chrome never shows the domain's type names.</summary>
+  [Fact]
+  public void Update_ATypeQualifiedLevelName_RendersPlainLanguage()
+  {
+    ResourceIndicatorViewModel vm = new();
+    WatchdogEvent evt = new(Guid.NewGuid(), null, WatchdogEventKind.WatchdogErrored,
+        "Agent app budget exceeded; ResourceLevel.Emergency; stop the conversation's host process failed on agent abc",
+        0, 5722, new DateTimeOffset(2026, 10, 18, 12, 0, 0, TimeSpan.Zero));
+
+    vm.Update(
+        new ResourceGovernorTick(ResourceLevel.Emergency, "c1", ResourceAction.KillProgram,
+            5_722_000_000L, 7_629_000_000L),
+        [new ResourceObservation("c1", 5_722_000_000L, [])],
+        [evt]);
+
+    string line = Assert.Single(vm.RecentDecisions);
+    Assert.DoesNotContain("ResourceLevel", line, StringComparison.Ordinal);
+    Assert.Contains("critical", line, StringComparison.OrdinalIgnoreCase);
+  }
+
   /// <summary>A REFUSED action is read by a person too: the raw rung name and the raw
   ///     error code are internal vocabulary and must not reach the chrome.</summary>
   [Fact]

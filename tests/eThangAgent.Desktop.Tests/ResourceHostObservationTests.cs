@@ -69,7 +69,7 @@ public sealed class ResourceHostObservationTests
   {
     ResourceHostObservation observation = new(() => [new ResourceHostHandle("c1", Environment.ProcessId)]);
     RecordingEvents events = new();
-    ResourceHostEnactment enactment = new(_ => new ResourceHostRegistration("c1", null));
+    ResourceHostEnactment enactment = new(_ => new ResourceHostRegistration("c1"));
     ResourceGovernor governor = new(new FixedResources(16_000_000_000L), observation, enactment, events,
         new WatchdogOptions(), TimeProvider.System, () => 1);
 
