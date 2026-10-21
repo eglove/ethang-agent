@@ -298,7 +298,7 @@ public class ConversationHostSupervisionTests
     using CancellationTokenSource cancelled = new();
     await cancelled.CancelAsync().ConfigureAwait(true);
 
-    _ = _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+    _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
         () => RemoteHostSupervisor.AwaitStartedLineAsync(
             BlocksUntilCancelled,
             () => false,
