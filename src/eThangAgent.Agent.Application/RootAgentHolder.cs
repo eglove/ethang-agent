@@ -66,8 +66,10 @@ public sealed class RootAgentHolder(
   ///     <para>Spec D9: the root persists every message at the safe point it is added, exactly
   ///     as a child run does — the sink rides <see cref="AgentOptions.TranscriptSink"/> and the
   ///     agent subscribes it to the shared conversation. Because EVERY build subscribes, the
-  ///     holder retires the previous build's subscription first: two live root subscriptions
-  ///     would push every message twice, and a doubled turn corrupts resume.</para></summary>
+  ///     SINK retires the previous build's subscription (it registers each lease through
+  ///     <c>RootTranscriptSink.TrackSubscription</c>): two live root subscriptions would push
+  ///     every message twice, and a doubled turn corrupts resume. The holder does nothing
+  ///     extra for this — it only hands the same sink to every build.</para></summary>
   public Ag Build(Ag? existing, ModelConfig config)
   {
     ArgumentNullException.ThrowIfNull(config);

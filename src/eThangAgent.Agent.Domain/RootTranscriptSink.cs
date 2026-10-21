@@ -180,13 +180,44 @@ public sealed class RootTranscriptSink : IChildTranscriptStore, IDisposable, IAs
   ///     loop - a store that keeps failing must return control to the caller.</summary>
   public Task FlushAsync() => DrainAsync();
 
-  /// <summary>The absolute persisted index. Flushes once first, so a count read while a
-  ///     write is in flight reflects it; the flush is bounded, so a failing store cannot
-  ///     hang the read.</summary>
+  /// <summary>The absolute persisted index, after ONE bounded flush attempt. The flush is
+  ///     bounded, so a failing store cannot hang the read - which means the count can sit
+  ///     BELOW a message still queued. That is safe only because the caller tells the sink
+  ///     when its own backstop writes one of those messages
+  ///     (<see cref="NotePersistedByBackstop"/>): without that, the sink would re-write it on
+  ///     its next flush and the turn would be doubled.</summary>
   public async Task<int> FlushedCount()
   {
     await FlushAsync().ConfigureAwait(false);
     return PersistedCount;
+  }
+
+  /// <summary>Drops a message the END-OF-TURN BACKSTOP persisted, so the sink never writes it
+  ///     a second time. The backstop exists precisely because a bounded flush can leave a
+  ///     message queued while the reported count sits below it; when the backstop then writes
+  ///     that message, the sink must forget it. Removing a queued message also advances the
+  ///     absolute index, because the row now exists. Returns true when the message was
+  ///     actually queued here (the case that would otherwise duplicate).</summary>
+  public bool NotePersistedByBackstop(Message message)
+  {
+    ArgumentNullException.ThrowIfNull(message);
+    lock (_lock)
+    {
+      if (!_pending.Contains(message))
+      {
+        return false;
+      }
+
+      Message[] kept = [.. _pending.Where(queued => !ReferenceEquals(queued, message))];
+      _pending.Clear();
+      foreach (Message queued in kept)
+      {
+        _pending.Enqueue(queued);
+      }
+
+      _persisted++;
+      return true;
+    }
   }
 
   /// <summary>Interface conformance for <see cref="ReplaceAsync(IReadOnlyList{Message})"/>:
@@ -195,9 +226,14 @@ public sealed class RootTranscriptSink : IChildTranscriptStore, IDisposable, IAs
   ///     compacted turn. The interface shape discards that answer.</summary>
   Task IChildTranscriptStore.ReplaceAsync(IReadOnlyList<Message> messages) => ReplaceAsync(messages);
 
-  /// <summary>Replaces the whole persisted transcript (compaction/shrink survival) and
-  ///     resets the absolute baseline to the replacement's length. An inert sink writes
-  ///     nothing and reports false, so the caller can persist the replacement itself.</summary>
+  /// <summary>Replaces the whole persisted transcript (compaction/shrink survival) and, ON
+  ///     SUCCESS, resets the absolute baseline to the replacement's length. An inert sink
+  ///     writes nothing and reports false, so the caller can persist the replacement itself.
+  ///     <para>The baseline moves only after the store accepted the replacement: the
+  ///     lifecycle falls back to writing it itself when this returns false, and a baseline
+  ///     advanced by a replacement that never landed would claim rows that do not exist —
+  ///     the next turn's append would then skip real messages. The pending queue is cleared
+  ///     unconditionally, because a replacement supersedes whatever was queued.</para></summary>
   public async Task<bool> ReplaceAsync(IReadOnlyList<Message> messages)
   {
     ArgumentNullException.ThrowIfNull(messages);
@@ -206,7 +242,6 @@ public sealed class RootTranscriptSink : IChildTranscriptStore, IDisposable, IAs
     {
       _pending.Clear();
       _lastAccepted = messages.Count > 0 ? messages[^1] : null;
-      _persisted = messages.Count;
     }
 
     if (rootId is null)
@@ -217,7 +252,17 @@ public sealed class RootTranscriptSink : IChildTranscriptStore, IDisposable, IAs
     Result<string> replaced = await _store
         .ReplaceTranscriptAsync(rootId.Value, messages, CancellationToken.None)
         .ConfigureAwait(false);
-    return replaced.IsSuccess;
+    if (!replaced.IsSuccess)
+    {
+      return false;
+    }
+
+    lock (_lock)
+    {
+      _persisted = messages.Count;
+    }
+
+    return true;
   }
 
   /// <summary>Terminal flush: disposes by persisting whatever is still queued.</summary>

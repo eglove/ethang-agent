@@ -502,4 +502,82 @@ public sealed class RootContinuousPersistenceTests
     Assert.True(sink.HasPending, "the failed message must stay queued for the next attempt");
     Assert.Equal(1, failing.Attempts);
   }
+  /// <summary>A store that fails the first N appends and then recovers: the shape of a
+  ///     locked database that clears right at a turn boundary.</summary>
+  private sealed class FlakyStore(int failuresBeforeRecovery) : IAgentStore
+  {
+    public List<Message> Appended { get; } = [];
+    public int Attempts { get; private set; }
+
+    public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(record.Id.ToString()));
+
+    public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(record.Id.ToString()));
+
+    public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<AgentRecord>(new DomainError("NotFound", "no records")));
+
+    public async Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
+    {
+      Attempts++;
+      await Task.Yield();
+      if (Attempts <= failuresBeforeRecovery)
+      {
+        return Result.Failure<string>(new DomainError("DbLocked", "database is locked"));
+      }
+
+      lock (Appended)
+      {
+        Appended.Add(message);
+      }
+
+      return Result.Success(id.ToString());
+    }
+
+    public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(id.ToString()));
+
+    public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
+  }
+
+  [Fact]
+  public async Task RootLifecycle_SinkWriteFailsThenBackstopSucceeds_SinkNeverRewritesTheMessage()
+  {
+    // Fix round 2. The BOUNDED flush can leave a message queued while FlushedCount reports a
+    // count BELOW it. The backstop then writes that message - and the sink's next flush
+    // writes it AGAIN: a silent doubled turn, the one thing this task exists to prevent.
+    // The invariant: the backstop and the sink must never both write the same message.
+    //
+    // Driven deterministically (no fire-and-forget subscription) through the reviewer's
+    // exact sequence: (1) the sink's append fails, (2) an explicit flush fails, (3) the
+    // FlushedCount flush inside the lifecycle fails, (4) the backstop append succeeds,
+    // (5) the sink retries and must NOT write the message a second time.
+    FlakyStore store = new(failuresBeforeRecovery: 3);
+    AgentId rootId = AgentId.NewId();
+    Conversation conversation = new();
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using RootTranscriptSink sink = new(store, conversation, () => rootId);
+#pragma warning restore CA2007
+    RootSessionLifecycle lifecycle = new(store, sink);
+
+    int before = conversation.Messages.Count;
+    conversation.AddUserMessage("q1");
+
+    await sink.AppendAsync(conversation.Messages[0]).ConfigureAwait(true);   // (1) fails
+    await sink.FlushAsync().ConfigureAwait(true);                            // (2) fails
+    await lifecycle.AppendExchangeAsync(rootId, conversation, before, "final",   // (3)+(4)
+        _ => { }).ConfigureAwait(true);
+    await sink.FlushAsync().ConfigureAwait(true);                            // (5) must not duplicate
+
+    Assert.Equal(["q1"], store.Appended.Select(m => m.Content));
+  }
 }

@@ -32,6 +32,11 @@ public class RootSessionLifecycle(IAgentStore store, IChildTranscriptStore? tran
   ///     the two is the truth: a fresh session, a resumed session, and an inert sink all
   ///     append exactly the unpersisted slice. An index outside the conversation's range is
   ///     reported and skipped rather than silently slicing the wrong messages.
+  ///     <para>The sink's reported index is a LOWER BOUND, not the whole truth: its bounded
+  ///     flush may leave a message queued while the count sits below it. Every message this
+  ///     path writes is therefore reported back to the sink
+  ///     (<see cref="RootTranscriptSink.NotePersistedByBackstop"/>), so the two writers can
+  ///     never both persist the same message.</para>
   ///     <para><paramref name="assistantText"/> is the turn's final assistant text, part of
   ///     this operation's contract since the brief named it. It is deliberately NOT persisted
   ///     as a separate row: the assistant message is already in the conversation and lands
@@ -58,7 +63,13 @@ public class RootSessionLifecycle(IAgentStore store, IChildTranscriptStore? tran
       if (!appended.IsSuccess)
       {
         reportError($"Error [{appended.Error.Code}]: {appended.Error.Message}");
+        continue;
       }
+
+      // The sink's bounded flush can leave this same message QUEUED while reporting a count
+      // below it. Now that the row exists, tell the sink to drop it - otherwise the sink's
+      // next flush writes it again and the turn is doubled.
+      _ = (transcriptSink as RootTranscriptSink)?.NotePersistedByBackstop(messages[i]);
     }
   }
 
