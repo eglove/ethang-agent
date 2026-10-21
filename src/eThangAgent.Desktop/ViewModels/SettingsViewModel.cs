@@ -43,6 +43,8 @@ internal sealed record SettingsValues
   public string? DefaultModelText { get; init; }
   public bool RemoteHost { get; init; }
   public string? WatchdogTickText { get; init; }
+  public string? RootTurnIdleText { get; init; }
+  public string? RootTurnCeilingText { get; init; }
   public string? WatchdogIdleText { get; init; }
   public string? WatchdogWrapUpText { get; init; }
   public string? OpenRouterBaseUrlText { get; init; }
@@ -58,7 +60,8 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle Comm
     string? OpenRouterBaseUrlText = null,
     bool ComputerUse = false,
     string? SkillRegistryDefaultTarget = null,
-    string? OpenRouterManagementKey = null);
+    string? OpenRouterManagementKey = null,
+    string? RootTurnIdleText = null, string? RootTurnCeilingText = null);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
 ///     and their shared validation.
@@ -162,8 +165,21 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial string WatchdogIdleText { get; set; }
 
-  /// <summary>The maximum watchdog wrap-up attempts as raw text — blank means the
-  ///     watchdog default; a non-blank value must be a non-negative integer.</summary>
+  /// <summary>The root-turn IDLE bound as raw text — blank means the default; a non-blank
+  ///     value must be a positive constant-format duration (a bare integer is rejected:
+  ///     TimeSpan would read it as days).</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string RootTurnIdleText { get; set; }
+
+  /// <summary>The root-turn CEILING as raw text — same rule as the idle bound.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial string RootTurnCeilingText { get; set; }
+
+  /// <summary>The maximum watchdog wrap-up attempts as raw text — blank means the  ///     watchdog default; a non-blank value must be a non-negative integer.</summary>
   [ObservableProperty]
   [NotifyPropertyChangedFor(nameof(ValidationError))]
   [NotifyPropertyChangedFor(nameof(CanSave))]
@@ -209,6 +225,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
       ?? ValidateDuration(WatchdogTickText, "Tick interval")
       ?? ValidateDuration(WatchdogIdleText, "Idle threshold")
       ?? ValidateWrapUp(WatchdogWrapUpText)
+      ?? ValidateDuration(RootTurnIdleText, "Root turn idle bound")
+      ?? ValidateDuration(RootTurnCeilingText, "Root turn ceiling")
       ?? ValidateLabeledBaseUrl(OpenRouterBaseUrlText, "OpenRouter base URL");
 
   public SettingsViewModel(SettingsValues values)
@@ -230,7 +248,9 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
                 Normalize(OpenRouterBaseUrlText), ComputerUse,
                 SkillRegistryDefaultTarget: SkillRegistryTarget,
-                OpenRouterManagementKey: Normalize(OpenRouterManagementKey)));
+                OpenRouterManagementKey: Normalize(OpenRouterManagementKey),
+                RootTurnIdleText: Normalize(RootTurnIdleText),
+                RootTurnCeilingText: Normalize(RootTurnCeilingText)));
           }
         },
         () => CanSave);
@@ -266,6 +286,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
     RemoteHost = values.RemoteHost;
     ComputerUse = values.ComputerUse;
     WatchdogTickText = values.WatchdogTickText ?? string.Empty;
+    RootTurnIdleText = values.RootTurnIdleText ?? string.Empty;
+    RootTurnCeilingText = values.RootTurnCeilingText ?? string.Empty;
     WatchdogIdleText = values.WatchdogIdleText ?? string.Empty;
     WatchdogWrapUpText = values.WatchdogWrapUpText ?? string.Empty;
   }
@@ -290,6 +312,10 @@ internal sealed partial class SettingsViewModel : ObservableObject
   partial void OnRemoteHostChanged(bool value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnWatchdogTickTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnRootTurnIdleTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
+
+  partial void OnRootTurnCeilingTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnWatchdogIdleTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 

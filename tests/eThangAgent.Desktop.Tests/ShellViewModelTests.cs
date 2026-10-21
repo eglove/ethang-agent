@@ -266,7 +266,9 @@ public class ShellViewModelTests
         [OpenRouterSettings.ManagementKeyPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
-         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl],
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
+         AgentPreferenceKeys.RootTurnIdle, AgentPreferenceKeys.RootTurnCeiling,
+         AgentPreferenceKeys.OpenRouterBaseUrl],
         preferences.Deletions);
 
     Assert.Equal(["openrouter"], vm.AvailableProviders.Select(p => p.Id));
@@ -289,7 +291,9 @@ public class ShellViewModelTests
         [OpenRouterSettings.PreferenceKey, OpenRouterSettings.ManagementKeyPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
-         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl],
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
+         AgentPreferenceKeys.RootTurnIdle, AgentPreferenceKeys.RootTurnCeiling,
+         AgentPreferenceKeys.OpenRouterBaseUrl],
         preferences.Deletions);
     Assert.Equal(
         [
@@ -326,7 +330,9 @@ public class ShellViewModelTests
         [OpenRouterSettings.ManagementKeyPreferenceKey,
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
-         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, AgentPreferenceKeys.OpenRouterBaseUrl],
+         AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
+         AgentPreferenceKeys.RootTurnIdle, AgentPreferenceKeys.RootTurnCeiling,
+         AgentPreferenceKeys.OpenRouterBaseUrl],
         preferences.Deletions);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
   }

@@ -1,3 +1,5 @@
+using eThangAgent.AgentDomain;
+
 namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>The root-turn wire codec's strict-at-both-boundaries contract (spec D6):
@@ -96,6 +98,31 @@ public class RootTurnProtocolTests
     RootTurnRequest second = new("turn-1", "hello", [], Generation: 2);
 
     Assert.NotEqual(first, second);
+  }
+
+  [Fact]
+  public void RootTurnBudget_RejectsNonPositiveBounds()
+  {
+    // Strict boundary (finding 3): a zero idle makes EVERY turn instantly unaddressable and
+    // a negative ceiling is meaningless. Now that the value is nominally production
+    // configuration it must be validated, not silently accepted.
+    _ = Assert.Throws<ArgumentOutOfRangeException>(
+        () => new RootTurnBudget(TimeSpan.Zero, TimeSpan.FromHours(1)));
+    _ = Assert.Throws<ArgumentOutOfRangeException>(
+        () => new RootTurnBudget(TimeSpan.FromMinutes(1), TimeSpan.Zero));
+    _ = Assert.Throws<ArgumentOutOfRangeException>(
+        () => new RootTurnBudget(TimeSpan.FromSeconds(-1), TimeSpan.FromHours(1)));
+    _ = Assert.Throws<ArgumentOutOfRangeException>(
+        () => new RootTurnBudget(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(-1)));
+  }
+
+  [Fact]
+  public void RootTurnBudget_AcceptsPositiveBounds()
+  {
+    RootTurnBudget budget = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5));
+
+    Assert.Equal(TimeSpan.FromSeconds(30), budget.Idle);
+    Assert.Equal(TimeSpan.FromMinutes(5), budget.Ceiling);
   }
 
   [Fact]

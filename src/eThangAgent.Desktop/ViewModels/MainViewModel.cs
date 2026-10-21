@@ -194,8 +194,14 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>The watchdog tick-interval text the settings modal prefills in constant
   ///     format (null when the knob is unset — the watchdog default applies).</summary>
-  public string? ConfiguredWatchdogTick => _settings?.Watchdog?.TickInterval?.ToString("c");
+  /// <summary>The configured root-turn idle bound as constant-format text, or null when
+  ///     unconfigured (the runtime default applies).</summary>
+  public string? ConfiguredRootTurnIdle => _settings?.SubAgents.RootTurnBudget?.Idle.ToString("c");
 
+  /// <summary>The configured root-turn ceiling as constant-format text, or null.</summary>
+  public string? ConfiguredRootTurnCeiling => _settings?.SubAgents.RootTurnBudget?.Ceiling.ToString("c");
+
+  public string? ConfiguredWatchdogTick => _settings?.Watchdog?.TickInterval?.ToString("c");
   /// <summary>The watchdog idle-threshold text the settings modal prefills in
   ///     constant format (null when the knob is unset).</summary>
   public string? ConfiguredWatchdogIdle => _settings?.Watchdog?.IdleThreshold?.ToString("c");
@@ -681,6 +687,10 @@ internal sealed partial class MainViewModel : ObservableObject
         Normalize(update.WatchdogIdleText));
     await PersistPreferenceAsync(AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
         Normalize(update.WatchdogWrapUpText));
+    await PersistPreferenceAsync(AgentPreferenceKeys.RootTurnIdle,
+        Normalize(update.RootTurnIdleText));
+    await PersistPreferenceAsync(AgentPreferenceKeys.RootTurnCeiling,
+        Normalize(update.RootTurnCeilingText));
     await PersistPreferenceAsync(AgentPreferenceKeys.OpenRouterBaseUrl,
         Normalize(update.OpenRouterBaseUrlText));
     await PersistPreferenceAsync(AgentPreferenceKeys.ComputerUseEnabled,
@@ -759,7 +769,8 @@ internal sealed partial class MainViewModel : ObservableObject
           Normalize(update.MaxConcurrentAgentsText)
               ?? AgentSettingsDefaults.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture),
           out remoteHost,
-          update.RemoteHost ? "true" : "false");
+          update.RemoteHost ? "true" : "false",
+          Normalize(update.RootTurnIdleText), Normalize(update.RootTurnCeilingText));
       watchdog = SubAgentConfiguration.BindWatchdog(
           Normalize(update.WatchdogTickText), Normalize(update.WatchdogIdleText),
           Normalize(update.WatchdogWrapUpText));

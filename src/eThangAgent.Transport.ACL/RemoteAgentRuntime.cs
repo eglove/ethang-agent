@@ -224,8 +224,20 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       Task sendWinner = await Task.WhenAny(send, sendExpired.Task).ConfigureAwait(false);
       if (sendWinner != send)
       {
-        return HostUnavailable("the root turn could not be put on the wire within "
-            + TurnBudget.Idle + " (the host is not reading).");
+        // A CALLER cancel wins the race too (the tick is linked to ct): that is the caller's
+        // doing, not the host's, and must say so rather than blame the peer.
+        ct.ThrowIfCancellationRequested();
+        // The write is abandoned mid-flight. A blocked pipe write cannot be cancelled by ANY
+        // token, so NamedPipeChildTransport never reaches its finally and its single write
+        // gate stays held FOREVER — every later send (root turns AND child start/deliver/
+        // interrupt, which share the transport) would block on it with no bound at all. A
+        // bounded send that leaves a permanently wedged gate is worse than the hang it
+        // replaced, so the connection is treated as LOST: mark it, fail every pending waiter,
+        // and tear the transport down so the gate dies with it and a re-attach is required.
+        MarkConnectionLost("the root turn could not be put on the wire within "
+            + TurnBudget.Idle + " (the host stopped consuming frames).");
+        return HostUnavailable("the conversation host connection was lost: the turn could not be "
+            + "put on the wire within " + TurnBudget.Idle + " (the host stopped consuming frames).");
       }
 
       await send.ConfigureAwait(false);
@@ -333,6 +345,34 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     {
       _ = waiter.Settled.TrySetResult(Result.Success(evt.Payload));
     }
+  }
+
+  /// <summary>Declares the connection LOST and tears the transport down. Used when a bounded
+  ///     send is abandoned: the abandoned write holds the transport's single write gate
+  ///     forever (a blocked pipe write is not cancellable), so the only safe recovery is to
+  ///     kill the transport — the gate dies with it — fail everything pending, and require a
+  ///     re-attach. Without this, EVERY later send on the same transport blocks unbounded,
+  ///     including child start/deliver/interrupt.</summary>
+  private void MarkConnectionLost(string reason)
+  {
+    _hostLost = true;
+    FailPendingRootTurns();
+    NamedPipeChildTransport? transport = Interlocked.Exchange(ref _transport, null);
+    if (transport is not null)
+    {
+      // Disposing releases the wedged gate (the write faults out) and the peer sees EOF.
+      _ = Task.Run(async () => await transport.DisposeAsync().ConfigureAwait(false)).ConfigureAwait(false);
+    }
+
+    // Child runs on this connection cannot be reached any more: complete their waits with
+    // the declared failure rather than leaving them pending on a dead pipe.
+    foreach (TaskCompletionSource<AgentRunOutcome> source in _settling.Values)
+    {
+      _ = source.TrySetResult(new AgentRunOutcome(new AgentId(Guid.NewGuid()), AgentStatus.Failed,
+          AgentFailureReason.ProviderError, "Error [ProviderError]: " + reason, "remote", 0));
+    }
+
+    _settling.Clear();
   }
 
   /// <summary>Completes every pending root-turn waiter with the declared failure. Called
@@ -498,6 +538,13 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     long sequence = Interlocked.Increment(ref _sequence);
     try
     {
+      if (_hostLost)
+      {
+        // The connection is known dead (a bounded send was abandoned and its write gate is
+        // wedged): refuse at once instead of blocking on a gate that will never open.
+        throw new TransportClosedException("the runtime's connection is lost; re-attach required.");
+      }
+
       NamedPipeChildTransport transport = _transport ?? throw new TransportClosedException("the runtime is not attached to a host pipe.");
       await transport.SendAsync(new TransportEnvelope(kind, json, sequence), ct).ConfigureAwait(false);
       return true;

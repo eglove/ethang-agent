@@ -111,6 +111,8 @@ internal partial class MainWindow : Window
       MaxConcurrentAgentsText = _vm.ConfiguredMaxConcurrentAgents,
       DefaultModelText = _vm.ConfiguredDefaultModel,
       RemoteHost = _vm.ConfiguredRemoteHost,
+      RootTurnIdleText = _vm.ConfiguredRootTurnIdle,
+      RootTurnCeilingText = _vm.ConfiguredRootTurnCeiling,
       WatchdogTickText = _vm.ConfiguredWatchdogTick,
       WatchdogIdleText = _vm.ConfiguredWatchdogIdle,
       WatchdogWrapUpText = _vm.ConfiguredWatchdogWrapUp,

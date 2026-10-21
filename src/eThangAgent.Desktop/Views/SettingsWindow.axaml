@@ -80,6 +80,17 @@
           <CheckBox x:Name="ComputerUseCheck" Content="Enable computer use (desktop automation tool)"
                     IsChecked="{Binding ComputerUse}" Margin="0,4,0,0"
                     ToolTip.Tip="Adds the 'computer' tool to newly opened agents. Applies to sessions opened from now on."/>
+          <TextBlock Text="Root turn budget" FontWeight="Bold" Margin="0,6,0,0"/>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBox x:Name="RootTurnIdleBox" Text="{Binding RootTurnIdleText}" Width="140"
+                     PlaceholderText="blank = 00:02:00"/>
+            <TextBlock Text="Idle bound" VerticalAlignment="Center" FontSize="12"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBox x:Name="RootTurnCeilingBox" Text="{Binding RootTurnCeilingText}" Width="140"
+                     PlaceholderText="blank = 01:00:00"/>
+            <TextBlock Text="Ceiling" VerticalAlignment="Center" FontSize="12"/>
+          </StackPanel>
           <TextBlock Text="Watchdog" FontWeight="Bold" Margin="0,6,0,0"/>
           <StackPanel Orientation="Horizontal" Spacing="6">
             <TextBox x:Name="WatchdogTickBox" Text="{Binding WatchdogTickText}" Width="140"

@@ -23,6 +23,45 @@ public class SubAgentConfigurationTests
   }
 
   [Fact]
+  public void Bind_RootTurnBudget_BindsFromStoredText_EndToEnd()
+  {
+    // Finding 3: the plumbing existed but NOTHING populated it, so production always got
+    // the default — configurable in appearance only. This pins the whole chain: stored
+    // preference text -> loader key -> binder -> SubAgentOptions.
+    SubAgentOptions options = SubAgentConfiguration.Bind(
+        defaultModel: null, maxConcurrentAgents: "2", out _,
+        rootTurnIdle: "00:00:45", rootTurnCeiling: "02:00:00");
+
+    Assert.NotNull(options.RootTurnBudget);
+    Assert.Equal(TimeSpan.FromSeconds(45), options.RootTurnBudget.Idle);
+    Assert.Equal(TimeSpan.FromHours(2), options.RootTurnBudget.Ceiling);
+  }
+
+  [Fact]
+  public void Bind_RootTurnBudget_AbsentKeys_LeaveTheDefault()
+  {
+    SubAgentOptions options = SubAgentConfiguration.Bind(
+        defaultModel: null, maxConcurrentAgents: "2", out _);
+
+    Assert.Null(options.RootTurnBudget);
+  }
+
+  [Theory]
+  [InlineData("00:00:00", "01:00:00", "SubAgent:RootTurn:Idle")]
+  [InlineData("00:01:00", "00:00:00", "SubAgent:RootTurn:Ceiling")]
+  [InlineData("-00:01:00", "01:00:00", "SubAgent:RootTurn:Idle")]
+  [InlineData("60", "01:00:00", "SubAgent:RootTurn:Idle")]
+  public void Bind_InvalidRootTurnBudget_IsStartupError(
+      string idle, string ceiling, string expectedKey)
+  {
+    InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+        () => SubAgentConfiguration.Bind(null, "2", out _,
+            rootTurnIdle: idle, rootTurnCeiling: ceiling));
+
+    Assert.Contains(expectedKey, error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
   public void Bind_ExplicitValues_Bind()
   {
     SubAgentOptions options = SubAgentConfiguration.Bind("provider/model", "2", out _);

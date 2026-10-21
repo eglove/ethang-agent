@@ -35,7 +35,14 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
 }
 
 /// <summary>One event streamed back for a root turn. Kinds are exactly `delta`,
-///     `notice`, `tool`, and `settled` - the surface the session view already renders.</summary>
+///     `notice`, `tool`, and `settled` - the surface the session view already renders.
+/// <para>PROTOCOL REQUIREMENT FOR HOST IMPLEMENTERS: <see cref="Generation"/> MUST be echoed
+///     verbatim from the <see cref="RootTurnRequest"/> that produced the event. The app mints
+///     a fresh generation per turn and delivers an event only when BOTH the turn id and the
+///     generation match the live turn, so a host that omits or invents this value has every
+///     event silently dropped and its turns fail on the idle bound. The echo is what makes a
+///     reused turn id safe: a settle from a timed-out predecessor carries the OLD generation
+///     and is ignored instead of completing the new turn with the old payload.</para></summary>
 public sealed record RootTurnEvent(string TurnId, string Kind, string Payload, long Generation = 0);
 
 

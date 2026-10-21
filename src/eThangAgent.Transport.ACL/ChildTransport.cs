@@ -14,11 +14,14 @@ public sealed record TransportEnvelope(string Kind, string Json, long Sequence)
   public static readonly string[] KnownKinds =
       ["start", "deliver", "interrupt", "event", "settle", "ack", "root-turn", "root-turn-event"];
 
-  /// <summary>True when this envelope's kind is one the protocol defines. A CONSUMER, not
-  ///     decoration (finding 4: the list had no reader, so keeping it current changed
-  ///     nothing observable). Receivers use it to tell a kind they must handle from one a
-  ///     NEWER peer sent — the forward-compatibility rule the pumps rely on when they ignore
-  ///     unknown kinds.</summary>
+  /// <summary>True when this envelope's kind is one the protocol defines.
+  /// <para>HONEST SCOPE: no RECEIVER consults this today — both pumps still fall through
+  ///     their switch's <c>default</c> to ignore unknown kinds, which is the same
+  ///     forward-compatibility rule this predicate expresses. It exists so the kind list has
+  ///     a reader and a test pinning it (a kind added to a pump without the list fails
+  ///     <c>KnownKinds_RecognizesEveryKindTheProtocolUses</c>); a receiver that needs to
+  ///     DISTINGUISH "unknown" from "known but unhandled" — task 9's host validation is the
+  ///     natural place — should use it rather than re-listing the kinds.</para></summary>
   public bool HasKnownKind => Array.IndexOf(KnownKinds, Kind) >= 0;
 }
 

@@ -16,17 +16,75 @@ namespace eThangAgent.Composition;
 ///     (":"-separated) durations; absent keeps the default, empty, non-parseable,
 ///     non-positive, or bare-integer (a silent days value) text is a startup error.
 ///     "SubAgent:Watchdog:MaxWrapUpAttempts" — optional non-negative integer; same rule.
+///     "SubAgent:RootTurn:Idle" / ":Ceiling" — optional constant-format durations for the
+///     app-side root-turn budget; absent keys keep the default, invalid or non-positive text
+///     is a startup error (never clamped). Both keys bind together: supplying one without
+///     the other is an error, because a half-configured budget would silently mix a
+///     configured bound with a defaulted one.
 ///     Nothing is silently coerced or clamped. There is deliberately no child-timeout
 ///     key (FR-L4/A4): wall-clock is never a child cancellation source.</summary>
 public static class SubAgentConfiguration
 {
   public static SubAgentOptions Bind(string? defaultModel, string? maxConcurrentAgents,
-      out bool remoteHost, string? remoteHostValue = null)
+      out bool remoteHost, string? remoteHostValue = null,
+      string? rootTurnIdle = null, string? rootTurnCeiling = null)
   {
     ValidateDefaultModel(defaultModel);
     int maxConcurrent = ParseMaxConcurrentAgents(maxConcurrentAgents);
     remoteHost = ParseRemoteHost(remoteHostValue); // hosts wire the remote runtime when true
-    return new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent);
+    RootTurnBudget? rootTurn = BindRootTurnBudget(rootTurnIdle, rootTurnCeiling);
+    return new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent,
+        RootTurnBudget: rootTurn);
+  }
+
+  /// <summary>"SubAgent:RootTurn:Idle" / ":Ceiling" — the app-side root-turn budget. Absent
+  ///     (both) keeps the runtime default; supplying only one is an error (a half-configured
+  ///     budget would silently mix a configured bound with a defaulted one); invalid or
+  ///     non-positive text is a startup error, never clamped.</summary>
+  private static RootTurnBudget? BindRootTurnBudget(string? idleValue, string? ceilingValue)
+  {
+    if (idleValue is null && ceilingValue is null)
+    {
+      return null;
+    }
+
+    if (idleValue is null || ceilingValue is null)
+    {
+      string missing = idleValue is null ? "SubAgent:RootTurn:Idle" : "SubAgent:RootTurn:Ceiling";
+      throw new InvalidOperationException(
+          $"{missing} is required when the other root-turn bound is configured. Set both or neither.");
+    }
+
+    TimeSpan idle = ParseRootTurnDuration(idleValue, "SubAgent:RootTurn:Idle");
+    TimeSpan ceiling = ParseRootTurnDuration(ceilingValue, "SubAgent:RootTurn:Ceiling");
+    return ceiling < idle
+        ? throw new InvalidOperationException(
+            $"SubAgent:RootTurn:Ceiling ({ceilingValue}) must not be shorter than SubAgent:RootTurn:Idle ({idleValue}).")
+        : new RootTurnBudget(idle, ceiling);
+  }
+
+  /// <summary>One root-turn duration: constant format only, positive, no bare integers.</summary>
+  private static TimeSpan ParseRootTurnDuration(string value, string key)
+  {
+    if (value.Length == 0)
+    {
+      throw new InvalidOperationException(
+          $"{key} is present but empty. Remove the key or supply a positive duration (e.g. '00:02:00').");
+    }
+
+    // A bare integer would parse (TimeSpan reads it as DAYS) — rejected, never coerced.
+    if (value.All(char.IsDigit))
+    {
+      throw new InvalidOperationException(
+          $"{key} must carry units (e.g. '00:02:00'); the bare integer '{value}' would bind as days.");
+    }
+
+    bool parsed = TimeSpan.TryParseExact(value, ["c", "g"], CultureInfo.InvariantCulture,
+        TimeSpanStyles.None, out TimeSpan duration);
+    return parsed && duration > TimeSpan.Zero
+        ? duration
+        : throw new InvalidOperationException(
+            $"{key} must be a positive duration in constant format (e.g. '00:02:00'), got '{value}'.");
   }
 
   /// <summary>"SubAgent:Watchdog:*" (W1.2) — the host-watchdog knobs, bound strictly:
