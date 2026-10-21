@@ -316,7 +316,7 @@ public class ShellViewModelTests
 
     // Strict boundary: no protector means no durable key, ever. The in-memory
     // surface still reflects the edit — only persistence is skipped. The commit
-    // style and remote-host flag persist plaintext: they are not secrets.
+    // style persists plaintext: it is not a secret.
     Assert.Equal(
         [
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),

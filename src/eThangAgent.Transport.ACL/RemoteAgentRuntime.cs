@@ -521,19 +521,28 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       return;
     }
 
+    Guid[] previous = _declaredLive;
     _declaredLive = [.. declared.LiveIds];
 
-    // The declared set IS ownership (review finding 1): a child the host kept running
-    // across an app restart was never STARTED by this runtime, so seeding ownership from
-    // Start alone would refuse steering to a LIVE child - and the cross-container
-    // fallback cannot rescue it, because it gates on this same owned set. A declared id
-    // is owned by this connection; ids the host never declares stay unknown and still
-    // fail NotRunning.
+    // The declared set IS ownership (review round 1, finding 1): a child the host kept
+    // running across an app restart was never STARTED by this runtime, so seeding
+    // ownership from Start alone would refuse steering to a LIVE child - and the
+    // cross-container fallback cannot rescue it, because it gates on this same owned set.
+    //
+    // It is a RECONCILIATION, not an accumulation (review round 2, minor 4): the host
+    // re-declares after every start and settle, so an id it stops declaring is no longer
+    // live there. Keeping it owned would report a delivery as successful while the host
+    // silently dropped it - a lying receipt, worse than the honest NotRunning.
     lock (_owned)
     {
       foreach (Guid live in declared.LiveIds)
       {
         _owned[live] = 1;
+      }
+
+      foreach (Guid gone in previous.Where(id => !declared.LiveIds.Contains(id)))
+      {
+        _ = _owned.TryRemove(gone, out _);
       }
     }
   }

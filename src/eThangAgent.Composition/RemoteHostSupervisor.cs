@@ -142,8 +142,19 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   private async Task<NamedPipeChildTransport> StartAndConnectAsync(CancellationToken ct)
   {
     await EnsureHostAsync(ct).ConfigureAwait(false);
+    return await ConnectBoundedAsync(ConnectTimeout, ct).ConfigureAwait(false);
+  }
+
+  /// <summary>Connects under a DEADLINE, failing NAMED when it elapses. This is the bound
+  ///     the dump analysis found (review round 2, finding 1): <c>ConnectToHostAsync</c>
+  ///     retries forever while another instance holds the single-instance pipe, so without
+  ///     the deadline a contended connect is the suite-wide hang. The timeout is a
+  ///     parameter so a test can drive it short against a pipe nothing serves - the
+  ///     production caller always passes <see cref="ConnectTimeout"/>.</summary>
+  internal async Task<NamedPipeChildTransport> ConnectBoundedAsync(TimeSpan timeout, CancellationToken ct)
+  {
     using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-    deadline.CancelAfter(ConnectTimeout);
+    deadline.CancelAfter(timeout);
     try
     {
       return await NamedPipeChildTransport.ConnectToHostAsync(HostPipeName, deadline.Token).ConfigureAwait(false);
@@ -151,7 +162,7 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     catch (OperationCanceledException) when (!ct.IsCancellationRequested)
     {
       throw new InvalidOperationException(
-          $"could not connect to this conversation's host pipe '{HostPipeName}' within {ConnectTimeout:c}; "
+          $"could not connect to this conversation's host pipe '{HostPipeName}' within {timeout:c}; "
           + "another host instance likely holds it.");
     }
   }

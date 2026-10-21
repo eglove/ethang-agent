@@ -121,4 +121,64 @@ public class RemoteRuntimeReAttachOwnershipTests
       await host.DisposeAsync().ConfigureAwait(true);
     }
   }
+  /// <summary>Ownership must be RECONCILED, not merely accumulated (review round 2, minor
+  ///     4): the host re-declares its live set after every start and settle, so an id it
+  ///     stops declaring is a child that is no longer live there. Keeping it owned would
+  ///     report a delivery as successful while the host silently drops it
+  ///     (ChildHostServer.HandleDeliver ignores ids it does not run) - a lying receipt,
+  ///     which is worse than the honest NotRunning this answered before the seed existed.</summary>
+  [Fact]
+  public async Task Deliver_ToAChildTheHostStoppedDeclaring_FailsNotRunningAgain()
+  {
+    AgentId child = new(Guid.NewGuid());
+    (NamedPipeChildTransport app, NamedPipeChildTransport host) = await ConnectAsync().ConfigureAwait(true);
+    try
+    {
+      RemoteAgentRuntime runtime = new(app);
+      using CancellationTokenSource loop = new();
+      _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+      // The host declares the child live: it is owned, and steering reaches it.
+      await host.SendAsync(new TransportEnvelope("declare",
+          JsonSerializer.Serialize(new DeclareCommand([child.Value])), 1),
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+      await WaitForDeclaredAsync(runtime, child.Value).ConfigureAwait(true);
+      Assert.True(runtime.Deliver(child, Steering("while live")).IsSuccess,
+          "a declared child must be steerable");
+
+      // The child settles host-side, so the host re-declares an EMPTY live set.
+      await host.SendAsync(new TransportEnvelope("declare",
+          JsonSerializer.Serialize(new DeclareCommand([])), 2),
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+      await WaitForDeclaredCountAsync(runtime, 0).ConfigureAwait(true);
+
+      // It is no longer live there: the runtime must stop claiming it. A success here
+      // would be a receipt for a message the host drops on the floor.
+      Result<bool> delivered = runtime.Deliver(child, Steering("after it settled"));
+      Assert.False(delivered.IsSuccess,
+          "a child the host no longer declares must not accept deliveries");
+      Assert.Equal(MailboxErrors.NotRunning, delivered.Error.Code);
+      Assert.DoesNotContain(child.Value, runtime.OwnedChildren);
+    }
+    finally
+    {
+      await app.DisposeAsync().ConfigureAwait(true);
+      await host.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
+  /// <summary>Waits until the runtime observes a declared set of the given size.</summary>
+  private static async Task WaitForDeclaredCountAsync(RemoteAgentRuntime runtime, int count)
+  {
+    for (int i = 0; i < 100; i++)
+    {
+      if (runtime.DeclaredLiveChildren.Count == count)
+      {
+        return;
+      }
+
+      await Task.Delay(TimeSpan.FromMilliseconds(20),
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+  }
 }

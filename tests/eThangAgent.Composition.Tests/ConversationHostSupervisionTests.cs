@@ -298,7 +298,7 @@ public class ConversationHostSupervisionTests
     using CancellationTokenSource cancelled = new();
     await cancelled.CancelAsync().ConfigureAwait(true);
 
-    _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+    _ = _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
         () => RemoteHostSupervisor.AwaitStartedLineAsync(
             BlocksUntilCancelled,
             () => false,
@@ -385,4 +385,92 @@ public class ConversationHostSupervisionTests
   [Fact]
   public void StartedLineTimeout_IsPinnedTightly() =>
       Assert.Equal(TimeSpan.FromSeconds(60), RemoteHostSupervisor.StartedLineTimeout);
+  /// <summary>THE connect bound (review round 2, finding 1): the deadline that stops
+  ///     <c>ConnectToHostAsync</c> retrying forever when another instance holds the
+  ///     single-instance pipe. Nothing pinned it before, so removing the CancelAfter left
+  ///     the whole suite green while the original hang returned. This test drives the
+  ///     bound short against a pipe nothing serves and asserts a NAMED failure inside a
+  ///     bounded window - so an un-armed deadline FAILS here rather than hanging.</summary>
+  [Fact]
+  public async Task Connect_NoHostListening_FailsNamedInsideItsDeadline()
+  {
+    string scratch = Directory.CreateTempSubdirectory("ethang-connect-scratch").FullName;
+    try
+    {
+      string workspace = Directory.CreateTempSubdirectory("ethang-connect-ws").FullName;
+      try
+      {
+        AgentSettings settings = new AgentSettings(
+            new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
+            new SubAgentOptions(null, 2)).WithWorkspaceRoot(workspace);
+        RemoteHostSupervisor supervisor = new("conversation-connect", scratch,
+            settings, Path.Combine(scratch, "app.db"), _ => { });
+
+        Task<NamedPipeChildTransport> connect = supervisor.ConnectBoundedAsync(
+            TimeSpan.FromMilliseconds(300), TestContext.Current.CancellationToken);
+
+        // The bound: an un-armed deadline cannot hang the suite, it fails right here.
+        Task finished = await Task.WhenAny(
+            connect, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken))
+            .ConfigureAwait(true);
+        Assert.Same(connect, finished);
+
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => connect).ConfigureAwait(true);
+        Assert.Contains("could not connect", error.Message, StringComparison.Ordinal);
+        Assert.Contains("another host instance likely holds it", error.Message, StringComparison.Ordinal);
+
+        await supervisor.DisposeAsync().ConfigureAwait(true);
+      }
+      finally
+      {
+        Directory.Delete(workspace, recursive: true);
+      }
+    }
+    finally
+    {
+      Directory.Delete(scratch, recursive: true);
+    }
+  }
+
+  /// <summary>The caller's cancellation is PROPAGATED, never mistaken for "no host here"
+  ///     (review round 2, finding 3). Without the explicit guard the probe's broad catch
+  ///     swallowed it and the caller fell through to a spawn - so a cancelled attach still
+  ///     launched a host process.</summary>
+  [Fact]
+  public async Task Probe_CallerAlreadyCancelled_PropagatesInsteadOfProbing()
+  {
+    string scratch = Directory.CreateTempSubdirectory("ethang-cancel-scratch").FullName;
+    try
+    {
+      string workspace = Directory.CreateTempSubdirectory("ethang-cancel-ws").FullName;
+      try
+      {
+        AgentSettings settings = new AgentSettings(
+            new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
+            new SubAgentOptions(null, 2)).WithWorkspaceRoot(workspace);
+        RemoteHostSupervisor supervisor = new("conversation-cancel", scratch,
+            settings, Path.Combine(scratch, "app.db"), _ => { });
+
+        using CancellationTokenSource cancelled = new();
+        await cancelled.CancelAsync().ConfigureAwait(true);
+
+        // A cancelled caller asked for NO work: the probe must refuse, not return null
+        // (null means "no host here" and would send the caller on to launch one).
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => supervisor.ProbeForTestAsync(TimeSpan.FromSeconds(30), cancelled.Token))
+            .ConfigureAwait(true);
+
+        await supervisor.DisposeAsync().ConfigureAwait(true);
+      }
+      finally
+      {
+        Directory.Delete(workspace, recursive: true);
+      }
+    }
+    finally
+    {
+      Directory.Delete(scratch, recursive: true);
+    }
+  }
 }
