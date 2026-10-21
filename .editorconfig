@@ -170,3 +170,16 @@ dotnet_diagnostic.S107.severity = none
 # deviation.
 [src/eThangAgent.Agent.Domain/AgentRecord.cs]
 dotnet_diagnostic.S107.severity = none
+
+# --- Named deviation: S107 scoped to one file --------------------------------
+# ScriptGlobals is the host object Roslyn injects into every exec script, and its
+# constructor is the ONE place the composition root states a session's execution
+# context: the capability registry, the workspace and temp roots, stdout capture,
+# the verification sink, the exec budget, the resource ceilings, and the shell
+# cancellation token. Every parameter is an independent, optional, named-argument
+# setting (each existing call site sets a different subset), so a parameter object
+# would obscure the per-setting readability the call sites rely on and would churn
+# every construction site for no gain. The parameter count stays; the release is
+# this named deviation.
+[src/eThangAgent.Roslyn.ACL/ScriptGlobals.cs]
+dotnet_diagnostic.S107.severity = none

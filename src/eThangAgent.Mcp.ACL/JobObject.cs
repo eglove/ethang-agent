@@ -13,6 +13,7 @@ internal static class JobObject
 {
   private const int ExtendedLimitInfoClass = 9;
   private const uint KillOnJobClose = 0x2000;
+  private const uint LimitProcessMemory = 0x00000100;
 
   [StructLayout(LayoutKind.Sequential)]
   private struct BasicLimitInfo
@@ -77,6 +78,19 @@ internal static class JobObject
   }
 
   public static bool Attach(nint job, Process process) => AssignProcessToJobObject(job, process.Handle);
+
+  /// <summary>Configures kill-on-close PLUS a per-process memory ceiling (spec D10):
+  ///     the sampling guard kills on breach, this is the backstop for a child that
+  ///     allocates faster than one sample interval. Best-effort like the rest of the
+  ///     surface — a refused limit degrades to guard-only enforcement.</summary>
+  public static bool ConfigureWithMemoryLimit(nint job, long memoryLimitBytes)
+  {
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(memoryLimitBytes);
+    ExtendedLimitInfo info = default;
+    info._basic._limitFlags = KillOnJobClose | LimitProcessMemory;
+    info._processMemoryLimit = (nuint)memoryLimitBytes;
+    return SetInformationJobObject(job, ExtendedLimitInfoClass, ref info, Marshal.SizeOf<ExtendedLimitInfo>());
+  }
 
 #pragma warning disable SYSLIB1054 // Named decision: same rationale as above.
   [DllImport("kernel32.dll", SetLastError = true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

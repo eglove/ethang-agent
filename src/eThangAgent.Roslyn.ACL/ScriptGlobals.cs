@@ -19,6 +19,12 @@ public sealed class ScriptGlobals
   // this long before the caller unwinds cancelled and abandons the readers.
   private static readonly TimeSpan ShellDrainGrace = TimeSpan.FromSeconds(2);
 
+  // How often the process-tree guard samples a running program's memory and process
+  // count (spec D10). 250 ms is fast enough that a runaway is killed within a
+  // fraction of a second and slow enough that the enumeration cost stays negligible
+  // against the work being sampled; the Job Object memory limit backstops the gap.
+  private static readonly TimeSpan ShellSampleInterval = TimeSpan.FromMilliseconds(250);
+
   private readonly ConcurrentQueue<string> _outputLines = new();
   private int _nestedDispatchCount;
   private readonly bool _captureStdout;
@@ -32,7 +38,8 @@ public sealed class ScriptGlobals
 
   public ScriptGlobals(ICapabilityRegistry registry, string workspace, string temp,
       bool captureStdout = true, IVerificationLedger? verificationSink = null,
-      TimeSpan? execBudget = null, CancellationToken shellToken = default)
+      TimeSpan? execBudget = null, ScriptCeilings? ceilings = null,
+      CancellationToken shellToken = default)
   {
     Workspace = workspace;
     Temp = temp;
@@ -40,8 +47,16 @@ public sealed class ScriptGlobals
     _ct = shellToken;
     VerificationSink = verificationSink;
     ExecBudget = execBudget;
+    Ceilings = ceilings ?? ScriptCeilings.Default;
     Tools = new ScriptTools(registry, this);
   }
+
+  /// <summary>The resource ceilings every program this script spawns runs under
+  ///     (spec D10). Optional with documented defaults: the exec engine and the
+  ///     evidence runner both construct globals, so a required parameter would break
+  ///     both. A later task derives the spawn memory ceiling from the session's
+  ///     machine-derived budget; today the default is a generous fixed value.</summary>
+  public ScriptCeilings Ceilings { get; }
 
   /// <summary>Workspace root directory.</summary>
   public string Workspace { get; }
@@ -130,7 +145,7 @@ public sealed class ScriptGlobals
       // job only around dotnet test) would trust argv sniffing and leave every
       // non-test spawn uncontained.
       job = JobObject.Create();
-      if (job != nint.Zero && JobObject.Configure(job))
+      if (job != nint.Zero && JobObject.ConfigureWithMemoryLimit(job, Ceilings.SpawnMemoryBytes))
       {
         _ = JobObject.Attach(job, p);
       }
@@ -141,6 +156,11 @@ public sealed class ScriptGlobals
         _ = JobObject.Close(job);
         job = nint.Zero;
       }
+      // Spec D10: the tree is guarded against its memory and process-count ceilings
+      // for the whole run. The guard kills on breach; the outcome decides the error
+      // contract the model sees, so a killed program is never mistaken for a clean exit.
+      using ProcessTreeGuard guard = new(p,
+          Ceilings.SpawnMemoryBytes, Ceilings.SpawnProcessCount, ShellSampleInterval);
       // Drain both pipes concurrently: sequential ReadToEnd calls deadlock when the
       // child fills the pipe that is not being read (chatty stderr under quiet stdout).
       // Named decision (S8949): the reads take CancellationToken.None — cancellation is
@@ -173,26 +193,19 @@ public sealed class ScriptGlobals
         // Expected when the budget elapses or the turn is stopped.
       }
 
-      // Killing the tree closes its pipes, so the drain tasks finish promptly; the
-      // WaitAll above can still return cleanly if they beat the token. Check the
-      // token explicitly and unwind: the engine maps this to Cancelled/Timeout —
-      // a stopped turn must never surface as a successful shell result.
-      if (_ct.IsCancellationRequested)
-      {
-        // The drain is bounded: killing the tree usually closes its pipes, but a
-        // survivor (a detached child cmd /c start launched) can hold a pipe open
-        // forever. Named decision (S8949): no token-aware wait — the token has
-        // already fired — but an unbounded drain let a surviving orphan wedge the
-        // caller (the stop-button hang). Wait out a short grace for a real flush;
-        // past it, abandon the drain readers (their buffers finalize with the
-        // pipe handles) and the exit-code flush, and unwind cancelled. A hung
-        // stop must settle, not leak the turn.
-        _ = Task.WaitAll([stdoutTask, stderrTask], ShellDrainGrace);
-        _ = p.WaitForExit(ShellDrainGrace);
-        throw new OperationCanceledException(_ct);
-      }
+      UnwindIfCancelled(p, stdoutTask, stderrTask);
 
       p.WaitForExit(); // flushes output handlers so the exit code is final
+
+      // A breach is the run's outcome, not a footnote: the model must see WHY the
+      // program stopped, never a bare non-zero exit it would read as the program's
+      // own failure.
+      if (CeilingFailure(guard.Outcome, stdoutTask.Result) is { } ceilingFailure)
+      {
+        ReportRun(argv, -1, startedUtc);
+        return ceilingFailure;
+      }
+
       ReportRun(argv, p.ExitCode, startedUtc);
       return new ShellResult(p.ExitCode, stdoutTask.Result, stderrTask.Result);
     }
@@ -220,6 +233,45 @@ public sealed class ScriptGlobals
     }
   }
 
+  /// <summary>Killing the tree closes its pipes, so the drain tasks finish promptly;
+  ///     the wait above can still return cleanly if they beat the token. Check the
+  ///     token explicitly and unwind: the engine maps this to Cancelled/Timeout — a
+  ///     stopped turn must never surface as a successful shell result.
+  ///     <para>The drain is bounded: killing the tree usually closes its pipes, but a
+  ///     survivor (a detached child cmd /c start launched) can hold a pipe open
+  ///     forever. Named decision (S8949): no token-aware wait — the token has already
+  ///     fired — but an unbounded drain let a surviving orphan wedge the caller (the
+  ///     stop-button hang). Wait out a short grace for a real flush; past it, abandon
+  ///     the drain readers (their buffers finalize with the pipe handles) and the
+  ///     exit-code flush, and unwind cancelled. A hung stop must settle, not leak the
+  ///     turn.</para></summary>
+  private void UnwindIfCancelled(Process process, Task<string> stdoutTask, Task<string> stderrTask)
+  {
+    if (!_ct.IsCancellationRequested)
+    {
+      return;
+    }
+
+    _ = Task.WaitAll([stdoutTask, stderrTask], ShellDrainGrace);
+    _ = process.WaitForExit(ShellDrainGrace);
+    throw new OperationCanceledException(_ct);
+  }
+
+  /// <summary>Translates a guard breach into the error contract the model reads, or
+  ///     null when the run stayed inside its ceilings. The exit code is -1 (never the
+  ///     program's own) so a killed program can never be mistaken for a clean exit, and
+  ///     the stdout collected before the kill is preserved for diagnosis.</summary>
+  private ShellResult? CeilingFailure(ProcessTreeGuardOutcome outcome, string stdout) => outcome switch
+  {
+    { MemoryExceeded: true } => new ShellResult(-1, stdout,
+        "Error [MemoryCeiling]: the program exceeded its " + Mb(Ceilings.SpawnMemoryBytes)
+        + " MB memory ceiling and was stopped."),
+    { ProcessCountExceeded: true } => new ShellResult(-1, stdout,
+        "Error [ProcessCeiling]: the program exceeded its " + Ceilings.SpawnProcessCount
+        + " process ceiling and was stopped."),
+    _ => null,
+  };
+
   /// <summary>Reports one completed run to the optional verification sink.
   ///     A sink fault is swallowed by named decision (spec error rule): the
   ///     report path may never break the command run being reported.</summary>
@@ -243,6 +295,10 @@ public sealed class ScriptGlobals
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }
+
+  /// <summary>A byte count rendered as whole megabytes — the unit the ceiling error
+  ///     contract speaks in, so the model can compare its program against the limit.</summary>
+  private static long Mb(long bytes) => bytes / (1024L * 1024L);
 
   /// <summary>Returns the last <paramref name="chars"/> characters of text (or the
   ///     whole string when it is shorter). Convenience for bounded output of shell results:
@@ -320,6 +376,33 @@ public sealed class ScriptGlobals
 
 /// <summary>Result of Shell() call.</summary>
 public sealed record ShellResult(int ExitCode, string Stdout, string Stderr);
+
+/// <summary>The resource ceilings one script's spawned programs run under (spec D10).
+///     Optional on <see cref="ScriptGlobals"/> with these documented defaults, so
+///     every existing construction site keeps working; a caller that has a
+///     machine-derived budget (the session's <c>ResourceBudget</c>) passes its own.
+///     <para><see cref="SpawnMemoryBytes"/> is a per-program working-set ceiling: a
+///     program whose tree exceeds it is killed, which is why the default is generous —
+///     a legitimate build or test run must never be mistaken for a runaway.</para>
+///     <para><see cref="SpawnProcessCount"/> is a hard cap, not a tuned one: a
+///     measured full-solution <c>dotnet build</c> tree peaks at 40 processes and a
+///     <c>dotnet test</c> run fans out one testhost per test module (24 here) on top of
+///     the build servers, so the ceiling must sit well above legitimate fan-out or it
+///     would kill honest work. 256 leaves that headroom while still stopping the
+///     runaway shape it exists for — a program spawning hundreds or thousands of
+///     processes.</para>
+///     <para>The output ceilings belong to the same per-program budget and are
+///     consumed by the output-capping path.</para></summary>
+public sealed record ScriptCeilings(long SpawnMemoryBytes, int SpawnProcessCount, long OutputTruncateBytes, long OutputKillBytes)
+{
+  /// <summary>The documented default ceilings. Memory: 4 GB per spawned program tree
+  ///     (generous — a measured full-solution build tree peaks ~2.4 GB, so a cold build
+  ///     fits with headroom). Processes: 256 per tree (measured full-solution build peak
+  ///     is 40; a test run adds one testhost per module — 256 stops a runaway fan-out
+  ///     without ever killing honest work). Output: truncate at 256 KB, kill at 8 MB.</summary>
+  public static ScriptCeilings Default { get; } =
+      new(4L * 1024 * 1024 * 1024, 256, 256 * 1024, 8L * 1024 * 1024);
+}
 
 /// <summary>Tool-calling surface exposed to C# scripts as Tools.read(...) etc.
 /// Executing scripts call these directly; the full action set (including names like

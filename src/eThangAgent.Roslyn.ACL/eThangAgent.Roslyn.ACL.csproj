@@ -6,4 +6,9 @@
     <ProjectReference Include="../eThangAgent.Capability.Domain/eThangAgent.Capability.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.State.Domain/eThangAgent.State.Domain.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The process-tree guard and the Job Object surface are internal (the domain
+         never sees them); the ACL's own test project exercises them directly. -->
+    <InternalsVisibleTo Include="eThangAgent.Roslyn.ACL.Tests" />
+  </ItemGroup>
 </Project>
