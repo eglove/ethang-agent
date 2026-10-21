@@ -101,6 +101,43 @@ public class RootTurnProtocolTests
   }
 
   [Fact]
+  public void RootTurnBudget_RejectsNonPositiveSendBound()
+  {
+    // The send bound is a THIRD bound (finding 5): a zero send bound would cancel every
+    // frame before its header could be written, so it is validated exactly like the others —
+    // on construction and through the init accessor a 'with' expression assigns.
+    _ = Assert.Throws<ArgumentOutOfRangeException>(
+        () => new RootTurnBudget(TimeSpan.FromMinutes(1), TimeSpan.FromHours(1), TimeSpan.Zero));
+    _ = Assert.Throws<ArgumentOutOfRangeException>(
+        () => new RootTurnBudget(TimeSpan.FromMinutes(1), TimeSpan.FromHours(1), TimeSpan.FromSeconds(-1)));
+
+    RootTurnBudget valid = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(1));
+    _ = Assert.Throws<ArgumentOutOfRangeException>(
+        () => valid with { Send = TimeSpan.Zero });
+  }
+
+  [Fact]
+  public void RootTurnBudget_SendBound_IsSeparateFromIdle_AndDefaultsToTheCeiling()
+  {
+    // Finding 5: the send bound must NOT share the idle value. A lapsed write is cancelled,
+    // and a cancellation that interrupts a frame costs the whole connection — so judging a
+    // large frame by the SILENCE window would drop a slow-but-healthy host's connection.
+    // The two-argument constructor keeps the send bound at the ceiling (a frame may take as
+    // long as the whole turn could), never at the idle window.
+    RootTurnBudget twoArg = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5));
+
+    Assert.Equal(TimeSpan.FromSeconds(30), twoArg.Idle);
+    Assert.Equal(TimeSpan.FromMinutes(5), twoArg.Send);
+    Assert.NotEqual(twoArg.Idle, twoArg.Send);
+    // The production default must not leave the send bound at the one-hour ceiling either:
+    // that is effectively unbounded for a frame capped at 4MB.
+    Assert.True(RootTurnBudget.Default.Send < RootTurnBudget.Default.Ceiling,
+        "the default send bound must be tighter than the ceiling");
+    Assert.True(RootTurnBudget.Default.Send > RootTurnBudget.Default.Idle,
+        "the default send bound must be more generous than the idle window");
+  }
+
+  [Fact]
   public void RootTurnBudget_RejectsNonPositiveBounds()
   {
     // Strict boundary (finding 3): a zero idle makes EVERY turn instantly unaddressable and

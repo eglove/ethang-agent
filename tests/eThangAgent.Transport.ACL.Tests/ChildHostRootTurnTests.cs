@@ -716,14 +716,21 @@ public class ChildHostRootTurnTests
   [Fact]
   public async Task RootTurn_BoundedSendFailure_KeepsTheConnection_AndTheGateIsFree()
   {
-    // CONTROLLER RULING: the send bound's token is passed to SendAsync, so a blocked write is
-    // CANCELLED — which releases the transport's single write gate — rather than abandoned.
-    // The connection therefore SURVIVES: tearing it down would kill in-flight child runs for
-    // a defect that cancellation already handles.
+    // CONTROLLER RULING, the CANCELLATION half. The send bound's token is passed to SendAsync,
+    // so a blocked write is CANCELLED — which releases the transport's single write gate —
+    // rather than abandoned. That half is why round 4 was right and round 3 was wrong.
     //
     // This is the assertion finding 4 said was missing: proof the GATE is free, not merely
     // that the lost flag short-circuits later sends. A direct send on the SAME transport is
     // the only thing that proves it — the lost-flag refusal never touches the gate.
+    //
+    // SCOPE, stated honestly: this peer NEVER READS, so the cancellation lands before any byte
+    // of the frame reaches the wire and the stream stays intact — the recoverable case. The
+    // UNRECOVERABLE case (a cancellation that interrupts a frame, which desynchronizes the peer
+    // and costs the connection) is pinned separately by
+    // RootTurn_CancelledMidFrame_TearsDownTheConnection_AndSettlesTheChild. Together they are
+    // the ruling's two halves: cancellation frees the gate, and a mid-frame cancellation is
+    // treated as connection loss.
     NonReadingPeer peer = await NonReadingPeer.StartAsync().ConfigureAwait(true);
     NamedPipeChildTransport app = await ConnectAsync(peer.PipeName).ConfigureAwait(true);
     try
@@ -757,8 +764,10 @@ public class ChildHostRootTurnTests
           "the write gate is still held after the bounded send: the abandoned write was never cancelled");
       await smallSend.ConfigureAwait(true);
 
-      // And the connection is alive: the runtime is not in the lost state.
-      Assert.False(runtime.HostLost, "the connection was torn down for a defect cancellation already handles");
+      // And THIS connection is alive: no byte of the frame reached the wire, so the stream is
+      // intact and the runtime is not in the lost state.
+      Assert.False(runtime.HostLost,
+          "a cancellation that reached no byte of the wire must not cost the connection");
     }
     finally
     {
@@ -773,6 +782,9 @@ public class ChildHostRootTurnTests
     // Finding 2: a caller cancel used to return TurnCancelled BEFORE any teardown, leaving
     // the abandoned write holding the gate — so a CHILD send on the same transport blocked
     // unbounded. With the ruling the write is cancelled, which releases the gate.
+    //
+    // This peer never reads, so the cancellation reaches no byte of the frame and the stream
+    // stays intact: the caller's stop is a turn-level failure and the connection lives on.
     NonReadingPeer peer = await NonReadingPeer.StartAsync().ConfigureAwait(true);
     NamedPipeChildTransport app = await ConnectAsync(peer.PipeName).ConfigureAwait(true);
     try
@@ -803,6 +815,85 @@ public class ChildHostRootTurnTests
       Assert.True(smallDone == smallSend,
           "a caller cancel wedged the write gate: the cancelled write was abandoned, not cancelled");
       await smallSend.ConfigureAwait(true);
+    }
+    finally
+    {
+      await peer.DisposeAsync().ConfigureAwait(true);
+      await app.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
+  [Fact]
+  public async Task RootTurn_CancelledMidFrame_TearsDownTheConnection_AndSettlesTheChild()
+  {
+    // CONTROLLER RULING, the desync half. The peer consumes whole frames and then stalls
+    // after the NEXT frame's 4-byte header, so the app's 1MB write cannot drain no matter
+    // how long it is given: its header is on the wire and its payload never follows. When
+    // the send bound cancels that write, the peer's frame stream is permanently
+    // desynchronized — it will never parse another frame, and every later frame this side
+    // writes is swallowed as this frame's payload.
+    //
+    // What must happen: the write is cancelled (releasing the gate) AND the connection is
+    // torn down, so (a) HostLost reports the truth instead of a silently dead connection,
+    // (b) a later turn refuses instead of hanging, and (c) a child started BEFORE the
+    // failure completes with a declared failure instead of WhenSettledAsync never returning.
+    NonReadingPeer peer = await NonReadingPeer.StartStallingAfterHeaderAsync(completeFrames: 1)
+        .ConfigureAwait(true);
+    NamedPipeChildTransport app = await ConnectAsync(peer.PipeName).ConfigureAwait(true);
+    try
+    {
+      RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+          TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(10),
+          TimeSpan.FromMilliseconds(400)));
+      using CancellationTokenSource loop = new();
+      _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+      // A child run started BEFORE the failure: its settle must never hang.
+      AgentId child = new(Guid.NewGuid());
+      Result<AgentId> started = await runtime.Start(
+          AgentRecord.Spawned(child, null, 1, "m/sub", "hung", "task", DateTimeOffset.UtcNow),
+          TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken)
+          .ConfigureAwait(true);
+      Assert.True(started.IsSuccess, started.Error?.Message);
+
+      // The turn is sent FIRST and awaited second: the peer only consumes the header of the
+      // frame it is stalling on, and that frame is this one. Waiting for the header before
+      // sending would wait for a frame that does not exist yet.
+      Task<Result<string>> pending = runtime.SendRootTurnAsync(
+          new RootTurnRequest("turn-desync", new string('x', 1024 * 1024), []), _ => { },
+          TestContext.Current.CancellationToken);
+      await WaitUntilAsync(() => peer.HeaderConsumed).ConfigureAwait(true);
+
+      Result<string> turn = await pending.WaitAsync(Limit, TestContext.Current.CancellationToken)
+          .ConfigureAwait(true);
+
+      Assert.False(turn.IsSuccess);
+      Assert.Equal("HostUnavailable", turn.Error.Code);
+      // The diagnosis must admit the connection died, not advertise it as usable.
+      Assert.Contains("desynchronized", turn.Error.Message, StringComparison.OrdinalIgnoreCase);
+
+      // (a) The connection is DECLARED lost. Against the defect this is false: the write was
+      // cancelled, the gate was released, and the runtime still believed it was connected
+      // while the peer could never parse another frame.
+      Assert.True(runtime.HostLost,
+          "the connection was reported alive while its peer's frame stream was desynchronized");
+
+      // (c) The child that was already running settles with a DECLARED failure. Against the
+      // defect its WhenSettledAsync never returns — no settle, no failure, a silent hang.
+      Result<AgentRunOutcome> settled = await runtime.WhenSettledAsync(child,
+          TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken)
+          .ConfigureAwait(true);
+      Assert.True(settled.IsSuccess, settled.Error?.Message);
+      Assert.Equal(AgentStatus.Failed, settled.Value.Status);
+      Assert.Contains("desynchronized", settled.Value.Report, StringComparison.OrdinalIgnoreCase);
+
+      // (b) A later turn refuses at once instead of queueing on a connection nobody can use.
+      Result<string> later = await runtime.SendRootTurnAsync(
+          new RootTurnRequest("turn-after", "hello", []), _ => { },
+          TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken)
+          .ConfigureAwait(true);
+      Assert.False(later.IsSuccess);
+      Assert.Equal("HostUnavailable", later.Error.Code);
     }
     finally
     {

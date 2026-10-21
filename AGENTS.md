@@ -66,9 +66,16 @@ kind + payload + generation). `RootTurnProtocol` is the codec; `RemoteAgentRunti
 .SendRootTurnAsync` is the app-side call and `ChildHostServer` the host-side case. The host
 **must echo the request's generation verbatim** — the app drops any event whose
 (id, generation) does not match the live turn, which is what keeps a reused turn id safe.
-Turns are bounded by `RootTurnBudget` (idle bound that resets on every event, plus a
-separate hard ceiling); a bounded send is CANCELLED rather than abandoned, so the write gate
-is released and the connection survives. Configuration: preference keys
+Turns are bounded by `RootTurnBudget` (idle bound that resets on every event, a separate
+hard ceiling, and a separate generous SEND bound — never the idle window, because a lapsed
+write is cancelled and a mid-frame cancellation is unrecoverable). A bounded send is
+CANCELLED rather than abandoned, so the write gate is released; and because the frame header
+and payload are two stream writes, a cancellation that interrupts a frame leaves the peer's
+frame stream permanently desynchronized — `TransportFraming.WriteAsync` reports that as
+`TransportFrameInterruptedException`, and the runtime answers it with `MarkConnectionLost`,
+tearing the connection down and completing every pending root-turn waiter and child settle
+with a declared failure instead of leaving a silently dead connection that still reports
+itself alive. Configuration: preference keys
 `subagent_root_turn_idle` / `subagent_root_turn_ceiling` (constant-format durations, both or
 neither) → `SubAgentConfiguration.Bind` → `SubAgentOptions.RootTurnBudget`. Running the turn
 itself is task 9's work; until it lands the host answers every addressable turn with a typed

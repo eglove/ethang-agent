@@ -176,11 +176,16 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   /// <c>TurnCancelled</c> when the caller cancelled, <c>TurnUnaddressable</c> when the host
   /// goes SILENT for <see cref="RootTurnBudget.Idle"/>, and <c>TurnCeilingExceeded</c> when
   /// a turn outlasts <see cref="RootTurnBudget.Ceiling"/>.</para>
-  /// <para>The two bounds exist because one number cannot be right: a healthy turn may run
+  /// <para>The bounds exist because one number cannot be right: a healthy turn may run
   /// for many minutes while streaming constantly (an idle bound is what protects it — it
-  /// resets on every event), and a host that streams forever must still end (a ceiling is
-  /// what protects that). A single total bound would kill the first and misreport it as a
-  /// host fault.</para></summary>
+  /// resets on every event), a host that streams forever must still end (a ceiling is
+  /// what protects that), and putting one frame on the wire is a third question bounded by
+  /// <see cref="RootTurnBudget.Send"/>. A single total bound would kill the first and
+  /// misreport it as a host fault.</para>
+  /// <para>A bounded write is CANCELLED, and a cancellation that interrupts a frame
+  /// desynchronizes the peer's frame stream permanently — so that path closes the connection
+  /// and completes every pending settle with a declared failure rather than leaving a
+  /// silently dead connection that still reports itself alive.</para></summary>
   public async Task<Result<string>> SendRootTurnAsync(
       RootTurnRequest request, Action<RootTurnEvent> onEvent, CancellationToken ct = default)
   {
@@ -220,14 +225,17 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       // The SEND is bounded too: a peer that accepts and never reads blocks the write
       // forever, so putting the frame on the wire must not be the one unbounded step.
       //
-      // The bound's token is passed to SendAsync (controller ruling). A named-pipe write
-      // DOES observe its token: cancelling it settles the write Canceled and releases the
-      // transport's single write gate, so the connection stays usable. (An earlier version
-      // of this code claimed a blocked pipe write "cannot be cancelled by ANY token" and
-      // tore the whole connection down on that false premise — killing in-flight child runs
-      // for a defect cancellation already handles.)
+      // The bound is TurnBudget.Send, NOT the idle window: a slow-but-healthy host may take
+      // a long time to absorb a large frame, and since a lapsed write is CANCELLED — and a
+      // mid-frame cancellation costs the whole connection — judging the write by the silence
+      // window would drop a healthy connection for a frame it was still digesting.
+      //
+      // The token is passed to SendAsync. A named-pipe write DOES observe its token:
+      // cancelling it settles the write Canceled and releases the transport's single write
+      // gate. (An earlier version claimed a blocked pipe write "cannot be cancelled by ANY
+      // token" and tore the whole connection down on that false premise.)
       using CancellationTokenSource sendTick = CancellationTokenSource.CreateLinkedTokenSource(ct);
-      sendTick.CancelAfter(TurnBudget.Idle);
+      sendTick.CancelAfter(TurnBudget.Send);
       Task send = transport.SendAsync(new TransportEnvelope("root-turn",
           RootTurnProtocol.SerializeRequest(request with { Generation = generation }),
           Interlocked.Increment(ref _sequence)), sendTick.Token);
@@ -235,15 +243,42 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       {
         await send.ConfigureAwait(false);
       }
+      catch (TransportFrameInterruptedException)
+      {
+        // CONTROLLER RULING, both halves. The write was CANCELLED (so the transport's single
+        // write gate is released — that half is why round 4 was right), but the cancellation
+        // landed AFTER the frame header reached the wire, so the peer's frame stream is
+        // permanently desynchronized: it will never parse another frame, and every later
+        // frame written here is swallowed as this frame's payload. The connection is dead
+        // while HostLost would otherwise still report it alive.
+        //
+        // So: tear it down and complete every pending settle with a declared failure. A
+        // caller cancellation still reports TurnCancelled (it is the caller's doing), but
+        // the connection loss is real either way.
+        MarkConnectionLost("a write was cancelled mid-frame; the peer's frame stream is "
+            + "desynchronized and the connection cannot be reused.");
+        ct.ThrowIfCancellationRequested();
+        return HostUnavailable("the root turn could not be put on the wire within "
+            + TurnBudget.Send + ": the host did not consume the frame in time and the "
+            + "interrupted write desynchronized the connection, which was closed; "
+            + "re-attach to continue.");
+      }
       catch (OperationCanceledException)
       {
-        // The caller's stop wins over the bound: it is the caller's doing, not the host's.
-        // Either way the write was CANCELLED (not abandoned), so the gate is free.
+        // Cancelled BEFORE any byte of the frame reached the wire (the header write is the
+        // only thing that can be interrupted without desynchronizing): the stream is intact
+        // and the gate is free, so this is a turn-level failure only.
+        //
+        // The diagnosis must be TRUE of both peers this fires for. A peer that reads nothing
+        // and a peer that reads too slowly to finish the frame are the same failure from
+        // here — this side cannot tell them apart, and it must not claim the peer "stopped
+        // consuming frames" when it is consuming them, just not fast enough. What IS true:
+        // the frame was not consumed inside the bound. The connection is still usable, and
+        // the message says so, because the caller's next move differs.
         ct.ThrowIfCancellationRequested();
-        // The bound fired and the write was cancelled: the gate is released and the
-        // connection survives, so this is a turn-level failure, not a connection failure.
         return HostUnavailable("the root turn could not be put on the wire within "
-            + TurnBudget.Idle + " (the host stopped consuming frames).");
+            + TurnBudget.Send + ": the host did not consume the frame in time. The "
+            + "connection is still usable.");
       }
       return await AwaitSettleAsync(waiter, ct).ConfigureAwait(false);
     }
@@ -351,17 +386,40 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     }
   }
 
-  /// <summary>Completes every pending root-turn waiter with the declared failure. Called
-  ///     from the pump's fault path: connection loss must never leave a caller waiting.</summary>
-  private void FailPendingRootTurns()
+  /// <summary>Tears the connection down and completes EVERY pending await with a declared
+  ///     failure: every root-turn waiter fails <c>HostUnavailable</c>, every in-flight child
+  ///     run settles Failed(ProviderError), the transport is dropped so later sends refuse
+  ///     at once instead of blocking on a gate nobody will open, and
+  ///     <see cref="HostLost"/> becomes true so the state is observable and recoverable by
+  ///     <see cref="ReplaceTransport"/>.
+  /// <para>Called from two places, both of which have established that nothing on this
+  ///     connection can be recovered: the pump's fault path (the peer is gone) and the
+  ///     cancelled-mid-frame path in <see cref="SendRootTurnAsync"/> (the peer's frame
+  ///     stream is desynchronized, so the connection is silently dead while it still looks
+  ///     alive). The reason is carried into every message so a caller reads WHY.</para></summary>
+  private void MarkConnectionLost(string reason)
   {
     _hostLost = true;
     foreach (RootTurnWaiter waiter in _rootTurns.Values)
     {
-      _ = waiter.Settled.TrySetResult(HostUnavailable("the conversation host connection was lost."));
+      _ = waiter.Settled.TrySetResult(HostUnavailable(reason));
     }
 
     _rootTurns.Clear();
+    foreach (KeyValuePair<Guid, TaskCompletionSource<AgentRunOutcome>> entry in _settling)
+    {
+      _ = entry.Value.TrySetResult(new AgentRunOutcome(new AgentId(entry.Key), AgentStatus.Failed,
+          AgentFailureReason.ProviderError, "Error [ProviderError]: " + reason, "remote", 0));
+    }
+
+    // Drop the transport: a write blocked on the dead connection faults out, releasing the
+    // single write gate, and every later send refuses immediately instead of queueing
+    // behind it. ReplaceTransport installs a fresh one and clears the lost flag.
+    NamedPipeChildTransport? lost = Interlocked.Exchange(ref _transport, null);
+    if (lost is not null)
+    {
+      _ = Task.Run(async () => await lost.DisposeAsync().ConfigureAwait(false)).ConfigureAwait(false);
+    }
   }
 
   private async Task PumpAsync(CancellationToken ct)
@@ -397,15 +455,11 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
         return;
       }
 
-      foreach (KeyValuePair<Guid, TaskCompletionSource<AgentRunOutcome>> entry in _settling)
-      {
-        _ = entry.Value.TrySetResult(new AgentRunOutcome(new AgentId(entry.Key), AgentStatus.Failed,
-            AgentFailureReason.ProviderError, "Error [ProviderError]: child host connection lost.", "remote", 0));
-      }
-
-      // Root turns in flight are the app's user-facing work: they must fail with the
-      // typed HostUnavailable outcome, never hang on a host that is gone (spec D6).
-      FailPendingRootTurns();
+      // Root turns in flight are the app's user-facing work and child runs are the app's
+      // in-flight work: both must settle with the declared failure, never hang on a host
+      // that is gone (spec D6, FR-X3). One teardown path, so the pump fault and the
+      // desynchronized-write path cannot drift apart.
+      MarkConnectionLost("the conversation host connection was lost.");
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }
