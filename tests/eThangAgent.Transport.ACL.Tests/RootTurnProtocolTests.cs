@@ -64,6 +64,41 @@ public class RootTurnProtocolTests
   }
 
   [Fact]
+  public void RootTurnRequest_Generation_RoundTrips()
+  {
+    // RULING 2: the generation is the per-turn identity that lets the client ignore a
+    // stale settle for a REUSED turn id. It must survive the wire.
+    RootTurnRequest request = new("turn-1", "hello", [], Generation: 7);
+
+    RootTurnRequest parsed = RootTurnProtocol.ParseRequest(RootTurnProtocol.SerializeRequest(request));
+
+    Assert.Equal(7, parsed.Generation);
+    Assert.Equal(request, parsed);
+  }
+
+  [Fact]
+  public void RootTurnEvent_Generation_RoundTrips()
+  {
+    RootTurnEvent evt = new("turn-1", "delta", "chunk", Generation: 7);
+
+    RootTurnEvent parsed = RootTurnProtocol.ParseEvent(RootTurnProtocol.SerializeEvent(evt));
+
+    Assert.Equal(7, parsed.Generation);
+    Assert.Equal(evt, parsed);
+  }
+
+  [Fact]
+  public void RootTurnRequest_DifferingGeneration_IsNotEqual()
+  {
+    // The generation is part of identity: two requests for the same turn id from different
+    // generations must never compare equal, or a stale one could be mistaken for a live one.
+    RootTurnRequest first = new("turn-1", "hello", [], Generation: 1);
+    RootTurnRequest second = new("turn-1", "hello", [], Generation: 2);
+
+    Assert.NotEqual(first, second);
+  }
+
+  [Fact]
   public void ParseEvent_UnknownKind_Throws()
   {
     const string json = /*lang=json,strict*/ "{\"TurnId\":\"t\",\"Kind\":\"bogus\",\"Payload\":\"\"}";

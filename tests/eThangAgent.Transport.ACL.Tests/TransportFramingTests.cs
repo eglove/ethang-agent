@@ -35,6 +35,19 @@ public class TransportFramingTests
   }
 
   [Fact]
+  public void KnownKinds_RecognizesEveryKindTheProtocolUses()
+  {
+    // Finding 4: KnownKinds had no consumer, so keeping it current changed nothing. It now
+    // backs HasKnownKind, and this test pins that EVERY kind the pumps actually route is
+    // recognized — a new kind added to a switch without the list fails here.
+    string[] routed = ["start", "deliver", "interrupt", "event", "settle", "ack", "root-turn", "root-turn-event"];
+
+    Assert.All(routed, kind => Assert.True(new TransportEnvelope(kind, "{}", 1).HasKnownKind));
+    Assert.False(new TransportEnvelope("from-a-newer-peer", "{}", 1).HasKnownKind);
+    Assert.Equal(routed.Order(StringComparer.Ordinal), TransportEnvelope.KnownKinds.Order(StringComparer.Ordinal));
+  }
+
+  [Fact]
   public async Task CloseMidFrame_ThrowsDeclaredClosed_NotHang()
   {
     MemoryStream wire = new([8, 0, 0, 0, 65]); // claims an 8-byte frame, delivers 1 byte, then ends

@@ -1,3 +1,4 @@
+using eThangAgent.AgentDomain;
 using eThangAgent.ChildHost;
 using eThangAgent.SharedKernel;
 
@@ -20,7 +21,8 @@ public class ChildHostRootTurnTests
   /// <summary>A deliberately short root-turn budget for the never-settles test: the
   ///     production default is far longer, but the CONTRACT under test is that a bound
   ///     exists and fails typed — the value itself is not the subject.</summary>
-  private static readonly TimeSpan RootTurnBudget = TimeSpan.FromSeconds(1);
+  private static readonly RootTurnBudget ShortBudget = new(
+      Idle: TimeSpan.FromMilliseconds(500), Ceiling: TimeSpan.FromSeconds(2));
 
   [Fact]
   public async Task RootTurn_StreamsDeltasThenSettles()
@@ -300,7 +302,7 @@ public class ChildHostRootTurnTests
     await host.ReleaseHeldTurnsAsync().ConfigureAwait(true);
     Result<string> settled = await first.WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(settled.IsSuccess, settled.Error?.Message);
-    Assert.Equal("released", settled.Value);
+    Assert.Equal("released#1", settled.Value);
   }
 
   [Fact]
@@ -336,7 +338,7 @@ public class ChildHostRootTurnTests
     await using FakeConversationHost host = FakeConversationHost.Start();
     await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
 #pragma warning restore CA2007
-    RemoteAgentRuntime runtime = new(app, RootTurnBudget);
+    RemoteAgentRuntime runtime = new(app, ShortBudget);
     using CancellationTokenSource loop = new();
     _ = runtime.RunReceiveLoopAsync(loop.Token);
 
@@ -380,6 +382,176 @@ public class ChildHostRootTurnTests
     Assert.Equal("done", second.Value);
   }
 
+  [Fact]
+  public async Task RootTurn_HealthyLongTurn_IsNotKilledByIdleBound()
+  {
+    // RULING 1, the false-failure case the re-reviewer proved: a HEALTHY host streaming
+    // deltas every 400ms for ~2.4s must NOT be failed as unaddressable just because the
+    // turn outlasts the idle window. Progress must reset the idle clock.
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using FakeConversationHost host = FakeConversationHost.Start();
+    await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
+#pragma warning restore CA2007
+    // Idle window far SHORTER than the turn's total duration, but longer than the gap
+    // between deltas: only a progress-blind bound could fail this.
+    RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+        Idle: TimeSpan.FromSeconds(1), Ceiling: TimeSpan.FromMinutes(5)));
+    using CancellationTokenSource loop = new();
+    _ = runtime.RunReceiveLoopAsync(loop.Token);
+    List<RootTurnEvent> events = [];
+
+    Result<string> result = await runtime.SendRootTurnAsync(
+        new RootTurnRequest("turn-slow", FakeConversationHost.SlowInput, []), events.Add,
+        TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(result.IsSuccess, result.Error?.Message);
+    Assert.Equal("slow-done", result.Value);
+    Assert.Equal(FakeConversationHost.SlowDeltaCount, events.Count(e => e.Kind == "delta"));
+    Assert.Equal("settled", events[^1].Kind);
+  }
+
+  [Fact]
+  public async Task RootTurn_SilentHost_FailsIdleBound()
+  {
+    // The idle bound's real job: a host that takes the turn and stops speaking.
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using FakeConversationHost host = FakeConversationHost.Start();
+    await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
+#pragma warning restore CA2007
+    RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+        Idle: TimeSpan.FromMilliseconds(500), Ceiling: TimeSpan.FromMinutes(5)));
+    using CancellationTokenSource loop = new();
+    _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+    Result<string> result = await runtime.SendRootTurnAsync(
+        new RootTurnRequest("turn-silent", FakeConversationHost.SilentInput, []), _ => { },
+        TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("TurnUnaddressable", result.Error.Code);
+    Assert.Contains("idle", result.Error.Message, StringComparison.OrdinalIgnoreCase);
+  }
+
+  [Fact]
+  public async Task RootTurn_ChattyHost_FailsTheHardCeiling()
+  {
+    // The ceiling's job: a host that keeps streaming forever never trips the IDLE bound,
+    // so only a total-duration ceiling can end it. Distinct error code from the idle bound
+    // so a caller can tell "stopped talking" from "would not stop".
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using FakeConversationHost host = FakeConversationHost.Start();
+    await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
+#pragma warning restore CA2007
+    RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+        Idle: TimeSpan.FromMilliseconds(500), Ceiling: TimeSpan.FromSeconds(2)));
+    using CancellationTokenSource loop = new();
+    _ = runtime.RunReceiveLoopAsync(loop.Token);
+    List<RootTurnEvent> events = [];
+
+    Result<string> result = await runtime.SendRootTurnAsync(
+        new RootTurnRequest("turn-chatty", FakeConversationHost.ChattyInput, []), events.Add,
+        TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("TurnCeilingExceeded", result.Error.Code);
+    // It really was streaming: the ceiling cut a live turn, it did not merely time out.
+    Assert.Contains(events, e => e.Kind == "delta");
+  }
+
+  [Fact]
+  public async Task RootTurn_ReusedIdAfterTimeout_DoesNotReturnTheStalePayload()
+  {
+    // RULING 2, the silent cross-talk the re-reviewer proved: turn #1 on an id times out;
+    // turn #2 reuses the id; turn #1's late settle then arrives. Turn #2 must NEVER
+    // succeed carrying turn #1's payload.
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using FakeConversationHost host = FakeConversationHost.Start();
+    await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
+#pragma warning restore CA2007
+    RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+        Idle: TimeSpan.FromMilliseconds(400), Ceiling: TimeSpan.FromMinutes(5)));
+    using CancellationTokenSource loop = new();
+    _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+    // Turn #1: held by the host, so it times out on the idle bound.
+    Result<string> first = await runtime.SendRootTurnAsync(
+        new RootTurnRequest("reused-id", FakeConversationHost.SilentInput, []), _ => { },
+        TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Assert.False(first.IsSuccess);
+    Assert.Equal("TurnUnaddressable", first.Error.Code);
+
+    // Turn #2 on the SAME id: also held, so we can release #1's stale settle first.
+    Task<Result<string>> second = runtime.SendRootTurnAsync(
+        new RootTurnRequest("reused-id", FakeConversationHost.SilentInput, []), _ => { },
+        TestContext.Current.CancellationToken);
+    await WaitUntilAsync(() => host.Received.Count >= 2).ConfigureAwait(true);
+
+    // The host now settles BOTH held turns in arrival order: #1's stale settle lands
+    // first and must be IGNORED by turn #2.
+    await host.ReleaseHeldTurnsAsync().ConfigureAwait(true);
+
+    Result<string> secondResult = await second.WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    // The ONLY acceptable outcomes: turn #2 gets its OWN payload, or it fails typed.
+    // A success carrying "released#1" is the silent cross-talk this test forbids.
+    if (secondResult.IsSuccess)
+    {
+      Assert.Equal("released#2", secondResult.Value);
+    }
+    else
+    {
+      Assert.Equal("TurnUnaddressable", secondResult.Error.Code);
+    }
+  }
+
+  [Fact]
+  public async Task RootTurn_NonReadingPeer_SendIsBounded_NotAHang()
+  {
+    // Finding 1: the SEND itself must be bounded. A peer that accepts and never reads
+    // blocks a large named-pipe write indefinitely, so putting the frame on the wire must
+    // not be the one unbounded step.
+    //
+    // Deadlock vigilance: a write blocked on a full pipe buffer cannot be interrupted by ANY
+    // token, so this test is written to never leave one behind — the peer is disposed FIRST
+    // in the finally, which is what unblocks the writer, and only then the app side. The
+    // WhenAny race turns a regression into a clean assertion instead of a wedged testhost.
+    NonReadingPeer peer = await NonReadingPeer.StartAsync().ConfigureAwait(true);
+    NamedPipeChildTransport app = await ConnectAsync(peer.PipeName).ConfigureAwait(true);
+    try
+    {
+      RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+          Idle: TimeSpan.FromMilliseconds(500), Ceiling: TimeSpan.FromSeconds(5)));
+      using CancellationTokenSource loop = new();
+      _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+      // Large enough to overflow the pipe buffer (64KB default) so the write genuinely
+      // blocks, yet UNDER the transport's 4MB frame cap — a frame over the cap is rejected
+      // at the seam before it can ever block, which would test the cap, not the bound.
+      string bigInput = new('x', 1024 * 1024);
+
+      Task<Result<string>> turn = runtime.SendRootTurnAsync(
+          new RootTurnRequest("turn-big", bigInput, []), _ => { },
+          TestContext.Current.CancellationToken);
+      Task finished = await Task.WhenAny(turn, Task.Delay(Limit, TestContext.Current.CancellationToken))
+          .ConfigureAwait(true);
+      Assert.True(finished == turn, "the send to a non-reading peer never completed: the send path is unbounded");
+
+      Result<string> result = await turn.ConfigureAwait(true);
+      Assert.False(result.IsSuccess);
+      // The contract is the CODE and that it settled at all. The message may name either
+      // bound (a frame over the seam limit fails at once; a blocked write fails on idle).
+      Assert.Equal("HostUnavailable", result.Error.Code);
+    }
+    finally
+    {
+      // Break the pipe first: that is the only thing that releases a blocked writer.
+      await peer.DisposeAsync().ConfigureAwait(true);
+      await app.DisposeAsync().ConfigureAwait(true);
+    }
+  }
   /// <summary>Connects the app side to the fake host's pipe, deadline-bounded.</summary>
   private static async Task<NamedPipeChildTransport> ConnectAsync(string pipeName)
       => await NamedPipeChildTransport.ConnectToHostAsync(pipeName, TestContext.Current.CancellationToken)

@@ -10,9 +10,16 @@ public sealed class SubAgentOptions
   public int MaxConcurrentAgents { get; }
   public int MaxDepth { get; }
 
+  /// <summary>The root-turn budget the app-side runtime enforces (finding 3: a bound only
+  ///     a test constructor could set was not configurable in production). Null means the
+  ///     runtime's own default; the value rides settings to the host the same way the
+  ///     watchdog knobs do.</summary>
+  public RootTurnBudget? RootTurnBudget { get; }
+
   public SubAgentOptions(string? DefaultModel,
-      int MaxConcurrentAgents = 1, int MaxDepth = 3)
+      int MaxConcurrentAgents = 1, int MaxDepth = 3, RootTurnBudget? RootTurnBudget = null)
   {
+    this.RootTurnBudget = RootTurnBudget;
     this.DefaultModel = DefaultModel;
 
     if (MaxConcurrentAgents < 1)

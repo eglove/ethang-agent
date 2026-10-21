@@ -227,37 +227,49 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   /// host crash.</para></summary>
   private async Task HandleRootTurnAsync(TransportEnvelope envelope)
   {
-    string turnId = ReadTurnIdLeniently(envelope.Json);
-    if (turnId.Length == 0)
+    (string TurnId, long Generation) = ReadTurnIdentityLeniently(envelope.Json);
+    if (TurnId.Length == 0)
     {
       return; // unaddressable: a request carrying no turn id cannot be settled
     }
 
-    await SendAsync("root-turn-event", RootTurnProtocol.SerializeEvent(new RootTurnEvent(turnId,
+    // The GENERATION is echoed verbatim: it is the app's per-turn identity, and a settle
+    // that does not carry it back would be dropped by the client as stale (ruling 2).
+    await SendAsync("root-turn-event", RootTurnProtocol.SerializeEvent(new RootTurnEvent(TurnId,
         "settled",
-        "Error [RootTurnUnavailable]: the conversation host has no root turn runner wired in this build.")))
+        "Error [RootTurnUnavailable]: the conversation host has no root turn runner wired in this build.",
+        Generation)))
         .ConfigureAwait(false);
   }
 
-  /// <summary>Reads the turn id from a root-turn payload WITHOUT the codec's strictness,
-  ///     so a malformed request can still be answered instead of leaving its caller
-  ///     waiting. Returns empty when no turn id can be recovered at all.</summary>
-  private static string ReadTurnIdLeniently(string json)
+  /// <summary>Reads the turn IDENTITY (id + generation) from a root-turn payload WITHOUT the
+  ///     codec's strictness, so a malformed request can still be answered instead of leaving
+  ///     its caller waiting. The generation defaults to 0 when absent; an empty turn id means
+  ///     the request is unaddressable.</summary>
+  private static (string TurnId, long Generation) ReadTurnIdentityLeniently(string json)
   {
     try
     {
       using JsonDocument document = JsonDocument.Parse(json);
-      return document.RootElement.ValueKind == JsonValueKind.Object
-          && document.RootElement.TryGetProperty("TurnId", out JsonElement turnId)
-          && turnId.ValueKind == JsonValueKind.String
-              ? turnId.GetString() ?? string.Empty
-              : string.Empty;
+      if (document.RootElement.ValueKind != JsonValueKind.Object
+          || !document.RootElement.TryGetProperty("TurnId", out JsonElement turnId)
+          || turnId.ValueKind != JsonValueKind.String)
+      {
+        return (string.Empty, 0);
+      }
+
+      long generation = document.RootElement.TryGetProperty("Generation", out JsonElement gen)
+          && gen.ValueKind == JsonValueKind.Number
+          && gen.TryGetInt64(out long parsed)
+              ? parsed
+              : 0;
+      return (turnId.GetString() ?? string.Empty, generation);
     }
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception)
     {
       // Named decision (CA1031): undecodable input is a peer fault, not a host crash.
-      return string.Empty;
+      return (string.Empty, 0);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }

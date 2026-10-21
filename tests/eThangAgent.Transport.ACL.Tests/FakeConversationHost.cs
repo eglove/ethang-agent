@@ -8,19 +8,36 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     client under test — so the test cannot pass by sharing the very code path it is
 ///     meant to verify. It speaks the wire directly through <see cref="TransportFraming"/>,
 ///     the same codec the production transport uses, so the byte shape is identical by
-///     construction rather than by a second, drifting copy.</summary>
+///     construction rather than by a second, drifting copy.
+/// <para>The Input marker selects a behaviour: an ordinary input streams two deltas and
+///     settles; <see cref="SilentInput"/> takes the turn and never speaks;
+///     <see cref="SlowInput"/> streams a delta every <see cref="SlowDeltaInterval"/> for
+///     <see cref="SlowDeltaCount"/> deltas then settles (a HEALTHY but long turn — the
+///     progress-blind-budget probe); <see cref="ChattyInput"/> streams deltas forever so a
+///     total-duration ceiling has something to cut.</para></summary>
 internal sealed class FakeConversationHost : IAsyncDisposable
 {
-  /// <summary>The input marker that makes the host TAKE a turn and HOLD it — no settle is
-  ///     emitted until <see cref="ReleaseHeldTurnsAsync"/>. The connection-loss and
-  ///     duplicate-id tests need a genuinely pending waiter.</summary>
+  /// <summary>Takes the turn and never emits anything: the idle bound's subject.</summary>
   public const string SilentInput = "silent";
+
+  /// <summary>A genuinely healthy turn that simply takes a while: deltas keep arriving, so
+  ///     no IDLE bound may fire — only a total-duration ceiling could.</summary>
+  public const string SlowInput = "slow";
+
+  /// <summary>Streams deltas forever and never settles: the hard ceiling's subject.</summary>
+  public const string ChattyInput = "chatty";
+
+  /// <summary>How often <see cref="SlowInput"/> emits a delta.</summary>
+  public static readonly TimeSpan SlowDeltaInterval = TimeSpan.FromMilliseconds(400);
+
+  /// <summary>How many deltas <see cref="SlowInput"/> emits before settling.</summary>
+  public const int SlowDeltaCount = 6;
 
   private readonly NamedPipeServerStream _server;
   private readonly CancellationTokenSource _cts = new();
   private readonly Task _pump;
   private readonly List<RootTurnRequest> _received = [];
-  private readonly List<string> _held = [];
+  private readonly List<(string TurnId, int Ordinal, long Generation)> _held = [];
   private readonly Lock _gate = new();
   private readonly SemaphoreSlim _writeGate = new(1, 1);
 
@@ -55,20 +72,22 @@ internal sealed class FakeConversationHost : IAsyncDisposable
     return new FakeConversationHost(server, pipeName);
   }
 
-  /// <summary>Settles every turn the host is holding. Lets a test keep a waiter pending
-  ///     for as long as it needs, then prove that waiter still completes.</summary>
+  /// <summary>Settles every turn the host is holding, IN ARRIVAL ORDER, each with a payload
+  ///     naming its own ordinal ("released#1", "released#2", ...). The ordinal is what makes
+  ///     a STALE settle distinguishable from a fresh one when two turns share a turn id.</summary>
   public async Task ReleaseHeldTurnsAsync()
   {
-    string[] turnIds;
+    (string TurnId, int Ordinal, long Generation)[] held;
     lock (_gate)
     {
-      turnIds = [.. _held];
+      held = [.. _held];
       _held.Clear();
     }
 
-    foreach (string turnId in turnIds)
+    foreach ((string turnId, int ordinal, long generation) in held)
     {
-      await EmitAsync(new RootTurnEvent(turnId, "settled", "released")).ConfigureAwait(false);
+      await EmitAsync(new RootTurnEvent(turnId, "settled", "released#" + ordinal, generation))
+          .ConfigureAwait(false);
     }
   }
 
@@ -91,21 +110,13 @@ internal sealed class FakeConversationHost : IAsyncDisposable
           _received.Add(request);
           if (string.Equals(request.Input, SilentInput, StringComparison.Ordinal))
           {
-            _held.Add(request.TurnId);
+            _held.Add((request.TurnId, _received.Count, request.Generation));
           }
         }
 
-        if (string.Equals(request.Input, SilentInput, StringComparison.Ordinal))
-        {
-          continue; // takes the turn, never settles it until released: the waiter stays open
-        }
-
-        foreach (string chunk in new[] { "he", "llo" })
-        {
-          await EmitAsync(new RootTurnEvent(request.TurnId, "delta", chunk)).ConfigureAwait(false);
-        }
-
-        await EmitAsync(new RootTurnEvent(request.TurnId, "settled", "done")).ConfigureAwait(false);
+        // Each turn streams on its OWN task so a long or endless turn never blocks the
+        // serve loop from reading the next request (a real host behaves the same way).
+        _ = Task.Run(() => RunTurnAsync(request), _cts.Token);
       }
     }
     // Named decision (CA1031): the fake host's serve loop is its fault boundary — a
@@ -117,6 +128,48 @@ internal sealed class FakeConversationHost : IAsyncDisposable
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }
+
+  /// <summary>Streams one turn according to its Input marker.</summary>
+  private async Task RunTurnAsync(RootTurnRequest request)
+  {
+    if (string.Equals(request.Input, SilentInput, StringComparison.Ordinal))
+    {
+      return; // takes the turn, never settles it until released: the waiter stays open
+    }
+
+    if (string.Equals(request.Input, ChattyInput, StringComparison.Ordinal))
+    {
+      for (int i = 0; i < int.MaxValue && !_cts.IsCancellationRequested; i++)
+      {
+        await EmitAsync(request, "delta", "tick-" + i).ConfigureAwait(false);
+        await Task.Delay(SlowDeltaInterval, _cts.Token).ConfigureAwait(false);
+      }
+
+      return;
+    }
+
+    if (string.Equals(request.Input, SlowInput, StringComparison.Ordinal))
+    {
+      for (int i = 0; i < SlowDeltaCount; i++)
+      {
+        await Task.Delay(SlowDeltaInterval, _cts.Token).ConfigureAwait(false);
+        await EmitAsync(request, "delta", "slow-" + i).ConfigureAwait(false);
+      }
+
+      await EmitAsync(request, "settled", "slow-done").ConfigureAwait(false);
+      return;
+    }
+
+    foreach (string chunk in new[] { "he", "llo" })
+    {
+      await EmitAsync(request, "delta", chunk).ConfigureAwait(false);
+    }
+
+    await EmitAsync(request, "settled", "done").ConfigureAwait(false);
+  }
+
+  private Task EmitAsync(RootTurnRequest request, string kind, string payload)
+      => EmitAsync(new RootTurnEvent(request.TurnId, kind, payload, request.Generation));
 
   /// <summary>Writes one root-turn event. Serialized against the serve loop's own writes:
   ///     two writers on one pipe would interleave frames.</summary>

@@ -13,6 +13,13 @@ public sealed record TransportEnvelope(string Kind, string Json, long Sequence)
   ///     separate channel.</summary>
   public static readonly string[] KnownKinds =
       ["start", "deliver", "interrupt", "event", "settle", "ack", "root-turn", "root-turn-event"];
+
+  /// <summary>True when this envelope's kind is one the protocol defines. A CONSUMER, not
+  ///     decoration (finding 4: the list had no reader, so keeping it current changed
+  ///     nothing observable). Receivers use it to tell a kind they must handle from one a
+  ///     NEWER peer sent — the forward-compatibility rule the pumps rely on when they ignore
+  ///     unknown kinds.</summary>
+  public bool HasKnownKind => Array.IndexOf(KnownKinds, Kind) >= 0;
 }
 
 /// <summary>The child-host transport seam (FR-X2). The domain never references this

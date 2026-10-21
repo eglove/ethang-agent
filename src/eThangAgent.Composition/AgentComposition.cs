@@ -828,7 +828,9 @@ public static class AgentComposition
           // The runtime starts DISCONNECTED: RepairOrphansAsync -> AttachAsync owns
           // connecting (once), starting the pump, and reading the declared live set.
           // A connection attempt at registration would race the host's single accept.
-          .AddSingleton<RemoteAgentRuntime>()
+          .AddSingleton(_ => new RemoteAgentRuntime(
+               transport: null,
+               settings.SubAgents.RootTurnBudget ?? RootTurnBudget.Default))
           .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<RemoteAgentRuntime>());
   }
 

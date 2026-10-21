@@ -10,12 +10,13 @@ namespace eThangAgent.Transport.ACL;
 /// a wire round trip would never equal the one that was sent, and a caller comparing
 /// decoded requests would silently always see "different". A null seed (a peer that
 /// omitted the field) compares as empty.</para></summary>
-public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<string> Seed)
+public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<string> Seed, long Generation = 0)
 {
   public bool Equals(RootTurnRequest? other)
       => other is not null
           && string.Equals(TurnId, other.TurnId, StringComparison.Ordinal)
           && string.Equals(Input, other.Input, StringComparison.Ordinal)
+          && Generation == other.Generation
           && (Seed ?? []).SequenceEqual(other.Seed ?? [], StringComparer.Ordinal);
 
   public override int GetHashCode()
@@ -23,6 +24,7 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
     HashCode hash = default;
     hash.Add(TurnId, StringComparer.Ordinal);
     hash.Add(Input, StringComparer.Ordinal);
+    hash.Add(Generation);
     foreach (string entry in Seed ?? [])
     {
       hash.Add(entry, StringComparer.Ordinal);
@@ -34,7 +36,8 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
 
 /// <summary>One event streamed back for a root turn. Kinds are exactly `delta`,
 ///     `notice`, `tool`, and `settled` - the surface the session view already renders.</summary>
-public sealed record RootTurnEvent(string TurnId, string Kind, string Payload);
+public sealed record RootTurnEvent(string TurnId, string Kind, string Payload, long Generation = 0);
+
 
 /// <summary>The root-turn wire codec. Strict at both boundaries (spec error contract):
 ///     a missing turn id or an unknown event kind is a named protocol error, never a

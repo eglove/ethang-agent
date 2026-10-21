@@ -24,22 +24,16 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   public RemoteAgentRuntime(NamedPipeChildTransport? transport)
       => _transport = transport;
 
-  /// <summary>Creates a runtime with an explicit root-turn budget (tests). The budget is
-  ///     the upper bound on how long ONE turn may wait for its settle before the caller is
-  ///     told the turn was unaddressable — the guard that keeps a silent host from
-  ///     stranding a caller forever.</summary>
-  public RemoteAgentRuntime(NamedPipeChildTransport? transport, TimeSpan rootTurnBudget)
+  /// <summary>Creates a runtime with an explicit root-turn budget (tests, composition).</summary>
+  public RemoteAgentRuntime(NamedPipeChildTransport? transport, RootTurnBudget rootTurnBudget)
   {
-    ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(rootTurnBudget, TimeSpan.Zero);
+    ArgumentNullException.ThrowIfNull(rootTurnBudget);
     _transport = transport;
-    RootTurnBudget = rootTurnBudget;
+    TurnBudget = rootTurnBudget;
   }
 
-  /// <summary>How long one root turn may wait for its settle. A host that takes a turn and
-  ///     never answers it cannot strand the caller: past this bound the turn fails
-  ///     <c>TurnUnaddressable</c>. Ten minutes is generous for a real turn and finite for
-  ///     a broken one.</summary>
-  public TimeSpan RootTurnBudget { get; } = TimeSpan.FromMinutes(10);
+  /// <summary>The root-turn budget this runtime enforces.</summary>
+  public RootTurnBudget TurnBudget { get; } = RootTurnBudget.Default;
 
   private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentRunOutcome>> _settling = [];
   private readonly ConcurrentDictionary<Guid, byte> _owned = [];
@@ -55,6 +49,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   private volatile bool _hostLost;
   private Guid[] _declaredLive = [];
   private long _sequence;
+  private long _turnGeneration;
 
   /// <summary>The host's most recently declared live child set (R3.2's exact orphan
   ///     resolution input). Refreshed by the pump on every declare envelope — the
@@ -169,20 +164,24 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   ///     (spec D6). The app runs no agent work: it forwards the user's input and renders
   ///     what the host streams. The returned Result carries the settled payload when the
   ///     host settles the turn.
-  /// <para>EVERY path settles the caller — this method never hangs. The failures are
-  /// typed and distinct: <c>InvalidTurnId</c> when the id is empty or already in flight,
-  /// <c>HostUnavailable</c> when there is no live connection, <c>TurnCancelled</c> when
-  /// the caller cancelled, and <c>TurnUnaddressable</c> when the host took the turn but
-  /// never settled it within <see cref="RootTurnBudget"/> (a host that cannot address the
-  /// request — e.g. one that dropped an unrecoverable turn id — would otherwise strand the
-  /// caller forever).</para></summary>
+  /// <para>EVERY path settles the caller. The failures are typed and distinct:
+  /// <c>InvalidTurnId</c> when the id is empty or already in flight, <c>HostUnavailable</c>
+  /// when there is no live connection or the frame cannot be put on the wire,
+  /// <c>TurnCancelled</c> when the caller cancelled, <c>TurnUnaddressable</c> when the host
+  /// goes SILENT for <see cref="RootTurnBudget.Idle"/>, and <c>TurnCeilingExceeded</c> when
+  /// a turn outlasts <see cref="RootTurnBudget.Ceiling"/>.</para>
+  /// <para>The two bounds exist because one number cannot be right: a healthy turn may run
+  /// for many minutes while streaming constantly (an idle bound is what protects it — it
+  /// resets on every event), and a host that streams forever must still end (a ceiling is
+  /// what protects that). A single total bound would kill the first and misreport it as a
+  /// host fault.</para></summary>
   public async Task<Result<string>> SendRootTurnAsync(
       RootTurnRequest request, Action<RootTurnEvent> onEvent, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(request);
     ArgumentNullException.ThrowIfNull(onEvent);
     // The codec refuses an empty turn id on PARSE; the send path must match, or the waiter
-    // would be registered under a key the host can never address (review finding 1).
+    // would be registered under a key the host can never address.
     if (string.IsNullOrWhiteSpace(request.TurnId))
     {
       return Result.Failure<string>(new DomainError("InvalidTurnId",
@@ -197,10 +196,14 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 
     TaskCompletionSource<Result<string>> settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // TryAdd, never indexer assignment: two turns sharing a TurnId would otherwise OVERWRITE
-    // the first waiter, which then hangs forever while the second completes, and the
-    // finally would remove the second's entry so a late settle for the first is dropped too
-    // (review finding 1). A collision is refused instead of silently orphaning a caller.
-    if (!_rootTurns.TryAdd(request.TurnId, new RootTurnWaiter(onEvent, settled)))
+    // the first waiter, which then hangs forever while the second completes, and the finally
+    // would remove the second's entry so a late settle for the first is dropped too.
+    // The CLIENT owns turn identity: mint a fresh generation per turn. A caller-supplied
+    // value cannot be trusted for this — two turns on a reused id would both carry the
+    // default 0 and a stale settle would match the live turn (ruling 2).
+    long generation = Interlocked.Increment(ref _turnGeneration);
+    RootTurnWaiter waiter = new(request.TurnId, generation, onEvent, settled);
+    if (!_rootTurns.TryAdd(request.TurnId, waiter))
     {
       return Result.Failure<string>(new DomainError("InvalidTurnId",
           "a root turn with id '" + request.TurnId + "' is already in flight."));
@@ -208,21 +211,29 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 
     try
     {
-      await transport.SendAsync(new TransportEnvelope("root-turn",
-          RootTurnProtocol.SerializeRequest(request), Interlocked.Increment(ref _sequence)), ct)
-          .ConfigureAwait(false);
-      return await settled.Task.WaitAsync(RootTurnBudget, ct).ConfigureAwait(false);
+      // The SEND is bounded too: a peer that accepts and never reads blocks the write
+      // forever, so putting the frame on the wire must not be the one unbounded step.
+      Task send = transport.SendAsync(new TransportEnvelope("root-turn",
+          RootTurnProtocol.SerializeRequest(request with { Generation = generation }),
+          Interlocked.Increment(ref _sequence)), ct);
+      using CancellationTokenSource sendTick = CancellationTokenSource.CreateLinkedTokenSource(ct);
+      sendTick.CancelAfter(TurnBudget.Idle);
+      TaskCompletionSource<bool> sendExpired = new(TaskCreationOptions.RunContinuationsAsynchronously);
+      using CancellationTokenRegistration sendRegistration =
+          sendTick.Token.Register(() => sendExpired.TrySetResult(true));
+      Task sendWinner = await Task.WhenAny(send, sendExpired.Task).ConfigureAwait(false);
+      if (sendWinner != send)
+      {
+        return HostUnavailable("the root turn could not be put on the wire within "
+            + TurnBudget.Idle + " (the host is not reading).");
+      }
+
+      await send.ConfigureAwait(false);
+      return await AwaitSettleAsync(waiter, ct).ConfigureAwait(false);
     }
     catch (OperationCanceledException)
     {
       return Result.Failure<string>(new DomainError("TurnCancelled", "the turn was stopped."));
-    }
-    catch (TimeoutException)
-    {
-      // The host accepted the frame but never settled the turn: the request was
-      // unaddressable on its side. Bounded, typed, never a hang (review finding 2).
-      return Result.Failure<string>(new DomainError("TurnUnaddressable",
-          "the conversation host did not settle the turn within " + RootTurnBudget + "."));
     }
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)
@@ -238,20 +249,71 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     }
   }
 
+  /// <summary>Waits for one turn's settle under the two bounds. The IDLE bound resets on
+  ///     every event the waiter routes (see <see cref="HandleRootTurnEvent"/>); the CEILING
+  ///     bounds total duration and is checked on the same tick. Both produce typed errors so
+  ///     a caller can tell "went quiet" from "would not stop".</summary>
+  private async Task<Result<string>> AwaitSettleAsync(RootTurnWaiter waiter, CancellationToken ct)
+  {
+    DateTimeOffset ceiling = DateTimeOffset.UtcNow + TurnBudget.Ceiling;
+    while (true)
+    {
+      TimeSpan remaining = ceiling - DateTimeOffset.UtcNow;
+      if (remaining <= TimeSpan.Zero)
+      {
+        return Result.Failure<string>(new DomainError("TurnCeilingExceeded",
+            "the root turn exceeded its " + TurnBudget.Ceiling + " ceiling."));
+      }
+
+      // Wait for the settle, for the turn to make progress, or for the window to lapse.
+      // The lapse is a TIMER CALLBACK (CancelAfter), not a poll: this ACL owns one bounded
+      // wait and does not sweep (R5.1 doctrine — no timed waits outside the allowlist).
+      TimeSpan idle = waiter.IdleRemaining(TurnBudget.Idle, DateTimeOffset.UtcNow);
+      TimeSpan wait = idle < remaining ? idle : remaining;
+      using CancellationTokenSource tick = CancellationTokenSource.CreateLinkedTokenSource(ct);
+      tick.CancelAfter(wait);
+      TaskCompletionSource<bool> expired = new(TaskCreationOptions.RunContinuationsAsynchronously);
+      using CancellationTokenRegistration registration =
+          tick.Token.Register(() => expired.TrySetResult(true));
+
+      Task progress = waiter.WaitForProgressAsync(ct);
+      Task<Result<string>> settle = waiter.Settled.Task;
+      Task winner = await Task.WhenAny(settle, progress, expired.Task).ConfigureAwait(false);
+      ct.ThrowIfCancellationRequested();
+      if (winner == settle)
+      {
+        return await settle.ConfigureAwait(false);
+      }
+
+      // Progress or idle expiry: re-derive both clocks and loop. A lapsed idle window with
+      // no progress since is the unaddressable case.
+      if (waiter.IdleRemaining(TurnBudget.Idle, DateTimeOffset.UtcNow) <= TimeSpan.Zero)
+      {
+        return Result.Failure<string>(new DomainError("TurnUnaddressable",
+            "the conversation host went idle for " + TurnBudget.Idle + " without settling the turn."));
+      }
+    }
+  }
   private static Result<string> HostUnavailable(string message)
       => Result.Failure<string>(new DomainError("HostUnavailable", message));
 
   /// <summary>Routes one streamed root-turn event to its waiter: every event reaches the
-  ///     caller's callback in arrival order, and a 'settled' event completes the turn with
-  ///     its payload. Events for a turn this runtime is not running (a replay after a
-  ///     disconnect) are dropped — there is no waiter to inform.</summary>
+  ///     caller's callback in arrival order and resets the idle clock, and a 'settled' event
+  ///     completes the turn with its payload.
+  /// <para>Matching is on (turn id, GENERATION), not the id alone. A turn id becomes
+  ///     reusable once its predecessor timed out, and the predecessor's settle may still be
+  ///     on the wire; delivering it to the live turn would be a wrong-payload SUCCESS — a
+  ///     silent lie. A non-matching event is dropped: it belongs to a turn nobody is
+  ///     waiting for any more.</para></summary>
   private void HandleRootTurnEvent(string json)
   {
     RootTurnEvent evt = RootTurnProtocol.ParseEvent(json);
-    if (!_rootTurns.TryGetValue(evt.TurnId, out RootTurnWaiter? waiter))
+    if (!_rootTurns.TryGetValue(evt.TurnId, out RootTurnWaiter? waiter) || !waiter.Matches(evt))
     {
       return;
     }
+
+    waiter.NoteProgress();
 
     // The callback is USER-supplied code running on the pump thread: a throw must not
     // fault the pump and take every other child's connection down with it (review
@@ -456,9 +518,68 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   }
 }
 
-/// <summary>One in-flight root turn: the caller's event sink plus the source that
-///     completes when the host settles the turn.</summary>
-internal sealed record RootTurnWaiter(Action<RootTurnEvent> OnEvent, TaskCompletionSource<Result<string>> Settled);
+/// <summary>One in-flight root turn: the caller's event sink, the source that completes when
+///     the host settles it, and the two facts the bounds need.
+/// <para><see cref="Generation"/> is the per-turn identity (controller ruling 2). A turn id
+///     can be reused once its predecessor timed out, and the predecessor's settle may still
+///     arrive; events are matched on (id, generation) so a stale settle can never be
+///     delivered to the live turn as a wrong-payload SUCCESS — the worst outcome, because it
+///     is silent.</para>
+/// <para>Progress signalling is what makes the idle bound progress-aware: every routed
+///     event resets the clock, so a healthy long turn keeps extending its own deadline.</para></summary>
+internal sealed class RootTurnWaiter(
+    string turnId, long generation, Action<RootTurnEvent> onEvent,
+    TaskCompletionSource<Result<string>> settled)
+{
+  private readonly Lock _gate = new();
+  private TaskCompletionSource _progress = new(TaskCreationOptions.RunContinuationsAsynchronously);
+  private DateTimeOffset _lastActivity = DateTimeOffset.UtcNow;
+
+  public string TurnId { get; } = turnId;
+  public long Generation { get; } = generation;
+  public Action<RootTurnEvent> OnEvent { get; } = onEvent;
+  public TaskCompletionSource<Result<string>> Settled { get; } = settled;
+
+  /// <summary>True when this event belongs to THIS turn: same id AND same generation.</summary>
+  public bool Matches(RootTurnEvent evt)
+      => string.Equals(evt.TurnId, TurnId, StringComparison.Ordinal) && evt.Generation == Generation;
+
+  /// <summary>Records activity and wakes the wait loop so it re-derives the idle clock.</summary>
+  public void NoteProgress()
+  {
+    TaskCompletionSource next;
+    lock (_gate)
+    {
+      _lastActivity = DateTimeOffset.UtcNow;
+      next = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+      _ = _progress.TrySetResult();
+      _progress = next;
+    }
+  }
+
+  /// <summary>How much of the idle window is left, measured from the last routed event.</summary>
+  public TimeSpan IdleRemaining(TimeSpan idle, DateTimeOffset now)
+  {
+    lock (_gate)
+    {
+      return idle - (now - _lastActivity);
+    }
+  }
+
+  /// <summary>Completes when the turn makes progress or the wait is cancelled; the caller
+  ///     re-derives both clocks afterwards. Deliberately holds no timer of its own — the
+  ///     lapse is the caller's CancelAfter tick.</summary>
+  public async Task WaitForProgressAsync(CancellationToken ct)
+  {
+    Task progress;
+    lock (_gate)
+    {
+      progress = _progress.Task;
+    }
+
+    await progress.WaitAsync(ct).ConfigureAwait(false);
+  }
+}
 
 public sealed record StartCommand(Guid RecordId, int MaxConcurrent, string ModelId);
 public sealed record DeliverCommand(Guid RecordId, string Text, int Urgency, string Sender);
