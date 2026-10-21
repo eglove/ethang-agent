@@ -200,7 +200,7 @@ public sealed class ScriptGlobals
       // A breach is the run's outcome, not a footnote: the model must see WHY the
       // program stopped, never a bare non-zero exit it would read as the program's
       // own failure.
-      if (CeilingFailure(guard.Outcome, stdoutTask.Result) is { } ceilingFailure)
+      if (CeilingFailure(guard.Outcome, stdoutTask.Result, stderrTask.Result) is { } ceilingFailure)
       {
         ReportRun(argv, -1, startedUtc);
         return ceilingFailure;
@@ -259,18 +259,29 @@ public sealed class ScriptGlobals
 
   /// <summary>Translates a guard breach into the error contract the model reads, or
   ///     null when the run stayed inside its ceilings. The exit code is -1 (never the
-  ///     program's own) so a killed program can never be mistaken for a clean exit, and
-  ///     the stdout collected before the kill is preserved for diagnosis.</summary>
-  private ShellResult? CeilingFailure(ProcessTreeGuardOutcome outcome, string stdout) => outcome switch
+  ///     program's own) so a killed program can never be mistaken for a clean exit.
+  ///     <para>Both streams collected before the kill are PRESERVED: stdout verbatim,
+  ///     and the program's own stderr APPENDED after the ceiling line rather than
+  ///     replaced — for a killed program its last dying words are the most useful
+  ///     diagnostic, and discarding them would leave the model with a bare verdict.</para></summary>
+  private ShellResult? CeilingFailure(ProcessTreeGuardOutcome outcome, string stdout, string stderr) => outcome switch
   {
-    { MemoryExceeded: true } => new ShellResult(-1, stdout,
+    { MemoryExceeded: true } => new ShellResult(-1, stdout, WithProgramStderr(
         "Error [MemoryCeiling]: the program exceeded its " + Mb(Ceilings.SpawnMemoryBytes)
-        + " MB memory ceiling and was stopped."),
-    { ProcessCountExceeded: true } => new ShellResult(-1, stdout,
+        + " MB memory ceiling and was stopped.", stderr)),
+    { ProcessCountExceeded: true } => new ShellResult(-1, stdout, WithProgramStderr(
         "Error [ProcessCeiling]: the program exceeded its " + Ceilings.SpawnProcessCount
-        + " process ceiling and was stopped."),
+        + " process ceiling and was stopped.", stderr)),
     _ => null,
   };
+
+  /// <summary>The ceiling line with the program's own stderr appended after it, so a
+  ///     killed program's dying words survive the verdict. An empty stream adds
+  ///     nothing.</summary>
+  private static string WithProgramStderr(string ceilingLine, string programStderr) =>
+      string.IsNullOrWhiteSpace(programStderr)
+          ? ceilingLine
+          : ceilingLine + "\n--- program stderr ---\n" + programStderr;
 
   /// <summary>Reports one completed run to the optional verification sink.
   ///     A sink fault is swallowed by named decision (spec error rule): the
@@ -393,13 +404,48 @@ public sealed record ShellResult(int ExitCode, string Stdout, string Stderr);
 ///     processes.</para>
 ///     <para>The output ceilings belong to the same per-program budget and are
 ///     consumed by the output-capping path.</para></summary>
-public sealed record ScriptCeilings(long SpawnMemoryBytes, int SpawnProcessCount, long OutputTruncateBytes, long OutputKillBytes)
+public sealed record ScriptCeilings
 {
+  /// <summary>A ceiling record. Every value is validated HERE, at construction, and an
+  ///     invalid one THROWS naming the offending field — never clamped, and never
+  ///     deferred to the guard's constructor where the caller's catch-all would degrade
+  ///     it into a generic error the model cannot act on.</summary>
+  public ScriptCeilings(long spawnMemoryBytes, int spawnProcessCount, long outputTruncateBytes, long outputKillBytes)
+  {
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(spawnMemoryBytes);
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(spawnProcessCount);
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(outputTruncateBytes);
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(outputKillBytes);
+    SpawnMemoryBytes = spawnMemoryBytes;
+    SpawnProcessCount = spawnProcessCount;
+    OutputTruncateBytes = outputTruncateBytes;
+    OutputKillBytes = outputKillBytes;
+  }
+
+  /// <summary>The per-program working-set ceiling in bytes: a program whose tree
+  ///     exceeds it is killed.</summary>
+  public long SpawnMemoryBytes { get; }
+
+  /// <summary>The per-program process-count ceiling: a program whose tree exceeds it is
+  ///     killed.</summary>
+  public int SpawnProcessCount { get; }
+
+  /// <summary>RESERVED for the output-capping path. No such path exists yet, so nothing
+  ///     reads this today: it is the byte count at which a program's output will be
+  ///     truncated.</summary>
+  public long OutputTruncateBytes { get; }
+
+  /// <summary>RESERVED for the output-capping path. No such path exists yet, so nothing
+  ///     reads this today: it is the byte count at which a program's output will be
+  ///     treated as a runaway and the program stopped.</summary>
+  public long OutputKillBytes { get; }
+
   /// <summary>The documented default ceilings. Memory: 4 GB per spawned program tree
-  ///     (generous — a measured full-solution build tree peaks ~2.4 GB, so a cold build
-  ///     fits with headroom). Processes: 256 per tree (measured full-solution build peak
-  ///     is 40; a test run adds one testhost per module — 256 stops a runaway fan-out
-  ///     without ever killing honest work). Output: truncate at 256 KB, kill at 8 MB.</summary>
+  ///     (generous — a MEASURED full-solution build tree peaks ~2.4 GB, so a cold build
+  ///     fits with headroom). Processes: 256 per tree (a MEASURED full-solution build
+  ///     peaks at 40; the <c>dotnet test</c> fan-out of one testhost per module is
+  ///     INFERRED from the runner's documented behavior, not measured here — 256 sits
+  ///     above both). Output: truncate at 256 KB, kill at 8 MB.</summary>
   public static ScriptCeilings Default { get; } =
       new(4L * 1024 * 1024 * 1024, 256, 256 * 1024, 8L * 1024 * 1024);
 }

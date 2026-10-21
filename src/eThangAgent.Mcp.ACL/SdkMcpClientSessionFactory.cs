@@ -160,6 +160,13 @@ public sealed class SdkMcpClientSessionFactory : IMcpClientSessionPool, IAsyncDi
   ///     with the allowlisted environment, attaches the kill-on-close job, pumps
   ///     stderr, and runs the SDK protocol over the process streams. A handshake
   ///     failure reaps the spawned process before the failure value returns.</summary>
+  /// <summary>The per-server memory ceiling assigned to the containment Job Object
+  ///     (spec D10's backstop shape, shared with the exec path): a stdio server that
+  ///     allocates past it is killed by the kernel rather than allowed to grow. The MCP
+  ///     ACL has no sampling guard, so this limit is the ONLY memory ceiling a server
+  ///     runs under — hence the generous value: a legitimate Node or Python server
+  ///     runtime must not be reaped mid-handshake.</summary>
+  private const long McpServerMemoryLimitBytes = 2L * 1024 * 1024 * 1024;
   internal async Task<McpConnectResult> ConnectStdioContainedAsync(
       StdioClientTransportOptions options, CancellationToken ct)
   {
@@ -171,7 +178,7 @@ public sealed class SdkMcpClientSessionFactory : IMcpClientSessionPool, IAsyncDi
       process = SpawnServer(options, stderr);
       TestServerProcessSpawned?.Invoke(process);
       job = JobObject.Create();
-      if (job != nint.Zero && JobObject.Configure(job))
+      if (job != nint.Zero && JobObject.ConfigureWithMemoryLimit(job, McpServerMemoryLimitBytes))
       {
         _ = JobObject.Attach(job, process);
       }

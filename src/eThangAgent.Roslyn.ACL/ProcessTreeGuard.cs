@@ -23,6 +23,7 @@ internal sealed class ProcessTreeGuard : IDisposable
   private long _peakBytes;
   private int _peakProcesses;
   private int _sampling;
+  private int _breached;
 
   public ProcessTreeGuard(Process root, long memoryCeilingBytes, int processCeiling, TimeSpan sampleInterval)
   {
@@ -38,45 +39,27 @@ internal sealed class ProcessTreeGuard : IDisposable
     _timer = new Timer(static state => ((ProcessTreeGuard)state!).Sample(), this, sampleInterval, sampleInterval);
   }
 
-  /// <summary>The latest observation. A breach's flags are sticky: the run was killed
-  ///     for that reason, so a later sample can never erase the reason.</summary>
+  /// <summary>The latest observation. A breach is TERMINAL and its flags are sticky:
+  ///     the run was killed for that reason, so no later tick can erase it. This is
+  ///     load-bearing, not cosmetic — the timer is periodic and keeps firing after the
+  ///     kill, so without the latch a post-kill sample of the (now empty) tree would
+  ///     overwrite the breach with a clean outcome and the caller would report a bare
+  ///     non-zero exit with no ceiling error at all.</summary>
   public ProcessTreeGuardOutcome Outcome { get; private set; } = new(false, false, 0, 0);
 
   private void Sample()
   {
-    // Re-entrancy guard: a sample that outruns the interval must not stack.
-    if (Interlocked.Exchange(ref _sampling, 1) == 1)
+    // Terminal latch: once a breach has been observed the guard stops sampling for
+    // good, so the reason the tree died can never be cleared by a later tick. The
+    // re-entrancy check keeps a sample that outruns the interval from stacking.
+    if (Volatile.Read(ref _breached) == 1 || Interlocked.Exchange(ref _sampling, 1) == 1)
     {
       return;
     }
 
     try
     {
-      long bytes = 0;
-      int count = 0;
-      foreach (Process candidate in Process.GetProcesses())
-      {
-        try
-        {
-          if (candidate.Id == _rootId || IsDescendantOfRoot(candidate.Id))
-          {
-            bytes += candidate.WorkingSet64;
-            count++;
-          }
-        }
-        // Named decision (CA1031): a process that exits mid-enumeration is expected.
-#pragma warning disable CA1031 // Do not catch general exception types
-        catch (Exception)
-#pragma warning restore CA1031 // Do not catch general exception types
-        {
-          // Exited between enumeration and the read; it is simply not part of the tree.
-        }
-        finally
-        {
-          candidate.Dispose();
-        }
-      }
-
+      (long bytes, int count) = MeasureTree();
       _peakBytes = Math.Max(_peakBytes, bytes);
       _peakProcesses = Math.Max(_peakProcesses, count);
 
@@ -85,6 +68,9 @@ internal sealed class ProcessTreeGuard : IDisposable
       if (memory || processes)
       {
         Outcome = new ProcessTreeGuardOutcome(memory, processes, _peakBytes, _peakProcesses);
+        // Published BEFORE the kill so no tick can observe a breached tree without
+        // the latch set.
+        Volatile.Write(ref _breached, 1);
         KillTree();
         return;
       }
@@ -104,23 +90,97 @@ internal sealed class ProcessTreeGuard : IDisposable
     }
   }
 
-  /// <summary>Walks the candidate's parent chain toward the root. The depth cap bounds
-  ///     the walk (a pid-reuse cycle cannot hang the sampler); a chain that does not
-  ///     reach the root within it is not part of this tree.</summary>
-  private bool IsDescendantOfRoot(int candidateId)
+  /// <summary>One sample's working-set sum and process count for the tree rooted at
+  ///     the guarded process. Parent ids are read ONCE per process per sample and the
+  ///     tree is then resolved entirely in memory: walking each candidate's ancestor
+  ///     chain instead would re-query the same parents once per candidate per hop —
+  ///     on the order of thousands of P/Invoke round-trips per tick on a busy machine.</summary>
+  private (long Bytes, int Count) MeasureTree()
   {
-    int current = ProcessTree.ParentOf(candidateId);
-    for (int depth = 0; depth < 16 && current > 0; depth++)
+    Dictionary<int, int> parentOf = [];
+    foreach (Process candidate in Process.GetProcesses())
     {
-      if (current == _rootId)
+      try
       {
-        return true;
+        parentOf[candidate.Id] = ProcessTree.ParentOf(candidate.Id);
       }
-
-      current = ProcessTree.ParentOf(current);
+      // Named decision (CA1031): a process that exits mid-enumeration is expected.
+#pragma warning disable CA1031 // Do not catch general exception types
+      catch (Exception)
+#pragma warning restore CA1031 // Do not catch general exception types
+      {
+        // Exited between enumeration and the read; it is simply not part of the tree.
+      }
+      finally
+      {
+        candidate.Dispose();
+      }
     }
 
-    return false;
+    HashSet<int> tree = TreeMembers(parentOf, _rootId);
+    long bytes = 0;
+    foreach (int memberId in tree)
+    {
+      bytes += WorkingSetOf(memberId);
+    }
+
+    return (bytes, tree.Count);
+  }
+
+  /// <summary>The root plus every process whose parent chain reaches it, resolved over
+  ///     the already-read edge map. The closure is bounded by the edge count, so a
+  ///     pid-reuse cycle cannot loop forever.</summary>
+  private static HashSet<int> TreeMembers(Dictionary<int, int> parentOf, int rootId)
+  {
+    Dictionary<int, List<int>> childrenOf = [];
+    foreach ((int id, int parentId) in parentOf)
+    {
+      if (!childrenOf.TryGetValue(parentId, out List<int>? children))
+      {
+        children = [];
+        childrenOf[parentId] = children;
+      }
+
+      children.Add(id);
+    }
+
+    HashSet<int> members = [rootId];
+    Queue<int> frontier = new();
+    frontier.Enqueue(rootId);
+    while (frontier.Count > 0)
+    {
+      if (!childrenOf.TryGetValue(frontier.Dequeue(), out List<int>? children))
+      {
+        continue;
+      }
+
+      // members.Add is the filter AND the bookkeeping: only a newly discovered child
+      // joins the frontier, so each process is visited exactly once.
+      foreach (int childId in children.Where(members.Add))
+      {
+        frontier.Enqueue(childId);
+      }
+    }
+
+    return members;
+  }
+
+  /// <summary>The member's working set, or 0 when it exited between the enumeration
+  ///     and the read (a departed process contributes nothing to the tree's size).</summary>
+  private static long WorkingSetOf(int processId)
+  {
+    // Named decision (CA1031): the process may exit at any point during the sample.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      using Process member = Process.GetProcessById(processId);
+      return member.WorkingSet64;
+    }
+    catch (Exception)
+    {
+      return 0;
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
   }
 
   private void KillTree()
