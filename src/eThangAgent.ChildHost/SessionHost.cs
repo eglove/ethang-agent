@@ -87,12 +87,12 @@ public sealed class SessionHost
           $"host settings JSON is missing required member(s): {string.Join(", ", missing)}.");
     }
 
-    // The host ALWAYS runs children in its own process via its in-process runtime.
-    // The app's RemoteHost flag travels in the same settings JSON (the supervisor
-    // serializes the whole AgentSettings), and honoring it here would wire the host's
-    // container for ANOTHER remote hop — a runtime with no supervisor that fails every
-    // start HostUnavailable (observed: children stuck Running attempts=0 forever).
-    AgentSettings settings = deserialized with { RemoteHost = false };
+    // The host ALWAYS runs the children it was handed in its OWN process: it is the
+    // bottom of the chain, and a second remote hop would have no supervisor to launch and
+    // fail every start HostUnavailable (observed: children stuck Running attempts=0
+    // forever). AddInProcessAgentRuntime below is what makes that explicit — the core
+    // composition wires the wire runtime for the app side.
+    AgentSettings settings = deserialized;
 
     string providerName = Providers.OpenRouter;
     string workspace = ResolveWorkspace(settings.WorkspaceRoot, settingsJsonPath);
@@ -115,6 +115,7 @@ public sealed class SessionHost
             // from the settings-carried stored lists, so remote children render
             // the identical always-on skills listing in their system prompt.
             .AddSingleton(new ResolvedSkillDirectories(AgentComposition.ResolveSkillDirectoriesFromSettings(settings)))
+            .AddInProcessAgentRuntime(settings)
         .BuildServiceProvider();
 
     return new SessionHost(

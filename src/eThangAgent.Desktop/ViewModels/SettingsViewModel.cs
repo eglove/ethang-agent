@@ -41,7 +41,6 @@ internal sealed record SettingsValues
   public string? WorkspaceRoot { get; init; }
   public string? MaxConcurrentAgentsText { get; init; }
   public string? DefaultModelText { get; init; }
-  public bool RemoteHost { get; init; }
   public string? WatchdogTickText { get; init; }
   public string? RootTurnIdleText { get; init; }
   public string? RootTurnCeilingText { get; init; }
@@ -55,7 +54,7 @@ internal sealed record SettingsValues
 
 internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle CommitStyle,
     string? CompactionModelId = null, string? CompactionWorkspaceKey = null,
-    string? MaxConcurrentAgentsText = null, string? DefaultModelText = null, bool RemoteHost = false,
+    string? MaxConcurrentAgentsText = null, string? DefaultModelText = null,
     string? WatchdogTickText = null, string? WatchdogIdleText = null, string? WatchdogWrapUpText = null,
     string? OpenRouterBaseUrlText = null,
     bool ComputerUse = false,
@@ -112,12 +111,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(ValidationError))]
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial string DefaultModelText { get; set; }
-
-  /// <summary>True opts newly opened agents into the out-of-process child host.</summary>
-  [ObservableProperty]
-  [NotifyPropertyChangedFor(nameof(ValidationError))]
-  [NotifyPropertyChangedFor(nameof(CanSave))]
-  public partial bool RemoteHost { get; set; }
 
   /// <summary>True enables the 'computer' tool (desktop automation) for newly opened agents.</summary>
   [ObservableProperty]
@@ -244,7 +237,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
             SaveRequested?.Invoke(this, new SettingsUpdate(
                 Normalize(OpenRouterKey), SelectedCommitStyle.Style,
                 SelectedCompactionModel.ModelId, null,
-                Normalize(MaxConcurrentAgentsText), Normalize(DefaultModelText), RemoteHost,
+                Normalize(MaxConcurrentAgentsText), Normalize(DefaultModelText),
                 Normalize(WatchdogTickText), Normalize(WatchdogIdleText), Normalize(WatchdogWrapUpText),
                 Normalize(OpenRouterBaseUrlText), ComputerUse,
                 SkillRegistryDefaultTarget: SkillRegistryTarget,
@@ -283,7 +276,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
   {
     MaxConcurrentAgentsText = values.MaxConcurrentAgentsText ?? string.Empty;
     DefaultModelText = values.DefaultModelText ?? string.Empty;
-    RemoteHost = values.RemoteHost;
     ComputerUse = values.ComputerUse;
     WatchdogTickText = values.WatchdogTickText ?? string.Empty;
     RootTurnIdleText = values.RootTurnIdleText ?? string.Empty;
@@ -308,8 +300,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
   partial void OnMaxConcurrentAgentsTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnDefaultModelTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
-
-  partial void OnRemoteHostChanged(bool value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnWatchdogTickTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 

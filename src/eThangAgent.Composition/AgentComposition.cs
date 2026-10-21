@@ -85,7 +85,7 @@ public static class AgentComposition
     wired = AddSkillServices(wired, settings);
     wired = AddWakeAndMailboxServices(wired, mailboxLocator);
     wired = AddModelServices(wired, providerName);
-    wired = AddSubAgentServices(wired, settings, providerName);
+    wired = AddSubAgentServices(wired, providerName);
     wired = AddCapabilityServices(wired);
     wired = AddCapabilityRegistry(wired);
     wired = AddExecAndLoopRegistry(wired, settings);
@@ -93,12 +93,11 @@ public static class AgentComposition
     wired = AddRootAgentServices(wired, settings, providerName, defaultModel, computerAccessProvider);
     wired = AddVerificationServices(wired, settings);
 
-    // Runtime selection (R3.4): in-process by default; RemoteHost = true routes child
-    // starts through the out-of-process ChildHost under RemoteHostSupervisor.
-    if (settings.RemoteHost)
-    {
-      wired = AddRemoteHostServices(wired, settings);
-    }
+    // ONE way to run (spec D6/D7): every conversation gets its own out-of-process host,
+    // supervised by RemoteHostSupervisor and driven through the wire runtime. There is no
+    // in-process production path and no toggle — AddInProcessAgentRuntime exists only for
+    // test hosts that drive this composition without a ChildHost.
+    wired = AddRemoteHostServices(wired, settings);
 
     return wired;
   }
@@ -468,10 +467,12 @@ public static class AgentComposition
         .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy());
   }
 
-  /// <summary>The sub-agent stack: the workspace anchor scope, the spawner and its services, the
-  ///     runtime, and the spawn command.
+  /// <summary>The sub-agent stack: the workspace anchor scope, the spawner and its services, and
+  ///     the spawn command. The runtime itself is registered elsewhere: the wire runtime by the
+  ///     core (every conversation runs in its own host), the in-process one only by hosts that
+  ///     opt in through <see cref="AddInProcessAgentRuntime"/>.
   /// </summary>
-  private static IServiceCollection AddSubAgentServices(IServiceCollection wired, AgentSettings settings, string providerName)
+  private static IServiceCollection AddSubAgentServices(IServiceCollection wired, string providerName)
   {
     return wired
         // The workspace anchor scope (worktree ladder, T7): one instance per session
@@ -503,15 +504,6 @@ public static class AgentComposition
             sp.GetRequiredService<IContextWindowSource>(),
             sp.GetRequiredService<DefaultContextCompactor>(),
             sp.GetRequiredService<IModelCatalog>()))
-        .AddSingleton(sp => new InProcessAgentRuntime(
-            sp.GetRequiredService<SubAgentSpawner>(),
-            sp.GetRequiredService<IAgentStore>(),
-            settings.SubAgents.MaxConcurrentAgents,
-            sp.GetRequiredService<IMailboxStore>(),
-            sp.GetRequiredService<IAgentEvents>(),
-            sp.GetRequiredService<ChildSupervisorRegistry>(),
-            sp.GetRequiredService<ChildMailboxRegistry>()))
-        .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<InProcessAgentRuntime>())
         .AddSingleton<IAgentSpawnCommand>(sp => new StartSpawnHandler(
             sp.GetRequiredService<IAgentStore>(),
             sp.GetRequiredService<IAgentRuntime>(),
@@ -805,17 +797,44 @@ public static class AgentComposition
         .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)));
   }
 
-  /// <summary>Runtime selection (R3.4): the out-of-process ChildHost supervisor and the wire runtime
-  ///     that replaces the in-process one.
+  /// <summary>Registers the IN-PROCESS runtime as this container's <see cref="IAgentRuntime"/>.
+  ///     PRODUCTION NEVER CALLS THIS: every conversation runs in its own host process
+  ///     (spec D6/D7), and the app's runtime is the wire runtime. Two kinds of container do
+  ///     call it, both deliberately in-process — the ChildHost itself (its session host runs
+  ///     the children it was handed, and a second remote hop would have no supervisor and
+  ///     fail every start HostUnavailable) and test hosts that drive this composition
+  ///     without a ChildHost. Last registration wins, so call it AFTER
+  ///     <see cref="AddEThangAgentCore"/>.</summary>
+  public static IServiceCollection AddInProcessAgentRuntime(this IServiceCollection services, AgentSettings settings)
+  {
+    ArgumentNullException.ThrowIfNull(services);
+    ArgumentNullException.ThrowIfNull(settings);
+    return services
+          .AddSingleton(sp => new InProcessAgentRuntime(
+              sp.GetRequiredService<SubAgentSpawner>(),
+              sp.GetRequiredService<IAgentStore>(),
+              settings.SubAgents.MaxConcurrentAgents,
+              sp.GetRequiredService<IMailboxStore>(),
+              sp.GetRequiredService<IAgentEvents>(),
+              sp.GetRequiredService<ChildSupervisorRegistry>(),
+              sp.GetRequiredService<ChildMailboxRegistry>()))
+          .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<InProcessAgentRuntime>());
+  }
+
+  /// <summary>The out-of-process host supervisor and the wire runtime that IS this
+  ///     container's <see cref="IAgentRuntime"/> (spec D6/D7): one supervisor per
+  ///     conversation, keyed by the root session id, so two conversations in one workspace
+  ///     get two hosts and two budgets.
   /// </summary>
   private static IServiceCollection AddRemoteHostServices(IServiceCollection wired, AgentSettings settings)
   {
     return wired
           .AddSingleton<SessionFilesCarrier>()
           .AddSingleton(sp => new RemoteHostSupervisor(
-              sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
-              Path.Combine(Path.GetTempPath(), "ethang-agent", RemoteHostSupervisor.ScratchFolderFor(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)),
-              settings.WithSessionFiles(
+              ConversationIdOf(sp),
+              Path.Combine(Path.GetTempPath(), "ethang-agent", RemoteHostSupervisor.ScratchFolderForConversation(ConversationIdOf(sp))),
+              settings.WithWorkspaceRoot(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId)
+                  .WithSessionFiles(
                   sp.GetRequiredService<SessionFilesCarrier>().Global,
                   sp.GetRequiredService<SessionFilesCarrier>().Workspace)
                .WithSkillDirectories(
@@ -833,6 +852,15 @@ public static class AgentComposition
                settings.SubAgents.RootTurnBudget ?? RootTurnBudget.Default))
           .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<RemoteAgentRuntime>());
   }
+
+  /// <summary>The conversation this container serves: the persisted root session id. The
+  ///     supervisor keys its pipe name, scratch folder, and settings JSON on it, so it must
+  ///     be published BEFORE anything resolves the supervisor — the factory sets it ahead of
+  ///     orphan repair for exactly that reason.</summary>
+  private static string ConversationIdOf(IServiceProvider sp) =>
+      sp.GetRequiredService<RootSessionIdentity>().Id?.ToString()
+      ?? throw new InvalidOperationException(
+          "the root session id must be published before the host supervisor is resolved.");
 
 
   /// <summary>Resolves skill directories from the settings-carried stored lists - the

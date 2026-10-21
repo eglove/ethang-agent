@@ -188,10 +188,6 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     unset — spawns must then pass a model explicitly).</summary>
   public string? ConfiguredDefaultModel => _settings?.SubAgents.DefaultModel;
 
-  /// <summary>Whether newly opened agents run in the out-of-process child host —
-  ///     the settings modal's prefill.</summary>
-  public bool ConfiguredRemoteHost => _settings?.RemoteHost ?? false;
-
   /// <summary>The watchdog tick-interval text the settings modal prefills in constant
   ///     format (null when the knob is unset — the watchdog default applies).</summary>
   /// <summary>The configured root-turn idle bound as constant-format text, or null when
@@ -679,8 +675,6 @@ internal sealed partial class MainViewModel : ObservableObject
         Normalize(update.MaxConcurrentAgentsText));
     await PersistPreferenceAsync(AgentPreferenceKeys.DefaultModel,
         Normalize(update.DefaultModelText));
-    await PersistPreferenceAsync(AgentPreferenceKeys.RemoteHost,
-        update.RemoteHost ? "true" : "false");
     await PersistPreferenceAsync(AgentPreferenceKeys.WatchdogTickInterval,
         Normalize(update.WatchdogTickText));
     await PersistPreferenceAsync(AgentPreferenceKeys.WatchdogIdleThreshold,
@@ -761,15 +755,12 @@ internal sealed partial class MainViewModel : ObservableObject
   {
     SubAgentOptions subAgents;
     WatchdogSettings? watchdog;
-    bool remoteHost;
     try
     {
       subAgents = SubAgentConfiguration.Bind(
           Normalize(update.DefaultModelText),
           Normalize(update.MaxConcurrentAgentsText)
               ?? AgentSettingsDefaults.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture),
-          out remoteHost,
-          update.RemoteHost ? "true" : "false",
           Normalize(update.RootTurnIdleText), Normalize(update.RootTurnCeilingText));
       watchdog = SubAgentConfiguration.BindWatchdog(
           Normalize(update.WatchdogTickText), Normalize(update.WatchdogIdleText),
@@ -788,7 +779,6 @@ internal sealed partial class MainViewModel : ObservableObject
             AgentPreferenceKeys.OpenRouterBaseUrl, "https://openrouter.ai")),
 #pragma warning restore S1075
         subAgents,
-        RemoteHost: remoteHost,
         Watchdog: watchdog);
   }
 

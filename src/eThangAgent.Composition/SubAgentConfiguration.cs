@@ -9,9 +9,6 @@ namespace eThangAgent.Composition;
 ///     model explicitly); present-but-empty is a startup validation error.
 ///     "SubAgent:MaxConcurrentAgents" — required positive integer; absent,
 ///     non-integer, or below-1 values are startup validation errors.
-///     "SubAgent:RemoteHost" — optional; "true" opts the session into the
-///     out-of-process child host (R3), anything else non-empty is a startup
-///     validation error; default is in-process.
 ///     "SubAgent:Watchdog:TickInterval" / ":IdleThreshold" — optional constant-format
 ///     (":"-separated) durations; absent keeps the default, empty, non-parseable,
 ///     non-positive, or bare-integer (a silent days value) text is a startup error.
@@ -26,12 +23,10 @@ namespace eThangAgent.Composition;
 public static class SubAgentConfiguration
 {
   public static SubAgentOptions Bind(string? defaultModel, string? maxConcurrentAgents,
-      out bool remoteHost, string? remoteHostValue = null,
       string? rootTurnIdle = null, string? rootTurnCeiling = null)
   {
     ValidateDefaultModel(defaultModel);
     int maxConcurrent = ParseMaxConcurrentAgents(maxConcurrentAgents);
-    remoteHost = ParseRemoteHost(remoteHostValue); // hosts wire the remote runtime when true
     RootTurnBudget? rootTurn = BindRootTurnBudget(rootTurnIdle, rootTurnCeiling);
     return new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent,
         RootTurnBudget: rootTurn);
@@ -141,20 +136,6 @@ public static class SubAgentConfiguration
           "SubAgent:Watchdog:MaxWrapUpAttempts is present but empty. Remove the key or supply a non-negative integer."),
       _ => throw new InvalidOperationException(
           $"SubAgent:Watchdog:MaxWrapUpAttempts must be a non-negative integer, got '{value}'."),
-    };
-  }
-
-  /// <summary>"SubAgent:RemoteHost" — optional; only "true"/"false" (any case)
-  ///     bind; anything else is a startup error. The flag is consumed by hosts that
-  ///     wire the remote runtime; SubAgentOptions stays provider-neutral.</summary>
-  private static bool ParseRemoteHost(string? remoteHost)
-  {
-    return remoteHost switch
-    {
-      null => false,
-      not null when bool.TryParse(remoteHost, out bool parsed) => parsed,
-      _ => throw new InvalidOperationException(
-          $"SubAgent:RemoteHost must be 'true' or 'false', got '{remoteHost}'."),
     };
   }
 

@@ -119,6 +119,23 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   public Result<bool> Deliver(AgentId id, PendingMessage message)
   {
     ArgumentNullException.ThrowIfNull(message);
+    // The domain contract (IAgentRuntime.Deliver): an id this runtime does not OWN fails
+    // NotRunning. Ownership is what makes the capability provider's cross-container
+    // fallback reachable - a wire send for a foreign id would otherwise claim delivery
+    // and the process-wide locator would never be consulted (the in-process runtime
+    // answers exactly this way for an id it holds no mailbox for).
+    bool owned;
+    lock (_owned)
+    {
+      owned = _owned.ContainsKey(id.Value);
+    }
+
+    if (!owned)
+    {
+      return Result.Failure<bool>(new DomainError(MailboxErrors.NotRunning,
+          $"agent '{id}' is not running in this container; the message was refused."));
+    }
+
     DeliverCommand command = new(id.Value, message.Text, (int)message.Urgency, message.Sender);
     bool sent = SendEnvelopeAsync("deliver", JsonSerializer.Serialize(command), id, CancellationToken.None)
         .GetAwaiter().GetResult();

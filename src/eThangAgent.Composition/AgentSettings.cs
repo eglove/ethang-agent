@@ -27,7 +27,6 @@ public sealed record OpenRouterSettings(string? ApiKey, Uri BaseUrl, string? Man
 public sealed record AgentSettings(
     OpenRouterSettings OpenRouter,
     SubAgentOptions SubAgents,
-    bool RemoteHost = false,
     bool ComputerUse = false,
     bool VerificationGateEnabled = true,
     WatchdogSettings? Watchdog = null,
@@ -41,7 +40,7 @@ public sealed record AgentSettings(
 {
   // Watchdog (W1.2): null means no SubAgent:Watchdog configuration — the host watchdog
   // runs WatchdogOptions.Default. The value travels to the child host inside the
-  // settings JSON the RemoteHostSupervisor writes.
+  // settings JSON the provider host supervisor writes.
   /// <summary>True when an OpenRouter API key (non-blank) is configured.</summary>
   public bool HasOpenRouter => !string.IsNullOrWhiteSpace(OpenRouter.ApiKey);
 
@@ -96,7 +95,9 @@ public sealed record AgentSettings(
   /// <summary>Returns the same settings bound to the root session the host serves (spec D6):
   ///     the conversation's own agent runs host-side, so the host must know WHICH session it
   ///     is. Null leaves the host with no root session, and a root turn then fails with a
-  ///     typed settle instead of running against a guessed session.</summary>
+  ///     typed settle instead of running against a guessed session. The supervisor stamps
+  ///     this on every launch — it is the ONLY writer, and without it every root turn
+  ///     answers RootTurnUnavailable.</summary>
   public AgentSettings WithSessionId(string? sessionId) => this with
   {
     SessionId = sessionId,

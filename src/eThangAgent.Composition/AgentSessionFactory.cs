@@ -97,14 +97,16 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         return Result.Failure<AgentSession>(bootstrapped.Error);
       }
 
-      // Exact orphan repair at session open (FR-L8, R3.2): a persisted Running record
-      // survives only if the container's runtime or the remote host still owns it.
-      await RepairOrphansAsync(services, bootstrapped.Value, ct).ConfigureAwait(false);
-
-      // Publish the root id to the container BEFORE the session is handed out: the
-      // RootAgentResolver reads it lazily to persist ModelUsed on each selection, so it
+      // Publish the root id to the container BEFORE anything resolves it: the host
+      // supervisor keys its pipe name, scratch folder, and settings JSON on the
+      // conversation id (spec D6/D7), so orphan repair below cannot run without it — and
+      // the RootAgentResolver reads it lazily to persist ModelUsed on each selection, so it
       // must be set before the first turn can fire.
       services.GetRequiredService<RootSessionIdentity>().Id = bootstrapped.Value;
+
+      // Exact orphan repair at session open (FR-L8, R3.2): a persisted Running record
+      // survives only if the host still owns it.
+      await RepairOrphansAsync(services, bootstrapped.Value, ct).ConfigureAwait(false);
 
       // Provider lineups are no longer published at session open: the model picker
       // (host UI) fetches the catalog lazily when shown, for either provider.
@@ -183,6 +185,9 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // what the provider serves; this notice says so explicitly, so the model never
       // trusts stale in-context contract text over a live tool error.
       services.GetRequiredService<Conversation>().AddSystemMessage(ResumeContractNotice);
+      // The resumed conversation runs in its own host exactly as a fresh one does: attach
+      // (launching it when absent) before the first turn can fire.
+      await AttachHostAsync(services, ct).ConfigureAwait(false);
       // Re-open: clear a Completed row back to Running so status reflects the live session.
       Result<string> reopened = await store.UpdateAsync(record with
       {
@@ -243,30 +248,33 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     return Result.Success(full);
   }
 
-  /// <summary>Runs exact orphan repair against this session's runtime and, in remote
-  ///     mode, the host's declared live set. In-process mode the declared set is empty —
-  ///     every Running record not owned by THIS container is an orphan. Failures of the
-  ///     repair never block session open: they surface through the same validation path
-  ///     as any store fault.</summary>
+  /// <summary>THE attach (R3.1/3.3): the wire runtime is born disconnected by design, and
+  ///     this is its only production caller — launching this conversation's host if absent,
+  ///     connecting, starting the settle pump, and reading the declared live set. Skipping
+  ///     it leaves every start failing HostUnavailable and the declared set permanently
+  ///     empty (the exact resolve-invoke seam the full-app E2E exists to guard). Every
+  ///     session open and resume attaches, because every conversation runs in its own host
+  ///     (spec D6/D7).</summary>
+  private static async Task AttachHostAsync(ServiceProvider services, CancellationToken ct)
+  {
+    RemoteAgentRuntime runtime = services.GetRequiredService<RemoteAgentRuntime>();
+    RemoteHostSupervisor supervisor = services.GetRequiredService<RemoteHostSupervisor>();
+    _ = await supervisor.AttachAsync(runtime, ct).ConfigureAwait(false);
+  }
+
+  /// <summary>Runs exact orphan repair against the host's declared live set: a persisted
+  ///     Running record survives only when the host still owns it, and everything else is
+  ///     Failed(Interrupted). Failures of the repair never block session open: they surface
+  ///     through the same validation path as any store fault.</summary>
   private static async Task RepairOrphansAsync(ServiceProvider services, AgentId rootId, CancellationToken ct)
   {
-    InProcessAgentRuntime? inProcess = services.GetService<InProcessAgentRuntime>();
-    RemoteAgentRuntime? remote = services.GetService<RemoteAgentRuntime>();
-    if (remote is not null)
-    {
-      // THE attach (R3.1/3.3): the remote runtime is born disconnected by design, and
-      // this is its only production caller — launching the host if absent, connecting,
-      // starting the settle pump, and reading the declared live set. Skipping it leaves
-      // every remote start failing HostUnavailable and the declared set permanently
-      // empty (the exact resolve-invoke seam the full-app E2E exists to guard).
-      RemoteHostSupervisor supervisor = services.GetRequiredService<RemoteHostSupervisor>();
-      _ = await supervisor.AttachAsync(remote, ct).ConfigureAwait(false);
-    }
+    await AttachHostAsync(services, ct).ConfigureAwait(false);
+    RemoteAgentRuntime remote = services.GetRequiredService<RemoteAgentRuntime>();
 
     OrphanRepairHandler repair = new(
         services.GetRequiredService<IAgentStore>(),
-        () => inProcess?.ActiveChildren ?? [],
-        () => remote?.DeclaredLiveChildren ?? [],
+        () => [],
+        () => remote.DeclaredLiveChildren,
         services.GetRequiredService<IWatchdogEventStore>(),
         exempt: rootId,
         workspaceId: services.GetRequiredService<IWorkspaceContext>().WorkspaceId);

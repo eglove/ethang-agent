@@ -95,6 +95,9 @@ internal static class E2E
           // Computer-use E2E: tests register their fake access provider here before the
           // container seals (the composition resolves the seam lazily at tool-binding time).
           .AddSingleton(sp => ComputerAccessProviderFactory())
+          // The harness drives the composition WITHOUT a ChildHost: the in-process
+          // runtime is the explicit opt-in, never a production path.
+          .AddInProcessAgentRuntime(settings)
           .BuildServiceProvider();
 
       Store = _services.GetRequiredService<IAppPreferenceStore>();
@@ -146,12 +149,12 @@ internal static class E2E
 
     /// <summary>The settings snapshot serving the harness: the mock server as the
     ///     OpenRouter endpoint. Shared by the live container and any resume factory.
-    ///     RemoteHost routes child starts through the out-of-process ChildHost (opt-in
-    ///     for the remote-mode E2E; default stays in-process).</summary>
-    internal AgentSettings BuildSettings(bool remoteHost = false, bool computerUse = false) => new(
+    ///     The harness composes the core container directly, so it opts into the
+    ///     in-process runtime explicitly — production never does (every conversation
+    ///     runs in its own host process).</summary>
+    internal AgentSettings BuildSettings(bool computerUse = false) => new(
         new OpenRouterSettings("sk-or-test", Mock.BaseUrl),
         new SubAgentOptions(null, 2),
-        RemoteHost: remoteHost,
         ComputerUse: computerUse);
 
     /// <summary>A factory over the SAME temp database and mock server the harness runs

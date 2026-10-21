@@ -35,7 +35,11 @@ public class MailboxLocatorWiringTests
       // The locator is ONE process-wide instance, shared by both containers.
       ProcessMailboxLocator shared = a.Value.Services.GetRequiredService<ProcessMailboxLocator>();
       Assert.Same(shared, b.Value.Services.GetRequiredService<ProcessMailboxLocator>());
-      Assert.Equal(2, shared.SourceCount);
+      // TWO sources per container: its live-mailbox registry, plus the wire-forwarding
+      // proxy over its remote runtime's owned children. Every conversation runs in its own
+      // host now (spec D6/D7), so the remote source is no longer opt-in and both containers
+      // contribute it - four sources, not the toggle-era two.
+      Assert.Equal(4, shared.SourceCount);
 
       // A child of session B (registered directly in B's registry — the runtime does
       // exactly this at BeginRun) is resolvable through the locator from OUTSIDE B.

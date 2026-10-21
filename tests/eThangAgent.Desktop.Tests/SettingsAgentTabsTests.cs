@@ -16,7 +16,6 @@ public class SettingsAgentTabsTests
     {
       MaxConcurrentAgentsText = " 6 ",
       DefaultModelText = " glm-5.3 ",
-      RemoteHost = true,
       WatchdogTickText = " 00:00:02 ",
       WatchdogIdleText = " 00:15:00 ",
       WatchdogWrapUpText = " 2 ",
@@ -30,7 +29,6 @@ public class SettingsAgentTabsTests
     Assert.NotNull(saved);
     Assert.Equal("6", saved.MaxConcurrentAgentsText);
     Assert.Equal("glm-5.3", saved.DefaultModelText);
-    Assert.True(saved.RemoteHost);
     Assert.Equal("00:00:02", saved.WatchdogTickText);
     Assert.Equal("00:15:00", saved.WatchdogIdleText);
     Assert.Equal("2", saved.WatchdogWrapUpText);

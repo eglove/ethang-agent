@@ -110,7 +110,6 @@ internal partial class MainWindow : Window
       WorkspaceRoot = _vm.SelectedTab?.Container.WorkspaceRoot,
       MaxConcurrentAgentsText = _vm.ConfiguredMaxConcurrentAgents,
       DefaultModelText = _vm.ConfiguredDefaultModel,
-      RemoteHost = _vm.ConfiguredRemoteHost,
       RootTurnIdleText = _vm.ConfiguredRootTurnIdle,
       RootTurnCeilingText = _vm.ConfiguredRootTurnCeiling,
       WatchdogTickText = _vm.ConfiguredWatchdogTick,

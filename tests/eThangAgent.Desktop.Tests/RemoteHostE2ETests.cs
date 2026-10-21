@@ -9,13 +9,13 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.Tests;
 
-/// <summary>Full-app remote-mode E2E (handoff item 3): the REAL Desktop composition
-///     with SubAgent:RemoteHost=true — session open through the factory (attach + exact
-///     orphan repair), a child spawned through the production agent.spawn surface that
-///     runs IN THE CHILDHOST PROCESS and settles through the wire, the app-side
-///     container killed (the host survives), a fresh session open over the same
-///     database, and the child's outcome retrievable with orphan repair marking
-///     exactly the right rows.</summary>
+/// <summary>Full-app host E2E (handoff item 3): the REAL Desktop composition — session
+///     open through the factory (attach + exact orphan repair), a child spawned through the
+///     production agent.spawn surface that runs IN THE CHILDHOST PROCESS and settles through
+///     the wire, the app-side container killed (the host survives), a fresh session open over
+///     the same database, and the child's outcome retrievable with orphan repair marking
+///     exactly the right rows. Every conversation runs this way (spec D6/D7): there is no
+///     toggle to switch on.</summary>
 [Collection("Desktop E2E")]
 public class RemoteHostE2ETests
 {
@@ -59,7 +59,7 @@ public class RemoteHostE2ETests
           TestContext.Current.CancellationToken);
 
       AgentSessionFactory factory = new(
-          host.BuildSettings(remoteHost: true),
+          host.BuildSettings(),
           new AppDatabase(host.DatabasePath));
       Result<AgentSession> opened = await factory.CreateAsync(
           ws, Providers.OpenRouter,
@@ -128,7 +128,7 @@ public class RemoteHostE2ETests
     // the ChildHost process, attach, and orphan repair all run the production path.
     string ws = Directory.CreateTempSubdirectory("ethang-remote-ws").FullName;
     AgentSessionFactory factory = new(
-        host.BuildSettings(remoteHost: true),
+        host.BuildSettings(),
         new AppDatabase(host.DatabasePath));
     Result<AgentSession> opened = await factory.CreateAsync(
         ws, Providers.OpenRouter,
@@ -237,7 +237,7 @@ public class RemoteHostE2ETests
         TestContext.Current.CancellationToken);
 
       AgentSessionFactory factory = new(
-          host.BuildSettings(remoteHost: true),
+          host.BuildSettings(),
           new AppDatabase(host.DatabasePath));
       Result<AgentSession> opened = await factory.CreateAsync(
           ws, Providers.OpenRouter,

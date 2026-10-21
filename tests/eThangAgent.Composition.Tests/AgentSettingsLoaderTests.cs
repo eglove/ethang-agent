@@ -29,7 +29,6 @@ public class AgentSettingsLoaderTests
     Assert.Equal(AgentSettingsDefaults.MaxConcurrentAgents, s.SubAgents.MaxConcurrentAgents);
     Assert.Equal(4, s.SubAgents.MaxConcurrentAgents); // pins the shipped value itself
     Assert.Null(s.SubAgents.DefaultModel);
-    Assert.False(s.RemoteHost);
     Assert.Null(s.Watchdog);
     Assert.Equal("https://openrouter.ai", s.OpenRouter.BaseUrl.ToString().TrimEnd('/'));
   }
@@ -40,7 +39,6 @@ public class AgentSettingsLoaderTests
     FakePreferenceStore prefs = new FakePreferenceStore()
         .With(AgentPreferenceKeys.MaxConcurrentAgents, "6")
         .With(AgentPreferenceKeys.DefaultModel, "openrouter/gpt-5")
-        .With(AgentPreferenceKeys.RemoteHost, "true")
         .With(AgentPreferenceKeys.WatchdogTickInterval, "00:00:02")
         .With(AgentPreferenceKeys.WatchdogIdleThreshold, "00:10:00")
         .With(AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, "2")
@@ -48,7 +46,6 @@ public class AgentSettingsLoaderTests
     AgentSettings s = await AgentSettingsLoader.LoadAsync(prefs);
     Assert.Equal(6, s.SubAgents.MaxConcurrentAgents);
     Assert.Equal("openrouter/gpt-5", s.SubAgents.DefaultModel);
-    Assert.True(s.RemoteHost);
     Assert.NotNull(s.Watchdog);
     Assert.Equal(TimeSpan.FromSeconds(2), s.Watchdog.TickInterval);
     Assert.Equal(TimeSpan.FromMinutes(10), s.Watchdog.IdleThreshold);
@@ -60,7 +57,6 @@ public class AgentSettingsLoaderTests
   [InlineData("subagent_max_concurrent_agents", "abc", "subagent_max_concurrent_agents")]
   [InlineData("subagent_max_concurrent_agents", "0", "subagent_max_concurrent_agents")]
   [InlineData("subagent_default_model", " ", "present but empty")]
-  [InlineData("subagent_remote_host", "yes", "subagent_remote_host")]
   [InlineData("subagent_watchdog_tick_interval", "5", "bare integer")]
   [InlineData("subagent_watchdog_idle_threshold", "not-a-time", "subagent_watchdog_idle_threshold")]
   [InlineData("subagent_watchdog_max_wrap_up_attempts", "-1", "subagent_watchdog_max_wrap_up_attempts")]

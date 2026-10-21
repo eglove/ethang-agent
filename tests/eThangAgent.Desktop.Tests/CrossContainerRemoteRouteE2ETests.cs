@@ -10,8 +10,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace eThangAgent.Desktop.Tests;
 
 /// <summary>W3.4 remote variant (the BDD "A route crosses into the child host"):
-///     session B runs RemoteHost=true so its child executes in the ChildHost process;
-///     session A (in-process) routes through a consented link; the app-side locator
+///     session B's child executes in its own ChildHost process (every conversation has
+///     one); session A routes through a consented link; the app-side locator
 ///     resolves B's owned remote child and the delivery rides the wire into the host's
 ///     mailbox; the child DRAINS it at its next safe point and the text reaches the
 ///     provider (visible in the child's transcript request). Also pinned: the
@@ -24,10 +24,9 @@ public class CrossContainerRemoteRouteE2ETests
 {
   private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
-  private static AgentSettings Settings(Uri openRouterBaseUrl, bool remoteHost) => new(
+  private static AgentSettings Settings(Uri openRouterBaseUrl) => new(
       new OpenRouterSettings("sk-or-test", openRouterBaseUrl),
-      new SubAgentOptions(null, 2),
-      RemoteHost: remoteHost);
+      new SubAgentOptions(null, 2));
 
   private sealed class Capture : IAgentEventSubscriber
   {
@@ -50,10 +49,12 @@ public class CrossContainerRemoteRouteE2ETests
       try
       {
         ProcessMailboxLocator locator = new();
-        // A: in-process. B: remote host — same app process, one locator, shared db.
-        AgentSessionFactory factoryA = new(Settings(new Uri("https://openrouter.test"), remoteHost: false),
+        // Both sessions run their children in their OWN host processes — same app
+        // process, one locator, shared db. A's child stays parked app-side (it never
+        // spawns); B's child rides the wire.
+        AgentSessionFactory factoryA = new(Settings(new Uri("https://openrouter.test")),
             new AppDatabase(dbPath), locator);
-        AgentSessionFactory factoryB = new(Settings(mock.BaseUrl, remoteHost: true),
+        AgentSessionFactory factoryB = new(Settings(mock.BaseUrl),
             new AppDatabase(dbPath), locator);
 
         Result<AgentSession> a = await factoryA.CreateAsync(wsA, Providers.OpenRouter,

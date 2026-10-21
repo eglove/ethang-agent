@@ -22,7 +22,7 @@ public class RemoteHostScratchIsolationTests
     try
     {
       AgentSessionFactory factory = new(
-          host.BuildSettings(remoteHost: true),
+          host.BuildSettings(),
           new AppDatabase(host.DatabasePath));
       Result<AgentSession> opened = await factory.CreateAsync(
           ws, Providers.OpenRouter,

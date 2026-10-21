@@ -12,7 +12,6 @@ public static class AgentPreferenceKeys
 {
   public const string MaxConcurrentAgents = "subagent_max_concurrent_agents";
   public const string DefaultModel = "subagent_default_model";
-  public const string RemoteHost = "subagent_remote_host";
   public const string ComputerUseEnabled = "computer_use_enabled";
   public const string VerificationGateEnabled = "verification_gate_enabled";
   public const string SkillRegistryDefaultTarget = "skill_registry:default_target";
@@ -49,7 +48,6 @@ public static class AgentSettingsLoader
     string? maxConcurrentStored = await preferences.GetAsync(AgentPreferenceKeys.MaxConcurrentAgents).ConfigureAwait(false);
     string maxConcurrent = maxConcurrentStored ??
         AgentSettingsDefaults.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture);
-    string? remoteHostStored = await preferences.GetAsync(AgentPreferenceKeys.RemoteHost).ConfigureAwait(false);
     string? computerUseStored = await preferences.GetAsync(AgentPreferenceKeys.ComputerUseEnabled).ConfigureAwait(false);
     string? verificationGateStored = await preferences.GetAsync(AgentPreferenceKeys.VerificationGateEnabled).ConfigureAwait(false);
     string? registryTargetStored = await preferences.GetAsync(AgentPreferenceKeys.SkillRegistryDefaultTarget).ConfigureAwait(false);
@@ -59,7 +57,6 @@ public static class AgentSettingsLoader
     string? rootTurnIdle = await preferences.GetAsync(AgentPreferenceKeys.RootTurnIdle).ConfigureAwait(false);
     string? rootTurnCeiling = await preferences.GetAsync(AgentPreferenceKeys.RootTurnCeiling).ConfigureAwait(false);
 
-    bool remoteHost;
     bool computerUse;
     SubAgentOptions subAgents;
     bool verificationGate;
@@ -67,8 +64,7 @@ public static class AgentSettingsLoader
     WatchdogSettings? watchdog;
     try
     {
-      subAgents = SubAgentConfiguration.Bind(defaultModel, maxConcurrent, out remoteHost, remoteHostStored,
-          rootTurnIdle, rootTurnCeiling);
+      subAgents = SubAgentConfiguration.Bind(defaultModel, maxConcurrent, rootTurnIdle, rootTurnCeiling);
       watchdog = SubAgentConfiguration.BindWatchdog(tick, idle, wrapUp);
       computerUse = ParseComputerUseEnabled(computerUseStored);
       verificationGate = ParseVerificationGateEnabled(verificationGateStored);
@@ -89,7 +85,6 @@ public static class AgentSettingsLoader
             AgentPreferenceKeys.OpenRouterBaseUrl, "https://openrouter.ai").ConfigureAwait(false)),
 #pragma warning restore S1075
         subAgents,
-        RemoteHost: remoteHost,
         ComputerUse: computerUse,
         VerificationGateEnabled: verificationGate,
         Watchdog: watchdog,
@@ -135,7 +130,7 @@ public static class AgentSettingsLoader
 
   /// <summary>computer_use_enabled - optional; only "true"/"false" (any case) bind;
   ///     anything else is a startup error naming the key. Absent is legal and means false
-  ///     (the ParseRemoteHost pattern).</summary>
+  ///     (the strict boolean pattern).</summary>
   private static bool ParseComputerUseEnabled(string? stored)
   {
     return stored switch
@@ -187,8 +182,7 @@ public static class AgentSettingsLoader
         .Replace("SubAgent:Watchdog:IdleThreshold", AgentPreferenceKeys.WatchdogIdleThreshold, StringComparison.Ordinal)
         .Replace("SubAgent:Watchdog:MaxWrapUpAttempts", AgentPreferenceKeys.WatchdogMaxWrapUpAttempts, StringComparison.Ordinal)
         .Replace("SubAgent:MaxConcurrentAgents", AgentPreferenceKeys.MaxConcurrentAgents, StringComparison.Ordinal)
-        .Replace("SubAgent:DefaultModel", AgentPreferenceKeys.DefaultModel, StringComparison.Ordinal)
-        .Replace("SubAgent:RemoteHost", AgentPreferenceKeys.RemoteHost, StringComparison.Ordinal);
+        .Replace("SubAgent:DefaultModel", AgentPreferenceKeys.DefaultModel, StringComparison.Ordinal);
   }
 
   private static async Task<Uri> ReadBaseUrlAsync(

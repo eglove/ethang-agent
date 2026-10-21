@@ -255,8 +255,7 @@ public class ShellViewModelTests
         [
             (OpenRouterSettings.PreferenceKey, "protected:sk-or-v1-abc"),
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
-            (AgentPreferenceKeys.RemoteHost, "false"),
-            (AgentPreferenceKeys.ComputerUseEnabled, "false"),
+                (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
     // The blank knob texts clear exactly their own preferences (blank = absent,
@@ -298,8 +297,7 @@ public class ShellViewModelTests
     Assert.Equal(
         [
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
-            (AgentPreferenceKeys.RemoteHost, "false"),
-            (AgentPreferenceKeys.ComputerUseEnabled, "false"),
+                (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
     Assert.Empty(vm.AvailableProviders);
@@ -322,8 +320,7 @@ public class ShellViewModelTests
     Assert.Equal(
         [
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Conventional"),
-            (AgentPreferenceKeys.RemoteHost, "false"),
-            (AgentPreferenceKeys.ComputerUseEnabled, "false"),
+                (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
     Assert.Equal(
@@ -573,8 +570,7 @@ public class ShellViewModelTests
     Assert.Equal(
         [
             (AppPreferenceCommitStyleProvider.PreferenceKey, "Gitmoji"),
-            (AgentPreferenceKeys.RemoteHost, "false"),
-            (AgentPreferenceKeys.ComputerUseEnabled, "false"),
+                (AgentPreferenceKeys.ComputerUseEnabled, "false"),
         ],
         preferences.Writes);
   }

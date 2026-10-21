@@ -85,6 +85,12 @@ public class SkillInvocationCompositionTests
       Assert.True(created.IsSuccess);
       Assert.NotNull(created.Value.SkillInvocation);
 
+      // Close the first container before resuming: every conversation runs in its own
+      // host (spec D6/D7), and a host serves ONE connection at a time - the open
+      // session's supervisor holds this conversation's single-instance pipe. Disposing
+      // is what a real shutdown does before the session is resumed.
+      await created.Value.Services.DisposeAsync().ConfigureAwait(true);
+
       Result<AgentSession> resumed = await factory.ResumeAsync(
           created.Value.RootId, ct: TestContext.Current.CancellationToken);
       Assert.True(resumed.IsSuccess);
