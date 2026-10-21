@@ -154,10 +154,11 @@ public sealed class RootRunHost : IDisposable
   {
     await HydrateAsync(request, ct).ConfigureAwait(false);
 
-    if (_seedRefused)
+    if (ConsumeSeedRefusal())
     {
       // The seed is only consulted when the store had nothing, so the refusal surfaces HERE
-      // with a typed settle rather than at the top of the turn (fix round 3, finding 2).
+      // with a typed settle rather than at the top of the turn (fix round 3, finding 2). The
+      // flag is CONSUMED (fix round 4, finding 1): it describes one turn, not the runner.
       Result<string> refused = Result.Failure<string>(new DomainError("InvalidSeed",
           "a root turn seed may carry at most one exchange (two lines); a longer seed carries "
           + "no roles and would be silently mislabelled."));
@@ -205,6 +206,10 @@ public sealed class RootRunHost : IDisposable
     try
     {
       await hydration.WaitAsync(ct).ConfigureAwait(false);
+      if (_seedRefused)
+      {
+        ClearLatch();
+      }
     }
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception)
@@ -219,6 +224,25 @@ public sealed class RootRunHost : IDisposable
       throw;
     }
 #pragma warning restore CA1031 // Do not catch general exception types
+  }
+
+  /// <summary>Reads AND clears the per-turn seed refusal, so it can never outlive the turn
+  ///     that set it.</summary>
+  private bool ConsumeSeedRefusal()
+  {
+    bool refused = _seedRefused;
+    _seedRefused = false;
+    return refused;
+  }
+
+  /// <summary>Clears the hydration latch so the next turn hydrates again. Used by the
+  ///     PER-TURN refusal: a refused turn must cost the turn, never the runner.</summary>
+  private void ClearLatch()
+  {
+    lock (_hydrationGate)
+    {
+      _hydration = null;
+    }
   }
 
   /// <summary>The one hydration attempt: store first, seed second. Runs at most once to
@@ -245,8 +269,10 @@ public sealed class RootRunHost : IDisposable
     // the authoritative store.
     if (seed is { Count: > 2 })
     {
-      // Recorded on the runner rather than thrown: the refusal is discovered deep inside the
-      // hydration task, and the turn path reads it after awaiting that task.
+      // PER-TURN refusal (fix round 4, finding 1). The flag is read by the turn that set it
+      // and then cleared; the latch is cleared here too, so the NEXT turn hydrates normally
+      // instead of being refused forever. Round 3 returned normally with both still set,
+      // which bricked the runner - even for seedless turns.
       _seedRefused = true;
       return;
     }
@@ -288,6 +314,12 @@ public sealed class RootRunHost : IDisposable
     {
       return false;
     }
+
+    // THE STORE PATH NEEDS THE SAME GUARD AS THE SEED PATH (fix round 4, finding 2): a store
+    // that IGNORES the token completes its read after the latch was cleared and a
+    // replacement hydration began, and seeding here would duplicate the whole prefix. The
+    // check must be AFTER the read, because that is when abandonment becomes observable.
+    ct.ThrowIfCancellationRequested();
 
     Conversation.Seed(transcript.Value);
     return true;

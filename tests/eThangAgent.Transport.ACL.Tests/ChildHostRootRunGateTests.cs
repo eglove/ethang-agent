@@ -157,8 +157,8 @@ public sealed class ChildHostRootRunGateTests
     _ = await second.WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     // Without the gate, turn two's provider call happens while turn one is parked.
-    Assert.Equal(1, callsWhileParked);
-    Assert.True(callsWhileParked == 1, "the provider was called " + callsWhileParked + " times while turn one was parked");
+    Assert.True(callsWhileParked == 1,
+        "the provider was called " + callsWhileParked + " times while turn one was parked");
     // And the conversation is ordered: turn one's exchange precedes turn two's.
     IReadOnlyList<string> contents = [.. host.Runner.Conversation.Messages
         .Select(message => message.Content)];

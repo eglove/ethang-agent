@@ -13,7 +13,10 @@ namespace eThangAgent.Transport.ACL.Tests;
 /// <summary>The optional per-host knobs a test may supply: a pre-filled root identity
 ///     carrier and a mid-turn park. Grouped so the host factory stays inside the
 ///     parameter budget as seams accumulate.</summary>
-internal sealed record ScriptedOptions(RootSessionIdentity? Identity = null, ScriptedPark? Park = null);
+internal sealed record ScriptedOptions(
+    RootSessionIdentity? Identity = null,
+    ScriptedPark? Park = null,
+    bool StoreIgnoresToken = false);
 
 /// <summary>The optional mid-turn park a streaming test needs: an ASYNC hook that runs
 ///     between the provider's deltas, so a test can hold a turn open on a genuine yield
@@ -82,7 +85,8 @@ internal sealed class ScriptedRootHost : IDisposable
     Ag agent = new(provider, conversation, config, tools, new AgentOptions { Id = rootId });
     RootSessionIdentity carrier = identity ?? new RootSessionIdentity();
 
-    RecordingStore store = new(storedHistory ?? [], storeDelay ?? TimeSpan.Zero);
+    RecordingStore store = new(storedHistory ?? [], storeDelay ?? TimeSpan.Zero,
+        options?.StoreIgnoresToken ?? false);
     ServiceProvider services = new ServiceCollection()
         .AddSingleton(conversation)
         .AddSingleton(tools)
@@ -203,14 +207,18 @@ internal sealed class ScriptedRootHost : IDisposable
   ///     <para>Why a hand-written double rather than the real SQLite store: these tests
   ///     assert what the MODEL was handed and what was persisted, and a fake makes both
   ///     directly observable.</para></summary>
-  internal sealed class RecordingStore(IReadOnlyList<Message> transcript, TimeSpan delay) : IAgentStore
+  internal sealed class RecordingStore(IReadOnlyList<Message> transcript, TimeSpan delay,
+      bool ignoresToken) : IAgentStore
   {
     /// <summary>A deliberately SLOW read: concurrency defects only appear when the store
     ///     read is wide enough for a second turn to arrive inside it.</summary>
     public async Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id,
         CancellationToken ct = default)
     {
-      await Task.Delay(delay, ct).ConfigureAwait(false);
+      // The second store shape the review measured: a store that does NOT observe the token.
+      // The real SqliteAgentStore passes ct to ExecuteReaderAsync, but a store that ignores it
+      // must still not let an abandoned hydration mutate the conversation.
+      await Task.Delay(delay, ignoresToken ? CancellationToken.None : ct).ConfigureAwait(false);
       return Result.Success(transcript);
     }
 
