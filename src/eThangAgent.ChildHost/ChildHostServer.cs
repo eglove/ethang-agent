@@ -33,6 +33,15 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   // the run's REAL cancellation token. The server's _active CTSs are only waiter tokens
   // for WhenSettledAsync; cancelling them never touches the run itself.
   private readonly ConcurrentDictionary<Guid, IAgentRuntime> _runtimes = [];
+
+  // The ROOT runner (spec D6): the conversation's own agent runs in this process. Built
+  // ONCE, lazily, from the host's own container - the root transcript sink seeds its
+  // persisted baseline at construction, so a per-turn runner would re-seed mid-conversation
+  // and re-append messages the store already holds. Null when the shipped settings name no
+  // root session: a host with no bound session must not guess which conversation a turn
+  // belongs to, and answers with a typed settle instead.
+  private RootRunHost? _rootHost;
+  private bool _rootHostBuilt;
   private long _sequence;
 
   /// <summary>The ids the host currently runs — the exact live set the app's orphan
@@ -215,9 +224,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   }
 
   /// <summary>Handles one root turn (spec D6): the app forwards the user's input and the
-  ///     host answers with that turn's event stream. The runner that actually EXECUTES the
-  ///     turn is task 9's work; until it is wired, the host answers every ADDRESSABLE turn
-  ///     with a typed settle failure rather than silence.
+  ///     host answers with that turn's event stream. The runner that EXECUTES the turn is
+  ///     <see cref="RootRunHost"/>, built once with the host's container; a host with no bound
+  ///     root session answers every ADDRESSABLE turn with a typed settle failure rather than
+  ///     silence.
   /// <para>An UNADDRESSABLE turn — one whose id cannot be recovered from the payload — is
   /// dropped here with no reply, because there is no id to address a settle to. This method
   /// therefore does NOT by itself guarantee the caller settles; that guarantee belongs to
@@ -233,14 +243,66 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       return; // unaddressable: a request carrying no turn id cannot be settled
     }
 
-    // The GENERATION is echoed verbatim: it is the app's per-turn identity, and a settle
-    // that does not carry it back would be dropped by the client as stale (ruling 2).
-    await SendAsync("root-turn-event", RootTurnProtocol.SerializeEvent(new RootTurnEvent(TurnId,
-        "settled",
-        "Error [RootTurnUnavailable]: the conversation host has no root turn runner wired in this build.",
-        Generation)))
+    RootRunHost? rootHost = ResolveRootHost();
+    if (rootHost is null)
+    {
+      // No root session is bound to this host (the settings named none): answer with a
+      // typed settle rather than silence. The generation is echoed verbatim - it is the
+      // app's per-turn identity, and a settle that does not carry it back is dropped by
+      // the client as stale (ruling 2).
+      await SendAsync("root-turn-event", RootTurnProtocol.SerializeEvent(new RootTurnEvent(TurnId,
+          "settled",
+          "Error [RootTurnUnavailable]: this conversation host is not bound to a root session.",
+          Generation)))
+          .ConfigureAwait(false);
+      return;
+    }
+
+    RootTurnRequest request = RootTurnProtocol.ParseRequest(envelope.Json);
+    _ = await rootHost
+        .RunTurnAsync(request, evt => SendRootTurnEventAsync(evt).GetAwaiter().GetResult())
         .ConfigureAwait(false);
+    // The settled event already carried the outcome to the app; the Result is returned for
+    // the caller's own logging and is deliberately not turned into a second envelope.
   }
+
+  /// <summary>Resolves the ROOT runner once, from the host's own container (spec D6).
+  ///     Lazy rather than eager: a host that only ever runs children must not pay for a
+  ///     session container it never uses, and a container that cannot be built must not
+  ///     stop children from running. A build failure is reported the same way a missing
+  ///     binding is — a typed settle on the turn that needed it — never a host crash.</summary>
+  private RootRunHost? ResolveRootHost()
+  {
+    if (_rootHostBuilt)
+    {
+      return _rootHost;
+    }
+
+    _rootHostBuilt = true;
+    try
+    {
+      _rootHost = SessionHost.Create(settingsPath, databasePath).RootRun;
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+    {
+      // Named decision (CA1031): the host is an isolation boundary — a container that
+      // cannot be built leaves root turns unserved (a typed settle answers them), and
+      // never takes the child-serving path down with it.
+      _rootHost = null;
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+
+    return _rootHost;
+  }
+
+  /// <summary>Puts one streamed root-turn event on the wire. The runner's callback is
+  ///     synchronous by contract (the loop fires deltas from arbitrary threads and never
+  ///     awaits the observer), so the bounded write is awaited inline here: events reach the
+  ///     app in the order the turn produced them, and a failed write surfaces as the
+  ///     transport fault it is rather than vanishing into an unobserved task.</summary>
+  private async Task SendRootTurnEventAsync(RootTurnEvent evt)
+      => await SendAsync("root-turn-event", RootTurnProtocol.SerializeEvent(evt)).ConfigureAwait(false);
 
   /// <summary>Reads the turn IDENTITY (id + generation) from a root-turn payload WITHOUT the
   ///     codec's strictness, so a malformed request can still be answered instead of leaving
@@ -313,6 +375,18 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     _parents[recordId] = parentId;
     _active[recordId] = cts;
     _runtimes[recordId] = runtime;
+  }
+
+  /// <summary>Registers the ROOT runner the server dispatches 'root-turn' envelopes to,
+  ///     the way <see cref="AttachDeliveryRegistry"/> registers a delivery target: tests
+  ///     drive the real dispatch path over a real pipe with a scripted runner, without
+  ///     building a full provider stack. Production resolves its runner from the host's own
+  ///     container (<see cref="ResolveRootHost"/>).</summary>
+  public void AttachRootRun(RootRunHost runner)
+  {
+    ArgumentNullException.ThrowIfNull(runner);
+    _rootHost = runner;
+    _rootHostBuilt = true;
   }
 
   /// <summary>Observation seam for tests: the cancellation token of one active child's

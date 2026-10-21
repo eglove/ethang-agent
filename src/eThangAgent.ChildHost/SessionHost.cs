@@ -2,6 +2,7 @@ using System.Text.Json;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
+using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
@@ -16,13 +17,14 @@ namespace eThangAgent.ChildHost;
 public sealed class SessionHost
 {
   private SessionHost(IServiceProvider services, IAgentStore store, IAgentRuntime runtime,
-      ChildMailboxRegistry mailboxes, WatchdogSettings? watchdog)
+      ChildMailboxRegistry mailboxes, WatchdogSettings? watchdog, RootRunHost? rootRun)
   {
     Services = services;
     Store = store;
     Runtime = runtime;
     Mailboxes = mailboxes;
     Watchdog = watchdog;
+    RootRun = rootRun;
   }
 
   /// <summary>The child container — the host watchdog resolves the same seams the app
@@ -40,6 +42,14 @@ public sealed class SessionHost
   ///     watchdog section was configured. The settings JSON is the only carrier; the
   ///     host never reads app configuration itself.</summary>
   public WatchdogSettings? Watchdog { get; }
+
+  /// <summary>The host's ROOT turn runner (spec D6): the conversation's own agent runs in
+  ///     this process, over THIS container's conversation and turn handler. Built with the
+  ///     container — never per turn — because the root transcript sink seeds its persisted
+  ///     baseline from the conversation's length at construction, and because filling
+  ///     <see cref="RootSessionIdentity"/> before any turn is what makes that sink active
+  ///     (the host never persisted a root row, so an unfilled identity leaves it inert).</summary>
+  public RootRunHost? RootRun { get; }
 
   /// <summary>The options the host watchdog runs under: the shipped configuration
   ///     translated strictly, or <see cref="WatchdogOptions.Default"/> when no
@@ -112,7 +122,23 @@ public sealed class SessionHost
         services.GetRequiredService<IAgentStore>(),
         services.GetRequiredService<IAgentRuntime>(),
         services.GetRequiredService<ChildMailboxRegistry>(),
-        settings.Watchdog);
+        settings.Watchdog,
+        BuildRootRun(services, settings.SessionId));
+  }
+
+  /// <summary>Builds the host's ROOT turn runner when the settings name a root session
+  ///     (spec D6), or null when they do not — a host with no bound session must not guess
+  ///     which conversation a turn belongs to.
+  ///     <para>Built ONCE, with the container: the runner fills
+  ///     <c>RootSessionIdentity</c> so the container's root transcript sink stops being
+  ///     inert, and the sink seeds its persisted baseline from the conversation's length at
+  ///     construction — a per-turn runner would re-seed that baseline mid-conversation and
+  ///     re-append messages the store already holds.</para></summary>
+  private static RootRunHost? BuildRootRun(IServiceProvider services, string? sessionId)
+  {
+    return string.IsNullOrWhiteSpace(sessionId) || !Guid.TryParse(sessionId, out Guid parsed)
+        ? null
+        : new RootRunHost(services, new AgentId(parsed), services.GetRequiredService<Conversation>());
   }
 
   /// <summary>The workspace the host's container anchors at (D): the root the app

@@ -36,7 +36,8 @@ public sealed record AgentSettings(
     string? SessionFilesWorkspace = null,
     string? SkillDirectoriesGlobal = null,
     string? SkillDirectoriesWorkspace = null,
-    string? SkillRegistryDefaultTarget = null)
+    string? SkillRegistryDefaultTarget = null,
+    string? SessionId = null)
 {
   // Watchdog (W1.2): null means no SubAgent:Watchdog configuration — the host watchdog
   // runs WatchdogOptions.Default. The value travels to the child host inside the
@@ -90,6 +91,15 @@ public sealed record AgentSettings(
   public AgentSettings WithWorkspaceRoot(string? workspaceRoot) => this with
   {
     WorkspaceRoot = workspaceRoot,
+  };
+
+  /// <summary>Returns the same settings bound to the root session the host serves (spec D6):
+  ///     the conversation's own agent runs host-side, so the host must know WHICH session it
+  ///     is. Null leaves the host with no root session, and a root turn then fails with a
+  ///     typed settle instead of running against a guessed session.</summary>
+  public AgentSettings WithSessionId(string? sessionId) => this with
+  {
+    SessionId = sessionId,
   };
 
   /// <summary>Returns the same settings with the OpenRouter management key overlaid.
