@@ -7,6 +7,7 @@ using eThangAgent.Desktop.Streaming;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
+using eThangAgent.Transport.ACL;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -59,6 +60,13 @@ internal sealed record AgentSessionViewModelOptions
   /// <summary>The session's agent store: the subagent rows poll child transcripts
   ///     from it for the realtime view. Null = rows render events only.</summary>
   public IAgentStore? AgentStore { get; init; }
+
+  /// <summary>This conversation's host channel (spec D6). When wired, EVERY turn travels
+  ///     to the host process and the app runs no agent work; when null the session is a
+  ///     headless/test host that deliberately opted into the in-process runtime. The
+  ///     presence of the channel IS the thin-client decision — there is no separate flag
+  ///     that could disagree with the wiring.</summary>
+  public IRootTurnChannel? RootTurnChannel { get; init; }
 
   /// <summary>The session's rendered system prompt, shown verbatim (collapsed) in the
   ///     bootstrap entry so nothing the agent receives is hidden. Empty = nothing to
@@ -207,6 +215,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly IAgentInbox? _inbox;
   private readonly IAgentRuntime? _childRuntime;
 
+  /// <summary>This conversation's host channel (spec D6). Null means the session runs its
+  ///     turns in this process — the headless/test-host shape, never production.</summary>
+  private readonly IRootTurnChannel? _rootTurnChannel;
+
   /// <summary>The active turn's cancellation source, or null between turns. Assigned on the UI
   /// thread at turn start; cleared at turn end. Never disposed inline — cancelling a disposed
   /// source from the UI thread would race the worker's teardown.</summary>
@@ -248,6 +260,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Autocomplete = options.SkillCatalogSource is null ? null : new SkillAutocompleteViewModel(options.SkillCatalogSource);
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
+    _rootTurnChannel = options.RootTurnChannel;
     // Split view (subagent accordion): the panel subscribes to the session's child
     // event stream. Events publish on stream threads; the marshal wrapper posts every
     // event's application onto the UI thread — Rows is bound to the accordion and
@@ -551,28 +564,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     bool sawStream = false;
     bool compactedThisTurn = false;
     bool shrunkThisTurn = false;
-    Result<string> result = await _runner(
-          new SendMessageCommand(input, imageParts),
-          cts.Token,
-          new TurnCallbacks(
-              OnContentDelta: d =>
-              {
-                sawStream = true;
-                bridge.OnContentDelta(d);
-              },
-              OnReasoningDelta: bridge.OnReasoningDelta,
-              OnIterationEnd: bridge.OnIterationEnd,
-              OnContextUpdate: snapshot => Status.SetContext(snapshot),
-              OnCompacted: _ => compactedThisTurn = true,
-                OnContextShrunk: () => shrunkThisTurn = true,
-              OnToolCall: (name, args, index, count) =>
-              {
-                bridge.OnToolCall(name, args);
-              },
-              OnToolResult: (name, summary, full, isError, rich) =>
-                bridge.OnToolResult(name, summary, full, isError, rich),
-              OnSystemMessage: bridge.OnSystemMessage),
-          onNotice: bridge.OnNotice);
+    Result<string> result = _rootTurnChannel is { } channel
+        ? await SendTurnToHostAsync(channel, input, bridge,
+            () => sawStream = true, cts.Token).ConfigureAwait(true)
+        : await RunTurnInProcessAsync(input, imageParts, bridge,
+            () => sawStream = true,
+            () => compactedThisTurn = true,
+            () => shrunkThisTurn = true, cts.Token).ConfigureAwait(true);
 
     // Close the channel so the pump can drain all buffered events.
     bridge.MarkTurnComplete();
@@ -601,6 +599,121 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
           ? result.Value
           : $"Error [{result.Error.Code}]: {result.Error.Message}");
     }
+  }
+
+  /// <summary>Runs one turn in THIS process. Only a session with no host channel reaches
+  ///     this path — the app's own production wiring always has one (spec D6), so this is
+  ///     the headless/test-host shape: a container that deliberately opted into the
+  ///     in-process runtime. It stays byte-identical to the pre-thin-client behavior.
+  ///     <para>The turn's own cancellation is a TYPED TurnCancelled result, never an
+  ///     escaped OperationCanceledException: the stop button cancels <paramref name="ct"/>
+  ///     and the user must read 'stopped' rather than a fault.</para></summary>
+  private async Task<Result<string>> RunTurnInProcessAsync(string input,
+      IReadOnlyList<MessagePart>? imageParts, StreamBridge bridge,
+      Action onStreamed, Action onCompacted, Action onShrunk, CancellationToken ct)
+  {
+    try
+    {
+      return await _runner(
+          new SendMessageCommand(input, imageParts),
+          ct,
+          new TurnCallbacks(
+              OnContentDelta: d =>
+              {
+                onStreamed();
+                bridge.OnContentDelta(d);
+              },
+              OnReasoningDelta: bridge.OnReasoningDelta,
+              OnIterationEnd: bridge.OnIterationEnd,
+              OnContextUpdate: snapshot => Status.SetContext(snapshot),
+              OnCompacted: _ => onCompacted(),
+              OnContextShrunk: onShrunk,
+              OnToolCall: (name, args, index, count) => bridge.OnToolCall(name, args),
+              OnToolResult: (name, summary, full, isError, rich) =>
+                bridge.OnToolResult(name, summary, full, isError, rich),
+              OnSystemMessage: bridge.OnSystemMessage),
+          onNotice: bridge.OnNotice).ConfigureAwait(true);
+    }
+    catch (OperationCanceledException)
+    {
+      return Result.Failure<string>(new DomainError("TurnCancelled", "the turn was stopped."));
+    }
+  }
+
+  /// <summary>Sends one turn to this conversation's host process (spec D6) and maps its
+  ///     events onto the SAME bridge the in-process path feeds, so the rendered surface is
+  ///     identical while no agent work runs here.
+  ///     <para>Every event is routed through the bridge rather than applied inline: the
+  ///     bridge is what keeps transcript mutation on the sink's thread (the UI thread in
+  ///     production) and what makes <c>DrainUntilIdleAsync</c> mean 'every event was
+  ///     applied'. Applying on the wire's pump thread would violate the transcript's
+  ///     UI-thread-only contract.</para>
+  ///     <para>A host that settles with an <c>Error [&lt;code&gt;]: ...</c> payload is a
+  ///     SUCCESSFUL transport turn carrying a failed turn outcome — the payload is the
+  ///     answer the user must see. A failed Result is a transport-level fault and keeps its
+  ///     own typed code.</para></summary>
+  private async Task<Result<string>> SendTurnToHostAsync(IRootTurnChannel channel, string input,
+      StreamBridge bridge, Action onStreamed, CancellationToken ct)
+  {
+    // A FRESH turn id and generation per turn: the wire runtime keys its settle matching on
+    // both, so a reused id would let a timed-out predecessor's settle complete this turn
+    // with the wrong payload.
+    string turnId = Guid.NewGuid().ToString("N");
+    RootTurnRequest request = new(turnId, input, []);
+    return await channel
+        .SendRootTurnAsync(request, evt => ApplyRootTurnEvent(evt, bridge, onStreamed), ct)
+        .ConfigureAwait(true);
+  }
+
+  /// <summary>Maps one host event onto the stream bridge. The four wire kinds are the
+  ///     session surface's own vocabulary (delta/notice/tool/settled), so this is a
+  ///     translation, never a second rendering path.
+  ///     <para>An unreadable <c>tool</c> payload becomes a notice instead of vanishing: a
+  ///     dropped tool event would hide a whole step of the turn.</para></summary>
+  private void ApplyRootTurnEvent(RootTurnEvent evt, StreamBridge bridge, Action onStreamed)
+  {
+    ArgumentNullException.ThrowIfNull(evt);
+    switch (evt.Kind)
+    {
+      case "delta":
+        onStreamed();
+        bridge.OnContentDelta(evt.Payload);
+        break;
+      case "notice":
+        bridge.OnNotice(evt.Payload);
+        break;
+      case "tool":
+        ApplyRootTurnToolEvent(evt.Payload, bridge);
+        break;
+      case "settled":
+        // The settle's payload is the turn's answer (or its typed failure line); the
+        // outcome is read from the channel's Result, so nothing is applied here beyond
+        // the phase change. TurnPhase has no Idle member - Ready IS the idle phase, and
+        // the turn's finally block sets it too, so this is idempotent.
+        Status.Phase = TurnPhase.Ready;
+        break;
+      default:
+        break;
+    }
+  }
+
+  /// <summary>Renders one host tool event as the same call/result cards the in-process
+  ///     path renders.</summary>
+  private static void ApplyRootTurnToolEvent(string payload, StreamBridge bridge)
+  {
+    if (RootTurnToolPayload.Parse(payload) is not { } tool)
+    {
+      bridge.OnNotice($"[host] unreadable tool event: {payload}");
+      return;
+    }
+
+    if (tool.IsResult)
+    {
+      bridge.OnToolResult(tool.Name, tool.Summary, tool.Summary, tool.IsError, null);
+      return;
+    }
+
+    bridge.OnToolCall(tool.Name, tool.Arguments);
   }
 
   /// <summary>Persists the finished turn. A compacted or shrunk turn replaces the whole

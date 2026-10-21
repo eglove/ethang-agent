@@ -38,6 +38,16 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
   ///     inherits the sticky state and last reading offset.</summary>
   public TranscriptScrollController Scroll { get; } = new();
 
+  /// <summary>The assistant text currently rendered, blocks joined in order. A READ
+  ///     surface for tests and diagnostics: it never mutates the transcript, and it
+  ///     reports exactly what the user sees, so a test asserting on it asserts on the
+  ///     rendered surface rather than on an internal accumulator.</summary>
+  public string AssistantText => string.Concat(Entries.OfType<AssistantTextEntry>().Select(e => e.Text));
+
+  /// <summary>Every notice text currently rendered, in order. Same read-surface
+  ///     contract as <see cref="AssistantText"/>.</summary>
+  public IReadOnlyList<string> Notices => [.. Entries.OfType<NoticeEntry>().Select(e => e.Text)];
+
   public void AddUser(string text, IReadOnlyList<TranscriptImage>? images = null,
       IReadOnlyList<string>? imageLabels = null)
   {

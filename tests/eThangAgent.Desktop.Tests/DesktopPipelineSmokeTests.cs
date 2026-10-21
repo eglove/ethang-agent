@@ -41,6 +41,11 @@ public class DesktopPipelineSmokeTests
             new AgentHostOptions(
                 new FixedWorkspaceContext("app"),
                 new UnrootedPathResolver()), database.Database)
+        // Spec D6: this test drives the REAL handler in this process, so it opts into the
+        // in-process runtime explicitly (the same shape the E2E harness documents).
+        // Production never does — every conversation runs in its own host — and opting in
+        // also clears the root-turn channel, so the turn takes the local path.
+        .AddInProcessAgentRuntime(settings)
         .BuildServiceProvider();
 
     Assert.Same(database.Database, services.GetRequiredService<AppDatabase>());

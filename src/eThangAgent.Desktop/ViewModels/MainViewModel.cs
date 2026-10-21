@@ -1081,6 +1081,11 @@ internal sealed partial class MainViewModel : ObservableObject
               : () => SkillOptionsOf(session),
           ChildEvents = session.Services.GetService<IAgentEvents>(),
           AgentStore = session.Services.GetService<IAgentStore>(),
+          // Spec D6: the app runs NO agent work. A container built with the wire runtime
+          // (every production session) resolves the channel here and every turn travels to
+          // this conversation's host; a headless/test container that opted into the
+          // in-process runtime resolves none, and only then does the turn run locally.
+          RootTurnChannel = session.Services.GetService<IRootTurnChannel>(),
         });
   }
 

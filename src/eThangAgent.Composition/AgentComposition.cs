@@ -18,6 +18,7 @@ using eThangAgent.PlanDomain;
 using eThangAgent.Roslyn.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
@@ -809,6 +810,13 @@ public static class AgentComposition
   {
     ArgumentNullException.ThrowIfNull(services);
     ArgumentNullException.ThrowIfNull(settings);
+    // The channel is REMOVED, not merely shadowed: last-registration-wins only covers
+    // IAgentRuntime, so a container that opts into the in-process runtime would otherwise
+    // keep a RemoteRootTurnChannel wrapping a DISCONNECTED wire runtime - every turn would
+    // travel to a transport with no connection and produce no delta, no settle, and no
+    // error. The channel's presence IS the thin-client decision (see IRootTurnChannel), so
+    // an in-process container must have none: the app then runs the turn locally.
+    _ = services.RemoveAll<IRootTurnChannel>();
     return services
           .AddSingleton(sp => new InProcessAgentRuntime(
               sp.GetRequiredService<SubAgentSpawner>(),
@@ -850,7 +858,12 @@ public static class AgentComposition
           .AddSingleton(_ => new RemoteAgentRuntime(
                transport: null,
                settings.SubAgents.RootTurnBudget ?? RootTurnBudget.Default))
-          .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<RemoteAgentRuntime>());
+          .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<RemoteAgentRuntime>())
+          // Spec D6: the app-facing root-turn port. It rides the SAME runtime the
+          // container's IAgentRuntime resolves, so a turn and the child operations share
+          // one connection, one ownership set, and one set of bounds.
+          .AddSingleton<IRootTurnChannel>(sp => new RemoteRootTurnChannel(
+              sp.GetRequiredService<RemoteAgentRuntime>()));
   }
 
   /// <summary>The conversation this container serves: the persisted root session id. The
