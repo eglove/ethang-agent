@@ -124,7 +124,7 @@ public class RemoteHostE2ETests
     using E2E.HostHarness host = new();
     _ = await host.StartAsync();
 
-    // Open the session through the REAL factory with RemoteHost=true: the launch of
+    // Open the session through the REAL factory: the launch of
     // the ChildHost process, attach, and orphan repair all run the production path.
     string ws = Directory.CreateTempSubdirectory("ethang-remote-ws").FullName;
     AgentSessionFactory factory = new(

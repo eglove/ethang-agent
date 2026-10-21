@@ -30,7 +30,7 @@ public class ComputerUseCompositionTests
   }
 
 
-  // ---- loader parse matrix (strict binding, ParseRemoteHost pattern) ----
+  // ---- loader parse matrix (strict boolean binding, the ParseComputerUseEnabled pattern) ----
 
   [Fact]
   public async Task LoadAsync_ComputerUse_Absent_BindsFalse()

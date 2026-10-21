@@ -95,6 +95,10 @@ public class SkillInvocationCompositionTests
           created.Value.RootId, ct: TestContext.Current.CancellationToken);
       Assert.True(resumed.IsSuccess);
       Assert.NotNull(resumed.Value.SkillInvocation);
+      // Dispose the RESUMED container too: its supervisor launched this conversation's
+      // host, and an undisposed container leaks a live eThangAgent.ChildHost process
+      // (review finding 4 - the accumulation is a test-hygiene bug, not a missing reaper).
+      await resumed.Value.Services.DisposeAsync().ConfigureAwait(true);
     }
     finally
     {

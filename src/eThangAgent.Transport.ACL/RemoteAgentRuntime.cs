@@ -516,9 +516,25 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   private void HandleDeclare(string json)
   {
     DeclareCommand? declared = JsonSerializer.Deserialize<DeclareCommand>(json);
-    if (declared is not null)
+    if (declared is null)
     {
-      _declaredLive = [.. declared.LiveIds];
+      return;
+    }
+
+    _declaredLive = [.. declared.LiveIds];
+
+    // The declared set IS ownership (review finding 1): a child the host kept running
+    // across an app restart was never STARTED by this runtime, so seeding ownership from
+    // Start alone would refuse steering to a LIVE child - and the cross-container
+    // fallback cannot rescue it, because it gates on this same owned set. A declared id
+    // is owned by this connection; ids the host never declares stay unknown and still
+    // fail NotRunning.
+    lock (_owned)
+    {
+      foreach (Guid live in declared.LiveIds)
+      {
+        _owned[live] = 1;
+      }
     }
   }
 

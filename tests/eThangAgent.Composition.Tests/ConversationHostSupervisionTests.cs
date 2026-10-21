@@ -306,10 +306,83 @@ public class ConversationHostSupervisionTests
             cancelled.Token)).ConfigureAwait(true);
   }
 
+  /// <summary>The connect bound (review finding 3): TryConnectAsync must return null - not
+  ///     block - when no host answers inside its deadline. A pipe whose only instance is
+  ///     held leaves NamedPipeClientStream.ConnectAsync retrying forever, so an unbounded
+  ///     probe is the second suite-wide hang. This test FAILS on an unbounded probe
+  ///     instead of hanging: the assertion bound is far shorter than any suite timeout.</summary>
   [Fact]
-  public void StartedLineTimeout_IsABoundedClock()
+  public async Task Probe_NoHostListening_ReturnsNullInsideItsDeadline()
   {
-    Assert.True(RemoteHostSupervisor.StartedLineTimeout > TimeSpan.Zero);
-    Assert.True(RemoteHostSupervisor.StartedLineTimeout <= TimeSpan.FromMinutes(5));
+    string scratch = Directory.CreateTempSubdirectory("ethang-probe-scratch").FullName;
+    try
+    {
+      string workspace = Directory.CreateTempSubdirectory("ethang-probe-ws").FullName;
+      try
+      {
+        AgentSettings settings = new AgentSettings(
+            new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
+            new SubAgentOptions(null, 2)).WithWorkspaceRoot(workspace);
+        // A pipe name nothing serves: the probe must give up, not wait forever.
+        RemoteHostSupervisor supervisor = new("conversation-probe", scratch,
+            settings, Path.Combine(scratch, "app.db"), _ => { });
+
+        Task<NamedPipeChildTransport?> probe = supervisor.ProbeForTestAsync(TimeSpan.FromMilliseconds(300),
+            TestContext.Current.CancellationToken);
+        Task finished = await Task.WhenAny(
+            probe, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken))
+            .ConfigureAwait(true);
+        Assert.Same(probe, finished);
+        Assert.Null(await probe.ConfigureAwait(true));
+        await supervisor.DisposeAsync().ConfigureAwait(true);
+      }
+      finally
+      {
+        Directory.Delete(workspace, recursive: true);
+      }
+    }
+    finally
+    {
+      Directory.Delete(scratch, recursive: true);
+    }
   }
+
+  /// <summary>The connect bound itself is a CLOCK with a sane value: a regression to an
+  ///     unbounded (or absurd) connect is caught by the pin, not by a hung suite.</summary>
+  [Fact]
+  public void ConnectTimeout_IsABoundedClock()
+  {
+    Assert.True(RemoteHostSupervisor.ConnectTimeout > TimeSpan.Zero);
+    Assert.True(RemoteHostSupervisor.ConnectTimeout <= TimeSpan.FromSeconds(60));
+    Assert.True(RemoteHostSupervisor.ProbeTimeout > TimeSpan.Zero);
+    Assert.True(RemoteHostSupervisor.ProbeTimeout < RemoteHostSupervisor.ConnectTimeout,
+        "the reuse probe must be shorter than a full connect, or reuse would cost a launch wait");
+  }
+
+  /// <summary>Closed stdout WITHOUT an exit (review finding 6): the host closed its pipe but
+  ///     is still alive. A null line means it can never announce itself, so the wait must
+  ///     resolve at once as TimedOut rather than spin to the deadline. The earlier
+  ///     hasExited:true test never entered the loop body, so this production shape was
+  ///     unexercised.</summary>
+  [Fact]
+  public async Task StartedLine_ClosedStdoutWhileAlive_ResolvesWithoutWaitingForTheDeadline()
+  {
+    System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+    RemoteHostSupervisor.StartedLineOutcome outcome = await RemoteHostSupervisor.AwaitStartedLineAsync(
+        LinesFrom((string?)null),
+        () => false,
+        TimeSpan.FromSeconds(30),
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+    elapsed.Stop();
+
+    Assert.Equal(RemoteHostSupervisor.StartedLineOutcome.TimedOut, outcome);
+    Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(10),
+        $"closed stdout must resolve at once, not wait out the 30s deadline (took {elapsed.Elapsed})");
+  }
+
+  /// <summary>The startup deadline is pinned TIGHTLY (review finding 7): the old
+  ///     a five-minute ceiling let a five-minute regression pass.</summary>
+  [Fact]
+  public void StartedLineTimeout_IsPinnedTightly() =>
+      Assert.Equal(TimeSpan.FromSeconds(60), RemoteHostSupervisor.StartedLineTimeout);
 }

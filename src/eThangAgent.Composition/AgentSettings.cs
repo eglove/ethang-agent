@@ -40,7 +40,7 @@ public sealed record AgentSettings(
 {
   // Watchdog (W1.2): null means no SubAgent:Watchdog configuration — the host watchdog
   // runs WatchdogOptions.Default. The value travels to the child host inside the
-  // settings JSON the provider host supervisor writes.
+  // settings JSON the RemoteHostSupervisor writes.
   /// <summary>True when an OpenRouter API key (non-blank) is configured.</summary>
   public bool HasOpenRouter => !string.IsNullOrWhiteSpace(OpenRouter.ApiKey);
 

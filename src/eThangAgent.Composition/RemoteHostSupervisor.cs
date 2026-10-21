@@ -156,18 +156,34 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     }
   }
 
+  /// <summary>Test seam over <see cref="TryConnectAsync"/>: the reuse probe's bound is a
+  ///     CLOCK, and a test must be able to drive it with a short deadline against a pipe
+  ///     nothing serves. Production always probes with <see cref="ProbeTimeout"/>.</summary>
+  internal Task<NamedPipeChildTransport?> ProbeForTestAsync(TimeSpan timeout, CancellationToken ct) =>
+      TryConnectAsync(timeout, ct);
   /// <summary>Connects to an ALREADY-RUNNING host, or null when none answers inside the
   ///     probe window. A probe, not a failure path: absence is the ordinary cold-start
   ///     answer and must never surface as an error.</summary>
   private async Task<NamedPipeChildTransport?> TryConnectAsync(TimeSpan timeout, CancellationToken ct)
   {
+    // A caller who cancelled asked for NO work: refuse before probing, so a cancelled
+    // attach never reaches StartAndConnectAsync and never launches a host process
+    // (review finding 9: the broad catch below swallowed the cancellation and fell
+    // through to a spawn).
+    ct.ThrowIfCancellationRequested();
     using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
     deadline.CancelAfter(timeout);
     try
     {
       return await NamedPipeChildTransport.ConnectToHostAsync(HostPipeName, deadline.Token).ConfigureAwait(false);
     }
-    // Named decision (CA1031): no host answering is the expected cold-start answer.
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+      // The CALLER cancelled: propagate, never treat it as "no host here".
+      throw;
+    }
+    // Named decision (CA1031): no host answering inside the probe window is the expected
+    // cold-start answer - the caller's own cancellation is handled above, not here.
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception)
     {
