@@ -38,11 +38,23 @@ namespace eThangAgent.ChildHost;
 ///     which is the only moment it is safe: the agent subscribes the root transcript sink
 ///     when it is constructed, so messages added after that point would be re-persisted as
 ///     if the model had just produced them.</para></summary>
-public sealed class RootRunHost
+public sealed class RootRunHost : IDisposable
 {
   private readonly IServiceProvider _services;
+
+  // TURN SERIALIZATION (fix round 2, finding 1). Turns are dispatched concurrently by the
+  // host (round 1 moved them off the serve loop), but a conversation is a SEQUENCE: two
+  // turns interleaving would append their messages out of order and each would see a
+  // half-built history. The gate makes a root turn atomic - one at a time, in arrival
+  // order - which is exactly the app-side contract the Desktop's busy flag used to give.
+  private readonly SemaphoreSlim _turnGate = new(1, 1);
+
+  // HYDRATION SINGLE-FLIGHT (fix round 2, finding 1/8). The latch is set only AFTER a
+  // successful load: a cancelled or failed hydration leaves it unset so the next turn
+  // retries, instead of leaving the runner permanently empty-headed. The task is shared so
+  // concurrent callers never start two reads.
   private readonly Lock _hydrationGate = new();
-  private bool _hydrated;
+  private Task? _hydration;
 
   /// <summary>Builds the runner over a host's own headless container.</summary>
   public RootRunHost(SessionHost host, AgentId rootId, Conversation conversation)
@@ -107,6 +119,49 @@ public sealed class RootRunHost
       return rejected;
     }
 
+    // Seed validation BEFORE the gate: a refused turn never enters the queue and never
+    // touches the conversation.
+    // Seed validation BEFORE the gate: a refused turn never enters the queue and never
+    // touches the conversation.
+    if (request.Seed is { Count: > 2 })
+    {
+      Result<string> refused = Result.Failure<string>(new DomainError("InvalidSeed",
+          "a root turn seed may carry at most one exchange (two lines); a longer seed carries "
+          + "no roles and would be silently mislabelled."));
+      Emit(request, onEvent, "settled", DescribeFailure(refused.Error));
+      return refused;
+    }
+
+    try
+    {
+      await _turnGate.WaitAsync(ct).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+      // Same contract the handler's own cancellation path honors: a stop during the wait for
+      // the gate fails the turn as TurnCancelled, never as a raw exception across the
+      // Task<Result<string>> seam.
+      return Result.Failure<string>(new DomainError("TurnCancelled", "the turn was cancelled."));
+    }
+
+    try
+    {
+      return await RunTurnCoreAsync(request, onEvent, ct).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+      return Result.Failure<string>(new DomainError("TurnCancelled", "the turn was cancelled."));
+    }
+    finally
+    {
+      _ = _turnGate.Release();
+    }
+  }
+
+  /// <summary>One turn, executed under the turn gate: hydrate, run, settle.</summary>
+  private async Task<Result<string>> RunTurnCoreAsync(RootTurnRequest request,
+      Action<RootTurnEvent> onEvent, CancellationToken ct)
+  {
     await HydrateAsync(request, ct).ConfigureAwait(false);
 
     SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
@@ -136,16 +191,39 @@ public sealed class RootRunHost
   ///     afterwards would be persisted as freshly produced output.</summary>
   private async Task HydrateAsync(RootTurnRequest request, CancellationToken ct)
   {
+    Task hydration;
     lock (_hydrationGate)
     {
-      if (_hydrated)
-      {
-        return;
-      }
-
-      _hydrated = true;
+      // The latch is the TASK, and it is cleared on failure below: a cancelled or failed
+      // hydration must leave the runner un-hydrated so the NEXT turn retries (fix round 2,
+      // findings 1 and 8). Setting a bool before the read was the round-1 defect.
+      _hydration ??= HydrateCoreAsync(request.Seed, ct);
+      hydration = _hydration;
     }
 
+    try
+    {
+      await hydration.WaitAsync(ct).ConfigureAwait(false);
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+    {
+      // Named decision (CA1031): a hydration that did not complete leaves the latch CLEARED
+      // so the next turn tries again; it never leaves a permanently empty conversation.
+      lock (_hydrationGate)
+      {
+        _hydration = null;
+      }
+
+      throw;
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+  }
+
+  /// <summary>The one hydration attempt: store first, seed second. Runs at most once to
+  ///     completion; a failure clears the latch so a later turn retries.</summary>
+  private async Task HydrateCoreAsync(IReadOnlyList<string>? seed, CancellationToken ct)
+  {
     if (Conversation.Messages.Count > 0)
     {
       return; // the container was seeded with history already (the app-side shape)
@@ -156,7 +234,7 @@ public sealed class RootRunHost
       return;
     }
 
-    HydrateFromSeed(request.Seed);
+    HydrateFromSeed(seed);
   }
 
   /// <summary>Hydrates from the container's store when it has a transcript for this root.
@@ -228,4 +306,8 @@ public sealed class RootRunHost
   private static void Emit(RootTurnRequest request, Action<RootTurnEvent> onEvent,
       string kind, string payload)
       => onEvent(new RootTurnEvent(request.TurnId, kind, payload, request.Generation));
+
+  /// <summary>Releases the turn gate. Disposing a runner with a turn in flight is a host
+  ///     shutdown; the in-flight turn observes its own cancellation, never a disposed gate.</summary>
+  public void Dispose() => _turnGate.Dispose();
 }

@@ -22,14 +22,13 @@ internal sealed class ScriptedRootHost : IDisposable
   private readonly ServiceProvider _services;
 
   private ScriptedRootHost(ServiceProvider services, RootRunHost runner, RootSessionIdentity identity,
-      ScriptedProvider provider, ChildHostServer server, RecordingStore store)
+      ScriptedProvider provider, ChildHostServer server)
   {
     _services = services;
     Runner = runner;
     RootIdentity = identity;
     Provider = provider;
     Server = server;
-    Store = store;
   }
 
   /// <summary>The runner under test, resolved exactly the way the server resolves it.</summary>
@@ -50,13 +49,6 @@ internal sealed class ScriptedRootHost : IDisposable
   ///     delivery registries and drive other envelope kinds while a turn is in flight.</summary>
   public ChildHostServer Server { get; }
 
-  /// <summary>How many messages the container's store has been asked to append — the
-  ///     observation that proves hydration did not re-persist history as fresh output.</summary>
-  public int AppendedCount => Store.AppendedCount;
-
-  /// <summary>The container's store double.</summary>
-  private RecordingStore Store { get; }
-
   /// <summary>Builds a host whose provider streams <paramref name="deltas"/> and then
   ///     completes with <paramref name="answer"/>. <paramref name="betweenDeltas"/> runs
   ///     between the first and second delta, so a test can observe what the caller had
@@ -64,7 +56,8 @@ internal sealed class ScriptedRootHost : IDisposable
   ///     <paramref name="identity"/> supplies a pre-filled root identity carrier.</summary>
   public static ScriptedRootHost Start(string answer, IReadOnlyList<string> deltas,
       Action? betweenDeltas = null, DomainError? providerError = null,
-      RootSessionIdentity? identity = null, IReadOnlyList<Message>? storedHistory = null)
+      RootSessionIdentity? identity = null, IReadOnlyList<Message>? storedHistory = null,
+      TimeSpan? storeDelay = null)
   {
     Conversation conversation = new();
     IToolRegistry tools = new EmptyToolRegistry();
@@ -74,7 +67,7 @@ internal sealed class ScriptedRootHost : IDisposable
     Ag agent = new(provider, conversation, config, tools, new AgentOptions { Id = rootId });
     RootSessionIdentity carrier = identity ?? new RootSessionIdentity();
 
-    RecordingStore store = new(storedHistory ?? []);
+    RecordingStore store = new(storedHistory ?? [], storeDelay ?? TimeSpan.Zero);
     ServiceProvider services = new ServiceCollection()
         .AddSingleton(conversation)
         .AddSingleton(tools)
@@ -92,7 +85,7 @@ internal sealed class ScriptedRootHost : IDisposable
     ChildHostServer server = new(settings,
         Path.Combine(Path.GetTempPath(), "ethang-scripted-" + Guid.NewGuid().ToString("N") + ".db"));
     server.AttachRootRun(runner);
-    return new ScriptedRootHost(services, runner, carrier, provider, server, store);
+    return new ScriptedRootHost(services, runner, carrier, provider, server);
   }
 
   /// <summary>Runs one turn through the runner exactly as the server does.</summary>
@@ -121,9 +114,23 @@ internal sealed class ScriptedRootHost : IDisposable
   {
     private int _calls;
     private IReadOnlyList<Message> _lastRequest = [];
+    private readonly List<IReadOnlyList<Message>> _requests = [];
 
     /// <summary>How many provider calls have started.</summary>
     public int Calls => Volatile.Read(ref _calls);
+
+    /// <summary>Every message list the model was handed, in call order — the observation a
+    ///     concurrency test needs to prove EVERY turn saw the hydrated prefix.</summary>
+    public IReadOnlyList<IReadOnlyList<Message>> Requests
+    {
+      get
+      {
+        lock (_requests)
+        {
+          return [.. _requests];
+        }
+      }
+    }
 
     /// <summary>The message list the model was handed on the most recent call — the only
     ///     direct observation of what history a turn actually saw.</summary>
@@ -147,6 +154,10 @@ internal sealed class ScriptedRootHost : IDisposable
     {
       _ = Interlocked.Increment(ref _calls);
       Volatile.Write(ref _lastRequest, request.Messages);
+      lock (_requests)
+      {
+        _requests.Add(request.Messages);
+      }
       if (providerError is not null)
       {
         return Task.FromResult(Result.Failure<ModelResponse>(providerError));
@@ -172,15 +183,18 @@ internal sealed class ScriptedRootHost : IDisposable
   ///     <para>Why a hand-written double rather than the real SQLite store: these tests
   ///     assert what the MODEL was handed and what was persisted, and a fake makes both
   ///     directly observable.</para></summary>
-  internal sealed class RecordingStore(IReadOnlyList<Message> transcript) : IAgentStore
+  internal sealed class RecordingStore(IReadOnlyList<Message> transcript, TimeSpan delay) : IAgentStore
   {
     private int _appended;
 
-    /// <summary>How many messages have been appended.</summary>
-    public int AppendedCount => Volatile.Read(ref _appended);
-
-    public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
-        => Task.FromResult(Result.Success(transcript));
+    /// <summary>A deliberately SLOW read: concurrency defects only appear when the store
+    ///     read is wide enough for a second turn to arrive inside it.</summary>
+    public async Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id,
+        CancellationToken ct = default)
+    {
+      await Task.Delay(delay, ct).ConfigureAwait(false);
+      return Result.Success(transcript);
+    }
 
     public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
     {

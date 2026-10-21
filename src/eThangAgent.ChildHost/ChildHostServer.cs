@@ -41,7 +41,12 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   // root session: a host with no bound session must not guess which conversation a turn
   // belongs to, and answers with a typed settle instead.
   private RootRunHost? _rootHost;
-  private bool _rootHostBuilt;
+  // SINGLE-FLIGHT (fix round 2, finding 2): a plain bool read-then-write let two cold turns
+  // race, and the loser observed 'built' while the field was still null - answering a FALSE
+  // 'not bound to a root session' for a host that IS bound. The task is the latch: both
+  // callers await the same build.
+  private readonly Lock _rootHostGate = new();
+  private Task<RootRunHost?>? _rootHostBuild;
   private long _sequence;
 
   /// <summary>The ids the host currently runs — the exact live set the app's orphan
@@ -270,7 +275,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       return; // unaddressable: a request carrying no turn id cannot be settled
     }
 
-    RootRunHost? rootHost = ResolveRootHost();
+    RootRunHost? rootHost = await ResolveRootHostAsync().ConfigureAwait(false);
     if (rootHost is null)
     {
       // No root session is bound to this host (the settings named none): answer with a
@@ -326,14 +331,23 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///     session container it never uses, and a container that cannot be built must not
   ///     stop children from running. A build failure is reported the same way a missing
   ///     binding is — a typed settle on the turn that needed it — never a host crash.</summary>
-  private RootRunHost? ResolveRootHost()
+  private async Task<RootRunHost?> ResolveRootHostAsync()
   {
-    if (_rootHostBuilt)
+    Task<RootRunHost?> build;
+    lock (_rootHostGate)
     {
-      return _rootHost;
+      _rootHostBuild ??= BuildRootHostAsync();
+      build = _rootHostBuild;
     }
 
-    _rootHostBuilt = true;
+    return await build.ConfigureAwait(false);
+  }
+
+  /// <summary>The one build attempt. A container that cannot be built leaves root turns
+  ///     unserved (a typed settle answers them) and never takes the child-serving path down
+  ///     with it.</summary>
+  private Task<RootRunHost?> BuildRootHostAsync()
+  {
     try
     {
       _rootHost = SessionHost.Create(settingsPath, databasePath).RootRun;
@@ -341,21 +355,28 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception)
     {
-      // Named decision (CA1031): the host is an isolation boundary — a container that
-      // cannot be built leaves root turns unserved (a typed settle answers them), and
-      // never takes the child-serving path down with it.
+      // Named decision (CA1031): the host is an isolation boundary.
       _rootHost = null;
     }
 #pragma warning restore CA1031 // Do not catch general exception types
 
-    return _rootHost;
+    return Task.FromResult(_rootHost);
   }
 
   /// <summary>Puts one streamed root-turn event on the wire. The runner's callback is
   ///     synchronous by contract (the loop fires deltas from arbitrary threads and never
-  ///     awaits the observer), so the bounded write is awaited inline here: events reach the
-  ///     app in the order the turn produced them, and a failed write surfaces as the
-  ///     transport fault it is rather than vanishing into an unobserved task.</summary>
+  ///     awaits the observer), so the write is awaited inline here: events reach the app in
+  ///     the order the turn produced them, and a failed write surfaces as the transport
+  ///     fault it is rather than vanishing into an unobserved task.
+  ///     <para>THE WRITE IS UNBOUNDED (fix round 2, finding 3 — the previous text claimed a
+  ///     bound the code never had). <see cref="SendAsync"/> passes NO cancellation token:
+  ///     <c>NamedPipeChildTransport.SendAsync</c> awaits its write gate with
+  ///     <c>CancellationToken.None</c> and frames with <c>CancellationToken.None</c>. A peer
+  ///     that stops reading therefore blocks this call indefinitely, and because it is
+  ///     awaited inline from the delta callback it stalls the provider's stream read and the
+  ///     turn with it. The consequence is stated rather than fixed: bounding this write needs
+  ///     a token threaded through the whole transport write path, which is a transport-level
+  ///     change, not a host-side one.</para></summary>
   private async Task SendRootTurnEventAsync(RootTurnEvent evt)
       => await SendAsync("root-turn-event", RootTurnProtocol.SerializeEvent(evt)).ConfigureAwait(false);
 
@@ -436,13 +457,24 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///     the way <see cref="AttachDeliveryRegistry"/> registers a delivery target: tests
   ///     drive the real dispatch path over a real pipe with a scripted runner, without
   ///     building a full provider stack. Production resolves its runner from the host's own
-  ///     container (<see cref="ResolveRootHost"/>).</summary>
+  ///     container (<see cref="ResolveRootHostAsync"/>).</summary>
   public void AttachRootRun(RootRunHost runner)
   {
     ArgumentNullException.ThrowIfNull(runner);
-    _rootHost = runner;
-    _rootHostBuilt = true;
+    lock (_rootHostGate)
+    {
+      _rootHost = runner;
+      // Pre-completing the build task is the latch: every later resolve shares it and no
+      // caller can observe a half-built state.
+      _rootHostBuild = Task.FromResult<RootRunHost?>(runner);
+    }
   }
+
+  /// <summary>Observation seam for tests: the runner resolution the dispatch path uses, so a
+  ///     concurrency test can drive the LATCH directly. Production reaches it through
+  ///     <see cref="HandleRootTurnAsync"/>; the seam exists because building a real provider
+  ///     stack costs seconds and the property under test is the latch, not the container.</summary>
+  public Task<RootRunHost?> ResolveRootHostForTest() => ResolveRootHostAsync();
 
   /// <summary>Observation seam for tests: the cancellation token of one active child's
   ///     run, or null when the host runs no such child.</summary>

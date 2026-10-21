@@ -253,14 +253,22 @@ public sealed class ChildHostRootRunFixTests
     // conversation's mutation notification, so a hydrated message that RAISED it would be
     // appended to the store a second time. Observed at the conversation itself, which is
     // the exact seam the sink listens on.
-    // The comparison run: the SAME turn with no seed. Whatever the agent notifies for its
-    // own messages is the baseline; the seeded run must match it exactly.
-    int unseeded = await CountNotificationsAsync(seed: []).ConfigureAwait(true);
-    int seeded = await CountNotificationsAsync(seed: ["prior one", "prior two"]).ConfigureAwait(true);
+    // Three runs of the SAME turn: no history, a two-line seed, and a STORE transcript.
+    // Whatever the agent notifies for its own messages is the baseline; neither hydration
+    // path may add to it.
+    int unseeded = await CountNotificationsAsync(seed: [], stored: []).ConfigureAwait(true);
+    int seeded = await CountNotificationsAsync(seed: ["prior one", "prior two"], stored: [])
+        .ConfigureAwait(true);
+    int stored = await CountNotificationsAsync(seed: [], stored:
+        [
+            new Message(Role.User, "stored one", DateTimeOffset.UnixEpoch),
+            new Message(Role.Assistant, "stored two", DateTimeOffset.UnixEpoch),
+        ]).ConfigureAwait(true);
 
-    // Hydration contributes ZERO notifications. A Seed routed through Add* would make the
-    // seeded run notify twice more, and the store would hold every historical message twice.
+    // Hydration contributes ZERO notifications on BOTH paths. Routing either through Add*
+    // would make that run notify twice more, and the store would hold the history twice.
     Assert.Equal(unseeded, seeded);
+    Assert.Equal(unseeded, stored);
     Assert.True(unseeded > 0, "the turn itself must notify, or this comparison proves nothing");
   }
   [Fact]
@@ -341,9 +349,11 @@ public sealed class ChildHostRootRunFixTests
   }
 
   /// <summary>Runs one turn and reports how many conversation notifications it raised.</summary>
-  private static async Task<int> CountNotificationsAsync(IReadOnlyList<string> seed)
+  private static async Task<int> CountNotificationsAsync(IReadOnlyList<string> seed,
+      IReadOnlyList<Message> stored)
   {
-    using ScriptedRootHost host = ScriptedRootHost.Start("the answer", ["the ", "answer"]);
+    using ScriptedRootHost host = ScriptedRootHost.Start("the answer", ["the ", "answer"],
+        storedHistory: stored);
     int count = 0;
     using IDisposable lease = host.Runner.Conversation.Subscribe(_ =>
         Interlocked.Increment(ref count));
