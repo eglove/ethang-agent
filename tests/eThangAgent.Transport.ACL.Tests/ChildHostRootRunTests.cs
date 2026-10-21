@@ -1,4 +1,5 @@
 using eThangAgent.ChildHost;
+using eThangAgent.ConversationDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Transport.ACL.Tests;
@@ -56,6 +57,34 @@ public sealed class ChildHostRootRunTests
     Assert.Equal(["delta", "delta", "settled"], events.Select(e => e.Kind));
     Assert.Equal(["the ", "answer", "the answer"], events.Select(e => e.Payload));
     Assert.All(events, e => Assert.Equal("turn-1", e.TurnId));
+  }
+
+  [Fact]
+  public async Task RunTurnAsync_CarriedImages_RebuildIntoTheUserMessageParts()
+  {
+    using ScriptedRootHost host = ScriptedRootHost.Start("seen", ["seen"]);
+    List<RootTurnEvent> events = [];
+    const string png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+    // The app is where images are staged; the host has no clipboard, so the request's
+    // Images carrier is the ONLY way they reach the model. BuildImageParts must rebuild
+    // them into the user message's parts.
+    RootTurnRequest request = new("turn-img", "what is this", [])
+    {
+      Images = [new RootTurnImage("image/png", png)],
+    };
+
+    Result<string> result = await host.RunTurnAsync(request, events.Add,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(result.IsSuccess, result.Error?.Message);
+    Message user = Assert.Single(host.Runner.Conversation.Messages,
+        m => m.Role == Role.User);
+    Assert.Equal("what is this", user.Content, StringComparer.Ordinal);
+    MessagePart.ImagePart image = Assert.IsType<MessagePart.ImagePart>
+        (Assert.Single(user.Parts ?? []));
+    Assert.Equal("image/png", image.MediaType, StringComparer.Ordinal);
+    Assert.Equal(png, image.Base64Data, StringComparer.Ordinal);
   }
 
   [Fact]

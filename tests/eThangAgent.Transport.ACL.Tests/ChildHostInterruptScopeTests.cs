@@ -121,6 +121,65 @@ public class ChildHostInterruptScopeTests
     }
   }
 
+  [Fact]
+  public async Task RootTurnInterrupt_DoesNotCancelAnotherSessionsChild()
+  {
+    (ChildHostServer server, NamedPipeChildTransport appSide, Func<Task> _) = await StartRigAsync().ConfigureAwait(true);
+    try
+    {
+      // A child belonging to a DIFFERENT session, live in this shared host.
+      (Guid otherId, CancellationTokenSource otherCts) = NewActive();
+      RecordingRuntime otherRuntime = new();
+      // Named decision (CA2000): ownership transfers to the server's active set.
+#pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
+      server.AttachActiveChild(otherId, parentId: null, otherCts, otherRuntime);
+#pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
+
+      // A root-turn stop: TurnId present, RecordId NULL — the exact shape the Desktop's
+      // stop button sends. It must reach ONLY that turn.
+      await appSide.SendAsync(new TransportEnvelope("interrupt",
+          System.Text.Json.JsonSerializer.Serialize(new InterruptCommand(null, "turn-stop")), NextSeq()),
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      // Give the host ample time to (wrongly) enact a blanket cancel, then assert it did not.
+      await Task.Delay(TimeSpan.FromMilliseconds(300), TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      // THE INVARIANT: another session's child run survives a root-turn stop. A null
+      // RecordId must NOT be read as 'cancel everything' when a TurnId was supplied.
+      Assert.False(otherCts.IsCancellationRequested,
+          "a root-turn interrupt must not cancel another session's child run");
+      Assert.DoesNotContain(otherRuntime.Interrupts, i => i.Value == otherId);
+    }
+    finally
+    {
+      await appSide.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
+  [Fact]
+  public async Task RootTurnInterrupt_CancelsTheTargetedTurn()
+  {
+    (ChildHostServer server, NamedPipeChildTransport appSide, Func<Task> _) = await StartRigAsync().ConfigureAwait(true);
+    try
+    {
+      // A live ROOT turn registered under its turn id, exactly as HandleRootTurnAsync does.
+      using CancellationTokenSource turnCts = new();
+      server.RegisterRootTurn("turn-live", turnCts);
+
+      await appSide.SendAsync(new TransportEnvelope("interrupt",
+          System.Text.Json.JsonSerializer.Serialize(new InterruptCommand(null, "turn-live")), NextSeq()),
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      // The scoped stop must still DO its job: the targeted turn's token is cancelled,
+      // so the host actually stops rather than merely abandoning the app's local wait.
+      await WaitUntil(() => turnCts.IsCancellationRequested, TimeSpan.FromSeconds(10)).ConfigureAwait(true);
+    }
+    finally
+    {
+      await appSide.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
   /// <summary>Recording runtime: captures the ids interrupts are enacted against —
   ///     the proof that scoped interrupts reach the child containers' runtimes.</summary>
   private sealed class RecordingRuntime : IAgentRuntime

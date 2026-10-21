@@ -492,6 +492,16 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///     stack costs seconds and the property under test is the latch, not the container.</summary>
   public Task<RootRunHost?> ResolveRootHostForTest() => ResolveRootHostAsync();
 
+  /// <summary>Registers a live ROOT turn's cancellation source the way
+  ///     <see cref="HandleRootTurnAsync"/> does, so a test can exercise the scoped
+  ///     root-turn interrupt over a real pipe without running a whole agent turn.</summary>
+  public void RegisterRootTurn(string turnId, CancellationTokenSource cts)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(turnId);
+    ArgumentNullException.ThrowIfNull(cts);
+    _rootTurns[turnId] = cts;
+  }
+
   /// <summary>Observation seam for tests: the cancellation token of one active child's
   ///     run, or null when the host runs no such child.</summary>
   public CancellationToken? ActiveToken(Guid recordId)
@@ -511,14 +521,21 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   {
     InterruptCommand? command = JsonSerializer.Deserialize<InterruptCommand>(envelope.Json);
 
-    // The ROOT turn first: a stop button cancels the turn the user is watching, which has
-    // no record id and is therefore invisible to the child walk below. Cancelling its token
-    // is what makes the host actually STOP — abandoning the app's local wait alone left the
-    // turn running, growing the conversation, and persisting a turn the user had stopped.
-    if (command!.TurnId is { Length: > 0 } turnId
-        && _rootTurns.TryGetValue(turnId, out CancellationTokenSource? turnCts))
+    // A SUPPLIED TurnId MAKES THIS INTERRUPT SCOPED, and it must RETURN here. A root turn
+    // has no record id, so a root-turn stop arrives with RecordId null - which is exactly
+    // the shape the blanket branch below treats as 'cancel everything'. Falling through
+    // would cancel every child run in the host, INCLUDING OTHER SESSIONS' CHILDREN, which
+    // contradicts this method's own contract and the FR-C6 scoped-teardown rule. The stop
+    // button sends the subtree interrupt and this root-turn interrupt as TWO envelopes, so
+    // each one does exactly its own job.
+    if (command!.TurnId is { Length: > 0 } turnId)
     {
-      turnCts.Cancel();
+      if (_rootTurns.TryGetValue(turnId, out CancellationTokenSource? turnCts))
+      {
+        turnCts.Cancel();
+      }
+
+      return;
     }
 
     if (command.RecordId is { } root)
