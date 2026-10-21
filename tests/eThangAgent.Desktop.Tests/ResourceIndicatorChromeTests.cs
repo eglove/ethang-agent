@@ -90,11 +90,54 @@ public sealed class ResourceIndicatorChromeTests
     ResourceConsumerRow consumer = Assert.IsType<ResourceConsumerRow>(Assert.Single(consumers.Items));
     string decision = Assert.IsType<string>(Assert.Single(decisions.Items));
     Assert.Equal("c1", consumer.ConversationId);
-    Assert.Contains("Steer", decision, StringComparison.Ordinal);
+    // The decision line is PLAIN LANGUAGE: the raw rung name is internal
+    // vocabulary and must not reach the chrome.
+    Assert.Contains("steer", decision, StringComparison.OrdinalIgnoreCase);
+    Assert.DoesNotContain("Steer", decision, StringComparison.Ordinal);
 
     toggle.Command?.Execute(toggle);
     Dispatcher.UIThread.RunJobs();
     Assert.True(vm.IsResourceDetailsOpen);
+  }
+
+  /// <summary>The chrome must render the consumer's TEXT, not the record. Binding
+  ///     the record makes Avalonia fall back to Record.ToString(), and the screen then
+  ///     shows a C# type name, a structural dump and a raw id - a broken screen that
+  ///     an item-TYPE assertion cannot see, which is exactly how the broken binding
+  ///     passed the chrome tests before.</summary>
+  [AvaloniaFact]
+  public void DetailsToggle_RendersTheConsumerText_NotTheRecordTypeName()
+  {
+    MainViewModel vm = CreateShell();
+    MainWindow window = new(vm);
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    vm.Resource.Update(
+        new ResourceGovernorTick(ResourceLevel.Notice, "c1", ResourceAction.Steer,
+            5_000_000_000L, 8_000_000_000L),
+        [new ResourceObservation("c1", 5_000_000_000L, [])],
+        []);
+    Dispatcher.UIThread.RunJobs();
+
+    ItemsControl consumers = Control<ItemsControl>(window, "ResourceConsumersList");
+
+    // The details must be OPEN for the rows to be realized at all: a collapsed
+    // panel renders nothing, and a test that reads an unrealized list proves
+    // nothing about what the user sees.
+    Button toggle = Control<Button>(window, "ResourceDetailsButton");
+    toggle.Command?.Execute(toggle);
+    Dispatcher.UIThread.RunJobs();
+
+    // The RENDERED text: what the user actually sees in the consumer list.
+    string[] rendered = [.. window.GetVisualDescendants().OfType<TextBlock>()
+        .Select(block => block.Text ?? string.Empty)
+        .Where(text => text.Length > 0)];
+
+    Assert.Contains(rendered, text => text.Contains("5.0 GB", StringComparison.Ordinal));
+    Assert.DoesNotContain(rendered, text => text.Contains("ResourceConsumerRow", StringComparison.Ordinal));
+    Assert.DoesNotContain(rendered, text => text.Contains("ConversationId =", StringComparison.Ordinal));
+    Assert.NotEmpty(consumers.Items);
   }
 
   [AvaloniaFact]

@@ -202,6 +202,13 @@ internal static class DesktopHost
     // runs in its own host process, spec D6) plus the app process itself.
     ResourceHostObservation observation = new(() => LiveHosts(vm));
     ResourceHostEnactment enactment = new(conversationId => FindHost(vm, conversationId));
+
+    // The indicator shows the conversation's NAME, not its id: a raw id is not a
+    // name, and a full id is not a name either.
+    vm.Resource.ConversationNames = conversationId => vm.Tabs
+        .Where(tab => string.Equals(tab.Container.RootId.ToString(), conversationId, StringComparison.Ordinal))
+        .Select(tab => tab.Title)
+        .FirstOrDefault();
     ResourceGovernor governor = new(
         new MachineResources(), observation, enactment, boot.WatchdogEvents,
         watchdogOptions, TimeProvider.System, () => vm.OpenConversationCount);
@@ -249,8 +256,6 @@ internal static class DesktopHost
     return window;
   }
 
-
-
   /// <summary>The live conversation hosts: one handle per open tab whose host process
   ///     is running. A tab whose host has not started (or has died) contributes
   ///     nothing - the observation then reports that conversation as absent rather
@@ -283,11 +288,14 @@ internal static class DesktopHost
       }
 
       RemoteHostSupervisor? supervisor = container.Services.GetService<RemoteHostSupervisor>();
-      return supervisor is null ? null : new ResourceHostRegistration(conversationId, supervisor);
+      return supervisor is null
+          ? null
+          : new ResourceHostRegistration(conversationId, supervisor) { HostProcessId = supervisor.HostProcessId };
     }
 
     return null;
   }
+
   /// <summary>Shows the startup-error dialog on the UI thread and shuts down with exit code 1
   ///     when it closes. Safe to call from any thread.</summary>
   public static async Task ShowErrorAndExitAsync(

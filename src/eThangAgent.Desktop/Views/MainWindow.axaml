@@ -75,6 +75,8 @@
                          VerticalAlignment="Center"/>
             <TextBlock x:Name="ResourceLevelText" Text="{Binding Resource.LevelDisplay}"
                        FontSize="12" VerticalAlignment="Center"/>
+            <TextBlock x:Name="ResourceLevelBasisText" Text="{Binding Resource.LevelBasisDisplay}"
+                       FontSize="11" Opacity="0.8" VerticalAlignment="Center"/>
             <Button x:Name="ResourceDetailsButton" Content="Details" Padding="6,1"
                     FontSize="11" Command="{Binding ToggleResourceDetailsCommand}"
                     ToolTip.Tip="Show the memory consumers and the governor's decisions"/>
@@ -84,10 +86,12 @@
           <StackPanel x:Name="ResourceDetailsPanel" Spacing="4"
                       IsVisible="{Binding IsResourceDetailsOpen}">
             <TextBlock Text="Largest consumers" FontWeight="SemiBold" FontSize="11"/>
+            <TextBlock x:Name="ResourceAppUsageText" Text="{Binding Resource.AppUsageDisplay}"
+                       FontSize="11" Opacity="0.85"/>
             <ItemsControl x:Name="ResourceConsumersList" ItemsSource="{Binding Resource.Consumers}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <TextBlock FontSize="11" Opacity="0.85" Text="{Binding}"
+                  <TextBlock FontSize="11" Opacity="0.85" Text="{Binding Text}"
                              TextWrapping="Wrap"/>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>

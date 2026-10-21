@@ -11,7 +11,12 @@ namespace eThangAgent.Agent.Application;
 ///     made against; <see cref="TotalBytes"/> is the app-wide budget the same derivation
 ///     produced (null when the tick could not derive one - a failed machine probe).
 ///     The indicator renders against the app-wide total, because the indicator is
-///     app-wide; the share is what the governor itself decided on.</para></summary>
+///     app-wide; the share is what the governor itself decided on.</para>
+///     <para><see cref="AppUsageBytes"/> is the APP PROCESS's own memory - a consumer
+///     of the app-wide budget that is never a target: the governor acts on
+///     conversations, so the app's usage arrives on its own channel and is counted in
+///     the app-wide picture without ever being selectable as a conversation.</para>
+/// </summary>
 public sealed record ResourceGovernorTick(
     ResourceLevel Level,
     string? ConversationId,
@@ -19,7 +24,8 @@ public sealed record ResourceGovernorTick(
     long UsageBytes,
     long BudgetBytes,
     DomainError? Failure = null,
-    long? TotalBytes = null);
+    long? TotalBytes = null,
+    long AppUsageBytes = 0);
 
 /// <summary>The resource governor (spec D3/D4/D5): observes every open conversation,
 ///     derives the machine budget, decides a level and the next ladder rung for the
@@ -71,6 +77,7 @@ public sealed class ResourceGovernor(
     }
 
     PruneClosedEpisodes(all);
+    long appUsage = observations.AppUsageBytes;
     ResourceObservation worst = all.MaxBy(observation => observation.UsageBytes)!;
     if (!_episodes.TryGetValue(worst.ConversationId, out Episode? episode))
     {
@@ -95,7 +102,8 @@ public sealed class ResourceGovernor(
       }
 
       return new ResourceGovernorTick(level, worst.ConversationId, ResourceAction.None,
-          worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes);
+          worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes,
+          AppUsageBytes: appUsage);
     }
 
     if (!rising)
@@ -104,7 +112,8 @@ public sealed class ResourceGovernor(
       // episode's rungs, and pressure that IS growing earns the next one. No cooldown and
       // no level comparison - the attempted set is the only thing that stops a repeat.
       return new ResourceGovernorTick(level, worst.ConversationId, ResourceAction.None,
-          worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes);
+          worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes,
+          AppUsageBytes: appUsage);
     }
 
     ResourceAction action = ResourcePolicy.NextAction(level, episode.Attempted);
@@ -114,7 +123,8 @@ public sealed class ResourceGovernor(
       // rung, and re-enacting that rung on every rising sample would restart the app in a
       // loop. Each rung is enacted at most once per episode.
       return new ResourceGovernorTick(level, worst.ConversationId, ResourceAction.None,
-          worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes);
+          worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes,
+          AppUsageBytes: appUsage);
     }
 
     await AppendAsync(level, worst, action, budget, ct).ConfigureAwait(false);
@@ -129,11 +139,13 @@ public sealed class ResourceGovernor(
     {
       await AppendEnactmentFailureAsync(worst, action, enacted.Error, ct).ConfigureAwait(false);
       return new ResourceGovernorTick(level, worst.ConversationId, action,
-          worst.UsageBytes, budget.PerConversationBytes, enacted.Error, budget.TotalBytes);
+          worst.UsageBytes, budget.PerConversationBytes, enacted.Error, budget.TotalBytes,
+          appUsage);
     }
 
     return new ResourceGovernorTick(level, worst.ConversationId, action,
-        worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes);
+        worst.UsageBytes, budget.PerConversationBytes, TotalBytes: budget.TotalBytes,
+        AppUsageBytes: appUsage);
   }
 
   /// <summary>Drops episode state for conversations that are no longer open - the
