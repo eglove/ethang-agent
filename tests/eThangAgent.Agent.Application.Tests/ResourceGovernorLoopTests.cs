@@ -24,6 +24,19 @@ public sealed class ResourceGovernorLoopTests
   }
 
   [Fact]
+  public void RecommendedInterval_IsTheConfiguredResourceTickInterval()
+  {
+    // One source of truth: the governor recommends the options value, it never invents one.
+    WatchdogOptions options = new(ResourceTickInterval: TimeSpan.FromSeconds(3));
+    ResourceGovernor governor = new(new FixedResources(Physical),
+        new FixedObservations(new ResourceObservation("c1", 100_000_000L, [])),
+        new RecordingEnactment(), new RecordingEvents(), options, TimeProvider.System, () => 1);
+
+    Assert.Equal(TimeSpan.FromSeconds(3), governor.RecommendedInterval);
+    Assert.Equal(options.ResourceTickInterval, governor.RecommendedInterval);
+  }
+
+  [Fact]
   public async Task RunAsync_FiredBeat_TicksTheGovernor()
   {
     ManualClock clock = new();
@@ -31,7 +44,7 @@ public sealed class ResourceGovernorLoopTests
     ResourceGovernor governor = new(new FixedResources(Physical),
         new FixedObservations(new ResourceObservation("c1", 5_000_000_000L, [])),
         enactment, new RecordingEvents(), new WatchdogOptions(), clock, () => 1);
-    ResourceGovernorLoop loop = new(governor, TimeSpan.FromSeconds(2), clock);
+    ResourceGovernorLoop loop = new(governor, governor.RecommendedInterval, clock);
     using CancellationTokenSource cts = new();
 
     Task run = loop.RunAsync(cts.Token); // synchronous start: the timer is armed before this returns
@@ -52,7 +65,7 @@ public sealed class ResourceGovernorLoopTests
     FlakyObservations observations = new(new ResourceObservation("c1", 5_000_000_000L, []));
     ResourceGovernor governor = new(new FixedResources(Physical), observations,
         enactment, new RecordingEvents(), new WatchdogOptions(), clock, () => 1);
-    ResourceGovernorLoop loop = new(governor, TimeSpan.FromSeconds(2), clock);
+    ResourceGovernorLoop loop = new(governor, governor.RecommendedInterval, clock);
     using CancellationTokenSource cts = new();
 
     Task run = loop.RunAsync(cts.Token);
