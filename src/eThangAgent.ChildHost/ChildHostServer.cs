@@ -87,6 +87,9 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         case "interrupt":
           HandleInterrupt(envelope);
           break;
+        case "root-turn":
+          await HandleRootTurnAsync(envelope).ConfigureAwait(false);
+          break;
         default:
           break; // unknown kinds ignored forward-compatibly
       }
@@ -209,6 +212,50 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         WatchdogPolicyFactory.FromOptions(options),
         options, TimeProvider.System, stream, supervisors);
     return new HostChildWatchdog(childId, services);
+  }
+
+  /// <summary>Handles one root turn (spec D6): the app forwards the user's input and the
+  ///     host answers with that turn's event stream. The runner that actually EXECUTES the
+  ///     turn is task 9's work; until it is wired, the host answers every turn with a TYPED
+  ///     settle failure rather than silence — the app-side caller always receives a
+  ///     well-formed outcome and can never hang waiting for a host that does not run turns
+  ///     yet. A malformed request is a peer fault, never a host crash: the turn id is
+  ///     recovered leniently so the settle can still be addressed.</summary>
+  private async Task HandleRootTurnAsync(TransportEnvelope envelope)
+  {
+    string turnId = ReadTurnIdLeniently(envelope.Json);
+    if (turnId.Length == 0)
+    {
+      return; // unaddressable: a request carrying no turn id cannot be settled
+    }
+
+    await SendAsync("root-turn-event", RootTurnProtocol.SerializeEvent(new RootTurnEvent(turnId,
+        "settled",
+        "Error [RootTurnUnavailable]: the conversation host has no root turn runner wired in this build.")))
+        .ConfigureAwait(false);
+  }
+
+  /// <summary>Reads the turn id from a root-turn payload WITHOUT the codec's strictness,
+  ///     so a malformed request can still be answered instead of leaving its caller
+  ///     waiting. Returns empty when no turn id can be recovered at all.</summary>
+  private static string ReadTurnIdLeniently(string json)
+  {
+    try
+    {
+      using JsonDocument document = JsonDocument.Parse(json);
+      return document.RootElement.ValueKind == JsonValueKind.Object
+          && document.RootElement.TryGetProperty("TurnId", out JsonElement turnId)
+          && turnId.ValueKind == JsonValueKind.String
+              ? turnId.GetString() ?? string.Empty
+              : string.Empty;
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+    {
+      // Named decision (CA1031): undecodable input is a peer fault, not a host crash.
+      return string.Empty;
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
   }
 
   /// <summary>Delivers a steering envelope into the running child's mailbox (FR-C2).

@@ -26,6 +26,16 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 
   private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentRunOutcome>> _settling = [];
   private readonly ConcurrentDictionary<Guid, byte> _owned = [];
+
+  // Root turns in flight (spec D6): one waiter per turn id, keyed by the id the app
+  // minted. The pump routes 'root-turn-event' envelopes here; connection loss and
+  // cancellation complete every pending waiter so no caller can ever hang.
+  private readonly ConcurrentDictionary<string, RootTurnWaiter> _rootTurns = new(StringComparer.Ordinal);
+
+  /// <summary>Set once the connection is known gone: a turn sent afterwards refuses
+  ///     immediately with the declared failure instead of waiting for a host that will
+  ///     never answer.</summary>
+  private volatile bool _hostLost;
   private Guid[] _declaredLive = [];
   private long _sequence;
 
@@ -55,6 +65,9 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   {
     ArgumentNullException.ThrowIfNull(fresh);
     NamedPipeChildTransport? stale = Interlocked.Exchange(ref _transport, fresh);
+    // A fresh connection is live again: clear the lost flag so root turns are accepted
+    // (the flag exists to refuse turns on a KNOWN-dead connection, not permanently).
+    _hostLost = false;
     if (stale is not null)
     {
       _ = Task.Run(async () => await stale.DisposeAsync().ConfigureAwait(false)).ConfigureAwait(false);
@@ -135,6 +148,84 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   public void Interrupt(AgentId? childId = null)
       => _ = SendEnvelopeAsync("interrupt", JsonSerializer.Serialize(new InterruptCommand(childId?.Value)), childId ?? new AgentId(Guid.NewGuid()), CancellationToken.None);
 
+  /// <summary>Sends one root turn to the conversation host and streams its events back
+  ///     (spec D6). The app runs no agent work: it forwards the user's input and renders
+  ///     what the host streams. The returned Result carries the settled payload when the
+  ///     host settles the turn; a disconnected transport, connection loss, or cancellation
+  ///     is a typed failure — never a hang.</summary>
+  public async Task<Result<string>> SendRootTurnAsync(
+      RootTurnRequest request, Action<RootTurnEvent> onEvent, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(request);
+    ArgumentNullException.ThrowIfNull(onEvent);
+    NamedPipeChildTransport? transport = _transport;
+    if (transport is null || _hostLost)
+    {
+      return HostUnavailable("the conversation host is not connected.");
+    }
+
+    TaskCompletionSource<Result<string>> settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    _rootTurns[request.TurnId] = new RootTurnWaiter(onEvent, settled);
+    try
+    {
+      await transport.SendAsync(new TransportEnvelope("root-turn",
+          RootTurnProtocol.SerializeRequest(request), Interlocked.Increment(ref _sequence)), ct)
+          .ConfigureAwait(false);
+      return await settled.Task.WaitAsync(ct).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+      return Result.Failure<string>(new DomainError("TurnCancelled", "the turn was stopped."));
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex)
+    {
+      // Named decision (CA1031): the send path is the transport's fault boundary — ANY
+      // failure to put the frame on the wire is the declared HostUnavailable outcome.
+      return HostUnavailable("the conversation host refused the turn: " + ex.Message);
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+    finally
+    {
+      _ = _rootTurns.TryRemove(request.TurnId, out _);
+    }
+  }
+
+  private static Result<string> HostUnavailable(string message)
+      => Result.Failure<string>(new DomainError("HostUnavailable", message));
+
+  /// <summary>Routes one streamed root-turn event to its waiter: every event reaches the
+  ///     caller's callback in arrival order, and a 'settled' event completes the turn with
+  ///     its payload. Events for a turn this runtime is not running (a replay after a
+  ///     disconnect) are dropped — there is no waiter to inform.</summary>
+  private void HandleRootTurnEvent(string json)
+  {
+    RootTurnEvent evt = RootTurnProtocol.ParseEvent(json);
+    if (!_rootTurns.TryGetValue(evt.TurnId, out RootTurnWaiter? waiter))
+    {
+      return;
+    }
+
+    waiter.OnEvent(evt);
+    if (string.Equals(evt.Kind, "settled", StringComparison.Ordinal))
+    {
+      _ = waiter.Settled.TrySetResult(Result.Success(evt.Payload));
+    }
+  }
+
+  /// <summary>Completes every pending root-turn waiter with the declared failure. Called
+  ///     from the pump's fault path: connection loss must never leave a caller waiting.</summary>
+  private void FailPendingRootTurns()
+  {
+    _hostLost = true;
+    foreach (RootTurnWaiter waiter in _rootTurns.Values)
+    {
+      _ = waiter.Settled.TrySetResult(HostUnavailable("the conversation host connection was lost."));
+    }
+
+    _rootTurns.Clear();
+  }
+
   private async Task PumpAsync(CancellationToken ct)
   {
     try
@@ -161,6 +252,9 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       }
 
       _settling.Clear();
+      // Root turns in flight are the app's user-facing work: they must fail with the
+      // typed HostUnavailable outcome, never hang on a host that is gone (spec D6).
+      FailPendingRootTurns();
     }
 #pragma warning restore CA1031 // Do not catch general exception types
   }
@@ -180,6 +274,9 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
         break;
       case "settle":
         HandleSettle(envelope.Json);
+        break;
+      case "root-turn-event":
+        HandleRootTurnEvent(envelope.Json);
         break;
       default:
         break;
@@ -298,6 +395,10 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 #pragma warning restore CA1031 // Do not catch general exception types
   }
 }
+
+/// <summary>One in-flight root turn: the caller's event sink plus the source that
+///     completes when the host settles the turn.</summary>
+internal sealed record RootTurnWaiter(Action<RootTurnEvent> OnEvent, TaskCompletionSource<Result<string>> Settled);
 
 public sealed record StartCommand(Guid RecordId, int MaxConcurrent, string ModelId);
 public sealed record DeliverCommand(Guid RecordId, string Text, int Urgency, string Sender);
