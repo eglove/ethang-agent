@@ -85,23 +85,50 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       }
 #pragma warning restore CA1031
 
-      switch (envelope.Kind)
+      // ISOLATION (fix round 1, finding 1): no single envelope may end the serve loop.
+      // The handlers below each guard their own faults, but this boundary is the last
+      // line: an unexpected fault costs the ENVELOPE, never the host and its children.
+#pragma warning disable CA1031 // Do not catch general exception types
+      try
       {
-        case "start":
-          await HandleStartAsync(envelope).ConfigureAwait(false);
-          break;
-        case "deliver":
-          HandleDeliver(envelope);
-          break;
-        case "interrupt":
-          HandleInterrupt(envelope);
-          break;
-        case "root-turn":
-          await HandleRootTurnAsync(envelope).ConfigureAwait(false);
-          break;
-        default:
-          break; // unknown kinds ignored forward-compatibly
+        await DispatchEnvelopeAsync(envelope).ConfigureAwait(false);
       }
+      catch (TransportClosedException)
+      {
+        return; // the app went away: children keep running (survivability)
+      }
+      catch (Exception)
+      {
+        // Named decision (CA1031): see the isolation note above.
+      }
+#pragma warning restore CA1031 // Do not catch general exception types
+    }
+  }
+
+  /// <summary>Routes one envelope to its handler. Split out of the serve loop so the loop
+  ///     itself can wrap the whole dispatch in one isolation boundary.</summary>
+  private async Task DispatchEnvelopeAsync(TransportEnvelope envelope)
+  {
+    switch (envelope.Kind)
+    {
+      case "start":
+        await HandleStartAsync(envelope).ConfigureAwait(false);
+        break;
+      case "deliver":
+        HandleDeliver(envelope);
+        break;
+      case "interrupt":
+        HandleInterrupt(envelope);
+        break;
+      case "root-turn":
+        // OFF the serve loop (fix round 1, finding 4): a turn can run for minutes, and
+        // awaiting it here stopped the host processing ANY other envelope - start,
+        // deliver, interrupt, or the next turn - for its whole duration. Children already
+        // run this way (HandleStartAsync fires Task.Run and returns).
+        _ = Task.Run(() => HandleRootTurnAsync(envelope));
+        break;
+      default:
+        break; // unknown kinds ignored forward-compatibly
     }
   }
 
@@ -258,12 +285,40 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       return;
     }
 
-    RootTurnRequest request = RootTurnProtocol.ParseRequest(envelope.Json);
-    _ = await rootHost
-        .RunTurnAsync(request, evt => SendRootTurnEventAsync(evt).GetAwaiter().GetResult())
-        .ConfigureAwait(false);
-    // The settled event already carried the outcome to the app; the Result is returned for
-    // the caller's own logging and is deliberately not turned into a second envelope.
+    RootTurnRequest request;
+    try
+    {
+      request = RootTurnProtocol.ParseRequest(envelope.Json);
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex)
+    {
+      // Named decision (CA1031): a malformed payload is a PEER fault. The turn id was
+      // recoverable, so the turn is answered with a typed settle; letting the parse fault
+      // escape would end ServeAsync and take the host - and every running child - with it.
+      await SendRootTurnEventAsync(new RootTurnEvent(TurnId, "settled",
+          "Error [InvalidRootTurn]: " + ex.Message, Generation)).ConfigureAwait(false);
+      return;
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+
+    try
+    {
+      _ = await rootHost
+          .RunTurnAsync(request, evt => SendRootTurnEventAsync(evt).GetAwaiter().GetResult())
+          .ConfigureAwait(false);
+      // The settled event already carried the outcome to the app; the Result is returned
+      // for the caller's own logging and is deliberately not turned into a second envelope.
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex)
+    {
+      // Named decision (CA1031): the same isolation boundary the child path honors. A turn
+      // that faults settles with the fault instead of escaping into the serve loop.
+      await SendRootTurnEventAsync(new RootTurnEvent(TurnId, "settled",
+          "Error [RootTurnFault]: " + ex.Message, Generation)).ConfigureAwait(false);
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
   }
 
   /// <summary>Resolves the ROOT runner once, from the host's own container (spec D6).

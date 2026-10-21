@@ -70,8 +70,12 @@ public sealed class ChildHostRootRunTests
 
     Assert.False(result.IsSuccess);
     Assert.Equal("InvalidMessage", result.Error.Code);
-    // A rejected turn never starts: nothing was streamed and nothing settled.
-    Assert.Empty(events);
+    // A rejected turn never STARTS, but it still SETTLES: the app reads the outcome from the
+    // settled event, so a silent early return would report a transport fault instead of this
+    // typed refusal (fix round 1, finding 3).
+    RootTurnEvent settle = Assert.Single(events);
+    Assert.Equal("settled", settle.Kind);
+    Assert.Contains("InvalidMessage", settle.Payload, StringComparison.Ordinal);
   }
 
   [Fact]

@@ -58,6 +58,21 @@ public class Conversation(IEnumerable<Message>? seed = null)
 
   public IReadOnlyList<Message> Messages => _messages.AsReadOnly();
 
+  /// <summary>Seeds the conversation with already-persisted history (hydration).
+  ///     Deliberately NOT routed through the Add* methods: those raise the mutation
+  ///     notification a transcript sink subscribes to, and a hydrated message is one the
+  ///     store ALREADY holds — re-raising it would append every historical message a
+  ///     second time. Callers seed before any sink is attached, which is why this is a
+  ///     separate operation rather than a loop over Add*.</summary>
+  public void Seed(IReadOnlyList<Message> history)
+  {
+    ArgumentNullException.ThrowIfNull(history);
+    foreach (Message message in history)
+    {
+      _messages.Add(message);
+    }
+  }
+
   public void AddUserMessage(string text, IReadOnlyList<MessagePart>? parts = null)
   {
     Message message = new(Role.User, text, DateTimeOffset.UtcNow, Parts: NormalizeParts(Role.User, parts));

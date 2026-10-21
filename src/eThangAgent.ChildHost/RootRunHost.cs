@@ -19,18 +19,30 @@ namespace eThangAgent.ChildHost;
 ///     success OR failure — becomes exactly one <c>settled</c> event carrying either the
 ///     answer or <c>Error [&lt;code&gt;]: &lt;message&gt;</c>. Reasoning deltas, iteration ends,
 ///     context snapshots, and compaction outcomes have no wire kind and are not forwarded.</para>
+///     <para>EVERY FAILURE SETTLES, including the pre-flight ones. A rejected turn (empty
+///     input) emits its typed <c>settled</c> event before returning: the app reads the
+///     outcome from that event, so a silent early return would leave its caller waiting out
+///     the whole idle bound and then reporting a TRANSPORT fault for a turn the host simply
+///     refused.</para>
 ///     <para>PROTOCOL REQUIREMENT: every emitted event echoes the request's
 ///     <see cref="RootTurnRequest.Generation"/> VERBATIM. The app mints a fresh generation
 ///     per turn and delivers an event only when both the turn id and the generation match
 ///     the live turn, so a host that omits or invents this value has every event silently
 ///     dropped and its turns fail on the idle bound.</para>
-///     <para>The request's <see cref="RootTurnRequest.Seed"/> is deliberately NOT applied:
-///     the host's conversation is the container's own, hydrated from the shared database by
-///     the session factory. Replaying the app's seed onto it would double-hydrate the
-///     transcript, which corrupts resume.</para></summary>
+///     <para>HYDRATION (fix round 1, finding 2): the host's container builds its
+///     <see cref="Conversation"/> with NO seed, so before the first turn the runner loads
+///     the persisted transcript from the container's store and, when the store has nothing
+///     for this session, falls back to the request's <see cref="RootTurnRequest.Seed"/> —
+///     the field exists precisely so the host can run a turn without the app resending a
+///     whole transcript per message. Hydration happens BEFORE the first turn's agent build,
+///     which is the only moment it is safe: the agent subscribes the root transcript sink
+///     when it is constructed, so messages added after that point would be re-persisted as
+///     if the model had just produced them.</para></summary>
 public sealed class RootRunHost
 {
   private readonly IServiceProvider _services;
+  private readonly Lock _hydrationGate = new();
+  private bool _hydrated;
 
   /// <summary>Builds the runner over a host's own headless container.</summary>
   public RootRunHost(SessionHost host, AgentId rootId, Conversation conversation)
@@ -47,6 +59,7 @@ public sealed class RootRunHost
     ArgumentNullException.ThrowIfNull(conversation);
     _services = services ?? throw new ArgumentNullException(nameof(services));
     RootId = rootId;
+    Conversation = conversation;
 
     if (services.GetService(typeof(Conversation)) is Conversation owned
         && !ReferenceEquals(owned, conversation))
@@ -70,6 +83,10 @@ public sealed class RootRunHost
   /// <summary>The root session this runner serves.</summary>
   public AgentId RootId { get; }
 
+  /// <summary>The container's conversation, exposed so a host can inspect the history a
+  ///     turn will actually see.</summary>
+  public Conversation Conversation { get; }
+
   /// <summary>Runs one turn, streaming its events as they happen. Returns the turn's own
   ///     result so the caller can log or audit it; the app reads the outcome from the
   ///     <c>settled</c> event, which is emitted for failures too — a turn that never
@@ -81,10 +98,16 @@ public sealed class RootRunHost
     ArgumentNullException.ThrowIfNull(onEvent);
     if (string.IsNullOrWhiteSpace(request.Input))
     {
-      // A rejected turn never starts: no event is streamed and nothing settles, because
-      // the app has not begun a turn it could complete.
-      return Result.Failure<string>(new DomainError("InvalidMessage", "a turn needs a non-empty input."));
+      // The turn never starts, but it still SETTLES: the app's outcome comes from the
+      // settled event, so a silent return here reports a transport fault instead of this
+      // typed refusal.
+      Result<string> rejected = Result.Failure<string>(
+          new DomainError("InvalidMessage", "a turn needs a non-empty input."));
+      Emit(request, onEvent, "settled", DescribeFailure(rejected.Error));
+      return rejected;
     }
+
+    await HydrateAsync(request, ct).ConfigureAwait(false);
 
     SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
     TurnCallbacks callbacks = new(
@@ -101,11 +124,103 @@ public sealed class RootRunHost
         .ConfigureAwait(false);
 
     Emit(request, onEvent, "settled",
-        result.IsSuccess
-            ? result.Value
-            : "Error [" + result.Error.Code + "]: " + result.Error.Message);
+        result.IsSuccess ? result.Value : DescribeFailure(result.Error));
     return result;
   }
+
+  /// <summary>Loads the conversation history a turn must see, ONCE, before the first turn.
+  ///     The store is authoritative (a resumed session's rows are what the app already
+  ///     showed); the request's seed is the fallback for a host whose store has nothing —
+  ///     a fresh session whose root row was never written. Both paths run before the agent
+  ///     is built, because building it subscribes the transcript sink and anything added
+  ///     afterwards would be persisted as freshly produced output.</summary>
+  private async Task HydrateAsync(RootTurnRequest request, CancellationToken ct)
+  {
+    lock (_hydrationGate)
+    {
+      if (_hydrated)
+      {
+        return;
+      }
+
+      _hydrated = true;
+    }
+
+    if (Conversation.Messages.Count > 0)
+    {
+      return; // the container was seeded with history already (the app-side shape)
+    }
+
+    if (await TryHydrateFromStoreAsync(ct).ConfigureAwait(false))
+    {
+      return;
+    }
+
+    HydrateFromSeed(request.Seed);
+  }
+
+  /// <summary>Hydrates from the container's store when it has a transcript for this root.
+  ///     Best-effort by design: a store that cannot be read leaves the seed path to run,
+  ///     because a turn with less history is better than a turn that never starts.</summary>
+  private async Task<bool> TryHydrateFromStoreAsync(CancellationToken ct)
+  {
+    if (_services.GetService(typeof(IAgentStore)) is not IAgentStore store)
+    {
+      return false;
+    }
+
+    Result<IReadOnlyList<Message>> transcript;
+    try
+    {
+      transcript = await store.GetTranscriptAsync(RootId, ct).ConfigureAwait(false);
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+    {
+      // Named decision (CA1031): hydration is best-effort — the seed path covers it.
+      return false;
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+
+    if (!transcript.IsSuccess || transcript.Value.Count == 0)
+    {
+      return false;
+    }
+
+    Conversation.Seed(transcript.Value);
+    return true;
+  }
+
+  /// <summary>Applies the request's seed — the app's own view of the history — when the
+  ///     store had nothing. Roles are inferred from the seed's own shape: the protocol
+  ///     carries plain text lines, so the FIRST line is the user's opening message and
+  ///     every later line is assistant output, which is exactly the shape a session's
+  ///     transcript takes before any tool call.</summary>
+  private void HydrateFromSeed(IReadOnlyList<string>? seed)
+  {
+    if (seed is null || seed.Count == 0)
+    {
+      return;
+    }
+
+    // Seed, never Add*: the Add methods raise the mutation notification the transcript
+    // sink subscribes, and a hydrated message is one the store already holds - raising it
+    // would append every historical message a second time.
+    DateTimeOffset now = DateTimeOffset.UtcNow;
+    List<Message> history = [];
+    for (int index = 0; index < seed.Count; index++)
+    {
+      history.Add(new Message(index == 0 ? Role.User : Role.Assistant, seed[index], now));
+    }
+
+    Conversation.Seed(history);
+  }
+
+  /// <summary>The wire form of a failure: the app renders this line verbatim.</summary>
+  private static string DescribeFailure(DomainError? error)
+      => error is null
+          ? "Error [Unknown]: the turn failed without an error."
+          : "Error [" + error.Code + "]: " + error.Message;
 
   /// <summary>Emits one event, echoing the request's generation verbatim (the protocol
   ///     requirement above — the single place the echo is applied, so no emission path can
