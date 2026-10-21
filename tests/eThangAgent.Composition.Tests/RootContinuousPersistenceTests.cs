@@ -580,4 +580,209 @@ public sealed class RootContinuousPersistenceTests
 
     Assert.Equal(["q1"], store.Appended.Select(m => m.Content));
   }
+  [Fact]
+  public async Task RootLifecycle_InertSinkCompactedTurn_NextTurnStillPersists()
+  {
+    // Defect A (fix round 3): an inert sink's ReplaceAsync writes nothing, so the lifecycle
+    // falls through and writes the replacement itself. The sink's baseline must then agree
+    // with the conversation, or the NEXT turn's Math.Max trips the range guard and persists
+    // NOTHING for the rest of the session.
+    (TestAppDatabase db, SqliteAgentStore store, AgentId rootId) = await SeedAsync().ConfigureAwait(true);
+    using (db)
+    {
+      // The sink is built over a conversation that ALREADY holds five messages (a resumed
+      // session, or one that has run turns): its absolute baseline is seeded at 5. That
+      // seed is what a compaction must correct - leaving it at 5 against a 2-message
+      // conversation trips the range guard on every later turn.
+      Conversation conversation = new(
+      [
+        new(Role.User, "a", DateTimeOffset.UtcNow),
+        new(Role.Assistant, "b", DateTimeOffset.UtcNow),
+        new(Role.User, "c", DateTimeOffset.UtcNow),
+        new(Role.Assistant, "d", DateTimeOffset.UtcNow),
+        new(Role.User, "e", DateTimeOffset.UtcNow),
+      ]);
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using RootTranscriptSink sink = new(store, conversation, () => null);
+#pragma warning restore CA2007
+      RootSessionLifecycle lifecycle = new(store, sink);
+      List<string> errors = [];
+      Assert.Equal(5, sink.PersistedCount);
+
+      // A compacted turn: the conversation shrinks to two messages and the transcript is
+      // replaced wholesale.
+      Message[] compacted =
+      [
+        new(Role.User, "a", DateTimeOffset.UtcNow),
+        new(Role.Assistant, "summary", DateTimeOffset.UtcNow),
+      ];
+      Assert.True(conversation.Compact(compacted).IsSuccess);
+      await lifecycle.ReplaceTranscriptAsync(rootId, conversation, errors.Add).ConfigureAwait(true);
+
+      // The NEXT turn must persist normally.
+      int before = conversation.Messages.Count;
+      conversation.AddUserMessage("f");
+      await lifecycle.AppendExchangeAsync(rootId, conversation, before, "final", errors.Add)
+          .ConfigureAwait(true);
+
+      Assert.Empty(errors);
+      IReadOnlyList<Message> transcript = await TranscriptAsync(store, rootId).ConfigureAwait(true);
+      Assert.Equal(["a", "summary", "f"], transcript.Select(m => m.Content));
+    }
+  }
+
+  [Fact]
+  public async Task RootSink_BackstopNoteDuringInFlightDrain_DoesNotCorruptTheQueue()
+  {
+    // Defect B (fix round 3): the drain peeks the head, awaits the store, then dequeues.
+    // A backstop note landing in that window removes and re-enqueues queued messages; the
+    // drain must not then dequeue a message it never wrote (or throw 'Queue empty').
+    GatedStore gated = new();
+    AgentId rootId = AgentId.NewId();
+    Conversation conversation = new();
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using RootTranscriptSink sink = new(gated, conversation, () => rootId);
+#pragma warning restore CA2007
+    Message q1 = new(Role.User, "q1", DateTimeOffset.UtcNow);
+    Message q2 = new(Role.User, "q2", DateTimeOffset.UtcNow);
+
+    Task first = sink.AppendAsync(q1);
+    await gated.WaitUntilBlockedAsync().ConfigureAwait(true);
+
+    // The backstop reports q1 while the drain is blocked inside the store write.
+    _ = sink.NotePersistedByBackstop(q1);
+    gated.Release();
+    await first.ConfigureAwait(true);
+
+    Task second = sink.AppendAsync(q2);
+    await second.ConfigureAwait(true);
+
+    // q1 was written ONCE by the store (the gated attempt) and q2 once; nothing threw.
+    Assert.Equal(["q1", "q2"], gated.Written.Select(m => m.Content));
+  }
+
+  /// <summary>A store that blocks inside its first append until released, so a test can
+  ///     interleave a backstop note with an in-flight drain.</summary>
+  private sealed class GatedStore : IAgentStore
+  {
+    private readonly TaskCompletionSource _blocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _attempts;
+
+    public List<Message> Written { get; } = [];
+
+    public Task WaitUntilBlockedAsync() => _blocked.Task;
+
+    public void Release() => _release.TrySetResult();
+
+    public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(record.Id.ToString()));
+
+    public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(record.Id.ToString()));
+
+    public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<AgentRecord>(new DomainError("NotFound", "no records")));
+
+    public async Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
+    {
+      if (Interlocked.Increment(ref _attempts) == 1)
+      {
+        _ = _blocked.TrySetResult();
+        await _release.Task.ConfigureAwait(false);
+      }
+
+      lock (Written)
+      {
+        Written.Add(message);
+      }
+
+      return Result.Success(id.ToString());
+    }
+
+    public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(id.ToString()));
+
+    public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
+  }
+  [Fact]
+  public async Task RootLifecycle_FailedSinkReplacement_NextTurnStillPersists()
+  {
+    // Defect A, second shape: an ACTIVE sink whose replacement the store refuses. The
+    // lifecycle's fall-through writes the replacement, and the sink's baseline must still
+    // end up describing the shrunken conversation.
+    (TestAppDatabase db, SqliteAgentStore store, AgentId rootId) = await SeedAsync().ConfigureAwait(true);
+    using (db)
+    {
+      Conversation conversation = new(
+      [
+        new(Role.User, "a", DateTimeOffset.UtcNow),
+        new(Role.Assistant, "b", DateTimeOffset.UtcNow),
+        new(Role.User, "c", DateTimeOffset.UtcNow),
+      ]);
+      FailingReplaceStore failing = new(store);
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using RootTranscriptSink sink = new(failing, conversation, () => rootId);
+#pragma warning restore CA2007
+      RootSessionLifecycle lifecycle = new(store, sink);
+      List<string> errors = [];
+      Assert.Equal(3, sink.PersistedCount);
+
+      Message[] compacted =
+      [
+        new(Role.User, "a", DateTimeOffset.UtcNow),
+        new(Role.Assistant, "summary", DateTimeOffset.UtcNow),
+      ];
+      Assert.True(conversation.Compact(compacted).IsSuccess);
+      await lifecycle.ReplaceTranscriptAsync(rootId, conversation, errors.Add).ConfigureAwait(true);
+
+      int before = conversation.Messages.Count;
+      conversation.AddUserMessage("d");
+      await lifecycle.AppendExchangeAsync(rootId, conversation, before, "final", errors.Add)
+          .ConfigureAwait(true);
+
+      Assert.Empty(errors);
+      IReadOnlyList<Message> transcript = await TranscriptAsync(store, rootId).ConfigureAwait(true);
+      Assert.Equal(["a", "summary", "d"], transcript.Select(m => m.Content));
+    }
+  }
+
+  /// <summary>Delegates to a real store but REFUSES every transcript replacement, so the
+  ///     lifecycle's fall-through path is exercised against a live sink.</summary>
+  private sealed class FailingReplaceStore(IAgentStore inner) : IAgentStore
+  {
+    public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
+        => inner.SaveAsync(record, ct);
+
+    public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
+        => inner.UpdateAsync(record, ct);
+
+    public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
+        => inner.GetAsync(id, ct);
+
+    public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
+        => inner.AppendMessageAsync(id, message, ct);
+
+    public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<string>(new DomainError("DbLocked", "replacement refused")));
+
+    public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
+        => inner.GetTranscriptAsync(id, ct);
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+        => inner.ListChildrenAsync(parentId, ct);
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+        => inner.ListAllAsync(ct);
+  }
 }

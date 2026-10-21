@@ -68,8 +68,9 @@ public class RootSessionLifecycle(IAgentStore store, IChildTranscriptStore? tran
 
       // The sink's bounded flush can leave this same message QUEUED while reporting a count
       // below it. Now that the row exists, tell the sink to drop it - otherwise the sink's
-      // next flush writes it again and the turn is doubled.
-      _ = (transcriptSink as RootTranscriptSink)?.NotePersistedByBackstop(messages[i]);
+      // next flush writes it again and the turn is doubled. The seam carries the hand-off, so
+      // any sink implementation gets the same protection.
+      _ = transcriptSink?.NotePersistedByBackstop(messages[i]);
     }
   }
 
@@ -89,17 +90,20 @@ public class RootSessionLifecycle(IAgentStore store, IChildTranscriptStore? tran
       return;
     }
 
-    if (transcriptSink is RootTranscriptSink rootSink)
+    // The sink is tried first through the seam; when it cannot write (an inert sink, or a
+    // failed write) this path writes the replacement itself. Either way the sink is TOLD the
+    // outcome, because its baseline must describe the conversation's current length - a
+    // baseline left at the pre-compaction length makes the next turn skip its whole slice.
+    if (transcriptSink is not null)
     {
-      if (await rootSink.ReplaceAsync(conversation.Messages).ConfigureAwait(false))
+      if (await transcriptSink.TryReplaceAsync(conversation.Messages).ConfigureAwait(false))
       {
         return;
       }
-    }
-    else if (transcriptSink is not null)
-    {
-      await transcriptSink.ReplaceAsync(conversation.Messages).ConfigureAwait(false);
-      return;
+
+      // The sink could not write it (inert, or the store refused). This path writes the
+      // replacement and then tells the sink, so its baseline matches the conversation.
+      transcriptSink.NoteReplacedByBackstop(conversation.Messages);
     }
 
     Result<string> replaced = await store.ReplaceTranscriptAsync(rootId, conversation.Messages).ConfigureAwait(false);

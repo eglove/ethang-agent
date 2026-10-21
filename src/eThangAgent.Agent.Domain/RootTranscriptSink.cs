@@ -223,8 +223,12 @@ public sealed class RootTranscriptSink : IChildTranscriptStore, IDisposable, IAs
   /// <summary>Interface conformance for <see cref="ReplaceAsync(IReadOnlyList{Message})"/>:
   ///     the richer overload reports whether the replacement actually landed, which the
   ///     end-of-turn path needs so an inert or failing sink cannot silently swallow a
-  ///     compacted turn. The interface shape discards that answer.</summary>
+  ///     compacted turn. The plain interface shape discards that answer; the Try shape
+  ///     carries it.</summary>
   Task IChildTranscriptStore.ReplaceAsync(IReadOnlyList<Message> messages) => ReplaceAsync(messages);
+
+  /// <inheritdoc />
+  Task<bool> IChildTranscriptStore.TryReplaceAsync(IReadOnlyList<Message> messages) => ReplaceAsync(messages);
 
   /// <summary>Replaces the whole persisted transcript (compaction/shrink survival) and, ON
   ///     SUCCESS, resets the absolute baseline to the replacement's length. An inert sink
@@ -252,17 +256,27 @@ public sealed class RootTranscriptSink : IChildTranscriptStore, IDisposable, IAs
     Result<string> replaced = await _store
         .ReplaceTranscriptAsync(rootId.Value, messages, CancellationToken.None)
         .ConfigureAwait(false);
-    if (!replaced.IsSuccess)
-    {
-      return false;
-    }
-
     lock (_lock)
     {
       _persisted = messages.Count;
     }
 
-    return true;
+    return replaced.IsSuccess;
+  }
+
+  /// <summary>Corrects the baseline after the CALLER replaced the transcript itself. The
+  ///     baseline must describe the conversation's current length whatever wrote the rows:
+  ///     left at the pre-compaction length it would make the next turn's slice start past
+  ///     the end of a shrunken conversation, and that turn would persist nothing.</summary>
+  public void NoteReplacedByBackstop(IReadOnlyList<Message> messages)
+  {
+    ArgumentNullException.ThrowIfNull(messages);
+    lock (_lock)
+    {
+      _pending.Clear();
+      _lastAccepted = messages.Count > 0 ? messages[^1] : null;
+      _persisted = messages.Count;
+    }
   }
 
   /// <summary>Terminal flush: disposes by persisting whatever is still queued.</summary>
@@ -338,8 +352,16 @@ public sealed class RootTranscriptSink : IChildTranscriptStore, IDisposable, IAs
 
         lock (_lock)
         {
-          _ = _pending.Dequeue();
-          _persisted++;
+          // The head may have MOVED while the store write was in flight: a backstop note
+          // removes and re-enqueues queued messages, and it advances the index for the row it
+          // took over. Dequeue and count ONLY when this message is still owed here - otherwise
+          // the row is already accounted for, and dequeuing would drop an unwritten message
+          // (or throw on an empty queue).
+          if (_pending.Count > 0 && ReferenceEquals(_pending.Peek(), next))
+          {
+            _ = _pending.Dequeue();
+            _persisted++;
+          }
         }
       }
     }
