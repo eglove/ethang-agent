@@ -592,20 +592,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
 #pragma warning restore CA1031
 
-    // A compacted turn shrank the conversation mid-turn: the slice contract would
-    // double-count, so the transcript is replaced wholesale instead.
-    if (compactedThisTurn || shrunkThisTurn)
-    {
-      await _lifecycle.ReplaceTranscriptAsync(_rootId, _conversation, ReportPersistenceError);
-    }
-    else
-    {
-      // The persisted count: the continuous sink (when this session has one) is the
-      // authority on what already landed and skips it; without a sink the turn's own
-      // starting count is the slice boundary.
-      await _lifecycle.AppendExchangeAsync(
-          _rootId, _conversation, messageCountBefore, ReportPersistenceError);
-    }
+    await PersistTurnAsync(messageCountBefore, result, compactedThisTurn || shrunkThisTurn);
 
     // Non-streaming fallback: if no deltas were delivered, show the final text as a notice.
     if (!result.IsSuccess || !sawStream)
@@ -614,6 +601,22 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
           ? result.Value
           : $"Error [{result.Error.Code}]: {result.Error.Message}");
     }
+  }
+
+  /// <summary>Persists the finished turn. A compacted or shrunk turn replaces the whole
+  ///     transcript (the append slice would double-count); otherwise the append starts at the
+  ///     turn's own starting index, and the continuous sink — when this session has one —
+  ///     skips whatever it already wrote.</summary>
+  private Task PersistTurnAsync(int messageCountBefore, Result<string> result, bool replaced)
+  {
+    if (replaced)
+    {
+      return _lifecycle.ReplaceTranscriptAsync(_rootId, _conversation, ReportPersistenceError);
+    }
+
+    string assistantText = result.IsSuccess ? result.Value : string.Empty;
+    return _lifecycle.AppendExchangeAsync(_rootId, _conversation, messageCountBefore,
+        assistantText, ReportPersistenceError);
   }
 
   /// <summary>

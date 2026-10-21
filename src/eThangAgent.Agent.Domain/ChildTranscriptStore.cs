@@ -35,22 +35,12 @@ public sealed class ChildTranscriptStore(IAgentStore store, AgentId childId) : I
   }
 
   /// <summary>Persists every queued message, waiting out any drain already in flight. A
-  ///     failed append stays queued (best-effort persistence) and is retried by the next
-  ///     flush; the queue is never reordered.</summary>
-  public async Task FlushAsync()
-  {
-    while (true)
-    {
-      await DrainAsync().ConfigureAwait(false);
-      lock (_lock)
-      {
-        if (_pending.Count == 0)
-        {
-          return;
-        }
-      }
-    }
-  }
+  ///     failed append stays queued (best-effort persistence) and is retried by the NEXT
+  ///     flush; the queue is never reordered. BOUNDED: exactly one drain attempt, never a
+  ///     retry loop — a store that keeps failing must return control to its caller instead
+  ///     of spinning (a locked database would otherwise hang every append, the terminal
+  ///     flush, and container shutdown).</summary>
+  public Task FlushAsync() => DrainAsync();
 
   public Task<int> FlushedCount()
   {

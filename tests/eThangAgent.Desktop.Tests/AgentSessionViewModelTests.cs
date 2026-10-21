@@ -20,7 +20,7 @@ internal sealed class RecordingLifecycle(IAgentStore store) : RootSessionLifecyc
   public int _replacements;
 
   public override Task AppendExchangeAsync(
-      AgentId rootId, Conversation conversation, int alreadyPersisted,
+      AgentId rootId, Conversation conversation, int alreadyPersisted, string assistantText,
       Action<string> reportError)
   {
     _exchanges++;
@@ -45,7 +45,7 @@ internal sealed class PersistenceErroringLifecycle(IAgentStore store)
   public int _exchanges;
 
   public override Task AppendExchangeAsync(
-      AgentId rootId, Conversation conversation, int alreadyPersisted,
+      AgentId rootId, Conversation conversation, int alreadyPersisted, string assistantText,
       Action<string> reportError)
   {
     ArgumentNullException.ThrowIfNull(reportError);

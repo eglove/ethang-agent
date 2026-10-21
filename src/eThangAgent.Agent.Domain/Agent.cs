@@ -147,9 +147,27 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     rebuilds an agent over the same conversation (the root holder) retires the old
   ///     subscription, because two live subscriptions would push every message twice.
   ///     Non-null means the loop persists incrementally.</summary>
-  public IDisposable? TranscriptSubscription { get; } = options?.TranscriptSink is { } transcriptSink
-      ? SubscribeSink(conversation, transcriptSink)
-      : null;
+  internal IDisposable? TranscriptSubscription { get; } = SubscribeTranscript(conversation, options?.TranscriptSink);
+
+  /// <summary>Subscribes the wired sink and, when it is the ROOT's sink, registers the lease
+  ///     with it so the sink retires the previous build's subscription. Roots are rebuilt on
+  ///     every model change over the same conversation; a second live subscription would push
+  ///     every message twice. Child sinks are per-run and need no retirement.</summary>
+  private static IDisposable? SubscribeTranscript(Conversation conversation, IChildTranscriptStore? sink)
+  {
+    if (sink is null)
+    {
+      return null;
+    }
+
+    IDisposable lease = SubscribeSink(conversation, sink);
+    if (sink is RootTranscriptSink rootSink)
+    {
+      rootSink.TrackSubscription(lease);
+    }
+
+    return lease;
+  }
 
   /// <summary>Identity of this agent. Roots generate one on construction; spawned children carry their persisted id.</summary>
   public AgentId Id { get; } = options?.Id ?? AgentId.NewId();

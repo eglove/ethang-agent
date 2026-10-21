@@ -9,32 +9,57 @@ namespace eThangAgent.AgentDomain;
 ///     <para>The root id is resolved LAZILY and cached on first success: the composition's
 ///     RootSessionIdentity is filled after the container builds, so a value captured at
 ///     construction would always be absent. A sink with no root id is INERT - it persists
-///     nothing and reports zero rather than throwing - because headless containers that
-///     never persisted a root row still run turns, and the end-of-turn append covers them.</para>
-///     <para>Two properties make the continuous write safe to combine with that end-of-turn
-///     append. First, message REFERENCE deduplication: the agent subscribes to the
+///     nothing and reports the conversation length it started from - because headless
+///     containers that never persisted a root row still run turns, and the end-of-turn
+///     append covers them.</para>
+///     <para>The count this sink reports is an ABSOLUTE conversation index, never a count of
+///     what this instance happened to write: it starts at the conversation's length when the
+///     sink was built (the hydrated prefix of a resumed session, already persisted by the
+///     session that wrote it) and advances once per message that lands. A relative count
+///     would coincide with the conversation index on a fresh session and diverge on resume
+///     and while inert - the two shapes that re-append a whole turn.</para>
+///     <para>Two further properties make the continuous write safe to combine with the
+///     end-of-turn append. Message REFERENCE deduplication: the agent subscribes the
 ///     conversation on every build and the root agent is rebuilt whenever its model changes,
 ///     so one conversation can carry several live subscriptions; each Add* creates a fresh
 ///     Message instance, so the only way the same reference arrives twice is a second
-///     subscription - exactly what must not double-persist. Second, a single-flight drain
-///     over an ordered queue: concurrent appends can never persist one message twice nor
-///     reorder the exchange, and FlushAsync waits for the in-flight drain instead of
-///     reporting a stale count (a stale count would make the end-of-turn append write a
-///     message the sink is about to write - the doubled turn that corrupts resume).</para>
+///     subscription - exactly what must not double-persist. And a single-flight ordered
+///     drain: concurrent appends can never persist one message twice nor reorder the
+///     exchange, and the drain gives up after ONE failed store write, leaving the message
+///     queued for the next attempt, so a locked or full database degrades instead of
+///     wedging every caller.</para>
 ///     <para>Persistence always runs with <see cref="CancellationToken.None"/>: it must
 ///     survive the cancellation of the turn it is recording.</para></summary>
-public sealed class RootTranscriptSink(IAgentStore store, Func<AgentId?> rootIdSource)
-    : IChildTranscriptStore, IDisposable, IAsyncDisposable
+public sealed class RootTranscriptSink : IChildTranscriptStore, IDisposable, IAsyncDisposable
 {
-  private readonly IAgentStore _store = store ?? throw new ArgumentNullException(nameof(store));
-  private readonly Func<AgentId?> _rootIdSource = rootIdSource ?? throw new ArgumentNullException(nameof(rootIdSource));
+  private readonly IAgentStore _store;
+  private readonly Func<AgentId?> _rootIdSource;
   private readonly Lock _lock = new();
   private readonly Queue<Message> _pending = new();
+
+  // The absolute conversation index this sink has reached. SEEDED with the conversation's
+  // length at construction: on resume that hydrated prefix was persisted by the session
+  // that wrote it, so it counts. The sink is resolved with the root holder BEFORE a turn
+  // begins (the holder is what builds the agent that subscribes it), so the seed is the
+  // pre-turn length - never a partially-grown turn.
+  private int _persisted;
+  private IDisposable? _subscriptionLease;
+  private int _retirements;
   private Task _drainTask = Task.CompletedTask;
   private Message? _lastAccepted;
   private AgentId? _rootId;
-  private int _flushed;
   private bool _draining;
+
+  /// <summary>Builds a sink over <paramref name="conversation"/>, seeding its absolute
+  ///     persisted index with the conversation's CURRENT length (the hydrated prefix of a
+  ///     resumed session is already persisted).</summary>
+  public RootTranscriptSink(IAgentStore store, Conversation conversation, Func<AgentId?> rootIdSource)
+  {
+    ArgumentNullException.ThrowIfNull(conversation);
+    _store = store ?? throw new ArgumentNullException(nameof(store));
+    _rootIdSource = rootIdSource ?? throw new ArgumentNullException(nameof(rootIdSource));
+    _persisted = conversation.Messages.Count;
+  }
 
   /// <summary>The root id this sink persists under, or null while the session has none
   ///     (an inert sink). Resolved once and cached: a session's root id never changes.</summary>
@@ -52,6 +77,49 @@ public sealed class RootTranscriptSink(IAgentStore store, Func<AgentId?> rootIdS
   /// <summary>True while the sink can persist: a root id is known.</summary>
   public bool IsActive => RootId is not null;
 
+  /// <summary>Registers the live conversation subscription this sink is driven by, retiring
+  ///     the previous one. The root agent is rebuilt on every model change and each build
+  ///     subscribes the SHARED conversation again, so without this a conversation would
+  ///     accumulate one live subscription per build and push every message N times - the
+  ///     doubled turn that corrupts resume. The sink owns the retirement because it is the
+  ///     object that knows it is the root's single sink, and it lives in the same assembly
+  ///     as the agent's subscription handle (no public surface is widened for it).</summary>
+  public void TrackSubscription(IDisposable lease)
+  {
+    ArgumentNullException.ThrowIfNull(lease);
+    IDisposable? previous;
+    lock (_lock)
+    {
+      previous = _subscriptionLease;
+      _subscriptionLease = lease;
+    }
+
+    if (previous is null)
+    {
+      return;
+    }
+
+    previous.Dispose();
+    lock (_lock)
+    {
+      _retirements++;
+    }
+  }
+
+  /// <summary>How many previous subscriptions this sink retired. Internal, for tests: the
+  ///     reference dedupe below absorbs a duplicated notification, so a missed retirement is
+  ///     invisible in the STORE — this counter is the only direct observation of it.</summary>
+  internal int Retirements
+  {
+    get
+    {
+      lock (_lock)
+      {
+        return _retirements;
+      }
+    }
+  }
+
   /// <summary>True when an earlier append failed and is still waiting to be retried.</summary>
   public bool HasPending => PendingCount > 0;
 
@@ -63,6 +131,20 @@ public sealed class RootTranscriptSink(IAgentStore store, Func<AgentId?> rootIdS
       lock (_lock)
       {
         return _pending.Count;
+      }
+    }
+  }
+
+  /// <summary>The ABSOLUTE conversation index this sink has persisted up to: the hydrated
+  ///     prefix it was built over plus every message it wrote. An inert sink reports the
+  ///     prefix, which is exactly what the end-of-turn append must skip.</summary>
+  public int PersistedCount
+  {
+    get
+    {
+      lock (_lock)
+      {
+        return _persisted;
       }
     }
   }
@@ -94,37 +176,29 @@ public sealed class RootTranscriptSink(IAgentStore store, Func<AgentId?> rootIdS
 
   /// <summary>Persists every queued message, waiting out any drain already in flight. A
   ///     failed append stays queued (best-effort persistence) and is retried by the next
-  ///     flush; the queue is never reordered.</summary>
-  public async Task FlushAsync()
-  {
-    while (true)
-    {
-      await DrainAsync().ConfigureAwait(false);
-      lock (_lock)
-      {
-        if (_pending.Count == 0)
-        {
-          return;
-        }
-      }
-    }
-  }
+  ///     flush; the queue is never reordered. BOUNDED: one drain attempt, never a retry
+  ///     loop - a store that keeps failing must return control to the caller.</summary>
+  public Task FlushAsync() => DrainAsync();
 
-  /// <summary>Number of conversation messages already persisted. Flushes first: a count
-  ///     read while a write is in flight would under-report and make a caller re-append a
-  ///     message that is about to land.</summary>
+  /// <summary>The absolute persisted index. Flushes once first, so a count read while a
+  ///     write is in flight reflects it; the flush is bounded, so a failing store cannot
+  ///     hang the read.</summary>
   public async Task<int> FlushedCount()
   {
     await FlushAsync().ConfigureAwait(false);
-    lock (_lock)
-    {
-      return _flushed;
-    }
+    return PersistedCount;
   }
 
+  /// <summary>Interface conformance for <see cref="ReplaceAsync(IReadOnlyList{Message})"/>:
+  ///     the richer overload reports whether the replacement actually landed, which the
+  ///     end-of-turn path needs so an inert or failing sink cannot silently swallow a
+  ///     compacted turn. The interface shape discards that answer.</summary>
+  Task IChildTranscriptStore.ReplaceAsync(IReadOnlyList<Message> messages) => ReplaceAsync(messages);
+
   /// <summary>Replaces the whole persisted transcript (compaction/shrink survival) and
-  ///     resets the flushed baseline to the replacement's length.</summary>
-  public async Task ReplaceAsync(IReadOnlyList<Message> messages)
+  ///     resets the absolute baseline to the replacement's length. An inert sink writes
+  ///     nothing and reports false, so the caller can persist the replacement itself.</summary>
+  public async Task<bool> ReplaceAsync(IReadOnlyList<Message> messages)
   {
     ArgumentNullException.ThrowIfNull(messages);
     AgentId? rootId = RootId;
@@ -132,18 +206,18 @@ public sealed class RootTranscriptSink(IAgentStore store, Func<AgentId?> rootIdS
     {
       _pending.Clear();
       _lastAccepted = messages.Count > 0 ? messages[^1] : null;
+      _persisted = messages.Count;
     }
 
     if (rootId is null)
     {
-      return;
+      return false;
     }
 
-    _ = await _store.ReplaceTranscriptAsync(rootId.Value, messages, CancellationToken.None).ConfigureAwait(false);
-    lock (_lock)
-    {
-      _flushed = messages.Count;
-    }
+    Result<string> replaced = await _store
+        .ReplaceTranscriptAsync(rootId.Value, messages, CancellationToken.None)
+        .ConfigureAwait(false);
+    return replaced.IsSuccess;
   }
 
   /// <summary>Terminal flush: disposes by persisting whatever is still queued.</summary>
@@ -151,8 +225,8 @@ public sealed class RootTranscriptSink(IAgentStore store, Func<AgentId?> rootIdS
 
   /// <summary>Sync dispose for the DI container's shutdown path, which disposes a
   ///     singleton synchronously. Named decision: the flush hops to the threadpool so a
-  ///     UI-thread container close cannot deadlock on a store continuation, and the
-  ///     result is awaited inline — the pending queue is what this call exists to land.</summary>
+  ///     UI-thread container close cannot deadlock on a store continuation, and the result
+  ///     is awaited inline — the pending queue is what this call exists to land.</summary>
   public void Dispose()
   {
     Task flush = Task.Run(FlushAsync);
@@ -190,7 +264,8 @@ public sealed class RootTranscriptSink(IAgentStore store, Func<AgentId?> rootIdS
 
   /// <summary>The drain loop: one message at a time, in queue order, with
   ///     CancellationToken.None. A failed append ends the drain with the message still
-  ///     queued (the next flush retries it); a fault ends it the same way and propagates.</summary>
+  ///     queued (the next flush retries it) — the loop never retries on its own, so a
+  ///     persistently failing store cannot spin.</summary>
   private async Task DrainCoreAsync(AgentId rootId, TaskCompletionSource completion)
   {
     try
@@ -219,7 +294,7 @@ public sealed class RootTranscriptSink(IAgentStore store, Func<AgentId?> rootIdS
         lock (_lock)
         {
           _ = _pending.Dequeue();
-          _flushed++;
+          _persisted++;
         }
       }
     }

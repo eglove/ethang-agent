@@ -68,7 +68,8 @@ public class RootSessionLifecycleTests
     Conversation conversation = new();
     conversation.AddUserMessage("hi");
     List<string> errors = [];
-    await lifecycle.AppendExchangeAsync(RootId, conversation, 0, errors.Add);
+    await lifecycle.AppendExchangeAsync(RootId, conversation, 0, "final",
+        errors.Add);
     _ = Assert.Single(store._appended);
     Assert.Same(conversation.Messages[0], store._appended[0].Message);
     Assert.Empty(errors);
@@ -86,7 +87,7 @@ public class RootSessionLifecycleTests
     conversation.AddToolResult("call-1", "found 3 files");
     conversation.AddAssistantMessage("found three files");
     conversation.AddSystemMessage("nudge: write a memory");
-    await lifecycle.AppendExchangeAsync(RootId, conversation, 0,
+    await lifecycle.AppendExchangeAsync(RootId, conversation, 0, "final",
         _ => Assert.Fail("no errors expected"));
     Assert.Equal(5, store._appended.Count);
     Assert.Equal(Role.User, store._appended[0].Message.Role);
@@ -111,7 +112,8 @@ public class RootSessionLifecycleTests
     Conversation conversation = new();
     conversation.AddUserMessage("hi");
     List<string> errors = [];
-    await lifecycle.AppendExchangeAsync(RootId, conversation, 5, errors.Add);
+    await lifecycle.AppendExchangeAsync(RootId, conversation, 5, "final",
+        errors.Add);
     Assert.Empty(store._appended);
     _ = Assert.Single(errors);
     Assert.Contains("InvalidSlice", errors[0], StringComparison.Ordinal);
@@ -128,7 +130,7 @@ public class RootSessionLifecycleTests
     string user = "second user";
     conversation.AddUserMessage(user);
     conversation.AddAssistantMessage("second answer");
-    await lifecycle.AppendExchangeAsync(RootId, conversation, 2,
+    await lifecycle.AppendExchangeAsync(RootId, conversation, 2, "final",
         _ => Assert.Fail("no errors expected"));
     Assert.Equal(2, store._appended.Count);
     Assert.Same(conversation.Messages[2], store._appended[0].Message);
@@ -147,7 +149,8 @@ public class RootSessionLifecycleTests
     Conversation conversation = new();
     conversation.AddUserMessage("hi");
     conversation.AddAssistantMessage("hello");
-    await lifecycle.AppendExchangeAsync(RootId, conversation, 0, errors.Add);
+    await lifecycle.AppendExchangeAsync(RootId, conversation, 0, "final",
+        errors.Add);
     Assert.Equal(2, store._appended.Count);      // second attempt still made
     Assert.Equal(2, errors.Count);              // both failures reported
     Assert.Contains("DbDown", errors[0], StringComparison.Ordinal);

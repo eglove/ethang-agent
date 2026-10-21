@@ -182,4 +182,59 @@ public class ChildTranscriptStoreTests
     Assert.Equal(messages.Select(m => m.Content), store.AppendedMessages.Select(e => e.Message.Content));
     Assert.Equal(messages.Length, await sink.FlushedCount().ConfigureAwait(true));
   }
+  /// <summary>Regression (2026-10-19, fix round 1): FlushAsync once retried in a loop, so a
+  ///     store that kept failing made it spin forever — and because AppendAsync, FlushedCount,
+  ///     and Dispose all call it, a locked database WEDGED the app (measured: no return after
+  ///     3s) instead of degrading. One drain attempt, then return with the message pending.</summary>
+  [Fact]
+  public async Task FlushAsync_WhenTheStoreKeepsFailing_ReturnsAndLeavesTheMessagePending()
+  {
+    FailingStore store = new();
+#pragma warning disable CA2007
+    await using ChildTranscriptStore sink = new(store, new AgentId(Guid.NewGuid()));
+#pragma warning restore CA2007
+
+    Task append = sink.AppendAsync(new Message(Role.User, "stuck", DateTimeOffset.UtcNow));
+    Task completed = await Task.WhenAny(append, Task.Delay(TimeSpan.FromSeconds(5),
+        TestContext.Current.CancellationToken)).ConfigureAwait(true);
+
+    Assert.Same(append, completed);
+    Assert.Equal(1, store.Attempts);
+    Assert.Equal(0, await sink.FlushedCount().ConfigureAwait(true));
+  }
+
+  /// <summary>A store whose writes always fail, yielding so the retry loop would be
+  ///     observable rather than blocking the caller.</summary>
+  private sealed class FailingStore : IAgentStore
+  {
+    public int Attempts { get; private set; }
+
+    public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(record.Id.ToString()));
+
+    public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(record.Id.ToString()));
+
+    public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<AgentRecord>(new DomainError("NotFound", "no records")));
+
+    public async Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
+    {
+      Attempts++;
+      await Task.Yield();
+      return Result.Failure<string>(new DomainError("DbLocked", "database is locked"));
+    }
+
+    public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<string>(new DomainError("DbLocked", "database is locked")));
+
+    public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+        => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
+  }
 }

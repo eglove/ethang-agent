@@ -737,6 +737,7 @@ public static class AgentComposition
         // container builds, and the sink is constructed before that.
         .AddSingleton(sp => new RootTranscriptSink(
             sp.GetRequiredService<IAgentStore>(),
+            sp.GetRequiredService<Conversation>(),
             () => sp.GetRequiredService<RootSessionIdentity>().Id))
         .AddSingleton(sp => new RootAgentHolder(
             sp.GetRequiredService<IModelProvider>(),

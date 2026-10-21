@@ -76,7 +76,6 @@ public sealed class RootAgentHolder(
       return existing;
     }
 
-    RetireTranscriptSubscription();
     CurrentConfig = config;
     CurrentSessionId = ResolveSessionId();
     // One accountant per window: a rebuild with a different model (hence window)
@@ -109,8 +108,5 @@ public sealed class RootAgentHolder(
       ? new AgentId(parsed)
       : null;
 
-  /// <summary>Ends the previous build's transcript subscription. The agent owns the handle
-  ///     (it is the object that subscribed); the holder owns the agent's lifetime, so the
-  ///     retirement belongs here. Null for a legacy no-sink build.</summary>
-  private void RetireTranscriptSubscription() => Current?.TranscriptSubscription?.Dispose();
+
 }
