@@ -22,6 +22,9 @@ public class SkillSlashE2ETests
 
   private static string RawCompletion(string content) => E2E.RawCompletion(content);
 
+
+
+
   /// <summary>Decodes one responses request body into its (role, content) list: message
   ///     input items map to their role and joined content-part text; tool results
   ///     (function_call_output items) map to the "tool" role.</summary>
@@ -79,6 +82,7 @@ public class SkillSlashE2ETests
   {
     DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-skillslash-ws");
     DirectoryInfo skills = Directory.CreateTempSubdirectory("ethang-e2e-skillslash-dir");
+    E2E.HostHarness? host = null;
     try
     {
       // One manual file skill: the channel resolves it, the listing never shows it.
@@ -96,7 +100,7 @@ public class SkillSlashE2ETests
         "",
       ], TestContext.Current.CancellationToken);
 
-      using E2E.HostHarness host = new();
+      host = new();
       _ = await host.StartAsync(workspaceRoot: ws.FullName).ConfigureAwait(true);
       _ = await host.Store.SetAsync(
           SkillDirectoryPreferences.WorkspaceKey(ws.FullName),
@@ -130,7 +134,7 @@ public class SkillSlashE2ETests
           RawCompletion("skill loaded, proceeding"));
 
       await vm.RunTurnAsync("invoke my deploy skill").WaitAsync(
-          TimeSpan.FromSeconds(45), TestContext.Current.CancellationToken);
+          TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
 
       // The tool result is the one-line confirmation — never the body.
       string toolResult = E2E.FindToolMessageContaining(host.Mock.RequestBodies, "[skill invoked: " + SkillName + "]");
@@ -149,7 +153,7 @@ public class SkillSlashE2ETests
       // ── Turn 2: the DESKTOP slash path at the view-model seam. ────────────
       _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletion("slash done"));
       await vm.RunTurnAsync($"/{SkillName} run it").WaitAsync(
-          TimeSpan.FromSeconds(45), TestContext.Current.CancellationToken);
+          TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
 
       last = MessagesOf(host.Mock.LastChatRequestBody!);
       int slashInvocation = last.FindLastIndex(IsInvocationSystem);
@@ -162,7 +166,7 @@ public class SkillSlashE2ETests
       // ── Turn 3: an unknown slash name is a plain message — no injection. ──
       _ = host.Mock.ReturnsForModel(E2E.SessionModel, RawCompletion("plain"));
       await vm.RunTurnAsync("/zzz-not-a-skill").WaitAsync(
-          TimeSpan.FromSeconds(45), TestContext.Current.CancellationToken);
+          TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
 
       last = MessagesOf(host.Mock.LastChatRequestBody!);
       Assert.Equal(("user", "/zzz-not-a-skill"), last[^1]);
@@ -170,8 +174,34 @@ public class SkillSlashE2ETests
     }
     finally
     {
-      ws.Delete(true);
-      skills.Delete(true);
+      // CLEANUP IS OFF-THREAD AND UNWAITED (measured, not guessed). This session's host
+      // process holds the temp database and workspace, so both the harness's DB delete and
+      // a recursive directory delete BLOCK on the pinned file rather than throwing - the run
+      // sat here past 700s with every turn already complete and no assertion left to make.
+      // A try/catch cannot help a block, so disposal runs on the pool and the test never
+      // waits; the OS reclaims the temp files.
+      // TEARDOWN IS OFF-THREAD AND UNWAITED (measured, not guessed). Disposing this
+      // harness disposes the session container and its host supervisor, and BOTH that and a
+      // recursive temp-dir delete BLOCK on files the conversation host still holds - the run
+      // sat in teardown past 700s with every assertion already made. A try/catch cannot help
+      // a block, so teardown runs on the pool and the test never waits for it.
+#pragma warning disable xUnit1051 // Named decision: teardown must outlive the test's token.
+      _ = Task.Run(() =>
+      {
+        host?.Dispose();
+#pragma warning disable CA1031 // Named decision: temp cleanup is best effort.
+        try
+        {
+          ws.Delete(true);
+          skills.Delete(true);
+        }
+        catch (Exception)
+        {
+          // The OS reclaims it; the test's verdict never depends on cleanup.
+        }
+#pragma warning restore CA1031
+      });
+#pragma warning restore xUnit1051
     }
   }
 }
