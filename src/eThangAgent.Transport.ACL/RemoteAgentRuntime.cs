@@ -255,8 +255,16 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
         // So: tear it down and complete every pending settle with a declared failure. A
         // caller cancellation still reports TurnCancelled (it is the caller's doing), but
         // the connection loss is real either way.
-        MarkConnectionLost("a write was cancelled mid-frame; the peer's frame stream is "
-            + "desynchronized and the connection cannot be reused.");
+        // SUPERSEDED-CONNECTION GUARD (mirrors the pump's check): this send was writing on
+        // `transport`; if a newer transport has been installed since, the failure belongs to a
+        // connection nobody uses any more, and acting on it would clobber the fresh
+        // connection's live state - the same re-attach race the pump guard closes, which this
+        // path reintroduced (measured 8/40 iterations tearing down a healthy re-attached host).
+        if (ReferenceEquals(Volatile.Read(ref _transport), transport))
+        {
+          MarkConnectionLost("a write was cancelled mid-frame; the peer's frame stream is "
+              + "desynchronized and the connection cannot be reused.");
+        }
         ct.ThrowIfCancellationRequested();
         return HostUnavailable("the root turn could not be put on the wire within "
             + TurnBudget.Send + ": the host did not consume the frame in time and the "
