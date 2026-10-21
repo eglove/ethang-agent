@@ -161,29 +161,17 @@ public sealed class ScriptGlobals
       // contract the model sees, so a killed program is never mistaken for a clean exit.
       using ProcessTreeGuard guard = new(p,
           Ceilings.SpawnMemoryBytes, Ceilings.SpawnProcessCount, ShellSampleInterval);
-      // Drain both pipes concurrently: sequential ReadToEnd calls deadlock when the
-      // child fills the pipe that is not being read (chatty stderr under quiet stdout).
-      // Named decision (S8949): the reads take CancellationToken.None — cancellation is
-      // enforced by the kill registration below (killing closes the pipes, completing
-      // the drains); a cancelled mid-read would fault the unconditional drain the
-      // cancellation path relies on.
-      Task<string> stdoutTask = p.StandardOutput.ReadToEndAsync(CancellationToken.None);
-      Task<string> stderrTask = p.StandardError.ReadToEndAsync(CancellationToken.None);
+      // Spec D10: both pipes feed ONE ceiling, so the bound is on the run's total
+      // output rather than per stream. Exceeding the kill cap kills the tree and
+      // reports the ceiling; past the truncate cap the head survives with an explicit
+      // marker, so a clipped result is never mistaken for a short one.
+      OutputCeiling ceiling = new(Ceilings.OutputTruncateBytes, Ceilings.OutputKillBytes);
+      Task stdoutTask = PumpAsync(p.StandardOutput, ceiling, isErrorStream: false, () => KillTree(p));
+      Task stderrTask = PumpAsync(p.StandardError, ceiling, isErrorStream: true, () => KillTree(p));
       // Kill the whole tree when the exec budget elapses or the turn is stopped:
       // a synchronous Shell cannot observe the token any other way. Killing closes
       // the pipes, which completes the drain tasks.
-      using CancellationTokenRegistration reg = _ct.Register(() =>
-      {
-        try
-        {
-          p.Kill(entireProcessTree: true);
-        }
-        // Named decision (CA1031): kill races are expected; the process may already
-        // have exited. Swallowing is the entire point of this guard.
-#pragma warning disable CA1031 // Do not catch general exception types
-        catch (Exception) { /* already exited */ }
-#pragma warning restore CA1031 // Do not catch general exception types
-      });
+      using CancellationTokenRegistration reg = _ct.Register(() => KillTree(p));
       try
       {
         Task.WaitAll([stdoutTask, stderrTask], _ct);
@@ -199,15 +187,16 @@ public sealed class ScriptGlobals
 
       // A breach is the run's outcome, not a footnote: the model must see WHY the
       // program stopped, never a bare non-zero exit it would read as the program's
-      // own failure.
-      if (CeilingFailure(guard.Outcome, stdoutTask.Result, stderrTask.Result) is { } ceilingFailure)
+      // own failure. The output ceiling is checked FIRST: it is the reason the tree
+      // was killed, and a kill also empties the process tree the guard samples.
+      if (OutcomeFailure(guard, ceiling) is { } failure)
       {
         ReportRun(argv, -1, startedUtc);
-        return ceilingFailure;
+        return failure;
       }
 
       ReportRun(argv, p.ExitCode, startedUtc);
-      return new ShellResult(p.ExitCode, stdoutTask.Result, stderrTask.Result);
+      return new ShellResult(p.ExitCode, ceiling.Render(), ceiling.RenderStderr());
     }
     catch (OperationCanceledException)
     {
@@ -245,7 +234,7 @@ public sealed class ScriptGlobals
   ///     the drain readers (their buffers finalize with the pipe handles) and the
   ///     exit-code flush, and unwind cancelled. A hung stop must settle, not leak the
   ///     turn.</para></summary>
-  private void UnwindIfCancelled(Process process, Task<string> stdoutTask, Task<string> stderrTask)
+  private void UnwindIfCancelled(Process process, Task stdoutTask, Task stderrTask)
   {
     if (!_ct.IsCancellationRequested)
     {
@@ -257,10 +246,73 @@ public sealed class ScriptGlobals
     throw new OperationCanceledException(_ct);
   }
 
+  /// <summary>Pumps one pipe into the shared <see cref="OutputCeiling"/> until the pipe
+  ///     closes or the run must be stopped. On a kill-cap breach the tree is killed
+  ///     (closing both pipes, which completes the sibling pump) and the pump returns.
+  ///     <para>Reads take CancellationToken.None by the same named decision (S8949) the
+  ///     drains carried: cancellation is enforced by the kill registration, never by
+  ///     faulting a read the cancellation path still depends on.</para></summary>
+  private static async Task PumpAsync(StreamReader reader, OutputCeiling ceiling,
+      bool isErrorStream, Action onExceeded)
+  {
+    char[] buffer = new char[8192];
+    while (true)
+    {
+      int read = await reader.ReadAsync(buffer.AsMemory(), CancellationToken.None).ConfigureAwait(false);
+      if (read == 0)
+      {
+        return;
+      }
+
+      if (!ceiling.Append(new string(buffer, 0, read), isErrorStream))
+      {
+        onExceeded();
+        return;
+      }
+    }
+  }
+
+  /// <summary>Kills a runaway program's whole tree. Named decision (CA1031): the process
+  ///     may already have exited; the ceiling result is what the model reads, so a
+  ///     failed kill is not a second failure to report.</summary>
+  private static void KillTree(Process process)
+  {
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      process.Kill(entireProcessTree: true);
+    }
+    catch (Exception)
+    {
+      // already exited
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+  }
+
+  /// <summary>The run's ceiling outcome, or null when it stayed inside every ceiling.
+  ///     The output ceiling is checked FIRST: it is the reason the tree was killed, and
+  ///     a kill also empties the process tree the guard samples.</summary>
+  private ShellResult? OutcomeFailure(ProcessTreeGuard guard, OutputCeiling ceiling) =>
+      ceiling.Exceeded
+          ? OutputCeilingFailure(ceiling)
+          : CeilingFailure(guard.Outcome, ceiling.Render(), ceiling.RenderStderr());
+
+  /// <summary>The output-ceiling error contract. The head the run managed to produce is
+  ///     still returned as stdout — a runaway's opening lines are often the only
+  ///     diagnostic — and the marker inside it names the limit. Exit code -1 (never the
+  ///     program's own) so a stopped run can never be mistaken for a clean exit.</summary>
+  private ShellResult OutputCeilingFailure(OutputCeiling ceiling) => new(-1, ceiling.Render(),
+      WithProgramStderr(
+          "Error [OutputCeiling]: the program produced more than "
+          + OutputCeiling.HumanBytes(Ceilings.OutputKillBytes)
+          + " of output and was stopped.",
+          ceiling.RenderStderr()));
+
   /// <summary>Translates a guard breach into the error contract the model reads, or
   ///     null when the run stayed inside its ceilings. The exit code is -1 (never the
   ///     program's own) so a killed program can never be mistaken for a clean exit.
-  ///     <para>Both streams collected before the kill are PRESERVED: stdout verbatim,
+  ///     <para>Both streams collected before the kill are PRESERVED: stdout as the
+  ///     output ceiling captured it (verbatim inside the caps, marked when clipped),
   ///     and the program's own stderr APPENDED after the ceiling line rather than
   ///     replaced — for a killed program its last dying words are the most useful
   ///     diagnostic, and discarding them would leave the model with a bare verdict.</para></summary>
@@ -402,8 +454,9 @@ public sealed record ShellResult(int ExitCode, string Stdout, string Stderr);
 ///     would kill honest work. 256 leaves that headroom while still stopping the
 ///     runaway shape it exists for — a program spawning hundreds or thousands of
 ///     processes.</para>
-///     <para>The output ceilings belong to the same per-program budget and are
-///     consumed by the output-capping path.</para></summary>
+///     <para>The output ceilings belong to the same per-program budget and bound the
+///     captured output of every Shell run: past the truncate cap the head survives with
+///     an explicit marker, past the kill cap the run is stopped.</para></summary>
 public sealed record ScriptCeilings
 {
   /// <summary>A ceiling record. Every value is validated HERE, at construction, and an
@@ -430,14 +483,15 @@ public sealed record ScriptCeilings
   ///     killed.</summary>
   public int SpawnProcessCount { get; }
 
-  /// <summary>RESERVED for the output-capping path. No such path exists yet, so nothing
-  ///     reads this today: it is the byte count at which a program's output will be
-  ///     truncated.</summary>
+  /// <summary>The byte count at which a program's captured output is truncated: the head
+  ///     is kept and an explicit marker names the limit and the recovery, so a clipped
+  ///     result is never mistaken for a short one. BOTH pipes feed one ceiling, so this
+  ///     bounds the run's TOTAL output rather than each stream.</summary>
   public long OutputTruncateBytes { get; }
 
-  /// <summary>RESERVED for the output-capping path. No such path exists yet, so nothing
-  ///     reads this today: it is the byte count at which a program's output will be
-  ///     treated as a runaway and the program stopped.</summary>
+  /// <summary>The byte count at which a program's output is treated as a runaway and the
+  ///     program stopped (exit -1, <c>Error [OutputCeiling]</c>). Sits above the
+  ///     truncate cap: between the two, output is clipped but the run continues.</summary>
   public long OutputKillBytes { get; }
 
   /// <summary>The documented default ceilings. Memory: 4 GB per spawned program tree
