@@ -59,6 +59,36 @@ public sealed class SqliteWatchdogEventStore(AppDatabase database) : IWatchdogEv
     return Result.Success<IReadOnlyList<WatchdogEvent>>(events);
   }
 
+  public async Task<Result<IReadOnlyList<WatchdogEvent>>> ListRecentByKindAsync(
+      WatchdogEventKind kind, int limit, CancellationToken ct = default)
+  {
+    if (limit < 0)
+    {
+      // Strict boundary: SQLite would read a negative LIMIT as unbounded.
+      return Result.Failure<IReadOnlyList<WatchdogEvent>>(new DomainError("InvalidLimit",
+          "limit must not be negative."));
+    }
+
+#pragma warning disable CA2007
+    await using SqliteConnection connection = _db.Open();
+#pragma warning restore CA2007
+    using SqliteCommand command = connection.CreateCommand();
+    command.CommandText = "SELECT id, agent_id, kind, detail, attempt, rss_mb, created_at FROM watchdog_events WHERE kind = $kind ORDER BY created_at DESC LIMIT $limit;";
+    _ = command.Parameters.AddWithValue("$kind", kind.ToString());
+    _ = command.Parameters.AddWithValue("$limit", limit);
+    using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+    List<WatchdogEvent> events = [];
+    while (await reader.ReadAsync(ct).ConfigureAwait(false))
+    {
+      if (ReadEvent(reader) is { } evt)
+      {
+        events.Add(evt);
+      }
+    }
+
+    return Result.Success<IReadOnlyList<WatchdogEvent>>(events);
+  }
+
   public async Task<Result<int>> CountKindForAgentAsync(AgentId agentId, WatchdogEventKind kind, CancellationToken ct = default)
   {
 #pragma warning disable CA2007

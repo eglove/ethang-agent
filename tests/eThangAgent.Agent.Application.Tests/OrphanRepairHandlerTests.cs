@@ -24,6 +24,10 @@ public class OrphanRepairHandlerTests
     public Task<Result<IReadOnlyList<WatchdogEvent>>> ListRecentAsync(int limit, CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<WatchdogEvent>>([.. Rows.Take(limit)]));
 
+    public Task<Result<IReadOnlyList<WatchdogEvent>>> ListRecentByKindAsync(
+        WatchdogEventKind kind, int limit, CancellationToken ct = default)
+      => Task.FromResult(Result.Success<IReadOnlyList<WatchdogEvent>>([]));
+
     public Task<Result<int>> CountKindForAgentAsync(AgentId agentId, WatchdogEventKind kind, CancellationToken ct = default)
         => Task.FromResult(Result.Success(Rows.Count(e => e.AgentId == agentId && e.Kind == kind)));
   }

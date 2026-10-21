@@ -181,6 +181,10 @@ internal sealed class FakeAuditStore : IWatchdogEventStore
       => Task.FromResult(Result.Success<IReadOnlyList<WatchdogEvent>>(
           [.. Events.OrderByDescending(e => e.CreatedAt).Take(limit)]));
 
+  public Task<Result<IReadOnlyList<WatchdogEvent>>> ListRecentByKindAsync(
+      WatchdogEventKind kind, int limit, CancellationToken ct = default)
+    => Task.FromResult(Result.Success<IReadOnlyList<WatchdogEvent>>([]));
+
   public Task<Result<int>> CountKindForAgentAsync(AgentId agentId, WatchdogEventKind kind, CancellationToken ct = default)
       => Task.FromResult(Result.Success(Events.Count(e => e.AgentId == agentId && e.Kind == kind)));
 }

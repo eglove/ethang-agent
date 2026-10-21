@@ -117,6 +117,10 @@ public class AgentWatchdogStallTests
     public Task<Result<IReadOnlyList<WatchdogEvent>>> ListRecentAsync(int limit, CancellationToken ct = default)
       => Task.FromResult(Result.Success<IReadOnlyList<WatchdogEvent>>([.. Appended.Take(limit)]));
 
+    public Task<Result<IReadOnlyList<WatchdogEvent>>> ListRecentByKindAsync(
+        WatchdogEventKind kind, int limit, CancellationToken ct = default)
+      => Task.FromResult(Result.Success<IReadOnlyList<WatchdogEvent>>([]));
+
     public Task<Result<int>> CountKindForAgentAsync(AgentId agentId, WatchdogEventKind kind, CancellationToken ct = default)
       => Task.FromResult(Result.Success(Appended.Count(e => e.AgentId == agentId && e.Kind == kind)));
   }

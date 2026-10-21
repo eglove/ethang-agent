@@ -95,6 +95,24 @@ public sealed class SqliteWatchdogEventStoreTests : IDisposable
   }
 
   [Fact]
+  public async Task ListRecentByKindAsync_MixedKinds_ReturnsOnlyTheRequestedKindNewestFirst()
+  {
+    DateTimeOffset now = new(2026, 10, 18, 12, 0, 0, TimeSpan.Zero);
+    _ = await _store.AppendAsync(new WatchdogEvent(Guid.NewGuid(), null,
+        WatchdogEventKind.ResourceNotice, "first", 0, 100, now), TestContext.Current.CancellationToken);
+    _ = await _store.AppendAsync(new WatchdogEvent(Guid.NewGuid(), null,
+        WatchdogEventKind.RssBreached, "other", 0, 200, now.AddSeconds(1)), TestContext.Current.CancellationToken);
+    _ = await _store.AppendAsync(new WatchdogEvent(Guid.NewGuid(), null,
+        WatchdogEventKind.ResourceNotice, "second", 0, 300, now.AddSeconds(2)), TestContext.Current.CancellationToken);
+
+    Result<IReadOnlyList<WatchdogEvent>> result = await _store.ListRecentByKindAsync(
+        WatchdogEventKind.ResourceNotice, 10, TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal(["second", "first"], result.Value.Select(e => e.Detail));
+  }
+
+  [Fact]
   public void Migration_CreatesWatchdogEventsTable()
   {
     using Microsoft.Data.Sqlite.SqliteConnection connection = _db.Open();
