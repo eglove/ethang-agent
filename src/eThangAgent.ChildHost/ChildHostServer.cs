@@ -34,6 +34,11 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   // for WhenSettledAsync; cancelling them never touches the run itself.
   private readonly ConcurrentDictionary<Guid, IAgentRuntime> _runtimes = [];
 
+  /// <summary>Live ROOT turns by turn id. A root turn has no record id, so the child
+  ///     registries cannot address it — without this an interrupt envelope could only
+  ///     abandon the app's local wait while the host kept executing the stopped turn.</summary>
+  private readonly ConcurrentDictionary<string, CancellationTokenSource> _rootTurns = [];
+
   // The ROOT runner (spec D6): the conversation's own agent runs in this process. Built
   // ONCE, lazily, from the host's own container - the root transcript sink seeds its
   // persisted baseline at construction, so a per-turn runner would re-seed mid-conversation
@@ -307,10 +312,17 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     }
 #pragma warning restore CA1031 // Do not catch general exception types
 
+    // The ROOT turn's own cancellation source, registered so an interrupt envelope can
+    // reach it. Without this a stop only abandoned the app's local wait: the host kept
+    // executing the turn, kept growing the conversation, and persisted a turn the user had
+    // stopped. Keyed by turn id, since a root turn has no record id.
+    using CancellationTokenSource turnCts = new();
+    _rootTurns[request.TurnId] = turnCts;
     try
     {
       _ = await rootHost
-          .RunTurnAsync(request, evt => SendRootTurnEventAsync(evt).GetAwaiter().GetResult())
+          .RunTurnAsync(request, evt => SendRootTurnEventAsync(evt).GetAwaiter().GetResult(),
+              turnCts.Token)
           .ConfigureAwait(false);
       // The settled event already carried the outcome to the app; the Result is returned
       // for the caller's own logging and is deliberately not turned into a second envelope.
@@ -324,6 +336,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
           "Error [RootTurnFault]: " + ex.Message, Generation)).ConfigureAwait(false);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
+    finally
+    {
+      _ = _rootTurns.TryRemove(request.TurnId, out _);
+    }
   }
 
   /// <summary>Resolves the ROOT runner once, from the host's own container (spec D6).
@@ -494,7 +510,18 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   private void HandleInterrupt(TransportEnvelope envelope)
   {
     InterruptCommand? command = JsonSerializer.Deserialize<InterruptCommand>(envelope.Json);
-    if (command!.RecordId is { } root)
+
+    // The ROOT turn first: a stop button cancels the turn the user is watching, which has
+    // no record id and is therefore invisible to the child walk below. Cancelling its token
+    // is what makes the host actually STOP — abandoning the app's local wait alone left the
+    // turn running, growing the conversation, and persisting a turn the user had stopped.
+    if (command!.TurnId is { Length: > 0 } turnId
+        && _rootTurns.TryGetValue(turnId, out CancellationTokenSource? turnCts))
+    {
+      turnCts.Cancel();
+    }
+
+    if (command.RecordId is { } root)
     {
       // Deepest first: children settle before their parents observe the teardown.
       List<Guid> targets = [.. _active.Keys

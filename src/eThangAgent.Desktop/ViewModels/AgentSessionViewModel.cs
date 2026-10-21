@@ -219,6 +219,17 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     turns in this process — the headless/test-host shape, never production.</summary>
   private readonly IRootTurnChannel? _rootTurnChannel;
 
+  /// <summary>App-side conversation mutations waiting for the NEXT turn to carry to the host
+  ///     (spec D6): a slash invocation's System line and a ! command's model-facing line.
+  ///     They queue because they are produced OUT of turn — a ! command may run mid-turn or
+  ///     between turns — and they must travel with a turn, since the host owns the
+  ///     conversation the model actually reads. Cleared as each turn takes them.</summary>
+  private readonly List<RootTurnPreTurnMessage> _pendingPreTurn = [];
+
+  /// <summary>The live host turn's id, or null between turns. Stop needs it to interrupt the
+  ///     turn IN THE HOST: cancelling the local token alone abandons only this process's wait.</summary>
+  private string? _liveTurnId;
+
   /// <summary>The active turn's cancellation source, or null between turns. Assigned on the UI
   /// thread at turn start; cleared at turn end. Never disposed inline — cancelling a disposed
   /// source from the UI thread would race the worker's teardown.</summary>
@@ -347,6 +358,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     if (r.IsSuccess)
     {
       _conversation.AddSystemMessage(r.Value.SystemLine);
+      // Spec D6: the host owns the conversation the model reads, so the line must ALSO
+      // travel with the next turn — a local-only injection reaches no model at all.
+      _pendingPreTurn.Add(new RootTurnPreTurnMessage("system", r.Value.SystemLine));
       Transcript.AddSystemMessage(r.Value.SystemLine);
       if (IsBusy)
       {
@@ -406,6 +420,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // Full transparency: the conversation just gained the model-facing system line
     // for this run; the live transcript shows the SAME verbatim text (a resumed
     // session replays it as a system entry - live parity is the contract).
+    // Spec D6: the host owns the conversation the model reads, so the line must ALSO
+    // travel with the next turn — otherwise command_output is never discoverable.
+    _pendingPreTurn.Add(new RootTurnPreTurnMessage("system", result.Value.ModelFacingLine));
     Transcript.AddSystemMessage(result.Value.ModelFacingLine);
   }
 
@@ -565,7 +582,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     bool compactedThisTurn = false;
     bool shrunkThisTurn = false;
     Result<string> result = _rootTurnChannel is { } channel
-        ? await SendTurnToHostAsync(channel, input, bridge,
+        ? await SendTurnToHostAsync(channel, input, imageParts, bridge,
             () => sawStream = true, cts.Token).ConfigureAwait(true)
         : await RunTurnInProcessAsync(input, imageParts, bridge,
             () => sawStream = true,
@@ -593,11 +610,25 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     await PersistTurnAsync(messageCountBefore, result, compactedThisTurn || shrunkThisTurn);
 
     // Non-streaming fallback: if no deltas were delivered, show the final text as a notice.
-    if (!result.IsSuccess || !sawStream)
+    // A HOST turn that streams partial text and then settles with an error payload is still
+    // a failure the user must see: the transport Result is a SUCCESS (the settle arrived),
+    // so the error is read from the payload — otherwise a truncated answer would render with
+    // no error at all, which the in-process path never did.
+    if (!result.IsSuccess)
     {
-      Transcript.AddNotice(result.IsSuccess
-          ? result.Value
-          : $"Error [{result.Error.Code}]: {result.Error.Message}");
+      Transcript.AddNotice($"Error [{result.Error.Code}]: {result.Error.Message}");
+      return;
+    }
+
+    if (!sawStream)
+    {
+      Transcript.AddNotice(result.Value);
+      return;
+    }
+
+    if (IsErrorSettle(result.Value))
+    {
+      Transcript.AddNotice(result.Value);
     }
   }
 
@@ -653,16 +684,33 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     answer the user must see. A failed Result is a transport-level fault and keeps its
   ///     own typed code.</para></summary>
   private async Task<Result<string>> SendTurnToHostAsync(IRootTurnChannel channel, string input,
-      StreamBridge bridge, Action onStreamed, CancellationToken ct)
+      IReadOnlyList<MessagePart>? imageParts, StreamBridge bridge, Action onStreamed,
+      CancellationToken ct)
   {
     // A FRESH turn id and generation per turn: the wire runtime keys its settle matching on
     // both, so a reused id would let a timed-out predecessor's settle complete this turn
     // with the wrong payload.
     string turnId = Guid.NewGuid().ToString("N");
-    RootTurnRequest request = new(turnId, input, []);
-    return await channel
-        .SendRootTurnAsync(request, evt => ApplyRootTurnEvent(evt, bridge, onStreamed), ct)
-        .ConfigureAwait(true);
+    _liveTurnId = turnId;
+    RootTurnRequest request = new(turnId, input, [])
+    {
+      Images = ToWireImages(imageParts),
+      // The app's own pre-turn conversation mutations ride the request: the host is a
+      // different process with its own conversation, so anything injected only here would
+      // never reach the model.
+      PreTurn = [.. _pendingPreTurn],
+    };
+    _pendingPreTurn.Clear();
+    try
+    {
+      return await channel
+          .SendRootTurnAsync(request, evt => ApplyRootTurnEvent(evt, bridge, onStreamed), ct)
+          .ConfigureAwait(true);
+    }
+    finally
+    {
+      _liveTurnId = null;
+    }
   }
 
   /// <summary>Maps one host event onto the stream bridge. The four wire kinds are the
@@ -695,6 +743,37 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       default:
         break;
     }
+  }
+
+  /// <summary>True when a settled payload is the host's typed failure line
+  ///     (<c>Error [&lt;code&gt;]: &lt;message&gt;</c>) rather than an answer. The wire carries the
+  ///     outcome in the payload, so this is the only way to tell a failed turn from a
+  ///     successful one that happened to start with the word 'Error'.</summary>
+  private static bool IsErrorSettle(string payload)
+      => payload.StartsWith("Error [", StringComparison.Ordinal)
+          && payload.Contains("]: ", StringComparison.Ordinal);
+
+  /// <summary>Converts the turn's attached image parts to their wire form, or an empty list
+  ///     when the turn carries none.</summary>
+  private static List<RootTurnImage> ToWireImages(IReadOnlyList<MessagePart>? imageParts)
+  {
+    if (imageParts is null || imageParts.Count == 0)
+    {
+      return [];
+    }
+
+    List<RootTurnImage> images = [];
+    foreach (MessagePart part in imageParts)
+    {
+      // Only image parts are stageable through PendingImages; anything else would be a
+      // caller fault, and dropping it silently is exactly the bug this carrier fixes.
+      if (part is MessagePart.ImagePart image)
+      {
+        images.Add(new RootTurnImage(image.MediaType, image.Base64Data));
+      }
+    }
+
+    return images;
   }
 
   /// <summary>Renders one host tool event as the same call/result cards the in-process
@@ -752,6 +831,15 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // Interrupt() cancels every active run the runtime owns — in remote-host mode
     // that is every active child in the host, including other sessions' children.
     _childRuntime?.InterruptSubtree(_rootId);
+
+    // Spec D6: the ROOT turn lives in the host, so the stop must reach it there. Cancelling
+    // the local token alone only abandons this process's wait — the host would keep running
+    // the turn and persist it.
+    if (_rootTurnChannel is { } channel && _liveTurnId is { Length: > 0 } turnId)
+    {
+      channel.InterruptRootTurn(turnId);
+    }
+
     cts.Cancel();
   }
 

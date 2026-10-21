@@ -166,6 +166,8 @@ public sealed class RootRunHost : IDisposable
       return refused;
     }
 
+    ApplyPreTurn(request);
+
     SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
     TurnCallbacks callbacks = new(
         OnContentDelta: text => Emit(request, onEvent, "delta", text),
@@ -176,13 +178,53 @@ public sealed class RootRunHost : IDisposable
         OnSystemMessage: text => Emit(request, onEvent, "notice", text));
 
     Result<string> result = await handler
-        .Handle(new SendMessageCommand(request.Input), callbacks,
+        .Handle(new SendMessageCommand(request.Input, BuildImageParts(request)), callbacks,
             text => Emit(request, onEvent, "notice", text), ct)
         .ConfigureAwait(false);
 
     Emit(request, onEvent, "settled",
         result.IsSuccess ? result.Value : DescribeFailure(result.Error));
     return result;
+  }
+
+  /// <summary>Appends the app-supplied messages that must precede this turn's user input
+  ///     (a slash invocation's System line, a ! command's model-facing line). They arrive on
+  ///     the REQUEST because they are conversation mutations the app already made: the host
+  ///     has no skill catalog and no command runner, so re-deriving them here would be a
+  ///     second implementation of the app's own surface.
+  ///     <para>These use the conversation's Add* methods DELIBERATELY, unlike hydration: they
+  ///     are genuinely new messages this turn introduces, so the transcript sink must persist
+  ///     them (a hydrated message, by contrast, is one the store already holds). They are
+  ///     appended after hydration and before the handler builds its agent, so exactly one
+  ///     sink subscription observes each.</para></summary>
+  private void ApplyPreTurn(RootTurnRequest request)
+  {
+    foreach (RootTurnPreTurnMessage message in request.PreTurn ?? [])
+    {
+      if (string.Equals(message.Role, "system", StringComparison.Ordinal))
+      {
+        Conversation.AddSystemMessage(message.Text);
+      }
+      else
+      {
+        // An unknown role is a PROTOCOL fault, not a silent default: mislabelling a message
+        // as user voice would put words in the user's mouth.
+        throw new InvalidOperationException(
+            "root turn pre-turn message carries an unknown role '" + message.Role + "'.");
+      }
+    }
+  }
+
+  /// <summary>Rebuilds the turn's attached images into the MessageParts the handler takes,
+  ///     or null when the turn carries none (the legacy text-only shape). The app is where
+  ///     images were staged, so they travel on the request; a turn that dropped them would
+  ///     show the user an attached image the model never received.</summary>
+  private static IReadOnlyList<MessagePart>? BuildImageParts(RootTurnRequest request)
+  {
+    IReadOnlyList<RootTurnImage> images = request.Images ?? [];
+    return images.Count == 0
+        ? null
+        : [.. images.Select(image => new MessagePart.ImagePart(image.MediaType, image.Base64Data))];
   }
 
   /// <summary>Loads the conversation history a turn must see, ONCE, before the first turn.

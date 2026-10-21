@@ -179,6 +179,18 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   public void InterruptSubtree(AgentId rootOfSubtree)
       => _ = SendEnvelopeAsync("interrupt", JsonSerializer.Serialize(new InterruptCommand(rootOfSubtree.Value)), rootOfSubtree, CancellationToken.None);
 
+  /// <summary>Interrupts ONE live root turn by its turn id. A root turn has no record id,
+  ///     so the child interrupt paths cannot address it: without this a stop abandoned only
+  ///     the caller's local wait while the host kept executing — and persisting — the turn
+  ///     the user stopped.</summary>
+  public void InterruptRootTurn(string turnId)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(turnId);
+    _ = SendEnvelopeAsync("interrupt",
+        JsonSerializer.Serialize(new InterruptCommand(null, turnId)),
+        new AgentId(Guid.NewGuid()), CancellationToken.None);
+  }
+
   /// <inheritdoc cref="IAgentRuntime.Interrupt"/>
   public void Interrupt(AgentId? childId = null)
       => _ = SendEnvelopeAsync("interrupt", JsonSerializer.Serialize(new InterruptCommand(childId?.Value)), childId ?? new AgentId(Guid.NewGuid()), CancellationToken.None);
@@ -723,7 +735,11 @@ internal sealed class RootTurnWaiter(
 
 public sealed record StartCommand(Guid RecordId, int MaxConcurrent, string ModelId);
 public sealed record DeliverCommand(Guid RecordId, string Text, int Urgency, string Sender);
-public sealed record InterruptCommand(Guid? RecordId);
+/// <summary>One interrupt request. <paramref name="RecordId"/> addresses a CHILD subtree
+///     (the FR-C6 scoped teardown); <paramref name="TurnId"/> addresses a live ROOT turn,
+///     which has no record id of its own. A stop button sends both: the subtree and the
+///     root turn the user is actually watching.</summary>
+public sealed record InterruptCommand(Guid? RecordId, string? TurnId = null);
 public sealed record SettleNotice(Guid RecordId, string Status, string? Reason, string Report);
 public sealed record DeclareCommand(IReadOnlyCollection<Guid> LiveIds);
 public sealed record HostError(Guid RecordId, string Code, string Message);

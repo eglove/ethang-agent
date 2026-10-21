@@ -4,6 +4,8 @@ using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
 using eThangAgent.SharedKernel;
+using eThangAgent.SkillDomain;
+using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
 
 namespace eThangAgent.Desktop.Tests;
@@ -18,6 +20,11 @@ namespace eThangAgent.Desktop.Tests;
 ///     regression these tests exist to catch.</para></summary>
 public sealed class ThinClientTurnTests
 {
+  /// <summary>A minimal valid 1x1 PNG: AttachImageBytes sniffs magic bytes, and the
+  ///     transcript decodes the bitmap, so a fake header would fail both.</summary>
+  private static byte[] OnePixelPng() => Convert.FromBase64String(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+
   [Fact]
   public async Task SendAsync_HostStreamsDeltas_TranscriptShowsThemInOrder()
   {
@@ -72,6 +79,111 @@ public sealed class ThinClientTurnTests
   }
 
   [Fact]
+  public async Task SendAsync_WithStagedImage_CarriesItOnTheRequest()
+  {
+    FakeHostSession session = await FakeHostSession.StartAsync(["seen"]).ConfigureAwait(true);
+    byte[] png = OnePixelPng();
+    Assert.True(session.ViewModel.AttachImageBytes(png, "shot.png"));
+
+    await session.ViewModel.SubmitAsync("what is this").ConfigureAwait(true);
+
+    // The image must TRAVEL: the host has no clipboard, so a request without it means the
+    // model never sees the image the transcript is showing.
+    RootTurnRequest request = Assert.IsType<RootTurnRequest>(session.Host.LastRequest);
+    RootTurnImage image = Assert.Single(request.Images);
+    Assert.Equal("image/png", image.MediaType, StringComparer.Ordinal);
+    Assert.Equal(Convert.ToBase64String(png), image.Base64Data, StringComparer.Ordinal);
+  }
+
+  [Fact]
+  public async Task SubmitAsync_SlashInvocation_CarriesTheSystemLineAsPreTurn()
+  {
+    FakeHostSession session = await FakeHostSession.StartAsync(["done"], skillName: "deploy").ConfigureAwait(true);
+
+    await session.ViewModel.SubmitAsync("/deploy staging").ConfigureAwait(true);
+
+    // The invocation line is a CONVERSATION mutation the app made; the host owns the
+    // conversation the model reads, so it must travel with the turn.
+    RootTurnRequest request = Assert.IsType<RootTurnRequest>(session.Host.LastRequest);
+    RootTurnPreTurnMessage preTurn = Assert.Single(request.PreTurn);
+    Assert.Equal("system", preTurn.Role, StringComparer.Ordinal);
+    Assert.Contains("[skill invoked: deploy]", preTurn.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task RunCommand_BangCommand_CarriesTheModelFacingLineAsPreTurn()
+  {
+    FakeHostSession session = await FakeHostSession.StartAsync(["noted"], commandLine: true).ConfigureAwait(true);
+
+    await session.ViewModel.SubmitAsync("! echo hi").ConfigureAwait(true);
+    await session.ViewModel.SubmitAsync("and then?").ConfigureAwait(true);
+
+    // The command's model-facing line queues out of turn and rides the NEXT turn; without
+    // this the model can never discover command_output.
+    RootTurnRequest request = Assert.IsType<RootTurnRequest>(session.Host.LastRequest);
+    RootTurnPreTurnMessage preTurn = Assert.Single(request.PreTurn);
+    // The line is CommandRun.ModelFacingLine - the app's own rendering, carried verbatim.
+    Assert.Contains("User ran: `echo hi`", preTurn.Text, StringComparison.Ordinal);
+    Assert.Contains("id: 7", preTurn.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task RequestStop_DuringHostTurn_InterruptsTheTurnInTheHost()
+  {
+    FakeHostSession session = await FakeHostSession.StartAsync(["he"], holdOpen: true).ConfigureAwait(true);
+
+    Task send = session.ViewModel.SubmitAsync("hi");
+    await session.Host.TurnStarted.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken).ConfigureAwait(true);
+    session.ViewModel.RequestStop();
+    await send.ConfigureAwait(true);
+
+    // Cancelling the local token alone abandons only THIS process's wait; the host would
+    // keep running and persisting the turn. The interrupt must reach the host by turn id.
+    string interrupted = Assert.Single(session.Host.InterruptedTurnIds);
+    Assert.Equal(session.Host.LastRequest!.TurnId, interrupted, StringComparer.Ordinal);
+  }
+
+  [Fact]
+  public async Task SendAsync_HostStreamsThenSettlesAnError_ShowsTheError()
+  {
+    FakeHostSession session = await FakeHostSession.StartAsync(["partial answ"]).ConfigureAwait(true);
+    session.Host.SettleWith = "Error [ProviderError]: the provider refused mid-stream.";
+
+    await session.ViewModel.SubmitAsync("hi").ConfigureAwait(true);
+
+    // A settle carrying an error is a FAILED turn even though the transport succeeded and
+    // text already streamed: the in-process path showed both, and a truncated answer with
+    // no error is the silent lie this guards.
+    Assert.Contains(session.ViewModel.Transcript.Notices,
+        n => n.Contains("Error [ProviderError]", StringComparison.Ordinal));
+  }
+
+  [Fact]
+  public async Task SendAsync_HostNoticeEvent_RendersAsANotice()
+  {
+    FakeHostSession session = await FakeHostSession.StartAsync(["ok"]).ConfigureAwait(true);
+    session.Host.Script.Add(new RootTurnEvent("t", "notice", "model selected: x", 0));
+
+    await session.ViewModel.SubmitAsync("hi").ConfigureAwait(true);
+
+    Assert.Contains(session.ViewModel.Transcript.Notices,
+        n => n.Contains("model selected: x", StringComparison.Ordinal));
+  }
+
+  [Fact]
+  public async Task SendAsync_UnreadableToolPayload_SurfacesANotice()
+  {
+    FakeHostSession session = await FakeHostSession.StartAsync(["ok"]).ConfigureAwait(true);
+    session.Host.Script.Add(new RootTurnEvent("t", "tool", "garbage payload", 0));
+
+    await session.ViewModel.SubmitAsync("hi").ConfigureAwait(true);
+
+    // A dropped tool event would hide a whole step of the turn: it must be visible.
+    Assert.Contains(session.ViewModel.Transcript.Notices,
+        n => n.Contains("unreadable tool event", StringComparison.Ordinal));
+  }
+
+  [Fact]
   public async Task SendAsync_HostToolEvents_RenderCallAndResultCards()
   {
     FakeHostSession session = await FakeHostSession.StartAsync([]).ConfigureAwait(true);
@@ -112,7 +224,8 @@ internal sealed class FakeHostSession
   /// <summary>Builds the session over a host that streams <paramref name="deltas"/> in
   ///     order and then settles with their concatenation. <paramref name="holdOpen"/> keeps
   ///     the turn in flight until it is cancelled (the stop-button shape).</summary>
-  public static Task<FakeHostSession> StartAsync(IReadOnlyList<string> deltas, bool holdOpen = false)
+  public static Task<FakeHostSession> StartAsync(IReadOnlyList<string> deltas, bool holdOpen = false,
+      string? skillName = null, bool commandLine = false)
   {
     ArgumentNullException.ThrowIfNull(deltas);
     FakeRootTurnChannel host = new(deltas, holdOpen);
@@ -128,6 +241,9 @@ internal sealed class FakeHostSession
         {
           WorkspaceRoot = @"C:\work\demo",
           RootTurnChannel = host,
+          SkillInvocation = skillName is null ? null : new SkillInvocationService(new FakeSkillCatalog(skillName)),
+          SkillCatalogSource = skillName is null ? null : () => [],
+          CommandRunner = commandLine ? new FakeCommandRunner() : null,
         });
     return Task.FromResult(new FakeHostSession(vm, host, runner));
   }
@@ -147,6 +263,10 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
   /// <summary>When set, the turn fails at the transport instead of settling.</summary>
   public DomainError? FailWith { get; set; }
 
+  /// <summary>When set, the turn settles with THIS payload instead of the answer — the
+  ///     host's typed failure line, which the app must surface even after streaming text.</summary>
+  public string? SettleWith { get; set; }
+
   public int TurnsSent { get; private set; }
 
   public RootTurnRequest? LastRequest { get; private set; }
@@ -154,6 +274,13 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
   /// <summary>Completes once a turn is in flight — the deterministic 'busy' signal a
   ///     stop test needs instead of a sleep.</summary>
   public Task TurnStarted => _started.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+
+  /// <summary>Turn ids the app interrupted IN THE HOST. This is the distinction the stop
+  ///     test turns on: a fake that merely honors its token cannot tell 'the host turn was
+  ///     cancelled' from 'the caller abandoned its local wait'.</summary>
+  public List<string> InterruptedTurnIds { get; } = [];
+
+  public void InterruptRootTurn(string turnId) => InterruptedTurnIds.Add(turnId);
 
   public async Task<Result<string>> SendRootTurnAsync(RootTurnRequest request,
       Action<RootTurnEvent> onEvent, CancellationToken ct = default)
@@ -191,10 +318,34 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
       onEvent(evt with { TurnId = request.TurnId, Generation = request.Generation });
     }
 
-    string answer = string.Concat(deltas);
+    string answer = SettleWith ?? string.Concat(deltas);
     onEvent(new RootTurnEvent(request.TurnId, "settled", answer, request.Generation));
     return Result.Success(answer);
   }
+}
+
+/// <summary>A one-skill catalog: enough for the slash path to resolve a name and render the
+///     verbatim System line the host must receive.</summary>
+internal sealed class FakeSkillCatalog(string name) : ISkillCatalog
+{
+  public Task<Result<IReadOnlyList<SkillDefinition>>> ListAsync(CancellationToken ct = default)
+      => Task.FromResult(Result.Success<IReadOnlyList<SkillDefinition>>([Definition()]));
+
+  public Task<Result<SkillDefinition>> GetAsync(string name, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(Definition()));
+
+  private SkillDefinition Definition() => new(
+      name, "A fake skill for the thin-client tests.", "Body of the fake skill.",
+      1, SkillSource.BuiltIn, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+}
+
+/// <summary>A command runner that answers with a fixed model-facing line, so a test can
+///     assert the line queues and rides the next turn.</summary>
+internal sealed class FakeCommandRunner : IUserCommandRunner
+{
+  public Task<Result<CommandRun>> RunAsync(string command, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(new CommandRun(7, command, 0, false, "hi",
+          DateTimeOffset.UnixEpoch)));
 }
 
 /// <summary>A turn runner that records invocation and answers 'in-process'. Any non-zero

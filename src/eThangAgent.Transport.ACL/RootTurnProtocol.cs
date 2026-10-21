@@ -2,22 +2,54 @@ using System.Text.Json;
 
 namespace eThangAgent.Transport.ACL;
 
-/// <summary>One root turn sent to a conversation host (spec D6): the user's input plus
-///     the seed the app already holds, so the host can run the turn without the app
-///     resending a whole transcript per message.
-/// <para>Equality is STRUCTURAL over the seed (named decision): the compiler-generated
-/// record equality compares <see cref="Seed"/> by REFERENCE, so a request that survived
-/// a wire round trip would never equal the one that was sent, and a caller comparing
-/// decoded requests would silently always see "different". A null seed (a peer that
-/// omitted the field) compares as empty.</para></summary>
+/// <summary>One image the user attached to a turn (issue #20): the sniffed media type and
+///     its base64 payload, carried so the host can rebuild the same MessagePart the app's
+///     transcript already shows.</summary>
+public sealed record RootTurnImage(string MediaType, string Base64Data);
+
+/// <summary>One app-supplied message that must reach the host's conversation BEFORE the
+///     turn's user input (spec D6). The app owns two such mutations - a slash invocation's
+///     System line and a ! command's model-facing line - and both are CONVERSATION
+///     mutations, so they travel as one rather than being re-derived host-side (the host
+///     has no skill catalog and no command runner, and inventing either would be a second
+///     implementation of the app's own surface).</summary>
+public sealed record RootTurnPreTurnMessage(string Role, string Text);
+
+/// <summary>One root turn sent to a conversation host (spec D6): the user's input, the
+///     images attached to it, the app-supplied messages that precede it, and the seed the app
+///     already holds, so the host can run the turn without the app resending a whole
+///     transcript per message.
+/// <para>Equality is STRUCTURAL over every collection member (named decision): the
+///     compiler-generated record equality compares them by REFERENCE, so a request that
+///     survived a wire round trip would never equal the one that was sent, and a caller
+///     comparing decoded requests would silently always see "different". A null member (a
+///     peer that omitted the field) compares as empty.</para></summary>
 public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<string> Seed, long Generation = 0)
 {
+  /// <summary>Images the user attached to THIS turn (issue #20). They ride the request
+  ///     because the app is where they were staged: the host has no clipboard and no file
+  ///     drop, so an image that did not travel here would be silently discarded while the
+  ///     transcript still showed it attached.</summary>
+  public IReadOnlyList<RootTurnImage> Images { get; init; } = [];
+
+  /// <summary>App-supplied messages the host appends to its conversation BEFORE the user
+  ///     input (slash invocation lines, ! command lines). Empty for an ordinary turn.</summary>
+  public IReadOnlyList<RootTurnPreTurnMessage> PreTurn { get; init; } = [];
+
+  /// <summary>Structural equality over the scalars AND every collection member. The
+  ///     collection half is delegated so this method stays one readable expression (the
+  ///     repository's complexity ceiling) - the comparison itself is unchanged.</summary>
   public bool Equals(RootTurnRequest? other)
       => other is not null
           && string.Equals(TurnId, other.TurnId, StringComparison.Ordinal)
           && string.Equals(Input, other.Input, StringComparison.Ordinal)
           && Generation == other.Generation
-          && (Seed ?? []).SequenceEqual(other.Seed ?? [], StringComparer.Ordinal);
+          && CollectionsEqual(other);
+
+  private bool CollectionsEqual(RootTurnRequest other)
+      => (Seed ?? []).SequenceEqual(other.Seed ?? [], StringComparer.Ordinal)
+          && (Images ?? []).SequenceEqual(other.Images ?? [])
+          && (PreTurn ?? []).SequenceEqual(other.PreTurn ?? []);
 
   public override int GetHashCode()
   {
@@ -28,6 +60,16 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
     foreach (string entry in Seed ?? [])
     {
       hash.Add(entry, StringComparer.Ordinal);
+    }
+
+    foreach (RootTurnImage image in Images ?? [])
+    {
+      hash.Add(image);
+    }
+
+    foreach (RootTurnPreTurnMessage message in PreTurn ?? [])
+    {
+      hash.Add(message);
     }
 
     return hash.ToHashCode();

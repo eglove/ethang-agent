@@ -18,7 +18,6 @@ using eThangAgent.PlanDomain;
 using eThangAgent.Roslyn.ACL;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
@@ -27,6 +26,7 @@ using eThangAgent.ToolDomain.Verification;
 using eThangAgent.Transport.ACL;
 using eThangAgent.Web.ACL;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace eThangAgent.Composition;
 

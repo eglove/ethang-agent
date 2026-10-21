@@ -26,6 +26,11 @@ public interface IRootTurnChannel
   ///     error code names the fault.</summary>
   Task<Result<string>> SendRootTurnAsync(RootTurnRequest request, Action<RootTurnEvent> onEvent,
       CancellationToken ct = default);
+
+  /// <summary>Interrupts one live root turn IN THE HOST. Cancelling the send token alone only
+  ///     abandons the caller's local wait: the host keeps executing the turn, keeps growing
+  ///     its conversation, and persists a turn the user stopped. A stop button must do both.</summary>
+  void InterruptRootTurn(string turnId);
 }
 
 /// <summary>The production adapter: forwards to the conversation's wire runtime
@@ -39,4 +44,7 @@ public sealed class RemoteRootTurnChannel(RemoteAgentRuntime runtime) : IRootTur
   public Task<Result<string>> SendRootTurnAsync(RootTurnRequest request, Action<RootTurnEvent> onEvent,
       CancellationToken ct = default)
       => _runtime.SendRootTurnAsync(request, onEvent, ct);
+
+  /// <inheritdoc />
+  public void InterruptRootTurn(string turnId) => _runtime.InterruptRootTurn(turnId);
 }
