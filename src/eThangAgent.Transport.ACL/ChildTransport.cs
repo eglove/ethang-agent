@@ -4,15 +4,15 @@ namespace eThangAgent.Transport.ACL;
 
 /// <summary>One wire message between the app and the child host. Kind mirrors a domain
 ///     operation (start | deliver | interrupt | event | settle | ack | root-turn |
-///     root-turn-event); Json carries the domain-shaped payload; Sequence orders
-///     at-least-once delivery and pairs acks.</summary>
+///     root-turn-event | session-response); Json carries the domain-shaped payload;
+///     Sequence orders at-least-once delivery and pairs acks.</summary>
 public sealed record TransportEnvelope(string Kind, string Json, long Sequence)
 {
   /// <summary>Every kind this protocol defines. The root-turn pair rides the same framing
   ///     and the same receive pumps as the child-run kinds — they are wire kinds, not a
   ///     separate channel.</summary>
   public static readonly string[] KnownKinds =
-      ["start", "deliver", "interrupt", "event", "settle", "ack", "root-turn", "root-turn-event"];
+      ["start", "deliver", "interrupt", "event", "settle", "ack", "root-turn", "root-turn-event", "session-response"];
 
   /// <summary>True when this envelope's kind is one the protocol defines.
   /// <para>HONEST SCOPE: no RECEIVER consults this today — both pumps still fall through

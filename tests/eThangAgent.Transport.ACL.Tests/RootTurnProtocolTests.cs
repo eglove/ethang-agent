@@ -4,7 +4,7 @@ namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>The root-turn wire codec's strict-at-both-boundaries contract (spec D6):
 ///     requests and events round-trip byte-exactly, a request without a turn id is a
-///     named protocol error, and an event kind outside the five the wire carries is
+///     named protocol error, and an event kind outside the six the wire carries is
 ///     refused rather than silently forwarded.</summary>
 public class RootTurnProtocolTests
 {
@@ -195,6 +195,19 @@ public class RootTurnProtocolTests
     RootTurnEvent parsed = RootTurnProtocol.ParseEvent(json);
 
     Assert.Equal("progress", parsed.Kind);
+  }
+
+  [Fact]
+  public void ParseEvent_TheSessionRequest_IsAKnownKind()
+  {
+    // The session request (issue #234) is a WIRE kind, not a forward-compatible unknown:
+    // a host that emits one mid-turn (the new_session tool firing) must reach an app that
+    // recognizes it - a peer that refused it would fault the connection, not the turn.
+    const string json = /*lang=json,strict*/ "{\"TurnId\":\"t\",\"Kind\":\"session-request\",\"Payload\":\"request\"}";
+
+    RootTurnEvent parsed = RootTurnProtocol.ParseEvent(json);
+
+    Assert.Equal("session-request", parsed.Kind);
   }
 
   [Fact]

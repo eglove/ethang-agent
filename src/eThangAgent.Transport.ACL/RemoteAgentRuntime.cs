@@ -191,6 +191,15 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
         new AgentId(Guid.NewGuid()), CancellationToken.None);
   }
 
+  /// <summary>Answers one session-request (issue #234): the app-side session the request
+  ///     produced, or the typed failure the app refused with. Fire-and-forget by contract —
+  ///     the requesting tool awaits its response through its own channel, and a lost answer
+  ///     surfaces there as its timeout, never here.</summary>
+  public void SendSessionResponse(string requestId, string? sessionId, string? errorCode, string? errorMessage)
+      => _ = SendEnvelopeAsync("session-response",
+          JsonSerializer.Serialize(new SessionResponseCommand(requestId, sessionId, errorCode, errorMessage)),
+          new AgentId(Guid.NewGuid()), CancellationToken.None);
+
   /// <inheritdoc cref="IAgentRuntime.Interrupt"/>
   public void Interrupt(AgentId? childId = null)
       => _ = SendEnvelopeAsync("interrupt", JsonSerializer.Serialize(new InterruptCommand(childId?.Value)), childId ?? new AgentId(Guid.NewGuid()), CancellationToken.None);
@@ -778,3 +787,7 @@ public sealed record InterruptCommand(Guid? RecordId, string? TurnId = null);
 public sealed record SettleNotice(Guid RecordId, string Status, string? Reason, string Report);
 public sealed record DeclareCommand(IReadOnlyCollection<Guid> LiveIds);
 public sealed record HostError(Guid RecordId, string Code, string Message);
+
+/// <summary>The app's answer to one session-request (issue #234): the new session id,
+///     or the typed failure (ErrorCode/ErrorMessage) when the launch was refused.</summary>
+public sealed record SessionResponseCommand(string RequestId, string? SessionId, string? ErrorCode, string? ErrorMessage);
