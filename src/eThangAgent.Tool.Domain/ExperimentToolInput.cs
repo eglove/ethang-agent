@@ -4,7 +4,7 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.ToolDomain;
 
 /// <summary>The experiment tool's seven actions, in the tool's documented spelling.</summary>
-public enum ExperimentAction { RecordHypothesis, RecordPrediction, RecordVerdict, RecordObservation, RecordConclusion, RecordSkip, List }
+public enum ExperimentAction { RecordHypothesis, RecordPrediction, RecordVerdict, RecordObservation, RecordConclusion, RecordSkip, List, Summary }
 
 /// <summary>A prediction's outcome: exactly the three values the finish gate understands.</summary>
 public enum ExperimentVerdict { Confirmed, Refuted, Inconclusive }
@@ -45,6 +45,7 @@ public sealed record ExperimentInput(
     ["record-conclusion"] = ExperimentAction.RecordConclusion,
     ["record-skip"] = ExperimentAction.RecordSkip,
     ["list"] = ExperimentAction.List,
+    ["summary"] = ExperimentAction.Summary,
   };
 
   private static readonly Dictionary<string, ExperimentVerdict> VerdictWords = new(StringComparer.Ordinal)
@@ -144,6 +145,7 @@ public sealed record ExperimentInput(
     ExperimentAction.RecordConclusion => [ActionName, SlugName, TextName],
     ExperimentAction.RecordSkip => [ActionName, SlugName, TextName, IdName],
     ExperimentAction.List => [ActionName, SlugName],
+    ExperimentAction.Summary => [ActionName, SlugName],
     // Unnamed enum values cannot occur.
     _ => throw new InvalidOperationException("Unknown experiment action."),
   };
@@ -232,6 +234,7 @@ public sealed record ExperimentInput(
         ExperimentAction.RecordConclusion => RequireValue(TextName, text),
         ExperimentAction.RecordSkip => RequireValue(TextName, text),
         ExperimentAction.List => null,
+        ExperimentAction.Summary => null,
         // Unnamed enum values cannot occur.
         _ => throw new InvalidOperationException("Unknown experiment action."),
       };
@@ -326,6 +329,7 @@ public sealed record ExperimentInput(
     ExperimentAction.RecordConclusion => "record-conclusion",
     ExperimentAction.RecordSkip => "record-skip",
     ExperimentAction.List => "list",
+    ExperimentAction.Summary => "summary",
     // Unnamed enum values cannot occur.
     _ => throw new InvalidOperationException("Unknown experiment action."),
   };

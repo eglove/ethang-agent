@@ -640,6 +640,120 @@ public class ExperimentToolTests
   ///     semantics: a missing key reads KeyNotFound, an append with a null
   ///     expectedVersion creates the key or appends a line. Scriptable overrides
   ///     force failure results.</summary>
+  // ---- Group 5b: list cap and summary (issue #144) ----
+
+  [Fact]
+  public async Task List_OverTheCap_EmitsTheCapPlusATruncationMarker()
+  {
+    // 60 hypotheses: far past the 50-record cap. The header must stay complete
+    // (B4) and the marker must name the dropped count (B1/B3).
+    string ledger = string.Join("\n", Enumerable.Range(1, 60).Select(i => $"hypothesis {i}: H{i}"));
+    (ExperimentTool? tool, _) = MakeTool(ledger);
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"list","slug":"alpha"}""");
+
+    Assert.False(result.IsError, result.Content);
+    string[] lines = result.Content.Split('\n');
+    Assert.Equal("[experiment] sci.alpha/ledger: 60 record(s), 0 open prediction(s)", lines[0]);
+    Assert.Equal(52, lines.Length); // header + 50 capped records + marker
+    string marker = lines[^1];
+    Assert.Contains("10 more record(s) not shown", marker, StringComparison.Ordinal);
+    Assert.Contains("summary", marker, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task List_AtTheCap_NoMarker()
+  {
+    string ledger = string.Join("\n", Enumerable.Range(1, 50).Select(i => $"hypothesis {i}: H{i}"));
+    (ExperimentTool? tool, _) = MakeTool(ledger);
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"list","slug":"alpha"}""");
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal(51, result.Content.Split('\n').Length);
+    Assert.DoesNotContain("not shown", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task List_HeaderCountsComplete_EvenWhenBodiesTruncated()
+  {
+    // B4: 200 records with 3 open predictions - the header reports 3, not a
+    // count derived from the capped echo.
+    string[] open =
+    [
+        "prediction 1 (hypothesis 1): P1 \u2014 falsified by: cmd1",
+        "prediction 2 (hypothesis 1): P2 \u2014 falsified by: cmd2",
+        "prediction 3 (hypothesis 2): P3 \u2014 falsified by: cmd3",
+    ];
+    string[] closed =
+    [
+        "verdict 1 (prediction 1): confirmed \u2014 evidence",
+        "verdict 2 (prediction 2): refuted \u2014 evidence",
+        "skip 3 (prediction 3): done",
+    ];
+    IEnumerable<string> filler = Enumerable.Range(4, 194).Select(i => $"hypothesis {i}: H{i}");
+    string ledger = string.Join("\n", open.Concat(closed).Concat(filler));
+    (ExperimentTool? tool, _) = MakeTool(ledger);
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"list","slug":"alpha"}""");
+
+    Assert.False(result.IsError, result.Content);
+    Assert.StartsWith("[experiment] sci.alpha/ledger: 200 record(s), 0 open prediction(s)",
+        result.Content, StringComparison.Ordinal);
+    Assert.Contains("not shown", result.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task Summary_ReturnsHeaderOnly_NoRecordBodies()
+  {
+    const string Ledger =
+        "hypothesis 1: H1\n" +
+        "prediction 1 (hypothesis 1): P1 \u2014 falsified by: cmd1\n" +
+        "verdict 1 (prediction 1): confirmed \u2014 evidence one";
+    (ExperimentTool? tool, FakeExperimentLedgerStore? store) = MakeTool(Ledger);
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"summary","slug":"alpha"}""");
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal("[experiment] sci.alpha/ledger: 3 record(s), 0 open prediction(s)", result.Content);
+    Assert.Empty(store.AppendCalls);
+  }
+
+  [Fact]
+  public async Task Summary_EmptyLedger_PrintsEmptyForm()
+  {
+    (ExperimentTool? tool, _) = MakeTool();
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"summary","slug":"alpha"}""");
+
+    Assert.False(result.IsError, result.Content);
+    Assert.Equal("[experiment] sci.alpha/ledger: empty", result.Content);
+  }
+
+  [Fact]
+  public async Task Summary_RecordingOnlyParameters_AreRejected()
+  {
+    (ExperimentTool? tool, _) = MakeTool();
+
+    ToolResult result = await RunAsync(tool,
+        /*lang=json,strict*/
+        """{"timeoutSeconds":120,"action":"summary","slug":"alpha","text":"x"}""");
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [InvalidParameterValue]:", result.Content, StringComparison.Ordinal);
+    Assert.Contains("'text' is not accepted", result.Content, StringComparison.Ordinal);
+  }
+
   private sealed class FakeExperimentLedgerStore : IExperimentLedgerStore
   {
     private readonly Dictionary<string, string> _keys = [];

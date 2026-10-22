@@ -18,7 +18,7 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
       "and skips in the plan's append-only ledger sci.<slug>/ledger. timeoutSeconds, action, and " +
       "slug are mandatory; slug is the plan slug (no '/' and no whitespace). action is exactly " +
       "record-hypothesis, record-prediction, record-verdict, record-observation, " +
-      "record-conclusion, record-skip, or list (case-sensitive). record-hypothesis requires text; " +
+      "record-conclusion, record-skip, list, or summary (case-sensitive). record-hypothesis requires text; " +
       "id is optional and must be a free positive integer (otherwise the next free id is " +
       "assigned). record-prediction requires text, falsifiedBy (the exact command whose output " +
       "would refute the prediction), and id naming an existing hypothesis. record-verdict " +
@@ -28,9 +28,11 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
       "record-conclusion, and record-skip require text. record-skip takes an optional id naming " +
       "an existing prediction (the skip closes it); without id the skip is a bare operator " +
       "escape that closes nothing. list requires only slug and prints " +
-      "'[experiment] sci.<slug>/ledger: <N> record(s), <M> open prediction(s)' followed by the " +
-      "ledger's records verbatim, or '[experiment] sci.<slug>/ledger: empty' when the ledger is " +
-      "empty; <M> counts predictions carrying neither a verdict nor a skip. Every recording " +
+      "'[experiment] sci.<slug>/ledger: <N> record(s), <M> open prediction(s)' followed by at " +
+      "most 50 ledger records verbatim - past 50 a marker names the dropped count; the header " +
+      "counts are ALWAYS complete - or '[experiment] sci.<slug>/ledger: empty' when the ledger " +
+      "is empty. summary requires only slug and prints the header line alone - the cheap " +
+      "finish-gate check. <M> counts predictions carrying neither a verdict nor a skip. Every recording " +
       "action prints one annotation line: '[experiment] <kind> <id> recorded in " +
       "sci.<slug>/ledger'. Unknown ids fail with HypothesisNotFound or PredictionNotFound; a " +
       "second verdict on one prediction fails with PredictionAlreadyJudged. Errors begin with " +
@@ -39,7 +41,8 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
           new ToolParameter("action", ToolParameterType.Text,
               "Exactly record-hypothesis, record-prediction, record-verdict, record-observation, " +
-              "record-conclusion, record-skip, or list (case-sensitive)."),
+              "Exactly record-hypothesis, record-prediction, record-verdict, record-observation, " +
+              "record-conclusion, record-skip, list, or summary (case-sensitive)."),
           new ToolParameter("slug", ToolParameterType.Text,
               "Always: the plan slug; the ledger key is sci.<slug>/ledger (no '/' and no whitespace)."),
           new ToolParameter("id", ToolParameterType.WholeNumber,
@@ -85,16 +88,25 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
     }
 
     IReadOnlyList<ExperimentRecord> records = loaded.Records;
-    return input.Action == ExperimentAction.List
-      ? List(key, records)
-      : await RecordAsync(input, key, records, ct).ConfigureAwait(false);
+
+    return input.Action is ExperimentAction.List or ExperimentAction.Summary
+        ? ReadAsync(input, key, records)
+        : await RecordAsync(input, key, records, ct).ConfigureAwait(false);
+
   }
 
-  private readonly record struct LoadedLedger(IReadOnlyList<ExperimentRecord> Records, ToolResult? Error);
 
-  /// <summary>Loads the ledger once per call. A missing key is an empty ledger, not an
-  ///     error; a store failure fails closed (the ledger is never reset) so a corrupt or
-  ///     unreadable ledger cannot be silently overwritten by the next append.</summary>
+  /// <summary>The read actions' router: list echoes the ledger (capped), summary
+  ///     prints the header alone (issue #144).</summary>
+  private static ToolResult ReadAsync(ExperimentInput input, string key,
+      IReadOnlyList<ExperimentRecord> records)
+  {
+    return input.Action is ExperimentAction.Summary
+        ? Summarize(key, records)
+        : List(key, records);
+  }
+
+
   private async Task<LoadedLedger> LoadAsync(string key, CancellationToken ct)
   {
     Result<string> read = await _store.ReadAsync(key, ct).ConfigureAwait(false);
@@ -103,12 +115,15 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
       : FailedLoad(read.Error);
   }
 
-  /// <summary>A missing key is an empty ledger, not an error; any other store failure
-  ///     fails closed.</summary>
+
+  private readonly record struct LoadedLedger(IReadOnlyList<ExperimentRecord> Records, ToolResult? Error);
+
   private static LoadedLedger FailedLoad(DomainError error) =>
       error.Code == "KeyNotFound"
         ? new LoadedLedger([], null)
         : new LoadedLedger([], Err(error));
+
+
 
   private async Task<ToolResult> RecordAsync(ExperimentInput input, string key,
       IReadOnlyList<ExperimentRecord> records, CancellationToken ct)
@@ -153,9 +168,10 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
       ExperimentAction.RecordSkip => SkipLine(input, records),
       // List never reaches the append path (RunAsync branches on it first); the switch
       // stays exhaustive, so the impossible case throws rather than recording nothing.
-      ExperimentAction.List => throw new InvalidOperationException(
-          "'list' records nothing; RunAsync branches on it before building a line."),
-      // Unnamed enum values cannot occur.
+      ExperimentAction.List
+      or ExperimentAction.Summary
+        => throw new InvalidOperationException(
+            "'list' and 'summary' record nothing; RunAsync branches on them before building a line."),
       _ => throw new InvalidOperationException("Only recording actions build a ledger line."),
     };
   }
@@ -243,6 +259,13 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
           "prediction id; omit 'id' to record a bare operator skip."));
   }
 
+  /// <summary>The list cap (issue #144): a ledger is arbitrary-length - one real ledger
+  ///     in this workspace is 51 KB - so the echo stops at <see cref="ListCap"/> records
+  ///     and a marker names the dropped count and the cheaper surface (summary). The
+  ///     HEADER is never truncated: its counts come from the whole record set, and the
+  ///     finish gate reads exactly them.</summary>
+  internal const int ListCap = 50;
+
   private static ToolResult List(string key, IReadOnlyList<ExperimentRecord> records)
   {
     if (records.Count == 0)
@@ -251,12 +274,33 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
     }
 
     int open = ExperimentLedger.OpenPredictions(records);
-    List<string> lines = new(records.Count + 1)
+    List<string> lines = new(Math.Min(records.Count, ListCap) + 2)
     {
         $"[experiment] {key}: {records.Count} record(s), {open} open prediction(s)",
     };
-    lines.AddRange(records.Select(r => r.Raw));
+    lines.AddRange(records.Take(ListCap).Select(r => r.Raw));
+    int dropped = records.Count - ListCap;
+    if (dropped > 0)
+    {
+      lines.Add($"[experiment] ... {dropped} more record(s) not shown; "
+          + "the header counts are complete - use action 'summary' for the counts alone, "
+          + "or read the ledger directly for the full history.");
+    }
+
     return new ToolResult(string.Join("\n", lines), false);
+  }
+
+  /// <summary>The summary surface (issue #144 B2): the header the finish gate reads,
+  ///     with no record bodies - the cheap answer to "is the gate satisfied?".</summary>
+  private static ToolResult Summarize(string key, IReadOnlyList<ExperimentRecord> records)
+  {
+    if (records.Count == 0)
+    {
+      return new ToolResult($"[experiment] {key}: empty", false);
+    }
+
+    int open = ExperimentLedger.OpenPredictions(records);
+    return new ToolResult($"[experiment] {key}: {records.Count} record(s), {open} open prediction(s)", false);
   }
 
   /// <summary>The InvalidParameterValue failure for a call this action cannot record.</summary>
