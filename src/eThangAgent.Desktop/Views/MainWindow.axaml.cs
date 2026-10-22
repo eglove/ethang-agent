@@ -76,33 +76,45 @@ internal partial class MainWindow : Window
   ///     is a no-op. Failures surface as a dialog.</summary>
   private async Task ShowNewAgentDialogAsync()
   {
-    NewAgentWindow dialog = new(_vm!.AvailableProviders, _vm.PreferredProviderId,
-        await _vm.GetGlobalSessionFilesAsync(),
-        await _vm.GetGlobalSkillDirectoriesAsync(),
-        loadWorkspaceRows: async root => (
-            await _vm.GetWorkspaceSessionFilesAsync(root),
-            await _vm.GetWorkspaceSkillDirectoriesAsync(root)));
-    NewAgentChoice? choice = await dialog.ShowDialog<NewAgentChoice?>(this);
-    if (choice is null)
+    try
     {
-      return; // user cancelled — no-op
-    }
+      NewAgentWindow dialog = new(_vm!.AvailableProviders, _vm.PreferredProviderId,
+          await _vm.GetGlobalSessionFilesAsync(),
+          await _vm.GetGlobalSkillDirectoriesAsync(),
+          loadWorkspaceRows: async root => (
+              await _vm.GetWorkspaceSessionFilesAsync(root),
+              await _vm.GetWorkspaceSkillDirectoriesAsync(root)));
+      NewAgentChoice? choice = await dialog.ShowDialog<NewAgentChoice?>(this);
+      if (choice is null)
+      {
+        return; // user cancelled — no-op
+      }
 
-    // The launch files are applied FIRST so the new session's container build
-    // reads the just-saved lists. A refusal here (a missing workspace root) is
-    // a NAMED failure, not an exception: the shell surfaces it and stops -
-    // the 2026-10-20 crash was an ArgumentNullException escaping this handler.
-    Result<bool> applied = await _vm.ApplyLaunchFilesAsync(choice);
-    if (!applied.IsSuccess)
-    {
-      await ShowOpenFailedAsync(applied.Error.Message);
-      return;
-    }
+      // The launch files are applied FIRST so the new session's container build
+      // reads the just-saved lists. A refusal here (a missing workspace root) is
+      // a NAMED failure, not an exception: the shell surfaces it and stops -
+      // the 2026-10-20 crash was an ArgumentNullException escaping this handler.
+      Result<bool> applied = await _vm.ApplyLaunchFilesAsync(choice);
+      if (!applied.IsSuccess)
+      {
+        await ShowOpenFailedAsync(applied.Error.Message);
+        return;
+      }
 
-    Result<AgentTabViewModel> result = await _vm.OpenAgentAsync(choice.WorkspaceRoot, choice.ProviderId);
-    if (!result.IsSuccess)
+      Result<AgentTabViewModel> result = await _vm.OpenAgentAsync(choice.WorkspaceRoot, choice.ProviderId);
+      if (!result.IsSuccess)
+      {
+        await ShowOpenFailedAsync(result.Error.Message);
+      }
+    }
+    // Named decision (CA1031): this handler is an async-void on the dispatcher, so an
+    // escaping exception tears the WHOLE process down - the crash amplifier the
+    // launch-guard tests name. A failed launch is a DIALOG, never a fault.
+#pragma warning disable CA1031, S2486 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031, S2486
     {
-      await ShowOpenFailedAsync(result.Error.Message);
+      await ShowOpenFailedAsync("The workspace could not be opened: " + ex.Message);
     }
   }
 

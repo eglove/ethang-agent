@@ -57,7 +57,7 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   }
 
   public RemoteHostSupervisor(string conversationId, string scratchDirectory,
-      AgentSettings settings, string databasePath, Action<string> reportNotice, Func<string> hostExePath)
+      AgentSettings settings, string databasePath, Action<string> reportNotice, Func<string>? hostExePath)
   {
     ArgumentNullException.ThrowIfNull(settings);
     HostPipeName = PipeNameForConversation(conversationId);
@@ -65,7 +65,9 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     _settingsPath = Path.Combine(scratchDirectory, "childhost-settings.json");
     _databasePath = databasePath;
     _reportNotice = reportNotice;
-    _hostExePath = hostExePath;
+    // null means the default resolution (the repo's live build output, else the copy
+    // shipped next to the app) - never a null dereference.
+    _hostExePath = hostExePath ?? DefaultHostExePath;
     // The workspace root rides the settings JSON (D): the host's ONLY carrier, and
     // SessionHost anchors its container there - without it the host anchors at the
     // settings-file directory and every tool path fails. It can no longer be inferred
@@ -390,18 +392,23 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   }
 
   /// <summary>Default exe resolution: walk up from the executing assembly to the repo
-  ///     root (mirrors the E2E helper), then ask the locator for the host's build
-  ///     output (configuration-agnostic: Debug first, Release fallback).</summary>
-  private static string DefaultHostExePath()
-  {
-    DirectoryInfo? dir = new(typeof(RemoteHostSupervisor).Assembly.Location);
-    while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "eThangAgent.slnx")))
-    {
-      dir = dir.Parent;
-    }
+  ///     root (mirrors the E2E helper) and ask the locator for the host's build output
+  ///     (configuration-agnostic: Debug first, Release fallback). A DEPLOYED app has no
+  ///     repo above it, so the walk ends at the filesystem root with no repo: that is an
+  ///     ORDINARY case, and the host is then the copy shipped NEXT TO THE APP.
+  ///     <para>The null repo was dereferenced as <c>dir!.FullName</c> — the
+  ///     NullReferenceException that killed the app on workspace open (2026-10-21). A host
+  ///     that cannot be found is a NAMED startup error from
+  ///     <see cref="StartHostProcess"/>, never an exception out of this method.</para></summary>
+  private static string DefaultHostExePath() =>
+      ResolveDefaultHostExePath(typeof(RemoteHostSupervisor).Assembly.Location, AppContext.BaseDirectory);
 
-    return ChildHostExeLocator.ResolveFromRepoRoot(dir!.FullName);
-  }
+  /// <summary>The resolution itself, over injected inputs so a test can reproduce the
+  ///     DEPLOYED layout (an app that lives outside any repo) without a deployment.
+  ///     A null repo root is the ordinary answer for a published app, never a fault.</summary>
+  internal static string ResolveDefaultHostExePath(string assemblyLocation, string appBaseDirectory) =>
+      ChildHostExeLocator.Resolve(
+          ChildHostExeLocator.FindRepoRoot(assemblyLocation), appBaseDirectory);
 
   /// <summary>A stable, filesystem-safe pipe suffix for one conversation id (D6/D7).</summary>
   private static string PipeSuffix(string conversationId)

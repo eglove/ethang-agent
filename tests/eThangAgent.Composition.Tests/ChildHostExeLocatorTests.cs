@@ -146,4 +146,67 @@ public class ChildHostExeLocatorTests
       Directory.Delete(repo, recursive: true);
     }
   }
+
+  // ── the DEPLOYED layout: the host ships NEXT TO THE APP ──
+
+  [Fact]
+  public void Resolve_Without_A_Repo_Resolves_The_Host_Shipped_Next_To_The_App()
+  {
+    // A published app has NO repo above it: the 2026-10-21 crash walked past the
+    // filesystem root, found nothing, and dereferenced the null.
+    string appDir = Directory.CreateTempSubdirectory("ethang-deployed-app").FullName;
+    try
+    {
+      string resolved = ChildHostExeLocator.Resolve(repoRoot: null, appDir);
+
+      Assert.Equal(Path.Combine(appDir, ExeName), resolved);
+    }
+    finally
+    {
+      Directory.Delete(appDir, recursive: true);
+    }
+  }
+
+  [Fact]
+  public void Resolve_Prefers_The_Repo_Build_Output_When_It_Exists()
+  {
+    // The dev layout: what the developer last built is the freshest host.
+    string repo = MakeFakeRepo();
+    string appDir = Directory.CreateTempSubdirectory("ethang-deployed-app").FullName;
+    try
+    {
+      PlantWindowsExe(repo, "Debug");
+
+      string resolved = ChildHostExeLocator.Resolve(repo, appDir);
+
+      Assert.Equal(
+          Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net10.0-windows", ExeName),
+          resolved);
+    }
+    finally
+    {
+      Directory.Delete(repo, recursive: true);
+      Directory.Delete(appDir, recursive: true);
+    }
+  }
+
+  [Fact]
+  public void Resolve_Falls_Back_To_The_App_Directory_When_The_Repo_Has_No_Built_Host()
+  {
+    // The repo is there but the host was never built in it: the copy shipped with
+    // the app is the answer, not a not-found path.
+    string repo = MakeFakeRepo();
+    string appDir = Directory.CreateTempSubdirectory("ethang-deployed-app").FullName;
+    try
+    {
+      string resolved = ChildHostExeLocator.Resolve(repo, appDir);
+
+      Assert.Equal(Path.Combine(appDir, ExeName), resolved);
+    }
+    finally
+    {
+      Directory.Delete(repo, recursive: true);
+      Directory.Delete(appDir, recursive: true);
+    }
+  }
 }

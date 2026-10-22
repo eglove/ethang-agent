@@ -942,6 +942,18 @@ internal sealed partial class MainViewModel : ObservableObject
           ? Result.Success(await AttachSessionAsync(created.Value))
           : Result.Failure<AgentTabViewModel>(created.Error);
     }
+    // Named decision (CA1031): a failed open is INFORMATION, not a crash. This method
+    // runs on the UI dispatcher, where an escaping exception tears the whole process
+    // down (the 2026-10-21 crash: a NullReferenceException from the host lookup
+    // killed the app on workspace open). Every fault becomes a named error the shell
+    // surfaces in a dialog.
+#pragma warning disable CA1031, S2486 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031, S2486
+    {
+      return Result.Failure<AgentTabViewModel>(
+          new DomainError("SessionOpenFailed", "the workspace could not be opened: " + ex.Message));
+    }
     finally
     {
       IsOpeningAgent = false;
@@ -1073,6 +1085,15 @@ internal sealed partial class MainViewModel : ObservableObject
       return resumed.IsSuccess
           ? Result.Success(await AttachSessionAsync(resumed.Value))
           : Result.Failure<AgentTabViewModel>(resumed.Error);
+    }
+    // Named decision (CA1031): a failed resume is INFORMATION, not a crash - the same
+    // rule as a fresh open, for the same reason (the UI dispatcher has no handler).
+#pragma warning disable CA1031, S2486 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031, S2486
+    {
+      return Result.Failure<AgentTabViewModel>(
+          new DomainError("SessionResumeFailed", "the session could not be resumed: " + ex.Message));
     }
     finally
     {

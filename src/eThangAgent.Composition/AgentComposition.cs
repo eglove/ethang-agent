@@ -45,6 +45,13 @@ public sealed record CompositionOverrides
 
   /// <summary>The computer-use access provider; null disables the computer tool.</summary>
   public IComputerAccessProvider? ComputerAccessProvider { get; init; }
+
+  /// <summary>Where the out-of-process conversation host executable lives; null uses the
+  ///     default resolution (the repo's live build output, else the copy shipped next to
+  ///     the app). A host that cannot be started is a NAMED failure, and this seam is how
+  ///     a host points the supervisor at a different executable - or a test points it at
+  ///     a missing one to pin the named-failure contract.</summary>
+  public Func<string>? HostExePath { get; init; }
 }
 
 public static class AgentComposition
@@ -98,7 +105,7 @@ public static class AgentComposition
     // supervised by RemoteHostSupervisor and driven through the wire runtime. There is no
     // in-process production path and no toggle — AddInProcessAgentRuntime exists only for
     // test hosts that drive this composition without a ChildHost.
-    wired = AddRemoteHostServices(wired, settings);
+    wired = AddRemoteHostServices(wired, settings, knobs.HostExePath);
 
     return wired;
   }
@@ -834,7 +841,8 @@ public static class AgentComposition
   ///     conversation, keyed by the root session id, so two conversations in one workspace
   ///     get two hosts and two budgets.
   /// </summary>
-  private static IServiceCollection AddRemoteHostServices(IServiceCollection wired, AgentSettings settings)
+  private static IServiceCollection AddRemoteHostServices(IServiceCollection wired, AgentSettings settings,
+      Func<string>? hostExePath)
   {
     return wired
           .AddSingleton<SessionFilesCarrier>()
@@ -851,7 +859,10 @@ public static class AgentComposition
               sp.GetRequiredService<AppDatabase>().DatabasePath,
               // Host-health notices surface on the session transcript when the host UI
               // has attached its notice sink; headless hosts drop them.
-              notice => sp.GetRequiredService<AgentSession>().PostNotice(notice)))
+              notice => sp.GetRequiredService<AgentSession>().PostNotice(notice),
+              // null keeps the default resolution (the repo's live build output, else
+              // the copy shipped next to the app).
+              hostExePath))
           // The runtime starts DISCONNECTED: RepairOrphansAsync -> AttachAsync owns
           // connecting (once), starting the pump, and reading the declared live set.
           // A connection attempt at registration would race the host's single accept.

@@ -291,6 +291,8 @@ Production build (framework-dependent single file for win-x64):
 dotnet publish src/eThangAgent.Desktop -c Release -r win-x64 --self-contained false
 ```
 
+- The published folder must carry the conversation host (`eThangAgent.ChildHost.exe`) next to the app: a published app has no repo above it, so the host is resolved from the app's own directory (the same rule the computer-use broker follows). The Desktop project references the host project, so the exe is always there — never publish the app without it.
+
 - Every change leaves the build green.
 - Unit tests use fakes only — a domain test never knows Roslyn, HTTP, or OpenRouter exist.
 - Integration tests exercise real ACL implementations; E2E tests drive the desktop app headless against a local mock provider server (OpenRouter-shaped).

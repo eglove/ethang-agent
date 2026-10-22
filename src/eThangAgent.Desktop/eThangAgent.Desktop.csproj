@@ -23,6 +23,12 @@
          from AppContext.BaseDirectory; referencing it puts its exe next to the
          Desktop's on every build and publish, so the deployed broker is never stale. -->
     <ProjectReference Include="../eThangAgent.ComputerUse.Host/eThangAgent.ComputerUse.Host.csproj" />
+    <!-- The conversation host is a separate executable the supervisor launches, and a
+         published app has no repo above it to probe: referencing the host project puts
+         its exe next to the Desktop's on every build and publish, so the deployed app
+         always finds the host it ships with (2026-10-21: the published app could not
+         resolve a host at all and crashed opening a workspace). -->
+    <ProjectReference Include="../eThangAgent.ChildHost/eThangAgent.ChildHost.csproj" />
     <ProjectReference Include="../eThangAgent.Agent.Application/eThangAgent.Agent.Application.csproj" />
     <ProjectReference Include="../eThangAgent.Conversation.Domain/eThangAgent.Conversation.Domain.csproj" />
     <ProjectReference Include="..\eThangAgent.OpenRouter.ACL\eThangAgent.OpenRouter.ACL.csproj" />

@@ -29,10 +29,16 @@ namespace eThangAgent.Composition;
 ///     ONE app-owned SQLite file (migrated once); when omitted each session container
 ///     constructs its own connection over the default database path.</remarks>
 public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? database = null,
-    ProcessMailboxLocator? mailboxLocator = null)
+    ProcessMailboxLocator? mailboxLocator = null, Func<string>? hostExePath = null)
 {
   private readonly AgentSettings _settings = settings ?? throw new ArgumentNullException(nameof(settings));
   private readonly AppDatabase? _database = database;
+
+  /// <summary>Where the out-of-process conversation host executable lives; null uses the
+  ///     default resolution (the repo's live build output, else the copy shipped next to
+  ///     the app). A deployment seam, and the way a test pins the named-failure contract
+  ///     for a host that cannot start.</summary>
+  private readonly Func<string>? _hostExePath = hostExePath;
 
   // ONE process-wide cross-container locator (W3.2): every session this factory opens
   // contributes its live mailboxes here, so a link to another session's child resolves
@@ -55,7 +61,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   ///     Hosts call this when credentials change (the Desktop's Settings modal);
   ///     sessions already built keep the credentials they were created with.</summary>
   public AgentSessionFactory WithSettings(AgentSettings settings) =>
-      new(settings ?? throw new ArgumentNullException(nameof(settings)), _database, _mailboxLocator);
+      new(settings ?? throw new ArgumentNullException(nameof(settings)), _database, _mailboxLocator, _hostExePath);
 
   /// <summary>Creates a session rooted at <paramref name="workspaceRoot"/> on the selected
   ///     <paramref name="providerName"/>. The directory must exist; workspace identity is
@@ -105,8 +111,30 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       services.GetRequiredService<RootSessionIdentity>().Id = bootstrapped.Value;
 
       // Exact orphan repair at session open (FR-L8, R3.2): a persisted Running record
-      // survives only if the host still owns it.
-      await RepairOrphansAsync(services, bootstrapped.Value, ct).ConfigureAwait(false);
+      // survives only if the host still owns it. A host that cannot start is a NAMED
+      // failure, never an exception: the open path runs on the UI dispatcher, where an
+      // escaping exception takes the whole process down (2026-10-21).
+      try
+      {
+        await RepairOrphansAsync(services, bootstrapped.Value, ct).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException) when (ct.IsCancellationRequested)
+      {
+        // The CALLER cancelled: propagate, never dress a cancellation as a failure.
+        await services.DisposeAsync().ConfigureAwait(false);
+        throw;
+      }
+      // Named decision (CA1031): every host startup fault - a missing executable, a
+      // refused spawn, a pipe nobody serves - is an EXPECTED condition the caller can
+      // act on, so it becomes a named error value instead of an exception.
+#pragma warning disable CA1031, S2486 // Do not catch general exception types
+      catch (Exception ex)
+#pragma warning restore CA1031, S2486
+      {
+        await services.DisposeAsync().ConfigureAwait(false);
+        return Result.Failure<AgentSession>(new DomainError("HostUnavailable",
+            "the conversation host could not be started: " + ex.Message));
+      }
 
       // Provider lineups are no longer published at session open: the model picker
       // (host UI) fetches the catalog lazily when shown, for either provider.
@@ -186,8 +214,29 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // trusts stale in-context contract text over a live tool error.
       services.GetRequiredService<Conversation>().AddSystemMessage(ResumeContractNotice);
       // The resumed conversation runs in its own host exactly as a fresh one does: attach
-      // (launching it when absent) before the first turn can fire.
-      await AttachHostAsync(services, ct).ConfigureAwait(false);
+      // (launching it when absent) before the first turn can fire. A host that cannot
+      // start is a NAMED failure, never an exception (the same contract as a fresh open).
+      try
+      {
+        await AttachHostAsync(services, ct).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException) when (ct.IsCancellationRequested)
+      {
+        // The CALLER cancelled: propagate, never dress a cancellation as a failure.
+        await services.DisposeAsync().ConfigureAwait(false);
+        throw;
+      }
+      // Named decision (CA1031): every host startup fault - a missing executable, a
+      // refused spawn, a pipe nobody serves - is an EXPECTED condition the caller can
+      // act on, so it becomes a named error value instead of an exception.
+#pragma warning disable CA1031, S2486 // Do not catch general exception types
+      catch (Exception ex)
+#pragma warning restore CA1031, S2486
+      {
+        await services.DisposeAsync().ConfigureAwait(false);
+        return Result.Failure<AgentSession>(new DomainError("HostUnavailable",
+            "the conversation host could not be started: " + ex.Message));
+      }
       // Re-open: clear a Completed row back to Running so status reflects the live session.
       Result<string> reopened = await store.UpdateAsync(record with
       {
@@ -409,6 +458,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
               ConversationSeed = conversationSeed,
               MailboxLocator = _mailboxLocator,
               ComputerAccessProvider = ResolveComputerAccessProvider(),
+              HostExePath = _hostExePath,
             })
         // Skill directories resolve HERE - the resolution site. The parse validates
         // shape only; a workspace path equal (case-insensitive, full-path normalized)

@@ -25,14 +25,12 @@ public class HungRemoteChildE2ETests
 {
   private static string FindHostExe()
   {
-    DirectoryInfo? dir = new(typeof(HungRemoteChildE2ETests).Assembly.Location);
-    while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "eThangAgent.slnx")))
-    {
-      dir = dir.Parent;
-    }
-
-    string repo = dir!.FullName;
-    return ChildHostExeLocator.ResolveFromRepoRoot(repo);
+    // The shared resolution: the repo's live build output in a checkout, else the
+    // copy shipped next to the app. A missing repo is an ordinary case, not a fault
+    // (the 2026-10-21 crash walked past the filesystem root and dereferenced null).
+    return ChildHostExeLocator.Resolve(
+        ChildHostExeLocator.FindRepoRoot(typeof(HungRemoteChildE2ETests).Assembly.Location),
+        AppContext.BaseDirectory);
   }
 
   /// <summary>A one-request provider mock: the FIRST responses request is answered with a
