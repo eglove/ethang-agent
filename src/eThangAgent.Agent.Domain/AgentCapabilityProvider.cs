@@ -16,7 +16,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   ///     grant-surface computation needs the names at composition time, where
   ///     resolving the provider itself would re-enter its singleton (R1).</summary>
   public static readonly string[] ActionNames =
-      ["spawn", "status", "result", "wait", "send", "resume", "route", "escalate", "fanout",
+      ["spawn", "status", "result", "wait", "send", "resume", "cancel", "route", "escalate", "fanout",
         "notify-subtree", "notify-ancestors"];
 
   /// <summary>Builds the dispatch map eagerly: every handler closes over this
@@ -124,6 +124,15 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the settled child agent, exactly as returned by spawn."),
                 new ActionParameter("text", ActionParameterTypes.StringType, "The continuation instruction for the child. Non-empty."),
             ]),
+        new("cancel", "Interrupt a running child agent by id (the model-facing stop).",
+            """
+            Cancels one RUNNING child mid-run: the run's cancellation token fires, the loop repairs any half-finished tool batch, and the child settles as interrupted - its partial transcript stays retrievable with agent.result, and agent.resume can restart it. Routed through the runtime's explicit-interrupt path (one of the three sanctioned cancellation sources). Fails to you: NotRunning (unknown id, or the child already settled - nothing to cancel), NotAvailable (no runtime wired).
+            Output contract:
+            interrupted id=<id>
+            """,
+            [
+                new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
+            ]),
         new("route", "Send a message to a linked agent outside your local tree.",
             """
             Resolves 'name' through the session's consented link registry and delivers 'text' to that agent's runtime mailbox. Isolation by default: an unlinked name fails Error [NotLinked]. Unknown or finished targets fail Error [NotRunning]; a full mailbox fails Error [MailboxFull]. Receipt: delivered to=<address> link=<name>.
@@ -192,6 +201,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
       ["wait"] = Wait,
       ["send"] = (json, _) => Send(json),
       ["resume"] = (json, _) => Resume(json),
+      ["cancel"] = Cancel,
       ["route"] = (json, _) => Task.FromResult(Route(json)),
       ["escalate"] = Escalate,
       ["notify-subtree"] = NotifySubtree,
@@ -461,6 +471,42 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     return resumed.IsSuccess
         ? CapabilityInvocationResult.Ok($"id={resumed.Value} status=running")
         : CapabilityInvocationResult.Fail($"Error [{resumed.Error.Code}]: {resumed.Error.Message}");
+  }
+
+  /// <summary>agent.cancel (issue #94): the model-facing stop for one running child. The
+  ///     unknown/settled matrix is checked BEFORE the interrupt (an interrupt of an
+  ///     unknown id is a silent no-op at the runtime seam, which would read as success),
+  ///     and the interrupt itself rides the runtime's explicit-interrupt path - one of
+  ///     the three sanctioned cancellation sources. The receipt names the id so the
+  ///     caller can follow up with agent.result.</summary>
+  private async Task<CapabilityInvocationResult> Cancel(string json, CancellationToken ct)
+  {
+    if (_runtime is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [NotAvailable]: agent.cancel needs a runtime wired into this session's capability provider.");
+    }
+
+    Result<AgentId> id = ParseIdArgument(json);
+    if (!id.IsSuccess)
+    {
+      return CapabilityInvocationResult.Fail($"Error [{id.Error.Code}]: {id.Error.Message}");
+    }
+
+    Result<AgentRecord> target = await _queries.GetStatus(id.Value, ct).ConfigureAwait(false);
+    if (!target.IsSuccess)
+    {
+      return CapabilityInvocationResult.Fail($"Error [{target.Error.Code}]: {target.Error.Message}");
+    }
+
+    if (target.Value.Status is not AgentStatus.Running)
+    {
+      return CapabilityInvocationResult.Fail(
+          $"Error [NotRunning]: agent {id.Value} is {StatusWord(target.Value.Status)}; nothing to cancel.");
+    }
+
+    _runtime.Interrupt(id.Value);
+    return CapabilityInvocationResult.Ok($"interrupted id={id.Value}");
   }
 
   private static string SenderLabel(AgentRecord record)
