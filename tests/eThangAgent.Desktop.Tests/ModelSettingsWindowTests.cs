@@ -32,9 +32,18 @@ public class ModelSettingsWindowTests
 
     window.Show();
     // The load is fire-and-forget from the Opened handler; pump the dispatcher
-    // (bounded — no infinite wait) until it lands or the pump budget is spent.
-    for (int i = 0; i < 50 && vm.ModelSection!.FilteredRows.Count <= 1; i++)
+    // (bounded — no infinite wait) until it lands or the budget is spent. The budget
+    // is a WALL-CLOCK bound, not a pump count: under load a pump takes longer and the
+    // continuation lands later, so a fixed count expired before the load did and the
+    // test failed on a busy machine (2026-10-22).
+    DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+    for (int i = 0; i < 5_000 && vm.ModelSection!.FilteredRows.Count <= 1; i++)
     {
+      if (DateTimeOffset.UtcNow > deadline)
+      {
+        break;
+      }
+
       await Dispatcher.UIThread.InvokeAsync(() => { });
     }
     window.Close();
