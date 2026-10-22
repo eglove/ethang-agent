@@ -77,5 +77,10 @@ public class SessionResumeE2ETests
     string assistant = string.Join("", vm.Transcript.Entries
         .OfType<AssistantTextEntry>().Select(a => a.Text));
     Assert.Contains("crumble, of course", assistant, StringComparison.Ordinal);
+
+    // The session OWNS a host process: disposing the container disposes the
+    // supervisor, which kills that host. Without this the host outlives the test
+    // process as a stray (one suite run leaked 14 of them).
+    await session.Services.DisposeAsync().ConfigureAwait(true);
   }
 }

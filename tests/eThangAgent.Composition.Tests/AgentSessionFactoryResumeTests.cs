@@ -44,6 +44,9 @@ public class AgentSessionFactoryResumeTests
   public async Task ResumeAsync_Hydrates_Transcript_Rebinds_Identity_Reactives_Running()
   {
     (AgentSessionFactory factory, string db) = CreateFactory();
+    // The session OWNS a host process: disposed in the finally below, or the host
+    // lingers as a stray (one suite run leaked 14 of them).
+    Result<AgentSession>? resumed = null;
     try
     {
       DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-resume-ws");
@@ -70,7 +73,7 @@ public class AgentSessionFactoryResumeTests
         await created.Value.Lifecycle.CompleteAsync(rootId, _ => Assert.Fail("no complete errors expected"));
         await created.Value.Services.DisposeAsync();
 
-        Result<AgentSession> resumed = await factory.ResumeAsync(rootId, ct: TestContext.Current.CancellationToken);
+        resumed = await factory.ResumeAsync(rootId, ct: TestContext.Current.CancellationToken);
 
         Assert.True(resumed.IsSuccess);
         AgentSession session = resumed.Value;
@@ -114,6 +117,11 @@ public class AgentSessionFactoryResumeTests
     }
     finally
     {
+      if (resumed is not null)
+      {
+        await TestSession.DisposeAsync(resumed);
+      }
+
       DeleteDb(db);
     }
   }
@@ -201,10 +209,18 @@ public class AgentSessionFactoryResumeTests
 
       Result<AgentSession> resumed = await factory.ResumeAsync(rootId, ct: TestContext.Current.CancellationToken);
       Assert.True(resumed.IsSuccess);
-
-      Result<AgentRecord> after = await new SqliteAgentStore(new AppDatabase(db)).GetAsync(rootId, ct: TestContext.Current.CancellationToken);
-      Assert.True(after.IsSuccess);
-      Assert.Equal("openrouter/other", after.Value.ModelUsed);
+      try
+      {
+        Result<AgentRecord> after = await new SqliteAgentStore(new AppDatabase(db)).GetAsync(rootId, ct: TestContext.Current.CancellationToken);
+        Assert.True(after.IsSuccess);
+        Assert.Equal("openrouter/other", after.Value.ModelUsed);
+      }
+      finally
+      {
+        // The session OWNS a host process: dispose the container so the host is
+        // killed instead of lingering as a stray.
+        await TestSession.DisposeAsync(resumed);
+      }
     }
     finally
     {

@@ -37,16 +37,25 @@ public class SessionIdWiringTests
         Result<AgentSession> created = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
         Assert.True(created.IsSuccess);
 
-        // The persisted root id: the session's own identity.
-        AgentId rootId = created.Value.RootId;
+        try
+        {
+          // The persisted root id: the session's own identity.
+          AgentId rootId = created.Value.RootId;
 
-        // The container's provider is the real OpenRouter one; assert the wiring
-        // instead: the holder's built agent carries the root id as its session id.
-        RootAgentHolder holder = created.Value.Services.GetRequiredService<RootAgentHolder>();
-        ModelConfig config = ModelConfig.Create("test/model", null, 64, 0.5f, 4096).Value!;
-        _ = holder.Build(existing: null, config);
+          // The container's provider is the real OpenRouter one; assert the wiring
+          // instead: the holder's built agent carries the root id as its session id.
+          RootAgentHolder holder = created.Value.Services.GetRequiredService<RootAgentHolder>();
+          ModelConfig config = ModelConfig.Create("test/model", null, 64, 0.5f, 4096).Value!;
+          _ = holder.Build(existing: null, config);
 
-        Assert.Equal(rootId.ToString(), holder.CurrentSessionId);
+          Assert.Equal(rootId.ToString(), holder.CurrentSessionId);
+        }
+        finally
+        {
+          // The session OWNS a host process: dispose the container so the host is
+          // killed instead of lingering as a stray.
+          await TestSession.DisposeAsync(created);
+        }
       }
       finally
       {

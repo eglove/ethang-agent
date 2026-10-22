@@ -36,13 +36,22 @@ public class RootAgentIdentityWiringTests
       {
         Result<AgentSession> created = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
         Assert.True(created.IsSuccess);
-        AgentId rootId = created.Value.RootId;
+        try
+        {
+          AgentId rootId = created.Value.RootId;
 
-        RootAgentHolder holder = created.Value.Services.GetRequiredService<RootAgentHolder>();
-        ModelConfig config = ModelConfig.Create("test/model", null, 64, 0.5f, 4096).Value!;
-        AgentDomain.Agent agent = holder.Build(existing: null, config);
+          RootAgentHolder holder = created.Value.Services.GetRequiredService<RootAgentHolder>();
+          ModelConfig config = ModelConfig.Create("test/model", null, 64, 0.5f, 4096).Value!;
+          AgentDomain.Agent agent = holder.Build(existing: null, config);
 
-        Assert.Equal(rootId, agent.Id);
+          Assert.Equal(rootId, agent.Id);
+        }
+        finally
+        {
+          // The session OWNS a host process: dispose the container so the host is
+          // killed instead of lingering as a stray.
+          await TestSession.DisposeAsync(created);
+        }
       }
       finally
       {

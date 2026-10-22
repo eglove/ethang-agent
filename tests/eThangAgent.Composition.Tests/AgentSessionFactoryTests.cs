@@ -45,32 +45,43 @@ public class AgentSessionFactoryTests
         Result<AgentSession> a = await factory.CreateAsync(dirA.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
         Result<AgentSession> b = await factory.CreateAsync(dirB.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
 
-        Assert.True(a.IsSuccess);
-        Assert.True(b.IsSuccess);
+        try
+        {
+          Assert.True(a.IsSuccess);
+          Assert.True(b.IsSuccess);
 
-        // Distinct roots, identities, resolvers, conversations — nothing shared.
-        Assert.NotEqual(a.Value.RootId, b.Value.RootId);
-        Assert.NotSame(a.Value.Conversation, b.Value.Conversation);
-        Assert.Equal(dirA.FullName, a.Value.WorkspaceRoot);
-        Assert.Equal(dirB.FullName, b.Value.WorkspaceRoot);
+          // Distinct roots, identities, resolvers, conversations — nothing shared.
+          Assert.NotEqual(a.Value.RootId, b.Value.RootId);
+          Assert.NotSame(a.Value.Conversation, b.Value.Conversation);
+          Assert.Equal(dirA.FullName, a.Value.WorkspaceRoot);
+          Assert.Equal(dirB.FullName, b.Value.WorkspaceRoot);
 
-        // Each session's workspace context carries ITS OWN root path as identity.
-        IWorkspaceContext ctxA = a.Value.Services.GetRequiredService<IWorkspaceContext>();
-        IWorkspaceContext ctxB = b.Value.Services.GetRequiredService<IWorkspaceContext>();
-        Assert.Equal(dirA.FullName, ctxA.WorkspaceId);
-        Assert.Equal(dirB.FullName, ctxB.WorkspaceId);
+          // Each session's workspace context carries ITS OWN root path as identity.
+          IWorkspaceContext ctxA = a.Value.Services.GetRequiredService<IWorkspaceContext>();
+          IWorkspaceContext ctxB = b.Value.Services.GetRequiredService<IWorkspaceContext>();
+          Assert.Equal(dirA.FullName, ctxA.WorkspaceId);
+          Assert.Equal(dirB.FullName, ctxB.WorkspaceId);
 
-        // Path resolution is jailed to each session's own root.
-        IPathResolver resolver = a.Value.Services.GetRequiredService<IPathResolver>();
-        Assert.True(resolver.Resolve("file.txt").IsSuccess);
-        Assert.False(
-            resolver.Resolve(Path.Combine(dirB.FullName, "escape.txt")).IsSuccess);
+          // Path resolution is jailed to each session's own root.
+          IPathResolver resolver = a.Value.Services.GetRequiredService<IPathResolver>();
+          Assert.True(resolver.Resolve("file.txt").IsSuccess);
+          Assert.False(
+              resolver.Resolve(Path.Combine(dirB.FullName, "escape.txt")).IsSuccess);
 
-        // The exec engine resolves Workspace per execution against the session's
-        // own identity — never a process-global cwd captured at construction.
-        IExecEngine engine = a.Value.Services.GetRequiredService<IExecEngine>();
-        ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("return Workspace;"), ct: TestContext.Current.CancellationToken);
-        Assert.Contains(dirA.FullName, run.Output, StringComparison.OrdinalIgnoreCase);
+          // The exec engine resolves Workspace per execution against the session's
+          // own identity — never a process-global cwd captured at construction.
+          IExecEngine engine = a.Value.Services.GetRequiredService<IExecEngine>();
+          ExecRunResult run = await engine.ExecuteAsync(new ExecProgram("return Workspace;"), ct: TestContext.Current.CancellationToken);
+          Assert.Contains(dirA.FullName, run.Output, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+          // The session OWNS a host process: disposing its container disposes the
+          // supervisor, which kills that host. A test that forgets leaves a stray
+          // host behind — one suite run leaked 14, and a piped run then hung
+          // waiting on the inherited stdout.
+          await TestSession.DisposeAsync(a, b);
+        }
       }
       finally
       {
@@ -195,6 +206,9 @@ public class AgentSessionFactoryTests
         Result<AgentSession> opened = await rebound.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
         Assert.True(opened.IsSuccess);
         Assert.Equal(Providers.OpenRouter, opened.Value.ProviderName);
+        // The session OWNS a host process: dispose the container so the host is
+        // killed instead of lingering as a stray.
+        await TestSession.DisposeAsync(opened);
 
         // The original factory keeps refusing — rebind is a new instance, not a mutation.
         Assert.False((await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken)).IsSuccess);
@@ -246,12 +260,15 @@ public class AgentSessionFactoryTests
   public async Task CreateAsync_AnchoredChild_ExecResolvesWorkspaceAtAnchor()
   {
     (AgentSessionFactory? factory, string? db) = CreateFactory();
+    // The session OWNS a host process: it is disposed in the finally below, or the
+    // host lingers as a stray (one suite run leaked 14 of them).
+    Result<AgentSession>? session = null;
     try
     {
       DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-anchor");
       try
       {
-        Result<AgentSession> session = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
+        session = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
         Assert.True(session.IsSuccess);
         ServiceProvider services = session.Value.Services;
 
@@ -336,6 +353,11 @@ public class AgentSessionFactoryTests
     }
     finally
     {
+      if (session is not null)
+      {
+        await TestSession.DisposeAsync(session);
+      }
+
       Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
       try
       {
@@ -364,13 +386,22 @@ public class AgentSessionFactoryTests
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
-        SqliteAgentStore store = new(new AppDatabase(db));
-        Result<AgentRecord> record = await store.GetAsync(result.Value.RootId, ct: TestContext.Current.CancellationToken);
-        Assert.True(record.IsSuccess);
-        // The model that will serve turn one is a fact on the persisted row from
-        // creation - never the 'unassigned' sentinel - so the eval runner (and the
-        // Sessions catalog) record the resolved model without waiting for a selection.
-        Assert.Equal("openrouter/auto", record.Value.ModelUsed);
+        try
+        {
+          SqliteAgentStore store = new(new AppDatabase(db));
+          Result<AgentRecord> record = await store.GetAsync(result.Value.RootId, ct: TestContext.Current.CancellationToken);
+          Assert.True(record.IsSuccess);
+          // The model that will serve turn one is a fact on the persisted row from
+          // creation - never the 'unassigned' sentinel - so the eval runner (and the
+          // Sessions catalog) record the resolved model without waiting for a selection.
+          Assert.Equal("openrouter/auto", record.Value.ModelUsed);
+        }
+        finally
+        {
+          // The session OWNS a host process: dispose the container so the host is
+          // killed instead of lingering as a stray.
+          await TestSession.DisposeAsync(result);
+        }
       }
       finally
       {
@@ -400,12 +431,21 @@ public class AgentSessionFactoryTests
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
-        string prompt = result.Value.SystemPrompt;
-        Assert.False(string.IsNullOrWhiteSpace(prompt));
-        // The composite render: the skills bootstrap leads, session files follow.
-        Assert.DoesNotContain("EXTREMELY_IMPORTANT", prompt, StringComparison.Ordinal);
-        Assert.StartsWith("---\nname: using-skills", prompt, StringComparison.Ordinal);
-        Assert.Contains("You are eThang Agent", prompt, StringComparison.Ordinal);
+        try
+        {
+          string prompt = result.Value.SystemPrompt;
+          Assert.False(string.IsNullOrWhiteSpace(prompt));
+          // The composite render: the skills bootstrap leads, session files follow.
+          Assert.DoesNotContain("EXTREMELY_IMPORTANT", prompt, StringComparison.Ordinal);
+          Assert.StartsWith("---\nname: using-skills", prompt, StringComparison.Ordinal);
+          Assert.Contains("You are eThang Agent", prompt, StringComparison.Ordinal);
+        }
+        finally
+        {
+          // The session OWNS a host process: dispose the container so the host is
+          // killed instead of lingering as a stray.
+          await TestSession.DisposeAsync(result);
+        }
       }
       finally
       {

@@ -27,8 +27,17 @@ public class SkillDirectoryWatcherWiringTests
         Result<AgentSession> result = await factory.CreateAsync(dir.FullName, Providers.OpenRouter,
             ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
         Assert.True(result.IsSuccess);
-        SkillDirectoryWatcher watcher = result.Value.Services.GetRequiredService<SkillDirectoryWatcher>();
-        Assert.True(watcher.IsStarted);
+        try
+        {
+          SkillDirectoryWatcher watcher = result.Value.Services.GetRequiredService<SkillDirectoryWatcher>();
+          Assert.True(watcher.IsStarted);
+        }
+        finally
+        {
+          // The session OWNS a host process: dispose the container so the host is
+          // killed instead of lingering as a stray.
+          await TestSession.DisposeAsync(result);
+        }
       }
       finally
       {

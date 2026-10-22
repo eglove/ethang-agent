@@ -46,14 +46,23 @@ public class ComputerUseProcessLevelWiringTests
             ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
         Assert.True(openB.IsSuccess, openB.Error?.Message ?? "open failed");
 
-        IComputerAccessProvider providerA = openA.Value.Services.GetRequiredService<IComputerAccessProvider>();
-        IComputerAccessProvider providerB = openB.Value.Services.GetRequiredService<IComputerAccessProvider>();
-        Assert.Same(providerA, providerB);
+        try
+        {
+          IComputerAccessProvider providerA = openA.Value.Services.GetRequiredService<IComputerAccessProvider>();
+          IComputerAccessProvider providerB = openB.Value.Services.GetRequiredService<IComputerAccessProvider>();
+          Assert.Same(providerA, providerB);
 
-        // The shared provider also serves ONE access per workspace root across
-        // sessions: a session over the same root gets the same ledger/frames.
-        Assert.Same(providerA.ForWorkspace(dirA.FullName)!, providerB.ForWorkspace(dirA.FullName)!);
-        Assert.NotSame(providerA.ForWorkspace(dirA.FullName)!, providerA.ForWorkspace(dirB.FullName)!);
+          // The shared provider also serves ONE access per workspace root across
+          // sessions: a session over the same root gets the same ledger/frames.
+          Assert.Same(providerA.ForWorkspace(dirA.FullName)!, providerB.ForWorkspace(dirA.FullName)!);
+          Assert.NotSame(providerA.ForWorkspace(dirA.FullName)!, providerA.ForWorkspace(dirB.FullName)!);
+        }
+        finally
+        {
+          // Each session OWNS a host process: dispose the containers so the hosts
+          // are killed instead of lingering as strays.
+          await TestSession.DisposeAsync(openA, openB);
+        }
       }
       finally
       {
