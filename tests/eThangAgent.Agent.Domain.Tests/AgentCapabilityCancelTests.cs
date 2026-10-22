@@ -13,7 +13,7 @@ public class AgentCapabilityCancelTests
   {
     StubRuntime runtime = new();
     AgentCapabilityProvider provider = BuildProvider(runtime);
-    AgentId childId = AgentCapabilityCancelTests.StubChildId;
+    AgentId childId = StubChildId;
 
     CapabilityInvocationResult result = await provider.InvokeAsync("cancel",
         CancelJson(childId), TestContext.Current.CancellationToken).ConfigureAwait(true);
@@ -42,7 +42,7 @@ public class AgentCapabilityCancelTests
   {
     StubRuntime runtime = new();
     AgentCapabilityProvider provider = BuildProvider(runtime, completedChild: true);
-    AgentId childId = AgentCapabilityCancelTests.StubChildId;
+    AgentId childId = StubChildId;
 
     CapabilityInvocationResult result = await provider.InvokeAsync("cancel",
         CancelJson(childId), TestContext.Current.CancellationToken).ConfigureAwait(true);
