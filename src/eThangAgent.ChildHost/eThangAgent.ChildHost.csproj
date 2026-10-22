@@ -9,6 +9,28 @@
     <NoWarn>$(NoWarn);CA1515;CA2007;CA1849;S6966</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The host is an APP of its own, and a REFERENCING app publishes the referenced
+         assemblies but NOT its deps.json (the SDK treats that file as app-local
+         metadata for the referencing app). Without its manifest the runtime cannot
+         resolve the host's NATIVE assets - e_sqlite3.dll for SQLite - and
+         Microsoft.Data.Sqlite's type initializer throws, so every root turn faults with
+         "The type initializer for 'Microsoft.Data.Sqlite.SqliteConnection' threw an
+         exception" and the app's own manifest never covers the host (2026-10-22). The
+         file is already in the output folder (the SDK writes it there); this makes the
+         PUBLISH carry it. -->
+    <Content Include="$(TargetDir)$(ProjectDepsFileName)"
+             Condition="'$(GenerateDependencyFile)' == 'true'"
+             Link="$(ProjectDepsFileName)"
+             CopyToOutputDirectory="Never"
+             CopyToPublishDirectory="PreserveNewest"
+             Visible="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The host's fault formatting is internal; the transport tests pin the root-cause
+         contract (the message a reader gets when a turn faults). -->
+    <InternalsVisibleTo Include="eThangAgent.Transport.ACL.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../eThangAgent.Transport.ACL/eThangAgent.Transport.ACL.csproj" />
     <ProjectReference Include="../eThangAgent.Agent.Infrastructure/eThangAgent.Agent.Infrastructure.csproj" />
     <ProjectReference Include="../eThangAgent.Storage.ACL/eThangAgent.Storage.ACL.csproj" />

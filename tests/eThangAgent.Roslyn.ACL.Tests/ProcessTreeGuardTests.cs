@@ -175,9 +175,14 @@ public sealed class ProcessTreeGuardTests
     ScriptGlobals globals = new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath(),
         ceilings: new ScriptCeilings(2L * 1024 * 1024 * 1024, 2, 256 * 1024, 8L * 1024 * 1024));
 
+    // The dying words are written FIRST, then the process tree that trips the
+    // ceiling is spawned: the guard kills the tree the moment the ceiling breaks, so
+    // writing them afterwards raced the kill and the test failed on a loaded machine
+    // (the program was killed before it had spoken).
     ShellResult result = globals.Shell(PwshPath(), "-NoLogo", "-NoProfile", "-Command",
-        "1..6 | ForEach-Object { Start-Process ping -ArgumentList '-n','60','127.0.0.1' -WindowStyle Hidden }; "
-        + "[Console]::Error.WriteLine('DYING-WORDS'); Start-Sleep -Seconds 20");
+        "[Console]::Error.WriteLine('DYING-WORDS'); "
+        + "1..6 | ForEach-Object { Start-Process ping -ArgumentList '-n','60','127.0.0.1' -WindowStyle Hidden }; "
+        + "Start-Sleep -Seconds 20");
 
     Assert.Equal(-1, result.ExitCode);
     Assert.StartsWith("Error [ProcessCeiling]", result.Stderr, StringComparison.Ordinal);

@@ -48,6 +48,9 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   private readonly string _databasePath;
   private readonly Func<string> _hostExePath;
   private readonly Action<string> _reportNotice;
+  // The current host's output tail (one supervisor serves one conversation, so the
+  // tail is per conversation). Null until a host is started.
+  private HostOutputTail? _hostOutputTail;
   private Process? Host { get; set; }
 
   public RemoteHostSupervisor(string conversationId, string scratchDirectory,
@@ -272,6 +275,16 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     StartedLineOutcome outcome = await WaitForStartedLineAsync(started, ct).ConfigureAwait(false);
     if (outcome is StartedLineOutcome.Announced)
     {
+      // The started line is read; from here on the host's output is DRAINED. An
+      // unread pipe fills (64KB) and then blocks the host forever, and the host's
+      // diagnostics are lost - the failure that made a published host's missing
+      // dependency manifest invisible (2026-10-22). The drain starts HERE because
+      // the started line and the drain would otherwise compete for the same stream.
+      if (_hostOutputTail is { } tail)
+      {
+        _ = tail.DrainAsync(started);
+      }
+
       return;
     }
 
@@ -306,15 +319,73 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     psi.CreateNoWindow = true;
     Process started = Process.Start(psi) ?? throw new InvalidOperationException("child host failed to start.");
     Host = started;
-    _ = started.WaitForExitAsync(ct).ContinueWith(static (t, state) =>
+    HostOutputTail tail = new();
+    _hostOutputTail = tail;
+    _ = started.WaitForExitAsync(ct).ContinueWith((t, state) =>
     {
       // Host-health notice (R3.3): death of the host is surfaced, never silent.
       if (state is Action<string> report && !t.IsCanceled)
       {
-        report("[host] the child host process exited; children it ran keep running and will re-attach on the next connection.");
+        report("[host] the child host process exited; children it ran keep running and will re-attach on the next connection."
+            + tail.Describe());
       }
     }, _reportNotice, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
     return started;
+  }
+
+  /// <summary>The bounded tail of ONE host's output (one supervisor serves one
+  ///     conversation, so the tail is per conversation). A fixed capacity, because the
+  ///     tail exists to explain a death - not to archive a log.</summary>
+  private sealed class HostOutputTail
+  {
+    /// <summary>How many lines per stream are kept.</summary>
+    private const int Capacity = 40;
+
+    /// <summary>The host's standard output, most recent last.</summary>
+    private readonly List<string> _standard = [];
+
+    /// <summary>The host's standard error, most recent last.</summary>
+    private readonly List<string> _error = [];
+
+    /// <summary>Reads the host's output to its end, keeping the last
+    ///     <see cref="Capacity"/> lines per stream. The read ends when the host closes
+    ///     the stream (its exit). The started line is read BEFORE this starts, so the
+    ///     two never compete for the same stream.</summary>
+    internal async Task DrainAsync(Process started)
+    {
+      await Task.WhenAll(Drain(started.StandardOutput, _standard), Drain(started.StandardError, _error))
+          .ConfigureAwait(false);
+    }
+
+    private static async Task Drain(StreamReader reader, List<string> tail)
+    {
+      ArgumentNullException.ThrowIfNull(reader);
+      ArgumentNullException.ThrowIfNull(tail);
+      while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+      {
+        lock (tail)
+        {
+          tail.Add(line);
+          if (tail.Count > Capacity)
+          {
+            tail.RemoveRange(0, tail.Count - Capacity);
+          }
+        }
+      }
+    }
+
+    /// <summary>The tail as one line, or an empty string when the host said nothing on
+    ///     standard error (its diagnostics channel).</summary>
+    internal string Describe()
+    {
+      List<string> lines;
+      lock (_error)
+      {
+        lines = [.. _error];
+      }
+
+      return lines.Count == 0 ? string.Empty : " Last output: " + string.Join(" | ", lines);
+    }
   }
 
   /// <summary>Waits for the host's started line under a DEADLINE, never a line counter.

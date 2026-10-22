@@ -6,6 +6,7 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.ChildHost;
@@ -64,6 +65,7 @@ public sealed class SessionHost
   ///     the running child's loop drains (FR-C2, W3 delivery fix).</summary>
   public static SessionHost Create(string settingsJsonPath, string databasePath)
   {
+    EnsureSqliteNativeLibraryLoads();
     string json = File.ReadAllText(settingsJsonPath);
     AgentSettings deserialized = JsonSerializer.Deserialize<AgentSettings>(json, Options)
         ?? throw new InvalidOperationException("host settings deserialized to null.");
@@ -135,6 +137,38 @@ public sealed class SessionHost
         services.GetRequiredService<ChildMailboxRegistry>(),
         settings.Watchdog,
         BuildRootRun(services, settings.SessionId));
+  }
+
+  /// <summary>The host's own deployment must be able to load SQLite's native library.
+  ///     A published sidecar ships WITHOUT its dependency manifest (the SDK publishes a
+  ///     referenced project's assemblies but not its deps.json), and without that
+  ///     manifest the runtime cannot resolve e_sqlite3.dll - so every turn faulted
+  ///     with "The type initializer for 'Microsoft.Data.Sqlite.SqliteConnection' threw
+  ///     an exception" while the reader looked for a product bug (2026-10-22). The
+  ///     check touches NO file: it exercises the type initializer, which is what loads
+  ///     the native library, and fails NAMED when the deployment is incomplete.
+  /// </summary>
+  private static void EnsureSqliteNativeLibraryLoads()
+  {
+    try
+    {
+      // Constructing a connection runs the type initializer (which loads the native
+      // library) without opening a database.
+      using SqliteConnection probe = new("Data Source=:memory:");
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex)
+    {
+      // Named decision (CA1031): an incomplete deployment is an expected condition the
+      // caller can act on, so it is a named error - never an escaping exception.
+      throw new InvalidOperationException(
+          "the conversation host could not load its SQLite native library, so it cannot use the app database: "
+          + HostFault.Describe(ex)
+          + " - the deployment is incomplete: the host's dependency manifest ("
+          + "eThangAgent.ChildHost.deps.json) must sit next to its executable.",
+          ex);
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
   }
 
   /// <summary>Builds the host's ROOT turn runner when the settings name a root session

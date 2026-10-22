@@ -340,7 +340,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // Named decision (CA1031): the same isolation boundary the child path honors. A turn
       // that faults settles with the fault instead of escaping into the serve loop.
       await SendRootTurnEventAsync(new RootTurnEvent(TurnId, "settled",
-          "Error [RootTurnFault]: " + ex.Message, Generation)).ConfigureAwait(false);
+          "Error [RootTurnFault]: " + HostFault.Describe(ex), Generation)).ConfigureAwait(false);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
     finally
@@ -386,7 +386,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // REASON is kept, though: the turn that needs this runner answers with it, so
       // the user reads what actually broke instead of a generic refusal.
       _rootHost = null;
-      _rootHostFailure = ex.Message;
+      _rootHostFailure = HostFault.Describe(ex);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
 

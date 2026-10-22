@@ -14,6 +14,20 @@
     <InternalsVisibleTo Include="eThangAgent.ComputerUse.Host.Tests" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The broker is an APP of its own, and a REFERENCING app publishes the referenced
+         assemblies but NOT its deps.json (the SDK treats that file as app-local
+         metadata for the referencing app). Without its manifest the broker cannot
+         resolve its own native assets - the same gap that made the conversation host
+         fail every root turn in a published app (2026-10-22). The file is already in
+         the output folder (the SDK writes it there); this makes the PUBLISH carry it. -->
+    <Content Include="$(TargetDir)$(ProjectDepsFileName)"
+             Condition="'$(GenerateDependencyFile)' == 'true'"
+             Link="$(ProjectDepsFileName)"
+             CopyToOutputDirectory="Never"
+             CopyToPublishDirectory="PreserveNewest"
+             Visible="false" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
   </ItemGroup>
   <ItemGroup>

@@ -292,6 +292,7 @@ dotnet publish src/eThangAgent.Desktop -c Release -r win-x64 --self-contained fa
 ```
 
 - The published folder must carry the conversation host (`eThangAgent.ChildHost.exe`) next to the app: the app always launches the host that ships WITH it, so the two are one build and speak the same wire protocol (the same rule the computer-use broker follows). The Desktop project references the host project, so the exe is always there — never publish the app without it, and never point the app at a host from another build.
+- Each sidecar app must publish its own dependency manifest (`eThangAgent.ChildHost.deps.json`, `eThangAgent.ComputerUse.Host.deps.json`): it is what resolves the app's NATIVE assets (SQLite's `e_sqlite3.dll`). A publishing app copies a referenced project's assemblies but NOT that file, so a published host could not open SQLite and every turn failed (2026-10-22). The sidecar projects declare the manifest as publish content, and the host self-checks its deployment at startup so an incomplete deployment is named instead of failing cryptically.
 
 - Every change leaves the build green.
 - Unit tests use fakes only — a domain test never knows Roslyn, HTTP, or OpenRouter exist.
