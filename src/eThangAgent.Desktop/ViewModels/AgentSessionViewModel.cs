@@ -960,39 +960,26 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>Parses the resolved model id from a RootAgentResolver notice so the status
-  ///     bar can track mid-session model changes. Recognizes the verbatim notice
-  ///     contracts: "Model selected: &lt;id&gt; via &lt;provider&gt;" (success with a known
-  ///     provider), "Model selected: &lt;id&gt;" (success without one, and the
-  ///     preferred-pick path), and "... using &lt;id&gt;." (fallback). The ' via ' suffix is
+  ///     bar can track mid-session model changes. The ONLY live notice contract is the
+  ///     resolver's preferred-pick line, "Model selected: &lt;id&gt;[ via &lt;provider&gt;]", and the
+  ///     notice must START with that prefix. The old fallback contract ("... using
+  ///     &lt;id&gt;.") died with the selection machinery; its loose "using " match parsed
+  ///     arbitrary notice prose - tool errors, repeat-guard lines - as a model id and
+  ///     clobbered the status bar's model name (issue #247). The ' via ' suffix is
   ///     dropped so the provider never leaks into the status bar's model cell.
   ///     Returns null when the notice carries no recognizable model id.</summary>
   private static string? TryExtractModelId(string notice)
   {
     const string selectedPrefix = "Model selected: ";
-    int sel = notice.IndexOf(selectedPrefix, StringComparison.Ordinal);
-    if (sel >= 0)
+    if (!notice.StartsWith(selectedPrefix, StringComparison.Ordinal))
     {
-      string selected = notice[(sel + selectedPrefix.Length)..].Trim();
-      const string viaSeparator = " via ";
-      int via = selected.IndexOf(viaSeparator, StringComparison.Ordinal);
-      return via >= 0 ? selected[..via].Trim() : selected;
+      return null;
     }
 
-    const string usingPrefix = "using ";
-    int use = notice.IndexOf(usingPrefix, StringComparison.Ordinal);
-    if (use >= 0)
-    {
-      string rest = notice[(use + usingPrefix.Length)..];
-      int dot = rest.IndexOf('.', StringComparison.Ordinal);
-      if (dot >= 0)
-      {
-        rest = rest[..dot];
-      }
-
-      return rest.Trim();
-    }
-
-    return null;
+    string selected = notice[selectedPrefix.Length..].Trim();
+    const string viaSeparator = " via ";
+    int via = selected.IndexOf(viaSeparator, StringComparison.Ordinal);
+    return via >= 0 ? selected[..via].Trim() : selected;
   }
 
   /// <summary>Applies a stream event on the calling thread. Test seam; also usable when
