@@ -168,9 +168,35 @@ public class ChildHostExeLocatorTests
   }
 
   [Fact]
-  public void Resolve_Prefers_The_Repo_Build_Output_When_It_Exists()
+  public void Resolve_Prefers_The_Host_Shipped_With_The_App()
   {
-    // The dev layout: what the developer last built is the freshest host.
+    // The app and its host MUST be the same build: the wire protocol between them is
+    // versioned by build and never negotiated, so a host from another build fails in
+    // ways that look like product bugs (2026-10-22). The copy shipped next to the app
+    // is that build; the repo's live output is only a fallback.
+    string repo = MakeFakeRepo();
+    string appDir = Directory.CreateTempSubdirectory("ethang-deployed-app").FullName;
+    try
+    {
+      PlantWindowsExe(repo, "Debug");
+      File.WriteAllText(Path.Combine(appDir, ExeName), string.Empty);
+
+      string resolved = ChildHostExeLocator.Resolve(repo, appDir);
+
+      Assert.Equal(Path.Combine(appDir, ExeName), resolved);
+    }
+    finally
+    {
+      Directory.Delete(repo, recursive: true);
+      Directory.Delete(appDir, recursive: true);
+    }
+  }
+
+  [Fact]
+  public void Resolve_Falls_Back_To_The_Repo_Build_Output_When_The_App_Ships_No_Host()
+  {
+    // A caller that ships no host of its own (a test host) still finds the repo's
+    // live build output: the dev layout keeps working.
     string repo = MakeFakeRepo();
     string appDir = Directory.CreateTempSubdirectory("ethang-deployed-app").FullName;
     try

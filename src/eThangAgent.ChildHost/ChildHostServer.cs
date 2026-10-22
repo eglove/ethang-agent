@@ -52,6 +52,12 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   // callers await the same build.
   private readonly Lock _rootHostGate = new();
   private Task<RootRunHost?>? _rootHostBuild;
+  // WHY the host has no root runner, when it has none. The refusal a turn receives
+  // must name the REAL cause: the previous build swallowed the exception that broke
+  // the container and answered "not bound to a root session" for every turn, which
+  // sent the reader hunting a wiring bug that was not there (the actual cause was a
+  // locked database the host's own migration pass had caused).
+  private string? _rootHostFailure;
   private long _sequence;
 
   /// <summary>The ids the host currently runs — the exact live set the app's orphan
@@ -289,7 +295,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       // the client as stale (ruling 2).
       await SendAsync("root-turn-event", RootTurnProtocol.SerializeEvent(new RootTurnEvent(TurnId,
           "settled",
-          "Error [RootTurnUnavailable]: this conversation host is not bound to a root session.",
+          "Error [RootTurnUnavailable]: this conversation host is not bound to a root session"
+          + (_rootHostFailure is null ? "." : " (" + _rootHostFailure + ")"),
           Generation)))
           .ConfigureAwait(false);
       return;
@@ -367,12 +374,19 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     try
     {
       _rootHost = SessionHost.Create(settingsPath, databasePath).RootRun;
+      _rootHostFailure = _rootHost is null
+          ? "the host settings named no root session id."
+          : null;
     }
 #pragma warning disable CA1031 // Do not catch general exception types
-    catch (Exception)
+    catch (Exception ex)
     {
-      // Named decision (CA1031): the host is an isolation boundary.
+      // Named decision (CA1031): the host is an isolation boundary - a container that
+      // cannot be built must never take the child-serving path down with it. The
+      // REASON is kept, though: the turn that needs this runner answers with it, so
+      // the user reads what actually broke instead of a generic refusal.
       _rootHost = null;
+      _rootHostFailure = ex.Message;
     }
 #pragma warning restore CA1031 // Do not catch general exception types
 
@@ -480,6 +494,9 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     lock (_rootHostGate)
     {
       _rootHost = runner;
+      // A runner attached here answers every turn, so the "no root runner" reason
+      // (and any earlier one) no longer applies.
+      _rootHostFailure = null;
       // Pre-completing the build task is the latch: every later resolve shares it and no
       // caller can observe a half-built state.
       _rootHostBuild = Task.FromResult<RootRunHost?>(runner);

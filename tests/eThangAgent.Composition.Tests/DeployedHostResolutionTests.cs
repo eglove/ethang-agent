@@ -43,7 +43,8 @@ public class DeployedHostResolutionTests
   [Fact]
   public void DefaultHostExePath_Inside_A_Repo_Prefers_The_Repos_Build_Output()
   {
-    // The dev layout keeps working: a checkout resolves the host from the repo.
+    // The dev layout keeps working for a caller that ships no host of its own: the
+    // repo's build output is the fallback.
     string repo = Directory.CreateTempSubdirectory("ethang-repo-app").FullName;
     try
     {
@@ -57,6 +58,43 @@ public class DeployedHostResolutionTests
           Path.Combine(repo, "bin", "Debug", "eThangAgent.Composition.dll"), repo);
 
       Assert.Equal(host, resolved);
+    }
+    finally
+    {
+      Directory.Delete(repo, recursive: true);
+    }
+  }
+
+  [Fact]
+  public void DefaultHostExePath_Inside_A_Repo_Prefers_The_Host_Shipped_With_The_App()
+  {
+    // The app and its host are ONE build: the copy shipped next to the app always
+    // wins over the repo's output, which may hold a DIFFERENT (stale) configuration
+    // of the host. A cross-build pair fails the wire protocol in ways that read as
+    // product bugs - the 2026-10-22 case answered every root turn with "this
+    // conversation host is not bound to a root session".
+    string repo = Directory.CreateTempSubdirectory("ethang-repo-app").FullName;
+    try
+    {
+      File.WriteAllText(Path.Combine(repo, "eThangAgent.slnx"), string.Empty);
+      string hostDir = Path.Combine(repo, "src", "eThangAgent.ChildHost", "bin", "Debug", "net10.0-windows");
+      _ = Directory.CreateDirectory(hostDir);
+      File.WriteAllText(Path.Combine(hostDir, HostExeName), string.Empty);
+      string appDir = Directory.CreateTempSubdirectory("ethang-repo-app-bin").FullName;
+      try
+      {
+        string shipped = Path.Combine(appDir, HostExeName);
+        File.WriteAllText(shipped, string.Empty);
+
+        string resolved = RemoteHostSupervisor.ResolveDefaultHostExePath(
+            Path.Combine(appDir, "eThangAgent.Composition.dll"), appDir);
+
+        Assert.Equal(shipped, resolved);
+      }
+      finally
+      {
+        Directory.Delete(appDir, recursive: true);
+      }
     }
     finally
     {

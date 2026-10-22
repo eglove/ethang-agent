@@ -108,7 +108,17 @@ public sealed class SessionHost
                 new FixedWorkspaceContext(workspace),
                 new WorkspacePathResolver(workspace),
                 [new SessionFilesPromptProvider(workspace, settings.SessionFilesGlobal, settings.SessionFilesWorkspace)]),
-            new AppDatabase(databasePath),
+            // The host is a GUEST in the app's database: the app owns the schema. A
+            // guest that migrates takes a schema-level lock on a file the app may be
+            // writing, and on a busy database that lock times out ("database is
+            // locked") - the failure the root-runner build swallowed, so every root
+            // turn was refused with "this conversation host is not bound to a root
+            // session" (2026-10-22). An EXISTING database is therefore opened as-is; a
+            // missing one is the other case (nothing owns the schema yet), and the
+            // host creates it.
+            File.Exists(databasePath)
+                ? AppDatabase.OpenExisting(databasePath)
+                : new AppDatabase(databasePath),
             null)
             // Remote parity (skill-routing Task 12): the host replaces the core's
             // settings-sourced registration the SAME way the app factory does,

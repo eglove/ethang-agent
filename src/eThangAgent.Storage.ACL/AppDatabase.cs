@@ -23,26 +23,56 @@ public sealed class AppDatabase
   public string DatabasePath { get; }
 
   public AppDatabase(string? databasePath = null)
+      : this(ResolvePath(databasePath), migrate: true)
   {
-    string path = databasePath
+  }
+
+  /// <summary>Opens an EXISTING app database WITHOUT migrating it: the app owns the
+  ///     schema, and a GUEST that migrates takes a schema-level lock on a file the app
+  ///     may be writing. On a busy database that lock times out and the migration read
+  ///     fails with "database is locked" — which the conversation host swallowed, so every
+  ///     root turn was refused with "this conversation host is not bound to a root
+  ///     session" instead of the real cause (2026-10-22).
+  ///     <para>A missing file is a NAMED error, never a silent creation: the caller that
+  ///     owns the schema creates it (and migrates it) with the ordinary constructor.</para></summary>
+  public static AppDatabase OpenExisting(string databasePath)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+
+    return File.Exists(databasePath)
+        ? new AppDatabase(databasePath, migrate: false)
+        : throw new InvalidOperationException(
+            $"the app database '{databasePath}' does not exist; the owner creates it, a guest never does.");
+  }
+
+  /// <summary>The database file this instance talks to: the explicit path, else the
+  ///     environment override, else the app-owned default location.</summary>
+  private static string ResolvePath(string? databasePath)
+    => databasePath
         ?? Environment.GetEnvironmentVariable("ETHANG_AGENT_DB")
         ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "eThangAgent", "eThangAgent.db");
+
+  private AppDatabase(string path, bool migrate)
+  {
     _ = Directory.CreateDirectory(Path.GetDirectoryName(path)!);
     SqliteConnectionStringBuilder builder = new() { DataSource = path };
     DatabasePath = path;
     _connectionString = builder.ToString();
     builder.Mode = SqliteOpenMode.ReadOnly;
     _readOnlyConnectionString = builder.ToString();
-    MigrationGate.Wait();
-    try
+    if (migrate)
     {
-      Migrate();
-    }
-    finally
-    {
-      _ = MigrationGate.Release();
+      MigrationGate.Wait();
+      try
+      {
+        Migrate();
+      }
+      finally
+      {
+        _ = MigrationGate.Release();
+      }
     }
   }
 

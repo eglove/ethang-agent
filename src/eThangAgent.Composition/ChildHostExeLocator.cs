@@ -69,15 +69,29 @@ public static class ChildHostExeLocator
     return Path.Combine(appDirectory, HostExeName);
   }
 
-  /// <summary>The resolution ORDER: the repo's live build output first (the dev layout —
-  ///     what the developer last built), then the copy shipped next to the app (the
-  ///     deployed layout). A null repo root is an ORDINARY case, not a failure: a
-  ///     published app has no repo above it, and the deployed copy is the answer. When
-  ///     neither candidate exists, the DEPLOYED path is returned so the caller's
-  ///     not-found error names where the host is expected to live.</summary>
+  /// <summary>The resolution ORDER: the copy shipped NEXT TO THE APP first, then the
+  ///     repo's live build output (the dev layout, for a caller that ships no host of
+  ///     its own — a test host, for instance). A null repo root is an ORDINARY case,
+  ///     not a failure: a published app has no repo above it, and the deployed copy is
+  ///     the answer. When neither candidate exists, the DEPLOYED path is returned so the
+  ///     caller's not-found error names where the host is expected to live.
+  ///     <para>THE SHIPPED COPY WINS because it is the SAME BUILD as the app. The wire
+  ///     protocol between them (the root-turn envelopes, the session-id stamp) is
+  ///     versioned by BUILD and never negotiated, so a host from another build fails in
+  ///     ways that look like product bugs: a Release app that picked the repo's Debug
+  ///     output launched whatever that folder last held, and a stale host answered
+  ///     every turn with "this conversation host is not bound to a root session" while
+  ///     the app looked for a wiring fault (2026-10-22). The repo output stays the
+  ///     fallback so a developer who builds only the host project can still point the
+  ///     app at it (the host-exe-path override).</para></summary>
   public static string Resolve(string? repoRoot, string appDirectory)
   {
     string deployed = ResolveFromAppDirectory(appDirectory);
+    if (File.Exists(deployed))
+    {
+      return deployed;
+    }
+
     if (string.IsNullOrWhiteSpace(repoRoot))
     {
       return deployed;

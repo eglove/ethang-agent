@@ -391,9 +391,10 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     process.Dispose();
   }
 
-  /// <summary>Default exe resolution: walk up from the executing assembly to the repo
-  ///     root (mirrors the E2E helper) and ask the locator for the host's build output
-  ///     (configuration-agnostic: Debug first, Release fallback). A DEPLOYED app has no
+  /// <summary>Default exe resolution: the locator picks the host that ships NEXT TO
+  ///     the app (the same build, which the wire protocol requires), and falls back to
+  ///     the repo's live build output (configuration-agnostic: Debug first, Release
+  ///     fallback) for a caller that ships no host of its own. A DEPLOYED app has no
   ///     repo above it, so the walk ends at the filesystem root with no repo: that is an
   ///     ORDINARY case, and the host is then the copy shipped NEXT TO THE APP.
   ///     <para>The null repo was dereferenced as <c>dir!.FullName</c> — the
