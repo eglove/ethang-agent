@@ -221,8 +221,12 @@ public class AgentSessionViewModelTests
   }
 
   [Fact]
-  public void ApplyModelChoice_Default_Clears_Choice_And_Restores_Session_Default()
+  public void ApplyModelChoice_Default_Names_The_Session_Default_Explicitly()
   {
+    // 2026-10-22: the default is an EXPLICIT choice, not "no model". The resolver never
+    // substitutes a model the session did not name - an unnamed session fails every turn
+    // with "no model is selected" - and the status bar would name a model that never
+    // serves. So the default lands in the live preferences like any other pick.
     SessionModelPreferences preferences = new() { ModelId = "anthropic/claude" };
     AgentSessionViewModel vm = new(
         (_, _, _, _) => Task.FromResult(Result.Success("")),
@@ -231,10 +235,40 @@ public class AgentSessionViewModelTests
 
     vm.ApplyModelChoice(null);
 
-    Assert.Null(preferences.ModelId);
-    Assert.Equal("openrouter/auto", vm.Status.ModelId); // the session's bootstrap model
+    Assert.Equal("openrouter/auto", preferences.ModelId); // the session's bootstrap model, named
+    Assert.Equal("openrouter/auto", vm.Status.ModelId);
     NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
-    Assert.Contains("session default", notice.Text, StringComparison.Ordinal);
+    Assert.Contains("openrouter/auto", notice.Text, StringComparison.Ordinal);
+    Assert.Contains("next turn", notice.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void A_Session_Without_A_Pick_Names_Its_Default_Model()
+  {
+    // The same rule at session open: the shell states the session's default up front, so
+    // the status bar and the model that serves are always the same model.
+    SessionModelPreferences preferences = new();
+    AgentSessionViewModel vm = new(
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
+
+    Assert.Equal("openrouter/auto", preferences.ModelId);
+    Assert.Equal("openrouter/auto", vm.Status.ModelId);
+  }
+
+  [Fact]
+  public void A_Session_With_A_Pick_Keeps_It()
+  {
+    // The restored per-workspace pick is the user's choice and is never overwritten.
+    SessionModelPreferences preferences = new() { ModelId = "minimax/minimax-m3.1-flash:free" };
+    AgentSessionViewModel vm = new(
+        (_, _, _, _) => Task.FromResult(Result.Success("")),
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), new Conversation(),
+        "OpenRouter", "openrouter/auto", new AgentSessionViewModelOptions { WorkspaceRoot = @"C:\work\demo", ModelPreferences = preferences });
+
+    Assert.Equal("minimax/minimax-m3.1-flash:free", preferences.ModelId);
+    Assert.Equal("minimax/minimax-m3.1-flash:free", vm.Status.ModelId);
   }
 
   [Fact]

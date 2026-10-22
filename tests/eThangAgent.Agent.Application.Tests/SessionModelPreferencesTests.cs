@@ -1,5 +1,6 @@
 using eThangAgent.AgentDomain;
 using eThangAgent.ModelDomain;
+using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application.Tests;
 
@@ -12,27 +13,31 @@ public class SessionModelPreferencesTests
           fallbackModel, 2048, 0.7f, new FixedWindowSource());
 
   [Fact]
-  public async Task RootResolver_NoPreference_LeavesEffortUnset()
+  public async Task RootResolver_NoEffortPreference_LeavesEffortUnset()
   {
-    RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"));
+    SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
+    RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"), preferences: preferences);
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> resolution = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Null(config.Effort);
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Null(resolution.Value.Config.Effort);
   }
 
   [Fact]
   public async Task RootResolver_PreferenceChange_BetweenTurns_IsPickedUp()
   {
-    SessionModelPreferences preferences = new();
+    SessionModelPreferences preferences = new() { ModelId = "glm-5.3" };
     RootAgentResolver resolver = new(Ctx(null, null, "openrouter/auto"), preferences: preferences);
 
-    (ModelConfig first, _) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> first = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
     preferences.ReasoningEffort = ReasoningEffort.None;
-    (ModelConfig second, _) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> second = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Null(first.Effort);
-    Assert.Equal(ReasoningEffort.None, second.Effort);
+    Assert.True(first.IsSuccess, first.Error?.Message);
+    Assert.True(second.IsSuccess, second.Error?.Message);
+    Assert.Null(first.Value.Config.Effort);
+    Assert.Equal(ReasoningEffort.None, second.Value.Config.Effort);
   }
 
   [Fact]
@@ -41,10 +46,11 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3", ReasoningEffort = ReasoningEffort.High };
     RootAgentResolver resolver = new(Ctx(null, null, "glm-5.3-flash"), preferences: preferences);
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> resolution = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal("glm-5.3", config.ModelId);
-    Assert.Equal(ReasoningEffort.High, config.Effort);
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal("glm-5.3", resolution.Value.Config.ModelId);
+    Assert.Equal(ReasoningEffort.High, resolution.Value.Config.Effort);
   }
 
   [Fact]
@@ -52,23 +58,26 @@ public class SessionModelPreferencesTests
   {
     FakeAgentStore store = new();
     AgentId rootId = AgentId.NewId();
-    _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, "C:/workspaces/demo", "openrouter"), ct: TestContext.Current.CancellationToken);
+    _ = await store.SaveAsync(AgentRecord.Root(rootId, DateTimeOffset.UtcNow, "C:/workspaces/demo", "openrouter", "glm-5.3-flash"), ct: TestContext.Current.CancellationToken);
     SessionModelPreferences preferences = new();
-    RootAgentResolver resolver = new(Ctx(store, rootId, "glm-5.3-flash"), preferences: preferences);
+    RootAgentResolver resolver = new(Ctx(store, rootId, "openrouter/auto"), preferences: preferences);
 
-    (ModelConfig first, string? firstNotice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> first = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
     preferences.ModelId = "glm-5.3";
-    (ModelConfig second, string? secondNotice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
-    (ModelConfig third, string? thirdNotice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> second = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> third = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal("glm-5.3-flash", first.ModelId);
-    Assert.Null(firstNotice);
-    Assert.Equal("glm-5.3", second.ModelId);
-    Assert.Equal("Model selected: glm-5.3", secondNotice);
+    Assert.True(first.IsSuccess, first.Error?.Message);
+    Assert.True(second.IsSuccess, second.Error?.Message);
+    Assert.True(third.IsSuccess, third.Error?.Message);
+    Assert.Equal("glm-5.3-flash", first.Value.Config.ModelId);
+    Assert.Null(first.Value.Notice);
+    Assert.Equal("glm-5.3", second.Value.Config.ModelId);
+    Assert.Equal("Model selected: glm-5.3", second.Value.Notice);
     AgentRecord updated = Assert.Single(store.Updated);
     Assert.Equal("glm-5.3", updated.ModelUsed);
-    Assert.Equal("glm-5.3", third.ModelId);
-    Assert.Null(thirdNotice);
+    Assert.Equal("glm-5.3", third.Value.Config.ModelId);
+    Assert.Null(third.Value.Notice);
   }
 
   [Fact]
@@ -77,11 +86,67 @@ public class SessionModelPreferencesTests
     SessionModelPreferences preferences = new() { ModelId = "glm-5.3-flash" };
     RootAgentResolver resolver = new(Ctx(null, null, "glm-5.3-flash"), preferences: preferences);
 
-    (ModelConfig first, _) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> first = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
     preferences.ModelId = "glm-5.3";
-    (ModelConfig second, _) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> second = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal("glm-5.3-flash", first.ModelId);
-    Assert.Equal("glm-5.3", second.ModelId);
+    Assert.True(first.IsSuccess, first.Error?.Message);
+    Assert.True(second.IsSuccess, second.Error?.Message);
+    Assert.Equal("glm-5.3-flash", first.Value.Config.ModelId);
+    Assert.Equal("glm-5.3", second.Value.Config.ModelId);
+  }
+
+  [Fact]
+  public void CopyFrom_AdoptsEveryKnob()
+  {
+    // The host applies the app's carried preferences onto its OWN singleton, so consumers
+    // holding that instance must see the travelled values.
+    SessionModelPreferences target = new();
+    // The opaque provider-settings carrier: a JSON document the preferences never
+    // interpret, so it is written as a raw literal rather than an escaped one.
+    // JSON002 fires only in the format/IDE host; the pragma pair is the repo's named
+    // decision for hand-written JSON test shapes.
+#pragma warning disable JSON002 // Probable JSON string detected
+    string providerSettings =
+        """
+        {"a":1}
+        """;
+#pragma warning restore JSON002 // Probable JSON string detected
+    SessionModelPreferences source = new()
+    {
+      ModelId = "minimax/minimax-m3.1-flash:free",
+      ReasoningEffort = ReasoningEffort.Max,
+      Temperature = 0.3f,
+      MaxTokens = 8192,
+      TopP = 0.9f,
+      TopK = 40,
+      FrequencyPenalty = 0.1f,
+      PresencePenalty = 0.2f,
+      RepetitionPenalty = 1.05f,
+      MinP = 0.05f,
+      TopA = 0.5f,
+      Seed = 7,
+      Verbosity = VerbosityLevel.High,
+      ParallelToolCalls = false,
+      ProviderSettings = providerSettings,
+    };
+
+    target.CopyFrom(source);
+
+    Assert.Equal("minimax/minimax-m3.1-flash:free", target.ModelId);
+    Assert.Equal(ReasoningEffort.Max, target.ReasoningEffort);
+    Assert.Equal(0.3f, target.Temperature);
+    Assert.Equal(8192, target.MaxTokens);
+    Assert.Equal(0.9f, target.TopP);
+    Assert.Equal(40, target.TopK);
+    Assert.Equal(0.1f, target.FrequencyPenalty);
+    Assert.Equal(0.2f, target.PresencePenalty);
+    Assert.Equal(1.05f, target.RepetitionPenalty);
+    Assert.Equal(0.05f, target.MinP);
+    Assert.Equal(0.5f, target.TopA);
+    Assert.Equal(7, target.Seed);
+    Assert.Equal(VerbosityLevel.High, target.Verbosity);
+    Assert.False(target.ParallelToolCalls);
+    Assert.Equal(providerSettings, target.ProviderSettings);
   }
 }

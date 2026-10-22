@@ -1212,6 +1212,16 @@ internal sealed partial class MainViewModel : ObservableObject
           && used != AgentRecord.UnassignedModel
           && used != Providers.FallbackModelId(session.ProviderName))
       {
+        // The pin is what ACTUALLY served, so the session continues with it - and the
+        // live PREFERENCE must name it, or the resolver would serve the session default
+        // while the status bar showed the pin (2026-10-22: the display must never claim
+        // a model the turn does not run on). A persisted live choice is restored after
+        // this and still wins.
+        if (session.Preferences is { } preferences)
+        {
+          preferences.ModelId = used;
+        }
+
         sessionVm.Status.ModelId = used;
       }
     }

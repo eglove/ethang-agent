@@ -20,17 +20,28 @@ public class RootAgentResolverTests
   private static RootModelContext Ctx(FakeAgentStore? store, AgentId? rootId) =>
       new(store, rootId is null ? null : Identity(rootId.Value), FallbackModel, 2048, 0.7f, new FixedWindowSource());
 
-  [Fact]
-  public async Task UnpinnedSession_ServesFallback()
+  /// <summary>A window source that knows NO model - the degraded catalog shape.</summary>
+  private sealed class UnknownWindowSource : IContextWindowSource
   {
+    public Task<int?> WindowForAsync(string modelId, string? providerName, CancellationToken ct = default)
+        => Task.FromResult<int?>(null);
+  }
+
+  [Fact]
+  public async Task UnpinnedSession_FailsNoModelSelected_NeverSubstitutesTheFallback()
+  {
+    // 2026-10-22: an unpinned session used to be served openrouter/auto SILENTLY. That is
+    // the substitution this test forbids: the user never chose it, and the app displayed
+    // something else.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     RootAgentResolver resolver = new(Ctx(store, rootId));
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal(FallbackModel, config.ModelId);
-    Assert.Null(notice);
+    Assert.False(resolution.IsSuccess);
+    Assert.Equal("NoModelSelected", resolution.Error.Code);
     Assert.Empty(store.Updated);
   }
 
@@ -45,15 +56,17 @@ public class RootAgentResolverTests
     store.Updated.Clear();
     RootAgentResolver resolver = new(Ctx(store, rootId));
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal("google/gemini-2.0-flash-001", config.ModelId);
-    Assert.Null(notice);
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal("google/gemini-2.0-flash-001", resolution.Value.Config.ModelId);
+    Assert.Null(resolution.Value.Notice);
     Assert.Empty(store.Updated);
   }
 
   [Fact]
-  public async Task PinnedSession_FallbackStamp_TreatedUnpinned()
+  public async Task PinnedSession_FallbackStamp_TreatedUnpinned_AndFails()
   {
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
@@ -63,25 +76,29 @@ public class RootAgentResolverTests
     store.Updated.Clear();
     RootAgentResolver resolver = new(Ctx(store, rootId));
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal(FallbackModel, config.ModelId);
+    Assert.False(resolution.IsSuccess);
+    Assert.Equal("NoModelSelected", resolution.Error.Code);
     Assert.Empty(store.Updated);
   }
 
   [Fact]
-  public async Task ClearedPin_ServesFallback_OnNextTurn()
+  public async Task ClearedPin_FailsNoModelSelected_OnNextTurn()
   {
-    // The Auto model choice clears the persisted pin (ModelUsed -> unassigned). The
-    // next resolution then serves the fallback instead of the stale pin.
+    // The Auto model choice clears the persisted pin (ModelUsed -> unassigned). The next
+    // resolution then has nothing to serve and says so instead of serving the fallback.
     FakeAgentStore store = new();
     AgentId rootId = await SeedRootAsync(store);
     Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
     Assert.True(root.IsSuccess);
     _ = await store.UpdateAsync(root.Value with { ModelUsed = "~z-ai/glm-flash-latest" }, TestContext.Current.CancellationToken);
     RootAgentResolver pinnedResolver = new(Ctx(store, rootId));
-    (ModelConfig pinnedConfig, _) = await pinnedResolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
-    Assert.Equal("~z-ai/glm-flash-latest", pinnedConfig.ModelId); // the stale pin serves
+    Result<(ModelConfig Config, string? Notice)> pinned =
+        await pinnedResolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Assert.True(pinned.IsSuccess, pinned.Error?.Message);
+    Assert.Equal("~z-ai/glm-flash-latest", pinned.Value.Config.ModelId); // the stale pin serves
 
     Result<AgentRecord> afterPin = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
     Assert.True(afterPin.IsSuccess);
@@ -89,10 +106,11 @@ public class RootAgentResolverTests
     store.Updated.Clear();
     RootAgentResolver resolver = new(Ctx(store, rootId));
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal(FallbackModel, config.ModelId);
-    Assert.Null(notice);
+    Assert.False(resolution.IsSuccess);
+    Assert.Equal("NoModelSelected", resolution.Error.Code);
     Assert.Empty(store.Updated);
   }
 
@@ -109,9 +127,11 @@ public class RootAgentResolverTests
     _ = await store.UpdateAsync(pinned with { ModelUsed = "pinned-id" }, TestContext.Current.CancellationToken);
     store.Updated.Clear();
 
-    (ModelConfig config, _) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal("user-pick", config.ModelId);
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal("user-pick", resolution.Value.Config.ModelId);
     AgentRecord updated = Assert.Single(store.Updated);
     Assert.Equal("user-pick", updated.ModelUsed);
   }
@@ -128,10 +148,52 @@ public class RootAgentResolverTests
     _ = await store.UpdateAsync(seeded.Value with { ModelUsed = "user-pick" }, TestContext.Current.CancellationToken);
     store.Updated.Clear();
 
-    (ModelConfig config, string? notice) = await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
 
-    Assert.Equal("user-pick", config.ModelId);
-    Assert.Null(notice);
+    Assert.True(resolution.IsSuccess, resolution.Error?.Message);
+    Assert.Equal("user-pick", resolution.Value.Config.ModelId);
+    Assert.Null(resolution.Value.Notice);
     Assert.Empty(store.Updated);
+  }
+
+  [Fact]
+  public async Task PreferredModelWithUnknownWindow_FailsUnknownModelWindow_NeverSubstitutes()
+  {
+    // The exact production symptom: the user picked minimax/minimax-m3.1-flash:free, the
+    // catalog could not resolve its window, and the resolver silently served openrouter/auto
+    // instead - so the app displayed minimax while the turns ran on the router.
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    SessionModelPreferences preferences = new() { ModelId = "minimax/minimax-m3.1-flash:free" };
+    RootAgentResolver resolver = new(
+        new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new UnknownWindowSource()),
+        preferences);
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.False(resolution.IsSuccess);
+    Assert.Equal("UnknownModelWindow", resolution.Error.Code);
+    Assert.Contains("minimax/minimax-m3.1-flash:free", resolution.Error.Message, StringComparison.Ordinal);
+    Assert.Empty(store.Updated);
+  }
+
+  [Fact]
+  public async Task PinnedModelWithUnknownWindow_FailsUnknownModelWindow()
+  {
+    FakeAgentStore store = new();
+    AgentId rootId = await SeedRootAsync(store);
+    Result<AgentRecord> root = await store.GetAsync(rootId, TestContext.Current.CancellationToken);
+    Assert.True(root.IsSuccess);
+    _ = await store.UpdateAsync(root.Value with { ModelUsed = "minimax/minimax-m3.1-flash:free" }, TestContext.Current.CancellationToken);
+    RootAgentResolver resolver = new(
+        new RootModelContext(store, Identity(rootId), FallbackModel, 2048, 0.7f, new UnknownWindowSource()));
+
+    Result<(ModelConfig Config, string? Notice)> resolution =
+        await resolver.ResolveAsync(ct: TestContext.Current.CancellationToken);
+
+    Assert.False(resolution.IsSuccess);
+    Assert.Equal("UnknownModelWindow", resolution.Error.Code);
   }
 }

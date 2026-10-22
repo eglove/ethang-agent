@@ -4,10 +4,19 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Agent.Application;
 
-/// <summary>Resolves the root agent's model for an upcoming turn. Order: the user's
-/// live model choice wins; then the session pin (the persisted ModelUsed, the record
-/// of what actually served); then the fallback. The pin is never re-decided — it is
-/// the record of what served.</summary>
+/// <summary>Resolves the root agent's model for an upcoming turn: the user's live model
+/// choice wins, then the session pin (the persisted ModelUsed, the record of what actually
+/// served). There is NO fallback substitution - a session with no usable selection FAILS
+/// the turn with a named error.
+/// <para>WHY NO FALLBACK (2026-10-22): the resolver used to substitute the provider's
+/// routing pseudo-model whenever the chosen model's context window was unknown, and to
+/// serve it for any unpinned session. Both substitutions were SILENT: the user picked
+/// <c>minimax/minimax-m3.1-flash:free</c>, the app displayed that pick, and the turns were
+/// served by <c>openrouter/auto</c> - a different model, a different price, a different
+/// answer. A model substitution the user did not ask for is a lie about what ran, so the
+/// resolver reports the fault instead: an unknown window is <c>UnknownModelWindow</c>, and
+/// nothing selected is <c>NoModelSelected</c>.</para>
+/// <para>The pin is never re-decided - it is the record of what served.</para></summary>
 public sealed class RootAgentResolver(
     RootModelContext context,
     SessionModelPreferences? preferences = null)
@@ -21,17 +30,24 @@ public sealed class RootAgentResolver(
   private readonly IContextWindowSource? _windowSource = context.WindowSource;
   private readonly IModelCatalog? _catalog = context.Catalog;
 
-  /// <summary>Resolves the model to serve the upcoming turn. Returns the
-  /// config and a notice (null when nothing notable happened).</summary>
-  public async Task<(ModelConfig Config, string? Notice)> ResolveAsync(CancellationToken ct = default)
+  /// <summary>Resolves the model to serve the upcoming turn. Returns the config and a
+  /// notice (null when nothing notable happened), or a named failure when no model can be
+  /// served - never a substituted one.</summary>
+  public async Task<Result<(ModelConfig Config, string? Notice)>> ResolveAsync(CancellationToken ct = default)
   {
     // 0. The user's live model choice wins over everything static. Runtime
     //    preferences (reasoning effort, sampling knobs) still apply.
     if (_preferences?.ModelId is { } preferred)
     {
+      Result<ModelConfig> resolved = await MakeAsync(preferred, null, ct).ConfigureAwait(false);
+      if (!resolved.IsSuccess)
+      {
+        return Result.Failure<(ModelConfig, string?)>(resolved.Error);
+      }
+
       string? preferredNotice = await TryPersistModelAsync(preferred, ct).ConfigureAwait(false);
-      return (await MakeAsync(preferred, null, ct).ConfigureAwait(false),
-          preferredNotice is null ? null : $"Model selected: {preferredNotice}");
+      return Result.Success<(ModelConfig, string?)>(
+          (resolved.Value, preferredNotice is null ? null : $"Model selected: {preferredNotice}"));
     }
 
     // 1. The session pin: a persisted ModelUsed that is not the fallback id is the
@@ -39,11 +55,17 @@ public sealed class RootAgentResolver(
     string? pinned = await PinnedModelAsync(ct).ConfigureAwait(false);
     if (pinned is not null)
     {
-      return (await MakeAsync(pinned, null, ct).ConfigureAwait(false), null);
+      Result<ModelConfig> resolved = await MakeAsync(pinned, null, ct).ConfigureAwait(false);
+      return resolved.IsSuccess
+          ? Result.Success<(ModelConfig, string?)>((resolved.Value, null))
+          : Result.Failure<(ModelConfig, string?)>(resolved.Error);
     }
 
-    // 2. The fallback serves an unpinned session.
-    return (await MakeAsync(_fallbackModelId, null, ct).ConfigureAwait(false), null);
+    // 2. Nothing is selected. Serving the routing pseudo-model here is exactly the silent
+    //    substitution this resolver exists to refuse: the user must pick a model.
+    return Result.Failure<(ModelConfig, string?)>(new DomainError("NoModelSelected",
+        "no model is selected for this session, and the harness never substitutes one; "
+        + "choose a model in Model Settings and send the turn again."));
   }
 
   /// <summary>The persisted ModelUsed when it names a real selection: non-null and
@@ -73,37 +95,26 @@ public sealed class RootAgentResolver(
         : modelUsed;
   }
 
-  private async Task<ModelConfig> MakeAsync(string modelId, string? providerName, CancellationToken ct)
+  /// <summary>Builds the config for <paramref name="modelId"/>, or fails with a named error.
+  ///     An unknown context window is a FAILURE, not a reason to serve another model: the
+  ///     window is what the context accountant budgets against, and silently swapping the
+  ///     model to obtain one is the substitution this class refuses.</summary>
+  private async Task<Result<ModelConfig>> MakeAsync(string modelId, string? providerName, CancellationToken ct)
   {
     int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(modelId, providerName, ct).ConfigureAwait(false);
-    if (window is { } resolved)
+    if (window is not { } resolved)
     {
-      Result<ModelConfig> created = ModelConfig.Create(
-          modelId, providerName, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort,
-          acceptsImageInput: await AcceptsImagesAsync(modelId, providerName, ct).ConfigureAwait(false));
-      if (created.IsSuccess)
-      {
-        return ModelPreferencesOverlay.Apply(created.Value, _preferences);
-      }
+      return Result.Failure<ModelConfig>(new DomainError("UnknownModelWindow",
+          $"model '{modelId}' has no catalog context window (the catalog is unavailable or the model is unknown), "
+          + "so the turn cannot be budgeted; the harness never substitutes a different model."));
     }
 
-    // Unknown window (or invalid create): the fallback serves instead.
-    return await MakeFallbackAsync(ct).ConfigureAwait(false);
-  }
-
-  /// <summary>The fallback config. A catalog-resolved window is stamped when the
-  /// source knows one; a degraded or fallback-less catalog serves the fallback with
-  /// a NULL window - the exact shape of the bootstrap config (ModelConfig treats
-  /// null as "not yet known", and the provider resolves the routing pseudo-model
-  /// server-side anyway). A null window is a transient degraded state, not a wiring
-  /// fault: the next turn's resolution stamps the real window.</summary>
-  private async Task<ModelConfig> MakeFallbackAsync(CancellationToken ct)
-  {
-    int? window = _windowSource is null ? null : await _windowSource.WindowForAsync(_fallbackModelId, null, ct).ConfigureAwait(false);
-    return ModelPreferencesOverlay.Apply(
-        ModelConfig.Create(_fallbackModelId, null, _maxTokens, _temperature, window, _preferences?.ReasoningEffort,
-            acceptsImageInput: await AcceptsImagesAsync(_fallbackModelId, null, ct).ConfigureAwait(false)).Value!,
-        _preferences);
+    Result<ModelConfig> created = ModelConfig.Create(
+        modelId, providerName, _maxTokens, _temperature, resolved, _preferences?.ReasoningEffort,
+        acceptsImageInput: await AcceptsImagesAsync(modelId, providerName, ct).ConfigureAwait(false));
+    return created.IsSuccess
+        ? Result.Success(ModelPreferencesOverlay.Apply(created.Value, _preferences))
+        : created;
   }
 
   /// <summary>The model's vision capability from the session catalog: the first entry

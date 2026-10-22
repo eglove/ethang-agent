@@ -31,12 +31,13 @@ public class ShellViewModelTests
   }
 
   private static AgentSession FakeSession(string root, string provider = "openrouter",
-      SessionModelPreferences? preferences = null)
+      SessionModelPreferences? preferences = null, AgentDomain.IAgentStore? store = null)
   {
     // A session whose container is never disposed (no ServiceProvider) — tests that
     // close tabs must not touch Services. Build via a throwaway ServiceCollection so
     // DisposeAsync stays legal.
     ServiceProvider services = new ServiceCollection()
+        .AddSingleton(store ?? new TestFixtures.StubStore())
         .BuildServiceProvider();
     return new AgentSession(
         services,
@@ -50,6 +51,41 @@ public class ShellViewModelTests
         Inbox: new AgentDomain.BoundedAgentMailbox(),
         ChildRuntime: new TestFixtures.StubAgentRuntime(),
         Preferences: preferences);
+  }
+
+  /// <summary>A store that serves ONE root record carrying a pinned model — the record
+  ///     of what actually served, which a resumed session continues with. Every other
+  ///     member throws, so a restore that strays fails loudly.</summary>
+  private sealed class PinnedStore(string pinnedModel) : AgentDomain.IAgentStore
+  {
+    public Task<Result<AgentDomain.AgentRecord>> GetAsync(AgentDomain.AgentId id, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(AgentDomain.AgentRecord.Root(id, DateTimeOffset.UtcNow,
+            @"C:\work\alpha", "openrouter", pinnedModel)));
+
+    public Task<Result<string>> SaveAsync(AgentDomain.AgentRecord record, CancellationToken ct = default)
+        => throw new NotSupportedException("SaveAsync is outside the restore path.");
+
+    public Task<Result<string>> UpdateAsync(AgentDomain.AgentRecord record, CancellationToken ct = default)
+        => throw new NotSupportedException("UpdateAsync is outside the restore path.");
+
+    public Task<Result<string>> AppendMessageAsync(AgentDomain.AgentId id, ConversationDomain.Message message,
+        CancellationToken ct = default)
+        => throw new NotSupportedException("AppendMessageAsync is outside the restore path.");
+
+    public Task<Result<string>> ReplaceTranscriptAsync(AgentDomain.AgentId id,
+        IReadOnlyList<ConversationDomain.Message> messages, CancellationToken ct = default)
+        => throw new NotSupportedException("ReplaceTranscriptAsync is outside the restore path.");
+
+    public Task<Result<IReadOnlyList<ConversationDomain.Message>>> GetTranscriptAsync(AgentDomain.AgentId id,
+        CancellationToken ct = default)
+        => throw new NotSupportedException("GetTranscriptAsync is outside the restore path.");
+
+    public Task<Result<IReadOnlyList<AgentDomain.AgentRecord>>> ListChildrenAsync(AgentDomain.AgentId parentId,
+        CancellationToken ct = default)
+        => throw new NotSupportedException("ListChildrenAsync is outside the restore path.");
+
+    public Task<Result<IReadOnlyList<AgentDomain.AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+        => throw new NotSupportedException("ListAllAsync is outside the restore path.");
   }
 
   private sealed class FakePreferenceStore : IAppPreferenceStore
@@ -369,8 +405,12 @@ public class ShellViewModelTests
   }
 
   [Fact]
-  public async Task ApplyModelChoice_Auto_Clears_Session_And_Deletes_Persisted_Choice()
+  public async Task ApplyModelChoice_Auto_Names_The_Session_Default_And_Deletes_Persisted_Choice()
   {
+    // 2026-10-22: "auto" is an EXPLICIT choice of the session's default model, not "no
+    // model". The resolver never substitutes a model the session did not name, so the
+    // session states the default - and the persisted PIN is still dropped, so a later
+    // open starts on the default again.
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateShell((root, provider) => FakeSession(
         root, provider, new SessionModelPreferences { ModelId = "anthropic/claude" }), preferences);
@@ -379,7 +419,7 @@ public class ShellViewModelTests
     await vm.ApplyModelChoiceAsync(null);
 
     AgentTabViewModel tab = vm.SelectedTab!;
-    Assert.Null(tab.Container.Preferences!.ModelId);
+    Assert.Equal("test/model", tab.Container.Preferences!.ModelId); // the session's bootstrap model, named
     Assert.Equal("test/model", tab.ViewModel.Status.ModelId); // the session's bootstrap model
     string expectedKey = $"model_choice:openrouter:{Path.GetFullPath(@"C:\work\alpha")}";
     Assert.Equal([expectedKey], preferences.Deletions);
@@ -417,8 +457,29 @@ public class ShellViewModelTests
   }
 
   [Fact]
-  public async Task OpenAgent_Leaves_No_Choice_Restored_When_None_Persisted()
+  public async Task OpenAgent_Names_The_Pinned_Model_As_The_Serving_Model()
   {
+    // The pin is what ACTUALLY served, so a resumed session continues with it - and the
+    // live preference must name it too, or the turn would run the session default while
+    // the status bar showed the pin (2026-10-22: the display must never claim a model
+    // the turn does not run on).
+    FakePreferenceStore preferences = new();
+    SessionModelPreferences live = new();
+    MainViewModel vm = CreateShell((root, provider) =>
+        FakeSession(root, provider, live, new PinnedStore("anthropic/claude")), preferences);
+
+    _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
+
+    AgentTabViewModel tab = vm.SelectedTab!;
+    Assert.Equal("anthropic/claude", live.ModelId);
+    Assert.Equal("anthropic/claude", tab.ViewModel.Status.ModelId);
+  }
+
+  [Fact]
+  public async Task OpenAgent_Names_The_Session_Default_When_None_Persisted()
+  {
+    // Nothing was persisted, so the session states its default model: the resolver
+    // never substitutes one, and the status bar must name what will serve.
     FakePreferenceStore preferences = new();
     MainViewModel vm = CreateShell((root, provider) => FakeSession(
         root, provider, new SessionModelPreferences()), preferences);
@@ -426,7 +487,7 @@ public class ShellViewModelTests
     _ = await vm.OpenAgentAsync(@"C:\work\alpha", "openrouter");
 
     AgentTabViewModel tab = vm.SelectedTab!;
-    Assert.Null(tab.Container.Preferences!.ModelId);
+    Assert.Equal("test/model", tab.Container.Preferences!.ModelId);
     Assert.Equal("test/model", tab.ViewModel.Status.ModelId);
   }
 

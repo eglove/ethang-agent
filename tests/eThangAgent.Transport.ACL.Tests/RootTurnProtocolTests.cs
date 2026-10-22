@@ -184,4 +184,26 @@ public class RootTurnProtocolTests
 
     _ = Assert.Throws<InvalidOperationException>(() => RootTurnProtocol.ParseEvent(json));
   }
+
+  [Fact]
+  public void RootTurnRequest_TheModelPreferencesCarrier_RoundTrips()
+  {
+    // The live model choice travels opaquely; the transport never interprets it.
+    // The carrier is an opaque JSON document: the transport never interprets it, so it
+    // is written as a raw literal rather than an escaped one.
+    // JSON002 fires only in the format/IDE host; the pragma pair is the repo's named
+    // decision for hand-written JSON test shapes.
+#pragma warning disable JSON002 // Probable JSON string detected
+    string carrier =
+        """
+        {"ModelId":"minimax/minimax-m3.1-flash:free"}
+        """;
+#pragma warning restore JSON002 // Probable JSON string detected
+    RootTurnRequest request = new("turn-1", "hello", []) { ModelPreferences = carrier };
+
+    RootTurnRequest parsed = RootTurnProtocol.ParseRequest(RootTurnProtocol.SerializeRequest(request));
+
+    Assert.Equal(carrier, parsed.ModelPreferences);
+    Assert.Equal(request, parsed);
+  }
 }

@@ -36,6 +36,16 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
   ///     input (slash invocation lines, ! command lines). Empty for an ordinary turn.</summary>
   public IReadOnlyList<RootTurnPreTurnMessage> PreTurn { get; init; } = [];
 
+  /// <summary>The app's LIVE model preferences, as opaque JSON (the
+  ///     <c>SessionModelPreferencesJson</c> wire form), or null for an ordinary turn.
+  ///     <para>WHY THE TURN CARRIES IT (2026-10-22): the model picker lives in the app and
+  ///     the conversation's agent lives in the host process, so a choice that did not
+  ///     travel never reached the model that served the turn - every host turn resolved
+  ///     from the persisted pin (the bootstrap routing id, i.e. "nothing selected") and
+  ///     served the fallback while the app displayed the user's pick. Transport carries the
+  ///     string verbatim and NEVER interprets it; the host decodes it.</para></summary>
+  public string? ModelPreferences { get; init; }
+
   /// <summary>Structural equality over the scalars AND every collection member. The
   ///     collection half is delegated so this method stays one readable expression (the
   ///     repository's complexity ceiling) - the comparison itself is unchanged.</summary>
@@ -44,6 +54,7 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
           && string.Equals(TurnId, other.TurnId, StringComparison.Ordinal)
           && string.Equals(Input, other.Input, StringComparison.Ordinal)
           && Generation == other.Generation
+          && string.Equals(ModelPreferences, other.ModelPreferences, StringComparison.Ordinal)
           && CollectionsEqual(other);
 
   private bool CollectionsEqual(RootTurnRequest other)
@@ -57,6 +68,7 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
     hash.Add(TurnId, StringComparer.Ordinal);
     hash.Add(Input, StringComparer.Ordinal);
     hash.Add(Generation);
+    hash.Add(ModelPreferences, StringComparer.Ordinal);
     foreach (string entry in Seed ?? [])
     {
       hash.Add(entry, StringComparer.Ordinal);

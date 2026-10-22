@@ -63,7 +63,16 @@ public class SendMessageCommandHandler(
     Ag active;
     try
     {
-      active = await ResolveAgentAsync(onNotice, ct).ConfigureAwait(false);
+      Result<Ag> resolved = await ResolveAgentAsync(onNotice, ct).ConfigureAwait(false);
+      if (!resolved.IsSuccess)
+      {
+        // No model can be served (nothing selected, or the chosen model has no catalog
+        // window). The turn FAILS with that named error - the harness never substitutes a
+        // model the user did not choose (2026-10-22).
+        return Result.Failure<string>(resolved.Error);
+      }
+
+      active = resolved.Value;
     }
     catch (OperationCanceledException)
     {
@@ -128,24 +137,34 @@ public class SendMessageCommandHandler(
   }
 
   /// <summary>Resolves the agent to serve this turn. When the root holder/resolver seam is
-  ///     wired, runs pre-turn model resolution (the user's live choice, the session pin, or
-  ///     the fallback), rebuilds the agent when the model changed, and surfaces any notice.
-  ///     Without the seam, returns the single pre-built agent.</summary>
-  private async Task<Ag> ResolveAgentAsync(Action<string>? onNotice, CancellationToken ct)
+  ///     wired, runs pre-turn model resolution (the user's live choice, or the session pin),
+  ///     rebuilds the agent when the model changed, and surfaces any notice. Without the
+  ///     seam, returns the single pre-built agent.
+  ///     <para>A resolution FAILURE is returned, never absorbed: there is no fallback model
+  ///     to serve, so the turn must fail with the resolver's named error.</para></summary>
+  private async Task<Result<Ag>> ResolveAgentAsync(Action<string>? onNotice, CancellationToken ct)
   {
     if (_rootTurn is not { } services)
     {
-      return _agent ?? throw new InvalidOperationException(
-          "SendMessageCommandHandler has no agent and no root holder; one must be supplied.");
+      return _agent is { } built
+          ? Result.Success(built)
+          : throw new InvalidOperationException(
+              "SendMessageCommandHandler has no agent and no root holder; one must be supplied.");
     }
 
-    (ModelConfig config, string? notice) = await services.Resolver.ResolveAsync(ct)
+    Result<(ModelConfig Config, string? Notice)> resolution = await services.Resolver.ResolveAsync(ct)
         .ConfigureAwait(false);
+    if (!resolution.IsSuccess)
+    {
+      return Result.Failure<Ag>(resolution.Error);
+    }
+
+    (ModelConfig config, string? notice) = resolution.Value;
     if (notice is not null)
     {
       onNotice?.Invoke(notice);
     }
 
-    return services.Holder.Build(services.Holder.Current, config);
+    return Result.Success(services.Holder.Build(services.Holder.Current, config));
   }
 }

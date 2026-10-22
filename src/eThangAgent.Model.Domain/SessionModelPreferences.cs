@@ -64,4 +64,28 @@ public sealed class SessionModelPreferences
   ///     content), or null to keep the resolved config's value. The overlay copies the
   ///     string; it never parses it.</summary>
   public string? ProviderSettings { get; set; }
+
+  /// <summary>Replaces every knob with <paramref name="source"/>'s values. Used where a
+  ///     live preferences instance must ADOPT a set that travelled from another process
+  ///     (the host applying the app's choice): consumers hold this instance, so the values
+  ///     must land on it rather than on a replacement object.</summary>
+  public void CopyFrom(SessionModelPreferences source)
+  {
+    ArgumentNullException.ThrowIfNull(source);
+    ReasoningEffort = source.ReasoningEffort;
+    ModelId = source.ModelId;
+    Temperature = source.Temperature;
+    MaxTokens = source.MaxTokens;
+    TopP = source.TopP;
+    TopK = source.TopK;
+    FrequencyPenalty = source.FrequencyPenalty;
+    PresencePenalty = source.PresencePenalty;
+    RepetitionPenalty = source.RepetitionPenalty;
+    MinP = source.MinP;
+    TopA = source.TopA;
+    Seed = source.Seed;
+    Verbosity = source.Verbosity;
+    ParallelToolCalls = source.ParallelToolCalls;
+    ProviderSettings = source.ProviderSettings;
+  }
 }

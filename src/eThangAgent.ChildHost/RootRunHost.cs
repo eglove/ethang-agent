@@ -1,6 +1,7 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.Transport.ACL;
 using Microsoft.Extensions.DependencyInjection;
@@ -168,6 +169,20 @@ public sealed class RootRunHost : IDisposable
 
     ApplyPreTurn(request);
 
+    // The app's live model preferences arrive on the REQUEST (2026-10-22): the picker
+    // lives in the app and this process owns the agent, so a choice that did not travel
+    // here was invisible to the resolver - every turn served the persisted pin, which the
+    // bootstrap stamps with the routing id (i.e. "nothing selected"). Applied BEFORE the
+    // handler resolves, and a malformed carrier is a typed settle, never a silent fallback.
+    if (!ApplyModelPreferences(request))
+    {
+      Result<string> refused = Result.Failure<string>(new DomainError("InvalidModelPreferences",
+          "the root turn's model-preferences carrier could not be read; the turn is refused "
+          + "rather than served by a model the user did not choose."));
+      Emit(request, onEvent, "settled", DescribeFailure(refused.Error));
+      return refused;
+    }
+
     SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
     TurnCallbacks callbacks = new(
         OnContentDelta: text => Emit(request, onEvent, "delta", text),
@@ -213,6 +228,30 @@ public sealed class RootRunHost : IDisposable
             "root turn pre-turn message carries an unknown role '" + message.Role + "'.");
       }
     }
+  }
+
+  /// <summary>Applies the app's live model preferences (carried opaquely on the request)
+  ///     onto this container's own <see cref="SessionModelPreferences"/> singleton, which
+  ///     the root resolver and the child spawner read on every turn. Returns false when the
+  ///     carrier is present but unreadable - the caller refuses the turn with a typed settle
+  ///     instead of serving a model the user did not choose.
+  ///     <para>A turn with NO carrier leaves the container's preferences untouched (a
+  ///     headless or test host that resolves on its own keeps doing so).</para></summary>
+  private bool ApplyModelPreferences(RootTurnRequest request)
+  {
+    if (string.IsNullOrWhiteSpace(request.ModelPreferences))
+    {
+      return true;
+    }
+
+    Result<SessionModelPreferences> decoded = SessionModelPreferencesJson.Deserialize(request.ModelPreferences);
+    if (!decoded.IsSuccess || _services.GetService(typeof(SessionModelPreferences)) is not SessionModelPreferences live)
+    {
+      return false;
+    }
+
+    live.CopyFrom(decoded.Value);
+    return true;
   }
 
   /// <summary>Rebuilds the turn's attached images into the MessageParts the handler takes,

@@ -264,8 +264,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return Task.CompletedTask;
     });
     _modelPreferences = options.ModelPreferences;
-    Status = new StatusViewModel(provider, modelId, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort));
     _sessionDefaultModelId = modelId;
+    // The session's model is ALWAYS NAMED (2026-10-22) - see ResolveServingModel.
+    string servingModel = ResolveServingModel(_modelPreferences, modelId);
+    Status = new StatusViewModel(provider, servingModel, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort));
     _commandRunner = options.CommandRunner;
     _skillInvocation = options.SkillInvocation;
     Autocomplete = options.SkillCatalogSource is null ? null : new SkillAutocompleteViewModel(options.SkillCatalogSource);
@@ -480,6 +482,29 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Transcript.AddNotice("Sampling settings applied; they take effect from the next turn.");
   }
 
+  /// <summary>The model that will serve this session: the user's pick when there is
+  ///     one, the session's default model otherwise. The default is STATED (written into
+  ///     the live preferences) rather than left unnamed: the resolver never substitutes a
+  ///     model the session did not name - an unnamed session fails every turn with "no
+  ///     model is selected" - and the status bar must name exactly what serves.
+  ///     <para>2026-10-22: the resolver used to serve the provider's routing model for
+  ///     any session that had not named one, while the app displayed a different pick.</para></summary>
+  private static string ResolveServingModel(SessionModelPreferences? preferences, string defaultModelId)
+  {
+    if (preferences is null)
+    {
+      return defaultModelId;
+    }
+
+    if (preferences.ModelId is { Length: > 0 } named)
+    {
+      return named;
+    }
+
+    preferences.ModelId = defaultModelId;
+    return defaultModelId;
+  }
+
   /// <summary>
   /// Applies the user's model picker choice: pins the session's model, updates the
   /// status bar, and announces the change. Applies from the next turn, root and
@@ -493,11 +518,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return;
     }
 
-    _modelPreferences.ModelId = modelId;
-    Status.ModelId = modelId ?? _sessionDefaultModelId;
-    Transcript.AddNotice(modelId is null
-        ? "Model set to the session default; applies from the next turn."
-        : $"Model set to {modelId}; applies from the next turn.");
+    // Null means the session's DEFAULT model, and the default is an EXPLICIT choice
+    // (2026-10-22): an unnamed session fails every turn with "no model is selected", and
+    // the status bar would name a model that never serves. The default model id is
+    // therefore what the session states - the same id the status bar shows.
+    string chosen = string.IsNullOrWhiteSpace(modelId) ? _sessionDefaultModelId : modelId;
+    _modelPreferences.ModelId = chosen;
+    Status.ModelId = chosen;
+    Transcript.AddNotice($"Model set to {chosen}; applies from the next turn.");
   }
 
   /// <summary>Awaits the in-flight turn task. Returns a completed task if no turn is running.</summary>
@@ -699,6 +727,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // different process with its own conversation, so anything injected only here would
       // never reach the model.
       PreTurn = [.. _pendingPreTurn],
+      // The model picker lives HERE and the agent lives in the host: a choice that did not
+      // travel never reached the serving model (2026-10-22 - every host turn served the
+      // fallback while the status bar showed the user's pick). The carrier is opaque JSON;
+      // the host decodes it onto its own preferences before resolving.
+      ModelPreferences = _modelPreferences is null
+          ? null
+          : SessionModelPreferencesJson.Serialize(_modelPreferences),
     };
     _pendingPreTurn.Clear();
     try

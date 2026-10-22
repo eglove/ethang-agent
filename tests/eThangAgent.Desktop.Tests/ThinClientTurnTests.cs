@@ -3,6 +3,7 @@ using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.SkillDomain;
 using eThangAgent.ToolDomain;
@@ -49,6 +50,38 @@ public sealed class ThinClientTurnTests
     Assert.Contains(session.ViewModel.Transcript.Notices,
         n => n.Contains("stopped", StringComparison.OrdinalIgnoreCase));
     Assert.Equal(0, session.Runner.Invocations);
+  }
+
+  [Fact]
+  public async Task SendAsync_CarriesTheLiveModelChoice_OnTheTurnRequest()
+  {
+    // 2026-10-22: the picker lives in the app and the agent lives in the host. A choice
+    // that did not travel never reached the serving model, so every host turn ran the
+    // fallback while the status bar showed the user's pick.
+    SessionModelPreferences preferences = new() { ModelId = "minimax/minimax-m3.1-flash:free" };
+    FakeHostSession session = await FakeHostSession.StartAsync(["answer"], preferences: preferences).ConfigureAwait(true);
+
+    await session.ViewModel.SubmitAsync("hi").ConfigureAwait(true);
+
+    RootTurnRequest sent = Assert.IsType<RootTurnRequest>(session.Host.LastRequest);
+    string carrier = Assert.IsType<string>(sent.ModelPreferences);
+    Result<SessionModelPreferences> decoded = SessionModelPreferencesJson.Deserialize(carrier);
+    Assert.True(decoded.IsSuccess, decoded.Error?.Message);
+    Assert.Equal("minimax/minimax-m3.1-flash:free", decoded.Value.ModelId);
+  }
+
+  [Fact]
+  public async Task SendAsync_CarriesTheEffortKnob_Too()
+  {
+    SessionModelPreferences preferences = new() { ModelId = "m/x", ReasoningEffort = ReasoningEffort.Max };
+    FakeHostSession session = await FakeHostSession.StartAsync(["answer"], preferences: preferences).ConfigureAwait(true);
+
+    await session.ViewModel.SubmitAsync("hi").ConfigureAwait(true);
+
+    Result<SessionModelPreferences> decoded =
+        SessionModelPreferencesJson.Deserialize(session.Host.LastRequest!.ModelPreferences!);
+    Assert.True(decoded.IsSuccess, decoded.Error?.Message);
+    Assert.Equal(ReasoningEffort.Max, decoded.Value.ReasoningEffort);
   }
 
   [Fact]
@@ -225,7 +258,7 @@ internal sealed class FakeHostSession
   ///     order and then settles with their concatenation. <paramref name="holdOpen"/> keeps
   ///     the turn in flight until it is cancelled (the stop-button shape).</summary>
   public static Task<FakeHostSession> StartAsync(IReadOnlyList<string> deltas, bool holdOpen = false,
-      string? skillName = null, bool commandLine = false)
+      string? skillName = null, bool commandLine = false, SessionModelPreferences? preferences = null)
   {
     ArgumentNullException.ThrowIfNull(deltas);
     FakeRootTurnChannel host = new(deltas, holdOpen);
@@ -244,6 +277,7 @@ internal sealed class FakeHostSession
           SkillInvocation = skillName is null ? null : new SkillInvocationService(new FakeSkillCatalog(skillName)),
           SkillCatalogSource = skillName is null ? null : () => [],
           CommandRunner = commandLine ? new FakeCommandRunner() : null,
+          ModelPreferences = preferences,
         });
     return Task.FromResult(new FakeHostSession(vm, host, runner));
   }
