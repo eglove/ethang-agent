@@ -1,3 +1,5 @@
+using eThangAgent.SharedKernel;
+
 namespace eThangAgent.AgentDomain;
 
 /// <summary>Decorates the root steering inbox so every accepted post also wakes any
@@ -20,14 +22,26 @@ public sealed class SignalingInbox(IAgentInbox inner, WaitWakeHub hub, AgentId o
   // clears exactly when the count reaches zero — the queue is drained.
   private int _pending;
 
-  public void Post(string text)
+  /// <summary>Posts through the inner inbox and arms the sticky wake ONLY when the
+  ///     inner inbox accepted the message (issue #189 D2): a refused post (full or
+  ///     closed mailbox) wakes nobody and leaves no pending count behind. The
+  ///     decorator's own contract - "a rejected post wakes nobody" - now holds.</summary>
+  public Result<bool> TryPost(string text)
   {
     ArgumentNullException.ThrowIfNull(text);
-    _inner.Post(text);
-    _ = Interlocked.Increment(ref _pending);
-    _hub.RegisterSticky(new WakeSignal(WakeReason.UserMessage, _ownerId, DateTimeOffset.UtcNow,
-        "user message waiting"));
+    Result<bool> accepted = _inner.TryPost(text);
+    if (accepted.IsSuccess)
+    {
+      _ = Interlocked.Increment(ref _pending);
+      _hub.RegisterSticky(new WakeSignal(WakeReason.UserMessage, _ownerId, DateTimeOffset.UtcNow,
+          "user message waiting"));
+    }
+
+    return accepted;
   }
+
+  /// <summary>The void wrapper: loop-facing callers keep the legacy shape.</summary>
+  public void Post(string text) => _ = TryPost(text);
 
   public bool TryTake(out string text)
   {

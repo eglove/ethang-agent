@@ -1,3 +1,5 @@
+using eThangAgent.SharedKernel;
+
 namespace eThangAgent.AgentDomain.Tests;
 
 /// <summary>The signaling inbox decorator: forwarding stays the inner inbox's,
@@ -8,7 +10,11 @@ public class SignalingInboxTests
   {
     private readonly Queue<string> _pending = [];
 
-    public void Post(string text) => _pending.Enqueue(text);
+    public Result<bool> TryPost(string text)
+    {
+      _pending.Enqueue(text);
+      return Result.Success(true);
+    }
 
     public bool TryTake(out string text)
     {

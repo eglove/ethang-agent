@@ -886,8 +886,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>Posts input to the session inbox as steering for the running turn and echoes
-  /// it into the transcript. The model sees it on the provider call after the current tool
-  /// batch completes; if the turn ends first, it opens the next one.</summary>
+  /// it into the transcript ON ACCEPTANCE (issue #189): the post's result is checked before
+  /// anything renders, so a refused message (full or closed mailbox) surfaces as a notice
+  /// naming the reason and never claims to be queued - no user entry, no unread bump. The
+  /// model sees an accepted message on the provider call after the current tool batch
+  /// completes; if the turn ends first, it opens the next one.</summary>
   private void Steer(string input)
   {
     if (_inbox is null)
@@ -895,7 +898,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       Transcript.AddNotice("Error [NoInbox]: This session cannot accept steering messages.");
       return;
     }
-    _inbox.Post(input);
+
+    Result<bool> posted = _inbox.TryPost(input);
+    if (!posted.IsSuccess)
+    {
+      Transcript.AddNotice($"Error [{posted.Error.Code}]: your message was not queued - {posted.Error.Message}");
+      return;
+    }
+
     MessageCount++;
     Transcript.AddUser(input);
   }

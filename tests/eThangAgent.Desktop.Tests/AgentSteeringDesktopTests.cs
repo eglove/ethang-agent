@@ -118,7 +118,32 @@ public class AgentSteeringDesktopTests
     await vm.WaitForTurnAsync();
   }
 
+  /// <summary>Issue #189 B4/B5: a refused post (full mailbox) renders a notice
+  ///     naming the reason and produces NO user entry - nothing claims to be queued.</summary>
+  [Fact]
+  public async Task SteeringIntoFullInbox_ShowsRefusalNotice_AndNoUserEntry()
+  {
+    TestFixtures.ParkingRunner park = new();
+    BoundedAgentMailbox inbox = new(capacity: 1);
+    (AgentSessionViewModel? vm, AgentId _, RecordingLifecycle _) = Build(park.RunAsync, inbox, new TestFixtures.StubAgentRuntime());
+
+    Task turnTask = vm.SubmitAsync("first question");
+    await park.Started.ConfigureAwait(true);
+    _ = vm.SubmitAsync("queued once");   // accepted: 1/1
+    _ = vm.SubmitAsync("overflow message"); // refused: full
+
+    NoticeEntry notice = Assert.IsType<NoticeEntry>(vm.Transcript.Entries[^1]);
+    Assert.Contains("Error [MailboxFull]", notice.Text, StringComparison.Ordinal);
+    Assert.Contains("not queued", notice.Text, StringComparison.Ordinal);
+    Assert.DoesNotContain(vm.Transcript.Entries, e => e is UserMessageEntry u && u.Text == "overflow message");
+
+    park.Release();
+    await turnTask.ConfigureAwait(true);
+    await vm.WaitForTurnAsync();
+  }
+
   private static List<string> TakeQueued(BoundedAgentMailbox inbox)
+
   {
     List<string> taken = [];
     while (inbox.TryTake(out string? text))

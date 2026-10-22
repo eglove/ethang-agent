@@ -13,8 +13,16 @@ namespace eThangAgent.AgentDomain;
 public interface IAgentInbox
 {
   /// <summary>Queues a steering message for delivery at the next safe point. Null, empty,
-  ///     or whitespace text is rejected.</summary>
-  void Post(string text);
+  ///     or whitespace text is rejected.
+  ///     <para>Issue #189: the result reports the mailbox's refusal (MailboxFull,
+  ///     NotRunning) instead of discarding it - errors are information, and the human
+  ///     caller's surface renders the refusal as a notice.</para></summary>
+  Result<bool> TryPost(string text);
+
+  /// <summary>The void shape: a thin wrapper for callers that genuinely cannot act on
+  ///     a refusal (the loop-facing seam). Prefer <see cref="TryPost"/> on any surface
+  ///     the user can see.</summary>
+  void Post(string text) => _ = TryPost(text);
 
   /// <summary>Takes the oldest queued message, or returns false when the inbox is empty.</summary>
   bool TryTake(out string text);
@@ -97,10 +105,15 @@ public sealed class BoundedAgentMailbox : IAgentInbox, IAgentMailbox
   }
 
   /// <inheritdoc cref="IAgentInbox.Post"/>
-  public void Post(string text)
+  public void Post(string text) => _ = TryPost(text);
+
+  /// <summary>The human posting path with a reportable outcome (issue #189): a full
+  ///     or closed mailbox returns MailboxFull / NotRunning instead of dropping the
+  ///     message. Null, empty, or whitespace text is a caller fault (throws, like Post).</summary>
+  public Result<bool> TryPost(string text)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(text);
-    _ = Deliver(new PendingMessage(text, MessageUrgency.Normal, DateTimeOffset.UtcNow, "human"));
+    return Deliver(new PendingMessage(text, MessageUrgency.Normal, DateTimeOffset.UtcNow, "human"));
   }
 
   /// <inheritdoc cref="IAgentInbox.TryTake"/>

@@ -70,6 +70,45 @@ public class AgentMailboxTests
     Assert.Equal("human", drained[0].Sender);
   }
 
+  /// <summary>Issue #189 B1: the reportable post. A full mailbox returns MailboxFull
+  ///     to the caller instead of discarding the message.</summary>
+  [Fact]
+  public void TryPost_PastCapacity_FailsWithMailboxFull()
+  {
+    BoundedAgentMailbox box = new(capacity: 2);
+    Assert.True(box.TryPost("1").IsSuccess);
+    Assert.True(box.TryPost("2").IsSuccess);
+
+    Result<bool> overflow = box.TryPost("3");
+
+    Assert.False(overflow.IsSuccess);
+    Assert.Equal(MailboxErrors.Full, overflow.Error.Code);
+    Assert.Equal(2, box.UnreadCount); // nothing queued
+  }
+
+  /// <summary>Issue #189: a closed mailbox's refusal is visible to the human caller too.</summary>
+  [Fact]
+  public void TryPost_AfterClose_FailsWithNotRunning()
+  {
+    BoundedAgentMailbox box = new(capacity: 4);
+    box.Close();
+
+    Result<bool> refused = box.TryPost("late");
+
+    Assert.False(refused.IsSuccess);
+    Assert.Equal(MailboxErrors.NotRunning, refused.Error.Code);
+  }
+
+  /// <summary>The void Post stays a working wrapper over TryPost for loop-facing callers.</summary>
+  [Fact]
+  public void Post_StillQueues_AsTheTryPostWrapper()
+  {
+    BoundedAgentMailbox box = new(capacity: 4);
+    box.Post("steer now");
+
+    Assert.Equal(1, box.UnreadCount);
+  }
+
   [Fact]
   public void TryTake_DrainsOneAtATime_InOrder()
   {
