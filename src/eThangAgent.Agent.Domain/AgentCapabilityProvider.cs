@@ -93,13 +93,13 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
         new("wait", "Wait for a spawned child agent to settle and return its outcome as one result.",
             """
             Blocks until the child settles and returns the outcome contract of agent.result (the report, or the failure annotation). Unbounded by design: the watchdog guards the child, and your own stop cancels the wait with 'Error [Cancelled]'. Unknown ids yield 'Error [NotFound]'. Prefer one wait over repeated status polls when you need the outcome.
-            Optional wakeOn (default "message"): "all" or a comma list of message|progress|idle|settled|state|stream|budget|mailbox — the wait returns EARLY when a matching event arrives, WITHOUT the child settling. Optional timeoutSeconds (positive integer; must fit inside your exec call's own timeoutSeconds budget): a soft cap — expiry returns a wake annotation, never an error.
+            Optional wakeOn (default "message"): "all" or a comma list of message|idle|settled|state|stream|budget|mailbox — the wait returns EARLY when a matching event arrives, WITHOUT the child settling. There is deliberately NO progress reason: a child's progress beats fire on every tool call, so a wait that woke on them would never rest. Optional timeoutSeconds (positive integer; must fit inside your exec call's own timeoutSeconds budget): a soft cap — expiry returns a wake annotation, never an error.
             USER STEERING ALWAYS WAKES: if the user sends a message while you wait, the wait returns immediately with reason=user-message, regardless of wakeOn. Read it and act (steer the child with agent.send, re-wait, or intervene).
-            Woken return contract (child still running): [wait: woken reason=<user-message|progress|idle|stream-stall|state|budget|mailbox|timeout>] then id=<id> status=running, then one digest line per event. On a wake you hold the turn again: steer, re-wait, or do other work; the child's eventual outcome is still retrievable with a later wait or agent.result.
+            Woken return contract (child still running): [wait: woken reason=<user-message|idle|stream-stall|state|budget|mailbox|timeout>] then id=<id> status=running, then one digest line per event. On a wake you hold the turn again: steer, re-wait, or do other work; the child's eventual outcome is still retrievable with a later wait or agent.result.
             """,
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
-                new ActionParameter("wakeOn", ActionParameterTypes.StringType, "Optional: 'all' or comma list of message|progress|idle|settled|state|stream|budget|mailbox (default 'message'). Matching events wake the wait early with the child still running."),
+                new ActionParameter("wakeOn", ActionParameterTypes.StringType, "Optional: 'all' or comma list of message|idle|settled|state|stream|budget|mailbox (default 'message'). Matching events wake the wait early with the child still running. There is no progress reason — a child's progress beats fire on every tool call, so waking on them would never let the wait rest."),
                 new ActionParameter("timeoutSeconds", ActionParameterTypes.IntegerType, "Optional soft cap in seconds; expiry returns a [wait: woken reason=timeout] annotation with the child still running — never an error. Must fit inside the exec call's own timeoutSeconds budget."),
             ]),
         new("send", "Send a steering message to one of your running child agents mid-run.",
@@ -363,7 +363,6 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   private static string ReasonWord(WakeReason reason) => reason switch
   {
     WakeReason.UserMessage => "user-message",
-    WakeReason.Progress => "progress",
     WakeReason.Idle => "idle",
     WakeReason.StreamStall => "stream-stall",
     WakeReason.StateWrite => "state",

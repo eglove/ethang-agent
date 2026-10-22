@@ -5,7 +5,7 @@ namespace eThangAgent.Desktop.Tests;
 /// <summary>The plan's proof: a parent blocked in agent.wait wakes within seconds of
 ///     the user typing. The child's provider response is delayed by the mock (the child
 ///     stays status=running), the parent waits with the default wakeOn (the always-on
-///     user wake — wakeOn=all would race the child's own progress events), the test
+///     user wake — the child's progress beats are not wake-worthy), the test
 ///     posts user input through the session view-model once the parent's SECOND
 ///     provider request (the wait call) has been served, and the parent's post-wake
 ///     provider request carries the wake annotation plus the steering message.</summary>
@@ -36,10 +36,9 @@ public class SteerDuringWaitE2ETests
 
     // Parent turn 1: spawn a child on the delayed model, then wait with the DEFAULT
     // wakeOn (the always-on user wake) and a 90 s soft timeout (well under the exec
-    // budget). wakeOn=all races the CHILD's own progress events (its turn-start beat
-    // can land after the parent's wait subscribes under module-parallel load, waking
-    // reason=progress before the steer arrives); the user wake alone is the behavior
-    // under test — steering wakes the parent regardless of wakeOn.
+    // budget). The child's progress beats are NOT wake-worthy, so nothing but the
+    // user steer can wake this wait — the behavior under test is exactly that
+    // steering wakes the parent.
     _ = host.Mock.ReturnsForModel(E2E.SessionModel,
         E2E.ExecToolCall("p1", E2E.ExecProgram("return Tools.Invoke(\"agent.spawn\", new { timeoutSeconds = 60, taskPrompt = \"Stall then report.\", model = \"mock/sub-model\", label = \"stall\" });")));
     _ = host.Mock.ReturnsForModel(E2E.SessionModel,

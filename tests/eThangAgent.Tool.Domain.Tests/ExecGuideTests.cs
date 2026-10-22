@@ -9,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.16", ExecGuide.Version);
+    Assert.Equal("2.17", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 

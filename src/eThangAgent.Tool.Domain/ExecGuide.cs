@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.16";
+  public const string Version = "2.17";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -156,14 +156,16 @@ public static class ExecGuide
     Await the outcome when you need it — one wait replaces repeated status polls:
 
         Tools.Invoke("agent.wait", new { timeoutSeconds = 300, id = "<guid>" })   → the child's outcome (unbounded by design; your stop cancels it)
-        Tools.Invoke("agent.wait", new { timeoutSeconds = 120, id = "<guid>", wakeOn = "all" })   → wakes early on child events/stream stalls/state writes; returns [wait: woken ...] with the child still running — then steer (agent.send), re-wait, or intervene
+        Tools.Invoke("agent.wait", new { timeoutSeconds = 120, id = "<guid>", wakeOn = "all" })   → wakes early on child idles/stream stalls/state writes/budget/mail; returns [wait: woken ...] with the child still running — then steer (agent.send), re-wait, or intervene
 
     USER STEERING ALWAYS WAKES a wait: if the user sends a message while you wait,
     the wait returns immediately with reason=user-message — read it and act.
     Optional wakeOn (default "message"): "all" or a comma list of
-    message|progress|idle|settled|state|stream|budget|mailbox. Optional timeoutSeconds
-    is a soft cap (expiry is an annotation, never an error) that must fit inside this
-    exec call's own timeoutSeconds budget.
+    message|idle|settled|state|stream|budget|mailbox. There is deliberately NO progress
+    reason: a child's progress beats fire on every tool call, so a wait that woke on
+    them would never rest. Optional timeoutSeconds is a soft cap (expiry is an
+    annotation, never an error) that must fit inside this exec call's own
+    timeoutSeconds budget.
 
         Tools.Invoke("agent.status", new { timeoutSeconds = 30, id = "<guid>" })   → projection for humans/debugging: status=running|completed|failed
 

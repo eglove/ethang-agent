@@ -28,7 +28,7 @@ public class WaitWakeHubTests
     IDisposable lease = hub.Subscribe(_ => gone++);
     lease.Dispose();
 
-    hub.Register(Signal(WakeReason.Progress));
+    hub.Register(Signal(WakeReason.Idle));
 
     Assert.Equal(0, gone);
   }

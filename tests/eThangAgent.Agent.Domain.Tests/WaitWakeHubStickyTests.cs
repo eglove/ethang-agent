@@ -65,7 +65,7 @@ public class WaitWakeHubStickyTests
   {
     WaitWakeHub hub = new();
     hub.RegisterSticky(Signal(WakeReason.UserMessage));
-    hub.ClearSticky(WakeReason.Progress);
+    hub.ClearSticky(WakeReason.Idle);
     int seen = 0;
 
     using IDisposable lease = hub.Subscribe(_ => seen++);

@@ -29,8 +29,11 @@ public class ChildEventWakeAdapterTests
       => new(id, Now, phase, label);
 
   [Fact]
-  public void Progress_Change_Wakes()
+  public void Progress_NeverWakes()
   {
+    // Progress beats fire on every tool call: waking on them would never let the wait
+    // rest, so the adapter ignores them entirely (the beat stream still feeds the
+    // watchdog's idle clock and the Desktop panel).
     RecordingEvents events = new();
     WaitWakeHub hub = new();
     using ChildEventWakeAdapter adapter = new(events, hub);
@@ -39,63 +42,9 @@ public class ChildEventWakeAdapterTests
     AgentId child = new(Guid.NewGuid());
 
     events.Subscriber!.OnEvent(Progress(child, ChildPhase.ToolExec, "tool:read"));
-
-    WakeSignal signal = Assert.Single(seen);
-    Assert.Equal(WakeReason.Progress, signal.Reason);
-    Assert.Equal(child, signal.ChildId);
-    Assert.Contains("progress", signal.DigestLine, StringComparison.Ordinal);
-  }
-
-  [Fact]
-  public void Progress_SamePhaseLabelRepeated_DoesNotWake()
-  {
-    RecordingEvents events = new();
-    WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
-    List<WakeSignal> seen = [];
-    using IDisposable lease = hub.Subscribe(seen.Add);
-    AgentId child = new(Guid.NewGuid());
-
-    events.Subscriber!.OnEvent(Progress(child, ChildPhase.ToolExec, "tool:read"));
-    events.Subscriber.OnEvent(Progress(child, ChildPhase.ToolExec, "tool:read"));
-
-    _ = Assert.Single(seen);
-  }
-
-  [Fact]
-  public void Progress_ChangeAfterRepeat_WakesAgain()
-  {
-    RecordingEvents events = new();
-    WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
-    List<WakeSignal> seen = [];
-    using IDisposable lease = hub.Subscribe(seen.Add);
-    AgentId child = new(Guid.NewGuid());
-
-    events.Subscriber!.OnEvent(Progress(child, ChildPhase.ToolExec, "tool:read"));
-    events.Subscriber.OnEvent(Progress(child, ChildPhase.ToolExec, "tool:read"));
     events.Subscriber.OnEvent(Progress(child, ChildPhase.Draining, "tool-result"));
 
-    Assert.Equal(2, seen.Count);
-  }
-
-  [Fact]
-  public void Progress_CoalescingIsPerChild()
-  {
-    RecordingEvents events = new();
-    WaitWakeHub hub = new();
-    using ChildEventWakeAdapter adapter = new(events, hub);
-    List<WakeSignal> seen = [];
-    using IDisposable lease = hub.Subscribe(seen.Add);
-    AgentId childA = new(Guid.NewGuid());
-    AgentId childB = new(Guid.NewGuid());
-
-    events.Subscriber!.OnEvent(Progress(childA, ChildPhase.ToolExec, "tool:read"));
-    events.Subscriber.OnEvent(Progress(childA, ChildPhase.ToolExec, "tool:read"));
-    events.Subscriber.OnEvent(Progress(childB, ChildPhase.ToolExec, "tool:read"));
-
-    Assert.Equal(2, seen.Count);
-    Assert.Equal(childB, seen[1].ChildId);
+    Assert.Empty(seen);
   }
 
   [Fact]

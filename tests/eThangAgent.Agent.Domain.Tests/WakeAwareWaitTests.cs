@@ -62,7 +62,7 @@ public class WakeAwareWaitTests
     TaskCompletionSource<Result<AgentRunOutcome>> settle = new(TaskCreationOptions.RunContinuationsAsynchronously);
     WakeAwareWait wait = new(source, _ => settle.Task, TimeProvider.System);
 
-    Task<WaitResult> run = wait.RunAsync(new WaitSpec(id, Parsed("progress"), null), TestContext.Current.CancellationToken);
+    Task<WaitResult> run = wait.RunAsync(new WaitSpec(id, Parsed("idle"), null), TestContext.Current.CancellationToken);
     source.Push(Signal(WakeReason.UserMessage, id));
     WaitResult result = await run.ConfigureAwait(true);
 
@@ -80,7 +80,7 @@ public class WakeAwareWaitTests
     WakeAwareWait wait = new(source, _ => settle.Task, TimeProvider.System);
 
     Task<WaitResult> run = wait.RunAsync(new WaitSpec(id, Parsed("message"), null), TestContext.Current.CancellationToken);
-    source.Push(Signal(WakeReason.Progress, id));
+    source.Push(Signal(WakeReason.Idle, id));
     settle.SetResult(Result.Success(Settled(id)));
     WaitResult result = await run.ConfigureAwait(true);
 
@@ -96,16 +96,23 @@ public class WakeAwareWaitTests
     WakeAwareWait wait = new(source, _ => settle.Task, TimeProvider.System);
 
     Task<WaitResult> run = wait.RunAsync(new WaitSpec(id, Parsed("all"), null), TestContext.Current.CancellationToken);
-    source.Push(Signal(WakeReason.Progress, id));
     source.Push(Signal(WakeReason.Idle, id));
+    source.Push(Signal(WakeReason.Budget, id));
     source.Push(Signal(WakeReason.StreamStall, id));
     WaitResult result = await run.ConfigureAwait(true);
 
     Assert.False(result.Settled);
-    Assert.Equal(WakeReason.Progress, result.Reason); // the FIRST signal's reason
-    Assert.Equal(3, result.DigestLines.Count);
-    Assert.Contains("Progress digest", result.DigestLines[0], StringComparison.Ordinal);
-    Assert.Contains("StreamStall digest", result.DigestLines[2], StringComparison.Ordinal);
+    Assert.Equal(WakeReason.Idle, result.Reason); // the FIRST signal's reason
+    // The wait ENDS on the first wake, so the digest holds the signals that had
+    // accumulated by then - a PREFIX of the pushed sequence, oldest first. Asserting
+    // an exact count would race the wait's own resumption (the pre-existing flake).
+    string[] expected = ["Idle digest", "Budget digest", "StreamStall digest"];
+    Assert.NotEmpty(result.DigestLines);
+    Assert.True(result.DigestLines.Count <= expected.Length);
+    for (int i = 0; i < result.DigestLines.Count; i++)
+    {
+      Assert.Equal(expected[i], result.DigestLines[i]);
+    }
   }
 
   [Fact]
@@ -134,7 +141,7 @@ public class WakeAwareWaitTests
     Task<WaitResult> run = wait.RunAsync(new WaitSpec(id, Parsed("all"), null), TestContext.Current.CancellationToken);
     settle.SetResult(Result.Success(Settled(id)));
     WaitResult result = await run.ConfigureAwait(true);
-    source.Push(Signal(WakeReason.Progress, id)); // after settlement: dropped
+    source.Push(Signal(WakeReason.Idle, id)); // after settlement: dropped
 
     Assert.True(result.Settled);
   }

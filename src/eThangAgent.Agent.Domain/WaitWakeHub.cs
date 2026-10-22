@@ -5,7 +5,6 @@ namespace eThangAgent.AgentDomain;
 public enum WakeReason
 {
   UserMessage,
-  Progress,
   Idle,
   StreamStall,
   StateWrite,

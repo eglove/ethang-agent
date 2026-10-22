@@ -79,11 +79,26 @@ public class WaitWakeWiringTests
     using IDisposable lease = hub.Subscribe(seen.Add);
     AgentId child = AgentId.NewId();
 
-    events.Publish(new ChildProgressEvent(child, DateTimeOffset.UtcNow, ChildPhase.ToolExec, "tool:read"));
+    events.Publish(new ChildIdleAlertEvent(child, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(3), "ToolExec"));
 
     WakeSignal signal = Assert.Single(seen);
-    Assert.Equal(WakeReason.Progress, signal.Reason);
+    Assert.Equal(WakeReason.Idle, signal.Reason);
     Assert.Equal(child, signal.ChildId);
+  }
+
+  [Fact]
+  public void Container_ChildEventAdapter_IgnoresProgress()
+  {
+    // Progress beats are not wake-worthy: a wait that woke on them would never rest.
+    using ServiceProvider services = Build();
+    IAgentEvents events = services.GetRequiredService<IAgentEvents>();
+    WaitWakeHub hub = services.GetRequiredService<WaitWakeHub>();
+    List<WakeSignal> seen = [];
+    using IDisposable lease = hub.Subscribe(seen.Add);
+
+    events.Publish(new ChildProgressEvent(AgentId.NewId(), DateTimeOffset.UtcNow, ChildPhase.ToolExec, "tool:read"));
+
+    Assert.Empty(seen);
   }
 
   [Fact]

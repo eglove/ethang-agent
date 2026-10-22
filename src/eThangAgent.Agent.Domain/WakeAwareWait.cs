@@ -14,8 +14,9 @@ public sealed class WakeFilter
   private WakeFilter(HashSet<WakeReason> reasons) => _reasons = reasons;
 
   /// <summary>Parses the wakeOn argument: "all" or a comma list of
-  ///     message|progress|idle|settled|state|stream|budget|mailbox. Invalid tokens
-  ///     fail with InvalidActionInput naming the token.</summary>
+  ///     message|idle|settled|state|stream|budget|mailbox. Invalid tokens
+  ///     fail with InvalidActionInput naming the token. 'progress' is RETIRED: a child's
+  ///     progress beats fire on every tool call, so a wait that woke on them never rests.</summary>
   public static Result<WakeFilter> Parse(string? raw)
   {
     HashSet<WakeReason> reasons = [];
@@ -26,7 +27,7 @@ public sealed class WakeFilter
 
     if (string.Equals(raw.Trim(), "all", StringComparison.OrdinalIgnoreCase))
     {
-      foreach (WakeReason reason in (WakeReason[])[WakeReason.Progress, WakeReason.Idle, WakeReason.StreamStall,
+      foreach (WakeReason reason in (WakeReason[])[WakeReason.Idle, WakeReason.StreamStall,
         WakeReason.StateWrite, WakeReason.Budget, WakeReason.Mailbox])
       {
         _ = reasons.Add(reason);
@@ -42,7 +43,7 @@ public sealed class WakeFilter
       if (!TokenReasons.TryGetValue(token.ToUpperInvariant(), out WakeReason? reason))
       {
         return Result.Failure<WakeFilter>(new DomainError("InvalidActionInput",
-            $"'wakeOn' token '{token}' is not one of: message, progress, idle, settled, state, stream, budget, mailbox, all."));
+            $"'wakeOn' token '{token}' is not one of: message, idle, settled, state, stream, budget, mailbox, all."));
       }
 
       if (reason is { } known)
@@ -58,7 +59,6 @@ public sealed class WakeFilter
   private static readonly FrozenDictionary<string, WakeReason?> TokenReasons =
       new Dictionary<string, WakeReason?>(StringComparer.Ordinal)
       {
-        ["PROGRESS"] = WakeReason.Progress,
         ["IDLE"] = WakeReason.Idle,
         ["STATE"] = WakeReason.StateWrite,
         ["STREAM"] = WakeReason.StreamStall,
