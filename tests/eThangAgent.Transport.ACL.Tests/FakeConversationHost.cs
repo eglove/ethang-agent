@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Text.Json;
 
 namespace eThangAgent.Transport.ACL.Tests;
 
@@ -14,11 +15,19 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     <see cref="SlowInput"/> streams a delta every <see cref="SlowDeltaInterval"/> for
 ///     <see cref="SlowDeltaCount"/> deltas then settles (a HEALTHY but long turn — the
 ///     progress-blind-budget probe); <see cref="ChattyInput"/> streams deltas forever so a
-///     total-duration ceiling has something to cut.</para></summary>
+///     total-duration ceiling has something to cut; <see cref="HeartbeatInput"/> is QUIET
+///     but alive — it emits a liveness heartbeat and settles (2026-10-22: the idle bound
+///     must measure liveness, not busyness).</para></summary>
 internal sealed class FakeConversationHost : IAsyncDisposable
 {
   /// <summary>Takes the turn and never emits anything: the idle bound's subject.</summary>
   public const string SilentInput = "silent";
+
+  /// <summary>A quiet but ALIVE turn: it emits a liveness heartbeat every
+  ///     <see cref="HeartbeatInterval"/> and settles at the end. The idle bound's real
+  ///     subject (2026-10-22) — a host that proves it is alive must never be failed as
+  ///     unaddressable, however long the turn runs.</summary>
+  public const string HeartbeatInput = "heartbeat";
 
   /// <summary>A genuinely healthy turn that simply takes a while: deltas keep arriving, so
   ///     no IDLE bound may fire — only a total-duration ceiling could.</summary>
@@ -30,6 +39,12 @@ internal sealed class FakeConversationHost : IAsyncDisposable
   /// <summary>How often <see cref="SlowInput"/> emits a delta.</summary>
   public static readonly TimeSpan SlowDeltaInterval = TimeSpan.FromMilliseconds(400);
 
+  /// <summary>How often <see cref="HeartbeatInput"/> emits its liveness heartbeat.</summary>
+  public static readonly TimeSpan HeartbeatInterval = TimeSpan.FromMilliseconds(150);
+
+  /// <summary>How many heartbeats <see cref="HeartbeatInput"/> emits before settling.</summary>
+  public const int HeartbeatCount = 10;
+
   /// <summary>How many deltas <see cref="SlowInput"/> emits before settling.</summary>
   public const int SlowDeltaCount = 6;
 
@@ -37,6 +52,7 @@ internal sealed class FakeConversationHost : IAsyncDisposable
   private readonly CancellationTokenSource _cts = new();
   private readonly Task _pump;
   private readonly List<RootTurnRequest> _received = [];
+  private readonly List<string> _interruptedTurnIds = [];
   private readonly List<(string TurnId, int Ordinal, long Generation)> _held = [];
   private readonly Lock _gate = new();
   private readonly SemaphoreSlim _writeGate = new(1, 1);
@@ -60,6 +76,21 @@ internal sealed class FakeConversationHost : IAsyncDisposable
       lock (_gate)
       {
         return [.. _received];
+      }
+    }
+  }
+
+  /// <summary>The turn ids the app asked the host to STOP, in arrival order. The
+  ///     evidence that an abandoned turn is released on the host side (2026-10-22): the
+  ///     host holds its turn gate for the whole turn, so a turn the app gave up on would
+  ///     otherwise block every later turn in the session.</summary>
+  public IReadOnlyList<string> InterruptedTurnIds
+  {
+    get
+    {
+      lock (_gate)
+      {
+        return [.. _interruptedTurnIds];
       }
     }
   }
@@ -99,6 +130,12 @@ internal sealed class FakeConversationHost : IAsyncDisposable
       while (!_cts.IsCancellationRequested)
       {
         TransportEnvelope envelope = await TransportFraming.ReadAsync(_server, _cts.Token).ConfigureAwait(false);
+        if (envelope.Kind == "interrupt")
+        {
+          RecordInterrupt(envelope.Json);
+          continue;
+        }
+
         if (envelope.Kind != "root-turn")
         {
           continue; // acks and anything else the app sends are not this host's business
@@ -129,12 +166,38 @@ internal sealed class FakeConversationHost : IAsyncDisposable
 #pragma warning restore CA1031 // Do not catch general exception types
   }
 
+  /// <summary>Records the turn id an interrupt envelope asked the host to stop.</summary>
+  private void RecordInterrupt(string json)
+  {
+    InterruptCommand? command = JsonSerializer.Deserialize<InterruptCommand>(json);
+    if (command?.TurnId is { Length: > 0 } turnId)
+    {
+      lock (_gate)
+      {
+        _interruptedTurnIds.Add(turnId);
+      }
+    }
+  }
+
   /// <summary>Streams one turn according to its Input marker.</summary>
   private async Task RunTurnAsync(RootTurnRequest request)
   {
     if (string.Equals(request.Input, SilentInput, StringComparison.Ordinal))
     {
       return; // takes the turn, never settles it until released: the waiter stays open
+    }
+
+    if (string.Equals(request.Input, HeartbeatInput, StringComparison.Ordinal))
+    {
+      // Quiet, but alive: the heartbeat is the proof of life the app's idle bound needs.
+      for (int i = 0; i < HeartbeatCount; i++)
+      {
+        await Task.Delay(HeartbeatInterval, _cts.Token).ConfigureAwait(false);
+        await EmitAsync(request, "progress", "alive-" + i).ConfigureAwait(false);
+      }
+
+      await EmitAsync(request, "settled", "heartbeat-done").ConfigureAwait(false);
+      return;
     }
 
     if (string.Equals(request.Input, ChattyInput, StringComparison.Ordinal))

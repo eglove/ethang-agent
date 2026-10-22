@@ -127,7 +127,7 @@ public sealed class ChildHostRootRunGateTests
     using ManualResetEventSlim parked = new(initialState: false);
     using ManualResetEventSlim release = new(initialState: false);
     using ScriptedRootHost host = ScriptedRootHost.Start("the answer", ["the ", "answer"],
-        options: new ScriptedOptions(Park: new ScriptedPark(async () =>
+        options: new ScriptedOptions(Park: new ScriptedPark(async turnToken =>
         {
           parked.Set();
           await Task.Run(() =>

@@ -20,9 +20,10 @@ internal sealed record ScriptedOptions(
 
 /// <summary>The optional mid-turn park a streaming test needs: an ASYNC hook that runs
 ///     between the provider's deltas, so a test can hold a turn open on a genuine yield
-///     (not a blocking wait) while it drives other work.</summary>
+///     (not a blocking wait) while it drives other work. The hook receives the TURN's
+///     cancellation token, so a parked turn can be stopped the way a real one is.</summary>
 #pragma warning disable CA1812 // Instantiated by the gate tests, not by this file.
-internal sealed record ScriptedPark(Func<Task> BetweenDeltas);
+internal sealed record ScriptedPark(Func<CancellationToken, Task> BetweenDeltas);
 #pragma warning restore CA1812
 
 /// <summary>A composed host container for ONE root turn, with the model provider as the only
@@ -130,7 +131,7 @@ internal sealed class ScriptedRootHost : IDisposable
       IReadOnlyList<string> deltas,
       Action? betweenDeltas,
       DomainError? providerError,
-      Func<Task>? parkBetweenDeltas) : IModelProvider
+      Func<CancellationToken, Task>? parkBetweenDeltas) : IModelProvider
   {
     private int _calls;
     private IReadOnlyList<Message> _lastRequest = [];
@@ -191,7 +192,7 @@ internal sealed class ScriptedRootHost : IDisposable
           betweenDeltas?.Invoke();
           if (parkBetweenDeltas is not null)
           {
-            await parkBetweenDeltas().ConfigureAwait(false);
+            await parkBetweenDeltas(ct).ConfigureAwait(false);
           }
         }
       }

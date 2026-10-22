@@ -4,8 +4,8 @@ namespace eThangAgent.Transport.ACL.Tests;
 
 /// <summary>The root-turn wire codec's strict-at-both-boundaries contract (spec D6):
 ///     requests and events round-trip byte-exactly, a request without a turn id is a
-///     named protocol error, and an event kind outside the four the session view
-///     renders is refused rather than silently forwarded.</summary>
+///     named protocol error, and an event kind outside the five the wire carries is
+///     refused rather than silently forwarded.</summary>
 public class RootTurnProtocolTests
 {
   [Fact]
@@ -183,6 +183,32 @@ public class RootTurnProtocolTests
     const string json = /*lang=json,strict*/ "{\"TurnId\":\"t\",\"Kind\":\"bogus\",\"Payload\":\"\"}";
 
     _ = Assert.Throws<InvalidOperationException>(() => RootTurnProtocol.ParseEvent(json));
+  }
+
+  [Fact]
+  public void ParseEvent_TheLivenessHeartbeat_IsAKnownKind()
+  {
+    // The heartbeat is a WIRE kind, not a forward-compatible unknown: a host that sent one
+    // to a client that refused it would fault the connection, not the turn.
+    const string json = /*lang=json,strict*/ "{\"TurnId\":\"t\",\"Kind\":\"progress\",\"Payload\":\"alive\"}";
+
+    RootTurnEvent parsed = RootTurnProtocol.ParseEvent(json);
+
+    Assert.Equal("progress", parsed.Kind);
+  }
+
+  [Fact]
+  public void RootTurnRequest_TheIdleWindow_RoundTrips()
+  {
+    // The window the app will enforce rides the request, so the host can heartbeat inside
+    // it. A lost window means the host guesses - and a guess that is too slow puts the
+    // false failure back.
+    RootTurnRequest request = new("turn-1", "hello", []) { IdleTimeout = TimeSpan.FromMinutes(2) };
+
+    RootTurnRequest parsed = RootTurnProtocol.ParseRequest(RootTurnProtocol.SerializeRequest(request));
+
+    Assert.Equal(TimeSpan.FromMinutes(2), parsed.IdleTimeout);
+    Assert.Equal(request, parsed);
   }
 
   [Fact]

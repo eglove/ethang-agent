@@ -41,6 +41,17 @@ namespace eThangAgent.ChildHost;
 ///     if the model had just produced them.</para></summary>
 public sealed class RootRunHost : IDisposable
 {
+  /// <summary>The longest the heartbeat waits between two liveness events, and the
+  ///     interval it falls back to when the app names no idle window. A generous window
+  ///     must not turn into a heartbeat flood, and a turn that IS streaming needs no
+  ///     proof of life at all.</summary>
+  private static readonly TimeSpan DefaultHeartbeatInterval = TimeSpan.FromSeconds(30);
+
+  /// <summary>The shortest the heartbeat may fire: below this the wire carries more
+  ///     heartbeat than turn, and the app's own idle window would be too tight to
+  ///     distinguish a heartbeat from a lost frame anyway.</summary>
+  private static readonly TimeSpan MinimumHeartbeatInterval = TimeSpan.FromSeconds(1);
+
   private readonly IServiceProvider _services;
 
   // TURN SERIALIZATION (fix round 2, finding 1). Turns are dispatched concurrently by the
@@ -104,54 +115,92 @@ public sealed class RootRunHost : IDisposable
   /// <summary>Runs one turn, streaming its events as they happen. Returns the turn's own
   ///     result so the caller can log or audit it; the app reads the outcome from the
   ///     <c>settled</c> event, which is emitted for failures too — a turn that never
-  ///     settles leaves its caller waiting on the idle bound.</summary>
+  ///     settles leaves its caller waiting on the idle bound.
+  ///     <para>THE LIVENESS HEARTBEAT (2026-10-22): the app fails a turn whose host goes
+  ///     SILENT for its idle window, and a long tool call (an exec script, a subagent
+  ///     wait) produces NO events at all — so silence meant "busy", the app reported a
+  ///     HEALTHY host as unaddressable, and then abandoned the turn while this process
+  ///     kept running it. That abandoned turn held the turn gate, so every later turn
+  ///     queued behind it and died the same way: the session was unusable from then on.
+  ///     The heartbeat removes the false positive — a <c>progress</c> event whenever the
+  ///     turn has been quiet — and it starts BEFORE the gate wait, because a turn QUEUED
+  ///     behind another turn is silent too.</para></summary>
   public async Task<Result<string>> RunTurnAsync(
       RootTurnRequest request, Action<RootTurnEvent> onEvent, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(request);
     ArgumentNullException.ThrowIfNull(onEvent);
-    if (string.IsNullOrWhiteSpace(request.Input))
-    {
-      // The turn never starts, but it still SETTLES: the app's outcome comes from the
-      // settled event, so a silent return here reports a transport fault instead of this
-      // typed refusal.
-      Result<string> rejected = Result.Failure<string>(
-          new DomainError("InvalidMessage", "a turn needs a non-empty input."));
-      Emit(request, onEvent, "settled", DescribeFailure(rejected.Error));
-      return rejected;
-    }
-
+    TurnEmitter emitter = new(request, onEvent);
+    using TurnHeartbeat heartbeat = new(emitter, HeartbeatInterval(request.IdleTimeout));
     try
     {
-      await _turnGate.WaitAsync(ct).ConfigureAwait(false);
-    }
-    catch (OperationCanceledException)
-    {
-      // Same contract the handler's own cancellation path honors: a stop during the wait for
-      // the gate fails the turn as TurnCancelled, never as a raw exception across the
-      // Task<Result<string>> seam - and it SETTLES (fix round 3, finding 1): the app reads
-      // the outcome from the settled event, so silence makes it wait out its whole budget.
-      return SettleCancelled(request, onEvent);
-    }
+      if (string.IsNullOrWhiteSpace(request.Input))
+      {
+        // The turn never starts, but it still SETTLES: the app's outcome comes from the
+        // settled event, so a silent return here reports a transport fault instead of this
+        // typed refusal.
+        Result<string> rejected = Result.Failure<string>(
+            new DomainError("InvalidMessage", "a turn needs a non-empty input."));
+        emitter.Emit("settled", DescribeFailure(rejected.Error));
+        return rejected;
+      }
 
-    try
-    {
-      return await RunTurnCoreAsync(request, onEvent, ct).ConfigureAwait(false);
-    }
-    catch (OperationCanceledException)
-    {
-      return SettleCancelled(request, onEvent);
-    }
+      try
+      {
+        await _turnGate.WaitAsync(ct).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        // Same contract the handler's own cancellation path honors: a stop during the wait for
+        // the gate fails the turn as TurnCancelled, never as a raw exception across the
+        // Task<Result<string>> seam - and it SETTLES (fix round 3, finding 1): the app reads
+        // the outcome from the settled event, so silence makes it wait out its whole budget.
+        return SettleCancelled(emitter);
+      }
 
+      try
+      {
+        return await RunTurnCoreAsync(request, emitter, ct).ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        return SettleCancelled(emitter);
+      }
+
+      finally
+      {
+        _ = _turnGate.Release();
+      }
+    }
     finally
     {
-      _ = _turnGate.Release();
+      // The turn is over: the heartbeat must not speak for it any more. This runs BEFORE
+      // the heartbeat is disposed, so no progress event can follow the settle.
+      emitter.Complete();
     }
+  }
+
+  /// <summary>The heartbeat interval: a quarter of the idle window the app will enforce,
+  ///     clamped to a sane range.
+  ///     <para>The window is the app's policy, so the app names it on the request and the
+  ///     host only has to beat it. A quarter leaves a three-heartbeat margin before the
+  ///     app gives up, so one lost frame is never fatal; the ceiling keeps a generous
+  ///     window from turning into a heartbeat flood.</para></summary>
+  private static TimeSpan HeartbeatInterval(TimeSpan? idleTimeout)
+  {
+    if (idleTimeout is not { } idle || idle <= TimeSpan.Zero)
+    {
+      return DefaultHeartbeatInterval;
+    }
+
+    TimeSpan quarter = idle / 4;
+    TimeSpan high = quarter < DefaultHeartbeatInterval ? quarter : DefaultHeartbeatInterval;
+    return high < MinimumHeartbeatInterval ? MinimumHeartbeatInterval : high;
   }
 
   /// <summary>One turn, executed under the turn gate: hydrate, run, settle.</summary>
   private async Task<Result<string>> RunTurnCoreAsync(RootTurnRequest request,
-      Action<RootTurnEvent> onEvent, CancellationToken ct)
+      TurnEmitter emitter, CancellationToken ct)
   {
     await HydrateAsync(request, ct).ConfigureAwait(false);
 
@@ -163,7 +212,7 @@ public sealed class RootRunHost : IDisposable
       Result<string> refused = Result.Failure<string>(new DomainError("InvalidSeed",
           "a root turn seed may carry at most one exchange (two lines); a longer seed carries "
           + "no roles and would be silently mislabelled."));
-      Emit(request, onEvent, "settled", DescribeFailure(refused.Error));
+      emitter.Emit("settled", DescribeFailure(refused.Error));
       return refused;
     }
 
@@ -179,25 +228,25 @@ public sealed class RootRunHost : IDisposable
       Result<string> refused = Result.Failure<string>(new DomainError("InvalidModelPreferences",
           "the root turn's model-preferences carrier could not be read; the turn is refused "
           + "rather than served by a model the user did not choose."));
-      Emit(request, onEvent, "settled", DescribeFailure(refused.Error));
+      emitter.Emit("settled", DescribeFailure(refused.Error));
       return refused;
     }
 
     SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
     TurnCallbacks callbacks = new(
-        OnContentDelta: text => Emit(request, onEvent, "delta", text),
-        OnToolCall: (name, arguments, position, total) => Emit(request, onEvent, "tool",
+        OnContentDelta: text => emitter.Emit("delta", text),
+        OnToolCall: (name, arguments, position, total) => emitter.Emit("tool",
             "call " + name + " " + position + "/" + total + " " + arguments),
-        OnToolResult: (name, summary, content, isError, rich) => Emit(request, onEvent, "tool",
+        OnToolResult: (name, summary, content, isError, rich) => emitter.Emit("tool",
             "result " + name + " " + (isError ? "error" : "ok") + " " + summary),
-        OnSystemMessage: text => Emit(request, onEvent, "notice", text));
+        OnSystemMessage: text => emitter.Emit("notice", text));
 
     Result<string> result = await handler
         .Handle(new SendMessageCommand(request.Input, BuildImageParts(request)), callbacks,
-            text => Emit(request, onEvent, "notice", text), ct)
+            text => emitter.Emit("notice", text), ct)
         .ConfigureAwait(false);
 
-    Emit(request, onEvent, "settled",
+    emitter.Emit("settled",
         result.IsSuccess ? result.Value : DescribeFailure(result.Error));
     return result;
   }
@@ -440,12 +489,11 @@ public sealed class RootRunHost : IDisposable
   /// <summary>Emits the typed cancellation settle and returns it. Both cancellation paths
   ///     (the gate wait and the turn body) go through here, so no cancellation can return
   ///     without telling the app what happened.</summary>
-  private static Result<string> SettleCancelled(RootTurnRequest request,
-      Action<RootTurnEvent> onEvent)
+  private static Result<string> SettleCancelled(TurnEmitter emitter)
   {
     Result<string> cancelled = Result.Failure<string>(
         new DomainError("TurnCancelled", "the turn was cancelled."));
-    Emit(request, onEvent, "settled", DescribeFailure(cancelled.Error));
+    emitter.Emit("settled", DescribeFailure(cancelled.Error));
     return cancelled;
   }
 
@@ -455,14 +503,113 @@ public sealed class RootRunHost : IDisposable
           ? "Error [Unknown]: the turn failed without an error."
           : "Error [" + error.Code + "]: " + error.Message;
 
-  /// <summary>Emits one event, echoing the request's generation verbatim (the protocol
-  ///     requirement above — the single place the echo is applied, so no emission path can
-  ///     forget it).</summary>
-  private static void Emit(RootTurnRequest request, Action<RootTurnEvent> onEvent,
-      string kind, string payload)
-      => onEvent(new RootTurnEvent(request.TurnId, kind, payload, request.Generation));
-
   /// <summary>Releases the turn gate. Disposing a runner with a turn in flight is a host
   ///     shutdown; the in-flight turn observes its own cancellation, never a disposed gate.</summary>
   public void Dispose() => _turnGate.Dispose();
+
+  /// <summary>One turn's event channel: it stamps the request's generation on every event
+  ///     (the protocol requirement above — the single place the echo is applied, so no
+  ///     emission path can forget it), forwards to the caller's callback, and records when
+  ///     the turn last spoke. That last fact is the LIVENESS HEARTBEAT's input: a turn
+  ///     that has been quiet for the heartbeat interval is still running, and the host
+  ///     says so instead of letting the app read silence as death.
+  ///     <para>Thread-safe by construction: the turn's own thread and the heartbeat's
+  ///     timer thread both emit.</para></summary>
+  private sealed class TurnEmitter(RootTurnRequest request, Action<RootTurnEvent> onEvent)
+  {
+    private readonly Lock _gate = new();
+    private DateTimeOffset _lastEmission = DateTimeOffset.UtcNow;
+    private bool _completed;
+
+    /// <summary>True once the turn is over: the heartbeat stops speaking for it.</summary>
+    public bool IsCompleted()
+    {
+      lock (_gate)
+      {
+        return _completed;
+      }
+    }
+
+    /// <summary>Emits one event for this turn and stamps the moment it went out.</summary>
+    public void Emit(string kind, string payload)
+    {
+      lock (_gate)
+      {
+        _lastEmission = DateTimeOffset.UtcNow;
+      }
+
+      onEvent(new RootTurnEvent(request.TurnId, kind, payload, request.Generation));
+    }
+
+    /// <summary>How long the turn has been quiet.</summary>
+    public TimeSpan QuietFor(DateTimeOffset now)
+    {
+      lock (_gate)
+      {
+        return now - _lastEmission;
+      }
+    }
+
+    /// <summary>Marks the turn as over. Called after the settle, so the heartbeat can
+    ///     never emit a progress event after the answer.</summary>
+    public void Complete()
+    {
+      lock (_gate)
+      {
+        _completed = true;
+      }
+    }
+  }
+
+  /// <summary>The LIVENESS HEARTBEAT (2026-10-22): a timer that emits a <c>progress</c>
+  ///     event whenever the turn has been quiet for the heartbeat interval.
+  ///     <para>WHY IT EXISTS: the app fails a turn whose host goes silent for the idle
+  ///     window, and a long tool call emits nothing at all — so a healthy host working on
+  ///     a long script was reported as unaddressable, and the abandoned turn kept the
+  ///     host's turn gate, which bricked every later turn in the session. The heartbeat
+  ///     makes the idle window mean what it says: the host stopped answering.</para>
+  ///     <para>The heartbeat is a TIMER, so it keeps ticking while the turn is blocked
+  ///     inside a tool. It never faults the turn: any failure is swallowed (named
+  ///     decision, CA1031) because a heartbeat that cannot be sent is a lost frame, not a
+  ///     reason to fail a turn that is working.</para></summary>
+  private sealed class TurnHeartbeat : IDisposable
+  {
+    private readonly Timer _timer;
+
+    public TurnHeartbeat(TurnEmitter emitter, TimeSpan interval)
+    {
+      ArgumentNullException.ThrowIfNull(emitter);
+      _timer = new Timer(_ => Tick(emitter, interval), null, interval, interval);
+    }
+
+    /// <summary>One heartbeat tick: a quiet turn says it is alive, a finished turn says
+    ///     nothing, and a turn that is streaming needs no proof of life.</summary>
+    private static void Tick(TurnEmitter emitter, TimeSpan interval)
+    {
+      try
+      {
+        if (emitter.IsCompleted())
+        {
+          return;
+        }
+
+        if (emitter.QuietFor(DateTimeOffset.UtcNow) >= interval)
+        {
+          emitter.Emit("progress", "the turn is still running.");
+        }
+      }
+#pragma warning disable CA1031 // Named decision: the heartbeat must never fault a turn.
+      catch (Exception)
+      {
+        // A heartbeat that cannot be sent is a lost frame, not a failed turn. The app
+        // still has the idle bound and the ceiling to end a turn that really is stuck.
+      }
+#pragma warning restore CA1031
+    }
+
+    /// <summary>Stops the heartbeat. The timer is disposed, so no tick follows the turn;
+    ///     a tick already in flight is harmless — the emitter is completed by then, so
+    ///     it emits nothing.</summary>
+    public void Dispose() => _timer.Dispose();
+  }
 }

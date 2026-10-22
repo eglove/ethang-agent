@@ -748,11 +748,15 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
   }
 
-  /// <summary>Maps one host event onto the stream bridge. The four wire kinds are the
+  /// <summary>Maps one host event onto the stream bridge. The wire kinds are the
   ///     session surface's own vocabulary (delta/notice/tool/settled), so this is a
   ///     translation, never a second rendering path.
   ///     <para>An unreadable <c>tool</c> payload becomes a notice instead of vanishing: a
-  ///     dropped tool event would hide a whole step of the turn.</para></summary>
+  ///     dropped tool event would hide a whole step of the turn.</para>
+  ///     <para><c>progress</c> is the host's LIVENESS HEARTBEAT (2026-10-22) and renders
+  ///     nothing: it exists so the app can tell "the host is busy" from "the host stopped
+  ///     answering" instead of failing a healthy long turn. The turn's own tool card is
+  ///     already on screen, so a heartbeat line in the transcript would be noise.</para></summary>
   private void ApplyRootTurnEvent(RootTurnEvent evt, StreamBridge bridge, Action onStreamed)
   {
     ArgumentNullException.ThrowIfNull(evt);
@@ -767,6 +771,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         break;
       case "tool":
         ApplyRootTurnToolEvent(evt.Payload, bridge);
+        break;
+      case "progress":
+        // The heartbeat proves the host is alive; it says nothing the transcript needs.
         break;
       case "settled":
         // The settle's payload is the turn's answer (or its typed failure line); the

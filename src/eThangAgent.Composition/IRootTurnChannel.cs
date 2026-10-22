@@ -16,7 +16,10 @@ namespace eThangAgent.Composition;
 ///     event only when both the turn id and the generation match the live turn, so a stale
 ///     settle from a timed-out predecessor can never complete the current turn. Every
 ///     failure is a typed <see cref="Result{T}"/> value — a host that never answers fails
-///     <c>TurnUnaddressable</c> on the idle bound, so a turn can never hang.</para></summary>
+///     <c>TurnUnaddressable</c> on the idle bound, so a turn can never hang. The idle bound
+///     measures LIVENESS: the host heartbeats while a turn is quiet (2026-10-22), so a long
+///     script is not mistaken for a dead host, and a turn the app gives up on is stopped on
+///     the host so the session keeps working.</para></summary>
 public interface IRootTurnChannel
 {
   /// <summary>Sends one root turn and routes its events, in arrival order, to

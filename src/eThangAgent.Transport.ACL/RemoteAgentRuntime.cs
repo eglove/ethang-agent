@@ -265,8 +265,16 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       // token" and tore the whole connection down on that false premise.)
       using CancellationTokenSource sendTick = CancellationTokenSource.CreateLinkedTokenSource(ct);
       sendTick.CancelAfter(TurnBudget.Send);
+      // The idle window rides the request: the host heartbeats inside it, so the window
+      // measures LIVENESS instead of busyness (2026-10-22). Without it a long tool call
+      // (an exec script, a subagent wait) produced no events at all, the app read the
+      // silence as a dead host, and failed a perfectly healthy turn.
       Task send = transport.SendAsync(new TransportEnvelope("root-turn",
-          RootTurnProtocol.SerializeRequest(request with { Generation = generation }),
+          RootTurnProtocol.SerializeRequest(request with
+          {
+            Generation = generation,
+            IdleTimeout = TurnBudget.Idle,
+          }),
           Interlocked.Increment(ref _sequence)), sendTick.Token);
       try
       {
@@ -317,10 +325,25 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
             + TurnBudget.Send + ": the host did not consume the frame in time. The "
             + "connection is still usable.");
       }
-      return await AwaitSettleAsync(waiter, ct).ConfigureAwait(false);
+      Result<string> outcome = await AwaitSettleAsync(waiter, ct).ConfigureAwait(false);
+      if (!outcome.IsSuccess && IsAbandonment(outcome.Error))
+      {
+        // THE APP GAVE UP ON A TURN THE HOST IS STILL RUNNING (2026-10-22). The host
+        // holds its turn gate for the whole turn, so an abandoned turn blocks every
+        // LATER turn behind it - each one queued, silent, and failed the same way. That
+        // is what made the session unusable from the first error onward. The app must
+        // tell the host to stop the turn it is no longer waiting for.
+        InterruptRootTurn(request.TurnId);
+      }
+
+      return outcome;
     }
     catch (OperationCanceledException)
     {
+      // The caller stopped the turn: the host is still running it, and the same gate
+      // holds every later turn. Tell the host to stop (the stop button does this too -
+      // a repeated interrupt is a no-op on the host).
+      InterruptRootTurn(request.TurnId);
       return Result.Failure<string>(new DomainError("TurnCancelled", "the turn was stopped."));
     }
 #pragma warning disable CA1031 // Do not catch general exception types
@@ -378,12 +401,24 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       if (waiter.IdleRemaining(TurnBudget.Idle, DateTimeOffset.UtcNow) <= TimeSpan.Zero)
       {
         return Result.Failure<string>(new DomainError("TurnUnaddressable",
-            "the conversation host went idle for " + TurnBudget.Idle + " without settling the turn."));
+            "the conversation host went idle for " + TurnBudget.Idle
+            + " without answering the turn; the turn was abandoned and the host was asked to stop it, "
+            + "so the session can continue with the next message."));
       }
     }
   }
   private static Result<string> HostUnavailable(string message)
       => Result.Failure<string>(new DomainError("HostUnavailable", message));
+
+  /// <summary>True when a failed turn is one the app ABANDONED rather than one the host
+  ///     refused: the idle bound and the ceiling both end the app's wait while the host
+  ///     may still be executing the turn, and an abandoned turn must be released on the
+  ///     host side (2026-10-22). A turn the host SETTLED - even with an error payload -
+  ///     is not an abandonment: the host is done with it, and its gate is free.</summary>
+  private static bool IsAbandonment(DomainError? error)
+      => error is { } failure
+          && (string.Equals(failure.Code, "TurnUnaddressable", StringComparison.Ordinal)
+              || string.Equals(failure.Code, "TurnCeilingExceeded", StringComparison.Ordinal));
 
   /// <summary>Routes one streamed root-turn event to its waiter: every event reaches the
   ///     caller's callback in arrival order and resets the idle clock, and a 'settled' event

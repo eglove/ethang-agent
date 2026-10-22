@@ -52,11 +52,28 @@ public static class SubAgentConfiguration
 
     TimeSpan idle = ParseRootTurnDuration(idleValue, "SubAgent:RootTurn:Idle");
     TimeSpan ceiling = ParseRootTurnDuration(ceilingValue, "SubAgent:RootTurn:Ceiling");
+    if (idle < MinimumRootTurnIdle)
+    {
+      // The host HEARTBEATS inside this window (a progress event whenever the turn is
+      // quiet), and the heartbeat's shortest interval is one second - so a window under
+      // four seconds would hold fewer than four heartbeats, and the app would read a
+      // HEALTHY host as silent. A configuration that guarantees a false failure is a
+      // startup error, never a silent clamp (2026-10-22).
+      throw new InvalidOperationException(
+          $"SubAgent:RootTurn:Idle ({idleValue}) must be at least {MinimumRootTurnIdle} "
+          + "(the conversation host heartbeats inside this window, and a shorter one would fail healthy turns).");
+    }
+
     return ceiling < idle
         ? throw new InvalidOperationException(
             $"SubAgent:RootTurn:Ceiling ({ceilingValue}) must not be shorter than SubAgent:RootTurn:Idle ({idleValue}).")
         : new RootTurnBudget(idle, ceiling);
   }
+
+  /// <summary>The shortest root-turn idle window the harness accepts: four times the
+  ///     heartbeat's shortest interval, so the liveness signal always arrives several
+  ///     times inside the window (2026-10-22).</summary>
+  public static readonly TimeSpan MinimumRootTurnIdle = TimeSpan.FromSeconds(4);
 
   /// <summary>One root-turn duration: constant format only, positive, no bare integers.</summary>
   private static TimeSpan ParseRootTurnDuration(string value, string key)

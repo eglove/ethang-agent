@@ -7,6 +7,13 @@ namespace eThangAgent.AgentDomain;
 ///     <see cref="Send"/> bounds putting ONE frame on the wire, which is a different question
 ///     from either — a slow-but-healthy host may legitimately take a long time to absorb a
 ///     large frame, and that must not be judged by the silence window.</para>
+/// <para>The idle bound measures LIVENESS, not busyness (2026-10-22). A long tool call — an
+///     exec script, a sub-agent wait — emits NOTHING, so silence used to mean "busy" and a
+///     healthy host was reported as unaddressable; the app then abandoned the turn while the
+///     host kept running it, and that abandoned turn held the host's turn gate, so every
+///     later turn queued behind it and failed the same way. The host now HEARTBEATS while a
+///     turn is quiet, and the window it must beat rides the turn request — so the bound
+///     fires only when the host genuinely stopped answering.</para>
 /// <para>The send bound is deliberately SEPARATE and generous. A bounded write is cancelled
 ///     when it lapses, and a cancellation that lands mid-frame desynchronizes the peer's frame
 ///     stream and costs the whole connection; sharing <see cref="Idle"/> (two minutes) would

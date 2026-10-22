@@ -68,7 +68,17 @@ kind + payload + generation). `RootTurnProtocol` is the codec; `RemoteAgentRunti
 (id, generation) does not match the live turn, which is what keeps a reused turn id safe.
 Turns are bounded by `RootTurnBudget` (idle bound that resets on every event, a separate
 hard ceiling, and a separate generous SEND bound — never the idle window, because a lapsed
-write is cancelled and a mid-frame cancellation is unrecoverable). A bounded send is
+write is cancelled and a mid-frame cancellation is unrecoverable). The idle bound measures
+LIVENESS, not busyness: the host HEARTBEATS (a `progress` event) whenever a turn has been
+quiet, because a long tool call (an exec script, a subagent wait) emits nothing at all —
+the app used to read that silence as a dead host, fail a HEALTHY turn, and abandon it while
+the host kept running it, and that abandoned turn held the host's turn gate, so every
+later turn queued behind it and failed the same way (the session was unusable from the
+first error onward, 2026-10-22). The heartbeat interval is a quarter of the window the app
+enforces, and the window rides the request (`RootTurnRequest.IdleTimeout`) so the two can
+never disagree. An ABANDONED turn is also RELEASED: the app tells the host to stop the
+turn it is no longer waiting for (`InterruptRootTurn`), so the gate is freed and the next
+turn runs. A bounded send is
 CANCELLED rather than abandoned, so the write gate is released; and because the frame header
 and payload are two stream writes, a cancellation that interrupts a frame leaves the peer's
 frame stream permanently desynchronized — `TransportFraming.WriteAsync` reports that as

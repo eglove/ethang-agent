@@ -46,6 +46,18 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
   ///     string verbatim and NEVER interprets it; the host decodes it.</para></summary>
   public string? ModelPreferences { get; init; }
 
+  /// <summary>The idle window the APP will enforce on this turn, or null when the app
+  ///     does not name one.
+  ///     <para>WHY THE TURN CARRIES IT (2026-10-22): the app fails a turn whose host goes
+  ///     SILENT for this long, and the host is the only side that knows whether it is
+  ///     busy or dead. A long tool call (an exec script, a subagent wait) produces no
+  ///     events at all, so silence meant "busy" and the app reported a HEALTHY host as
+  ///     unaddressable - then abandoned the turn while the host kept running it, which
+  ///     held the turn gate and bricked every later turn. The host now heartbeats inside
+  ///     this window (<c>progress</c> events), so the window measures liveness instead of
+  ///     busyness. The app owns the policy; the host is told the number it must beat.</para></summary>
+  public TimeSpan? IdleTimeout { get; init; }
+
   /// <summary>Structural equality over the scalars AND every collection member. The
   ///     collection half is delegated so this method stays one readable expression (the
   ///     repository's complexity ceiling) - the comparison itself is unchanged.</summary>
@@ -55,6 +67,7 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
           && string.Equals(Input, other.Input, StringComparison.Ordinal)
           && Generation == other.Generation
           && string.Equals(ModelPreferences, other.ModelPreferences, StringComparison.Ordinal)
+          && Nullable.Equals(IdleTimeout, other.IdleTimeout)
           && CollectionsEqual(other);
 
   private bool CollectionsEqual(RootTurnRequest other)
@@ -69,6 +82,7 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
     hash.Add(Input, StringComparer.Ordinal);
     hash.Add(Generation);
     hash.Add(ModelPreferences, StringComparer.Ordinal);
+    hash.Add(IdleTimeout);
     foreach (string entry in Seed ?? [])
     {
       hash.Add(entry, StringComparer.Ordinal);
@@ -89,7 +103,10 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
 }
 
 /// <summary>One event streamed back for a root turn. Kinds are exactly `delta`,
-///     `notice`, `tool`, and `settled` - the surface the session view already renders.
+///     `notice`, `tool`, `settled`, and `progress` - the first four are the surface
+///     the session view renders; `progress` is the LIVENESS HEARTBEAT (2026-10-22): the
+///     host emits it when a turn has been quiet, so the app can tell "the host is busy"
+///     from "the host stopped answering" instead of failing a healthy long turn.
 /// <para>PROTOCOL REQUIREMENT FOR HOST IMPLEMENTERS: <see cref="Generation"/> MUST be echoed
 ///     verbatim from the <see cref="RootTurnRequest"/> that produced the event. The app mints
 ///     a fresh generation per turn and delivers an event only when BOTH the turn id and the
@@ -105,11 +122,12 @@ public sealed record RootTurnEvent(string TurnId, string Kind, string Payload, l
 ///     silently dropped envelope.</summary>
 public static class RootTurnProtocol
 {
-  /// <summary>The four event kinds the session view renders; anything else is a
-  ///     protocol error, not a forward-compatible unknown.</summary>
+  /// <summary>The event kinds the wire carries: the four the session view renders
+  ///     plus `progress`, the liveness heartbeat; anything else is a protocol error, not
+  ///     a forward-compatible unknown.</summary>
   public static readonly IReadOnlySet<string> EventKinds = new HashSet<string>(StringComparer.Ordinal)
   {
-    "delta", "notice", "tool", "settled",
+    "delta", "notice", "tool", "settled", "progress",
   };
 
   public static string SerializeRequest(RootTurnRequest request)

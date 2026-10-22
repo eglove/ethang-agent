@@ -435,6 +435,121 @@ public class ChildHostRootTurnTests
   }
 
   [Fact]
+  public async Task RootTurn_HeartbeatEvents_KeepTheIdleBoundFromFiring()
+  {
+    // THE FALSE POSITIVE (2026-10-22): a long tool call (an exec script, a subagent
+    // wait) produces NO events, so the app read the silence as a dead host and failed a
+    // HEALTHY turn - then abandoned it, and the abandoned turn held the host's turn gate
+    // and bricked every later turn. The host now heartbeats: a heartbeat resets the idle
+    // clock, so the bound measures LIVENESS instead of busyness.
+    //
+    // The window here is SHORTER than the whole turn and only a little longer than the
+    // heartbeat gap: a progress-blind bound would fail this turn.
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using FakeConversationHost host = FakeConversationHost.Start();
+    await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
+#pragma warning restore CA2007
+    RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+        TimeSpan.FromMilliseconds(400), TimeSpan.FromMinutes(5)));
+    using CancellationTokenSource loop = new();
+    _ = runtime.RunReceiveLoopAsync(loop.Token);
+    List<RootTurnEvent> events = [];
+
+    Result<string> result = await runtime.SendRootTurnAsync(
+        new RootTurnRequest("turn-heartbeat", FakeConversationHost.HeartbeatInput, []), events.Add,
+        TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(result.IsSuccess, result.Error?.Message);
+    Assert.Equal("heartbeat-done", result.Value);
+    Assert.Contains(events, e => e.Kind == "progress");
+    Assert.Equal("settled", events[^1].Kind);
+  }
+
+  [Fact]
+  public async Task RootTurn_AbandonedTurn_TellsTheHostToStopIt()
+  {
+    // THE BRICKING MECHANISM (2026-10-22): the app gave up on a turn the host is still
+    // running, and the host holds its turn gate for the whole turn - so every LATER turn
+    // queued behind it, silent, and failed the same way. That is what made the session
+    // unusable from the first error onward. The app must tell the host to stop the turn
+    // it is no longer waiting for.
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using FakeConversationHost host = FakeConversationHost.Start();
+    await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
+#pragma warning restore CA2007
+    RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+        TimeSpan.FromMilliseconds(400), TimeSpan.FromMinutes(5)));
+    using CancellationTokenSource loop = new();
+    _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+    Result<string> result = await runtime.SendRootTurnAsync(
+        new RootTurnRequest("turn-silent", FakeConversationHost.SilentInput, []), _ => { },
+        TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("TurnUnaddressable", result.Error.Code);
+
+    // The host was told to stop the turn the app gave up on.
+    await WaitUntilAsync(() => host.InterruptedTurnIds.Contains("turn-silent")).ConfigureAwait(true);
+  }
+
+  [Fact]
+  public async Task RootTurn_StoppedTurn_TellsTheHostToStopIt()
+  {
+    // The same release, for the caller's own stop: a stop that abandons the wait must
+    // also stop the HOST, or the host keeps running (and persisting) a turn the user
+    // stopped, and its turn gate stays held.
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using FakeConversationHost host = FakeConversationHost.Start();
+    await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
+#pragma warning restore CA2007
+    RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+        TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5)));
+    using CancellationTokenSource loop = new();
+    _ = runtime.RunReceiveLoopAsync(loop.Token);
+    using CancellationTokenSource turn = new();
+
+    Task<Result<string>> pending = runtime.SendRootTurnAsync(
+        new RootTurnRequest("turn-stopped", FakeConversationHost.SilentInput, []), _ => { }, turn.Token);
+    await WaitUntilAsync(() => host.Received.Count > 0).ConfigureAwait(true);
+    await turn.CancelAsync().ConfigureAwait(true);
+    Result<string> result = await pending.WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("TurnCancelled", result.Error.Code);
+    await WaitUntilAsync(() => host.InterruptedTurnIds.Contains("turn-stopped")).ConfigureAwait(true);
+  }
+
+  [Fact]
+  public async Task RootTurn_CarriesTheIdleWindow_SoTheHostCanHeartbeatInsideIt()
+  {
+    // The idle window is the APP's policy, and the host is the side that has to beat it.
+    // Without the number on the request the host would heartbeat on a guess - and a
+    // guess that is too slow reintroduces the false failure this whole contract exists
+    // to remove.
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using FakeConversationHost host = FakeConversationHost.Start();
+    await using NamedPipeChildTransport app = await ConnectAsync(host.PipeName).ConfigureAwait(true);
+#pragma warning restore CA2007
+    RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
+        TimeSpan.FromMilliseconds(400), TimeSpan.FromMinutes(5)));
+    using CancellationTokenSource loop = new();
+    _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+    Result<string> result = await runtime.SendRootTurnAsync(
+        new RootTurnRequest("turn-1", "hello", []), _ => { },
+        TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(result.IsSuccess, result.Error?.Message);
+    RootTurnRequest received = Assert.Single(host.Received);
+    Assert.Equal(TimeSpan.FromMilliseconds(400), received.IdleTimeout);
+  }
+
+  [Fact]
   public async Task RootTurn_ChattyHost_FailsTheHardCeiling()
   {
     // The ceiling's job: a host that keeps streaming forever never trips the IDLE bound,

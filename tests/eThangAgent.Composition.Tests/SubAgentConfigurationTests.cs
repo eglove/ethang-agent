@@ -51,6 +51,7 @@ public class SubAgentConfigurationTests
   [InlineData("00:01:00", "00:00:00", "SubAgent:RootTurn:Ceiling")]
   [InlineData("-00:01:00", "01:00:00", "SubAgent:RootTurn:Idle")]
   [InlineData("60", "01:00:00", "SubAgent:RootTurn:Idle")]
+  [InlineData("00:00:03", "01:00:00", "SubAgent:RootTurn:Idle")]
   public void Bind_InvalidRootTurnBudget_IsStartupError(
       string idle, string ceiling, string expectedKey)
   {
@@ -59,6 +60,21 @@ public class SubAgentConfigurationTests
             rootTurnIdle: idle, rootTurnCeiling: ceiling));
 
     Assert.Contains(expectedKey, error.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Bind_RootTurnIdle_TooShortForTheHeartbeat_IsStartupError()
+  {
+    // The host heartbeats inside this window, and the heartbeat's shortest interval is one
+    // second: a window under four seconds would hold fewer than four heartbeats, so a
+    // HEALTHY host would be read as silent. A configuration that guarantees a false
+    // failure is refused at startup, never clamped into something else.
+    InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+        () => SubAgentConfiguration.Bind(null, "2",
+            rootTurnIdle: "00:00:02", rootTurnCeiling: "01:00:00"));
+
+    Assert.Contains("SubAgent:RootTurn:Idle", error.Message, StringComparison.Ordinal);
+    Assert.Contains("heartbeat", error.Message, StringComparison.OrdinalIgnoreCase);
   }
 
   [Fact]
