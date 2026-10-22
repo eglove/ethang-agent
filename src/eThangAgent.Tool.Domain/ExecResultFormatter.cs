@@ -87,7 +87,7 @@ public static class ExecResultFormatter
     }
 
     _ = sb.Append(CultureInfo.InvariantCulture,
-        $"[exec: workspace note — this program references Directory.GetCurrentDirectory(), which returns the app's launch directory ({run.LaunchDirectory}), NOT the session workspace ({run.WorkspaceRoot}). Use Workspace or relative paths to locate workspace files.]");
+        $"[exec: workspace note — this program references Directory.GetCurrentDirectory(), which returns the app's launch directory ({run.LaunchDirectory}), NOT the session workspace ({run.WorkspaceRoot}). Build workspace paths from Workspace (Path.Combine(Workspace, 'notes.txt')) or use ResolvePath('notes.txt') - a relative path in a raw File.*/Directory.* call resolves HERE, not at the workspace.]");
   }
 
   public static ToolResult ParseErrors(IReadOnlyList<ExecParseError> errors,

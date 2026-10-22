@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.17";
+  public const string Version = "2.18";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -287,10 +287,15 @@ public static class ExecGuide
       Error [ToolTimeout]; re-issue with a larger budget if the work genuinely needs
       longer. Choose generously but honestly.
     - Paths resolve at the session workspace: file-tool paths, Shell commands, and the
-      script's Workspace property all root there. Directory.GetCurrentDirectory() is
-      the APP's launch directory, not the workspace — never use it to locate workspace
-      files; use relative paths or Workspace. When a program references
-      Directory.GetCurrentDirectory(), the result carries a
+      script's Workspace property all root there. A RELATIVE path in a raw
+      File.*/Directory.* call does NOT: it resolves against the process working
+      directory, which is the APP's launch directory, not the workspace. Build the
+      path from Workspace (Path.Combine(Workspace, "notes.txt")) or use
+      ResolvePath("notes.txt"), which resolves at the workspace and refuses a path
+      that escapes it. Directory.GetCurrentDirectory() is the launch directory too —
+      never use it to locate workspace files. A program that references
+      Directory.GetCurrentDirectory() carries a
+      `[exec: workspace note — ...]` annotation stating both paths.
       `[exec: workspace note — ...]` annotation stating both paths.
     - Use anonymous objects for tool args: new { path = "...", startLine = 1, timeoutSeconds = 60 }.
     """;

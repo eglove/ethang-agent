@@ -42,6 +42,9 @@ public sealed class ScriptGlobals
       CancellationToken shellToken = default)
   {
     Workspace = workspace;
+    // The resolver is built from the SAME workspace root the scripts see, so
+    // PathResolver.Resolve and Path.Combine(Workspace, ...) can never disagree.
+    PathResolver = new WorkspacePathResolver(workspace);
     Temp = temp;
     _captureStdout = captureStdout;
     _ct = shellToken;
@@ -60,6 +63,34 @@ public sealed class ScriptGlobals
 
   /// <summary>Workspace root directory.</summary>
   public string Workspace { get; }
+
+  /// <summary>Resolves a path argument the way the FILE TOOLS do: a relative path
+  ///     resolves at the WORKSPACE, an absolute path passes through, and a path that
+  ///     escapes the workspace is refused (PathOutsideWorkspace).<para>The relative-path
+  ///     leak (2026-10-22): a raw <c>File.WriteAllText("p1.txt", ...)</c> inside a script
+  ///     resolves against the PROCESS CWD - the app's launch directory - so a session
+  ///     rooted at personal-vault wrote its prompt files into the ethang-agent repo. The
+  ///     engine runs scripts IN-PROCESS and concurrent sessions share that process, so
+  ///     pinning the CWD per call would be a process-global race; this resolver is the
+  ///     durable fix. Scripts that write files resolve their paths through it (or build
+  ///     them from <see cref="Workspace"/>) so a write can never land outside the
+  ///     session's own workspace.</para></summary>
+  public IPathResolver PathResolver { get; }
+  /// <summary>Resolves a path argument to an ABSOLUTE path at the workspace, throwing a
+  ///     plain <see cref="InvalidOperationException"/> when the path is invalid or
+  ///     escapes the workspace. This is the script-facing convenience over
+  ///     <see cref="PathResolver"/>: a script wants a usable string, not a Result to
+  ///     unpack. The Result-shaped resolver stays available for callers that want the
+  ///     error contract.</summary>
+  public string ResolvePath(string path)
+  {
+    Result<string> resolved = PathResolver.Resolve(path);
+    return resolved.IsSuccess
+        ? resolved.Value
+        : throw new InvalidOperationException(
+            $"cannot resolve path '{path}': {resolved.Error.Message}");
+  }
+
 
   /// <summary>Temp directory for artifacts.</summary>
   public string Temp { get; }

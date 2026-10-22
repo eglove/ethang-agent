@@ -46,6 +46,8 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   }
   private readonly string _settingsPath;
   private readonly string _databasePath;
+  // The host process's working directory: its scratch folder, under the temp root.
+  private readonly string _hostWorkingDirectory;
   private readonly Func<string> _hostExePath;
   private readonly Action<string> _reportNotice;
   // The current host's output tail (one supervisor serves one conversation, so the
@@ -81,6 +83,13 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
       throw new InvalidOperationException(
           "the host settings must carry an absolute WorkspaceRoot; the supervisor cannot infer it from the conversation id.");
     }
+
+    // The host's WORKING DIRECTORY is its own SCRATCH folder, never the workspace: a
+    // child process whose working directory sits INSIDE the workspace pins that
+    // directory, and deletes over it fail while the child lives (the documented git
+    // -C hazard, which this would have reproduced for the whole workspace). The
+    // scratch folder lives under the temp root, so it can never pin the workspace.
+    _hostWorkingDirectory = scratchDirectory;
 
     // The conversation id is the host's root-session binding (spec D6): SessionHost resolves
     // its root runner ONLY when SessionId is set, so this stamp is what makes a root turn
@@ -301,6 +310,31 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   /// <summary>Starts the host process for this conversation, records it as the current host,
   ///     and arms the death notice. A missing executable and a failed start are named
   ///     startup failures.</summary>
+  /// <summary>Builds the host process's start info. The WORKING DIRECTORY is the
+  ///     host's SCRATCH folder (under the temp root), never the workspace: a child
+  ///     process whose working directory sits inside the workspace PINS that
+  ///     directory, and deletes over it fail while the child lives - the documented
+  ///     git -C hazard, which this would have reproduced for the whole workspace
+  ///     (2026-10-22). The scratch folder is the same place the host's settings JSON
+  ///     lives, so it is always present.</summary>
+  internal static ProcessStartInfo BuildStartInfo(string exe, string pipeName, string settingsPath, string databasePath, string workingDirectory)
+  {
+    ProcessStartInfo psi = new(exe);
+    psi.ArgumentList.Add(pipeName);
+    psi.ArgumentList.Add(settingsPath);
+    psi.ArgumentList.Add(databasePath);
+    if (!string.IsNullOrWhiteSpace(workingDirectory) && Directory.Exists(workingDirectory))
+    {
+      psi.WorkingDirectory = workingDirectory;
+    }
+
+    psi.RedirectStandardOutput = true;
+    psi.RedirectStandardError = true;
+    psi.UseShellExecute = false;
+    psi.CreateNoWindow = true;
+    return psi;
+  }
+
   private Process StartHostProcess(CancellationToken ct)
   {
     string exe = _hostExePath();
@@ -309,14 +343,7 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
       throw new InvalidOperationException("child host executable not found at '" + exe + "'.");
     }
 
-    ProcessStartInfo psi = new(exe);
-    psi.ArgumentList.Add(HostPipeName);
-    psi.ArgumentList.Add(_settingsPath);
-    psi.ArgumentList.Add(_databasePath);
-    psi.RedirectStandardOutput = true;
-    psi.RedirectStandardError = true;
-    psi.UseShellExecute = false;
-    psi.CreateNoWindow = true;
+    ProcessStartInfo psi = BuildStartInfo(exe, HostPipeName, _settingsPath, _databasePath, _hostWorkingDirectory);
     Process started = Process.Start(psi) ?? throw new InvalidOperationException("child host failed to start.");
     Host = started;
     HostOutputTail tail = new();

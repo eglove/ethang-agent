@@ -9,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.17", ExecGuide.Version);
+    Assert.Equal("2.18", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -31,6 +31,18 @@ public class ExecGuideTests
   [Fact]
   public void Guide_DoesNotTeachRemovedSearchFilesTool() =>
       Assert.DoesNotContain("search_files", ExecGuide.Text, StringComparison.Ordinal);
+
+  // The relative-path leak (2026-10-22): the guide used to say "use relative paths
+  // or Workspace", which is FALSE for a raw File.*/Directory.* call - a relative path
+  // there resolves against the app's launch directory, so a personal-vault session
+  // wrote its files into the ethang-agent repo. The guide must now name the rule.
+  [Fact]
+  public void Guide_TeachesThatRelativePathsNeedTheWorkspace()
+  {
+    Assert.Contains("ResolvePath", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.Contains("Path.Combine(Workspace", ExecGuide.Text, StringComparison.Ordinal);
+    Assert.DoesNotContain("use relative paths or Workspace", ExecGuide.Text, StringComparison.Ordinal);
+  }
 
   [Fact]
   public void Guide_DocumentsWorkspaceVsLaunchDirectoryAnnotation()
