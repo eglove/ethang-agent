@@ -28,4 +28,14 @@ public sealed class VerificationFreshnessSpecification(VerificationCommandSpecif
         && r.StartedUtc > newest
         && _commands.IsSatisfiedBy(r));
   }
+  /// <summary>True when the ledger holds ANY verification-class attempt,
+  ///     success or failure: the turn gate's escape hatch asks whether a
+  ///     verification command is KNOWN here, and a watched failure proves it is
+  ///     (issue #256). Delegates to the command specification's exit-agnostic
+  ///     class query.</summary>
+  public bool HasKnownCommand(IReadOnlyList<ShellExecutionRecord> ledger)
+  {
+    ArgumentNullException.ThrowIfNull(ledger);
+    return _commands.HasKnownCommand(ledger);
+  }
 }

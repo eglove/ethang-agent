@@ -27,6 +27,16 @@ public sealed class VerificationCommandSpecification
     }
   }
 
+  /// <summary>True when ANY ledger record's command tokens match a configured
+  ///     verification prefix, regardless of exit code: an attempt - even a failed
+  ///     one - proves the command exists in this workspace, so the turn gate's
+  ///     no-known-command escape must not fire when the model has already watched
+  ///     the command run (issue #256).</summary>
+  public bool HasKnownCommand(IReadOnlyList<ShellExecutionRecord> ledger)
+  {
+    ArgumentNullException.ThrowIfNull(ledger);
+    return ledger.Any(r => _prefixes.Any(p => MatchesPrefix(r.Tokens, p)));
+  }
   /// <summary>True when the record's exit code is 0 and its command tokens
   ///     start with one of the configured prefixes.</summary>
   public bool IsSatisfiedBy(ShellExecutionRecord record)

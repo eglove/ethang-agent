@@ -2,12 +2,14 @@ namespace eThangAgent.ToolDomain.Verification;
 
 /// <summary>The verdict of one gate evaluation: whether the changed files are
 ///     covered by a fresh verification run, with the counts the warning text
-///     carries.</summary>
+///     carries and whether any verification-class success is known to the
+///     ledger at all (the turn gate's no-known-command escape, issue #256).</summary>
 public readonly record struct VerificationVerdict(
     bool Verified,
     int ChangedCount,
     DateTimeOffset? NewestChangeUtc,
-    string? LastVerificationSummary);
+    string? LastVerificationSummary,
+    bool KnownVerificationCommand);
 
 /// <summary>Shared front for both gates (commit and turn): evaluates the
 ///     changed-file set against the session ledger. A disabled gate verifies
@@ -31,7 +33,10 @@ public sealed class VerificationGate(
     ArgumentNullException.ThrowIfNull(changedFiles);
     if (!Enabled)
     {
-      return new VerificationVerdict(true, changedFiles.Count, null, null);
+      // KnownVerificationCommand is meaningless for a disabled gate: it renders no
+      // text, and scanning the ledger here would defeat the disabled gate's
+      // zero-work contract.
+      return new VerificationVerdict(true, changedFiles.Count, null, null, KnownVerificationCommand: false);
     }
 
     DateTimeOffset? newest = 0 < changedFiles.Count ? changedFiles.Max(c => c.ModifiedUtc) : null;
@@ -47,7 +52,8 @@ public sealed class VerificationGate(
       summary = string.Join(' ', freshest.Tokens) + " at " + freshest.StartedUtc.ToString("u", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    return new VerificationVerdict(fresh, changedFiles.Count, newest, summary);
+    bool knownCommand = _freshness.HasKnownCommand(snapshot);
+    return new VerificationVerdict(fresh, changedFiles.Count, newest, summary, knownCommand);
   }
 
   /// <summary>The commit gate's warning contract: the commit proceeds; this
@@ -65,8 +71,11 @@ public sealed class VerificationGate(
   }
 
   /// <summary>The turn gate's nudge contract, verbatim: null when verified or
-  ///     nothing changed; otherwise the line the handler appends as a System
-  ///     message (one per turn, never a loop).</summary>
+  ///     nothing changed; otherwise an ADVISORY note the handler appends as a
+  ///     System message (one per turn, never a loop). Issue #256: the note is
+  ///     weighed when the model claims completion, never obeyed as a turn
+  ///     precondition, and a ledger with no successful verification-class run at
+  ///     all says so plainly instead of implying a command must exist.</summary>
   public string? NudgeLine(IReadOnlyList<(string Path, DateTimeOffset ModifiedUtc)> changedFiles)
   {
     if (!Enabled)
@@ -80,10 +89,28 @@ public sealed class VerificationGate(
       return null;
     }
 
-    string lastVerification = v.LastVerificationSummary ?? "none";
-    return "[verification gate] This turn changed " + v.ChangedCount + " file(s) but no verification-class command has run successfully since the newest change ("
-        + v.NewestChangeUtc?.ToString("u", System.Globalization.CultureInfo.InvariantCulture)
-        + "). Before claiming any completion: run the verification command for these changes, confirm exit code 0, and state the claim with that evidence. Last verification: "
-        + lastVerification + ".";
+    string? newest = v.NewestChangeUtc?.ToString("u", System.Globalization.CultureInfo.InvariantCulture);
+    if (!v.KnownVerificationCommand)
+    {
+      // No verification-class run has EVER succeeded in this session: demanding
+      // one would be un-satisfiable, so the note names the gap and licenses an
+      // honest "nothing verified" claim instead (issue #256).
+      return "[verification gate] This turn changed " + v.ChangedCount
+          + " file(s) but no verification-class command has run successfully since the newest change ("
+          + newest + "), and no verification command is known for this workspace."
+          + " Note for your completion claim: if the workspace has a way to verify these changes,"
+          + " run it and confirm exit code 0 before claiming completion; otherwise say plainly"
+          + " that nothing verified. This is a note, not a stop instruction; keep working.";
+    }
+
+    // LastVerificationSummary is dead text here: it names only runs STARTED after
+    // the newest change, and any such run would have made the verdict fresh, so
+    // the nudge would not fire. The known/never distinction below is the honest
+    // signal this line can carry.
+    return "[verification gate] This turn changed " + v.ChangedCount
+        + " file(s) but no verification-class command has run successfully since the newest change ("
+        + newest + "). Note for your completion claim: back the claim with fresh verification"
+        + " evidence - a successful verification-class command started after the newest change,"
+        + " exit code 0. This is a note, not a stop instruction; keep working.";
   }
 }
