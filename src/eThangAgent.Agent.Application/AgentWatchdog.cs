@@ -62,7 +62,7 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
 #pragma warning restore CA1031 // Do not catch general exception types
         {
           await AppendAsync(new WatchdogEvent(Guid.NewGuid(), new AgentId(id),
-              WatchdogEventKind.WatchdogErrored, ex.Message, 0, null,
+              WatchdogEventKind.WatchdogErrored, SweepFaultDetail(id, ex), 0, null,
               services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
         }
       }
@@ -81,7 +81,7 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
     catch (Exception ex)
 #pragma warning restore CA1031 // Do not catch general exception types
     {
-      await RecordErrorAsync(ex.Message, ct).ConfigureAwait(false);
+      await RecordErrorAsync(TickFaultDetail(ex), ct).ConfigureAwait(false);
     }
   }
 
@@ -169,7 +169,7 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
 #pragma warning restore CA1031 // Do not catch general exception types
       {
         await AppendAsync(new WatchdogEvent(Guid.NewGuid(), supervisor.ChildId,
-            WatchdogEventKind.WatchdogErrored, ex.Message, 0, null,
+            WatchdogEventKind.WatchdogErrored, SupervisionFaultDetail(supervisor.ChildId, ex), 0, null,
             services.Clock.GetUtcNow()), ct).ConfigureAwait(false);
       }
     }
@@ -403,6 +403,26 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
           "no heartbeat for " + (int)idleAge.TotalMinutes + " minutes", 0, null,
           services.Clock.GetUtcNow());
 
+  /// <summary>Issue #249: a sweep fault's audit detail is STRUCTURED - the phase
+  ///     (what the watchdog was doing), the child it was guarding, and the
+  ///     exception's type plus message. A bare ex.Message read as an unexplained
+  ///     'The operation timed out.' in the performance panel; the type and the
+  ///     child id make the row diagnosable from the screen.</summary>
+  private static string SweepFaultDetail(Guid childId, Exception ex)
+      => "sweep failed for agent " + childId.ToString("D") + ": "
+          + ex.GetType().Name + ": " + ex.Message;
+
+  /// <summary>Issue #249: a supervision fault's audit detail is structured the same
+  ///     way: the phase, the guarded child, and the exception's type plus message.</summary>
+  private static string SupervisionFaultDetail(AgentId childId, Exception ex)
+      => "supervision failed for agent " + childId.Value.ToString("D") + ": "
+          + ex.GetType().Name + ": " + ex.Message;
+
+  /// <summary>Issue #249: the tick-scope fault's detail names the phase and the
+  ///     exception's type plus message - never a bare message.</summary>
+  private static string TickFaultDetail(Exception ex)
+      => "tick failed: " + ex.GetType().Name + ": " + ex.Message;
+
   private async Task RecordErrorAsync(string message, CancellationToken ct)
   {
     DateTimeOffset now = services.Clock.GetUtcNow();
@@ -428,3 +448,4 @@ public sealed class AgentWatchdog(AgentId rootId, WatchdogServices services) : I
   public void Dispose() => _feedLease?.Dispose();
 
 }
+

@@ -180,10 +180,14 @@ internal sealed partial class ResourceIndicatorViewModel : ObservableObject
   ///     is what an operator greps. The CHROME is for a person: the level name, the
   ///     rung name, the error code and the word "harness" are internal vocabulary and
   ///     are translated here. Audit fidelity is preserved in the table; the screen
-  ///     speaks plainly.</para></summary>
+  ///     speaks plainly.</para>
+  ///     <para>Issue #249: a WatchdogErrored row is a watchdog FAULT record, not a
+  ///     governor decision - labelling its origin keeps an unexplained error line
+  ///     from reading as a decision the app took.</para></summary>
   private static string DecisionText(WatchdogEvent decision)
       => decision.CreatedAt.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)
-      + "  " + Plain(decision.Detail);
+      + "  " + (decision.Kind is WatchdogEventKind.WatchdogErrored ? "watchdog error - " : "")
+      + Plain(decision.Detail);
 
   /// <summary>The raw rung names, in the words the reader can act on. "KillProgram"
   ///     is a MISNOMER in production - the app stops the whole conversation host

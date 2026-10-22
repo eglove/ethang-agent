@@ -216,6 +216,108 @@ public class AgentWatchdogStallTests
     Assert.DoesNotContain(audit.Appended, e => e.Kind == WatchdogEventKind.StreamStalled);
   }
 
+
+  /// <summary>Issue #249: a sweep fault's audit row must be STRUCTURED - what the
+  ///     watchdog was doing (the phase), the child it was guarding, and the
+  ///     exception's type plus message - never a bare ex.Message that reads as an
+  ///     unexplained 'The operation timed out.' in the performance panel.</summary>
+  [Fact]
+  public async Task Tick_SweepFault_AppendsStructuredErrorRow_NotBareExceptionMessage()
+  {
+    AgentRecord root = Root();
+    StubClock clock = new(T0);
+    FaultingStore store = new(new InvalidOperationException("The operation timed out."), root.Id, faultOnList: false);
+    FakeRuntime runtime = new();
+    FakeHeartbeat heartbeat = new();
+    FakeEvents audit = new();
+    WatchdogServices services = new(store, runtime, heartbeat, audit,
+        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
+        new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock);
+#pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
+    AgentWatchdog watchdog = new(root.Id, services);
+#pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
+    store.Records[root.Id.Value] = root;
+    AgentRecord child = Child(root.Id, T0);
+    store.Records[child.Id.Value] = child;
+    heartbeat.Beats[child.Id.Value] = T0 - TimeSpan.FromMinutes(20); // past idle: the sweep proceeds
+
+    await watchdog.TickAsync();
+
+    WatchdogEvent row = Assert.Single(audit.Appended, e => e.Kind == WatchdogEventKind.WatchdogErrored);
+    Assert.Equal(child.Id, row.AgentId);
+    Assert.StartsWith("sweep failed for agent ", row.Detail, StringComparison.Ordinal);
+    Assert.Contains("InvalidOperationException", row.Detail, StringComparison.Ordinal);
+    Assert.Contains("The operation timed out.", row.Detail, StringComparison.Ordinal);
+  }
+
+  /// <summary>Issue #249: a tick-scope fault (outside every per-child guard) records
+  ///     a rate-limited row whose detail names the phase and the exception type -
+  ///     never a bare message.</summary>
+  [Fact]
+  public async Task Tick_ScopeFault_AppendsStructuredPhaseAndException()
+  {
+    AgentRecord root = Root();
+    StubClock clock = new(T0);
+    FaultingStore store = new(new InvalidOperationException("The operation timed out."), root.Id, faultOnList: true);
+    FakeRuntime runtime = new();
+    FakeHeartbeat heartbeat = new();
+    FakeEvents audit = new();
+    WatchdogServices services = new(store, runtime, heartbeat, audit,
+        new WatchdogPolicy(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60), 1, TimeSpan.FromMinutes(2)),
+        new WatchdogOptions(TickInterval: TimeSpan.FromSeconds(60)), clock);
+#pragma warning disable CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
+    AgentWatchdog watchdog = new(root.Id, services);
+#pragma warning restore CA2000 // Dispose via the harness pattern: the watchdog's lease dies with the test
+
+    await watchdog.TickAsync();
+
+    WatchdogEvent row = Assert.Single(audit.Appended, e => e.Kind == WatchdogEventKind.WatchdogErrored);
+    Assert.StartsWith("tick failed: ", row.Detail, StringComparison.Ordinal);
+    Assert.Contains("InvalidOperationException", row.Detail, StringComparison.Ordinal);
+  }
+
+  /// <summary>The FaultingStore: ListAllAsync throws the injected exception (the
+  ///     sweep's store call is the fault site), while every other member behaves
+  ///     like the plain FakeStore.</summary>
+  private sealed class FaultingStore(Exception fault, AgentId rootId, bool faultOnList) : IAgentStore
+  {
+    public Dictionary<Guid, AgentRecord> Records { get; } = [];
+    public List<AgentRecord> Updated { get; } = [];
+
+    public Task<Result<string>> SaveAsync(AgentRecord record, CancellationToken ct = default)
+    {
+      Records[record.Id.Value] = record;
+      return Task.FromResult(Result.Success("ok"));
+    }
+
+    public Task<Result<string>> UpdateAsync(AgentRecord record, CancellationToken ct = default)
+    {
+      Records[record.Id.Value] = record;
+      Updated.Add(record);
+      return Task.FromResult(Result.Success("updated"));
+    }
+
+    public Task<Result<AgentRecord>> GetAsync(AgentId id, CancellationToken ct = default)
+      => id == rootId
+          ? Task.FromResult(Result.Success(Records[id.Value]))
+          : throw fault;
+
+    public Task<Result<string>> AppendMessageAsync(AgentId id, Message message, CancellationToken ct = default)
+      => Task.FromResult(Result.Success("ok"));
+
+    public Task<Result<string>> ReplaceTranscriptAsync(AgentId id, IReadOnlyList<Message> messages, CancellationToken ct = default)
+      => Task.FromResult(Result.Success(id.ToString()));
+
+    public Task<Result<IReadOnlyList<Message>>> GetTranscriptAsync(AgentId id, CancellationToken ct = default)
+      => Task.FromResult(Result.Success<IReadOnlyList<Message>>([]));
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListChildrenAsync(AgentId parentId, CancellationToken ct = default)
+      => Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([]));
+
+    public Task<Result<IReadOnlyList<AgentRecord>>> ListAllAsync(CancellationToken ct = default)
+      => faultOnList ? throw fault : Task.FromResult(Result.Success<IReadOnlyList<AgentRecord>>([.. Records.Values]));
+  }
+
   [Fact]
   public void WatchdogPolicy_ParameterlessCtor_DefaultStallThreshold_IsTwoMinutes()
   {

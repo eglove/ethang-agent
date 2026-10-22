@@ -249,6 +249,46 @@ public sealed class ResourceIndicatorTests
     Assert.Contains("watch", line, StringComparison.OrdinalIgnoreCase);
   }
 
+  /// <summary>Issue #249: a WatchdogErrored row is NOT a governor decision - the
+  ///     chrome labels its origin so an unexplained error line never reads as a
+  ///     decision the app took.</summary>
+  [Fact]
+  public void Update_AWatchdogErrorRow_IsLabelledAsAWatchdogError()
+  {
+    ResourceIndicatorViewModel vm = new();
+    WatchdogEvent evt = new(Guid.NewGuid(), null, WatchdogEventKind.WatchdogErrored,
+        "tick failed: InvalidOperationException: The operation timed out.", 0, null,
+        new DateTimeOffset(2026, 10, 18, 12, 0, 0, TimeSpan.Zero));
+
+    vm.Update(
+        new ResourceGovernorTick(ResourceLevel.Normal, null, ResourceAction.None, 0, 0),
+        [],
+        [evt]);
+
+    string line = Assert.Single(vm.RecentDecisions);
+    Assert.Contains("watchdog error", line, StringComparison.OrdinalIgnoreCase);
+    Assert.Contains("The operation timed out.", line, StringComparison.Ordinal);
+  }
+
+  /// <summary>Issue #249: a governor decision row carries NO watchdog-error label -
+  ///     the two origins stay distinguishable on the screen.</summary>
+  [Fact]
+  public void Update_AGovernorDecisionRow_IsNotLabelledAsAWatchdogError()
+  {
+    ResourceIndicatorViewModel vm = new();
+    WatchdogEvent evt = new(Guid.NewGuid(), null, WatchdogEventKind.ResourceNotice,
+        "conversation c1 at 6000 MB of its 8000 MB share (Notice)", 0, 6000,
+        new DateTimeOffset(2026, 10, 18, 12, 0, 0, TimeSpan.Zero));
+
+    vm.Update(
+        new ResourceGovernorTick(ResourceLevel.Notice, "c1", ResourceAction.None, 6_000_000_000L, 8_000_000_000L),
+        [new ResourceObservation("c1", 6_000_000_000L, [])],
+        [evt]);
+
+    string line = Assert.Single(vm.RecentDecisions);
+    Assert.DoesNotContain("watchdog error", line, StringComparison.OrdinalIgnoreCase);
+  }
+
   /// <summary>The plain-language translation is a DENYLIST, so a row written by
   ///     ANOTHER component - the AGENT watchdog, not the governor - can carry the
   ///     domain's level in its TYPE-QUALIFIED form and slip through every bare-name
