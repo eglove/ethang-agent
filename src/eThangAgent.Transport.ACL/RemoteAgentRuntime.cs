@@ -26,10 +26,20 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 
   /// <summary>Creates a runtime with an explicit root-turn budget (tests, composition).</summary>
   public RemoteAgentRuntime(NamedPipeChildTransport? transport, RootTurnBudget rootTurnBudget)
+      : this(transport, rootTurnBudget, events: null)
+  {
+  }
+
+  /// <summary>Creates a runtime with an explicit root-turn budget and the event stream
+  ///     forwarded <c>child-event</c> envelopes republish onto (issue #245). Null keeps
+  ///     the legacy shape: forwarded events are dropped, byte-identical to before.</summary>
+  public RemoteAgentRuntime(NamedPipeChildTransport? transport, RootTurnBudget rootTurnBudget,
+      IAgentEvents? events)
   {
     ArgumentNullException.ThrowIfNull(rootTurnBudget);
     _transport = transport;
     TurnBudget = rootTurnBudget;
+    _events = events;
   }
 
   /// <summary>The root-turn budget this runtime enforces.</summary>
@@ -37,6 +47,11 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 
   private readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentRunOutcome>> _settling = [];
   private readonly ConcurrentDictionary<Guid, byte> _owned = [];
+
+  // The session's event stream (issue #245): forwarded child-event envelopes republish
+  // here, so the app's panel/badge/wake adapters observe remote children. Null (tests,
+  // legacy wiring) drops them - the legacy shape is byte-identical.
+  private readonly IAgentEvents? _events;
 
   // Root turns in flight (spec D6): one waiter per turn id, keyed by the id the app
   // minted. The pump routes 'root-turn-event' envelopes here; connection loss and
@@ -553,6 +568,9 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       case "root-turn-event":
         HandleRootTurnEvent(envelope.Json);
         break;
+      case "child-event":
+        HandleChildEvent(envelope.Json);
+        break;
       default:
         break;
     }
@@ -617,6 +635,43 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       Settle(new AgentId(notice.RecordId), new AgentRunOutcome(new AgentId(notice.RecordId),
           status, reason, notice.Report, "remote", 0));
     }
+  }
+
+  /// <summary>Republishes one forwarded child event onto the session's event stream
+  ///     (issue #245): the host serializes the child container's own ChildEvent and this
+  ///     side re-publishes it verbatim, so the Desktop's subagent panel, unread badge, and
+  ///     wait-wake adapters observe REMOTE children exactly like in-process ones. An
+  ///     undecodable payload is dropped (a peer's forward-compatible event kind) - never
+  ///     a pump fault. No stream wired: a no-op, byte-identical to the legacy shape.
+  ///     <para>The app-side supervisor feed is unaffected: remote children are never
+  ///     registered in the app's ChildSupervisorRegistry, so a forwarded progress or
+  ///     settled event finds no supervisor and feeds nothing - supervision of remote
+  ///     children stays host-side (R3 doctrine).</para></summary>
+  private void HandleChildEvent(string json)
+  {
+    if (_events is null)
+    {
+      return;
+    }
+
+    ChildEventEnvelope? envelope;
+    try
+    {
+      envelope = JsonSerializer.Deserialize<ChildEventEnvelope>(json);
+    }
+#pragma warning disable CA1031 // Named decision: an undecodable envelope is a peer fault, not a pump crash.
+    catch (JsonException)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return;
+    }
+
+    if (envelope?.Decode() is not { } evt)
+    {
+      return;
+    }
+
+    _events.Publish(evt);
   }
 
   /// <summary>Completes every waiter for one child, RETAINING the completed source as
