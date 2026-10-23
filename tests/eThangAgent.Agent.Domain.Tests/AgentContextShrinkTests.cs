@@ -68,6 +68,9 @@ public class AgentContextShrinkTests
       Calls++;
       return Task.FromResult(Result.Success(new CompactionOutcome(0, conversation.Messages.Count, null)));
     }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
   }
 
   [Fact]

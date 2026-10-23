@@ -194,7 +194,7 @@ public class DefaultContextCompactorTests
     int countBefore = conversation.Messages.Count;
 
     RecordingFactory factory = new(null);
-    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => true);
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
 
     Result<CompactionOutcome> outcome = await compactor.CompactAsync(
         conversation, Serving, TestContext.Current.CancellationToken);
@@ -213,7 +213,7 @@ public class DefaultContextCompactorTests
     Conversation conversation = ConversationWithEvictableMiddle();
 
     RecordingFactory factory = new(null);
-    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => false);
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(false));
 
     Result<CompactionOutcome> outcome = await compactor.CompactAsync(
         conversation, Serving, TestContext.Current.CancellationToken);
@@ -257,13 +257,54 @@ public class DefaultContextCompactorTests
     }
 
     RecordingFactory factory = new(null);
-    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => true);
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
 
     Result<CompactionOutcome> outcome = await compactor.CompactAsync(
         conversation, Serving, TestContext.Current.CancellationToken);
 
     Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
     Assert.False(outcome.Value.IsHandoff);
+  }
+
+  /// <summary>OVERFLOW RECOVERY IS ALWAYS IN PLACE: forceInPlace bypasses the handoff
+  /// decision even when the delegate is wired and true — the ceiling path is the only
+  /// path that may decide a handoff.</summary>
+  [Fact]
+  public async Task CompactAsync_ForceInPlace_BypassesTheHandoffDecision()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
+
+    Result<CompactionOutcome> outcome = await compactor.CompactInPlaceAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.False(outcome.Value.IsHandoff);
+    Assert.True(conversation.Messages[0].IsSummary); // compacted in place
+  }
+
+  /// <summary>An enablement delegate that FAILS (a misconfigured preference read) is a
+  /// typed failure outcome — the compactor never guesses enabled/disabled, and the
+  /// existing compaction-failure notice path carries the error.</summary>
+  [Fact]
+  public async Task CompactAsync_EnablementFailure_IsATypedFailure()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    int countBefore = conversation.Messages.Count;
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null,
+        handoffEnabled: () => Result.Failure<bool>(new DomainError("InvalidPreferenceValue",
+            "compaction_handoff_enabled must be 'true' or 'false', got 'yes'.")));
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.False(outcome.IsSuccess);
+    Assert.Equal("InvalidPreferenceValue", outcome.Error.Code);
+    Assert.Equal(countBefore, conversation.Messages.Count); // untouched
   }
 
   /// <summary>ROOT-GATING: with a child ambient (a running child on this async flow) the
@@ -275,7 +316,7 @@ public class DefaultContextCompactorTests
     Conversation conversation = ConversationWithEvictableMiddle();
 
     RecordingFactory factory = new(null);
-    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => true);
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
     AgentRecord child = AgentRecord.Spawned(
         AgentId.NewId(), new AgentId(Guid.NewGuid()), 1, "m/sub", "child", "task",
         DateTimeOffset.UtcNow);

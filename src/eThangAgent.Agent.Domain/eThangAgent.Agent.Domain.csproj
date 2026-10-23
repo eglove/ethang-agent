@@ -12,5 +12,7 @@
     <InternalsVisibleTo Include="eThangAgent.Composition.Tests" />
     <!-- The handoff root-gating tests drive the running-child ambient directly. -->
     <InternalsVisibleTo Include="eThangAgent.Agent.Domain.Tests" />
+    <!-- The host's handoff-emit tests stage a pending handoff directly. -->
+    <InternalsVisibleTo Include="eThangAgent.Transport.ACL.Tests" />
   </ItemGroup>
 </Project>

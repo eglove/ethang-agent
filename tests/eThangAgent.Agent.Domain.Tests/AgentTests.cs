@@ -293,6 +293,42 @@ public class AgentTests
   /// handoff (carrying the summary; the conversation is NOT compacted in place) leaves
   /// HandoffPending true after the turn ends; the composition clears it via
   /// ClearHandoffPending. An ordinary compaction outcome leaves the flag false.</summary>
+  /// <summary>Counts every compaction call and always decides a handoff: the
+  /// one-decision-per-turn guard is observable in the call count.</summary>
+  private sealed class CountingHandoffCompactor : IContextCompactor
+  {
+    public int Calls { get; private set; }
+
+    public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+    {
+      Calls++;
+      return Task.FromResult(Result.Success(CompactionOutcome.Handoff("the handoff summary", new TokenUsage(50, 100))));
+    }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
+  }
+
+  /// <summary>First response carries a tool call (driving a second iteration), then the
+  /// final answer — the iteration structure the one-decision-per-turn guard needs.</summary>
+  private sealed class ToolCallingProvider : IModelProvider
+  {
+    private int _calls;
+
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
+        CancellationToken ct = default)
+    {
+      _calls++;
+      return Task.FromResult(_calls == 1
+          ? Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "missing", "{}")]))
+          : Result.Success(new ModelResponse("final", [])));
+    }
+
+    public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
+        Action<string>? onContentDelta = null, Action<string>? onReasoningDelta = null, CancellationToken ct = default)
+        => SendAsync(config, request, ct);
+  }
+
   private sealed class HandoffCompactor(bool handoff) : IContextCompactor
   {
     public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
@@ -301,6 +337,9 @@ public class AgentTests
           ? Result.Success(CompactionOutcome.Handoff("the handoff summary", new TokenUsage(50, 100)))
           : Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100))));
     }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
   }
 
   [Fact]
@@ -366,7 +405,31 @@ public class AgentTests
     Assert.False(agent.HandoffPending);
   }
 
-  /// <summary>A handoff outcome did NOT compact the conversation: there is no summary
+  /// <summary>A handoff outcome does NOT shrink the conversation, so utilization stays
+  /// above the ceiling: the turn must not re-enter the compactor on every subsequent
+  /// iteration — ONE handoff decision per turn (the decision blocks the auto-compact
+  /// backstop for the remainder of the turn, exactly as a failed compaction does).</summary>
+  [Fact]
+  public async Task Handoff_HandoffOutcome_BlocksFurtherCompactionThisTurn()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800));
+    CountingHandoffCompactor compactor = new();
+    Agent agent = new(new ToolCallingProvider(), conversation, DefaultConfig, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(80.0),
+          ContextCompactor = compactor,
+        });
+
+    Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal(1, compactor.Calls); // one handoff decision per turn, not one per iteration
+    Assert.True(agent.HandoffPending);
+  }
+
+  /// <summary>A handoff outcome does NOT compact the conversation: there is no summary
   /// message in it, so the summary-surfacing part of NotifyCompacted must not run - the
   /// OnSystemMessage callback must not see a summary line from a handoff.</summary>
   [Fact]

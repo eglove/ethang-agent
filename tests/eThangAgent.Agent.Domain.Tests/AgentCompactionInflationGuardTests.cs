@@ -35,6 +35,9 @@ public class AgentCompactionInflationGuardTests
       Calls++;
       return Task.FromResult(Result.Success(new CompactionOutcome(1, 1, new TokenUsage(1, 1))));
     }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
   }
 
   private sealed class StubProvider : IModelProvider

@@ -84,26 +84,6 @@ public class ChildHostHandoffEmitTests
     }
   }
 
-  /// <summary>The rig: holder-built agent (compactor in the dependencies), the handler
-  ///     resolving holder.Current lazily, and the channel in the container.</summary>
-  private static (ServiceProvider Services, RootRunHost Runner, Ag Agent, Conversation Conversation)
-      BuildRig(DefaultContextCompactor compactor, IModelProvider provider, Conversation conversation)
-  {
-    RootDependencies dependencies = new(ContextCompactor: compactor);
-    RootAgentHolder holder = new(provider, conversation, new EmptyToolRegistry(), dependencies: dependencies);
-    Ag agent = holder.Build(null, Config); // the way the first turn builds the root
-    ServiceProvider services = new ServiceCollection()
-        .AddSingleton<NewSessionRequestChannel>()
-        .AddSingleton(conversation)
-        .AddSingleton(holder)
-        .AddSingleton(sp => new SendMessageCommandHandler(
-            agent: sp.GetRequiredService<RootAgentHolder>().Current,
-            conversation: conversation))
-        .BuildServiceProvider();
-    RootRunHost runner = new(services, AgentId.NewId(), conversation);
-    return (services, runner, agent, conversation);
-  }
-
   [Fact]
   public async Task TurnEndingWithHandoffPending_EmitsSeedOnlySessionRequestBeforeTheSettle()
   {
@@ -118,7 +98,7 @@ public class ChildHostHandoffEmitTests
         Result.Success(new ModelResponse("the handoff summary", [])),
         Result.Success(new ModelResponse("final", [])));
     DefaultContextCompactor compactor = new(
-        new RecordingFactory(provider), () => null, handoffEnabled: () => true);
+        new RecordingFactory(provider), () => null, handoffEnabled: () => Result.Success(true));
     (ServiceProvider services, RootRunHost runner, Ag agent, Conversation _) =
         BuildRig(compactor, provider, conversation);
 
@@ -132,7 +112,7 @@ public class ChildHostHandoffEmitTests
       // The handoff emit pends on the app's answer; the session-request event proves it
       // fired BEFORE the settle.
       await WaitUntilAsync(() => events.Any(e => e.Kind == "session-request"),
-          "the session-request never arrived; events: " + string.Join(" | ", events.Select(e => e.Kind)))
+          "the session-request never arrived; events: " + string.Join(" | ", events.Select(e => e.Kind + "=" + e.Payload)))
           .ConfigureAwait(true);
       int requestIndex = events.FindIndex(e => e.Kind == "session-request");
       RootTurnEvent request = events[requestIndex];
@@ -180,7 +160,7 @@ public class ChildHostHandoffEmitTests
         Result.Success(new ModelResponse("the handoff summary", [])),
         Result.Success(new ModelResponse("final", [])));
     DefaultContextCompactor compactor = new(
-        new RecordingFactory(provider), () => null, handoffEnabled: () => false);
+        new RecordingFactory(provider), () => null, handoffEnabled: () => Result.Success(false));
     (ServiceProvider services, RootRunHost runner, Ag agent, Conversation _) =
         BuildRig(compactor, provider, conversation);
 
@@ -202,6 +182,208 @@ public class ChildHostHandoffEmitTests
       await services.DisposeAsync().ConfigureAwait(true);
       runner.Dispose();
     }
+  }
+
+  /// <summary>FINDING 5: a pending handoff whose summary is null must NOT emit a
+  /// seedless launch — the emit is skipped (the anomaly is surfaced as a notice) and the
+  /// flag is still consumed.</summary>
+  [Fact]
+  public async Task HandoffWithNullSummary_SkipsTheEmit_ClearsTheFlag_AndSurfacesANotice()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    (ServiceProvider services, RootRunHost runner, Ag agent, Conversation _) =
+        BuildRig(pending: true, summary: null, conversation);
+    try
+    {
+      List<RootTurnEvent> events = [];
+      Result<string> result = await runner.RunTurnAsync(
+          new RootTurnRequest("turn-null-summary", "go", []), events.Add,
+          TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken)
+          .ConfigureAwait(true);
+
+      Assert.True(result.IsSuccess, result.Error?.Message);
+      Assert.DoesNotContain(events, e => e.Kind == "session-request");
+      Assert.False(agent.HandoffPending); // consumed even though nothing was emitted
+      Assert.Contains(events, e => e.Kind == "notice" && e.Payload.Contains("handoff", StringComparison.OrdinalIgnoreCase));
+    }
+    finally
+    {
+      await services.DisposeAsync().ConfigureAwait(true);
+      runner.Dispose();
+    }
+  }
+
+  /// <summary>FINDING 8a: a container WITHOUT the channel (a test rig) skips the emit
+  /// silently and still consumes the flag — the channel is an optional capability.</summary>
+  [Fact]
+  public async Task ChannelAbsent_SkipsTheEmit_AndClearsTheFlag()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    IModelProvider provider = new QueueProvider(Result.Success(new ModelResponse("final", [])));
+    RootAgentHolder holder = new(provider, conversation, new EmptyToolRegistry());
+    Ag agent = holder.Build(null, Config);
+    agent.SetHandoffForTests(pending: true, summary: "the handoff summary");
+    ServiceProvider services = new ServiceCollection()
+        .AddSingleton(conversation)
+        .AddSingleton(holder)
+        .AddSingleton(sp => new SendMessageCommandHandler(
+            agent: sp.GetRequiredService<RootAgentHolder>().Current,
+            conversation: conversation))
+        .BuildServiceProvider();
+    RootRunHost runner = new(services, AgentId.NewId(), conversation);
+    try
+    {
+      List<RootTurnEvent> events = [];
+      Result<string> result = await runner.RunTurnAsync(
+          new RootTurnRequest("turn-no-channel", "go", []), events.Add,
+          TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken)
+          .ConfigureAwait(true);
+
+      Assert.True(result.IsSuccess, result.Error?.Message);
+      Assert.DoesNotContain(events, e => e.Kind == "session-request");
+      Assert.False(agent.HandoffPending); // consumed: the host acted (by skipping)
+    }
+    finally
+    {
+      await services.DisposeAsync().ConfigureAwait(true);
+      runner.Dispose();
+    }
+  }
+
+  /// <summary>FINDING 8b: the app REFUSING the launch is swallowed — the turn's own
+  /// outcome is unaffected, the flag is consumed, and the turn still settles.</summary>
+  [Fact]
+  public async Task LaunchRefused_SwallowsTheFailure_AndStillSettles()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    (ServiceProvider services, RootRunHost runner, Ag agent, Conversation _) =
+        BuildRig(pending: true, summary: "the handoff summary", conversation);
+    try
+    {
+      List<RootTurnEvent> events = [];
+      Task<Result<string>> turn = runner.RunTurnAsync(
+          new RootTurnRequest("turn-refused", "go", []), events.Add,
+          TestContext.Current.CancellationToken);
+
+      await WaitUntilAsync(() => events.Any(e => e.Kind == "session-request"),
+          "the session-request never arrived").ConfigureAwait(true);
+      RootTurnEvent request = events.First(e => e.Kind == "session-request");
+      SessionRequestPayload payload = JsonSerializer.Deserialize<SessionRequestPayload>(request.Payload)!;
+      runner.CompleteSessionRequest(payload.RequestId,
+          Result.Failure<string>(new DomainError("SessionLaunchFailed", "the app refused the launch.")));
+
+      Result<string> result = await turn.WaitAsync(Limit, TestContext.Current.CancellationToken)
+          .ConfigureAwait(true);
+      Assert.True(result.IsSuccess, result.Error?.Message); // the refusal did not fail the turn
+      Assert.DoesNotContain(events, e => e.Kind == "settled" && e.Payload.Contains("SessionLaunchFailed", StringComparison.Ordinal));
+      Assert.False(agent.HandoffPending);
+    }
+    finally
+    {
+      await services.DisposeAsync().ConfigureAwait(true);
+      runner.Dispose();
+    }
+  }
+
+  /// <summary>FINDING 4: a turn that FAULTS (the handler throws) still consumes the
+  /// pending flag — the host acts on HandoffPending after ANY turn end, including a
+  /// fault exit.</summary>
+  [Fact]
+  public async Task FaultingTurn_StillClearsThePendingFlag()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+
+    // A PROVIDER THAT THROWS (a non-OCE exception escapes the handler — the fault
+    // path under test): the turn must still consume the pending flag.
+    ThrowingProvider throwing = new();
+    RootAgentHolder faultHolder = new(throwing, conversation, new EmptyToolRegistry());
+    Ag faultAgent = faultHolder.Build(null, Config);
+    faultAgent.SetHandoffForTests(pending: true, summary: "the handoff summary");
+    ServiceProvider services = new ServiceCollection()
+        .AddSingleton<NewSessionRequestChannel>()
+        .AddSingleton(conversation)
+        .AddSingleton(faultHolder)
+        .AddSingleton(sp => new SendMessageCommandHandler(
+            agent: sp.GetRequiredService<RootAgentHolder>().Current,
+            conversation: conversation))
+        .BuildServiceProvider();
+    RootRunHost runner = new(services, AgentId.NewId(), conversation);
+    try
+    {
+      List<RootTurnEvent> events = [];
+      // The fault propagates (RunTurnAsync catches only cancellations): the assertion
+      // is that the fault path CONSUMED the pending flag on its way out.
+      _ = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunTurnAsync(
+          new RootTurnRequest("turn-fault", "go", []), events.Add,
+          TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken))
+          .ConfigureAwait(true);
+
+      Assert.False(faultAgent.HandoffPending); // consumed on the fault exit too
+    }
+    finally
+    {
+      await services.DisposeAsync().ConfigureAwait(true);
+      runner.Dispose();
+    }
+  }
+
+  /// <summary>A provider whose call throws a non-OCE exception: it escapes the handler
+  /// (which catches only OperationCanceledException), producing the FAULT exit the
+  /// clear-on-every-exit guarantee is about.</summary>
+  private sealed class ThrowingProvider : IModelProvider
+  {
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
+        CancellationToken ct = default)
+        => throw new InvalidOperationException("the provider exploded");
+
+    public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
+        Action<string>? onContentDelta = null, Action<string>? onReasoningDelta = null,
+        CancellationToken ct = default)
+        => throw new InvalidOperationException("the provider exploded");
+  }
+
+  /// <summary>The rig: holder-built agent (compactor in the dependencies), the handler
+  ///     resolving holder.Current lazily, and the channel in the container.</summary>
+  private static (ServiceProvider Services, RootRunHost Runner, Ag Agent, Conversation Conversation)
+      BuildRig(DefaultContextCompactor compactor, IModelProvider provider, Conversation conversation)
+  {
+    RootDependencies dependencies = new(ContextCompactor: compactor);
+    RootAgentHolder holder = new(provider, conversation, new EmptyToolRegistry(), dependencies: dependencies);
+    Ag agent = holder.Build(null, Config); // the way the first turn builds the root
+    ServiceProvider services = new ServiceCollection()
+        .AddSingleton<NewSessionRequestChannel>()
+        .AddSingleton(conversation)
+        .AddSingleton(holder)
+        .AddSingleton(sp => new SendMessageCommandHandler(
+            agent: sp.GetRequiredService<RootAgentHolder>().Current,
+            conversation: conversation))
+        .BuildServiceProvider();
+    RootRunHost runner = new(services, AgentId.NewId(), conversation);
+    return (services, runner, agent, conversation);
+  }
+
+  /// <summary>The rig for the emit-path tests: the holder builds the root agent (the
+  ///     way the first turn does), the test stages the pending handoff on THAT agent
+  ///     (the one holder.Current and the handler resolve), and the channel is in the
+  ///     container. Staging on a hand-built agent would leave holder.Current — the agent
+  ///     the emit reads — untouched.</summary>
+  private static (ServiceProvider Services, RootRunHost Runner, Ag Agent, Conversation Conversation)
+      BuildRig(bool pending, string? summary, Conversation conversation)
+  {
+    IModelProvider provider = new QueueProvider(Result.Success(new ModelResponse("final", [])));
+    RootAgentHolder holder = new(provider, conversation, new EmptyToolRegistry());
+    Ag agent = holder.Build(null, Config);
+    agent.SetHandoffForTests(pending, summary);
+    ServiceProvider services = new ServiceCollection()
+        .AddSingleton<NewSessionRequestChannel>()
+        .AddSingleton(conversation)
+        .AddSingleton(holder)
+        .AddSingleton(sp => new SendMessageCommandHandler(
+            agent: sp.GetRequiredService<RootAgentHolder>().Current,
+            conversation: conversation))
+        .BuildServiceProvider();
+    RootRunHost runner = new(services, AgentId.NewId(), conversation);
+    return (services, runner, agent, conversation);
   }
 
   /// <summary>The provider factory the real compactor resolves its summarizer through.</summary>

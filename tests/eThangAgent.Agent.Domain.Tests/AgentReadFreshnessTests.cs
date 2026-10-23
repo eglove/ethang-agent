@@ -196,5 +196,8 @@ public class AgentReadFreshnessTests
           ? Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100)))
           : Result.Failure<CompactionOutcome>(replaced.Error));
     }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
   }
 }

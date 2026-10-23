@@ -114,9 +114,13 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // the transcript sink's baseline counts the seeded prefix as already-persisted
       // (it seeds its counter from the conversation's length at construction), so
       // without this the seed would never reach the store and a resume would lose it.
+      // The prefix is read from the CONTAINER'S conversation (finding 9): the sink's
+      // baseline is defined by that conversation's length, so the persisted prefix must
+      // be exactly what it holds — the caller's list is only the construction input.
       if (conversationSeed is { Count: > 0 })
       {
-        foreach (Message message in conversationSeed)
+        IReadOnlyList<Message> seededPrefix = services.GetRequiredService<Conversation>().Messages;
+        foreach (Message message in seededPrefix)
         {
           Result<string> appended = await store.AppendMessageAsync(bootstrapped.Value, message, ct)
               .ConfigureAwait(false);

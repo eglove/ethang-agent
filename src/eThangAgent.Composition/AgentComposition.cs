@@ -355,7 +355,7 @@ public static class AgentComposition
           return new DefaultContextCompactor(
               sp.GetRequiredService<IModelProviderFactory>(),
               () => summarizer.ResolveAsync(SubAgentSpawner.ChildMaxTokens, SubAgentSpawner.ChildTemperature).GetAwaiter().GetResult(),
-              handoffEnabled: () => SessionHandoffPreferences.Parse(
+              handoffEnabled: () => SessionHandoffPreferences.TryParse(
                   sp.GetRequiredService<IAppPreferenceStore>()
                       .GetAsync(SessionHandoffPreferences.Key, ct: default).GetAwaiter().GetResult()));
         })

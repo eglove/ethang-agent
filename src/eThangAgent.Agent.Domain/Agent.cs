@@ -189,6 +189,16 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     observed context shrink). A failed compaction does NOT reset it.</summary>
   private bool _softReminderShown;
 
+  /// <summary>ONE HANDOFF DECISION PER TURN (issue #234 fix round): set when a
+  ///     compaction outcome IS a handoff, read by ManageContextAsync to block the
+  ///     auto-compact backstop for the remainder of the turn. A handoff does NOT shrink
+  ///     the conversation, so utilization stays above the ceiling — without this flag
+  ///     every subsequent iteration would re-enter the compactor (a fresh summarizer
+  ///     LLM call per iteration). Same shape as <c>_shrankThisTurnObserved</c>: a
+  ///     turn-local fact set deep in the loop, consumed at the iteration boundary,
+  ///     reset at the turn's start.</summary>
+  private bool _handoffDecidedThisTurn;
+
   /// <summary>True when the last successful compaction's outcome WAS a handoff
   ///     (issue #234): the composition layer reads this after the turn ends and launches
   ///     the new session with the outcome's summary as its seed. One-shot per
@@ -208,6 +218,16 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   {
     HandoffPending = false;
     HandoffSummary = null;
+  }
+
+  /// <summary>TEST SEAM (issue #234 fix round): drives the handoff-pending state
+  ///     directly, so the host's emit tests can stage a pending handoff without running
+  ///     a compaction. Production never calls this — the flag is set only from a
+  ///     compaction outcome.</summary>
+  internal void SetHandoffForTests(bool pending, string? summary)
+  {
+    HandoffPending = pending;
+    HandoffSummary = summary;
   }
 
   /// <summary>
@@ -271,6 +291,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     LastTurnToolCalls = 0;
     ShrankThisTurn = false;
     _shrankThisTurnObserved = false;
+    _handoffDecidedThisTurn = false;
     _repeatGuard.Reset();
     _readLedger.Reset();
     TurnState state = new();
@@ -361,7 +382,9 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
 
     bool compacted = !shrinkObserved && await TryCompactIfNeededAsync(callbacks, ct).ConfigureAwait(false);
-    state.AutoCompactBlocked = compacted || shrinkObserved;
+    // A handoff decision blocks the backstop too (one decision per turn): the
+    // conversation did not shrink, so utilization would re-fire every iteration.
+    state.AutoCompactBlocked = compacted || shrinkObserved || _handoffDecidedThisTurn;
   }
 
   /// <summary>A failed provider call: the caller-stop check, the one-shot overflow
@@ -497,6 +520,11 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       {
         HandoffPending = true;
         HandoffSummary = compacted.Value.HandoffSummary;
+        // One decision per turn: the conversation did NOT shrink, so utilization stays
+        // above the ceiling and the backstop would re-enter the compactor on every
+        // remaining iteration (a fresh summarizer call each time). Block it for the
+        // remainder of the turn — the handoff acts at the turn's END.
+        _handoffDecidedThisTurn = true;
       }
 
       return false;
@@ -596,8 +624,12 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
     Beat();
     PublishProgress(ChildPhase.ModelCall, "overflow-recovery");
+    // ALWAYS IN PLACE (issue #234 fix round): the handoff is a ceiling-path decision
+    // only. A handoff here would skip the compaction and re-send the identical
+    // oversized request into the same overflow — the turn would fail with no handoff
+    // offered. The in-place shape is the recovery's contract.
     Result<CompactionOutcome> compacted =
-        await _contextCompactor.CompactAsync(Conversation, Config, ct).ConfigureAwait(false);
+        await _contextCompactor.CompactInPlaceAsync(Conversation, Config, ct).ConfigureAwait(false);
     if (!compacted.IsSuccess)
     {
       string line = $"{TurnFailedPrefix}Error [{compacted.Error.Code}]: {compacted.Error.Message} (underlying: Error [{overflowError.Code}]: {overflowError.Message})";

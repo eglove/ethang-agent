@@ -19,7 +19,7 @@ namespace eThangAgent.AgentDomain;
 ///     in-place compaction — the conversation is left intact and the summary seeds a new
 ///     session. The tail-compression fallback never hands off (it produces no summary).</para></summary>
 public sealed class DefaultContextCompactor(IModelProviderFactory providerFactory, Func<ModelConfig?> summarizerModel,
-    Func<bool>? handoffEnabled = null)
+    Func<Result<bool>>? handoffEnabled = null)
     : IContextCompactor
 {
   /// <summary>Verbatim contract for the summarizer call.</summary>
@@ -30,8 +30,18 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
   ///     tail-compression candidate (deterministic marker, no LLM call).</summary>
   public const double TailCompressionThresholdFraction = 0.05;
 
-  public async Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation,
+  public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation,
       ModelConfig servingModel, CancellationToken ct = default)
+      => CompactCoreAsync(conversation, servingModel, forceInPlace: false, ct);
+
+  /// <summary>The overflow-recovery shape: ALWAYS in place, by contract — the handoff is
+  ///     a ceiling-path decision only (issue #234 fix round).</summary>
+  public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation,
+      ModelConfig servingModel, CancellationToken ct = default)
+      => CompactCoreAsync(conversation, servingModel, forceInPlace: true, ct);
+
+  private async Task<Result<CompactionOutcome>> CompactCoreAsync(Conversation conversation,
+      ModelConfig servingModel, bool forceInPlace, CancellationToken ct)
   {
     ArgumentNullException.ThrowIfNull(conversation);
     ArgumentNullException.ThrowIfNull(servingModel);
@@ -53,32 +63,20 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
 
     List<Message> evicted = [.. messages.Skip(plan.ProtectedCount).Take(plan.EvictCount)];
     List<Message> keptTail = CompressTail(messages, plan, window, policy.TargetPercent);
-    ModelConfig writer = summarizerModel() ?? servingModel;
-    IModelProvider provider = providerFactory.Create(writer);
-    ModelRequest request = new(
-        [new Message(Role.User, Render(evicted, keptTail), DateTimeOffset.UtcNow)],
-        SystemPrompt: SummarizerSystemPrompt);
-    Result<ModelResponse> summary = await provider.SendAsync(writer, request, ct).ConfigureAwait(false);
+    Result<SummaryResult> summary = await SummarizeAsync(evicted, keptTail, servingModel, ct).ConfigureAwait(false);
     if (!summary.IsSuccess)
     {
       return Result.Failure<CompactionOutcome>(summary.Error);
     }
 
-    string summaryText = summary.Value.Content?.Trim() ?? "";
-    if (summaryText.Length == 0)
+    if (!forceInPlace && DecideHandoff(summary.Value.Text, summary.Value.Usage) is { } handoff)
     {
-      return Result.Failure<CompactionOutcome>(new DomainError("EmptySummary",
-          "The summarizer model returned no summary text."));
-    }
-
-    if (ShouldHandOff())
-    {
-      return Result.Success(CompactionOutcome.Handoff(summaryText, summary.Value.Usage));
+      return handoff;
     }
 
     List<Message> replacement =
     [
-        new(Role.System, $"[Conversation summary — earlier messages were compacted.]\n{summaryText}",
+        new(Role.System, $"[Conversation summary — earlier messages were compacted.]\n{summary.Value.Text}",
             DateTimeOffset.UtcNow, IsSummary: true),
         ..keptTail,
     ];
@@ -88,11 +86,52 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
         : Result.Failure<CompactionOutcome>(compacted.Error);
   }
 
+  /// <summary>One summarizer call's usable output: the trimmed summary text and the
+  ///     call's token usage.</summary>
+  private sealed record SummaryResult(string Text, TokenUsage? Usage);
+
+  /// <summary>One summarizer call over the evicted prefix: resolves the writer (the
+  ///     factory delegate, falling back to the serving model), sends the render, and
+  ///     returns the trimmed summary text with its usage — or the typed failure (call
+  ///     failure, or the EmptySummary guard: an empty summarizer output is a FAILURE
+  ///     outcome, never a handoff).</summary>
+  private async Task<Result<SummaryResult>> SummarizeAsync(IReadOnlyList<Message> evicted,
+      IReadOnlyList<Message> keptTail, ModelConfig servingModel, CancellationToken ct)
+  {
+    ModelConfig writer = summarizerModel() ?? servingModel;
+    IModelProvider provider = providerFactory.Create(writer);
+    ModelRequest request = new(
+        [new Message(Role.User, Render(evicted, keptTail), DateTimeOffset.UtcNow)],
+        SystemPrompt: SummarizerSystemPrompt);
+    Result<ModelResponse> response = await provider.SendAsync(writer, request, ct).ConfigureAwait(false);
+    if (!response.IsSuccess)
+    {
+      return Result.Failure<SummaryResult>(response.Error);
+    }
+
+    string trimmed = response.Value.Content?.Trim() ?? "";
+    return trimmed.Length == 0
+        ? Result.Failure<SummaryResult>(new DomainError("EmptySummary",
+            "The summarizer model returned no summary text."))
+        : Result.Success(new SummaryResult(trimmed, response.Value.Usage));
+  }
+
   /// <summary>THE HANDOFF REPLACES IN-PLACE COMPACTION (issue #234): the enablement
-  /// delegate is wired, returns true, AND no child is running on this async flow
+  /// delegate is wired, reads TRUE, AND no child is running on this async flow
   /// (root-gating via the ambient-scope pattern) — a child has no session to hand off.
-  /// The launch itself is the composition/host's act; the compactor only decides.</summary>
-  private bool ShouldHandOff() => handoffEnabled is not null && handoffEnabled() && SubAgentSpawner.RunningChild is null;
+  /// An enablement read that FAILED (a misconfigured preference) is a typed failure
+  /// outcome: the compactor never guesses enabled/disabled, and the existing
+  /// compaction-failure notice path carries the error to the model. Returns null when
+  /// the compaction must proceed in place (the caller's fall-through).</summary>
+  private Result<CompactionOutcome>? DecideHandoff(string summaryText, TokenUsage? usage)
+  {
+    return (handoffEnabled is null ? Result.Success(false) : handoffEnabled())
+        .Match(
+            success => success && SubAgentSpawner.RunningChild is null
+                ? Result.Success(CompactionOutcome.Handoff(summaryText, usage))
+                : null,
+            failure => Result.Failure<CompactionOutcome>(failure));
+  }
 
   /// <summary>The eviction-failed fallback: the kept tail's 3-group floor alone
   ///     exceeds the target (tail-dominated bloat - huge recent tool results), so

@@ -37,6 +37,9 @@ public class AgentSoftReminderTests
       Calls++;
       return Task.FromResult(Result.Success(new CompactionOutcome(1, 1, new TokenUsage(1, 1))));
     }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
   }
 
   private sealed class FailingCompactor : IContextCompactor
@@ -48,6 +51,9 @@ public class AgentSoftReminderTests
       Calls++;
       return Task.FromResult(Result.Failure<CompactionOutcome>(new DomainError("SummaryUnavailable", "model down")));
     }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
   }
 
   private sealed class StubProvider : IModelProvider

@@ -9,6 +9,13 @@ namespace eThangAgent.AgentDomain;
 public interface IContextCompactor
 {
   Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default);
+
+  /// <summary>The overflow-recovery shape (issue #234 fix round): the forced compaction
+  ///     after a ContextWindowExceeded failure is ALWAYS in place — the handoff is a
+  ///     ceiling-path decision only, and a handoff here would re-send the identical
+  ///     oversized request into the same overflow. Implementations must bypass the
+  ///     handoff decision for this one call.</summary>
+  Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default);
 }
 
 /// <summary>What one compaction did. A handoff outcome (<see cref="IsHandoff"/>) REPLACES

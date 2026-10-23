@@ -254,15 +254,34 @@ public sealed class RootRunHost : IDisposable
             "result " + name + " " + (isError ? "error" : "ok") + " " + summary),
         OnSystemMessage: text => emitter.Emit("notice", text));
 
-    Result<string> result = await handler
-        .Handle(new SendMessageCommand(request.Input, BuildImageParts(request)), callbacks,
-            text => emitter.Emit("notice", text), ct)
-        .ConfigureAwait(false);
+    Result<string> result;
+    try
+    {
+      result = await handler
+          .Handle(new SendMessageCommand(request.Input, BuildImageParts(request)), callbacks,
+              text => emitter.Emit("notice", text), ct)
+          .ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      // CLEAR ON THE FAULT EXIT (issue #234 fix round, finding 4): a handler FAULT (an
+      // escaping exception) must not leave HandoffPending set — the flag would fire one
+      // turn late, on the next turn's end. The emit itself runs on the returned-Result
+      // path below; a CANCELLED turn drops the handoff by design (the session stays
+      // resumable; the next turn may hand off again).
+      if (_services.GetService(typeof(RootAgentHolder)) is RootAgentHolder faultHolder
+          && faultHolder.Current is { HandoffPending: true } faultAgent)
+      {
+        faultAgent.ClearHandoffPending();
+      }
+
+      throw;
+    }
 
     // The handoff emit (issue #234) happens BEFORE the settle: the app's tab
     // replacement runs after the settle drains, so the request must reach it while the
     // turn is still live — and the await gives the app the new session's id first.
-    await EmitHandoffIfPendingAsync(ct).ConfigureAwait(false);
+    await EmitHandoffIfPendingAsync(emitter, ct).ConfigureAwait(false);
 
     emitter.Emit("settled",
         result.IsSuccess ? result.Value : DescribeFailure(result.Error));
@@ -280,7 +299,7 @@ public sealed class RootRunHost : IDisposable
   ///     <para>THE SUMMARY TRAVELS ON THE AGENT (issue #234): the handoff outcome did NOT
   ///     compact the conversation, so there is no summary message in it to mine — the
   ///     summary rides <c>HandoffSummary</c> from the outcome.</para></summary>
-  internal async Task EmitHandoffIfPendingAsync(CancellationToken ct)
+  internal async Task EmitHandoffIfPendingAsync(TurnEmitter emitter, CancellationToken ct)
   {
     if (_services.GetService(typeof(RootAgentHolder)) is not RootAgentHolder holder
         || holder.Current is not { HandoffPending: true } agent)
@@ -291,6 +310,17 @@ public sealed class RootRunHost : IDisposable
     string? summary = agent.HandoffSummary;
     try
     {
+      // A pending handoff with NO summary must not emit a seedless launch (issue #234
+      // fix round, finding 5): the summary IS the new session's seed, so a null one is
+      // an anomaly — skip the emit, surface the anomaly as a notice, and still consume
+      // the flag.
+      if (summary is null)
+      {
+        emitter.Emit("notice",
+            "[context handoff anomaly: a handoff was pending but carried no summary; no new session was launched.]");
+        return;
+      }
+
       if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
       {
         // Awaited (bounded by the turn's own token) BEFORE the settle: the app has the
@@ -599,7 +629,9 @@ public sealed class RootRunHost : IDisposable
   ///     says so instead of letting the app read silence as death.
   ///     <para>Thread-safe by construction: the turn's own thread and the heartbeat's
   ///     timer thread both emit.</para></summary>
-  private sealed class TurnEmitter(RootTurnRequest request, Action<RootTurnEvent> onEvent)
+  // Internal (not private) so the handoff emit can surface the null-summary anomaly
+  // notice through the turn's own emitter (issue #234 fix round, finding 5).
+  internal sealed class TurnEmitter(RootTurnRequest request, Action<RootTurnEvent> onEvent)
   {
     private readonly Lock _gate = new();
     private DateTimeOffset _lastEmission = DateTimeOffset.UtcNow;
