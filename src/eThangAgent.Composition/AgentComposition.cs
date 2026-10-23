@@ -885,9 +885,14 @@ public static class AgentComposition
           // The runtime starts DISCONNECTED: RepairOrphansAsync -> AttachAsync owns
           // connecting (once), starting the pump, and reading the declared live set.
           // A connection attempt at registration would race the host's single accept.
-          .AddSingleton(_ => new RemoteAgentRuntime(
+          .AddSingleton(sp => new RemoteAgentRuntime(
                transport: null,
-               settings.SubAgents.RootTurnBudget ?? RootTurnBudget.Default))
+               settings.SubAgents.RootTurnBudget ?? RootTurnBudget.Default,
+               // Child-event forwarding (issue #245): the runtime republishes the host's
+               // forwarded child-event envelopes onto THIS session's stream, so the
+               // Desktop's subagent panel, unread badge, and wake adapters observe remote
+               // children exactly like in-process ones.
+               sp.GetRequiredService<IAgentEvents>()))
           .AddSingleton<IAgentRuntime>(sp => sp.GetRequiredService<RemoteAgentRuntime>())
           // Spec D6: the app-facing root-turn port. It rides the SAME runtime the
           // container's IAgentRuntime resolves, so a turn and the child operations share
