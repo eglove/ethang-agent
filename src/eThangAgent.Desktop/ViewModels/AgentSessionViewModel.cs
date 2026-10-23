@@ -60,9 +60,12 @@ internal sealed record AgentSessionViewModelOptions
 
   /// <summary>Handles a session-request event from the host (issue #234): the new_session
   ///     tool or a compaction handoff asked the app to start a session in this tab's
-  ///     workspace. The shell implements it (Task 7); the view-model only forwards.
+  ///     workspace. The shell implements it; the view-model only forwards. The request id
+  ///     travels WITH the request because the host is BLOCKED awaiting the answer, and the
+  ///     answer goes back through <see cref="IRootTurnChannel.SendSessionResponse"/> — a
+  ///     handler that could not name the request could not answer it.
   ///     Null = requests are refused with a notice.</summary>
-  public Func<string, string?, Task>? SessionRequestHandler { get; init; }
+  public Func<SessionRequestPayload, Task>? SessionRequestHandler { get; init; }
 
   /// <summary>Marshals an action onto the UI thread (test seam). Null = the Avalonia
   ///     UI-thread dispatcher (production). Desktop tests inject a synchronous executor
@@ -220,7 +223,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>Handles a session-request event from the host (issue #234): the shell
   ///     starts the session in this tab's workspace. Null = requests are refused
   ///     with a typed notice.</summary>
-  private readonly Func<string, string?, Task>? _sessionRequestHandler;
+  private readonly Func<SessionRequestPayload, Task>? _sessionRequestHandler;
 
   /// <summary>Marshals an action onto the UI thread. Production: the Avalonia UI-thread
   ///     dispatcher. Tests: a synchronous executor injected through the options record —
@@ -257,8 +260,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly IAgentRuntime? _childRuntime;
 
   /// <summary>This conversation's host channel (spec D6). Null means the session runs its
-  ///     turns in this process — the headless/test-host shape, never production.</summary>
-  private readonly IRootTurnChannel? _rootTurnChannel;
+  ///     turns in this process — the headless/test-host shape, never production.
+  ///     <para>Public because the shell must ANSWER a session-request (issue #234): the host
+  ///     is blocked awaiting the reply, and the reply travels back over the same channel the
+  ///     turn arrived on. Null when the session runs in process (no host to answer).</para></summary>
+  public IRootTurnChannel? RootTurnChannel { get; }
 
   /// <summary>App-side conversation mutations waiting for the NEXT turn to carry to the host
   ///     (spec D6): a slash invocation's System line and a ! command's model-facing line.
@@ -319,7 +325,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Autocomplete = options.SkillCatalogSource is null ? null : new SkillAutocompleteViewModel(options.SkillCatalogSource);
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
-    _rootTurnChannel = options.RootTurnChannel;
+    RootTurnChannel = options.RootTurnChannel;
     // Split view (subagent accordion): the panel subscribes to the session's child
     // event stream. Events publish on stream threads; the marshal wrapper posts every
     // event's application onto the UI thread — Rows is bound to the accordion and
@@ -705,7 +711,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     bool sawStream = false;
     bool compactedThisTurn = false;
     bool shrunkThisTurn = false;
-    Result<string> result = _rootTurnChannel is { } channel
+    Result<string> result = RootTurnChannel is { } channel
         ? await SendTurnToHostAsync(channel, input, imageParts, bridge,
             () => sawStream = true, cts.Token).ConfigureAwait(true)
         : await RunTurnInProcessAsync(input, imageParts, bridge,
@@ -969,7 +975,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return;
     }
 
-    Func<string, string?, Task> handler = _sessionRequestHandler;
+    Func<SessionRequestPayload, Task> handler = _sessionRequestHandler;
     _uiMarshal(() => _ = FireSessionRequestAsync(handler, request));
   }
 
@@ -977,11 +983,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     notice. Fire-and-forget by design (CA1031 named decision): the request is
   ///     one-way over the wire — the host's new_session tool already returned — and
   ///     a handler fault must be visible, never an unobserved task exception.</summary>
-  private async Task FireSessionRequestAsync(Func<string, string?, Task> handler, SessionRequestPayload request)
+  private async Task FireSessionRequestAsync(Func<SessionRequestPayload, Task> handler, SessionRequestPayload request)
   {
     try
     {
-      await handler(request.Prompt, request.HandoffSummary).ConfigureAwait(true);
+      await handler(request).ConfigureAwait(true);
     }
 #pragma warning disable CA1031 // Named decision: a handler fault must surface as a notice, never crash the pump.
     catch (Exception ex)
@@ -1031,7 +1037,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // Spec D6: the ROOT turn lives in the host, so the stop must reach it there. Cancelling
     // the local token alone only abandons this process's wait — the host would keep running
     // the turn and persist it.
-    if (_rootTurnChannel is { } channel && _liveTurnId is { Length: > 0 } turnId)
+    if (RootTurnChannel is { } channel && _liveTurnId is { Length: > 0 } turnId)
     {
       channel.InterruptRootTurn(turnId);
     }

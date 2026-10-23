@@ -289,6 +289,11 @@ internal sealed class FakeHostSession
 ///     dropped by the wire runtime and would prove nothing about the app's mapping.</summary>
 internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool holdOpen) : IRootTurnChannel
 {
+  /// <summary>Keeps every turn in flight until it is cancelled — the stop-button shape, and
+  ///     the deterministic way to hold a turn open while another path (a session-request's
+  ///     tab swap) waits for it to go idle.</summary>
+  public bool HoldOpen { get; set; } = holdOpen;
+
   private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
   /// <summary>Events emitted verbatim after the scripted deltas (the tool/notice kinds).</summary>
@@ -316,6 +321,25 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
 
   public void InterruptRootTurn(string turnId) => InterruptedTurnIds.Add(turnId);
 
+  /// <summary>Answers the app sent for session-requests (issue #234): the request id with
+  ///     either the new session's id or the refusal's typed code. The host side of the wire
+  ///     is covered in Transport.ACL tests; here it is the app's OUTBOUND answer that
+  ///     matters — a request the app never answers leaves the tool waiting out its budget.</summary>
+  public List<(string RequestId, string? SessionId, string? ErrorCode, string? ErrorMessage)> SessionResponses { get; } = [];
+
+  private readonly TaskCompletionSource _firstSessionResponse = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+  /// <summary>Completes once the app has answered its first session-request — the
+  ///     deterministic 'the answer landed' signal a pending-window test needs instead of a
+  ///     sleep.</summary>
+  public Task FirstSessionResponse => _firstSessionResponse.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+
+  public void SendSessionResponse(string requestId, string? sessionId, string? errorCode, string? errorMessage)
+  {
+    SessionResponses.Add((requestId, sessionId, errorCode, errorMessage));
+    _ = _firstSessionResponse.TrySetResult();
+  }
+
   public async Task<Result<string>> SendRootTurnAsync(RootTurnRequest request,
       Action<RootTurnEvent> onEvent, CancellationToken ct = default)
   {
@@ -325,7 +349,7 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
     TurnsSent++;
     _ = _started.TrySetResult();
 
-    if (holdOpen)
+    if (HoldOpen)
     {
       try
       {

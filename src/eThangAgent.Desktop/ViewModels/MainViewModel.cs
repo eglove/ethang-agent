@@ -8,6 +8,7 @@ using eThangAgent.Agent.Application;
 using eThangAgent.Agent.Application.Sessions;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
+using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
@@ -17,6 +18,7 @@ using eThangAgent.StateDomain;
 using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using eThangAgent.ToolDomain.Mcp;
+using eThangAgent.Transport.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace eThangAgent.Desktop.ViewModels;
@@ -26,6 +28,16 @@ internal delegate Task<Result<string>> TurnRunner(
     CancellationToken ct,
     TurnCallbacks? callbacks,
     Action<string>? onNotice = null);
+
+/// <summary>Session creation WITH a conversation seed (issue #234): the compaction handoff
+///     seeds the new session with its summary, so the seeded shape needs its own seam — the
+///     plain creation delegate cannot express it. A host that supplies only the plain
+///     delegate keeps every other path working and reports the seeded launch as
+///     unavailable, which is honest: it has no store to seed.</summary>
+internal delegate Task<Result<AgentSession>> SeededSessionCreator(
+    string workspaceRoot,
+    string providerName,
+    IReadOnlyList<Message>? seed);
 
 /// <summary>Optional shell configuration for <see cref="MainViewModel"/>. Every member
 ///     is an optional seam or default override whose null behaves exactly as the
@@ -81,6 +93,13 @@ internal sealed record MainViewModelOptions
   ///     that compose sessions without a shared store), the Sessions entry reports the
   ///     catalog as unavailable.</summary>
   public SessionCatalogQueryHandler? SessionCatalog { get; init; }
+
+  /// <summary>Session creation that can SEED the new conversation (issue #234): the
+  ///     compaction handoff seeds the new session with its summary. Null falls back to the
+  ///     plain creation delegate with no seed, which serves every non-handoff path; a
+  ///     handoff then reports the seeded launch as unavailable instead of silently
+  ///     dropping the summary it exists to carry.</summary>
+  public SeededSessionCreator? SeededSessionCreator { get; init; }
 }
 
 /// <summary>Shell-level state for the main window: the left menu bar (Open Workspace,
@@ -106,6 +125,12 @@ internal sealed partial class MainViewModel : ObservableObject
   // The delegate reads _sessionFactory at invocation time, so a settings-save rebind
   // reaches future opens without touching this field.
   private readonly Func<string, string, Task<Result<AgentSession>>> _createSession;
+
+  /// <summary>Creation WITH a conversation seed (issue #234). Derived from the same
+  ///     factory as <see cref="_createSession"/> when one is wired, so a settings-save
+  ///     rebind reaches it too; a host that supplied only a plain creation delegate has
+  ///     none, and a handoff then reports the seeded launch as unavailable.</summary>
+  private readonly SeededSessionCreator? _createSeededSession;
 
   /// <summary>Optional preference store persisting the last-chosen provider and the
   ///     protected API keys (test seam: when null, opens still work and nothing is
@@ -136,6 +161,13 @@ internal sealed partial class MainViewModel : ObservableObject
   /// <summary>Lists resumable sessions for the Sessions dialog (null when the host
   ///     has no shared store — the dialog then reports the catalog unavailable).</summary>
   private readonly SessionCatalogQueryHandler? _sessionCatalog;
+
+  /// <summary>In-flight in-place replacements (issue #234), keyed by the tab they will
+  ///     replace. A session-request launch is answered IMMEDIATELY but swapped only when the
+  ///     requesting turn goes idle, so the pending session needs a home in between; the map
+  ///     is also the one-replacement-per-tab guard (two launches racing for one slot would
+  ///     orphan one session in no tab at all).</summary>
+  private readonly Dictionary<AgentTabViewModel, AgentSession> _pendingReplacements = [];
 
   /// <summary>Resume hook mirroring the creation delegate: derived from the factory so
   ///     saved keys rebind future resumes; a host without a factory gets a structured
@@ -293,6 +325,7 @@ internal sealed partial class MainViewModel : ObservableObject
     _keyProtector = options?.ApiKeyProtector;
     _sessionCatalog = options?.SessionCatalog;
     _createSession = CreateSessionDelegate(createSession);
+    _createSeededSession = SeededDelegate(options, createSession);
     _resumeSession = CreateResumeDelegate();
 
     // Commands exist before the observable properties: setting those raises the
@@ -332,6 +365,18 @@ internal sealed partial class MainViewModel : ObservableObject
   private Func<string, string, Task<Result<AgentSession>>> CreateSessionDelegate(
       Func<string, string, Task<Result<AgentSession>>>? createSession)
       => createSession ?? ((root, provider) => _sessionFactory!.CreateAsync(root, provider));
+
+  /// <summary>The seeded creation delegate (issue #234): the host-supplied one, else the
+  ///     factory's seeded create read at invocation (so a settings-save rebind reaches it).
+  ///     A host that supplied its own plain creation delegate has no seeded path at all
+  ///     (null): the caller reports the seeded launch as unavailable rather than silently
+  ///     dropping the handoff summary it exists to carry.</summary>
+  private SeededSessionCreator? SeededDelegate(MainViewModelOptions? options,
+      Func<string, string, Task<Result<AgentSession>>>? createSession)
+      => options?.SeededSessionCreator
+          ?? (createSession is not null
+              ? null
+              : (root, provider, seed) => _sessionFactory!.CreateAsync(root, provider, seed));
 
   /// <summary>The resume delegate: the factory's resume, read at invocation so a
   ///     settings-save rebind reaches future resumes. A host composing sessions itself
@@ -1101,6 +1146,319 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
+  /// <summary>Starts a NEW session in <paramref name="tab"/>'s workspace, IN PLACE (issue
+  ///     #234): the tab is not added beside the old one — its session is replaced, so the
+  ///     user sees one tab whose conversation restarted and whose status bar names a new
+  ///     session id. The old session closes gracefully first (Completed, so the Sessions
+  ///     dialog can resume it) and its container is disposed; its host process dies with it.
+  ///     <para>REFUSE-WHEN-BUSY: a turn in flight is a refusal, not a race. Replacing a
+  ///     session mid-turn would dispose the container under the running turn, and the
+  ///     transcript the user is reading would be destroyed while the model was still
+  ///     producing it.</para>
+  ///     <para><paramref name="handoffSummary"/> seeds the new conversation (the compaction
+  ///     handoff); <paramref name="prompt"/> is its first turn — EMPTY means seed-only, no
+  ///     turn is fired (a handoff continues from the summary, it does not re-ask).</para>
+  ///     <para>Must run on the UI thread: it mutates <see cref="Tabs"/>.</para></summary>
+  public async Task<Result<AgentTabViewModel>> StartNewSessionAsync(AgentTabViewModel tab,
+      string? prompt, string? handoffSummary = null)
+  {
+    ArgumentNullException.ThrowIfNull(tab);
+    if (!Tabs.Contains(tab))
+    {
+      return Result.Failure<AgentTabViewModel>(new DomainError("TabClosed",
+          "that tab is no longer open; no session was started."));
+    }
+
+    if (tab.ViewModel.IsBusy)
+    {
+      return Result.Failure<AgentTabViewModel>(new DomainError("TurnBusy",
+          "a turn is running in that tab; stop it before starting a new session."));
+    }
+
+    IReadOnlyList<Message>? seed = SessionHandoffSeed.Build(handoffSummary);
+    SeededSessionCreator? creator = _createSeededSession;
+    if (seed is not null && creator is null)
+    {
+      return Result.Failure<AgentTabViewModel>(new DomainError("SeedUnsupported",
+          "this host cannot seed a new session's conversation; the handoff summary would be lost."));
+    }
+
+    string workspaceRoot = tab.Container.WorkspaceRoot;
+    string providerName = tab.Container.ProviderName;
+    int index = Tabs.IndexOf(tab);
+
+    // Container build + root-row persistence — core work that never belongs on the UI
+    // thread, exactly like a fresh open (context flow suppressed for the same reason).
+    Task<Result<AgentSession>> scheduled;
+    using (ExecutionContext.SuppressFlow())
+    {
+      scheduled = Task.Run(() => creator is not null && seed is not null
+          ? creator(workspaceRoot, providerName, seed)
+          : _createSession(workspaceRoot, providerName));
+    }
+
+    Result<AgentSession> created;
+    try
+    {
+      created = await scheduled;
+    }
+    // Named decision (CA1031): a failed launch is INFORMATION, not a crash — this path is
+    // reached from the UI dispatcher and from the model's new_session tool, where an
+    // escaping exception has no handler at all.
+#pragma warning disable CA1031, S2486 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031, S2486
+    {
+      return Result.Failure<AgentTabViewModel>(new DomainError("SessionLaunchFailed",
+          "the new session could not be started: " + ex.Message));
+    }
+
+    if (!created.IsSuccess)
+    {
+      // The factory's own typed code travels through verbatim (SessionLaunchFailed only
+      // wraps a thrown fault, never a refused Result).
+      return Result.Failure<AgentTabViewModel>(created.Error);
+    }
+
+    return Result.Success(await ReplaceSessionAsync(tab, created.Value, index, prompt));
+  }
+
+  /// <summary>Swaps <paramref name="oldTab"/> for a tab over <paramref name="session"/> at
+  ///     the SAME index (issue #234): the old session completes gracefully and its container
+  ///     is disposed, the new tab takes its place in the strip, and — when
+  ///     <paramref name="prompt"/> is non-empty — the new session's first turn fires.
+  ///     <para>ORDER MATTERS: the replacement is ADDED and wired BEFORE the old session is
+  ///     torn down. Teardown disposes a container and kills its host process, and the new
+  ///     session's own host start must not be racing that teardown inside the same tab
+  ///     slot; more importantly a teardown fault must never leave the shell with no tab at
+  ///     all.</para>
+  ///     <para>Must run on the UI thread.</para></summary>
+  private async Task<AgentTabViewModel> ReplaceSessionAsync(AgentTabViewModel oldTab,
+      AgentSession session, int index, string? prompt)
+  {
+    // Insert at the old tab's index so the strip does not reshuffle under the user. The
+    // clamp covers a tab that vanished while the container was building.
+    int target = index < 0 || index > Tabs.Count ? Tabs.Count : index;
+    _ = Tabs.Remove(oldTab);
+    AgentTabViewModel fresh = await AttachSessionAsync(session, Math.Min(target, Tabs.Count));
+    await CloseReplacedSessionAsync(oldTab);
+
+    if (!string.IsNullOrWhiteSpace(prompt))
+    {
+      // Fire the first turn and DO NOT await it here: the caller (the slash command path,
+      // or the host's session-request) must return so the UI keeps painting the stream. The
+      // view-model owns the turn task and surfaces its own faults.
+      _ = fresh.ViewModel.SubmitAsync(prompt);
+    }
+
+    return fresh;
+  }
+
+  /// <summary>Retires a replaced tab's session: completes it gracefully (so the Sessions
+  ///     dialog can resume it) and disposes its container, which kills its host process.
+  ///     The tab itself is already gone from <see cref="Tabs"/>. Best effort by named
+  ///     decision — a teardown fault must never fail the session the user just started.</summary>
+  private async Task CloseReplacedSessionAsync(AgentTabViewModel replaced)
+  {
+    _sessionClosed?.Invoke(replaced.Container.RootId);
+#pragma warning disable CA1031 // Named decision: teardown is best effort, like CloseTabAsync.
+    try
+    {
+      await replaced.ViewModel.ShutdownAsync();
+    }
+    catch
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031
+    replaced.Badge?.Dispose();
+    replaced.DetachBranchWatcher();
+#pragma warning disable CA1031 // Named decision: a disposed container must not fail the new session.
+    try
+    {
+      await replaced.Container.Services.DisposeAsync();
+    }
+    catch
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Handles one host session-request (issue #234) for a tab: the new_session tool
+  ///     or a compaction handoff asked for a session in this tab's workspace. The HOST IS
+  ///     BLOCKED awaiting the answer, so the request is answered with the new session's id
+  ///     as soon as the container exists — BEFORE the tab swap, which waits for the current
+  ///     turn to go idle (the host cannot swap its own tab mid-turn).
+  ///     <para>REFUSALS ARE ANSWERED TOO: every failure path replies with its typed code,
+  ///     because the unanswered alternative is a tool waiting out its own budget for an
+  ///     answer that was never coming.</para>
+  ///     <para>ONE REPLACEMENT PER TAB: a second request while one is pending is refused
+  ///     (SessionRequestPending) — two launches racing for one tab slot would leave one
+  ///     session orphaned in no tab at all, alive and unreachable.</para>
+  ///     <para>Must run on the UI thread (the view-model marshals it there).</para></summary>
+  public async Task HandleSessionRequestAsync(AgentTabViewModel tab, SessionRequestPayload request)
+  {
+    ArgumentNullException.ThrowIfNull(tab);
+    ArgumentNullException.ThrowIfNull(request);
+
+    AgentSessionViewModel sessionVm = tab.ViewModel;
+    IRootTurnChannel? channel = sessionVm.RootTurnChannel;
+    if (channel is null)
+    {
+      // No wire, no answer: this session's host cannot be waiting (a headless/in-process
+      // session has no channel at all), so the request is a wiring fault reported locally.
+      sessionVm.AddSystemNotice("Error [SessionRequestUnroutable]: this session has no host channel; the new session was not started.");
+      return;
+    }
+
+    if (!Tabs.Contains(tab))
+    {
+      Answer(channel, request, failure: new DomainError("TabClosed",
+          "the tab that requested a new session is no longer open."));
+      return;
+    }
+
+    if (_pendingReplacements.ContainsKey(tab))
+    {
+      Answer(channel, request, failure: new DomainError("SessionRequestPending",
+          "a previous new-session request for this tab is still being applied."));
+      return;
+    }
+
+    Result<AgentSession> created;
+    try
+    {
+      created = await CreateForSessionRequestAsync(tab, request);
+    }
+    // Named decision (CA1031): the requesting tool has a budget, not a stack — a launch
+    // fault must be ANSWERED, never thrown into the event pump.
+#pragma warning disable CA1031, S2486 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031, S2486
+    {
+      created = Result.Failure<AgentSession>(new DomainError("SessionLaunchFailed",
+          "the new session could not be started: " + ex.Message));
+    }
+
+    if (!created.IsSuccess)
+    {
+      Answer(channel, request, failure: created.Error);
+      return;
+    }
+
+    // ANSWER FIRST: the id is the thing the blocked tool is waiting for, and the tab swap
+    // must not delay it.
+    Answer(channel, request, sessionId: created.Value.RootId.ToString());
+    _pendingReplacements[tab] = created.Value;
+
+    // The swap waits for the CURRENT turn to go idle. A handoff request is emitted BEFORE
+    // the host settles its turn, so swapping now would dispose the container the running
+    // turn is still writing through.
+    await WaitForIdleAndReplaceAsync(tab, created.Value, request).ConfigureAwait(true);
+  }
+
+  /// <summary>The tab's session-request creation: seeded when the request carries a
+  ///     handoff summary, plain otherwise. Runs off the UI thread through the same
+  ///     suppressed-context schedule every other container build uses.</summary>
+  private async Task<Result<AgentSession>> CreateForSessionRequestAsync(AgentTabViewModel tab,
+      SessionRequestPayload request)
+  {
+    string workspaceRoot = tab.Container.WorkspaceRoot;
+    string providerName = tab.Container.ProviderName;
+    IReadOnlyList<Message>? seed = SessionHandoffSeed.Build(request.HandoffSummary);
+    SeededSessionCreator? creator = _createSeededSession;
+    if (seed is not null && creator is null)
+    {
+      return Result.Failure<AgentSession>(new DomainError("SeedUnsupported",
+          "this host cannot seed a new session's conversation; the handoff summary would be lost."));
+    }
+
+    Task<Result<AgentSession>> scheduled;
+    using (ExecutionContext.SuppressFlow())
+    {
+      scheduled = Task.Run(() => creator is not null && seed is not null
+          ? creator(workspaceRoot, providerName, seed)
+          : _createSession(workspaceRoot, providerName));
+    }
+
+    return await scheduled;
+  }
+
+  /// <summary>Awaits the requesting tab's turn going idle, then swaps. The wait is the
+  ///     window between the answer and the replacement: the host emitted the request from
+  ///     INSIDE its turn, so the turn is still running here. The tab is re-checked after the
+  ///     wait — it may have been closed, and a pending replacement for a gone tab must not
+  ///     resurrect it.</summary>
+  private async Task WaitForIdleAndReplaceAsync(AgentTabViewModel tab, AgentSession session,
+      SessionRequestPayload request)
+  {
+    try
+    {
+      await tab.ViewModel.WaitForTurnAsync().ConfigureAwait(true);
+    }
+    // Named decision (CA1031): a faulted turn is already surfaced in the transcript; the
+    // replacement it requested must still land, or the session the host was told to
+    // continue in would exist with no tab at all.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031
+
+    int index = Tabs.IndexOf(tab);
+    if (index < 0)
+    {
+      // The tab closed while the turn finished: the session it asked for has no home.
+      // Disposed, not leaked — it has no tab, no host watcher, and nothing that would
+      // ever reach it.
+      await DisposeOrphanedSessionAsync(session).ConfigureAwait(true);
+      return;
+    }
+
+    try
+    {
+      _ = await ReplaceSessionAsync(tab, session, index, request.Prompt).ConfigureAwait(true);
+    }
+    // Named decision (CA1031): a failed replacement surfaces as a notice — the turn is
+    // already over and there is no tool left to report to.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031
+    {
+      tab.ViewModel.AddSystemNotice($"Error [SessionReplaceFailed]: the new session could not be opened in this tab: {ex.Message}");
+      await DisposeOrphanedSessionAsync(session).ConfigureAwait(true);
+    }
+    finally
+    {
+      _ = _pendingReplacements.Remove(tab);
+    }
+  }
+
+  /// <summary>Disposes a session that will never reach a tab (its requesting tab closed, or
+  ///     its replacement failed). Best effort: it owns a host process, so a leaked one
+  ///     outlives the app.</summary>
+  private static async Task DisposeOrphanedSessionAsync(AgentSession session)
+  {
+#pragma warning disable CA1031 // Named decision: an orphan's teardown must not fault the caller.
+    try
+    {
+      await session.Services.DisposeAsync();
+    }
+    catch
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031
+  }
+
+  /// <summary>Sends one session-request's answer (issue #234): exactly one of a session id
+  ///     or a typed failure. Every path funnels here so no request can be left unanswered.</summary>
+  private static void Answer(IRootTurnChannel channel, SessionRequestPayload request,
+      string? sessionId = null, DomainError? failure = null)
+      => channel.SendSessionResponse(request.RequestId, sessionId, failure?.Code, failure?.Message);
+
   /// <summary>Wires a created (fresh or resumed) session into a new tab: session
   ///     view-model with the self-referencing stream sink, per-workspace model/effort
   ///     restore BEFORE the tab can take a turn, persisted-transcript replay (a no-op
@@ -1116,12 +1474,27 @@ internal sealed partial class MainViewModel : ObservableObject
   {
     ISkillCatalog catalog = session.Services.GetRequiredService<ISkillCatalog>();
     Result<IReadOnlyList<SkillDefinition>> listed = catalog.ListAsync().GetAwaiter().GetResult();
-    return listed.IsSuccess
-        ? [.. listed.Value.Select(s => new SkillOption(s.Name, s.Description, s.Manual))]
-        : [];
+    if (!listed.IsSuccess)
+    {
+      return [];
+    }
+
+    // The session COMMAND rides the same popup (issue #234): it is listed alongside the
+    // skills but is not one — IsCommand sorts it after manual skills and before plain
+    // ones, and the row renders the distinct [command] badge.
+    return [.. listed.Value.Select(s => new SkillOption(s.Name, s.Description, s.Manual)),
+        AgentSessionViewModel.NewSessionCommandOption];
   }
 
-  private async Task<AgentTabViewModel> AttachSessionAsync(AgentSession session)
+  /// <summary>Attaches a session as a tab at the END of the strip (the open/resume path).</summary>
+  private Task<AgentTabViewModel> AttachSessionAsync(AgentSession session)
+      => AttachSessionAsync(session, Tabs.Count);
+
+  /// <summary>The indexed attach (issue #234): the in-place replacement inserts the new
+  ///     tab where the old one was, so the strip does not reshuffle under the user. An index
+  ///     outside the collection is clamped — a tab that vanished while a container was
+  ///     building must not fault the attach.</summary>
+  private async Task<AgentTabViewModel> AttachSessionAsync(AgentSession session, int index)
   {    // Self-referencing sink hook, the same pattern as the pre-tab window wiring:
     // the VM is captured after construction so its own sink marshals its events
     // onto the UI thread. An injected shell-level sink (tests) takes precedence.
@@ -1130,10 +1503,12 @@ internal sealed partial class MainViewModel : ObservableObject
     // thread — transcript mutation is UI-thread-only — and land as regular notices.
     session.NoticeSink = message => Avalonia.Threading.Dispatcher.UIThread.Post(
         () => sessionVmRef?.AddSystemNotice(message));
+    AgentTabViewModel? attachedTab = null;
     AgentSessionViewModel sessionVm = BuildSessionViewModel(session,
         () => sessionVmRef ??
             throw new InvalidOperationException("session view-model not initialized"),
-        id => sessionVmRef!.Status.ModelId = id);
+        id => sessionVmRef!.Status.ModelId = id,
+        () => attachedTab);
     sessionVmRef = sessionVm;
 
     await RestorePinnedModelAsync(session, sessionVm);
@@ -1144,8 +1519,11 @@ internal sealed partial class MainViewModel : ObservableObject
     sessionVm.Transcript.Restore(session.Conversation.Messages);
 
     AgentTabViewModel tab = new(session, sessionVm);
+    // Publish the tab to the view-model's new-session seams (issue #234): both resolve it
+    // lazily because the tab is constructed FROM this view-model.
+    attachedTab = tab;
     AttachTabWiring(session, tab);
-    Tabs.Add(tab);
+    Tabs.Insert(Math.Clamp(index, 0, Tabs.Count), tab);
     _sessionOpened?.Invoke(session);
     SelectedTab = tab;
 
@@ -1155,9 +1533,13 @@ internal sealed partial class MainViewModel : ObservableObject
 
   /// <summary>Builds the session view-model with its self-referencing stream sink and
   ///     status hook. Both resolve the view-model lazily through the supplied accessors,
-  ///     so the instance is captured after construction.</summary>
+  ///     so the instance is captured after construction.
+  ///     <para>The new-session seams (issue #234) are bound to the TAB the view-model ends
+  ///     up in, and the tab does not exist yet — so both resolve it lazily through the same
+  ///     accessor pattern, and both are no-ops until the tab is attached.</para></summary>
   private AgentSessionViewModel BuildSessionViewModel(AgentSession session,
-      Func<AgentSessionViewModel> currentViewModel, Action<string> updateStatusModel)
+      Func<AgentSessionViewModel> currentViewModel, Action<string> updateStatusModel,
+      Func<AgentTabViewModel?> currentTab)
   {
     return new AgentSessionViewModel(
         // TurnRunner puts ct second; SendMessageCommandHandler.Handle keeps it last
@@ -1183,6 +1565,15 @@ internal sealed partial class MainViewModel : ObservableObject
           SkillCatalogSource = session.SkillInvocation is null
               ? null
               : () => SkillOptionsOf(session),
+          // Issue #234: the /new slash command and the host's session-request both start a
+          // session in THIS tab's workspace, in place. Both refuse while the tab is unknown
+          // (the view-model is built before its tab exists).
+          NewSessionCommand = prompt => currentTab() is { } newSessionTab
+              ? StartNewSessionAsync(newSessionTab, prompt)
+              : Task.CompletedTask,
+          SessionRequestHandler = request => currentTab() is { } requestTab
+              ? HandleSessionRequestAsync(requestTab, request)
+              : Task.CompletedTask,
           ChildEvents = session.Services.GetService<IAgentEvents>(),
           AgentStore = session.Services.GetService<IAgentStore>(),
           // Spec D6: the app runs NO agent work. A container built with the wire runtime

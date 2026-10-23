@@ -18,11 +18,11 @@ public class SessionRequestEventTests
 {
   private sealed class RecordingHandler
   {
-    public List<(string Prompt, string? HandoffSummary)> Calls { get; } = [];
+    public List<(string RequestId, string Prompt, string? HandoffSummary)> Calls { get; } = [];
 
-    public Task Handle(string prompt, string? handoffSummary)
+    public Task Handle(SessionRequestPayload request)
     {
-      Calls.Add((prompt, handoffSummary));
+      Calls.Add((request.RequestId, request.Prompt, request.HandoffSummary));
       return Task.CompletedTask;
     }
   }
@@ -67,7 +67,8 @@ public class SessionRequestEventTests
 
     await vm.SubmitAsync("hi").ConfigureAwait(true);
 
-    (string prompt, string? handoff) = Assert.Single(handler.Calls);
+    (string requestId, string prompt, string? handoff) = Assert.Single(handler.Calls);
+    Assert.Equal("req-1", requestId, StringComparer.Ordinal);
     Assert.Equal("explore the auth module", prompt, StringComparer.Ordinal);
     Assert.Null(handoff);
   }
@@ -122,7 +123,7 @@ public class SessionRequestEventTests
         {
           WorkspaceRoot = @"C:\work\demo",
           RootTurnChannel = host,
-          SessionRequestHandler = (_, _) => throw new InvalidOperationException("the shell exploded"),
+          SessionRequestHandler = _ => throw new InvalidOperationException("the shell exploded"),
           UiMarshal = action => action(),
         });
 
@@ -142,7 +143,7 @@ public class SessionRequestEventTests
 
     await vm.SubmitAsync("hi").ConfigureAwait(true);
 
-    (string prompt, string? handoff) = Assert.Single(handler.Calls);
+    (string _, string prompt, string? handoff) = Assert.Single(handler.Calls);
     Assert.Equal("", prompt, StringComparer.Ordinal);
     Assert.Equal("the handoff summary", handoff, StringComparer.Ordinal);
   }
