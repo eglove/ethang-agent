@@ -44,6 +44,10 @@ eThang Agent is an AI agent harness for Windows, built on .NET 10 and delivered 
  - Server-side tool call surfacing — provider-executed tool calls (OpenRouter's `openrouter:web_search`
    and the Responses API's `web_search_call` family) never enter the message history, so the
    transcript surfaces each as a system line with its query plus the result URLs the wire carried
+  - Generated images are real artifacts — the `openrouter:image_generation` tool's output is
+    written into the workspace under `.ethang/images/` (format sniffed from the bytes, 20 MB cap)
+    and rendered inline in the transcript, so the picture the user paid for is a file they can
+    open rather than a dangling reference to a path on the provider's machine
 - `exec` tool — in-process C# scripting via Roslyn with artifact capture and structured output
 - Every tool call carries a mandatory `timeoutSeconds` budget (1–3600): a call exceeding its
   budget is stopped and returned as `Error [ToolTimeout]` for self-correction; the agent's

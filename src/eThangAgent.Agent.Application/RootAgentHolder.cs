@@ -14,7 +14,8 @@ public sealed record RootDependencies(
     ISystemPromptProvider? SystemPrompt = null,
     int? MaxAutoContinuations = null,
     IContextCompactor? ContextCompactor = null,
-    IChildTranscriptStore? TranscriptSink = null);
+    IChildTranscriptStore? TranscriptSink = null,
+    IServerToolImageStore? ServerToolImages = null);
 
 /// <summary>Holds the root agent for a session and rebuilds it when its model changes.
 ///     The root agent is constructed lazily on the first message (see
@@ -101,6 +102,7 @@ public sealed class RootAgentHolder(
     ContextMonitor = Accountant,
     ContextCompactor = _dependencies?.ContextCompactor,
     TranscriptSink = _dependencies?.TranscriptSink,
+    ServerToolImages = _dependencies?.ServerToolImages,
     SessionId = ResolveSessionId(),
   };
 

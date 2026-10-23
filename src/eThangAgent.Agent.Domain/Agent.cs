@@ -97,6 +97,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly int _maxAutoContinuations = options?.MaxAutoContinuations ?? DefaultMaxAutoContinuations;
   private readonly string? _sessionId = options?.SessionId;
   private readonly Action<string>? _onStreamActivity = options?.OnStreamActivity;
+  private readonly IServerToolImageStore? _serverToolImages = options?.ServerToolImages;
   private readonly ToolRepeatGuard _repeatGuard = new();
   private readonly ReadFreshnessLedger _readLedger = new();
 
@@ -353,7 +354,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // (retries, logging, tests) read messages added by later iterations.
     ReportUsage(new ModelRequest([.. Conversation.Messages], _tools.Definitions,
         _systemPrompt?.Build(), _sessionId), response, callbacks);
-    SurfaceServerToolCalls(response, callbacks);
+    await SurfaceServerToolCallsAsync(response, callbacks, ct).ConfigureAwait(false);
     if (response.ToolCalls.Count == 0)
     {
       return FinishWithoutToolCalls(response, state, callbacks);
@@ -897,8 +898,15 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     carried none), each result URL on its own line beneath (the wire's
   ///     action.sources). Server calls execute inside the provider's response and never
   ///     enter the message history; without this the user's transcript shows nothing.
-  ///     The lines also land in the conversation so a resumed session sees them.</summary>
-  private void SurfaceServerToolCalls(ModelResponse response, TurnCallbacks? callbacks)
+  ///     The lines also land in the conversation so a resumed session sees them.
+  ///     <para>An image-generation call's artifact is PERSISTED first (issue #230): the
+  ///     bytes go into the workspace through the wired <see cref="IServerToolImageStore"/>,
+  ///     the surfaced line NAMES the saved path, and the image rides the tool-result
+  ///     callback so the Desktop renders it through the same surface computer screenshots
+  ///     already use. A store failure is a TYPED error on the line — the user must learn
+  ///     the artifact could not be saved, never see a silent skip.</para></summary>
+  private async Task SurfaceServerToolCallsAsync(ModelResponse response, TurnCallbacks? callbacks,
+      CancellationToken ct)
   {
     if (response.ServerToolCalls.Count == 0)
     {
@@ -907,10 +915,42 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
     foreach (ServerToolCall call in response.ServerToolCalls)
     {
-      string line = RenderServerToolCall(call);
+      string line = call.Image is { } image
+          ? await SurfaceImageAsync(call, image, callbacks, ct).ConfigureAwait(false)
+          : RenderServerToolCall(call);
       Conversation.AddSystemMessage(line);
       callbacks?.OnSystemMessage?.Invoke(line);
     }
+  }
+
+  /// <summary>Persists one generated image and renders its surfaced line. The path is the
+  ///     artifact's identity in the transcript (the model can read_image it later); the
+  ///     image itself rides the tool-result callback for the transcript to render. A
+  ///     failed save renders the typed error on the same line, so the transcript records
+  ///     WHY the artifact is missing.</summary>
+  private async Task<string> SurfaceImageAsync(ServerToolCall call, ServerToolCallImage image,
+      TurnCallbacks? callbacks, CancellationToken ct)
+  {
+    if (_serverToolImages is null)
+    {
+      return RenderServerToolCall(call);
+    }
+
+    Result<SavedServerToolImage> saved = await _serverToolImages
+        .SaveAsync(image.MediaType, image.Base64Data, ct).ConfigureAwait(false);
+    if (!saved.IsSuccess)
+    {
+      return $"[{call.Tool}] Error [{saved.Error.Code}]: {saved.Error.Message}";
+    }
+
+    callbacks?.OnToolResult?.Invoke(call.Tool, saved.Value.RelativePath, saved.Value.RelativePath,
+        false, new ToolResult($"saved to {saved.Value.RelativePath}", false, call.Tool,
+            [new ToolResultImage(image.MediaType, image.Base64Data)]));
+    // The hint is gated on the resolved model's vision capability: a model that cannot
+    // read images must not be invited to call read_image on the artifact.
+    return Config.AcceptsImageInput
+        ? $"[{call.Tool}] {saved.Value.RelativePath} (read_image can open it)"
+        : $"[{call.Tool}] {saved.Value.RelativePath}";
   }
 
   /// <summary>One surfaced line: "[&lt;tool&gt;] &lt;detail&gt;" plus one line per result URL.

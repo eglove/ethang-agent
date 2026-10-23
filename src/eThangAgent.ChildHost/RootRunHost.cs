@@ -1,10 +1,10 @@
-using System.Text.Json;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -261,8 +261,8 @@ public sealed class RootRunHost : IDisposable
         // the tool actually did. Name, status, the rich title, the summary, and the FULL
         // content travel; the app renders the content in the card body.
         OnToolResult: (name, summary, content, isError, rich) => emitter.Emit("tool",
-            JsonSerializer.Serialize(new RootTurnToolResultPayload(name, isError ? "error" : "ok",
-                rich?.Title, summary, content))),
+            RootTurnToolResultPayload.Serialize(name, isError ? "error" : "ok",
+                rich?.Title, summary, content, ToWireImages(rich?.Images))),
         // The context snapshot (issue #255): the loop fires this after every provider
         // response and after a compaction, and the accountant lives HERE - so a
         // snapshot that did not travel left the app's CTX line frozen for every
@@ -421,6 +421,15 @@ public sealed class RootRunHost : IDisposable
         ? null
         : [.. images.Select(image => new MessagePart.ImagePart(image.MediaType, image.Base64Data))];
   }
+
+  /// <summary>Converts a tool result's images to their wire form, or an empty list when
+  ///     it carries none. A tool result's images must ride the payload: every
+  ///     conversation runs in a host process, so an image that does not travel can
+  ///     never be rendered (issue #230).</summary>
+  private static List<RootTurnImage> ToWireImages(IReadOnlyList<ToolResultImage>? images)
+      => images is { Count: > 0 }
+          ? [.. images.Select(image => new RootTurnImage(image.MediaType, image.Base64Data))]
+          : [];
 
   /// <summary>Loads the conversation history a turn must see, ONCE, before the first turn.
   ///     The store is authoritative (a resumed session's rows are what the app already

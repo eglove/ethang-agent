@@ -21,8 +21,12 @@ namespace eThangAgent.Desktop.ViewModels;
 /// <param name="Title">The rich card title; null when the tool supplied none.</param>
 /// <param name="IsResult">True for a result payload, false for a call payload.</param>
 /// <param name="IsError">True when the result reports a tool failure.</param>
+/// <param name="Images">The images the tool attached to its result (issue #230), null
+///     when it attached none. Every conversation runs in a host process, so an image
+///     that did not ride the wire could never be rendered.</param>
 internal sealed record RootTurnToolPayload(string Name, string Arguments, string Summary,
-    bool IsResult, bool IsError, string? Content = null, string? Title = null)
+    bool IsResult, bool IsError, string? Content = null, string? Title = null,
+    IReadOnlyList<RootTurnImage>? Images = null)
 {
   private const string CallPrefix = "call ";
   private const string ResultPrefix = "result ";
@@ -87,7 +91,8 @@ internal sealed record RootTurnToolPayload(string Name, string Arguments, string
             && parsed.Status != RootTurnToolResultPayload.ErrorStatus)
         ? null
         : new RootTurnToolPayload(parsed.Name, string.Empty, parsed.Summary,
-            IsResult: true, IsError: parsed.IsError, Content: parsed.Content, Title: parsed.Title);
+            IsResult: true, IsError: parsed.IsError, Content: parsed.Content, Title: parsed.Title,
+            Images: parsed.Images);
   }
 
   /// <summary>The LEGACY text result shape &lt;name&gt; ok|error &lt;summary&gt; - a summary

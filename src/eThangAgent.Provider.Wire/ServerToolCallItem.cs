@@ -9,11 +9,17 @@ namespace eThangAgent.Provider.Wire;
 ///     OpenRouter's own shape whose item type IS "openrouter:&lt;tool&gt;"
 ///     (openrouter:web_search, ...). The call detail rides "action.query" /
 ///     "action.url" and the result URLs ride "action.sources[].url" when present.
-///     Unknown item types parse as false — the tolerance contract.</summary>
+///     An image-generation item carries its artifact OUTSIDE "action" — under
+///     "result" / "imageUrl" as a data:&lt;media&gt;;base64,&lt;payload&gt; URL (verified live
+///     2026-10) — so the image is read from there. Unknown item types parse as false,
+///     and any malformed image payload parses as a call with no image: the tolerance
+///     contract, never a parse failure.</summary>
 public static class ServerToolCallItem
 {
   private const string CallSuffix = "_call";
   private const string OpenRouterPrefix = "openrouter:";
+  private const string DataUrlPrefix = "data:";
+  private const string Base64Marker = ";base64,";
 
   public static bool TryParse(string itemType, JsonElement item, out ServerToolCall call)
   {
@@ -29,7 +35,7 @@ public static class ServerToolCallItem
       return false;
     }
 
-    call = ParseAction(item, tool);
+    call = ParseItem(item, tool);
     return true;
   }
 
@@ -45,10 +51,10 @@ public static class ServerToolCallItem
     => itemType.StartsWith(OpenRouterPrefix, StringComparison.Ordinal) && itemType.Length > OpenRouterPrefix.Length
         ? itemType[OpenRouterPrefix.Length..] : null;
 
-  /// <summary>The call's detail and sources from the item's "action" object: query
-  ///     wins over url for the detail, and the result URLs ride "sources" — all
+  /// <summary>The call's detail, sources, and image: the action object when present
+  ///     (query/url/sources) and the generated image when the item carries one — all
   ///     best-effort, never a parse failure.</summary>
-  private static ServerToolCall ParseAction(JsonElement item, string tool)
+  private static ServerToolCall ParseItem(JsonElement item, string tool)
   {
     string? detail = null;
     IReadOnlyList<string> sources = [];
@@ -58,7 +64,53 @@ public static class ServerToolCallItem
       sources = ParseSources(action);
     }
 
-    return new ServerToolCall(tool, detail, sources);
+    return new ServerToolCall(tool, detail, sources, ParseImage(item));
+  }
+
+  /// <summary>The generated image, when the item carries a well-formed one. The payload
+  ///     rides "result" (the live spelling) or "imageUrl" as a data URL; anything else —
+  ///     a missing member, a non-string, a remote https URL, an unsupported media type,
+  ///     invalid base64 — yields null. Null is the caller's no-image signal, never an
+  ///     error: the tolerance contract the rest of this parser documents.</summary>
+  private static ServerToolCallImage? ParseImage(JsonElement item)
+  {
+    string? url = StringMemberOf(item, "result") ?? StringMemberOf(item, "imageUrl");
+    return url is null ? null : ImageFromDataUrl(url);
+  }
+
+  /// <summary>Decodes one data:&lt;media&gt;;base64,&lt;payload&gt; URL into an image carrier, or
+  ///     null when the URL is not a base64 data URL in a supported image format. The
+  ///     media type is validated against the same image/png | image/jpeg rule every other
+  ///     image carrier enforces, and the constructor re-validates the base64.</summary>
+  private static ServerToolCallImage? ImageFromDataUrl(string url)
+  {
+    if (!url.StartsWith(DataUrlPrefix, StringComparison.Ordinal))
+    {
+      return null;
+    }
+
+    int marker = url.IndexOf(Base64Marker, StringComparison.Ordinal);
+    if (marker < 0)
+    {
+      return null;
+    }
+
+    string mediaType = url[DataUrlPrefix.Length..marker];
+    string payload = url[(marker + Base64Marker.Length)..];
+    if (mediaType is not ("image/png" or "image/jpeg") || payload.Length == 0)
+    {
+      return null;
+    }
+
+    try
+    {
+      return new ServerToolCallImage(mediaType, payload);
+    }
+    catch (ArgumentException)
+    {
+      // Invalid base64: tolerance, not a parse failure.
+      return null;
+    }
   }
 
   /// <summary>The action's detail string: its "query" when present, else its "url"

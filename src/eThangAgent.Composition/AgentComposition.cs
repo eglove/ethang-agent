@@ -130,6 +130,12 @@ public static class AgentComposition
         .AddSingleton<IFileSearchAccess, DirectFileSearchAccess>()
         .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
         .AddSingleton<IFileEditAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
+        // The generated-image artifact store (issue #230): a server-side image tool's
+        // output is persisted into the workspace so the user can open it and the model can
+        // read_image it later. Workspace-scoped like every other path-rooted seam.
+        .AddSingleton<IServerToolImageStore>(sp => new ServerToolImageStore(
+            new WorkspacePathResolver(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
+            sp.GetRequiredService<IFileWriteAccess>()))
         .AddSingleton<DirectGitAccess>()
         .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
         .AddSingleton<IGitCommitAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
@@ -519,6 +525,12 @@ public static class AgentComposition
             AnchorScope: sp.GetRequiredService<IWorkspaceAnchorScope>(),
             Cleanliness: sp.GetRequiredService<IWorkspaceCleanlinessCheck>(),
             SupervisorFor: id => sp.GetRequiredService<ChildSupervisorRegistry>().Find(id),
+            // The artifact store resolves at the child's ANCHOR when it has one (issue
+            // #230): a generated image belongs beside the work that produced it.
+            ServerToolImagesFor: anchor => anchor is null
+                ? sp.GetRequiredService<IServerToolImageStore>()
+                : new ServerToolImageStore(new WorkspacePathResolver(anchor),
+                    sp.GetRequiredService<IFileWriteAccess>()),
             // Spawn-boundary invariant (issue #124): production wiring demands a provider
             // binding on every begin-run — an unbound record fails loudly (Failed + audit
             // row) instead of looping without model calls. The spawn stamp above always
@@ -757,7 +769,8 @@ public static class AgentComposition
             dependencies: new RootDependencies(
                 SystemPrompt: sp.GetRequiredService<ISystemPromptProvider>(),
                 ContextCompactor: sp.GetRequiredService<DefaultContextCompactor>(),
-                TranscriptSink: sp.GetRequiredService<RootTranscriptSink>()),
+                TranscriptSink: sp.GetRequiredService<RootTranscriptSink>(),
+                ServerToolImages: sp.GetRequiredService<IServerToolImageStore>()),
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.

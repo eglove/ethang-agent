@@ -958,8 +958,14 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       // SUMMARY as the full content, so every card body read "ok". A legacy payload that
       // carried no content falls back to the summary (the old rendering), never empty.
       // The rich title travels as a ToolResult (the bridge's own carrier shape).
+      // The result's images ride the payload (issue #230): every conversation runs in a
+      // host process, so an image that did not travel could never be rendered. They
+      // reach the same ToolResult.Images surface computer screenshots use.
+      IReadOnlyList<ToolResultImage>? images = tool.Images is { Count: > 0 } wire
+          ? [.. wire.Select(image => new ToolResultImage(image.MediaType, image.Base64Data))]
+          : null;
       bridge.OnToolResult(tool.Name, tool.Summary, tool.Content ?? tool.Summary, tool.IsError,
-          tool.Title is null ? null : new ToolResult(tool.Content ?? tool.Summary, tool.IsError, tool.Title));
+          new ToolResult(tool.Content ?? tool.Summary, tool.IsError, tool.Title, images));
       return;
     }
 

@@ -10,7 +10,11 @@ namespace eThangAgent.ModelDomain;
 /// <param name="Sources">Result URLs the wire attached to the call (web_search's
 ///     action.sources), empty when none. Surfacing shows what the tool actually
 ///     returned, not just that it ran.</param>
-public sealed record ServerToolCall(string Tool, string? Detail, IReadOnlyList<string>? Sources = null)
+/// <param name="Image">The image an image-generation call produced, when the wire
+///     carried a well-formed one; null for every other tool and for a call whose
+///     payload was absent or malformed (issue #230: the image used to be dropped).</param>
+public sealed record ServerToolCall(string Tool, string? Detail, IReadOnlyList<string>? Sources = null,
+    ServerToolCallImage? Image = null)
 {
   /// <summary>Never null: an absent list reads as empty.</summary>
   public IReadOnlyList<string> Sources { get; init; } = Sources ?? [];
