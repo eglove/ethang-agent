@@ -186,6 +186,20 @@ public class RootTurnProtocolTests
   }
 
   [Fact]
+  public void ParseEvent_Reasoning_IsAKnownKind()
+  {
+    // Issue #245: the model's streaming thoughts travel as their own wire kind. A host
+    // that emits one must reach an app that recognizes it - a peer that refused it would
+    // fault the connection, not the turn.
+    const string json = /*lang=json,strict*/ "{\"TurnId\":\"t\",\"Kind\":\"reasoning\",\"Payload\":\"thinking\"}";
+
+    RootTurnEvent parsed = RootTurnProtocol.ParseEvent(json);
+
+    Assert.Equal("reasoning", parsed.Kind);
+    Assert.Equal("thinking", parsed.Payload);
+  }
+
+  [Fact]
   public void ParseEvent_UnknownKind_Throws()
   {
     const string json = /*lang=json,strict*/ "{\"TurnId\":\"t\",\"Kind\":\"bogus\",\"Payload\":\"\"}";
