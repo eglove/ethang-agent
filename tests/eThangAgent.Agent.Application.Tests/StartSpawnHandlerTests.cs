@@ -12,7 +12,7 @@ public class StartSpawnHandlerTests
       "root-model", "root", "root task", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "root report");
 
   [Fact]
-  public async Task Execute_HappyPath_PersistsRunningRecord_StartsRuntime_ReturnsId()
+  public async Task Execute_HappyPath_PersistsQueuedRecord_StartsRuntime_ReturnsId()
   {
     List<string> callLog = [];
     FakeAgentStore store = new(callLog);
@@ -29,7 +29,9 @@ public class StartSpawnHandlerTests
     Assert.Equal(result.Value, saved.Id);
     Assert.Equal(parent.Id, saved.ParentId);
     Assert.Equal(2, saved.Depth);
-    Assert.Equal(AgentStatus.Running, saved.Status);
+    // Issue #238: the spawn command persists QUEUED; the runtime owns the Queued ->
+    // Running transition because it is the only party that knows the run began.
+    Assert.Equal(AgentStatus.Queued, saved.Status);
     Assert.Null(saved.FailureReason);
     Assert.Equal("explicit-model", saved.ModelUsed);
     Assert.Equal("lbl", saved.Label);
@@ -136,7 +138,12 @@ public class StartSpawnHandlerTests
     Assert.False(result.IsSuccess);
     Assert.Same(capError, result.Error);
     _ = Assert.Single(store.Saved);
-    Assert.Equal(AgentStatus.Running, store.Saved[0].Status);
+    // Issue #238: a refused start terminalizes the row - never a Queued record that no
+    // run will ever claim.
+    AgentRecord terminal = Assert.Single(store.Updated);
+    Assert.Equal(AgentStatus.Failed, terminal.Status);
+    Assert.Equal(AgentFailureReason.ProviderError, terminal.FailureReason);
+    Assert.Contains("ConcurrencyCapReached", terminal.FinalReport!, StringComparison.Ordinal);
     _ = Assert.Single(runtime.Started);
   }
 

@@ -97,6 +97,7 @@ internal sealed partial class SubagentRowViewModel(
       AgentStatus.Completed => "done",
       AgentStatus.Failed => "failed: " + (reason?.ToString() ?? "unknown"),
       AgentStatus.Interrupted => "interrupted",
+      AgentStatus.Queued => "queued",
       _ => status.ToString(),
     };
     OnPropertyChanged(nameof(StatusDisplay));

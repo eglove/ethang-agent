@@ -27,7 +27,7 @@ public sealed class AgentQueries(IAgentStore store) : IAgentQueries
     AgentRecord agent = record.Value;
     return agent.Status switch
     {
-      AgentStatus.Running => Result.Failure<string>(new DomainError("NotComplete",
+      AgentStatus.Running or AgentStatus.Queued => Result.Failure<string>(new DomainError("NotComplete",
           $"Agent '{id}' has not finished running. Check agent.status later.")),
       AgentStatus.Completed when agent.FinalReport is { } report => Result.Success(report),
       AgentStatus.Completed => Result.Failure<string>(new DomainError("NotFound",

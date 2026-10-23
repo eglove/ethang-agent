@@ -35,7 +35,11 @@ public sealed class OrphanRepairHandler(
     {
       // The session's own root is Running by design between turns — it is not a child
       // and has no runtime owner; repair never touches it.
-      if (record.Status is not AgentStatus.Running || owners.Contains(record.Id.Value) || record.Id == exempt)
+      // QUEUED rows are live claims too (issue #238): a parked spawn has no run behind it
+      // by construction, so an id no owner declares is an orphan exactly like a Running
+      // one — and leaving it Queued would strand a row no caller can ever retrieve.
+      if (record.Status is not (AgentStatus.Running or AgentStatus.Queued)
+          || owners.Contains(record.Id.Value) || record.Id == exempt)
       {
         continue;
       }

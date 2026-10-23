@@ -83,9 +83,12 @@ public class ExecGuideTests
     Assert.Contains("try again later", section, StringComparison.Ordinal);
     Assert.Contains("`Error [NotFound]`", section, StringComparison.Ordinal);
     Assert.Contains("id is wrong", section, StringComparison.Ordinal);
-    // (5) cap reached — retrieve pending results before spawning more.
+    // (5) the concurrency boundary QUEUES (issue #238) — a queued child starts on its
+    // own; ConcurrencyCapReached now means the child host refused the start outright.
+    Assert.Contains("status=queued", section, StringComparison.Ordinal);
+    Assert.Contains("re-spawn a queued child", section, StringComparison.Ordinal);
     Assert.Contains("`Error [ConcurrencyCapReached]`", section, StringComparison.Ordinal);
-    Assert.Contains("retrieve pending results before spawning more", section, StringComparison.Ordinal);
+    Assert.Contains("refused the start outright", section, StringComparison.Ordinal);
     // (6) depth limit unchanged.
     Assert.Contains("depth limit 3", section, StringComparison.Ordinal);
 

@@ -61,7 +61,8 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
             Anchor failures return: AnchorMissing (empty/relative/nonexistent path), AnchorInvalid (resolves outside the effective root, or no root establishes containment).
             Optional isolateInWorktree (boolean) provisions a FRESH worktree of the session repository inside the parent's effective root and anchors the child at it - the child's whole tool surface (files, exec, git) lands in the worktree and its git commits land on the worktree's branch, never the controller's checkout. Mutually exclusive with workspaceRoot; a failed provision refuses the spawn before it starts. Removal stays manual via the worktree tool.
             Output contract:
-            id=<id> status=running
+            id=<id> status=running|queued
+            status=queued means the runtime's concurrent-agent limit parked the child: it will start on its own when a slot frees, agent.wait on it blocks normally, and agent.cancel stops it. Never re-spawn a queued child.
             """,
             [
                 new ActionParameter("taskPrompt", ActionParameterTypes.StringType, "Self-contained task for the child. State exactly what the report must contain."),
@@ -76,9 +77,11 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
             Returns the child's current state as one annotation line. This is a projection, not a mechanism: when you need the outcome, use agent.wait (one await) instead of polling status.
             Output contract:
             id=<id> status=running
+            id=<id> status=queued
             id=<id> status=completed
-            id=<id> status=failed reason=max-iterations|timeout|provider-error
-            The reason suffix appears only when status=failed.
+            id=<id> status=failed reason=max-iterations|timeout|provider-error|interrupted|hung|budget-exhausted|invalid-result
+            id=<id> status=interrupted
+            status=queued means the child is parked at the runtime's concurrent-agent limit: it has no run yet and starts on its own when a slot frees. The reason suffix appears only when status=failed.
             """,
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
@@ -126,7 +129,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
             ]),
         new("cancel", "Interrupt a running child agent by id (the model-facing stop).",
             """
-            Cancels one RUNNING child mid-run: the run's cancellation token fires, the loop repairs any half-finished tool batch, and the child settles as interrupted - its partial transcript stays retrievable with agent.result, and agent.resume can restart it. Routed through the runtime's explicit-interrupt path (one of the three sanctioned cancellation sources). Fails to you: NotRunning (unknown id, or the child already settled - nothing to cancel), NotAvailable (no runtime wired).
+            Cancels one RUNNING child mid-run: the run's cancellation token fires, the loop repairs any half-finished tool batch, and the child settles as interrupted - its partial transcript stays retrievable with agent.result, and agent.resume can restart it. A QUEUED child (parked at the concurrency limit, no run yet) is removed from the queue and settles as failed reason=interrupted. Routed through the runtime's explicit-interrupt path (one of the three sanctioned cancellation sources). Fails to you: NotRunning (unknown id, or the child already settled - nothing to cancel), NotAvailable (no runtime wired).
             Output contract:
             interrupted id=<id>
             """,
@@ -230,9 +233,37 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     }
 
     Result<AgentId> started = await _spawnCommand.Execute(_parentContext(), request!, ct).ConfigureAwait(false);
-    return started.IsSuccess
-        ? CapabilityInvocationResult.Ok($"id={started.Value} status=running")
-        : CapabilityInvocationResult.Fail($"Error [{started.Error.Code}]: {started.Error.Message}");
+    if (!started.IsSuccess)
+    {
+      return CapabilityInvocationResult.Fail($"Error [{started.Error.Code}]: {started.Error.Message}");
+    }
+
+    // Honesty rule (issue #238): the receipt states the state the child is ACTUALLY in.
+    // A spawn parked at the concurrency boundary is queued, not running; reporting it as
+    // running would tell the caller a run exists when none has begun.
+    return CapabilityInvocationResult.Ok($"id={started.Value} status={await SpawnedStateWordAsync(started.Value, ct).ConfigureAwait(false)}");
+  }
+
+  /// <summary>The status word for a just-spawned child: its persisted state, or
+  ///     "running" when the row cannot be read. The spawn itself succeeded, so a
+  ///     projection fault (an unreadable row, a wiring without status queries) must
+  ///     never turn a successful spawn into an error — the receipt falls back to the
+  ///     pre-existing word.</summary>
+  private async Task<string> SpawnedStateWordAsync(AgentId id, CancellationToken ct)
+  {
+    try
+    {
+      Result<AgentRecord> record = await _queries.GetStatus(id, ct).ConfigureAwait(false);
+      return record.IsSuccess ? StatusWord(record.Value.Status) : "running";
+    }
+    // Named decision (CA1031): the projection is a nicety on an already-successful
+    // spawn; a query fault degrades the receipt word, never the spawn result.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return "running";
+    }
   }
 
   /// <summary>Await the child's terminal transition and render the outcome contract of
@@ -444,8 +475,9 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
         return CapabilityInvocationResult.Fail(
             $"Error [NotRunning]: agent {id} is {StatusWord(status)}; messaging it cannot restart it — use agent.resume to restart it explicitly.");
       case AgentStatus.Running:
+      case AgentStatus.Queued:
       default:
-        return null; // the ordinary delivery path owns a running target
+        return null; // the ordinary delivery path owns a running or queued target
     }
   }
 
@@ -499,7 +531,10 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
       return CapabilityInvocationResult.Fail($"Error [{target.Error.Code}]: {target.Error.Message}");
     }
 
-    if (target.Value.Status is not AgentStatus.Running)
+    // A QUEUED child is cancellable too (issue #238): it holds no slot yet, but it is
+    // owned by the runtime and agent.cancel is the only surface that can stop it —
+    // refusing here would leave a parked spawn with no way out but a blanket interrupt.
+    if (target.Value.Status is not (AgentStatus.Running or AgentStatus.Queued))
     {
       return CapabilityInvocationResult.Fail(
           $"Error [NotRunning]: agent {id.Value} is {StatusWord(target.Value.Status)}; nothing to cancel.");
@@ -582,6 +617,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     AgentStatus.Completed => $"id={record.Id} status=completed",
     AgentStatus.Failed => $"id={record.Id} status=failed reason={ReasonText(record.FailureReason)}",
     AgentStatus.Interrupted => $"id={record.Id} status=interrupted",
+    AgentStatus.Queued => $"id={record.Id} status=queued",
     _ => throw new InvalidOperationException($"Unknown agent status '{record.Status}' for agent '{record.Id}'."),
   };
 
@@ -593,6 +629,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     AgentStatus.Completed => "completed",
     AgentStatus.Failed => "failed",
     AgentStatus.Interrupted => "interrupted",
+    AgentStatus.Queued => "queued",
     _ => throw new InvalidOperationException($"Unknown agent status '{status}'."),
   };
 

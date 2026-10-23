@@ -187,8 +187,11 @@ public static class ExecGuide
     - `Error [NotComplete]` means the child is still running — try again later
       (one agent.wait beats repeated polling).
     - `Error [NotFound]` means the id is wrong.
-    - `Error [ConcurrencyCapReached]` from agent.spawn means the runtime is at its
-      concurrent-agent limit — retrieve pending results before spawning more.
+    - A spawn past the runtime's concurrent-agent limit does NOT fail: it returns
+      status=queued and starts on its own when a slot frees. agent.wait on a queued id
+      blocks normally, agent.status reports status=queued, agent.cancel stops it. Never
+      re-spawn a queued child. `Error [ConcurrencyCapReached]` now means the child host
+      refused the start outright (a remote-host ceiling).
     - Children see the full tool surface and may spawn their own children — depth limit 3.
 
     Broadcasting to the agent tree - notify-subtree / notify-ancestors:

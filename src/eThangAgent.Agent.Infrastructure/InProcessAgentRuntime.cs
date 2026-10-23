@@ -5,8 +5,15 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.AgentInfrastructure;
 
 /// <summary>In-process actor runtime: every accepted child runs to completion on one background task
-/// while the caller continues. A strict concurrency cap is enforced with a zero-timeout slot wait —
-/// at-capacity starts fail with <see cref="RuntimeErrors.CapReached"/> and produce no side effects.
+/// while the caller continues. A strict concurrency cap is enforced with a zero-timeout slot wait;
+/// an at-capacity start is QUEUED, never rejected and never silently dropped (issue #238): the
+/// queued child owns a settle source and a mailbox from the moment it is parked, so agent.wait
+/// blocks on it instead of failing NotFound, agent.send reaches it, and agent.cancel removes it
+/// with a well-formed Failed(Interrupted) outcome. A settled run hands its slot DIRECTLY to the
+/// queue head under the admission gate — never releasing it to a fresh Start first — so the queue
+/// drains in priority-then-FIFO order with no starvation and no over-capacity race. An admission
+/// fault (the run could not begin) terminalizes the record and settles its waiters: a parked
+/// spawn can never leave a Running row with no run behind it.
 /// Each active run owns a CancellationTokenSource registered here, so <see cref="Interrupt"/> can
 /// cancel one or all runs; runners observe the token and persist well-formed terminal outcomes.</summary>
 #pragma warning disable CA1001 // Types that own disposable fields should be disposable
@@ -16,7 +23,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 {
   private readonly IAgentRunner _runner;
   private readonly IAgentStore _store;
-  private readonly SemaphoreSlim _slots;
+  private readonly int _capacity;
   private readonly ConcurrentDictionary<AgentId, CancellationTokenSource> _active = [];
 
   // One completion source per child id: WhenSettledAsync awaits it; a watchdog same-id
@@ -32,10 +39,13 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   // preemption. Consulted by Deliver when the sender is a granted agent.
   private readonly ConcurrentDictionary<Guid, bool> _preemptGrants = [];
 
-  // Concurrency-boundary waiters (FR-B6): priority then FIFO; cap release wakes the
-  // highest-priority waiter through its TCS — push, not retry-poll.
-  private readonly Lock _waitGate = new();
+  // Concurrency-boundary admission (FR-B6, issue #238): ONE gate owns both the slot count
+  // and the waiter list, so a settled run hands its slot DIRECTLY to the head waiter
+  // inside the same critical section. Releasing the slot first and letting a fresh Start
+  // race the queue head is what starved parked spawns and let the runtime run over cap.
+  private readonly Lock _admissionGate = new();
   private readonly List<SpawnWaiter> _waiters = [];
+  private int _running;
 
   private sealed record SpawnWaiter(AgentRecord Record, int Priority, DateTimeOffset EnqueuedAt);
   private readonly IMailboxStore? _mailboxStore;
@@ -60,51 +70,118 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     _events = events;
     _supervisors = supervisors;
     _registry = mailboxes;
-    _slots = new SemaphoreSlim(maxConcurrentAgents, maxConcurrentAgents);
+    _capacity = maxConcurrentAgents;
   }
 
-  public Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
+  public async Task<Result<AgentId>> Start(AgentRecord record, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(record);
-    if (_slots.Wait(0, CancellationToken.None))
+    // Every accepted start owns its settle source and mailbox BEFORE admission, so a
+    // parked spawn is awaitable and steerable from the moment the caller is told it
+    // started (issue #238). Ownership is what makes the queued state observable instead
+    // of a NotFound from agent.wait.
+    CancellationTokenSource cts = new();
+    _active[record.Id] = cts;
+    BoundedAgentMailbox mailbox = new();
+    _mailboxes[record.Id] = mailbox;
+    _registry?.Register(record.Id, mailbox);
+    _ = RehydrateAsync(record.Id, mailbox);
+    _ = _settling.AddOrUpdate(record.Id,
+        static _ => NewSettleSource(),
+        static (_, existing) => existing.Task.IsCompleted ? NewSettleSource() : existing);
+
+    bool admitted;
+    lock (_admissionGate)
     {
-      _ = BeginRun(record);
-      return Task.FromResult(Result.Success(record.Id));
+      admitted = _running < _capacity;
+      if (admitted)
+      {
+        _running++;
+      }
+      else
+      {
+        QueueLocked(record);
+      }
     }
 
-    Queue(record);
-    return Task.FromResult(Result.Success(record.Id));
+    if (admitted)
+    {
+      await AdmitAsync(record, cts, ct).ConfigureAwait(false);
+    }
+
+    return Result.Success(record.Id);
+  }
+
+  /// <summary>The one admission path: persist the Queued -> Running transition, then
+  ///     dispatch the run. The flip is AWAITED before the run starts, so a caller reading
+  ///     the row right after Start returns (the spawn receipt does exactly that) sees the
+  ///     state the child is really in, and the flip can never land after a terminal write
+  ///     and resurrect a settled row. A record already Running (plain start, resume,
+  ///     watchdog retry) is not rewritten — the legacy write shape is untouched.</summary>
+  private async Task AdmitAsync(AgentRecord record, CancellationTokenSource cts, CancellationToken ct)
+  {
+    if (record.Status is AgentStatus.Queued)
+    {
+      _ = await _store.UpdateAsync(record with { Status = AgentStatus.Running }, ct).ConfigureAwait(false);
+    }
+
+    _ = BeginRun(record, cts);
   }
 
   /// <summary>Parks a start at the concurrency boundary, ordered by priority then FIFO
   ///     (FR-B6). The waiter is visible and cancellable — cancelling interrupts (removes)
-  ///     it without starting anything. Cap release wakes the head waiter directly.
+  ///     it without starting anything. Caller holds <see cref="_admissionGate"/>.
   ///     Unknown-contract records default priority 0 (SpawnRequest's default flows into
   ///     the record via the spawn command; children of children re-spawn with their own).</summary>
-  private void Queue(AgentRecord record)
+  private void QueueLocked(AgentRecord record)
   {
     SpawnWaiter waiter = new(record, PriorityOf(record), DateTimeOffset.UtcNow);
-    lock (_waitGate)
+    _waiters.Add(waiter);
+    _waiters.Sort((a, b) =>
     {
-      _waiters.Add(waiter);
-      _waiters.Sort((a, b) =>
-      {
-        int byPriority = b.Priority.CompareTo(a.Priority);
-        return byPriority != 0 ? byPriority : a.EnqueuedAt.CompareTo(b.EnqueuedAt);
-      });
+      int byPriority = b.Priority.CompareTo(a.Priority);
+      return byPriority != 0 ? byPriority : a.EnqueuedAt.CompareTo(b.EnqueuedAt);
+    });
+  }
+
+  /// <summary>Priority fact for the admission order. A corrupt contract column is an
+  ///     infrastructure fault the ADMISSION path must survive: an undecodable agreement
+  ///     cannot grant preemption, so the record takes the default priority and the fault
+  ///     surfaces where it can be reported (BeginRun terminalizes it) instead of throwing
+  ///     out of a queue insertion.</summary>
+  private static int PriorityOf(AgentRecord record)
+  {
+    if (record.Contract is not { } contractJson)
+    {
+      return 0;
+    }
+
+    try
+    {
+      return SpawnContract.Decode(contractJson).PreemptGrant ? 1 : 0;
+    }
+    // Named decision (CA1031): priority is an admission-ordering hint, never a gate on
+    // the spawn; a corrupt contract is terminalized by BeginRun with a well-formed
+    // failure rather than silently killing the queue.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return 0;
     }
   }
 
-  private static int PriorityOf(AgentRecord record)
-      => record.Contract is { } contractJson && SpawnContract.Decode(contractJson).PreemptGrant ? 1 : 0;
-
-  /// <summary>Wakes the highest-priority waiter with a fresh slot; runs on the slot-release
-  ///     path so queue entry is strictly push-driven.</summary>
-  private void WakeHeadIfAny()
+  /// <summary>Hands a released slot to the highest-priority waiter INSIDE the admission
+  ///     gate, so a fresh Start can never consume the slot the queue head is owed
+  ///     (starvation) and two runs can never admit past the cap. Runs on the
+  ///     slot-release path: queue entry stays strictly push-driven.</summary>
+  private void ReleaseSlotAndAdmitNext()
   {
     SpawnWaiter? head;
-    lock (_waitGate)
+    CancellationTokenSource? cts = null;
+    lock (_admissionGate)
     {
+      _running--;
       if (_waiters.Count == 0)
       {
         return;
@@ -112,38 +189,86 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 
       head = _waiters[0];
       _waiters.RemoveAt(0);
+      // The slot transfers to the head: _running is decremented then re-incremented in
+      // one critical section, so the count never dips below what is actually running.
+      _running++;
+      if (_active.TryGetValue(head.Record.Id, out CancellationTokenSource? owned))
+      {
+        cts = owned;
+      }
     }
 
-    _ = BeginRun(head.Record);
-  }
-
-  private Result<AgentId> BeginRun(AgentRecord record)
-  {
-
-    // Named decision (CA2000): ownership of the CTS transfers to _active; it is disposed
-    // in RunToCompletionAsync's finally when the run settles.
-#pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
-    CancellationTokenSource cts = new();
-#pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
-    _active[record.Id] = cts;
-    BoundedAgentMailbox mailbox = new();
-    _mailboxes[record.Id] = mailbox;
-    _registry?.Register(record.Id, mailbox);
-    _ = RehydrateAsync(record.Id, mailbox);
-    if (_supervisors is not null)
+    // An interrupted queued spawn has no CTS left: it was terminalized and settled by
+    // Interrupt, so admission must not resurrect it. The slot is handed on instead.
+    if (cts is null)
     {
-      ChildSupervisor supervisor = new(record.Id, _events ?? NullAgentEvents.Instance, TimeProvider.System, ceilings: null);
-      supervisor.OnStart(record.Attempts);
-      _supervisors.Register(record.Id, supervisor);
+      ReleaseSlotAndAdmitNext();
+      return;
     }
 
-    _preemptGrants[record.Id.Value] = record.Contract is { } contractJson && SpawnContract.Decode(contractJson).PreemptGrant;
-    _ = _settling.AddOrUpdate(record.Id,
-        static _ => NewSettleSource(),
-        static (_, existing) => existing.Task.IsCompleted ? NewSettleSource() : existing);
-    _ = Task.Run(() => RunToCompletionAsync(record, cts), CancellationToken.None);
-    return Result.Success(record.Id);
+    // Same admission path a fresh Start takes: the queued row flips to Running before
+    // the run is dispatched, so a reader never sees a running child's row say queued.
+    _ = AdmitAsync(head.Record, cts, CancellationToken.None);
   }
+
+  /// <summary>Starts the run for an ADMITTED record. The settle source, mailbox, and
+  ///     cancellation token were created at Start (a queued spawn owns them while it
+  ///     waits), so this method only registers the run's supervision facts and dispatches.
+  ///     A record still marked Queued is flipped to Running first: admission is the
+  ///     transition, and a reader must never see a running child's row say queued.
+  ///     <para>An admission FAULT (anything thrown while registering the run) is
+  ///     terminalized here — the record becomes Failed(ProviderError) with the cause in
+  ///     its report, its waiters settle with that outcome, and the slot is handed on.
+  ///     Without this, a queued spawn whose start failed would keep a Running row with no
+  ///     run behind it: exactly the silent loss issue #238 reports.</para></summary>
+  private Result<AgentId> BeginRun(AgentRecord record, CancellationTokenSource cts)
+  {
+    try
+    {
+      if (_supervisors is not null)
+      {
+        ChildSupervisor supervisor = new(record.Id, _events ?? NullAgentEvents.Instance, TimeProvider.System, ceilings: null);
+        supervisor.OnStart(record.Attempts);
+        _supervisors.Register(record.Id, supervisor);
+      }
+
+      // Admission needs the REAL agreement (queue ordering may tolerate a corrupt
+      // contract as a priority hint, but the run cannot enact a grant set it cannot read):
+      // a decode fault here is the admission fault the catch below terminalizes.
+      _preemptGrants[record.Id.Value] = record.Contract is { } contractJson
+          && SpawnContract.Decode(contractJson).PreemptGrant;
+      _ = Task.Run(() => RunToCompletionAsync(record, cts), CancellationToken.None);
+      return Result.Success(record.Id);
+    }
+    // Named decision (CA1031): an admission fault must become a well-formed terminal
+    // outcome for the child's waiters, never an escaping exception that strands the row.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      string report = "Error [ProviderError]: the child run could not be admitted (admission fault): " + ex.Message;
+      AgentRunOutcome outcome = new(record.Id, AgentStatus.Failed, AgentFailureReason.ProviderError,
+          report, record.ModelUsed, record.Depth);
+      _ = Task.Run(async () =>
+      {
+        // The run never began: it must not stay in the active set (orphan repair trusts
+        // that set as ownership) and its token must not leak.
+        if (_active.TryRemove(record.Id, out CancellationTokenSource? abandoned))
+        {
+          abandoned.Dispose();
+        }
+
+        await TerminalUpdateAsync(record, AgentStatus.Failed, AgentFailureReason.ProviderError, report)
+            .ConfigureAwait(false);
+        CloseMailbox(record.Id, outcome);
+        _ = Settle(record.Id, outcome);
+        ReleaseSlotAndAdmitNext();
+      }, CancellationToken.None);
+      return Result.Failure<AgentId>(new DomainError("ProviderError", report));
+    }
+  }
+
+
 
   /// <summary>Ids of runs currently executing in THIS runtime — the in-process owner
   ///     set for exact orphan repair (FR-L8). Queued (not yet started) ids are NOT
@@ -155,28 +280,79 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
   {
     if (childId is { } id)
     {
-      // A queued (never-started) spawn is removed outright — cancelling it is explicit,
-      // never a silent drop (A3).
-      lock (_waitGate)
-      {
-        _ = _waiters.RemoveAll(w => w.Record.Id == id);
-      }
-
-      // Named decision (CA2000): the CTS is cancelled here; disposal belongs to the
-      // run's finally, which owns its lifetime.
-#pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
-      if (_active.TryRemove(id, out CancellationTokenSource? cts))
-#pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
-      {
-        cts.Cancel();
-      }
-
+      InterruptOne(id);
       return;
     }
-    foreach (AgentId runningId in _active.Keys)
+
+    // Snapshot: InterruptOne mutates the active set as it goes.
+    foreach (AgentId runningId in _active.Keys.ToArray())
     {
-      Interrupt(runningId);
+      InterruptOne(runningId);
     }
+  }
+
+  /// <summary>Interrupts one owned id. A QUEUED spawn (parked, never started) is removed
+  ///     from the queue and TERMINALIZED — Failed(Interrupted) persisted, its waiters
+  ///     settled with that outcome, its mailbox closed — instead of merely vanishing from
+  ///     the queue list (issue #238: the old RemoveAll left a Running row no caller could
+  ///     ever retrieve, so a blanket interrupt silently destroyed parked spawns). A
+  ///     RUNNING spawn keeps the legacy path: the CTS is cancelled and the run's own
+  ///     finally persists the outcome.</summary>
+  private void InterruptOne(AgentId id)
+  {
+    AgentRecord? queuedRecord = null;
+    lock (_admissionGate)
+    {
+      int index = _waiters.FindIndex(w => w.Record.Id == id);
+      if (index >= 0)
+      {
+        queuedRecord = _waiters[index].Record;
+        _waiters.RemoveAt(index);
+      }
+    }
+
+    // Named decision (CA2000): the CTS is cancelled here; disposal belongs to the
+    // run's finally, which owns its lifetime.
+#pragma warning disable CA2000 // Call IDisposable.Dispose on object created by
+    bool owned = _active.TryRemove(id, out CancellationTokenSource? cts);
+#pragma warning restore CA2000 // Call IDisposable.Dispose on object created by
+    if (owned)
+    {
+      cts!.Cancel();
+    }
+
+    if (queuedRecord is { } record)
+    {
+      // A parked spawn holds no slot, so nothing is released here; the run never began.
+      _ = Task.Run(() => TerminalizeQueuedAsync(record), CancellationToken.None);
+    }
+  }
+
+  /// <summary>Terminalizes a parked spawn that will never run: the record becomes
+  ///     Failed(Interrupted), the mailbox closes, and every waiter settles with that
+  ///     well-formed outcome. Runs off the caller's thread (Interrupt is synchronous by
+  ///     contract) and never throws.</summary>
+  private async Task TerminalizeQueuedAsync(AgentRecord record)
+  {
+    const string report = "Error [Interrupted]: the queued spawn was interrupted before its run began.";
+    try
+    {
+      await TerminalUpdateAsync(record, AgentStatus.Failed, AgentFailureReason.Interrupted, report)
+          .ConfigureAwait(false);
+    }
+    // Named decision (CA1031): the queue-drop path must still settle its waiters when the
+    // terminal write faults - an unsettled waiter is the silent loss this fix removes.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+
+    AgentRunOutcome outcome = new(record.Id, AgentStatus.Failed, AgentFailureReason.Interrupted,
+        report, record.ModelUsed, record.Depth);
+    CloseMailbox(record.Id, outcome);
+    _ = Settle(record.Id, outcome);
   }
 
   private async Task RunToCompletionAsync(AgentRecord record, CancellationTokenSource cts)
@@ -223,8 +399,10 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
         removed.Dispose();
       }
 
-      _ = _slots.Release();
-      WakeHeadIfAny();
+      // The slot goes to the queue head inside the admission gate, never back into a
+      // general pool a fresh Start could win (issue #238: that race starved parked
+      // spawns and let the runtime briefly run over cap).
+      ReleaseSlotAndAdmitNext();
     }
   }
 
@@ -299,18 +477,18 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
 
   /// <summary>The single terminal-persist path: writes the terminal columns AND clears
   ///     the one-shot resume carrier — the run consumed it, so a watchdog retry of this
-  ///     child reverts to the wrap-up nudge and the same resume can never re-deliver.</summary>
+  ///     child reverts to the wrap-up nudge and the same resume can never re-deliver.
+  ///     <para>A CORRUPT contract column never blocks the terminal write: an undecodable
+  ///     agreement leaves the column untouched (there is no carrier to clear in a payload
+  ///     nobody can read) instead of throwing out of the one path every settle depends on
+  ///     — which is exactly how an admission fault used to strand its own record.</para></summary>
   private async Task TerminalUpdateAsync(AgentRecord record, AgentStatus status,
       AgentFailureReason? reason, string? report)
   {
     string? contractJson = record.Contract;
-    if (contractJson is not null)
+    if (contractJson is not null && TryClearResumeCarrier(contractJson) is { } cleared)
     {
-      SpawnContract decoded = SpawnContract.Decode(contractJson);
-      if (decoded.ResumeMessage is not null)
-      {
-        contractJson = SpawnContract.Encode(decoded.WithoutResumeMessage());
-      }
+      contractJson = cleared;
     }
 
     _ = await _store.UpdateAsync(record with
@@ -321,6 +499,26 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       FinalReport = report,
       Contract = contractJson,
     }, CancellationToken.None).ConfigureAwait(false);
+  }
+
+  /// <summary>The cleared contract payload, the original payload when it carries no
+  ///     resume carrier, or null when the column cannot be decoded at all (the caller
+  ///     then leaves it byte-identical).</summary>
+  private static string? TryClearResumeCarrier(string contractJson)
+  {
+    try
+    {
+      SpawnContract decoded = SpawnContract.Decode(contractJson);
+      return decoded.ResumeMessage is null ? contractJson : SpawnContract.Encode(decoded.WithoutResumeMessage());
+    }
+    // Named decision (CA1031): the terminal write is the one path every settle depends
+    // on; an unreadable contract is a data fault, never a reason to lose the outcome.
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+#pragma warning restore CA1031 // Do not catch general exception types
+    {
+      return null;
+    }
   }
 
   /// <summary>Completes every waiter for one child. Called after the terminal record write

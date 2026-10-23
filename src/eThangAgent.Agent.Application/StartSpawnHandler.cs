@@ -212,9 +212,14 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
   private async Task<Result<AgentId>> PersistAndStartAsync(AgentRecord parent, SpawnRequest request,
       SpawnContract? contract, ModelConfig modelConfig, CancellationToken ct)
   {
+    // Persisted QUEUED, not Running (issue #238): the runtime is the only party that
+    // knows the run actually began, and it owns the Queued -> Running transition. A
+    // spawn parked at the concurrency boundary therefore never claims to be running, and
+    // a reader can tell a parked child from a live one.
     AgentRecord record = AgentRecord.Spawned(AgentId.NewId(), parent.Id, parent.Depth + 1, modelConfig.ModelId,
         request.Label, request.TaskPrompt, DateTimeOffset.UtcNow, contract,
-        provider: _spawn.ProviderName);
+        provider: _spawn.ProviderName) with
+    { Status = AgentStatus.Queued };
 
     Result<string> saved = await _store.SaveAsync(record, ct).ConfigureAwait(false);
     if (!saved.IsSuccess)
@@ -223,9 +228,24 @@ public sealed class StartSpawnHandler(IAgentStore store, IAgentRuntime runtime, 
     }
 
     Result<AgentId> started = await _runtime.Start(record, ct).ConfigureAwait(false);
-    return started.IsSuccess
-        ? Result.Success(record.Id)
-        : Result.Failure<AgentId>(started.Error);
+    if (started.IsSuccess)
+    {
+      return Result.Success(record.Id);
+    }
+
+    // A REFUSED start must not leave the child parked forever (issue #238): the caller
+    // gets the runtime's error verbatim, and the persisted row is terminalized so
+    // agent.status / agent.result report a retrievable failure instead of a Queued row
+    // no run will ever claim.
+    _ = await _store.UpdateAsync(record with
+    {
+      Status = AgentStatus.Failed,
+      FailureReason = AgentFailureReason.ProviderError,
+      CompletedAt = DateTimeOffset.UtcNow,
+      FinalReport = "Error [" + started.Error.Code + "]: the child run was never started: "
+          + started.Error.Message,
+    }, CancellationToken.None).ConfigureAwait(false);
+    return Result.Failure<AgentId>(started.Error);
   }
 
   /// <summary>Canonical form of a resolved anchor: fully qualified with any trailing
