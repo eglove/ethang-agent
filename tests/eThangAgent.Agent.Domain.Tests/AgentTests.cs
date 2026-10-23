@@ -265,4 +265,198 @@ public class AgentTests
     public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
         => Task.FromResult(new ToolResult(_resultContent, false));
   }
+
+  private sealed class StubProvider : IModelProvider
+  {
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
+        CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new ModelResponse("final", [])));
+
+    public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
+        Action<string>? onContentDelta = null, Action<string>? onReasoningDelta = null, CancellationToken ct = default)
+        => SendAsync(config, request, ct);
+  }
+
+  private sealed class ThresholdMonitor(double utilization, int window = 1000) : IContextMonitor
+  {
+    public ContextStatus Status { get; set; } =
+        new((int)(utilization * window / 100.0), (long)(utilization * window / 100.0), 0, window, utilization);
+
+    public ContextBreakdown? Breakdown => null;
+
+    public void OnRequestUsage(TokenUsage usage, ContextComposition composition)
+    {
+    }
+  }
+
+  /// <summary>The compaction handoff seam (issue #234): a compactor whose outcome IS a
+  /// handoff (carrying the summary; the conversation is NOT compacted in place) leaves
+  /// HandoffPending true after the turn ends; the composition clears it via
+  /// ClearHandoffPending. An ordinary compaction outcome leaves the flag false.</summary>
+  /// <summary>Counts every compaction call and always decides a handoff: the
+  /// one-decision-per-turn guard is observable in the call count.</summary>
+  private sealed class CountingHandoffCompactor : IContextCompactor
+  {
+    public int Calls { get; private set; }
+
+    public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+    {
+      Calls++;
+      return Task.FromResult(Result.Success(CompactionOutcome.Handoff("the handoff summary", new TokenUsage(50, 100))));
+    }
+
+    /// <summary>The in-place shape honors its ALWAYS-IN-PLACE contract: a plain
+    /// outcome, never a handoff.</summary>
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100))));
+  }
+
+  /// <summary>First response carries a tool call (driving a second iteration), then the
+  /// final answer — the iteration structure the one-decision-per-turn guard needs.</summary>
+  private sealed class ToolCallingProvider : IModelProvider
+  {
+    private int _calls;
+
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
+        CancellationToken ct = default)
+    {
+      _calls++;
+      return Task.FromResult(_calls == 1
+          ? Result.Success(new ModelResponse(null, [new ToolCallRequest("c1", "missing", "{}")]))
+          : Result.Success(new ModelResponse("final", [])));
+    }
+
+    public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
+        Action<string>? onContentDelta = null, Action<string>? onReasoningDelta = null, CancellationToken ct = default)
+        => SendAsync(config, request, ct);
+  }
+
+  private sealed class HandoffCompactor(bool handoff) : IContextCompactor
+  {
+    public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+    {
+      return Task.FromResult(handoff
+          ? Result.Success(CompactionOutcome.Handoff("the handoff summary", new TokenUsage(50, 100)))
+          : Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100))));
+    }
+
+    /// <summary>The in-place shape honors its ALWAYS-IN-PLACE contract: a plain
+    /// outcome, never a handoff.</summary>
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100))));
+  }
+
+  [Fact]
+  public async Task Handoff_HandoffOutcome_SetsHandoffPendingAndAppendsNewHandoffLine()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800)); // believable report: 800 tokens at 4 chars/token
+    HandoffCompactor compactor = new(handoff: true);
+    Agent agent = new(new StubProvider(), conversation, DefaultConfig, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(80.0),
+          ContextCompactor = compactor,
+        });
+
+    Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.True(agent.HandoffPending);
+    // The handoff line is the NEW verbatim text: it names NO session id (the host cannot
+    // know the new id yet; the app posts the actual id as a notice after launching).
+    Assert.Contains(conversation.Messages, m =>
+        m.Role is Role.System && m.Content == "[context handoff: the conversation continues in a new session.]");
+  }
+
+  [Fact]
+  public async Task Handoff_ClearHandoffPending_ResetsFlag()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800));
+    HandoffCompactor compactor = new(handoff: true);
+    Agent agent = new(new StubProvider(), conversation, DefaultConfig, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(80.0),
+          ContextCompactor = compactor,
+        });
+
+    _ = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+    Assert.True(agent.HandoffPending);
+
+    agent.ClearHandoffPending();
+
+    Assert.False(agent.HandoffPending);
+  }
+
+  [Fact]
+  public async Task Handoff_NonHandoffCompaction_LeavesHandoffPendingFalse()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800));
+    HandoffCompactor compactor = new(handoff: false);
+    Agent agent = new(new StubProvider(), conversation, DefaultConfig, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(80.0),
+          ContextCompactor = compactor,
+        });
+
+    Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.False(agent.HandoffPending);
+  }
+
+  /// <summary>A handoff outcome does NOT shrink the conversation, so utilization stays
+  /// above the ceiling: the turn must not re-enter the compactor on every subsequent
+  /// iteration — ONE handoff decision per turn (the decision blocks the auto-compact
+  /// backstop for the remainder of the turn, exactly as a failed compaction does).</summary>
+  [Fact]
+  public async Task Handoff_HandoffOutcome_BlocksFurtherCompactionThisTurn()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800));
+    CountingHandoffCompactor compactor = new();
+    Agent agent = new(new ToolCallingProvider(), conversation, DefaultConfig, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(80.0),
+          ContextCompactor = compactor,
+        });
+
+    Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal(1, compactor.Calls); // one handoff decision per turn, not one per iteration
+    Assert.True(agent.HandoffPending);
+  }
+
+  /// <summary>A handoff outcome does NOT compact the conversation: there is no summary
+  /// message in it, so the summary-surfacing part of NotifyCompacted must not run - the
+  /// OnSystemMessage callback must not see a summary line from a handoff.</summary>
+  [Fact]
+  public async Task Handoff_HandoffOutcome_DoesNotSurfaceASummaryMessage()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800));
+    HandoffCompactor compactor = new(handoff: true);
+    Agent agent = new(new StubProvider(), conversation, DefaultConfig, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(80.0),
+          ContextCompactor = compactor,
+        });
+    List<string> surfaced = [];
+
+    Result<string> result = await agent.SendMessage("go",
+        new TurnCallbacks(OnSystemMessage: surfaced.Add), ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.True(agent.HandoffPending);
+    Assert.DoesNotContain(surfaced, s => s.Contains("Conversation summary", StringComparison.Ordinal));
+    // The conversation itself carries no summary message: the handoff did not compact.
+    Assert.DoesNotContain(conversation.Messages, m => m.IsSummary);
+  }
 }

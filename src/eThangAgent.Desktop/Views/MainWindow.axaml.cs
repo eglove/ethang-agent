@@ -139,6 +139,7 @@ internal partial class MainWindow : Window
       WatchdogWrapUpText = _vm.ConfiguredWatchdogWrapUp,
       OpenRouterBaseUrlText = _vm.ConfiguredOpenRouterBaseUrl,
       ComputerUse = _vm.ConfiguredComputerUse,
+      CompactionHandoff = _vm.ConfiguredCompactionHandoff,
       SkillRegistryDefaultTarget = await _vm.GetSkillRegistryDefaultTargetAsync(),
       OpenRouterManagementKey = _vm.ConfiguredOpenRouterManagementKey,
     });

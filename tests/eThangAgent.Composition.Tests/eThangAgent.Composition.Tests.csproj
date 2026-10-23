@@ -4,5 +4,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
+    <!-- The serialization assertions decode the WIRE payload (SessionRequestPayload),
+         so the wire contract's assembly is referenced directly. -->
+    <ProjectReference Include="../../src/eThangAgent.Transport.ACL/eThangAgent.Transport.ACL.csproj" />
   </ItemGroup>
 </Project>

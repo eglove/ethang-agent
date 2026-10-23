@@ -239,6 +239,9 @@ public static class AgentComposition
       new AgentToolBinding(
           sp.GetRequiredService<SkillInvokeTool>(),
           "Invoke a named catalog skill on the user's behalf (including manual skills)."),
+      new AgentToolBinding(
+          sp.GetRequiredService<NewSessionTool>(),
+          "Start a NEW session in this workspace with a given prompt; the current conversation completes gracefully and stays resumable."),
   ];
 
   /// <summary>Context and git tool bindings: the workspace task list, the experiment
@@ -346,9 +349,15 @@ public static class AgentComposition
               sp.GetRequiredService<IModelCatalog>(),
               providerName,
               sp.GetRequiredService<IWorkspaceContext>().WorkspaceId);
+          // The compaction handoff (issue #234) reads its enablement LIVE at compaction
+          // time: a preference saved mid-session applies to the next compaction. The
+          // strict parser throws on a stored value it cannot bind (nothing coerced).
           return new DefaultContextCompactor(
               sp.GetRequiredService<IModelProviderFactory>(),
-              () => summarizer.ResolveAsync(SubAgentSpawner.ChildMaxTokens, SubAgentSpawner.ChildTemperature).GetAwaiter().GetResult());
+              () => summarizer.ResolveAsync(SubAgentSpawner.ChildMaxTokens, SubAgentSpawner.ChildTemperature).GetAwaiter().GetResult(),
+              handoffEnabled: () => SessionHandoffPreferences.TryParse(
+                  sp.GetRequiredService<IAppPreferenceStore>()
+                      .GetAsync(SessionHandoffPreferences.Key, ct: default).GetAwaiter().GetResult()));
         })
         .AddSingleton<ICommitStyleProvider, AppPreferenceCommitStyleProvider>()
         .AddSingleton<DirectShellAccess>()
@@ -428,6 +437,16 @@ public static class AgentComposition
             sp.GetRequiredService<ISkillInvocationPort>(),
             sp.GetRequiredService<IConversationSink>(),
             notice => sp.GetRequiredService<AgentSession>().PostNotice(notice)))
+        .AddSingleton(sp => new NewSessionTool(sp.GetRequiredService<INewSessionPort>()))
+        // New-session channel (issue #234): the per-container carrier of the LIVE root
+        // turn's session-request emitter plus the port adapter that serves the Tool
+        // Domain's INewSessionPort over it. Registered after the skill-invocation block
+        // (registration order mirrors the single chain); the tool binding itself belongs
+        // to the tool-binding task, which also decides the child-surface exclusion —
+        // AgentToolBindings is deliberately untouched here.
+        .AddSingleton<NewSessionRequestChannel>()
+        .AddSingleton<INewSessionPort>(sp => new WireNewSessionPort(
+            sp.GetRequiredService<NewSessionRequestChannel>()))
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
         .AddSingleton<SqliteCuratedMemoryStore>()
@@ -1030,7 +1049,9 @@ public static class AgentComposition
   ///     Built lazily: the surface reaches IExecEngine through the capability closure,
   ///     so eager construction re-enters the container (see the registry-factory
   ///     registration comment).</summary>
-  private static HashSet<string> ChildToolSurface(IServiceProvider sp)
+  /// <summary>Internal for tests only: Composition.Tests pins the new_session exclusion
+  ///     (issue #234) against the surface the spawn path actually grants from.</summary>
+  internal static HashSet<string> ChildToolSurface(IServiceProvider sp)
   {
     // Deliberately resolves NO capability provider here: the SpawnOptions factory runs
     // inside AgentCapabilityProvider's own construction, so resolving it (or the
@@ -1043,6 +1064,11 @@ public static class AgentComposition
         .Concat(sp.GetRequiredService<PlanCapabilityProvider>().Actions.Select(a => a.Name))
         .Concat(sp.GetRequiredService<MemoryCapabilityProvider>().Actions.Select(a => a.Name))
         .Concat(sp.GetRequiredService<CuratedMemoryCapabilityProvider>().Actions.Select(a => a.Name));
+    // GRANT DECISION (issue #234): a spawned child may NOT start sessions — a child has
+    // no workspace identity of its own and a session launch is a shell-level act. The
+    // tool stays root-only; a child's dispatch fails GrantViolation via the filtered
+    // registry.
+    names = names.Where(n => !string.Equals(n, "new_session", StringComparison.Ordinal));
     return [.. names];
   }
 

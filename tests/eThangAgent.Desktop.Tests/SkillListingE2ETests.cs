@@ -48,7 +48,7 @@ public class SkillListingE2ETests
   {
     AgentSessionFactory factory = host.CreateResumeFactory();
     Result<AgentSession> opened = await factory.CreateAsync(
-      workspaceRoot, Providers.OpenRouter, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      workspaceRoot, Providers.OpenRouter, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(opened.IsSuccess);
     AgentSession session = opened.Value;
     string prompt = session.SystemPrompt;

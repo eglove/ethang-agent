@@ -1,5 +1,6 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
+using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -177,6 +178,10 @@ public sealed class RootRunHost : IDisposable
       // The turn is over: the heartbeat must not speak for it any more. This runs BEFORE
       // the heartbeat is disposed, so no progress event can follow the settle.
       emitter.Complete();
+      // The new-session channel (issue #234) rides THIS turn only: disconnected on every
+      // exit path — success, failure, cancellation, and the pre-flight refusals — so a
+      // pending session-request never outlives the turn that could carry its answer.
+      DisconnectSessionChannel();
     }
   }
 
@@ -232,6 +237,14 @@ public sealed class RootRunHost : IDisposable
       return refused;
     }
 
+    // The new-session channel (issue #234) rides the LIVE turn: connected here, before
+    // the handler runs, and disconnected in RunTurnAsync's finally. A container without
+    // the channel (a test rig) skips silently — the port is an optional capability.
+    if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    {
+      channel.Connect(payload => emitter.Emit("session-request", payload));
+    }
+
     SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
     TurnCallbacks callbacks = new(
         OnContentDelta: text => emitter.Emit("delta", text),
@@ -241,14 +254,92 @@ public sealed class RootRunHost : IDisposable
             "result " + name + " " + (isError ? "error" : "ok") + " " + summary),
         OnSystemMessage: text => emitter.Emit("notice", text));
 
-    Result<string> result = await handler
-        .Handle(new SendMessageCommand(request.Input, BuildImageParts(request)), callbacks,
-            text => emitter.Emit("notice", text), ct)
-        .ConfigureAwait(false);
+    Result<string> result;
+    try
+    {
+      result = await handler
+          .Handle(new SendMessageCommand(request.Input, BuildImageParts(request)), callbacks,
+              text => emitter.Emit("notice", text), ct)
+          .ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      // CLEAR ON THE FAULT EXIT (issue #234 fix round, finding 4): a handler FAULT (an
+      // escaping exception) must not leave HandoffPending set — the flag would fire one
+      // turn late, on the next turn's end. The emit itself runs on the returned-Result
+      // path below; a CANCELLED turn drops the handoff by design (the session stays
+      // resumable; the next turn may hand off again).
+      if (_services.GetService(typeof(RootAgentHolder)) is RootAgentHolder faultHolder
+          && faultHolder.Current is { HandoffPending: true } faultAgent)
+      {
+        faultAgent.ClearHandoffPending();
+      }
+
+      throw;
+    }
+
+    // The handoff emit (issue #234) happens BEFORE the settle: the app's tab
+    // replacement runs after the settle drains, so the request must reach it while the
+    // turn is still live — and the await gives the app the new session's id first.
+    await EmitHandoffIfPendingAsync(emitter, ct).ConfigureAwait(false);
 
     emitter.Emit("settled",
         result.IsSuccess ? result.Value : DescribeFailure(result.Error));
     return result;
+  }
+
+  /// <summary>The compaction handoff's emit (issue #234): when the resolved root agent
+  ///     reports <c>HandoffPending</c>, emit a session-request through the
+  ///     SAME channel the new_session tool uses — an EMPTY prompt means seed-only launch
+  ///     (no auto first turn) — and await the app's answer BEFORE the settle, so the app
+  ///     holds the new session's id before the tab replacement. A failure is swallowed
+  ///     (the turn's own outcome is unaffected; the app surfaces launch failures itself).
+  ///     The pending flag is consumed after acting. The channel is an optional capability:
+  ///     a container without it (a test rig) skips silently.
+  ///     <para>THE SUMMARY TRAVELS ON THE AGENT (issue #234): the handoff outcome did NOT
+  ///     compact the conversation, so there is no summary message in it to mine — the
+  ///     summary rides <c>HandoffSummary</c> from the outcome.</para></summary>
+  internal async Task EmitHandoffIfPendingAsync(TurnEmitter emitter, CancellationToken ct)
+  {
+    if (_services.GetService(typeof(RootAgentHolder)) is not RootAgentHolder holder
+        || holder.Current is not { HandoffPending: true } agent)
+    {
+      return;
+    }
+
+    string? summary = agent.HandoffSummary;
+    try
+    {
+      // A pending handoff with NO summary must not emit a seedless launch (issue #234
+      // fix round, finding 5): the summary IS the new session's seed, so a null one is
+      // an anomaly — skip the emit, surface the anomaly as a notice, and still consume
+      // the flag.
+      if (summary is null)
+      {
+        emitter.Emit("notice",
+            "[context handoff anomaly: a handoff was pending but carried no summary; no new session was launched.]");
+        return;
+      }
+
+      if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+      {
+        // Awaited (bounded by the turn's own token) BEFORE the settle: the app has the
+        // id before the tab replacement. A failure is swallowed — the turn's own
+        // outcome is unaffected; the app surfaces launch failures itself.
+        _ = await channel.RequestAsync(Guid.NewGuid().ToString("N"), prompt: "",
+            handoffSummary: summary, ct).ConfigureAwait(false);
+      }
+    }
+#pragma warning disable CA1031 // Named decision: the handoff emit is best-effort — a failed launch never fails the completed turn.
+    catch (Exception)
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031
+    finally
+    {
+      agent.ClearHandoffPending();
+    }
   }
 
   /// <summary>Appends the app-supplied messages that must precede this turn's user input
@@ -503,6 +594,29 @@ public sealed class RootRunHost : IDisposable
           ? "Error [Unknown]: the turn failed without an error."
           : "Error [" + error.Code + "]: " + error.Message;
 
+  /// <summary>Disconnects the new-session channel at turn end (issue #234). The channel
+  ///     is an optional capability — a container without it (a test rig) skips silently.
+  ///     Pending requests fail as SessionRequestUnreachable: the turn that could carry
+  ///     them to the app is gone.</summary>
+  private void DisconnectSessionChannel()
+  {
+    if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    {
+      channel.Disconnect();
+    }
+  }
+
+  /// <summary>Completes one pending session-request with the app's answer (issue #234).
+  ///     The ChildHostServer's session-response handler calls this on the resolved root
+  ///     runner. Unknown requestIds are ignored by the channel.</summary>
+  public void CompleteSessionRequest(string requestId, Result<string> outcome)
+  {
+    if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    {
+      channel.Complete(requestId, outcome);
+    }
+  }
+
   /// <summary>Releases the turn gate. Disposing a runner with a turn in flight is a host
   ///     shutdown; the in-flight turn observes its own cancellation, never a disposed gate.</summary>
   public void Dispose() => _turnGate.Dispose();
@@ -515,7 +629,9 @@ public sealed class RootRunHost : IDisposable
   ///     says so instead of letting the app read silence as death.
   ///     <para>Thread-safe by construction: the turn's own thread and the heartbeat's
   ///     timer thread both emit.</para></summary>
-  private sealed class TurnEmitter(RootTurnRequest request, Action<RootTurnEvent> onEvent)
+  // Internal (not private) so the handoff emit can surface the null-summary anomaly
+  // notice through the turn's own emitter (issue #234 fix round, finding 5).
+  internal sealed class TurnEmitter(RootTurnRequest request, Action<RootTurnEvent> onEvent)
   {
     private readonly Lock _gate = new();
     private DateTimeOffset _lastEmission = DateTimeOffset.UtcNow;

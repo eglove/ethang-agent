@@ -34,6 +34,15 @@ public interface IRootTurnChannel
   ///     abandons the caller's local wait: the host keeps executing the turn, keeps growing
   ///     its conversation, and persists a turn the user stopped. A stop button must do both.</summary>
   void InterruptRootTurn(string turnId);
+
+  /// <summary>Answers one <c>session-request</c> (issue #234): the new session's id, or the
+  ///     typed failure the app refused with. The host's <c>new_session</c> tool (or a
+  ///     compaction handoff) is BLOCKED awaiting this answer, so every request must be
+  ///     answered exactly once — a silent drop leaves the tool waiting out its own budget.
+  ///     Fire-and-forget by contract: a lost answer surfaces on the host as the request's
+  ///     own timeout, never here. A channel with no live connection drops it, which is
+  ///     exactly the case where no request can be pending either.</summary>
+  void SendSessionResponse(string requestId, string? sessionId, string? errorCode, string? errorMessage);
 }
 
 /// <summary>The production adapter: forwards to the conversation's wire runtime
@@ -50,4 +59,8 @@ public sealed class RemoteRootTurnChannel(RemoteAgentRuntime runtime) : IRootTur
 
   /// <inheritdoc />
   public void InterruptRootTurn(string turnId) => _runtime.InterruptRootTurn(turnId);
+
+  /// <inheritdoc />
+  public void SendSessionResponse(string requestId, string? sessionId, string? errorCode, string? errorMessage)
+      => _runtime.SendSessionResponse(requestId, sessionId, errorCode, errorMessage);
 }

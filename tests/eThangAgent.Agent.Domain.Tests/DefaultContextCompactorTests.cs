@@ -143,6 +143,27 @@ public class DefaultContextCompactorTests
     Assert.Equal(16, conversation.Messages.Count); // untouched
   }
 
+  /// <summary>THE EMPTY-SUMMARY GUARD HOLDS FROM THE HANDOFF SIDE TOO (issue #234):
+  ///     even with handoff ENABLED, an empty summarizer output is a FAILURE outcome —
+  ///     never a handoff. The guard lives in SummarizeAsync, which runs BEFORE the
+  ///     handoff decision, so the invariant does not rest on statement order alone.</summary>
+  [Fact]
+  public async Task CompactAsync_HandoffEnabled_EmptySummary_Fails_NeverHandsOff()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+
+    RecordingFactory factory = new(null);
+    ((ScriptedProvider)factory.Provider).Enqueue(Result.Success(new ModelResponse("   ", [])));
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.False(outcome.IsSuccess);
+    Assert.Equal("EmptySummary", outcome.Error.Code); // a FAILURE outcome, not a handoff
+    Assert.Equal(16, conversation.Messages.Count); // untouched
+  }
+
   [Fact]
   public void Render_PinsExactWireStrings()
   {
@@ -160,5 +181,173 @@ public class DefaultContextCompactorTests
     Assert.Contains("tool_call(c1): read({})", rendered, StringComparison.Ordinal);
     Assert.Contains("[Tool] file contents [answers c1]", rendered, StringComparison.Ordinal);
     Assert.Contains("## Kept tail", rendered, StringComparison.Ordinal);
+  }
+
+  // ---- handoff replaces in-place compaction (issue #234 task 5) ----
+
+  [Fact]
+  public void CompactionOutcome_HandoffFactory_CarriesSummaryAndIsHandoff()
+  {
+    CompactionOutcome handoff = CompactionOutcome.Handoff("the summary", new TokenUsage(50, 100));
+
+    Assert.True(handoff.IsHandoff);
+    Assert.Equal("the summary", handoff.HandoffSummary);
+    Assert.Equal(new TokenUsage(50, 100), handoff.SummarizerUsage);
+  }
+
+  [Fact]
+  public void CompactionOutcome_Default_IsNotHandoff()
+  {
+    CompactionOutcome ordinary = new(3, 12, null);
+
+    Assert.False(ordinary.IsHandoff);
+    Assert.Null(ordinary.HandoffSummary);
+  }
+
+  /// <summary>At the root (no ambient running child) with handoff enabled, the eviction
+  /// path's summary becomes a HANDOFF: the conversation is NOT compacted in place - the
+  /// old transcript stays intact - and the outcome carries the summary for the new
+  /// session's seed.</summary>
+  [Fact]
+  public async Task CompactAsync_HandoffEnabled_AtRoot_SkipsCompactAndReturnsHandoffOutcome()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    int countBefore = conversation.Messages.Count;
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.True(outcome.Value.IsHandoff);
+    Assert.Equal("summary text", outcome.Value.HandoffSummary);
+    Assert.Equal(countBefore, conversation.Messages.Count); // NOT compacted in place
+  }
+
+  /// <summary>With handoff disabled the compaction stays in place: the conversation is
+  /// compacted and the outcome is an ordinary (non-handoff) one.</summary>
+  [Fact]
+  public async Task CompactAsync_HandoffDisabled_CompactsInPlace()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(false));
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.False(outcome.Value.IsHandoff);
+    Assert.Null(outcome.Value.HandoffSummary);
+    Assert.True(conversation.Messages[0].IsSummary); // the in-place summary message landed
+  }
+
+  /// <summary>With no enablement delegate at all (legacy wiring) the compaction stays
+  /// in place byte-identically.</summary>
+  [Fact]
+  public async Task CompactAsync_NoHandoffDelegate_CompactsInPlace()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.False(outcome.Value.IsHandoff);
+    Assert.True(conversation.Messages[0].IsSummary);
+  }
+
+  /// <summary>The tail-compression fallback NEVER hands off (it produces no summary),
+  /// even when the handoff delegate is enabled.</summary>
+  [Fact]
+  public async Task CompactAsync_TailCompressionFallback_NeverHandsOff()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage("task");
+    for (int i = 0; i < 3; i++)
+    {
+      conversation.AddUserMessage($"kept user {i}");
+      conversation.AddAssistantMessage("", [new ToolCall($"c{i}", "read", "{}")]);
+      conversation.AddToolResult($"c{i}", new string('r', 800));
+    }
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.False(outcome.Value.IsHandoff);
+  }
+
+  /// <summary>OVERFLOW RECOVERY IS ALWAYS IN PLACE: forceInPlace bypasses the handoff
+  /// decision even when the delegate is wired and true — the ceiling path is the only
+  /// path that may decide a handoff.</summary>
+  [Fact]
+  public async Task CompactAsync_ForceInPlace_BypassesTheHandoffDecision()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
+
+    Result<CompactionOutcome> outcome = await compactor.CompactInPlaceAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.False(outcome.Value.IsHandoff);
+    Assert.True(conversation.Messages[0].IsSummary); // compacted in place
+  }
+
+  /// <summary>An enablement delegate that FAILS (a misconfigured preference read) is a
+  /// typed failure outcome — the compactor never guesses enabled/disabled, and the
+  /// existing compaction-failure notice path carries the error.</summary>
+  [Fact]
+  public async Task CompactAsync_EnablementFailure_IsATypedFailure()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    int countBefore = conversation.Messages.Count;
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null,
+        handoffEnabled: () => Result.Failure<bool>(new DomainError("InvalidPreferenceValue",
+            "compaction_handoff_enabled must be 'true' or 'false', got 'yes'.")));
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.False(outcome.IsSuccess);
+    Assert.Equal("InvalidPreferenceValue", outcome.Error.Code);
+    Assert.Equal(countBefore, conversation.Messages.Count); // untouched
+  }
+
+  /// <summary>ROOT-GATING: with a child ambient (a running child on this async flow) the
+  /// compaction stays in place even when the handoff delegate is enabled - a child has
+  /// no session to hand off.</summary>
+  [Fact]
+  public async Task CompactAsync_HandoffEnabled_WithRunningChildAmbient_CompactsInPlace()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
+    AgentRecord child = AgentRecord.Spawned(
+        AgentId.NewId(), new AgentId(Guid.NewGuid()), 1, "m/sub", "child", "task",
+        DateTimeOffset.UtcNow);
+    using IDisposable ambient = SubAgentSpawner.PushRunningChildForTests(child);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.False(outcome.Value.IsHandoff);
+    Assert.True(conversation.Messages[0].IsSummary); // compacted in place
   }
 }

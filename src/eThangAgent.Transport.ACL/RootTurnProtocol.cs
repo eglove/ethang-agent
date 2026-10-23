@@ -15,6 +15,13 @@ public sealed record RootTurnImage(string MediaType, string Base64Data);
 ///     implementation of the app's own surface).</summary>
 public sealed record RootTurnPreTurnMessage(string Role, string Text);
 
+/// <summary>One host→app request to start a NEW session in the workspace (issue #234).
+///     Emitted as a <c>session-request</c> root-turn event while the new_session tool runs
+///     host-side; the app creates the session, opens it in the requesting tab, and answers
+///     over the <c>session-response</c> envelope kind. HandoffSummary is the compaction
+///     handoff's summary text — null for a plain launch.</summary>
+public sealed record SessionRequestPayload(string RequestId, string Prompt, string? HandoffSummary);
+
 /// <summary>One root turn sent to a conversation host (spec D6): the user's input, the
 ///     images attached to it, the app-supplied messages that precede it, and the seed the app
 ///     already holds, so the host can run the turn without the app resending a whole
@@ -103,10 +110,12 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
 }
 
 /// <summary>One event streamed back for a root turn. Kinds are exactly `delta`,
-///     `notice`, `tool`, `settled`, and `progress` - the first four are the surface
-///     the session view renders; `progress` is the LIVENESS HEARTBEAT (2026-10-22): the
-///     host emits it when a turn has been quiet, so the app can tell "the host is busy"
-///     from "the host stopped answering" instead of failing a healthy long turn.
+///     `notice`, `tool`, `settled`, `progress`, and `session-request` - the first four are
+///     the surface the session view renders; `progress` is the LIVENESS HEARTBEAT
+///     (2026-10-22): the host emits it when a turn has been quiet, so the app can tell
+///     "the host is busy" from "the host stopped answering" instead of failing a healthy
+///     long turn; `session-request` is the host's app-ward request to start a NEW session
+///     in the workspace (issue #234), emitted while the new_session tool runs host-side.
 /// <para>PROTOCOL REQUIREMENT FOR HOST IMPLEMENTERS: <see cref="Generation"/> MUST be echoed
 ///     verbatim from the <see cref="RootTurnRequest"/> that produced the event. The app mints
 ///     a fresh generation per turn and delivers an event only when BOTH the turn id and the
@@ -122,12 +131,13 @@ public sealed record RootTurnEvent(string TurnId, string Kind, string Payload, l
 ///     silently dropped envelope.</summary>
 public static class RootTurnProtocol
 {
-  /// <summary>The event kinds the wire carries: the four the session view renders
-  ///     plus `progress`, the liveness heartbeat; anything else is a protocol error, not
-  ///     a forward-compatible unknown.</summary>
+  /// <summary>The event kinds the wire carries: the four the session view renders,
+  ///     `progress` the liveness heartbeat, and `session-request` the host's app-ward
+  ///     request to start a NEW session (issue #234); anything else is a protocol error,
+  ///     not a forward-compatible unknown.</summary>
   public static readonly IReadOnlySet<string> EventKinds = new HashSet<string>(StringComparer.Ordinal)
   {
-    "delta", "notice", "tool", "settled", "progress",
+    "delta", "notice", "tool", "settled", "progress", "session-request",
   };
 
   public static string SerializeRequest(RootTurnRequest request)

@@ -78,5 +78,8 @@ public class SystemMessageCallbackTests
   {
     public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<CompactionOutcome>(new DomainError("SummaryUnavailable", "model down")));
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
   }
 }

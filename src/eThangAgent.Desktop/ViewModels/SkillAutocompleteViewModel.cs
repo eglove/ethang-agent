@@ -3,12 +3,16 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace eThangAgent.Desktop.ViewModels;
 
 /// <summary>One selectable row of the skill autocomplete popup (plan #30):
-///     the catalog's presentation of a skill for invocation.</summary>
-internal sealed record SkillOption(string Name, string Description, bool IsManual);
+///     the catalog's presentation of a skill for invocation — or, since issue
+///     #234, of a session command. <see cref="IsCommand"/> discriminates the two:
+///     a command is NOT a manual skill; it sorts after manual skills and before
+///     plain ones and renders a distinct <c>[command]</c> badge. Defaults to
+///     false so every pre-existing skill construction site compiles unchanged.</summary>
+internal sealed record SkillOption(string Name, string Description, bool IsManual, bool IsCommand = false);
 
 /// <summary>The '/' autocomplete popup state machine (spec #28 task 4): opens
 ///     ONLY when the input's RAW first character is '/' (no trim), lists the
-///     catalog manual-first then name ordinal, filters case-insensitively on
+///     catalog manual-first, then commands, then name ordinal, filters case-insensitively on
 ///     the name token alone (text after the first space is the arguments and
 ///     never affects the filter), navigates with wrap-around, and accepts the
 ///     full name. Pure state — the view routes keys and applies the autofill;
@@ -23,7 +27,9 @@ internal sealed class SkillAutocompleteViewModel(Func<IReadOnlyList<SkillOption>
   public bool IsOpen { get; private set; }
 
   /// <summary>The filtered options: all skills when the query is empty,
-  ///     manual first (IsManual descending) then Name ordinal.</summary>
+  ///     manual first (IsManual descending), then commands before plain skills
+  ///     (issue #234 — the session command is listed alongside the skills but is
+  ///     not a manual skill), then Name ordinal within each group.</summary>
   public IReadOnlyList<SkillOption> Options { get; private set; } = [];
 
   /// <summary>The highlighted row (index into <see cref="Options"/>).</summary>
@@ -45,6 +51,7 @@ internal sealed class SkillAutocompleteViewModel(Func<IReadOnlyList<SkillOption>
     {
       _all = [.. (_catalogSource() ?? throw new InvalidOperationException("The catalog source returned null."))
           .OrderByDescending(o => o.IsManual)
+          .ThenByDescending(o => o.IsCommand)
           .ThenBy(o => o.Name, StringComparer.Ordinal)];
     }
 

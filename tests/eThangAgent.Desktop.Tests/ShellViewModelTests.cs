@@ -303,7 +303,7 @@ public class ShellViewModelTests
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
          AgentPreferenceKeys.RootTurnIdle, AgentPreferenceKeys.RootTurnCeiling,
-         AgentPreferenceKeys.OpenRouterBaseUrl],
+         AgentPreferenceKeys.OpenRouterBaseUrl, SessionHandoffPreferences.Key],
         preferences.Deletions);
 
     Assert.Equal(["openrouter"], vm.AvailableProviders.Select(p => p.Id));
@@ -328,7 +328,7 @@ public class ShellViewModelTests
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
          AgentPreferenceKeys.RootTurnIdle, AgentPreferenceKeys.RootTurnCeiling,
-         AgentPreferenceKeys.OpenRouterBaseUrl],
+         AgentPreferenceKeys.OpenRouterBaseUrl, SessionHandoffPreferences.Key],
         preferences.Deletions);
     Assert.Equal(
         [
@@ -365,7 +365,7 @@ public class ShellViewModelTests
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
          AgentPreferenceKeys.RootTurnIdle, AgentPreferenceKeys.RootTurnCeiling,
-         AgentPreferenceKeys.OpenRouterBaseUrl],
+         AgentPreferenceKeys.OpenRouterBaseUrl, SessionHandoffPreferences.Key],
         preferences.Deletions);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);
   }
@@ -618,6 +618,56 @@ public class ShellViewModelTests
     vm.OpenMcpServersCommand.Execute(null);
 
     Assert.True(mcpRaised);
+  }
+
+  [Fact]
+  public async Task ApplySettings_HandoffOff_DeletesThePreference_AndPrefillsOff()
+  {
+    // Off is the shipped default, so it is stored as ABSENT (a delete), never as the
+    // string "false" — the same "blank means absent" rule every other knob follows.
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateSettingsShell(Settings(), preferences, new FakeKeyProtector());
+    Assert.False(vm.ConfiguredCompactionHandoff);
+
+    await vm.ApplySettingsAsync(new SettingsUpdate(null, CommitStyle.Conventional,
+        CompactionHandoff: false));
+
+    Assert.Contains(SessionHandoffPreferences.Key, preferences.Deletions);
+    Assert.DoesNotContain(preferences.Writes, w => w.Key == SessionHandoffPreferences.Key);
+    Assert.False(vm.ConfiguredCompactionHandoff);
+  }
+
+  [Fact]
+  public async Task ApplySettings_HandoffOn_PersistsTrue_AndPrefillsOn()
+  {
+    FakePreferenceStore preferences = new();
+    MainViewModel vm = CreateSettingsShell(Settings(), preferences, new FakeKeyProtector());
+
+    await vm.ApplySettingsAsync(new SettingsUpdate(null, CommitStyle.Conventional,
+        CompactionHandoff: true));
+
+    // The exact lowercase string the strict parser binds — never a coerced form.
+    Assert.Contains((SessionHandoffPreferences.Key, "true"), preferences.Writes);
+    Assert.DoesNotContain(SessionHandoffPreferences.Key, preferences.Deletions);
+    Assert.True(vm.ConfiguredCompactionHandoff);
+    // The round trip closes: what was written parses back to the same choice.
+    Assert.True(SessionHandoffPreferences.TryParse(
+        preferences.Stored[SessionHandoffPreferences.Key]).Value);
+  }
+
+  [Fact]
+  public void ConfiguredCompactionHandoff_PrefillsFromTheHostLoadedValue()
+  {
+    // The host loads the stored preference at startup (DesktopHost) and passes it in; the
+    // modal's checkbox must show what is actually stored, not a hardcoded default.
+    MainViewModel vm = new(null, new MainViewModelOptions
+    {
+      Settings = Settings(),
+      SessionFactory = new AgentSessionFactory(Settings()),
+      CompactionHandoff = true,
+    });
+
+    Assert.True(vm.ConfiguredCompactionHandoff);
   }
 
   [Fact]

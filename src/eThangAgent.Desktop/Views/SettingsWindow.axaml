@@ -78,6 +78,9 @@
           <CheckBox x:Name="ComputerUseCheck" Content="Enable computer use (desktop automation tool)"
                     IsChecked="{Binding ComputerUse}" Margin="0,4,0,0"
                     ToolTip.Tip="Adds the 'computer' tool to newly opened agents. Applies to sessions opened from now on."/>
+          <CheckBox x:Name="CompactionHandoffCheck" Content="Hand off to a new session instead of compacting in place"
+                    IsChecked="{Binding CompactionHandoff}" Margin="0,4,0,0"
+                    ToolTip.Tip="At the compaction ceiling the conversation ends and continues in a NEW session seeded with the summary. The old session stays resumable. Off by default."/>
           <TextBlock Text="Root turn budget" FontWeight="Bold" Margin="0,6,0,0"/>
           <StackPanel Orientation="Horizontal" Spacing="6">
             <TextBox x:Name="RootTurnIdleBox" Text="{Binding RootTurnIdleText}" Width="140"

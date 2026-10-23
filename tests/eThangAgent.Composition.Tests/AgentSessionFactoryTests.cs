@@ -1,4 +1,5 @@
 using eThangAgent.AgentDomain;
+using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.StateDomain;
@@ -395,6 +396,70 @@ public class AgentSessionFactoryTests
           // creation - never the 'unassigned' sentinel - so the eval runner (and the
           // Sessions catalog) record the resolved model without waiting for a selection.
           Assert.Equal("openrouter/auto", record.Value.ModelUsed);
+        }
+        finally
+        {
+          // The session OWNS a host process: dispose the container so the host is
+          // killed instead of lingering as a stray.
+          await TestSession.DisposeAsync(result);
+        }
+      }
+      finally
+      {
+        dir.Delete(true);
+      }
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("ETHANG_AGENT_DB", null);
+      try
+      {
+        File.Delete(db);
+      }
+      catch { }
+    }
+  }
+
+  [Fact]
+  public async Task CreateAsync_WithSeed_PersistsTheSeedMessages_AndCarriesThemInTheConversation()
+  {
+    (AgentSessionFactory? factory, string? db) = CreateFactory();
+    try
+    {
+      DirectoryInfo dir = Directory.CreateTempSubdirectory("ethang-ws-seed");
+      try
+      {
+        List<Message> seed =
+        [
+            new(Role.System, "[Conversation summary — earlier messages were compacted.]\nthe handoff summary",
+                DateTimeOffset.UtcNow, IsSummary: true),
+            new(Role.User, "continue the work", DateTimeOffset.UtcNow),
+        ];
+        Result<AgentSession> result = await factory.CreateAsync(
+            dir.FullName, Providers.OpenRouter, seed, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        try
+        {
+          // The conversation carries the seed: the new session starts with the handoff
+          // summary already in context.
+          Assert.Equal(2, result.Value.Conversation.Messages.Count);
+          Assert.True(result.Value.Conversation.Messages[0].IsSummary);
+          Assert.Contains("the handoff summary",
+              result.Value.Conversation.Messages[0].Content, StringComparison.Ordinal);
+          Assert.Equal("continue the work", result.Value.Conversation.Messages[1].Content);
+
+          // The seed is PERSISTED under the new root id: the transcript sink's baseline
+          // counts the seeded prefix as already-persisted, so without the explicit append
+          // a resume would lose it.
+          SqliteAgentStore store = new(new AppDatabase(db));
+          Result<IReadOnlyList<Message>> transcript = await store.GetTranscriptAsync(
+              result.Value.RootId, ct: TestContext.Current.CancellationToken);
+          Assert.True(transcript.IsSuccess);
+          Assert.Equal(2, transcript.Value.Count);
+          Assert.Contains("the handoff summary",
+              transcript.Value[0].Content, StringComparison.Ordinal);
+          Assert.Equal("continue the work", transcript.Value[1].Content);
         }
         finally
         {

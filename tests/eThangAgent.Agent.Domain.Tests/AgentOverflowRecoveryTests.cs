@@ -74,6 +74,9 @@ public class AgentOverflowRecoveryTests
           ? Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100)))
           : Result.Failure<CompactionOutcome>(replaced.Error));
     }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
   }
 
   /// <summary>Monitor that always reports the given utilization — the 80% backstop's
@@ -87,6 +90,60 @@ public class AgentOverflowRecoveryTests
     public ContextBreakdown? Breakdown => null;
     public void OnRequestUsage(TokenUsage usage, ContextComposition composition)
     {
+    }
+  }
+
+  /// <summary>OVERFLOW RECOVERY IS ALWAYS IN PLACE (issue #234 fix round): the handoff
+  /// is a ceiling-path decision only. The forced compaction after a ContextWindowExceeded
+  /// failure must use the IN-PLACE shape (CompactInPlaceAsync) even when the compactor's
+  /// handoff delegate is enabled, so the re-send can succeed.</summary>
+  [Fact]
+  public async Task Overflow_HandoffEnabled_RecoversInPlace()
+  {
+    OverflowThenOkProvider provider = new(failStart: 1);
+    EntryRecordingCompactor compactor = new();
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 8000));
+    conversation.AddAssistantMessage(new string('y', 8000));
+    Agent agent = new(provider, conversation, Config, new ToolRegistry([]),
+        new AgentOptions { ContextCompactor = compactor });
+
+    Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess, result.Error?.Code + " " + result.Error?.Message);
+    Assert.Equal(1, compactor.Calls);
+    Assert.Equal("in-place", compactor.LastEntryPoint); // the IN-PLACE shape, not the deciding one
+    Assert.Contains(conversation.Messages, m => m.IsSummary); // compacted IN PLACE
+    Assert.False(agent.HandoffPending); // no handoff rides overflow recovery
+  }
+
+  /// <summary>Records WHICH compaction entry point the loop used: the overflow recovery
+  /// must call the in-place shape, never the handoff-deciding one.</summary>
+  private sealed class EntryRecordingCompactor : IContextCompactor
+  {
+    public int Calls { get; private set; }
+    public string? LastEntryPoint { get; private set; }
+
+    public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+    {
+      Calls++;
+      LastEntryPoint = "deciding";
+      return Task.FromResult(Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100))));
+    }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+    {
+      Calls++;
+      LastEntryPoint = "in-place";
+      Result<bool> replaced = conversation.Compact(
+      [
+        new Message(Role.System, "[Conversation summary — earlier messages were compacted.]\nhandoff",
+            DateTimeOffset.UtcNow, IsSummary: true),
+        ..conversation.Messages,
+      ]);
+      return Task.FromResult(replaced.IsSuccess
+          ? Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100)))
+          : Result.Failure<CompactionOutcome>(replaced.Error));
     }
   }
 

@@ -59,7 +59,7 @@ public class SkillDirectoryE2ETests
       // the directory, and builds the container that wires the composite catalog.
       AgentSessionFactory factory = host.CreateResumeFactory();
       Result<AgentSession> opened = await factory.CreateAsync(
-        ws.FullName, Providers.OpenRouter, TestContext.Current.CancellationToken);
+        ws.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
       Assert.True(opened.IsSuccess);
       AgentSession session = opened.Value;
 
@@ -99,7 +99,7 @@ public class SkillDirectoryE2ETests
       // behavior-identical — built-ins only, no file skills.
       AgentSessionFactory factory = host.CreateResumeFactory();
       Result<AgentSession> opened = await factory.CreateAsync(
-        ws.FullName, Providers.OpenRouter, TestContext.Current.CancellationToken);
+        ws.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken);
       Assert.True(opened.IsSuccess);
       AgentSession session = opened.Value;
 

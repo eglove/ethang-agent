@@ -38,6 +38,9 @@ public class AgentCompactionTriggerTests
           ? Result.Failure<CompactionOutcome>(new DomainError("SummaryUnavailable", "model down"))
           : Result.Success(Outcome));
     }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
   }
 
   /// <summary>A compactor that actually performs the aggregate replacement the real
@@ -60,6 +63,9 @@ public class AgentCompactionTriggerTests
           ? Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100)))
           : Result.Failure<CompactionOutcome>(replaced.Error));
     }
+
+    public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+        => CompactAsync(conversation, servingModel, ct);
   }
 
   private sealed class StubProvider : IModelProvider

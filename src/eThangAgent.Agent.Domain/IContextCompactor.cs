@@ -9,7 +9,34 @@ namespace eThangAgent.AgentDomain;
 public interface IContextCompactor
 {
   Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default);
+
+  /// <summary>The overflow-recovery shape (issue #234 fix round): the forced compaction
+  ///     after a ContextWindowExceeded failure is ALWAYS in place — the handoff is a
+  ///     ceiling-path decision only, and a handoff here would re-send the identical
+  ///     oversized request into the same overflow. Implementations must bypass the
+  ///     handoff decision for this one call.</summary>
+  Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default);
 }
 
-/// <summary>What one compaction did.</summary>
-public sealed record CompactionOutcome(int MessagesEvicted, int MessagesKept, TokenUsage? SummarizerUsage);
+/// <summary>What one compaction did. A handoff outcome (<see cref="IsHandoff"/>) REPLACES
+///     in-place compaction (issue #234): the conversation was NOT compacted — the old
+///     transcript stays intact and completes gracefully — and the summary travels here,
+///     to seed the new session. The decision rides the outcome, never instance state:
+///     the compactor is a shared singleton, and a mutable flag on it was thread-sensitive
+///     (Task 4 review finding 1).</summary>
+/// <param name="MessagesEvicted">How many messages the compaction evicted (0 for a handoff).</param>
+/// <param name="MessagesKept">How many messages the compaction kept (0 for a handoff).</param>
+/// <param name="SummarizerUsage">The summarizer call's token usage, when reported.</param>
+/// <param name="HandoffSummary">The summary text a handoff carries; null for an ordinary
+///     in-place compaction.</param>
+public sealed record CompactionOutcome(int MessagesEvicted, int MessagesKept, TokenUsage? SummarizerUsage,
+    string? HandoffSummary = null)
+{
+  /// <summary>True when this outcome is a SESSION HANDOFF: the conversation was not
+  ///     compacted, and the summary seeds a new session instead.</summary>
+  public bool IsHandoff => HandoffSummary is not null;
+
+  /// <summary>The handoff outcome: the conversation is left intact and the summary
+  ///     launches a new session as its seed.</summary>
+  public static CompactionOutcome Handoff(string summary, TokenUsage? usage) => new(0, 0, usage, summary);
+}

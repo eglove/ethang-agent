@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
@@ -51,6 +52,25 @@ internal sealed record AgentSessionViewModelOptions
   /// <summary>The autocomplete popup's catalog source. Null = no popup (headless
   ///     stubs without the skill catalog).</summary>
   public Func<IReadOnlyList<SkillOption>>? SkillCatalogSource { get; init; }
+
+  /// <summary>The shell's new-session command (issue #234): invoked by the /new slash
+  ///     command with the rest of the input as the prompt. Null = the command is not
+  ///     offered (headless stubs, or a host without the shell seam).</summary>
+  public Func<string, Task>? NewSessionCommand { get; init; }
+
+  /// <summary>Handles a session-request event from the host (issue #234): the new_session
+  ///     tool or a compaction handoff asked the app to start a session in this tab's
+  ///     workspace. The shell implements it; the view-model only forwards. The request id
+  ///     travels WITH the request because the host is BLOCKED awaiting the answer, and the
+  ///     answer goes back through <see cref="IRootTurnChannel.SendSessionResponse"/> — a
+  ///     handler that could not name the request could not answer it.
+  ///     Null = requests are refused with a notice.</summary>
+  public Func<SessionRequestPayload, Task>? SessionRequestHandler { get; init; }
+
+  /// <summary>Marshals an action onto the UI thread (test seam). Null = the Avalonia
+  ///     UI-thread dispatcher (production). Desktop tests inject a synchronous executor
+  ///     so the session-request path is drivable headless.</summary>
+  public Action<Action>? UiMarshal { get; init; }
 
   /// <summary>The session's child-event stream: the split view's subagent accordion
   ///     subscribes to it (started adds rows, progress updates phases, settled marks
@@ -195,6 +215,21 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     Null = the ! surface is unavailable (headless stubs).</summary>
   private readonly IUserCommandRunner? _commandRunner;
 
+  /// <summary>The shell's new-session command (issue #234): the /new slash command
+  ///     invokes it with the rest of the input as the prompt. Null = the command
+  ///     is not offered (headless stubs, or a host without the shell seam).</summary>
+  private readonly Func<string, Task>? _newSessionCommand;
+
+  /// <summary>Handles a session-request event from the host (issue #234): the shell
+  ///     starts the session in this tab's workspace. Null = requests are refused
+  ///     with a typed notice.</summary>
+  private readonly Func<SessionRequestPayload, Task>? _sessionRequestHandler;
+
+  /// <summary>Marshals an action onto the UI thread. Production: the Avalonia UI-thread
+  ///     dispatcher. Tests: a synchronous executor injected through the options record —
+  ///     the session-request path must be drivable headless.</summary>
+  private readonly Action<Action> _uiMarshal;
+
   /// <summary>The shared skill invocation core (slash resolution) — null when the
   ///     session did not wire the skill catalog.</summary>
   private readonly SkillInvocationService? _skillInvocation;
@@ -212,12 +247,24 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     this on every input change.</summary>
   public void UpdateAutocomplete(string input) => Autocomplete?.Update(input);
 
+  /// <summary>The /new command's popup row (issue #234): a well-known option the
+  ///     catalog source can include alongside the skills. It is a COMMAND, not a
+  ///     manual skill — it sorts after manual skills and before plain ones and
+  ///     renders the distinct <c>[command]</c> badge. The source wiring itself
+  ///     (MainViewModel.SkillOptionsOf) is Task 7's; the option's shape is what
+  ///     the popup tests pin here.</summary>
+  public static SkillOption NewSessionCommandOption { get; } =
+      new("new", "Start a new session in this workspace with the rest of the input as its first prompt.", IsManual: false, IsCommand: true);
+
   private readonly IAgentInbox? _inbox;
   private readonly IAgentRuntime? _childRuntime;
 
   /// <summary>This conversation's host channel (spec D6). Null means the session runs its
-  ///     turns in this process — the headless/test-host shape, never production.</summary>
-  private readonly IRootTurnChannel? _rootTurnChannel;
+  ///     turns in this process — the headless/test-host shape, never production.
+  ///     <para>Public because the shell must ANSWER a session-request (issue #234): the host
+  ///     is blocked awaiting the reply, and the reply travels back over the same channel the
+  ///     turn arrived on. Null when the session runs in process (no host to answer).</para></summary>
+  public IRootTurnChannel? RootTurnChannel { get; }
 
   /// <summary>App-side conversation mutations waiting for the NEXT turn to carry to the host
   ///     (spec D6): a slash invocation's System line and a ! command's model-facing line.
@@ -270,10 +317,15 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Status = new StatusViewModel(provider, servingModel, EffortLevels.DisplayName(_modelPreferences?.ReasoningEffort));
     _commandRunner = options.CommandRunner;
     _skillInvocation = options.SkillInvocation;
+    _newSessionCommand = options.NewSessionCommand;
+    _sessionRequestHandler = options.SessionRequestHandler;
+    // Null = the Avalonia UI-thread dispatcher (production); tests inject a
+    // synchronous executor so the session-request path runs headless.
+    _uiMarshal = options.UiMarshal ?? (action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
     Autocomplete = options.SkillCatalogSource is null ? null : new SkillAutocompleteViewModel(options.SkillCatalogSource);
     _inbox = options.Inbox;
     _childRuntime = options.ChildRuntime;
-    _rootTurnChannel = options.RootTurnChannel;
+    RootTurnChannel = options.RootTurnChannel;
     // Split view (subagent accordion): the panel subscribes to the session's child
     // event stream. Events publish on stream threads; the marshal wrapper posts every
     // event's application onto the UI thread — Rows is bound to the accordion and
@@ -336,25 +388,36 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     await _runningTurn.ConfigureAwait(true);
   }
 
-  /// <summary>Resolves a slash input through the shared invocation core (the same
-  ///     object the skill_invoke tool uses). Found: the System line goes into the
+  /// <summary>Resolves a slash input: the session commands first (issue #234 —
+  ///     /new is a SHELL command, not a skill, and must work even where no skill
+  ///     catalog is wired), then the shared invocation core (the same object the
+  ///     skill_invoke tool uses). Found: the System line goes into the
   ///     conversation (out-of-turn, the UserCommandRunner precedent) AND onto the
   ///     transcript (live parity with the ! command surface), then the FULL
   ///     original input forwards as the ordinary user message. Unknown: not slash
   ///     input — a plain message. Ambiguous: nothing is sent; a transcript notice
-  ///     lists the matches (spec amendment).</summary>
+  ///     lists the matches (spec amendment). A resolvable skill named 'new' loses
+  ///     to the command: the command registry resolves before the skill lookup.</summary>
   private async Task SubmitSlashAsync(string rawInput)
   {
+    string token = rawInput[1..];
+    int space = token.IndexOf(' ', StringComparison.Ordinal);
+    string name = space < 0 ? token : token[..space];
+    string? args = space < 0 ? null : token[(space + 1)..].Trim();
+
+    // Issue #234: the /new command resolves BEFORE the skill lookup — it is a
+    // shell command, not a skill, so it must work even without a catalog.
+    if (string.Equals(name, "new", StringComparison.OrdinalIgnoreCase))
+    {
+      await RunNewSessionCommandAsync(args).ConfigureAwait(true);
+      return;
+    }
+
     if (_skillInvocation is null)
     {
       Transcript.AddNotice("Skill invocation is unavailable in this session (no catalog wired).");
       return;
     }
-
-    string token = rawInput[1..];
-    int space = token.IndexOf(' ', StringComparison.Ordinal);
-    string name = space < 0 ? token : token[..space];
-    string? args = space < 0 ? null : token[(space + 1)..].Trim();
 
     Result<SkillInvocation> r = await _skillInvocation.InvokeAsync(name, args, CancellationToken.None).ConfigureAwait(true);
     if (r.IsSuccess)
@@ -390,6 +453,45 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     _runningTurn = ExecuteTurnAsync(rawInput);
     await _runningTurn.ConfigureAwait(true);
+  }
+
+  /// <summary>Runs the /new session command (issue #234): every refusal is a typed
+  ///     notice — nothing is coerced. Unwired seam: unavailable. Busy turn: refused
+  ///     (a new session must not race the running one for the tab). Missing prompt:
+  ///     refused with the usage line. Otherwise the shell's command delegate runs
+  ///     with the rest of the input as the prompt, announced by a notice first.</summary>
+  private async Task RunNewSessionCommandAsync(string? args)
+  {
+    if (_newSessionCommand is null)
+    {
+      Transcript.AddNotice("The new-session command is unavailable in this session (no shell seam wired).");
+      return;
+    }
+
+    if (IsBusy)
+    {
+      Transcript.AddNotice("A turn is running — stop it before starting a new session (/new refuses while busy).");
+      return;
+    }
+
+    string prompt = args ?? "";
+    if (string.IsNullOrWhiteSpace(prompt))
+    {
+      Transcript.AddNotice("Give the new session its first prompt: /new <prompt>.");
+      return;
+    }
+
+    Transcript.AddNotice("[new session: starting a fresh session with the prompt you gave.]");
+    try
+    {
+      await _newSessionCommand(prompt).ConfigureAwait(true);
+    }
+#pragma warning disable CA1031 // Named decision: a command fault must surface as a notice, never an unobserved task exception.
+    catch (Exception ex)
+    {
+      Transcript.AddNotice($"Error [NewSessionCommandFault]: {ex.Message}");
+    }
+#pragma warning restore CA1031
   }
 
   /// <summary>Runs one ! command: echoes a command entry, executes through the
@@ -609,7 +711,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     bool sawStream = false;
     bool compactedThisTurn = false;
     bool shrunkThisTurn = false;
-    Result<string> result = _rootTurnChannel is { } channel
+    Result<string> result = RootTurnChannel is { } channel
         ? await SendTurnToHostAsync(channel, input, imageParts, bridge,
             () => sawStream = true, cts.Token).ConfigureAwait(true)
         : await RunTurnInProcessAsync(input, imageParts, bridge,
@@ -772,6 +874,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       case "tool":
         ApplyRootTurnToolEvent(evt.Payload, bridge);
         break;
+      case "session-request":
+        ApplySessionRequest(evt.Payload);
+        break;
       case "progress":
         // The heartbeat proves the host is alive; it says nothing the transcript needs.
         break;
@@ -837,6 +942,61 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     bridge.OnToolCall(tool.Name, tool.Arguments);
   }
 
+  /// <summary>Handles one host session-request event (issue #234): the new_session
+  ///     tool or a compaction handoff asked the app to start a NEW session in this
+  ///     tab's workspace. The event arrives on the wire pump thread, so the PARSE
+  ///     happens here (pure) and everything that touches the transcript or the
+  ///     handler marshals onto the UI thread through <see cref="AgentSessionViewModelOptions.UiMarshal"/>.
+  ///     An unreadable payload surfaces a notice instead of vanishing — a dropped
+  ///     request would hide a whole handoff (the unreadable-tool-event precedent).
+  ///     A faulting handler surfaces a SessionRequestFault notice: the handler is
+  ///     the shell's own seam, and its fault must never crash the pump or the VM.</summary>
+  private void ApplySessionRequest(string payload)
+  {
+    SessionRequestPayload? request;
+    try
+    {
+      request = JsonSerializer.Deserialize<SessionRequestPayload>(payload);
+    }
+    catch (JsonException)
+    {
+      request = null;
+    }
+
+    if (request is null)
+    {
+      _uiMarshal(() => Transcript.AddNotice($"[host] unreadable session-request: {payload}"));
+      return;
+    }
+
+    if (_sessionRequestHandler is null)
+    {
+      _uiMarshal(() => Transcript.AddNotice("Error [SessionRequestRefused]: this session cannot start a new one (no shell seam wired)."));
+      return;
+    }
+
+    Func<SessionRequestPayload, Task> handler = _sessionRequestHandler;
+    _uiMarshal(() => _ = FireSessionRequestAsync(handler, request));
+  }
+
+  /// <summary>Awaits the session-request handler and surfaces its fault as a typed
+  ///     notice. Fire-and-forget by design (CA1031 named decision): the request is
+  ///     one-way over the wire — the host's new_session tool already returned — and
+  ///     a handler fault must be visible, never an unobserved task exception.</summary>
+  private async Task FireSessionRequestAsync(Func<SessionRequestPayload, Task> handler, SessionRequestPayload request)
+  {
+    try
+    {
+      await handler(request).ConfigureAwait(true);
+    }
+#pragma warning disable CA1031 // Named decision: a handler fault must surface as a notice, never crash the pump.
+    catch (Exception ex)
+    {
+      Transcript.AddNotice($"Error [SessionRequestFault]: {ex.Message}");
+    }
+#pragma warning restore CA1031
+  }
+
   /// <summary>Persists the finished turn. A compacted or shrunk turn replaces the whole
   ///     transcript (the append slice would double-count); otherwise the append starts at the
   ///     turn's own starting index, and the continuous sink — when this session has one —
@@ -877,7 +1037,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // Spec D6: the ROOT turn lives in the host, so the stop must reach it there. Cancelling
     // the local token alone only abandons this process's wait — the host would keep running
     // the turn and persist it.
-    if (_rootTurnChannel is { } channel && _liveTurnId is { Length: > 0 } turnId)
+    if (RootTurnChannel is { } channel && _liveTurnId is { Length: > 0 } turnId)
     {
       channel.InterruptRootTurn(turnId);
     }

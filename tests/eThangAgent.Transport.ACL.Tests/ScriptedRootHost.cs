@@ -16,7 +16,8 @@ namespace eThangAgent.Transport.ACL.Tests;
 internal sealed record ScriptedOptions(
     RootSessionIdentity? Identity = null,
     ScriptedPark? Park = null,
-    bool StoreIgnoresToken = false);
+    bool StoreIgnoresToken = false,
+    TimeSpan? ParkBeforeFirstDelta = null);
 
 /// <summary>The optional mid-turn park a streaming test needs: an ASYNC hook that runs
 ///     between the provider's deltas, so a test can hold a turn open on a genuine yield
@@ -78,9 +79,11 @@ internal sealed class ScriptedRootHost : IDisposable
   {
     RootSessionIdentity? identity = options?.Identity;
     ScriptedPark? park = options?.Park;
+    TimeSpan? parkBeforeFirstDelta = options?.ParkBeforeFirstDelta;
     Conversation conversation = new();
     IToolRegistry tools = new EmptyToolRegistry();
-    ScriptedProvider provider = new(answer, deltas, betweenDeltas, providerError, park?.BetweenDeltas);
+    ScriptedProvider provider = new(answer, deltas, betweenDeltas, providerError, park?.BetweenDeltas,
+        parkBeforeFirstDelta);
     ModelConfig config = ModelConfig.Create("scripted/model", null, 4096, 0f, 200_000).Value!;
     AgentId rootId = AgentId.NewId();
     Ag agent = new(provider, conversation, config, tools, new AgentOptions { Id = rootId });
@@ -131,7 +134,8 @@ internal sealed class ScriptedRootHost : IDisposable
       IReadOnlyList<string> deltas,
       Action? betweenDeltas,
       DomainError? providerError,
-      Func<CancellationToken, Task>? parkBetweenDeltas) : IModelProvider
+      Func<CancellationToken, Task>? parkBetweenDeltas,
+      TimeSpan? parkBeforeFirstDelta = null) : IModelProvider
   {
     private int _calls;
     private IReadOnlyList<Message> _lastRequest = [];
@@ -175,6 +179,10 @@ internal sealed class ScriptedRootHost : IDisposable
     {
       _ = Interlocked.Increment(ref _calls);
       Volatile.Write(ref _lastRequest, request.Messages);
+      if (parkBeforeFirstDelta is { } delay)
+      {
+        await Task.Delay(delay, ct).ConfigureAwait(false);
+      }
       lock (_requests)
       {
         _requests.Add(request.Messages);
