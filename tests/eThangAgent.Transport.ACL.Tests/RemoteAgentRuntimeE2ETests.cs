@@ -81,6 +81,98 @@ public class RemoteAgentRuntimeE2ETests
     }
   }
 
+  /// <summary>A recording event stream: captures every published event, the same
+  ///     contract InProcessAgentEvents serves (the app container wires one).</summary>
+  private sealed class RecordingEvents : IAgentEvents
+  {
+    public List<ChildEvent> Published { get; } = [];
+    private readonly List<IAgentEventSubscriber> _subscribers = [];
+
+    public IDisposable Subscribe(IAgentEventSubscriber subscriber)
+    {
+      _subscribers.Add(subscriber);
+      return new Lease(_subscribers, subscriber);
+    }
+
+    public void Publish(ChildEvent evt)
+    {
+      Published.Add(evt);
+      foreach (IAgentEventSubscriber subscriber in _subscribers.ToArray())
+      {
+        subscriber.OnEvent(evt);
+      }
+    }
+
+    private sealed class Lease(List<IAgentEventSubscriber> subscribers, IAgentEventSubscriber subscriber) : IDisposable
+    {
+      public void Dispose() => _ = subscribers.Remove(subscriber);
+    }
+  }
+
+  [Fact]
+  public async Task ChildEventEnvelope_RoundTripsThroughTheWire()
+  {
+    // Issue #245: the host forwards child events as child-event envelopes; the app-side
+    // runtime republishes them onto the session's stream. The event must arrive verbatim.
+    (NamedPipeChildTransport app, NamedPipeChildTransport host) = await ConnectAsync().ConfigureAwait(true);
+    RecordingEvents events = new();
+    RemoteAgentRuntime runtime = new(app, RootTurnBudget.Default, events);
+    try
+    {
+      using CancellationTokenSource loop = new();
+      _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+      AgentId childId = AgentId.NewId();
+      ChildStartedEvent started = new(childId, DateTimeOffset.UtcNow, null, "test/model", 0);
+      await host.SendAsync(new TransportEnvelope("child-event",
+          System.Text.Json.JsonSerializer.Serialize(ChildEventEnvelope.From(started)), 1),
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      // Bounded wait: the pump must route the envelope and publish the event.
+      while (events.Published.Count == 0)
+      {
+        await Task.Delay(10, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      }
+      ChildStartedEvent republished = Assert.IsType<ChildStartedEvent>(Assert.Single(events.Published));
+      Assert.Equal(childId, republished.ChildId);
+      Assert.Equal("test/model", republished.ModelId, StringComparer.Ordinal);
+    }
+    finally
+    {
+      await app.DisposeAsync().ConfigureAwait(true);
+      await host.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
+  [Fact]
+  public async Task ChildEventEnvelope_UnknownPayloadType_IsDroppedNotFatal()
+  {
+    // A forward-compatible peer's event kind this build does not know is dropped: the
+    // pump survives, and the session stream sees nothing.
+    (NamedPipeChildTransport app, NamedPipeChildTransport host) = await ConnectAsync().ConfigureAwait(true);
+    RecordingEvents events = new();
+    RemoteAgentRuntime runtime = new(app, RootTurnBudget.Default, events);
+    try
+    {
+      using CancellationTokenSource loop = new();
+      _ = runtime.RunReceiveLoopAsync(loop.Token);
+
+      // A payload that decodes to no known ChildEvent subtype.
+      ChildEventEnvelope envelope = new(Guid.NewGuid(), "BrandNewEvent", System.Text.Json.JsonSerializer.Serialize(new { }));
+      await host.SendAsync(new TransportEnvelope("child-event",
+          System.Text.Json.JsonSerializer.Serialize(envelope), 1),
+          TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+      await Task.Delay(200, TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.Empty(events.Published);
+    }
+    finally
+    {
+      await app.DisposeAsync().ConfigureAwait(true);
+      await host.DisposeAsync().ConfigureAwait(true);
+    }
+  }
+
   /// <summary>Connects one in-process app/host pipe pair (the RemoteRuntimeSettleRetentionTests
   ///     pattern) so the runtime is exercised over a REAL connected transport.</summary>
   private static async Task<(NamedPipeChildTransport App, NamedPipeChildTransport Host)> ConnectAsync()

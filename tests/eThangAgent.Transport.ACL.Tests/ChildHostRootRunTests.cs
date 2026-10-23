@@ -1,5 +1,6 @@
 using eThangAgent.ChildHost;
 using eThangAgent.ConversationDomain;
+using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Transport.ACL.Tests;
@@ -142,6 +143,54 @@ public sealed class ChildHostRootRunTests
 
     Assert.True(result.IsSuccess, result.Error?.Message);
     Assert.Equal(1, observedMidTurn);
+  }
+
+  [Fact]
+  public async Task RunTurnAsync_ReasoningDeltas_StreamAsTheirOwnKind()
+  {
+    // Issue #245: the model's streaming thoughts must reach the app. The legacy mapping
+    // dropped OnReasoningDelta entirely, so a host turn rendered no thinking at all.
+    using ScriptedRootHost host = ScriptedRootHost.Start("the answer", ["the "],
+        options: new ScriptedOptions(ReasoningDeltas: ["thinking ", "hard"]));
+    List<RootTurnEvent> events = [];
+
+    Result<string> result = await host.RunTurnAsync(
+        new RootTurnRequest("turn-r", "hello", []), events.Add,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(result.IsSuccess, result.Error?.Message);
+    Assert.Contains(events, e => e.Kind == "reasoning" && e.Payload == "thinking ");
+    Assert.Contains(events, e => e.Kind == "reasoning" && e.Payload == "hard");
+    // The reasoning events arrive BEFORE the settle, in emission order.
+    int firstReasoning = events.FindIndex(e => e.Kind == "reasoning");
+    int settle = events.FindIndex(e => e.Kind == "settled");
+    Assert.True(firstReasoning >= 0 && firstReasoning < settle);
+  }
+
+  [Fact]
+  public async Task RunTurnAsync_ToolResult_CarriesTheFullContent()
+  {
+    // Issue #245: the legacy result payload carried only the summary ("ok"), so the
+    // app's tool cards showed OK instead of what the tool did. The JSON payload must
+    // carry the FULL content.
+    using ScriptedRootHost host = ScriptedRootHost.Start("done", [""],
+        options: new ScriptedOptions(
+            ToolCalls: [new ToolCallRequest("call_1", "probe", "{}")],
+            ToolResultContent: "file body line one\nline two"));
+    List<RootTurnEvent> events = [];
+
+    Result<string> result = await host.RunTurnAsync(
+        new RootTurnRequest("turn-t", "run it", []), events.Add,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    Assert.True(result.IsSuccess, result.Error?.Message);
+    RootTurnEvent toolEvent = Assert.Single(events, e => e.Kind == "tool"
+        && e.Payload.StartsWith('{'));
+    RootTurnToolResultPayload payload = RootTurnToolResultPayload.Parse(toolEvent.Payload)
+        ?? throw new InvalidOperationException("the tool-result payload did not decode");
+    Assert.Equal("probe", payload.Name);
+    Assert.Equal("ok", payload.Status);
+    Assert.Equal("file body line one\nline two", payload.Content);
   }
 
   [Fact]

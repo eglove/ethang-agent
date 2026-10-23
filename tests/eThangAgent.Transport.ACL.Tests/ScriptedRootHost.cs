@@ -17,13 +17,19 @@ internal sealed record ScriptedOptions(
     RootSessionIdentity? Identity = null,
     ScriptedPark? Park = null,
     bool StoreIgnoresToken = false,
-    TimeSpan? ParkBeforeFirstDelta = null);
+    TimeSpan? ParkBeforeFirstDelta = null,
+    // Issue #245 test knobs: the reasoning fragments the provider streams, and the
+    // tool-call iteration (calls + the one tool's fixed result content) a turn runs
+    // before its answer. Grouped here so the factory stays inside the parameter budget.
+    IReadOnlyList<string>? ReasoningDeltas = null,
+    IReadOnlyList<ToolCallRequest>? ToolCalls = null,
+    string? ToolResultContent = null);
 
+#pragma warning disable CA1812 // Instantiated by the gate tests, not by this file.
 /// <summary>The optional mid-turn park a streaming test needs: an ASYNC hook that runs
 ///     between the provider's deltas, so a test can hold a turn open on a genuine yield
 ///     (not a blocking wait) while it drives other work. The hook receives the TURN's
 ///     cancellation token, so a parked turn can be stopped the way a real one is.</summary>
-#pragma warning disable CA1812 // Instantiated by the gate tests, not by this file.
 internal sealed record ScriptedPark(Func<CancellationToken, Task> BetweenDeltas);
 #pragma warning restore CA1812
 
@@ -79,11 +85,12 @@ internal sealed class ScriptedRootHost : IDisposable
   {
     RootSessionIdentity? identity = options?.Identity;
     ScriptedPark? park = options?.Park;
-    TimeSpan? parkBeforeFirstDelta = options?.ParkBeforeFirstDelta;
     Conversation conversation = new();
-    IToolRegistry tools = new EmptyToolRegistry();
+    IToolRegistry tools = options?.ToolCalls is { Count: > 0 }
+        ? new ScriptedToolRegistry(options.ToolResultContent ?? "")
+        : new EmptyToolRegistry();
     ScriptedProvider provider = new(answer, deltas, betweenDeltas, providerError, park?.BetweenDeltas,
-        parkBeforeFirstDelta);
+        options ?? new ScriptedOptions());
     ModelConfig config = ModelConfig.Create("scripted/model", null, 4096, 0f, 200_000).Value!;
     AgentId rootId = AgentId.NewId();
     Ag agent = new(provider, conversation, config, tools, new AgentOptions { Id = rootId });
@@ -126,6 +133,26 @@ internal sealed class ScriptedRootHost : IDisposable
     public IReadOnlyList<ToolDefinition> Definitions => [];
   }
 
+  /// <summary>A registry whose one tool returns a FIXED content string: the tool-result
+  /// forwarding tests need a tool whose output is distinguishable from the "ok"
+  /// summary the legacy wire shape carried (issue #245).</summary>
+  private sealed class ScriptedToolRegistry(string content) : IToolRegistry
+  {
+    public ITool? Find(string name) => name == "probe"
+        ? new ProbeTool(content)
+        : null;
+
+    public IReadOnlyList<ToolDefinition> Definitions => [new ToolDefinition("probe", "probe", [])];
+
+    private sealed class ProbeTool(string content) : ITool
+    {
+      public ToolDefinition Definition { get; } = new("probe", "probe", []);
+
+      public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
+          => Task.FromResult(new ToolResult(content, false));
+    }
+  }
+
   /// <summary>The scripted model: emits the deltas in order, then completes with the answer.
   ///     Both provider entry points stream, so the agent's choice of call cannot hide a
   ///     delta from the runner.</summary>
@@ -135,9 +162,10 @@ internal sealed class ScriptedRootHost : IDisposable
       Action? betweenDeltas,
       DomainError? providerError,
       Func<CancellationToken, Task>? parkBetweenDeltas,
-      TimeSpan? parkBeforeFirstDelta = null) : IModelProvider
+      ScriptedOptions options) : IModelProvider
   {
     private int _calls;
+    private int _toolIterationDone;
     private IReadOnlyList<Message> _lastRequest = [];
     private readonly List<IReadOnlyList<Message>> _requests = [];
 
@@ -179,7 +207,7 @@ internal sealed class ScriptedRootHost : IDisposable
     {
       _ = Interlocked.Increment(ref _calls);
       Volatile.Write(ref _lastRequest, request.Messages);
-      if (parkBeforeFirstDelta is { } delay)
+      if (options.ParkBeforeFirstDelta is { } delay)
       {
         await Task.Delay(delay, ct).ConfigureAwait(false);
       }
@@ -203,6 +231,19 @@ internal sealed class ScriptedRootHost : IDisposable
             await parkBetweenDeltas(ct).ConfigureAwait(false);
           }
         }
+      }
+
+      foreach (string reasoning in options.ReasoningDeltas ?? [])
+      {
+        onReasoningDelta?.Invoke(reasoning);
+      }
+
+      if (options.ToolCalls is { Count: > 0 } calls && Interlocked.Exchange(ref _toolIterationDone, 1) == 0)
+      {
+        // One tool-call iteration: the loop executes the calls (each resolved through the
+        // registry) and re-enters the provider, whose SECOND call returns the answer.
+
+        return Result.Success(new ModelResponse("", calls));
       }
 
       return Result.Success(new ModelResponse(answer, []));

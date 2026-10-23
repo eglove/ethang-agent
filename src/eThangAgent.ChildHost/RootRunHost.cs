@@ -1,3 +1,4 @@
+using System.Text.Json;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.Composition;
@@ -14,18 +15,17 @@ namespace eThangAgent.ChildHost;
 ///     difference is which process executes it. Events stream back AS THEY HAPPEN, so the
 ///     app renders the turn exactly as before.
 ///     <para>EVENT MAPPING (decided once, documented verbatim so a reader never guesses):
-///     <c>OnContentDelta</c> becomes <c>delta</c>; <c>OnToolCall</c> and <c>OnToolResult</c>
-///     become <c>tool</c> (payload <c>call &lt;name&gt; &lt;n&gt;/&lt;total&gt; &lt;arguments&gt;</c> and
-///     <c>result &lt;name&gt; ok|error &lt;summary&gt;</c>); <c>OnSystemMessage</c> and the
-///     handler's model-resolution notice become <c>notice</c>; the turn's completion —
-///     success OR failure — becomes exactly one <c>settled</c> event carrying either the
-///     answer or <c>Error [&lt;code&gt;]: &lt;message&gt;</c>. Reasoning deltas, iteration ends,
-///     context snapshots, and compaction outcomes have no wire kind and are not forwarded.</para>
-///     <para>EVERY FAILURE SETTLES, including the pre-flight ones. A rejected turn (empty
-///     input) emits its typed <c>settled</c> event before returning: the app reads the
-///     outcome from that event, so a silent early return would leave its caller waiting out
-///     the whole idle bound and then reporting a TRANSPORT fault for a turn the host simply
-///     refused.</para>
+///     <c>OnContentDelta</c> becomes <c>delta</c>; <c>OnReasoningDelta</c> becomes
+///     <c>reasoning</c> (issue #245 - the app renders the model's streaming thoughts);
+///     <c>OnToolCall</c> and <c>OnToolResult</c> become <c>tool</c> (payload
+///     <c>call &lt;name&gt; &lt;n&gt;/&lt;total&gt; &lt;arguments&gt;</c> and a JSON
+///     <see cref="RootTurnToolResultPayload"/> carrying name, status, title, summary, and
+///     the FULL content - issue #245: the legacy summary-only shape rendered every result
+///     as "ok"); <c>OnSystemMessage</c> and the handler's model-resolution notice become
+///     <c>notice</c>; the turn's completion - success OR failure - becomes exactly one
+///     <c>settled</c> event carrying either the answer or
+///     <c>Error [&lt;code&gt;]: &lt;message&gt;</c>. Iteration ends, context snapshots, and
+///     compaction outcomes have no wire kind and are not forwarded.</para>
 ///     <para>PROTOCOL REQUIREMENT: every emitted event echoes the request's
 ///     <see cref="RootTurnRequest.Generation"/> VERBATIM. The app mints a fresh generation
 ///     per turn and delivers an event only when both the turn id and the generation match
@@ -248,10 +248,19 @@ public sealed class RootRunHost : IDisposable
     SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
     TurnCallbacks callbacks = new(
         OnContentDelta: text => emitter.Emit("delta", text),
+        // Reasoning deltas stream as their own wire kind (issue #245): the app renders
+        // them as the same ReasoningEntry the in-process path produced. Dropped before,
+        // the chat showed no thinking at all for every host turn.
+        OnReasoningDelta: text => emitter.Emit("reasoning", text),
         OnToolCall: (name, arguments, position, total) => emitter.Emit("tool",
             "call " + name + " " + position + "/" + total + " " + arguments),
+        // The result payload is a JSON object (issue #245): the legacy text shape carried
+        // only the summary line ("ok"), so the app's tool cards showed OK instead of what
+        // the tool actually did. Name, status, the rich title, the summary, and the FULL
+        // content travel; the app renders the content in the card body.
         OnToolResult: (name, summary, content, isError, rich) => emitter.Emit("tool",
-            "result " + name + " " + (isError ? "error" : "ok") + " " + summary),
+            JsonSerializer.Serialize(new RootTurnToolResultPayload(name, isError ? "error" : "ok",
+                rich?.Title, summary, content))),
         OnSystemMessage: text => emitter.Emit("notice", text));
 
     Result<string> result;

@@ -12,7 +12,7 @@ public sealed record TransportEnvelope(string Kind, string Json, long Sequence)
   ///     and the same receive pumps as the child-run kinds — they are wire kinds, not a
   ///     separate channel.</summary>
   public static readonly string[] KnownKinds =
-      ["start", "deliver", "interrupt", "event", "settle", "ack", "root-turn", "root-turn-event", "session-response"];
+      ["start", "deliver", "interrupt", "event", "settle", "ack", "root-turn", "root-turn-event", "session-response", "child-event"];
 
   /// <summary>True when this envelope's kind is one the protocol defines.
   /// <para>HONEST SCOPE: no RECEIVER consults this today — both pumps still fall through

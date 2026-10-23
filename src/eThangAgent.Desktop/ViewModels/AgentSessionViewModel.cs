@@ -851,8 +851,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>Maps one host event onto the stream bridge. The wire kinds are the
-  ///     session surface's own vocabulary (delta/notice/tool/settled), so this is a
-  ///     translation, never a second rendering path.
+  ///     session surface's own vocabulary (delta/reasoning/notice/tool/settled), so this
+  ///     is a translation, never a second rendering path.
   ///     <para>An unreadable <c>tool</c> payload becomes a notice instead of vanishing: a
   ///     dropped tool event would hide a whole step of the turn.</para>
   ///     <para><c>progress</c> is the host's LIVENESS HEARTBEAT (2026-10-22) and renders
@@ -867,6 +867,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       case "delta":
         onStreamed();
         bridge.OnContentDelta(evt.Payload);
+        break;
+      case "reasoning":
+        // The model's streaming thoughts (issue #245): the same ReasoningEntry the
+        // in-process path renders. The host forwards them as their own wire kind.
+        bridge.OnReasoningDelta(evt.Payload);
         break;
       case "notice":
         bridge.OnNotice(evt.Payload);
@@ -935,7 +940,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
     if (tool.IsResult)
     {
-      bridge.OnToolResult(tool.Name, tool.Summary, tool.Summary, tool.IsError, null);
+      // The full content rides the JSON payload (issue #245): the legacy shape passed the
+      // SUMMARY as the full content, so every card body read "ok". A legacy payload that
+      // carried no content falls back to the summary (the old rendering), never empty.
+      // The rich title travels as a ToolResult (the bridge's own carrier shape).
+      bridge.OnToolResult(tool.Name, tool.Summary, tool.Content ?? tool.Summary, tool.IsError,
+          tool.Title is null ? null : new ToolResult(tool.Content ?? tool.Summary, tool.IsError, tool.Title));
       return;
     }
 

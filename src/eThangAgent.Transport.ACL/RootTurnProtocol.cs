@@ -110,8 +110,8 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
 }
 
 /// <summary>One event streamed back for a root turn. Kinds are exactly `delta`,
-///     `notice`, `tool`, `settled`, `progress`, and `session-request` - the first four are
-///     the surface the session view renders; `progress` is the LIVENESS HEARTBEAT
+///     `reasoning`, `notice`, `tool`, `settled`, `progress`, and `session-request` - the
+///     first five are the surface the session view renders; `progress` is the LIVENESS HEARTBEAT
 ///     (2026-10-22): the host emits it when a turn has been quiet, so the app can tell
 ///     "the host is busy" from "the host stopped answering" instead of failing a healthy
 ///     long turn; `session-request` is the host's app-ward request to start a NEW session
@@ -131,13 +131,13 @@ public sealed record RootTurnEvent(string TurnId, string Kind, string Payload, l
 ///     silently dropped envelope.</summary>
 public static class RootTurnProtocol
 {
-  /// <summary>The event kinds the wire carries: the four the session view renders,
+  /// <summary>The event kinds the wire carries: the five the session view renders,
   ///     `progress` the liveness heartbeat, and `session-request` the host's app-ward
   ///     request to start a NEW session (issue #234); anything else is a protocol error,
   ///     not a forward-compatible unknown.</summary>
   public static readonly IReadOnlySet<string> EventKinds = new HashSet<string>(StringComparer.Ordinal)
   {
-    "delta", "notice", "tool", "settled", "progress", "session-request",
+    "delta", "reasoning", "notice", "tool", "settled", "progress", "session-request",
   };
 
   public static string SerializeRequest(RootTurnRequest request)

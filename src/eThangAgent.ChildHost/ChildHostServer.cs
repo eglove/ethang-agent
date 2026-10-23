@@ -39,6 +39,12 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///     abandon the app's local wait while the host kept executing the stopped turn.</summary>
   private readonly ConcurrentDictionary<string, CancellationTokenSource> _rootTurns = [];
 
+  // Child-event forwarding (issue #245): one subscription lease per running child, over
+  // the CHILD CONTAINER's own event stream. The child's events publish into that
+  // container's stream; without a forwarder they never leave the host process and the
+  // app's subagent panel sees nothing. The lease dies with the child's finally block.
+  private readonly ConcurrentDictionary<Guid, IDisposable> _eventLeases = [];
+
   // The ROOT runner (spec D6): the conversation's own agent runs in this process. Built
   // ONCE, lazily, from the host's own container - the root transcript sink seeds its
   // persisted baseline at construction, so a per-turn runner would re-seed mid-conversation
@@ -222,6 +228,13 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       {
         watchdog.Start();
       }
+
+      // Child-event forwarding (issue #245): the app's subagent panel subscribes the
+      // APP container's event stream, and this child publishes into ITS OWN container's
+      // stream — a different object in a different process. The forwarder republishes
+      // every event as a child-event envelope, so the panel, badge, and wake adapters
+      // observe remote children exactly like in-process ones.
+      AttachEventForwarder(host, loaded.Value.Id.Value);
       Result<AgentRunOutcome> outcome = await host.Runtime.WhenSettledAsync(loaded.Value.Id, cts.Token).ConfigureAwait(false);
       if (outcome.IsSuccess)
       {
@@ -239,11 +252,83 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
 #pragma warning restore CA1031 // Do not catch general exception types
     finally
     {
+      if (_eventLeases.TryRemove(command.RecordId, out IDisposable? lease))
+      {
+        lease.Dispose();
+      }
+
       _ = _active.TryRemove(command.RecordId, out _);
       _ = _delivery.TryRemove(command.RecordId, out _);
       _ = _parents.TryRemove(command.RecordId, out _);
       _ = _runtimes.TryRemove(command.RecordId, out _);
       await SendLiveSetAsync().ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>Subscribes the child-event forwarder (issue #245) to the CHILD CONTAINER's
+  ///     own event stream: every event the child publishes is serialized into a
+  ///     <see cref="ChildEventEnvelope"/> and sent as a <c>child-event</c> envelope, so
+  ///     the app-side runtime can republish it onto the session's stream. The lease is
+  ///     registered for the child's finally block to dispose. Best-effort: a container
+  ///     without an event stream (a test rig) skips silently — the child still runs, only
+  ///     the app's realtime view is absent. A failed subscribe never fails the run.
+  ///     <para>The events are METADATA-ONLY by the ChildEvent family's own contract (D5):
+  ///     ids, timestamps, enums, counts, short labels — never message or report content —
+  ///     so the wire carries nothing the transcript does not already hold.</para></summary>
+  private void AttachEventForwarder(SessionHost host, Guid recordId)
+  {
+    if (host.Services.GetService(typeof(IAgentEvents)) is not IAgentEvents events)
+    {
+      return;
+    }
+
+    // The envelope's child id comes from the EVENT itself (ChildEventEnvelope.From), so
+    // the forwarder needs no per-child state — one subscriber shape serves every child.
+    ChildEventForwarder forwarder = new(SendChildEventAsync);
+    IDisposable lease = events.Subscribe(forwarder);
+    _eventLeases[recordId] = lease;
+  }
+
+  /// <summary>Puts one forwarded child event on the wire. Fire-and-forget by contract:
+  ///   the event stream's publisher is the child's own loop (a synchronous callback that
+  ///   must never await a pipe write), so a failed or backpressured write drops the
+  ///   event — the app's panel is a realtime VIEW, not a durable record (the transcript
+  ///   store is), and a dropped progress beat costs nothing. The fault is contained
+  ///   here: the stream's other subscribers must never see it.</summary>
+  private async Task SendChildEventAsync(ChildEventEnvelope envelope)
+  {
+#pragma warning disable CA1031 // Named decision: a failed wire send must never reach the child loop.
+    try
+    {
+      await SendAsync("child-event", JsonSerializer.Serialize(envelope)).ConfigureAwait(false);
+    }
+    catch
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031 // Do not catch general exception types
+  }
+
+  /// <summary>The forwarder itself: translates one child event into its wire envelope.
+  ///   A fault in serialization is contained (the stream's fault boundary) — a lost
+  ///   event degrades the realtime view, never the run.</summary>
+  private sealed class ChildEventForwarder(Func<ChildEventEnvelope, Task> send) : IAgentEventSubscriber
+  {
+    public void OnEvent(ChildEvent evt)
+    {
+      // Named decision (CA1031): presentation containment — the child loop's other
+      // subscribers (the host watchdog's SupervisorFeed among them) must never see a
+      // wire fault.
+#pragma warning disable CA1031 // Do not catch general exception types
+      try
+      {
+        _ = send(ChildEventEnvelope.From(evt));
+      }
+      catch
+      {
+        // Swallowed deliberately: see the named decision above.
+      }
+#pragma warning restore CA1031 // Do not catch general exception types
     }
   }
 

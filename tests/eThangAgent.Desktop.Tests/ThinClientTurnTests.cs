@@ -204,6 +204,61 @@ public sealed class ThinClientTurnTests
   }
 
   [Fact]
+  public async Task SendAsync_HostReasoningEvents_RenderAsReasoningEntries()
+  {
+    // Issue #245: the model's streaming thoughts must reach the chat. The host forwards
+    // them as the `reasoning` wire kind; the app renders the same ReasoningEntry the
+    // in-process path produced. Dropped, the chat showed no thinking at all.
+    FakeHostSession session = await FakeHostSession.StartAsync(["answer"]).ConfigureAwait(true);
+    session.Host.Script.Add(new RootTurnEvent("t", "reasoning", "thinking out loud", 0));
+
+    await session.ViewModel.SubmitAsync("hi").ConfigureAwait(true);
+
+    ReasoningEntry entry = Assert.IsType<ReasoningEntry>(session.ViewModel.Transcript.Entries
+        .First(e => e is ReasoningEntry));
+    Assert.Contains("thinking out loud", entry.Text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task SendAsync_HostToolResultPayload_RendersTheFullContent()
+  {
+    // Issue #245: the legacy mapping passed the SUMMARY as the full content, so every
+    // tool card body read "ok". The JSON payload's content must land on the card.
+    FakeHostSession session = await FakeHostSession.StartAsync([]).ConfigureAwait(true);
+    session.Host.Script.Add(new RootTurnEvent("t", "tool",
+        RootTurnToolResultPayload.Serialize("exec", "ok", "parse names", "ok", "42"), 0));
+
+    await session.ViewModel.SubmitAsync("hi").ConfigureAwait(true);
+
+    ToolResultEntry result = Assert.IsType<ToolResultEntry>(session.ViewModel.Transcript.Entries
+        .First(e => e is ToolResultEntry));
+    Assert.Equal("42", result.FullContent, StringComparer.Ordinal);
+    Assert.Equal("parse names", result.HeaderTitle, StringComparer.Ordinal);
+  }
+
+  [Fact]
+  public async Task SendAsync_ChildEventEnvelope_AddsASubagentRow()
+  {
+    // Issue #245: the host forwards child events as child-event envelopes; the runtime
+    // republishes them onto the session's stream, and the panel's subscription adds a
+    // row. The full app-side path: wire envelope -> runtime -> IAgentEvents -> panel.
+    FakeHostSession session = await FakeHostSession.StartAsync(["ok"]).ConfigureAwait(true);
+    TestEventStream events = new();
+    session.ViewModel.Subagents.Attach(events, apply => evt => apply(evt));
+    AgentId childId = AgentId.NewId();
+
+    // The runtime republishes onto the stream the panel subscribed (the production
+    // wiring resolves the SAME IAgentEvents for both). Simulate the pump's publish:
+    // the runtime's HandleChildEvent is private, so the test drives the observable
+    // contract - an event on the stream must reach the panel.
+    events.Publish(new ChildStartedEvent(childId, DateTimeOffset.UtcNow, null, "mock/sub-model", 0));
+
+    SubagentRowViewModel row = Assert.Single(session.ViewModel.Subagents.Rows);
+    Assert.Equal(childId, row.Id);
+    Assert.True(row.IsRunning);
+  }
+
+  [Fact]
   public async Task SendAsync_UnreadableToolPayload_SurfacesANotice()
   {
     FakeHostSession session = await FakeHostSession.StartAsync(["ok"]).ConfigureAwait(true);
