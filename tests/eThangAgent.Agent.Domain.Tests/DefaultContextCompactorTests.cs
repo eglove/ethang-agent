@@ -161,4 +161,87 @@ public class DefaultContextCompactorTests
     Assert.Contains("[Tool] file contents [answers c1]", rendered, StringComparison.Ordinal);
     Assert.Contains("## Kept tail", rendered, StringComparison.Ordinal);
   }
+
+  /// <summary>The handoff decision rides the existing ceiling path: a prefix-eviction
+  ///     compaction (issue #234) requests a session handoff; the tail-compression
+  ///     fallback (no summary produced) does not; every CompactAsync call re-decides.</summary>
+  [Fact]
+  public async Task CompactAsync_PrefixEviction_SetsHandoffRequested()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess);
+    Assert.True(compactor.HandoffRequested);
+  }
+
+  [Fact]
+  public async Task CompactAsync_TailCompressionFallback_DoesNotSetHandoffRequested()
+  {
+    // The tail-compression fallback produces no summary, so a handoff cannot ride it.
+    Conversation conversation = new();
+    conversation.AddUserMessage("task");
+    for (int i = 0; i < 3; i++)
+    {
+      conversation.AddUserMessage($"kept user {i}");
+      conversation.AddAssistantMessage("", [new ToolCall($"c{i}", "read", "{}")]);
+      conversation.AddToolResult($"c{i}", new string('r', 800));
+    }
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.False(compactor.HandoffRequested);
+  }
+
+  [Fact]
+  public async Task CompactAsync_FailedEviction_DoesNotSetHandoffRequested()
+  {
+    // A failed eviction (empty summary) produced no summary: no handoff decision.
+    Conversation conversation = ConversationWithEvictableMiddle();
+
+    RecordingFactory factory = new(null);
+    ((ScriptedProvider)factory.Provider).Enqueue(Result.Success(new ModelResponse("   ", [])));
+    DefaultContextCompactor compactor = new(factory, () => null);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.False(outcome.IsSuccess);
+    Assert.False(compactor.HandoffRequested);
+  }
+
+  [Fact]
+  public async Task CompactAsync_SecondCall_ReDecidesHandoffFlag()
+  {
+    // Each CompactAsync call re-decides: a handoff-requesting eviction followed by a
+    // tail-compression fallback resets the flag to false.
+    Conversation first = ConversationWithEvictableMiddle();
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null);
+
+    _ = await compactor.CompactAsync(first, Serving, TestContext.Current.CancellationToken);
+    Assert.True(compactor.HandoffRequested);
+
+    Conversation second = new();
+    second.AddUserMessage("task");
+    for (int i = 0; i < 3; i++)
+    {
+      second.AddUserMessage($"kept user {i}");
+      second.AddAssistantMessage("", [new ToolCall($"c{i}", "read", "{}")]);
+      second.AddToolResult($"c{i}", new string('r', 800));
+    }
+
+    Result<CompactionOutcome> fallback = await compactor.CompactAsync(second, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(fallback.IsSuccess, fallback.Error?.Code + ": " + fallback.Error?.Message);
+    Assert.False(compactor.HandoffRequested);
+  }
 }

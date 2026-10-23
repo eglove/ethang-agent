@@ -265,4 +265,111 @@ public class AgentTests
     public Task<ToolResult> ExecuteAsync(RawToolInput input, CancellationToken ct = default)
         => Task.FromResult(new ToolResult(_resultContent, false));
   }
+
+  private sealed class StubProvider : IModelProvider
+  {
+    public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
+        CancellationToken ct = default)
+        => Task.FromResult(Result.Success(new ModelResponse("final", [])));
+
+    public Task<Result<ModelResponse>> SendStreamingAsync(ModelConfig config, ModelRequest request,
+        Action<string>? onContentDelta = null, Action<string>? onReasoningDelta = null, CancellationToken ct = default)
+        => SendAsync(config, request, ct);
+  }
+
+  private sealed class ThresholdMonitor(double utilization, int window = 1000) : IContextMonitor
+  {
+    public ContextStatus Status { get; set; } =
+        new((int)(utilization * window / 100.0), (long)(utilization * window / 100.0), 0, window, utilization);
+
+    public ContextBreakdown? Breakdown => null;
+
+    public void OnRequestUsage(TokenUsage usage, ContextComposition composition)
+    {
+    }
+  }
+
+  /// <summary>The compaction handoff seam (issue #234): a compactor that decides a
+  ///     session handoff leaves HandoffPending true after the turn ends; the
+  ///     composition clears it via ClearHandoffPending. A compactor that does not
+  ///     decide a handoff leaves the flag false.</summary>
+  private sealed class HandoffCompactor : IContextCompactor
+  {
+    public bool HandoffRequested { get; set; }
+
+    public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
+    {
+      Result<bool> replaced = conversation.Compact(
+      [
+        new Message(Role.System, "[Conversation summary - earlier messages were compacted.]\nhandoff summary text", DateTimeOffset.UtcNow, IsSummary: true),
+            ..conversation.Messages,
+      ]);
+      return Task.FromResult(replaced.IsSuccess
+          ? Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100)))
+          : Result.Failure<CompactionOutcome>(replaced.Error));
+    }
+  }
+
+  [Fact]
+  public async Task Handoff_CeilingCompactionWithHandoffDecision_LeavesHandoffPendingAfterTurnEnds()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800)); // believable report: 800 tokens at 4 chars/token
+    HandoffCompactor compactor = new() { HandoffRequested = true };
+    Agent agent = new(new StubProvider(), conversation, DefaultConfig, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(80.0),
+          ContextCompactor = compactor,
+        });
+
+    Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.True(compactor.HandoffRequested);
+    Assert.True(agent.HandoffPending);
+    // The system line names the handoff: the transcript records WHY the turn ends.
+    Assert.Contains(conversation.Messages, m =>
+        m.Role is Role.System && m.Content.Contains("context handoff", StringComparison.Ordinal));
+  }
+
+  [Fact]
+  public async Task Handoff_ClearHandoffPending_ResetsFlag()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800));
+    HandoffCompactor compactor = new() { HandoffRequested = true };
+    Agent agent = new(new StubProvider(), conversation, DefaultConfig, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(80.0),
+          ContextCompactor = compactor,
+        });
+
+    _ = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+    Assert.True(agent.HandoffPending);
+
+    agent.ClearHandoffPending();
+
+    Assert.False(agent.HandoffPending);
+  }
+
+  [Fact]
+  public async Task Handoff_NonHandoffCompaction_LeavesHandoffPendingFalse()
+  {
+    Conversation conversation = new();
+    conversation.AddUserMessage(new string('x', 800));
+    HandoffCompactor compactor = new() { HandoffRequested = false };
+    Agent agent = new(new StubProvider(), conversation, DefaultConfig, new ToolRegistry([]),
+        new AgentOptions
+        {
+          ContextMonitor = new ThresholdMonitor(80.0),
+          ContextCompactor = compactor,
+        });
+
+    Result<string> result = await agent.SendMessage("go", ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.False(agent.HandoffPending);
+  }
 }

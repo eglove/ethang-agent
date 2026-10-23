@@ -28,6 +28,7 @@ public class AgentCompactionInflationGuardTests
 
   private sealed class CountingCompactor : IContextCompactor
   {
+    public bool HandoffRequested => false;
     public int Calls { get; private set; }
 
     public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)

@@ -9,9 +9,10 @@ namespace eThangAgent.ToolDomain;
 public interface INewSessionPort
 {
   /// <summary>Starts a fresh session for <paramref name="prompt"/>. The
-  ///     <paramref name="handoffSummary"/> is reserved for a later compaction
-  ///     handoff task — the tool always passes null today. Returns the new
-  ///     session's id, or a typed failure.</summary>
+  ///     <paramref name="handoffSummary"/> seeds the new session when present:
+  ///     the new session is seeded with it as a System message before the prompt
+  ///     runs (the compaction handoff, issue #234). Returns the new session's id,
+  ///     or a typed failure.</summary>
   Task<Result<NewSessionPortResult>> StartAsync(string prompt, string? handoffSummary, CancellationToken ct = default);
 }
 

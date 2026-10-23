@@ -189,6 +189,18 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     observed context shrink). A failed compaction does NOT reset it.</summary>
   private bool _softReminderShown;
 
+  /// <summary>True when the last successful compaction decided a session handoff
+  ///     (issue #234): the composition layer reads this after the turn ends and launches
+  ///     the new session with the compaction's summary as its seed. One-shot per
+  ///     compaction: the composition resets it via <see cref="ClearHandoffPending"/>
+  ///     after it acts. The handoff acts at the turn's END, not mid-decision: the
+  ///     turn continues normally after the compaction.</summary>
+  public bool HandoffPending { get; private set; }
+
+  /// <summary>Clears <see cref="HandoffPending"/> after the composition has acted on it
+  ///     (launched the new session with the compaction's summary as its seed).</summary>
+  public void ClearHandoffPending() => HandoffPending = false;
+
   /// <summary>
   /// Runs one user turn through the provider/tool loop. Content deltas stream out through
   /// <see cref="TurnCallbacks.OnContentDelta"/> exactly as the provider emits them — every
@@ -467,6 +479,15 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       _readLedger.Reset();
       _softReminderShown = false;
       NotifyCompacted(callbacks, compacted.Value);
+      // The handoff decision rides the SAME compaction that produced the summary:
+      // set the pending flag and let the turn continue normally - the handoff acts at
+      // the turn's END, where the composition reads the flag and launches the new
+      // session. A compactor without the decision leaves the flag untouched.
+      if (_contextCompactor.HandoffRequested)
+      {
+        HandoffPending = true;
+      }
+
       return false;
     }
 
@@ -592,6 +613,18 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     if (response.FinishReason is not FinishReason.Length)
     {
       Conversation.AddAssistantMessage(content);
+      if (HandoffPending)
+      {
+        // The turn ends here: surface the handoff decision as a system line (the
+        // transcript records WHY the conversation continues elsewhere) and end the
+        // turn with the normal terminal Result. The actual session launch is NOT
+        // here - the Agent Domain cannot reference the port; the composition reads
+        // HandoffPending after the turn ends and acts on it.
+        string handoffLine = $"[context handoff: the conversation continues in a new session {Id}.]";
+        Conversation.AddSystemMessage(handoffLine);
+        callbacks?.OnSystemMessage?.Invoke(handoffLine);
+      }
+
       return Result.Success(content);
     }
 

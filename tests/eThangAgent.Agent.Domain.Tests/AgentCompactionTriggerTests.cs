@@ -27,6 +27,7 @@ public class AgentCompactionTriggerTests
 
   private sealed class ScriptedCompactor : IContextCompactor
   {
+    public bool HandoffRequested => false;
     public int Calls { get; private set; }
     public bool Fail { get; init; }
     public CompactionOutcome Outcome { get; } = new(4, 2, new TokenUsage(50, 100));
@@ -44,6 +45,7 @@ public class AgentCompactionTriggerTests
   ///     one does: prepends the IsSummary handoff message to the conversation.</summary>
   private sealed class ScriptedCompactingCompactor : IContextCompactor
   {
+    public bool HandoffRequested => false;
     public const string SummaryText = "[Conversation summary - earlier messages were compacted.]\nhandoff summary text";
 
     public int Calls { get; private set; }

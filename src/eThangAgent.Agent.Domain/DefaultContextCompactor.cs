@@ -23,12 +23,23 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
   ///     tail-compression candidate (deterministic marker, no LLM call).</summary>
   public const double TailCompressionThresholdFraction = 0.05;
 
+  /// <summary>True when the last CompactAsync decided the next compaction should be a
+  ///     SESSION HANDOFF (issue #234): the turn ends, a new session is launched with the
+  ///     summary as its seed, and the old session completes gracefully. The consumer
+  ///     (Agent.cs) checks this after a successful CompactAsync and acts on it. A prefix
+  ///     eviction sets it; the tail-compression fallback never does (it produces no
+  ///     summary, and a handoff needs one). Each CompactAsync call re-decides: the flag
+  ///     resets at the start of every call.</summary>
+  public bool HandoffRequested { get; private set; }
+
   public async Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation,
       ModelConfig servingModel, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(conversation);
     ArgumentNullException.ThrowIfNull(servingModel);
     IReadOnlyList<Message> messages = conversation.Messages; // snapshot, not live view
+    // Each call re-decides the handoff: the flag is one-shot per compaction.
+    HandoffRequested = false;
     // A serving model whose window is not yet catalog-resolved cannot plan an
     // eviction: fail with a named code instead of guessing a window.
     if (servingModel.ContextWindow is not { } window)
@@ -64,6 +75,9 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
           "The summarizer model returned no summary text."));
     }
 
+    // A prefix eviction produced a real summary: the handoff decision rides THIS
+    // compaction (issue #234) - the consumer reads it right after success.
+    HandoffRequested = true;
     List<Message> replacement =
     [
         new(Role.System, $"[Conversation summary — earlier messages were compacted.]\n{summaryText}",
