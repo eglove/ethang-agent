@@ -30,7 +30,6 @@ public class AgentSoftReminderTests
 
   private sealed class CountingCompactor : IContextCompactor
   {
-    public bool HandoffRequested => false;
     public int Calls { get; private set; }
 
     public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
@@ -42,7 +41,6 @@ public class AgentSoftReminderTests
 
   private sealed class FailingCompactor : IContextCompactor
   {
-    public bool HandoffRequested => false;
     public int Calls { get; private set; }
 
     public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)

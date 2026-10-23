@@ -76,7 +76,6 @@ public class SystemMessageCallbackTests
 
   private sealed class FailingCompactor : IContextCompactor
   {
-    public bool HandoffRequested => false;
     public Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
         => Task.FromResult(Result.Failure<CompactionOutcome>(new DomainError("SummaryUnavailable", "model down")));
   }

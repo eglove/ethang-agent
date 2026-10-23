@@ -71,7 +71,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   ///     automatic resume. Fails with a structured error when the provider is unknown or
   ///     unconfigured, or when bootstrap persistence fails.</summary>
   public async Task<Result<AgentSession>> CreateAsync(string workspaceRoot, string providerName,
-      CancellationToken ct = default)
+      IReadOnlyList<Message>? conversationSeed = null, CancellationToken ct = default)
   {
     Result<string> validated = ValidateProvider(workspaceRoot, providerName);
     if (!validated.IsSuccess)
@@ -83,7 +83,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(full, ct).ConfigureAwait(false);
-    ServiceProvider services = BuildContainer(full, providerName, conversationSeed: null,
+    ServiceProvider services = BuildContainer(full, providerName, conversationSeed,
         ResolveBootstrapModel(providerName),
         new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories));
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
@@ -109,6 +109,24 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       // the RootAgentResolver reads it lazily to persist ModelUsed on each selection, so it
       // must be set before the first turn can fire.
       services.GetRequiredService<RootSessionIdentity>().Id = bootstrapped.Value;
+
+      // The seed (the compaction handoff's summary, issue #234) is persisted EXPLICITLY:
+      // the transcript sink's baseline counts the seeded prefix as already-persisted
+      // (it seeds its counter from the conversation's length at construction), so
+      // without this the seed would never reach the store and a resume would lose it.
+      if (conversationSeed is { Count: > 0 })
+      {
+        foreach (Message message in conversationSeed)
+        {
+          Result<string> appended = await store.AppendMessageAsync(bootstrapped.Value, message, ct)
+              .ConfigureAwait(false);
+          if (!appended.IsSuccess)
+          {
+            await services.DisposeAsync().ConfigureAwait(false);
+            return Result.Failure<AgentSession>(appended.Error);
+          }
+        }
+      }
 
       // Exact orphan repair at session open (FR-L8, R3.2): a persisted Running record
       // survives only if the host still owns it. A host that cannot start is a NAMED

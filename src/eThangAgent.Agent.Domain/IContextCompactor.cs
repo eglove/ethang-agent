@@ -9,13 +9,27 @@ namespace eThangAgent.AgentDomain;
 public interface IContextCompactor
 {
   Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default);
-
-  /// <summary>True when the compactor decided the next compaction should be a
-  ///     SESSION HANDOFF (issue #234): the turn ends, a new session is launched with the
-  ///     summary as its seed, and the old session completes gracefully. The consumer
-  ///     (Agent.cs) checks this after a successful CompactAsync and acts on it.</summary>
-  bool HandoffRequested { get; }
 }
 
-/// <summary>What one compaction did.</summary>
-public sealed record CompactionOutcome(int MessagesEvicted, int MessagesKept, TokenUsage? SummarizerUsage);
+/// <summary>What one compaction did. A handoff outcome (<see cref="IsHandoff"/>) REPLACES
+///     in-place compaction (issue #234): the conversation was NOT compacted — the old
+///     transcript stays intact and completes gracefully — and the summary travels here,
+///     to seed the new session. The decision rides the outcome, never instance state:
+///     the compactor is a shared singleton, and a mutable flag on it was thread-sensitive
+///     (Task 4 review finding 1).</summary>
+/// <param name="MessagesEvicted">How many messages the compaction evicted (0 for a handoff).</param>
+/// <param name="MessagesKept">How many messages the compaction kept (0 for a handoff).</param>
+/// <param name="SummarizerUsage">The summarizer call's token usage, when reported.</param>
+/// <param name="HandoffSummary">The summary text a handoff carries; null for an ordinary
+///     in-place compaction.</param>
+public sealed record CompactionOutcome(int MessagesEvicted, int MessagesKept, TokenUsage? SummarizerUsage,
+    string? HandoffSummary = null)
+{
+  /// <summary>True when this outcome is a SESSION HANDOFF: the conversation was not
+  ///     compacted, and the summary seeds a new session instead.</summary>
+  public bool IsHandoff => HandoffSummary is not null;
+
+  /// <summary>The handoff outcome: the conversation is left intact and the summary
+  ///     launches a new session as its seed.</summary>
+  public static CompactionOutcome Handoff(string summary, TokenUsage? usage) => new(0, 0, usage, summary);
+}

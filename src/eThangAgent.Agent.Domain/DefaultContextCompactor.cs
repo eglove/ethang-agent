@@ -11,8 +11,15 @@ namespace eThangAgent.AgentDomain;
 ///     prefix with that summary via <see cref="Conversation.Compact"/>. The summarizer
 ///     model is resolved per compaction through the factory-supplied delegate; when it
 ///     returns null the serving model writes its own summary (fallback, by design).
-///     Exact render strings are pinned by tests.</summary>
-public sealed class DefaultContextCompactor(IModelProviderFactory providerFactory, Func<ModelConfig?> summarizerModel)
+///     Exact render strings are pinned by tests.
+///     <para>THE HANDOFF REPLACES IN-PLACE COMPACTION (issue #234): when the
+///     <c>handoffEnabled</c> delegate is wired, returns true, and no child is running on
+///     this async flow (root-gating via the ambient-scope pattern), the eviction path's
+///     summary becomes a <see cref="CompactionOutcome.Handoff"/> outcome instead of an
+///     in-place compaction — the conversation is left intact and the summary seeds a new
+///     session. The tail-compression fallback never hands off (it produces no summary).</para></summary>
+public sealed class DefaultContextCompactor(IModelProviderFactory providerFactory, Func<ModelConfig?> summarizerModel,
+    Func<bool>? handoffEnabled = null)
     : IContextCompactor
 {
   /// <summary>Verbatim contract for the summarizer call.</summary>
@@ -23,23 +30,12 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
   ///     tail-compression candidate (deterministic marker, no LLM call).</summary>
   public const double TailCompressionThresholdFraction = 0.05;
 
-  /// <summary>True when the last CompactAsync decided the next compaction should be a
-  ///     SESSION HANDOFF (issue #234): the turn ends, a new session is launched with the
-  ///     summary as its seed, and the old session completes gracefully. The consumer
-  ///     (Agent.cs) checks this after a successful CompactAsync and acts on it. A prefix
-  ///     eviction sets it; the tail-compression fallback never does (it produces no
-  ///     summary, and a handoff needs one). Each CompactAsync call re-decides: the flag
-  ///     resets at the start of every call.</summary>
-  public bool HandoffRequested { get; private set; }
-
   public async Task<Result<CompactionOutcome>> CompactAsync(Conversation conversation,
       ModelConfig servingModel, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(conversation);
     ArgumentNullException.ThrowIfNull(servingModel);
     IReadOnlyList<Message> messages = conversation.Messages; // snapshot, not live view
-    // Each call re-decides the handoff: the flag is one-shot per compaction.
-    HandoffRequested = false;
     // A serving model whose window is not yet catalog-resolved cannot plan an
     // eviction: fail with a named code instead of guessing a window.
     if (servingModel.ContextWindow is not { } window)
@@ -75,9 +71,11 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
           "The summarizer model returned no summary text."));
     }
 
-    // A prefix eviction produced a real summary: the handoff decision rides THIS
-    // compaction (issue #234) - the consumer reads it right after success.
-    HandoffRequested = true;
+    if (ShouldHandOff())
+    {
+      return Result.Success(CompactionOutcome.Handoff(summaryText, summary.Value.Usage));
+    }
+
     List<Message> replacement =
     [
         new(Role.System, $"[Conversation summary — earlier messages were compacted.]\n{summaryText}",
@@ -89,6 +87,12 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
         ? Result.Success(new CompactionOutcome(plan.EvictCount, keptTail.Count, summary.Value.Usage))
         : Result.Failure<CompactionOutcome>(compacted.Error);
   }
+
+  /// <summary>THE HANDOFF REPLACES IN-PLACE COMPACTION (issue #234): the enablement
+  /// delegate is wired, returns true, AND no child is running on this async flow
+  /// (root-gating via the ambient-scope pattern) — a child has no session to hand off.
+  /// The launch itself is the composition/host's act; the compactor only decides.</summary>
+  private bool ShouldHandOff() => handoffEnabled is not null && handoffEnabled() && SubAgentSpawner.RunningChild is null;
 
   /// <summary>The eviction-failed fallback: the kept tail's 3-group floor alone
   ///     exceeds the target (tail-dominated bloat - huge recent tool results), so

@@ -189,17 +189,26 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     observed context shrink). A failed compaction does NOT reset it.</summary>
   private bool _softReminderShown;
 
-  /// <summary>True when the last successful compaction decided a session handoff
+  /// <summary>True when the last successful compaction's outcome WAS a handoff
   ///     (issue #234): the composition layer reads this after the turn ends and launches
-  ///     the new session with the compaction's summary as its seed. One-shot per
+  ///     the new session with the outcome's summary as its seed. One-shot per
   ///     compaction: the composition resets it via <see cref="ClearHandoffPending"/>
   ///     after it acts. The handoff acts at the turn's END, not mid-decision: the
   ///     turn continues normally after the compaction.</summary>
   public bool HandoffPending { get; private set; }
 
+  /// <summary>The handoff summary the last handoff outcome carried (issue #234): the
+  ///     seed the new session launches with. Null when no handoff is pending. Cleared
+  ///     with <see cref="ClearHandoffPending"/>.</summary>
+  public string? HandoffSummary { get; private set; }
+
   /// <summary>Clears <see cref="HandoffPending"/> after the composition has acted on it
   ///     (launched the new session with the compaction's summary as its seed).</summary>
-  public void ClearHandoffPending() => HandoffPending = false;
+  public void ClearHandoffPending()
+  {
+    HandoffPending = false;
+    HandoffSummary = null;
+  }
 
   /// <summary>
   /// Runs one user turn through the provider/tool loop. Content deltas stream out through
@@ -479,13 +488,15 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       _readLedger.Reset();
       _softReminderShown = false;
       NotifyCompacted(callbacks, compacted.Value);
-      // The handoff decision rides the SAME compaction that produced the summary:
-      // set the pending flag and let the turn continue normally - the handoff acts at
-      // the turn's END, where the composition reads the flag and launches the new
-      // session. A compactor without the decision leaves the flag untouched.
-      if (_contextCompactor.HandoffRequested)
+      // The handoff decision rides the OUTCOME (issue #234): a handoff outcome means the
+      // conversation was NOT compacted and the summary seeds a new session. Set the
+      // pending flag and let the turn continue normally - the handoff acts at the turn's
+      // END, where the composition reads the flag and launches the new session. An
+      // ordinary outcome leaves the flag untouched.
+      if (compacted.Value.IsHandoff)
       {
         HandoffPending = true;
+        HandoffSummary = compacted.Value.HandoffSummary;
       }
 
       return false;
@@ -548,9 +559,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // The summary message the compaction left in the conversation is surfaced
     // verbatim: nothing the agent receives stays hidden from the host surface
     // (live parity with the resume replay, which restores it as a system
-    // entry). A compactor that reports success without replacing the prefix
-    // leaves nothing to surface - and nothing was received, so none is fired.
-    if (Conversation.Messages.FirstOrDefault(m => m.IsSummary) is { } summary)
+    // entry). A HANDOFF outcome did NOT compact the conversation - there is no
+    // summary message in it to surface, and none was received, so none is fired
+    // (the summary travels on the outcome, to the host's handoff emit).
+    if (!outcome.IsHandoff && Conversation.Messages.FirstOrDefault(m => m.IsSummary) is { } summary)
     {
       callbacks?.OnSystemMessage?.Invoke(summary.Content);
     }
@@ -620,7 +632,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
         // turn with the normal terminal Result. The actual session launch is NOT
         // here - the Agent Domain cannot reference the port; the composition reads
         // HandoffPending after the turn ends and acts on it.
-        string handoffLine = $"[context handoff: the conversation continues in a new session {Id}.]";
+        string handoffLine = "[context handoff: the conversation continues in a new session.]";
         Conversation.AddSystemMessage(handoffLine);
         callbacks?.OnSystemMessage?.Invoke(handoffLine);
       }

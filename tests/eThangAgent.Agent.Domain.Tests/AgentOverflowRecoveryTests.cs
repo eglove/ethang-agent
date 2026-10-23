@@ -52,7 +52,6 @@ public class AgentOverflowRecoveryTests
   ///     the real one does) or fails with a chosen error; counts calls.</summary>
   private sealed class RecordingCompactor(DomainError? failure = null) : IContextCompactor
   {
-    public bool HandoffRequested => false;
     public int Calls { get; private set; }
     public ModelConfig? LastServingModel { get; private set; }
 

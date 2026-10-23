@@ -259,9 +259,57 @@ public sealed class RootRunHost : IDisposable
             text => emitter.Emit("notice", text), ct)
         .ConfigureAwait(false);
 
+    // The handoff emit (issue #234) happens BEFORE the settle: the app's tab
+    // replacement runs after the settle drains, so the request must reach it while the
+    // turn is still live — and the await gives the app the new session's id first.
+    await EmitHandoffIfPendingAsync(ct).ConfigureAwait(false);
+
     emitter.Emit("settled",
         result.IsSuccess ? result.Value : DescribeFailure(result.Error));
     return result;
+  }
+
+  /// <summary>The compaction handoff's emit (issue #234): when the resolved root agent
+  ///     reports <c>HandoffPending</c>, emit a session-request through the
+  ///     SAME channel the new_session tool uses — an EMPTY prompt means seed-only launch
+  ///     (no auto first turn) — and await the app's answer BEFORE the settle, so the app
+  ///     holds the new session's id before the tab replacement. A failure is swallowed
+  ///     (the turn's own outcome is unaffected; the app surfaces launch failures itself).
+  ///     The pending flag is consumed after acting. The channel is an optional capability:
+  ///     a container without it (a test rig) skips silently.
+  ///     <para>THE SUMMARY TRAVELS ON THE AGENT (issue #234): the handoff outcome did NOT
+  ///     compact the conversation, so there is no summary message in it to mine — the
+  ///     summary rides <c>HandoffSummary</c> from the outcome.</para></summary>
+  internal async Task EmitHandoffIfPendingAsync(CancellationToken ct)
+  {
+    if (_services.GetService(typeof(RootAgentHolder)) is not RootAgentHolder holder
+        || holder.Current is not { HandoffPending: true } agent)
+    {
+      return;
+    }
+
+    string? summary = agent.HandoffSummary;
+    try
+    {
+      if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+      {
+        // Awaited (bounded by the turn's own token) BEFORE the settle: the app has the
+        // id before the tab replacement. A failure is swallowed — the turn's own
+        // outcome is unaffected; the app surfaces launch failures itself.
+        _ = await channel.RequestAsync(Guid.NewGuid().ToString("N"), prompt: "",
+            handoffSummary: summary, ct).ConfigureAwait(false);
+      }
+    }
+#pragma warning disable CA1031 // Named decision: the handoff emit is best-effort — a failed launch never fails the completed turn.
+    catch (Exception)
+    {
+      // Swallowed deliberately: see the named decision above.
+    }
+#pragma warning restore CA1031
+    finally
+    {
+      agent.ClearHandoffPending();
+    }
   }
 
   /// <summary>Appends the app-supplied messages that must precede this turn's user input

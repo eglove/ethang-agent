@@ -36,7 +36,7 @@ public class NewSessionToolTests
   [Fact]
   public async Task Cancellation_PropagatesToPort()
   {
-    using System.Threading.CancellationTokenSource cts = new();
+    using CancellationTokenSource cts = new();
     FakePort port = new("sess-abc-123");
     NewSessionTool tool = new(port);
 
@@ -77,7 +77,7 @@ public class NewSessionToolTests
   {
     NewSessionTool tool = new(new FakePort("sess-abc-123"));
 
-    string args = /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"prompt\":\"" + prompt + "\"}";
+    string args = "{\"timeoutSeconds\":120,\"prompt\":\"" + prompt + "\"}"; // JSON assembled per case (JSON001: the concatenation is not a complete literal).
     ToolResult result = await tool.ExecuteAsync(new RawToolInput("new_session", args), TestContext.Current.CancellationToken);
     Assert.True(result.IsError);
     Assert.StartsWith("Error [InvalidInput]", result.Content, StringComparison.Ordinal);
@@ -167,7 +167,7 @@ public class NewSessionToolTests
 
     public string? LastHandoffSummary { get; private set; }
 
-    public System.Threading.CancellationToken LastCancellationToken { get; private set; }
+    public CancellationToken LastCancellationToken { get; private set; }
 
     public Task<Result<NewSessionPortResult>> StartAsync(string prompt, string? handoffSummary, CancellationToken ct = default)
     {
