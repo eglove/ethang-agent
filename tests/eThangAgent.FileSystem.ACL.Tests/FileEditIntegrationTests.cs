@@ -12,7 +12,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 public sealed class FileEditIntegrationTests : IDisposable
 {
   private readonly string _root = Directory.CreateTempSubdirectory("ethang-e").FullName;
-  private readonly DirectFileSystemAccess _access = new();
+  private readonly DirectFileSystemAccess _access = new(LineEndingStub.For(LineEnding.Lf));
 
   public void Dispose()
   {

@@ -66,8 +66,8 @@ content is refused; the extension alone is never trusted (magic-byte + package s
  subset, and atomic structural manipulation (rotate, delete, reorder, extract, merge,
  watermark, set metadata) behind a stale-edit version guard. Non-PDF and encrypted files
  are refused; named caps bound file size, pages, DPI, batch size, and markdown size
-- `write` tool — create/replace files behind an explicit overwrite gate
-- `edit` tool — exact literal replacements with occurrence verification, or line-range replacement (lines N..M, no anchor, endLine past EOF rejected); a missed anchor quotes the file's nearest matching region (exact line numbers and content) so one retry corrects the anchor
+- `write` tool — create/replace files behind an explicit overwrite gate; written text has its line endings normalized mechanically to the target file's own convention (the project's for a new file: `.editorconfig` `end_of_line`, then `.gitattributes` `eol=`, then the workspace's existing majority, then LF), and the annotation line states which convention landed
+- `edit` tool — exact literal replacements with occurrence verification, or line-range replacement (lines N..M, no anchor, endLine past EOF rejected); the replacement is normalized to the file's own line-ending convention before splicing (untouched lines keep their exact bytes), so an edit never introduces a foreign terminator; a missed anchor quotes the file's nearest matching region (exact line numbers and content) so one retry corrects the anchor
 - `write_markdown` tool — renders a structured JSON document into well-formed markdown deterministically (headers, lists, tables, alerts, frontmatter); returns the string or writes it to a workspace file behind the same overwrite gate as `write`
 - `sqlite_query` tool — the same read-only SELECT/WITH inspection as `db_query`,
   but against any SQLite file inside the workspace (inventory databases, exports);

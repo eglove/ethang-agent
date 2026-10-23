@@ -11,7 +11,7 @@ namespace eThangAgent.FileSystem.ACL.Tests;
 public sealed class AnchorHintTests : IDisposable
 {
   private readonly string _root = Directory.CreateTempSubdirectory("ethang-anchor").FullName;
-  private readonly DirectFileSystemAccess _access = new();
+  private readonly DirectFileSystemAccess _access = new(LineEndingStub.For(LineEnding.Lf));
 
   public void Dispose()
   {

@@ -120,7 +120,12 @@ public static class AgentComposition
         // and starts from an empty conversation.
         .AddSingleton(_ => new Conversation(conversationSeed))
         .AddSingleton<IConversationRepository, InMemoryConversationRepository>()
-        .AddSingleton<DirectFileSystemAccess>()
+        // The line-ending policy is workspace-scoped: it resolves the project convention for
+        // a write by walking outward from the file's own directory, and the workspace root is
+        // the anchor (the same identity seam state keys and plans scope to).
+        .AddSingleton<ILineEndingPolicy>(sp =>
+            new EditorConfigLineEndingPolicy(sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
+        .AddSingleton(sp => new DirectFileSystemAccess(sp.GetRequiredService<ILineEndingPolicy>()))
         .AddSingleton<IFileSystemAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())
         .AddSingleton<IFileSearchAccess, DirectFileSearchAccess>()
         .AddSingleton<IFileWriteAccess>(sp => sp.GetRequiredService<DirectFileSystemAccess>())

@@ -14,16 +14,21 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : 
   public ToolDefinition Definition { get; } = new(
       "write",
       "Create or replace a text file. timeoutSeconds and path are mandatory; then provide " +
-      "exactly one of content (string) or lines (array of strings — joined with LF, one element " +
-      "per line; an empty array writes an empty file; empty elements are blank lines). 'lines' " +
+      "exactly one of content (string) or lines (array of strings, one element per line; an empty " +
+      "array writes an empty file; empty elements are blank lines). 'lines' " +
       "avoids raw-string escaping hazards: each element is carried verbatim. The call fails if " +
       "the file exists unless overwrite is exactly true — it will never silently replace anything. " +
       "Omitting overwrite keeps the call create-only. Parent directories are never created " +
       "automatically; the DirectoryNotFound error names the missing directory and the remedy. " +
-      "Paths resolve inside the workspace; escapes are rejected. Content is written verbatim as " +
-      "UTF-8 without BOM (empty content writes an empty file). Output is a single annotation line " +
-      "in [brackets]: `[write <path>] created|overwritten, N bytes` — metadata, not file content. " +
-      "Errors begin with `Error [Code]:`.",
+      "Paths resolve inside the workspace; escapes are rejected. Content is written as " +
+      "UTF-8 without BOM (empty content writes an empty file). LINE ENDINGS ARE NORMALIZED " +
+      "MECHANICALLY: the text is rewritten to the target file's own dominant convention (an " +
+      "existing file is never restyled), or for a new file to the project's convention resolved " +
+      "from .editorconfig end_of_line, then .gitattributes eol=, then the workspace's existing " +
+      "majority, then LF. Do not convert line endings yourself — no scripts that rewrite files to " +
+      "fix EOLs; they already conform. Output is a single annotation line in [brackets]: " +
+      "`[write <path>] created|overwritten, N bytes, LF|CRLF line endings` — metadata, not file " +
+      "content. Errors begin with `Error [Code]:`.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("path", ToolParameterType.Text,
@@ -31,7 +36,7 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : 
             new ToolParameter("content", ToolParameterType.Text,
                 "Exact file content. May be empty. Exactly one of content or lines."),
             new ToolParameter("lines", ToolParameterType.TextArray,
-                "File content as one string per line, joined with LF. Empty elements are blank lines; an empty array writes an empty file. Exactly one of content or lines."),
+                "File content as one string per line, joined with the target file's line-ending convention (the project's for a new file). Empty elements are blank lines; an empty array writes an empty file. Exactly one of content or lines."),
             new ToolParameter("overwrite", ToolParameterType.Flag,
                 "Optional. Defaults to refusing replacement of an existing file; true replaces it."),
       ],
@@ -61,7 +66,13 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : 
 
   private async Task<ToolResult> WriteAsync(string path, WriteToolInput args, CancellationToken ct)
   {
-    Result<FileWriteOutcome> written = await _files.WriteFileAsync(path, args.Content, args.Overwrite, ct).ConfigureAwait(false);
+    // 'lines' mode goes through its own seam method so the backend joins with the
+    // file's resolved line-ending convention instead of a hardcoded LF.
+    // WriteToolInput guarantees exactly one of Lines/Content is set, so the null-forgiving
+    // operator below is the parser's contract restated at its only consumer.
+    Result<FileWriteOutcome> written = args.Lines is { } lines
+        ? await _files.WriteFileLinesAsync(path, lines, args.Overwrite, ct).ConfigureAwait(false)
+        : await _files.WriteFileAsync(path, args.Content!, args.Overwrite, ct).ConfigureAwait(false);
     if (!written.IsSuccess)
     {
       return Err(written.Error);
@@ -69,7 +80,8 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : 
 
     FileWriteOutcome o = written.Value;
     return new ToolResult(
-        $"[write {path}] {(o.Created ? "created" : "overwritten")}, {o.BytesWritten} bytes",
+        $"[write {path}] {(o.Created ? "created" : "overwritten")}, {o.BytesWritten} bytes, " +
+        $"{LineEndings.Label(o.NormalizedTo)} line endings",
         false);
   }
 

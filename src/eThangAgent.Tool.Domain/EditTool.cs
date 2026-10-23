@@ -22,8 +22,12 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
       "read counts them) are replaced by replacement; an empty replacement deletes the range; endLine " +
       "past EOF is rejected (the error names the file's line count) — read the file first for current numbers. " +
       "Both modes: replacement may be empty in anchor mode (deletes matched text); the file is never created; " +
-      "binary files are refused. Output is a single annotation line: `[edit <path>] replaced N occurrence(s), " +
-      "file now M lines` or `[edit <path>] replaced lines N-M, file now M lines`. Errors begin with " +
+      "binary files are refused. LINE ENDINGS ARE NORMALIZED MECHANICALLY: the replacement is rewritten to " +
+      "the file's own dominant convention before splicing (untouched lines keep their exact bytes), so an " +
+      "edit never introduces a foreign terminator — do not convert line endings yourself in `replacement`. " +
+      "Output is a single annotation line: `[edit <path>] replaced N occurrence(s), file now M lines, " +
+      "LF|CRLF line endings` or `[edit <path>] replaced lines N-M, file now M lines, LF|CRLF line endings`. " +
+      "Errors begin with " +
       "`Error [Code]:` and are safe to retry with corrected arguments. On AnchorNotFound the error quotes the " +
       "file's nearest matching region when one exists — `Nearest match at line N` plus context lines in the read " +
       "tool's line-number→ gutter format (exact content, exact line numbers) — so correct the anchor from the " +
@@ -91,7 +95,8 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
     ReplaceOutcome o = replaced.Value;
     string noun = o.Replaced == 1 ? "occurrence" : "occurrence(s)";
     return new ToolResult(
-        $"[edit {path}] replaced {o.Replaced} {noun}, file now {o.NewLineCount} lines",
+        $"[edit {path}] replaced {o.Replaced} {noun}, file now {o.NewLineCount} lines, " +
+        $"{LineEndings.Label(o.NormalizedTo)} line endings",
         false);
   }
 
@@ -106,7 +111,8 @@ public sealed class EditTool(IPathResolver resolver, IFileEditAccess files) : IT
 
     ReplaceOutcome o = replaced.Value;
     return new ToolResult(
-        $"[edit {path}] replaced lines {args.StartLine}-{args.EndLine}, file now {o.NewLineCount} lines",
+        $"[edit {path}] replaced lines {args.StartLine}-{args.EndLine}, file now {o.NewLineCount} lines, " +
+        $"{LineEndings.Label(o.NormalizedTo)} line endings",
         false);
   }
 

@@ -38,7 +38,7 @@ public sealed class DirectFileSystemAccessTests : IDisposable
     string path = Path.Combine(_tempDir, "test.txt");
     _ = Directory.CreateDirectory(_tempDir);
     await File.WriteAllTextAsync(path, "line1\nline2\nline3\nline4\nline5", TestContext.Current.CancellationToken);
-    DirectFileSystemAccess access = new();
+    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
 
     Result<FileRead> r = await access.ReadLinesAsync(path, 2, 4, ct: TestContext.Current.CancellationToken);
 
@@ -51,7 +51,7 @@ public sealed class DirectFileSystemAccessTests : IDisposable
   [Fact]
   public async Task ReadLinesAsync_FileNotFound_ReturnsError()
   {
-    DirectFileSystemAccess access = new();
+    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
     Result<FileRead> r = await access.ReadLinesAsync(Path.Combine(_tempDir, "nope.txt"), 1, 5, ct: TestContext.Current.CancellationToken);
 
     Assert.False(r.IsSuccess);
@@ -63,7 +63,7 @@ public sealed class DirectFileSystemAccessTests : IDisposable
   {
     string path = Path.Combine(_tempDir, "new.txt");
     _ = Directory.CreateDirectory(_tempDir);
-    DirectFileSystemAccess access = new();
+    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
 
     Result<FileWriteOutcome> r = await access.WriteFileAsync(path, "hello world", overwrite: false, ct: TestContext.Current.CancellationToken);
 
@@ -79,7 +79,7 @@ public sealed class DirectFileSystemAccessTests : IDisposable
     string path = Path.Combine(_tempDir, "exists.txt");
     _ = Directory.CreateDirectory(_tempDir);
     await File.WriteAllTextAsync(path, "old", TestContext.Current.CancellationToken);
-    DirectFileSystemAccess access = new();
+    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
 
     Result<FileWriteOutcome> r = await access.WriteFileAsync(path, "new", overwrite: false, ct: TestContext.Current.CancellationToken);
 
@@ -93,7 +93,7 @@ public sealed class DirectFileSystemAccessTests : IDisposable
     string path = Path.Combine(_tempDir, "replace.txt");
     _ = Directory.CreateDirectory(_tempDir);
     await File.WriteAllTextAsync(path, "a X b X c", TestContext.Current.CancellationToken);
-    DirectFileSystemAccess access = new();
+    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
 
     Result<ReplaceOutcome> r = await access.ReplaceInFileAsync(path, "X", "Y", occurrences: null, ct: TestContext.Current.CancellationToken);
 
@@ -108,7 +108,7 @@ public sealed class DirectFileSystemAccessTests : IDisposable
     string path = Path.Combine(_tempDir, "noanchor.txt");
     _ = Directory.CreateDirectory(_tempDir);
     await File.WriteAllTextAsync(path, "hello", TestContext.Current.CancellationToken);
-    DirectFileSystemAccess access = new();
+    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
 
     Result<ReplaceOutcome> r = await access.ReplaceInFileAsync(path, "XYZ", "Z", occurrences: null, ct: TestContext.Current.CancellationToken);
 
@@ -124,7 +124,7 @@ public sealed class DirectFileSystemAccessTests : IDisposable
     string path = Path.Combine(_tempDir, "crlf.txt");
     _ = Directory.CreateDirectory(_tempDir);
     await File.WriteAllTextAsync(path, "alpha\r\nbeta\r\ngamma", TestContext.Current.CancellationToken);
-    DirectFileSystemAccess access = new();
+    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
 
     Result<ReplaceOutcome> r = await access.ReplaceInFileAsync(path, "alpha\nbeta", "ALPHA\nBETA", occurrences: 1, ct: TestContext.Current.CancellationToken);
 
@@ -141,7 +141,7 @@ public sealed class DirectFileSystemAccessTests : IDisposable
     string path = Path.Combine(_tempDir, "lf.txt");
     _ = Directory.CreateDirectory(_tempDir);
     await File.WriteAllTextAsync(path, "alpha\nbeta", TestContext.Current.CancellationToken);
-    DirectFileSystemAccess access = new();
+    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
 
     Result<ReplaceOutcome> r = await access.ReplaceInFileAsync(path, "alpha\r\nbeta", "REPLACED", occurrences: 1, ct: TestContext.Current.CancellationToken);
 
@@ -156,7 +156,7 @@ public sealed class DirectFileSystemAccessTests : IDisposable
     string path = Path.Combine(_tempDir, "missing.txt");
     _ = Directory.CreateDirectory(_tempDir);
     await File.WriteAllTextAsync(path, "alpha\r\nbeta", TestContext.Current.CancellationToken);
-    DirectFileSystemAccess access = new();
+    DirectFileSystemAccess access = new(LineEndingStub.For(LineEnding.Lf));
 
     Result<ReplaceOutcome> r = await access.ReplaceInFileAsync(path, "nothing here\nat all", "X", occurrences: 1, ct: TestContext.Current.CancellationToken);
 

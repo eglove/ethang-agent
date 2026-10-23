@@ -227,6 +227,9 @@ internal sealed class StubWriteAccess : IFileWriteAccess
   public Task<Result<FileWriteOutcome>> WriteFileAsync(string path, string content,
       bool overwrite, CancellationToken ct = default) =>
       Task.FromResult(Result.Failure<FileWriteOutcome>(new DomainError("Unused", "not exercised")));
+  public Task<Result<FileWriteOutcome>> WriteFileLinesAsync(string path, IReadOnlyList<string> lines,
+      bool overwrite, CancellationToken ct = default) =>
+      Task.FromResult(Result.Failure<FileWriteOutcome>(new DomainError("Unused", "not exercised")));
   public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(string path, byte[] bytes,
       bool overwrite, CancellationToken ct = default) =>
       Task.FromResult(Result.Failure<FileWriteOutcome>(new DomainError("Unused", "not exercised")));

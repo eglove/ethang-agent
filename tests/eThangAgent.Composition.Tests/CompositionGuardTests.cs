@@ -66,6 +66,7 @@ public class CompositionGuardTests
             services.GetRequiredService<IFileSystemAccess>(),
             services.GetRequiredService<IFileWriteAccess>(),
             services.GetRequiredService<IFileEditAccess>(),
+            services.GetRequiredService<ILineEndingPolicy>(),
             services.GetRequiredService<IGitQueryAccess>(),
             services.GetRequiredService<IGitCommitAccess>(),
             services.GetRequiredService<IExecEngine>(),

@@ -16,7 +16,7 @@ public class EditToolRangeModeTests
   [Fact]
   public async Task RangeMode_ReachesSeam_WithResolvedPathAndRange()
   {
-    FakeFileEditAccess fake = new(Result.Success<ReplaceOutcome>(new(3, 9)));
+    FakeFileEditAccess fake = new(Result.Success<ReplaceOutcome>(new(3, 9, LineEnding.Lf)));
     ToolResult result = await new EditTool(new WorkspacePathResolver(Root), fake)
             .ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"path\":\"a.txt\",\"startLine\":2,\"endLine\":4,\"replacement\":\"y\"}"),
@@ -25,20 +25,20 @@ public class EditToolRangeModeTests
     Assert.Equal(2, fake.LastStartLine);
     Assert.Equal(4, fake.LastEndLine);
     Assert.Equal("y", fake.LastNewText);
-    Assert.Equal($"[edit {Resolved}] replaced lines 2-4, file now 9 lines", result.Content);
+    Assert.Equal($"[edit {Resolved}] replaced lines 2-4, file now 9 lines, LF line endings", result.Content);
   }
 
   [Fact]
   public async Task RangeMode_EmptyReplacement_DeletesLines()
   {
-    FakeFileEditAccess fake = new(Result.Success<ReplaceOutcome>(new(2, 5)));
+    FakeFileEditAccess fake = new(Result.Success<ReplaceOutcome>(new(2, 5, LineEnding.Lf)));
     ToolResult result = await new EditTool(new WorkspacePathResolver(Root), fake)
             .ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/ "{\"timeoutSeconds\":120,\"path\":\"a.txt\",\"startLine\":3,\"endLine\":4,\"replacement\":\"\"}"),
                 ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
     Assert.Equal("", fake.LastNewText);
-    Assert.Equal($"[edit {Resolved}] replaced lines 3-4, file now 5 lines", result.Content);
+    Assert.Equal($"[edit {Resolved}] replaced lines 3-4, file now 5 lines, LF line endings", result.Content);
   }
 
   // ---- Missing parameters ----

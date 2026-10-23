@@ -20,7 +20,7 @@ public sealed class WorkspacePathIntegrationTests : IDisposable
   private (WorkspacePathResolver Resolver, DirectFileSystemAccess Files) Make() =>
     // The production shape: the desktop folder picker hands the host a root that may
     // end in a directory separator; the resolver must normalize it away.
-    (new(_root + Path.DirectorySeparatorChar), new());
+    (new(_root + Path.DirectorySeparatorChar), new(LineEndingStub.For(LineEnding.Lf)));
 
   public void Dispose()
   {

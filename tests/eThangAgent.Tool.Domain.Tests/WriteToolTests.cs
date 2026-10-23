@@ -35,13 +35,13 @@ public class WriteToolTests
   [Fact]
   public async Task OmittedOverwrite_DefaultsToRefuse()
   {
-    FakeFileWriteAccess fake = new(Result.Success<FileWriteOutcome>(new(true, 42)));
+    FakeFileWriteAccess fake = new(Result.Success<FileWriteOutcome>(new(true, 42, LineEnding.Lf)));
     ToolResult result = await new WriteTool(new WorkspacePathResolver(Root), fake)
         .ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"path":"a.txt","content":"x"}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal($"[write {Resolved}] created, 42 bytes", result.Content);
+    Assert.Equal($"[write {Resolved}] created, 42 bytes, LF line endings", result.Content);
     Assert.False(fake.LastOverwrite);
   }
 
@@ -109,29 +109,29 @@ public class WriteToolTests
   [Fact]
   public async Task Created_FormatsAnnotationLine()
   {
-    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 42)))
+    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 42, LineEnding.Lf)))
             .ExecuteAsync(new RawToolInput("write",
                                      /*lang=json,strict*/
                                      """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":false}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal($"[write {Resolved}] created, 42 bytes", result.Content);
+    Assert.Equal($"[write {Resolved}] created, 42 bytes, LF line endings", result.Content);
   }
 
   [Fact]
   public async Task Overwritten_FormatsAnnotationLine()
   {
-    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(false, 7)))
+    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(false, 7, LineEnding.Lf)))
             .ExecuteAsync(new RawToolInput("write",
                                      /*lang=json,strict*/
                                      """{"timeoutSeconds":120,"path":"a.txt","content":"x","overwrite":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal($"[write {Resolved}] overwritten, 7 bytes", result.Content);
+    Assert.Equal($"[write {Resolved}] overwritten, 7 bytes, LF line endings", result.Content);
   }
 
   [Fact]
   public async Task EmptyContent_Allowed_ZeroBytes()
   {
-    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 0)))
+    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 0, LineEnding.Lf)))
             .ExecuteAsync(new RawToolInput("write",
                                      /*lang=json,strict*/
                                      """{"timeoutSeconds":120,"path":"empty.txt","content":"","overwrite":false}"""), ct: TestContext.Current.CancellationToken);
@@ -142,27 +142,29 @@ public class WriteToolTests
   // ---- lines parameter (TextArray, XOR content) ----
 
   [Fact]
-  public async Task Lines_JoinsWithLf_AndReachesBackend()
+  public async Task Lines_ReachesBackend_AsLines()
   {
-    CapturingFileWriteAccess fake = new(Result.Success<FileWriteOutcome>(new(true, 13)));
+    CapturingFileWriteAccess fake = new(Result.Success<FileWriteOutcome>(new(true, 13, LineEnding.Lf)));
     ToolResult result = await new WriteTool(new WorkspacePathResolver(Root), fake)
         .ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"path":"a.txt","lines":["first","second",""],"overwrite":false}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal("first\nsecond\n", fake.LastContent);
+    // 'lines' reaches the seam as lines (the backend joins with the resolved convention);
+    // the trailing empty element is a deliberate blank last line.
+    Assert.Equal(["first", "second", ""], fake.LastLines);
   }
 
   [Fact]
   public async Task Lines_EmptyArray_WritesEmptyFile()
   {
-    CapturingFileWriteAccess fake = new(Result.Success<FileWriteOutcome>(new(true, 0)));
+    CapturingFileWriteAccess fake = new(Result.Success<FileWriteOutcome>(new(true, 0, LineEnding.Lf)));
     ToolResult result = await new WriteTool(new WorkspacePathResolver(Root), fake)
         .ExecuteAsync(new RawToolInput("write",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"path":"a.txt","lines":[],"overwrite":false}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal("", fake.LastContent);
+    Assert.Empty(fake.LastLines!);
   }
 
   [Fact]
@@ -202,6 +204,9 @@ public class WriteToolTests
 
   private sealed class FakeFileWriteAccess(Result<FileWriteOutcome> outcome) : IFileWriteAccess
   {
+    public Task<Result<FileWriteOutcome>> WriteFileLinesAsync(
+        string path, IReadOnlyList<string> lines, bool overwrite, CancellationToken ct = default)
+        => throw new NotSupportedException();
     public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(
         string path, byte[] bytes, bool overwrite, CancellationToken ct = default)
         => throw new NotImplementedException();
@@ -221,8 +226,15 @@ public class WriteToolTests
     private readonly Result<FileWriteOutcome> _outcome = outcome;
 
     public string? LastContent { get; private set; }
+    public IReadOnlyList<string>? LastLines { get; private set; }
     public bool LastOverwrite { get; private set; }
 
+    public Task<Result<FileWriteOutcome>> WriteFileLinesAsync(
+        string path, IReadOnlyList<string> lines, bool overwrite, CancellationToken ct = default)
+    {
+      LastLines = lines;
+      return Task.FromResult(_outcome);
+    }
     public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(
         string path, byte[] bytes, bool overwrite, CancellationToken ct = default)
         => throw new NotImplementedException();

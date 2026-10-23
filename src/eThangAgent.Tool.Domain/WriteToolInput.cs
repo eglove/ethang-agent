@@ -3,7 +3,12 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.ToolDomain;
 
-public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
+/// <summary>A parsed write request: exactly one of <paramref name="Content"/> or
+///     <paramref name="Lines"/> is set. <c>Lines</c> is kept as lines rather than a
+///     pre-joined string so the write backend can join with the target file's own
+///     line-ending convention — a join here would have to guess the convention
+///     before the file is known.</summary>
+public sealed record WriteToolInput(string Path, string? Content, IReadOnlyList<string>? Lines, bool Overwrite)
 {
   private const string ContentName = "content";
   private const string LinesName = "lines";
@@ -46,7 +51,7 @@ public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
           "'path' must be a non-empty string."));
     }
 
-    Result<string> content = ParseContentSelector(json);
+    Result<(string? Content, IReadOnlyList<string>? Lines)> content = ParseContentSelector(json);
     if (!content.IsSuccess)
     {
       return Fail(content.Error);
@@ -57,7 +62,7 @@ public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
     // explicit opt-in, so nothing is ever silently replaced.
     if (!json.TryGetProperty(OverwriteName, out JsonElement owEl))
     {
-      return Result.Success<WriteToolInput>(new(path, content.Value, Overwrite: false));
+      return Result.Success<WriteToolInput>(new(path, content.Value.Content, content.Value.Lines, Overwrite: false));
     }
 
     if (owEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
@@ -67,34 +72,35 @@ public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
 
     bool overwrite = owEl.GetBoolean();
 
-    return Result.Success<WriteToolInput>(new(path, content.Value, overwrite));
+    return Result.Success<WriteToolInput>(new(path, content.Value.Content, content.Value.Lines, overwrite));
   }
 
-  /// <summary>Exactly one of 'content' (string) or 'lines' (string array, joined with LF).
-  /// An empty 'lines' array is the explicit empty file; an empty string inside 'lines' is a
-  /// blank line. 'lines' exists because a JSON array of lines removes the raw-string
-  /// escaping hazard end-to-end: each element is carried verbatim, no quoting inside quoting.</summary>
-  private static Result<string> ParseContentSelector(JsonElement json)
+  /// <summary>Exactly one of 'content' (string) or 'lines' (string array). An empty
+  ///     'lines' array is the explicit empty file; an empty string inside 'lines' is a
+  ///     blank line. 'lines' exists because a JSON array of lines removes the raw-string
+  ///     escaping hazard end-to-end: each element is carried verbatim, no quoting inside
+  ///     quoting.</summary>
+  private static Result<(string? Content, IReadOnlyList<string>? Lines)> ParseContentSelector(JsonElement json)
   {
     bool hasContent = json.TryGetProperty(ContentName, out JsonElement contentEl);
     bool hasLines = json.TryGetProperty(LinesName, out JsonElement linesEl);
     if (hasContent == hasLines)
     {
-      return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-          "Provide exactly one of 'content' (string) or 'lines' (array of strings, joined with LF)."));
+      return Result.Failure<(string?, IReadOnlyList<string>?)>(new DomainError(ToolErrorCodes.InvalidParameterValue,
+          "Provide exactly one of 'content' (string) or 'lines' (array of strings)."));
     }
 
     if (hasContent)
     {
       return contentEl.ValueKind != JsonValueKind.String
-        ? Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType,
+        ? Result.Failure<(string?, IReadOnlyList<string>?)>(new DomainError(ToolErrorCodes.InvalidParameterType,
             $"'{ContentName}' must be a string, but got {contentEl.ValueKind}."))
-        : Result.Success(contentEl.GetString()!);
+        : Result.Success<(string?, IReadOnlyList<string>?)>((contentEl.GetString()!, null));
     }
 
     if (linesEl.ValueKind != JsonValueKind.Array)
     {
-      return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType,
+      return Result.Failure<(string?, IReadOnlyList<string>?)>(new DomainError(ToolErrorCodes.InvalidParameterType,
           $"'{LinesName}' must be an array of strings, but got {linesEl.ValueKind}."));
     }
 
@@ -104,14 +110,14 @@ public sealed record WriteToolInput(string Path, string Content, bool Overwrite)
     {
       if (item.ValueKind != JsonValueKind.String)
       {
-        return Result.Failure<string>(new DomainError(ToolErrorCodes.InvalidParameterType,
+        return Result.Failure<(string?, IReadOnlyList<string>?)>(new DomainError(ToolErrorCodes.InvalidParameterType,
             $"'{LinesName}[{index}]' must be a string, but got {item.ValueKind}."));
       }
       lines.Add(item.GetString()!);
       index++;
     }
 
-    return Result.Success(string.Join("\n", lines));
+    return Result.Success<(string?, IReadOnlyList<string>?)>((null, lines));
   }
 
   private static Result<WriteToolInput> Missing(string n) =>

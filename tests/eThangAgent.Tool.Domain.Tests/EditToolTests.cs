@@ -157,22 +157,22 @@ public class EditToolTests
   [Fact]
   public async Task ReplaceAll_FormatsAnnotationLine_Plural()
   {
-    ToolResult result = await MakeTool(Result.Success<ReplaceOutcome>(new(3, 5)))
+    ToolResult result = await MakeTool(Result.Success<ReplaceOutcome>(new(3, 5, LineEnding.Lf)))
             .ExecuteAsync(new RawToolInput("edit",
                                  /*lang=json,strict*/
                                  """{"timeoutSeconds":120,"path":"a.txt","old":"x","replacement":"y","all":true}"""), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal($"[edit {Resolved}] replaced 3 occurrence(s), file now 5 lines", result.Content);
+    Assert.Equal($"[edit {Resolved}] replaced 3 occurrence(s), file now 5 lines, LF line endings", result.Content);
   }
 
   [Fact]
   public async Task SingleOccurrence_SingularWording()
   {
-    FakeFileEditAccess fake = new(Result.Success<ReplaceOutcome>(new(1, 2)));
+    FakeFileEditAccess fake = new(Result.Success<ReplaceOutcome>(new(1, 2, LineEnding.Lf)));
     ToolResult result = await new EditTool(new WorkspacePathResolver(Root), fake)
             .ExecuteAsync(new RawToolInput("edit", Args), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal($"[edit {Resolved}] replaced 1 occurrence, file now 2 lines", result.Content);
+    Assert.Equal($"[edit {Resolved}] replaced 1 occurrence, file now 2 lines, LF line endings", result.Content);
     Assert.Equal("y", fake.LastNewText);
   }
 

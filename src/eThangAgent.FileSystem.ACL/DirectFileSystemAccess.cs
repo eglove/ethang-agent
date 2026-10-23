@@ -9,8 +9,10 @@ using eThangAgent.ToolDomain;
 #pragma warning disable CA1031 // Do not catch general exception types
 namespace eThangAgent.FileSystem.ACL;
 
-public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess, IFileEditAccess, IDisposable
+public sealed class DirectFileSystemAccess(ILineEndingPolicy lineEndings) : IFileSystemAccess, IFileWriteAccess, IFileEditAccess, IDisposable
 {
+  private readonly ILineEndingPolicy _lineEndings =
+      lineEndings ?? throw new ArgumentNullException(nameof(lineEndings));
   public Task<Result<FileRead>> ReadLinesAsync(string path, int startLine, int endLine, CancellationToken ct = default)
   {
     if (!File.Exists(path))
@@ -74,9 +76,46 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     }
 
     bool created = !File.Exists(path);
-    File.WriteAllText(path, content, new UTF8Encoding(false));
+    LineEnding normalizedTo = ResolveConvention(path);
+    File.WriteAllText(path, LineEndings.Normalize(content, normalizedTo), new UTF8Encoding(false));
     return Task.FromResult(Result.Success(
-        new FileWriteOutcome(created, new FileInfo(path).Length)));
+        new FileWriteOutcome(created, new FileInfo(path).Length, normalizedTo)));
+  }
+
+  public Task<Result<FileWriteOutcome>> WriteFileLinesAsync(
+      string path, IReadOnlyList<string> lines, bool overwrite, CancellationToken ct = default)
+  {
+    ArgumentNullException.ThrowIfNull(lines);
+    return WriteFileAsync(path, JoinLines(path, lines), overwrite, ct);
+  }
+
+  /// <summary>Joins one-per-line content with the convention this file should land in,
+  ///     so 'lines' mode never hardcodes LF.</summary>
+  private string JoinLines(string path, IReadOnlyList<string> lines) =>
+      string.Join(LineEndings.Terminator(ResolveConvention(path)), lines);
+
+  /// <summary>The convention a write to this path lands in: the existing file's own
+  ///     dominant convention when it has one (a tool never rewrites a file's house
+  ///     style), else the project convention the policy reports.</summary>
+  private LineEnding ResolveConvention(string path) =>
+      File.Exists(path) && ReadTextOrNull(path) is { } existing
+          ? LineEndings.DetectDominant(existing) ?? _lineEndings.Resolve(path)
+          : _lineEndings.Resolve(path);
+
+  private static string? ReadTextOrNull(string path)
+  {
+    try
+    {
+      return File.ReadAllText(path, Encoding.UTF8);
+    }
+    catch (IOException)
+    {
+      return null; // unreadable existing file: fall back to the project convention
+    }
+    catch (UnauthorizedAccessException)
+    {
+      return null;
+    }
   }
 
   public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(
@@ -100,8 +139,11 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
 
     bool created = !File.Exists(path);
     File.WriteAllBytes(path, bytes);
+    // Binary content has no line endings to normalize; the reported convention is the
+    // file's own where one can be read, which for an artifact like an image is simply
+    // not meaningful but keeps the outcome shape uniform.
     return Task.FromResult(Result.Success(
-        new FileWriteOutcome(created, new FileInfo(path).Length)));
+        new FileWriteOutcome(created, new FileInfo(path).Length, LineEnding.Lf)));
   }
 
   public Task<Result<ReplaceOutcome>> ReplaceInFileAsync(
@@ -150,6 +192,13 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
           new DomainError("OccurrenceMismatch", $"Anchor occurs {count} time(s) but {occurrences} replacement(s) were requested.")));
     }
 
+    // The replacement is rewritten into the FILE's own convention before splicing, so
+    // an anchor edit can never introduce a foreign terminator (issue #251). The
+    // tolerant matching above is untouched: it runs on normalized views and the offset
+    // map still splices untouched bytes verbatim.
+    LineEnding convention = LineEndings.DetectDominant(text) ?? _lineEndings.Resolve(path);
+    string normalizedNew = LineEndings.Normalize(newText, convention);
+
     // Normalized and original offsets line up only when no CR was stripped; build
     // a normalized-offset -> original-offset map for the general case.
     int[] map = BuildOffsetMap(text, matchText);
@@ -163,7 +212,7 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
       int originalStart = map[normalizedIdx];
       int originalEnd = map[normalizedIdx + matchAnchor.Length];
       _ = sb.Append(text.AsSpan(originalPos, originalStart - originalPos));
-      _ = sb.Append(newText);
+      _ = sb.Append(normalizedNew);
       originalPos = originalEnd;
       matchPos = normalizedIdx + matchAnchor.Length;
       done++;
@@ -173,7 +222,7 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     string result = sb.ToString();
     File.WriteAllText(path, result, new UTF8Encoding(false));
     int lineCount = SplitLinesLikeReadLine(result).Count;
-    return Task.FromResult(Result.Success(new ReplaceOutcome(done, lineCount)));
+    return Task.FromResult(Result.Success(new ReplaceOutcome(done, lineCount, convention)));
   }
 
   public Task<Result<ReplaceOutcome>> ReplaceLineRangeAsync(
@@ -206,10 +255,25 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
           new DomainError("LineRangeBeyondEof", $"'endLine' {endLine} exceeds file length ({lines.Count} lines).")));
     }
 
-    // Splice: untouched lines keep their exact content AND terminator bytes. The
-    // replacement carries the removed range's trailing terminator when one is
-    // owed to the following line (or to the file's trailing-newline convention),
-    // so a content-only edit never changes the file's line-ending style.
+    // The replacement is rewritten into the FILE's own convention first, so range mode
+    // cannot introduce a foreign terminator either (issue #251).
+    LineEnding convention = LineEndings.DetectDominant(text) ?? _lineEndings.Resolve(path);
+    string normalizedNew = LineEndings.Normalize(newText, convention);
+
+    string result = SpliceRange(lines, startLine, endLine, normalizedNew);
+    File.WriteAllText(path, result, new UTF8Encoding(false));
+    return Task.FromResult(Result.Success(
+        new ReplaceOutcome(endLine - startLine + 1, SplitLinesLikeReadLine(result).Count, convention)));
+  }
+
+  /// <summary>Replaces lines startLine..endLine with already-normalized text. Untouched
+  ///     lines keep their exact content AND terminator bytes; the replacement carries the
+  ///     removed range's trailing terminator when one is owed to the following line (or to
+  ///     the file's trailing-newline convention), so a content-only edit never changes the
+  ///     file's line-ending style.</summary>
+  private static string SpliceRange(List<(string Content, string Terminator)> lines,
+      int startLine, int endLine, string normalizedNew)
+  {
     StringBuilder sb = new();
     foreach ((string content, string terminator) in lines.Take(startLine - 1))
     {
@@ -217,20 +281,17 @@ public sealed class DirectFileSystemAccess : IFileSystemAccess, IFileWriteAccess
     }
 
     string lastTerminator = lines[endLine - 1].Terminator;
-    bool owesTerminator = newText.Length > 0
-        && !newText.EndsWith('\n')
+    bool owesTerminator = normalizedNew.Length > 0
+        && !normalizedNew.EndsWith('\n')
         && (endLine < lines.Count || lastTerminator.Length > 0);
-    _ = owesTerminator ? sb.Append(newText).Append(lastTerminator) : sb.Append(newText);
+    _ = owesTerminator ? sb.Append(normalizedNew).Append(lastTerminator) : sb.Append(normalizedNew);
 
     foreach ((string content, string terminator) in lines.Skip(endLine))
     {
       _ = sb.Append(content).Append(terminator);
     }
 
-    string result = sb.ToString();
-    File.WriteAllText(path, result, new UTF8Encoding(false));
-    return Task.FromResult(Result.Success(
-        new ReplaceOutcome(endLine - startLine + 1, SplitLinesLikeReadLine(result).Count)));
+    return sb.ToString();
   }
 
   /// <summary>Splits text into (content, terminator) pairs exactly as

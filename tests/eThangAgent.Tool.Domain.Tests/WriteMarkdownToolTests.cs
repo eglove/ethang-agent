@@ -50,10 +50,10 @@ public class WriteMarkdownToolTests
   [Fact]
   public async Task PathWithoutOverwrite_DefaultsToRefuse()
   {
-    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 42))).ExecuteAsync(new RawToolInput("write_markdown",
+    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 42, LineEnding.Lf))).ExecuteAsync(new RawToolInput("write_markdown",
             """{"timeoutSeconds":120,"path":"a.md","document":""" + DocJson + "}"), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal($"[write_markdown {Resolved}] created, 42 bytes", result.Content);
+    Assert.Equal($"[write_markdown {Resolved}] created, 42 bytes, LF line endings", result.Content);
   }
 
   [Fact]
@@ -101,21 +101,21 @@ public class WriteMarkdownToolTests
   [Fact]
   public async Task WithPath_WritesAndFormatsAnnotationLine_Created()
   {
-    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 42)))
+    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(true, 42, LineEnding.Lf)))
             .ExecuteAsync(new RawToolInput("write_markdown",
                 """{"timeoutSeconds":120,"path":"a.md","overwrite":false,"document":""" + DocJson + "}"), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal($"[write_markdown {Resolved}] created, 42 bytes", result.Content);
+    Assert.Equal($"[write_markdown {Resolved}] created, 42 bytes, LF line endings", result.Content);
   }
 
   [Fact]
   public async Task WithPath_Overwritten_FormatsAnnotationLine()
   {
-    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(false, 7)))
+    ToolResult result = await MakeTool(Result.Success<FileWriteOutcome>(new(false, 7, LineEnding.Lf)))
             .ExecuteAsync(new RawToolInput("write_markdown",
                 """{"timeoutSeconds":120,"path":"a.md","overwrite":true,"document":""" + DocJson + "}"), ct: TestContext.Current.CancellationToken);
     Assert.False(result.IsError);
-    Assert.Equal($"[write_markdown {Resolved}] overwritten, 7 bytes", result.Content);
+    Assert.Equal($"[write_markdown {Resolved}] overwritten, 7 bytes, LF line endings", result.Content);
   }
 
   [Fact]
@@ -152,6 +152,9 @@ public class WriteMarkdownToolTests
 
   private sealed class FakeFileWriteAccess(Result<FileWriteOutcome>? outcome) : IFileWriteAccess
   {
+    public Task<Result<FileWriteOutcome>> WriteFileLinesAsync(
+        string path, IReadOnlyList<string> lines, bool overwrite, CancellationToken ct = default)
+        => throw new NotSupportedException();
     public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(
         string path, byte[] bytes, bool overwrite, CancellationToken ct = default)
         => throw new NotImplementedException();

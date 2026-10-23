@@ -22,7 +22,9 @@ public sealed class WriteMarkdownTool(IPathResolver resolver, IFileWriteAccess f
       "Without 'path', the rendered markdown is returned verbatim as the result (usable for db/state entries). With optional 'path', the " +
       "markdown is written to that workspace file through the same gate as write: an existing file " +
       "is refused unless overwrite is exactly true (omitting overwrite keeps the call create-only); parent directories are never created. Output in write mode is a " +
-      "single annotation line `[write_markdown <path>] created|overwritten, N bytes`. Errors begin with `Error [Code]:`.",
+      "single annotation line `[write_markdown <path>] created|overwritten, N bytes, LF|CRLF line endings` — the " +
+      "rendered markdown's line endings are normalized to the target file's own convention (the project's for a new " +
+      "file), so no EOL handling is needed around this tool. Errors begin with `Error [Code]:`.",
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
             new ToolParameter("document", ToolParameterType.Text,
@@ -75,7 +77,8 @@ public sealed class WriteMarkdownTool(IPathResolver resolver, IFileWriteAccess f
 
     FileWriteOutcome o = written.Value;
     return new ToolResult(
-        $"[write_markdown {resolvedPath}] {(o.Created ? "created" : "overwritten")}, {o.BytesWritten} bytes",
+        $"[write_markdown {resolvedPath}] {(o.Created ? "created" : "overwritten")}, {o.BytesWritten} bytes, " +
+        $"{LineEndings.Label(o.NormalizedTo)} line endings",
         false);
   }
 
