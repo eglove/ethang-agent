@@ -13,45 +13,37 @@ namespace eThangAgent.Composition;
 ///     (":"-separated) durations; absent keeps the default, empty, non-parseable,
 ///     non-positive, or bare-integer (a silent days value) text is a startup error.
 ///     "SubAgent:Watchdog:MaxWrapUpAttempts" — optional non-negative integer; same rule.
-///     "SubAgent:RootTurn:Idle" / ":Ceiling" — optional constant-format durations for the
-///     app-side root-turn budget; absent keys keep the default, invalid or non-positive text
-///     is a startup error (never clamped). Both keys bind together: supplying one without
-///     the other is an error, because a half-configured budget would silently mix a
-///     configured bound with a defaulted one.
+///     "SubAgent:RootTurn:Idle" — an optional constant-format duration for the app-side
+///     root-turn budget; an absent key keeps the default, and invalid or non-positive text
+///     is a startup error (never clamped). There is deliberately no ceiling key (issue #248):
+///     the total-duration bound is gone, so a stored "SubAgent:RootTurn:Ceiling" is simply
+///     not bound.
 ///     Nothing is silently coerced or clamped. There is deliberately no child-timeout
 ///     key (FR-L4/A4): wall-clock is never a child cancellation source.</summary>
 public static class SubAgentConfiguration
 {
   public static SubAgentOptions Bind(string? defaultModel, string? maxConcurrentAgents,
-      string? rootTurnIdle = null, string? rootTurnCeiling = null)
+      string? rootTurnIdle = null)
   {
     ValidateDefaultModel(defaultModel);
     int maxConcurrent = ParseMaxConcurrentAgents(maxConcurrentAgents);
-    RootTurnBudget? rootTurn = BindRootTurnBudget(rootTurnIdle, rootTurnCeiling);
+    RootTurnBudget? rootTurn = BindRootTurnBudget(rootTurnIdle);
     return new SubAgentOptions(defaultModel, MaxConcurrentAgents: maxConcurrent,
         RootTurnBudget: rootTurn);
   }
 
-  /// <summary>"SubAgent:RootTurn:Idle" / ":Ceiling" — the app-side root-turn budget. Absent
-  ///     (both) keeps the runtime default; supplying only one is an error (a half-configured
-  ///     budget would silently mix a configured bound with a defaulted one); invalid or
-  ///     non-positive text is a startup error, never clamped.</summary>
-  private static RootTurnBudget? BindRootTurnBudget(string? idleValue, string? ceilingValue)
+  /// <summary>"SubAgent:RootTurn:Idle" — the app-side root-turn budget's ONE knob. Absent
+  ///     keeps the runtime default; invalid or non-positive text is a startup error, never
+  ///     clamped. The idle window is the only bound that needs configuring (issue #248): the
+  ///     send bound defaults sensibly and there is no total-duration ceiling any more.</summary>
+  private static RootTurnBudget? BindRootTurnBudget(string? idleValue)
   {
-    if (idleValue is null && ceilingValue is null)
+    if (idleValue is null)
     {
       return null;
     }
 
-    if (idleValue is null || ceilingValue is null)
-    {
-      string missing = idleValue is null ? "SubAgent:RootTurn:Idle" : "SubAgent:RootTurn:Ceiling";
-      throw new InvalidOperationException(
-          $"{missing} is required when the other root-turn bound is configured. Set both or neither.");
-    }
-
     TimeSpan idle = ParseRootTurnDuration(idleValue, "SubAgent:RootTurn:Idle");
-    TimeSpan ceiling = ParseRootTurnDuration(ceilingValue, "SubAgent:RootTurn:Ceiling");
     if (idle < MinimumRootTurnIdle)
     {
       // The host HEARTBEATS inside this window (a progress event whenever the turn is
@@ -64,10 +56,7 @@ public static class SubAgentConfiguration
           + "(the conversation host heartbeats inside this window, and a shorter one would fail healthy turns).");
     }
 
-    return ceiling < idle
-        ? throw new InvalidOperationException(
-            $"SubAgent:RootTurn:Ceiling ({ceilingValue}) must not be shorter than SubAgent:RootTurn:Idle ({idleValue}).")
-        : new RootTurnBudget(idle, ceiling);
+    return new RootTurnBudget(idle, RootTurnBudget.Default.Send);
   }
 
   /// <summary>The shortest root-turn idle window the harness accepts: four times the

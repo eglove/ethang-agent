@@ -14,8 +14,9 @@ namespace eThangAgent.Transport.ACL.Tests;
 ///     settles; <see cref="SilentInput"/> takes the turn and never speaks;
 ///     <see cref="SlowInput"/> streams a delta every <see cref="SlowDeltaInterval"/> for
 ///     <see cref="SlowDeltaCount"/> deltas then settles (a HEALTHY but long turn — the
-///     progress-blind-budget probe); <see cref="ChattyInput"/> streams deltas forever so a
-///     total-duration ceiling has something to cut; <see cref="HeartbeatInput"/> is QUIET
+///     progress-blind-budget probe); <see cref="ChattyInput"/> streams deltas forever and
+///     never settles — a turn no wall-clock bound may end (issue #248);
+///     <see cref="HeartbeatInput"/> is QUIET
 ///     but alive — it emits a liveness heartbeat and settles (2026-10-22: the idle bound
 ///     must measure liveness, not busyness).</para></summary>
 internal sealed class FakeConversationHost : IAsyncDisposable
@@ -33,7 +34,8 @@ internal sealed class FakeConversationHost : IAsyncDisposable
   ///     no IDLE bound may fire — only a total-duration ceiling could.</summary>
   public const string SlowInput = "slow";
 
-  /// <summary>Streams deltas forever and never settles: the hard ceiling's subject.</summary>
+  /// <summary>Streams deltas forever and never settles: only the CALLER can stop it, which
+  ///     is exactly the turn no wall-clock ceiling may end (issue #248).</summary>
   public const string ChattyInput = "chatty";
 
   /// <summary>How often <see cref="SlowInput"/> emits a delta.</summary>

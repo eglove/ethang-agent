@@ -103,52 +103,62 @@ public class RootTurnProtocolTests
   [Fact]
   public void RootTurnBudget_RejectsNonPositiveSendBound()
   {
-    // The send bound is a THIRD bound (finding 5): a zero send bound would cancel every
-    // frame before its header could be written, so it is validated exactly like the others —
-    // on construction and through the init accessor a 'with' expression assigns.
+    // The send bound is the second of TWO bounds left after issue #248 removed the
+    // total-duration ceiling: a zero send bound would cancel every frame before its header
+    // could be written, so it is validated exactly like the idle bound — on construction
+    // and through the init accessor a 'with' expression assigns.
     _ = Assert.Throws<ArgumentOutOfRangeException>(
-        () => new RootTurnBudget(TimeSpan.FromMinutes(1), TimeSpan.FromHours(1), TimeSpan.Zero));
+        () => new RootTurnBudget(TimeSpan.FromMinutes(1), TimeSpan.Zero));
     _ = Assert.Throws<ArgumentOutOfRangeException>(
-        () => new RootTurnBudget(TimeSpan.FromMinutes(1), TimeSpan.FromHours(1), TimeSpan.FromSeconds(-1)));
+        () => new RootTurnBudget(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(-1)));
 
-    RootTurnBudget valid = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(1));
+    RootTurnBudget valid = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(1));
     _ = Assert.Throws<ArgumentOutOfRangeException>(
         () => valid with { Send = TimeSpan.Zero });
   }
 
   [Fact]
-  public void RootTurnBudget_SendBound_IsSeparateFromIdle_AndDefaultsToTheCeiling()
+  public void RootTurnBudget_SendBound_IsSeparateFromIdle()
   {
     // Finding 5: the send bound must NOT share the idle value. A lapsed write is cancelled,
     // and a cancellation that interrupts a frame costs the whole connection — so judging a
     // large frame by the SILENCE window would drop a slow-but-healthy host's connection.
-    // The two-argument constructor keeps the send bound at the ceiling (a frame may take as
-    // long as the whole turn could), never at the idle window.
-    RootTurnBudget twoArg = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5));
+    RootTurnBudget budget = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5));
 
-    Assert.Equal(TimeSpan.FromSeconds(30), twoArg.Idle);
-    Assert.Equal(TimeSpan.FromMinutes(5), twoArg.Send);
-    Assert.NotEqual(twoArg.Idle, twoArg.Send);
-    // The production default must not leave the send bound at the one-hour ceiling either:
-    // that is effectively unbounded for a frame capped at 4MB.
-    Assert.True(RootTurnBudget.Default.Send < RootTurnBudget.Default.Ceiling,
-        "the default send bound must be tighter than the ceiling");
+    Assert.Equal(TimeSpan.FromSeconds(30), budget.Idle);
+    Assert.Equal(TimeSpan.FromMinutes(5), budget.Send);
+    Assert.NotEqual(budget.Idle, budget.Send);
+    // The production default must leave the send bound generous for a 4MB frame and tighter
+    // than the retired one-hour ceiling that made it effectively unbounded.
     Assert.True(RootTurnBudget.Default.Send > RootTurnBudget.Default.Idle,
         "the default send bound must be more generous than the idle window");
+    Assert.True(RootTurnBudget.Default.Send < TimeSpan.FromHours(1),
+        "the default send bound must be minutes, not effectively unbounded");
+  }
+
+  [Fact]
+  public void RootTurnBudget_HasNoTotalDurationBound()
+  {
+    // Issue #248: the wall-clock ceiling and its TurnCeilingExceeded failure are GONE. The
+    // budget exposes exactly the two bounds that remain, so code that tried to read a
+    // ceiling — or an error path that tried to raise one — cannot compile.
+    string[] members = [.. typeof(RootTurnBudget).GetProperties().Select(p => p.Name).Order()];
+
+    Assert.Equal(["Idle", "Send"], members);
   }
 
   [Fact]
   public void RootTurnBudget_RejectsNonPositiveBounds()
   {
     // Strict boundary (finding 3): a zero idle makes EVERY turn instantly unaddressable and
-    // a negative ceiling is meaningless. Now that the value is nominally production
-    // configuration it must be validated, not silently accepted.
+    // a non-positive send bound would cancel every frame. Now that the value is nominally
+    // production configuration it must be validated, not silently accepted.
     _ = Assert.Throws<ArgumentOutOfRangeException>(
-        () => new RootTurnBudget(TimeSpan.Zero, TimeSpan.FromHours(1)));
+        () => new RootTurnBudget(TimeSpan.Zero, TimeSpan.FromMinutes(5)));
     _ = Assert.Throws<ArgumentOutOfRangeException>(
         () => new RootTurnBudget(TimeSpan.FromMinutes(1), TimeSpan.Zero));
     _ = Assert.Throws<ArgumentOutOfRangeException>(
-        () => new RootTurnBudget(TimeSpan.FromSeconds(-1), TimeSpan.FromHours(1)));
+        () => new RootTurnBudget(TimeSpan.FromSeconds(-1), TimeSpan.FromMinutes(5)));
     _ = Assert.Throws<ArgumentOutOfRangeException>(
         () => new RootTurnBudget(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(-1)));
   }
@@ -163,8 +173,6 @@ public class RootTurnProtocolTests
     _ = Assert.Throws<ArgumentOutOfRangeException>(
         () => valid with { Idle = TimeSpan.Zero });
     _ = Assert.Throws<ArgumentOutOfRangeException>(
-        () => valid with { Ceiling = TimeSpan.Zero });
-    _ = Assert.Throws<ArgumentOutOfRangeException>(
         () => valid with { Idle = TimeSpan.FromSeconds(-1) });
   }
 
@@ -174,7 +182,7 @@ public class RootTurnProtocolTests
     RootTurnBudget budget = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5));
 
     Assert.Equal(TimeSpan.FromSeconds(30), budget.Idle);
-    Assert.Equal(TimeSpan.FromMinutes(5), budget.Ceiling);
+    Assert.Equal(TimeSpan.FromMinutes(5), budget.Send);
   }
 
   [Fact]

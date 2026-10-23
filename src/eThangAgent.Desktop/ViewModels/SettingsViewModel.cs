@@ -43,7 +43,6 @@ internal sealed record SettingsValues
   public string? DefaultModelText { get; init; }
   public string? WatchdogTickText { get; init; }
   public string? RootTurnIdleText { get; init; }
-  public string? RootTurnCeilingText { get; init; }
   public string? WatchdogIdleText { get; init; }
   public string? WatchdogWrapUpText { get; init; }
   public string? OpenRouterBaseUrlText { get; init; }
@@ -64,7 +63,7 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle Comm
     bool ComputerUse = false,
     string? SkillRegistryDefaultTarget = null,
     string? OpenRouterManagementKey = null,
-    string? RootTurnIdleText = null, string? RootTurnCeilingText = null,
+    string? RootTurnIdleText = null,
     bool CompactionHandoff = false);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
@@ -180,12 +179,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial string RootTurnIdleText { get; set; }
 
-  /// <summary>The root-turn CEILING as raw text — same rule as the idle bound.</summary>
-  [ObservableProperty]
-  [NotifyPropertyChangedFor(nameof(ValidationError))]
-  [NotifyPropertyChangedFor(nameof(CanSave))]
-  public partial string RootTurnCeilingText { get; set; }
-
   /// <summary>The maximum watchdog wrap-up attempts as raw text — blank means the  ///     watchdog default; a non-blank value must be a non-negative integer.</summary>
   [ObservableProperty]
   [NotifyPropertyChangedFor(nameof(ValidationError))]
@@ -233,7 +226,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
       ?? ValidateDuration(WatchdogIdleText, "Idle threshold")
       ?? ValidateWrapUp(WatchdogWrapUpText)
       ?? ValidateDuration(RootTurnIdleText, "Root turn idle bound")
-      ?? ValidateDuration(RootTurnCeilingText, "Root turn ceiling")
       ?? ValidateLabeledBaseUrl(OpenRouterBaseUrlText, "OpenRouter base URL");
 
   public SettingsViewModel(SettingsValues values)
@@ -257,7 +249,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 SkillRegistryDefaultTarget: SkillRegistryTarget,
                 OpenRouterManagementKey: Normalize(OpenRouterManagementKey),
                 RootTurnIdleText: Normalize(RootTurnIdleText),
-                RootTurnCeilingText: Normalize(RootTurnCeilingText),
                 CompactionHandoff: CompactionHandoff));
           }
         },
@@ -295,7 +286,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
     CompactionHandoff = values.CompactionHandoff;
     WatchdogTickText = values.WatchdogTickText ?? string.Empty;
     RootTurnIdleText = values.RootTurnIdleText ?? string.Empty;
-    RootTurnCeilingText = values.RootTurnCeilingText ?? string.Empty;
     WatchdogIdleText = values.WatchdogIdleText ?? string.Empty;
     WatchdogWrapUpText = values.WatchdogWrapUpText ?? string.Empty;
   }
@@ -320,8 +310,6 @@ internal sealed partial class SettingsViewModel : ObservableObject
   partial void OnWatchdogTickTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnRootTurnIdleTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
-
-  partial void OnRootTurnCeilingTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 
   partial void OnWatchdogIdleTextChanged(string value) => SaveCommand.NotifyCanExecuteChanged();
 

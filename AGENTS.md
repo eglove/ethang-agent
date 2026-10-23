@@ -85,9 +85,14 @@ frame stream permanently desynchronized — `TransportFraming.WriteAsync` report
 `TransportFrameInterruptedException`, and the runtime answers it with `MarkConnectionLost`,
 tearing the connection down and completing every pending root-turn waiter and child settle
 with a declared failure instead of leaving a silently dead connection that still reports
-itself alive. Configuration: preference keys
-`subagent_root_turn_idle` / `subagent_root_turn_ceiling` (constant-format durations, both or
-neither) → `SubAgentConfiguration.Bind` → `SubAgentOptions.RootTurnBudget`. The host RUNS the
+itself alive. Configuration: the single preference key `subagent_root_turn_idle` (a
+constant-format duration) → `SubAgentConfiguration.Bind` → `SubAgentOptions.RootTurnBudget`.
+There is deliberately NO total-duration ceiling (issue #248): a wall-clock cap on a whole turn
+killed legitimate long work — big investigations, long test runs, waiting on subagents — with
+nothing to resume, so the idle window (liveness, reset by every event and by the host's
+heartbeat) and the send bound (one frame on the wire) are the only two bounds, and a turn runs
+until the host settles it or the caller stops it. `TurnCeilingExceeded` no longer exists. The
+host RUNS the
 turn (`RootRunHost`: the container's own `SendMessageCommandHandler`, so the conversation the
 model reads is the host's), and it answers a turn it cannot run with a typed settle that
 NAMES THE REAL CAUSE — "not bound to a root session (the host settings named no root

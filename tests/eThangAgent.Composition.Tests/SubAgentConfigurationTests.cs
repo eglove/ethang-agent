@@ -30,11 +30,13 @@ public class SubAgentConfigurationTests
     // preference text -> loader key -> binder -> SubAgentOptions.
     SubAgentOptions options = SubAgentConfiguration.Bind(
         defaultModel: null, maxConcurrentAgents: "2",
-        rootTurnIdle: "00:00:45", rootTurnCeiling: "02:00:00");
+        rootTurnIdle: "00:00:45");
 
     Assert.NotNull(options.RootTurnBudget);
     Assert.Equal(TimeSpan.FromSeconds(45), options.RootTurnBudget.Idle);
-    Assert.Equal(TimeSpan.FromHours(2), options.RootTurnBudget.Ceiling);
+    // Issue #248: there is no ceiling to configure, so the configured idle is the only bound
+    // that travels — the send bound stays at its production default.
+    Assert.Equal(RootTurnBudget.Default.Send, options.RootTurnBudget.Send);
   }
 
   [Fact]
@@ -47,19 +49,20 @@ public class SubAgentConfigurationTests
   }
 
   [Theory]
-  [InlineData("00:00:00", "01:00:00", "SubAgent:RootTurn:Idle")]
-  [InlineData("00:01:00", "00:00:00", "SubAgent:RootTurn:Ceiling")]
-  [InlineData("-00:01:00", "01:00:00", "SubAgent:RootTurn:Idle")]
-  [InlineData("60", "01:00:00", "SubAgent:RootTurn:Idle")]
-  [InlineData("00:00:03", "01:00:00", "SubAgent:RootTurn:Idle")]
-  public void Bind_InvalidRootTurnBudget_IsStartupError(
-      string idle, string ceiling, string expectedKey)
+  [InlineData("00:00:00")]
+  [InlineData("-00:01:00")]
+  [InlineData("60")]
+  [InlineData("00:00:03")]
+  [InlineData("")]
+  public void Bind_InvalidRootTurnBudget_IsStartupError(string idle)
   {
+    // The idle window is the ONLY root-turn knob left (issue #248). Every invalid shape —
+    // non-positive, a bare integer that would bind as days, and a window too short for the
+    // host's heartbeat — is a startup error naming the key, never a silent clamp.
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, "2",
-            rootTurnIdle: idle, rootTurnCeiling: ceiling));
+        () => SubAgentConfiguration.Bind(null, "2", rootTurnIdle: idle));
 
-    Assert.Contains(expectedKey, error.Message, StringComparison.Ordinal);
+    Assert.Contains("SubAgent:RootTurn:Idle", error.Message, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -70,11 +73,22 @@ public class SubAgentConfigurationTests
     // HEALTHY host would be read as silent. A configuration that guarantees a false
     // failure is refused at startup, never clamped into something else.
     InvalidOperationException error = Assert.Throws<InvalidOperationException>(
-        () => SubAgentConfiguration.Bind(null, "2",
-            rootTurnIdle: "00:00:02", rootTurnCeiling: "01:00:00"));
+        () => SubAgentConfiguration.Bind(null, "2", rootTurnIdle: "00:00:02"));
 
     Assert.Contains("SubAgent:RootTurn:Idle", error.Message, StringComparison.Ordinal);
     Assert.Contains("heartbeat", error.Message, StringComparison.OrdinalIgnoreCase);
+  }
+
+  [Fact]
+  public void Bind_RootTurnCeilingKey_IsNoLongerBound()
+  {
+    // Issue #248 removed the ceiling entirely. A stored ceiling preference is now simply
+    // not read: the loader has no key for it, so an old stored value can neither resurrect
+    // the bound nor fail startup.
+    Assert.DoesNotContain("root_turn_ceiling",
+        string.Join("\n", typeof(AgentPreferenceKeys).GetFields()
+            .Select(f => f.GetRawConstantValue()?.ToString() ?? string.Empty)),
+        StringComparison.Ordinal);
   }
 
   [Fact]

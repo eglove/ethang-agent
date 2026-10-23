@@ -550,11 +550,15 @@ public class ChildHostRootTurnTests
   }
 
   [Fact]
-  public async Task RootTurn_ChattyHost_FailsTheHardCeiling()
+  public async Task RootTurn_LongRunningHost_IsNotCutByAWallClockCeiling()
   {
-    // The ceiling's job: a host that keeps streaming forever never trips the IDLE bound,
-    // so only a total-duration ceiling can end it. Distinct error code from the idle bound
-    // so a caller can tell "stopped talking" from "would not stop".
+    // Issue #248: the root-turn total-duration ceiling is GONE. Long turns are legitimate
+    // (big investigations, long test runs, waiting on subagents), and a wall-clock ceiling
+    // only killed work in progress with no way to resume. A host that keeps streaming
+    // therefore runs until the CALLER stops it, and that stop is the typed TurnCancelled.
+    //
+    // The old subject is now the inverse: this turn outlives what USED to be a 2s ceiling
+    // three times over, so under the removed enforcement it would already be dead here.
     // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
 #pragma warning disable CA2007
     await using FakeConversationHost host = FakeConversationHost.Start();
@@ -565,15 +569,29 @@ public class ChildHostRootTurnTests
     using CancellationTokenSource loop = new();
     _ = runtime.RunReceiveLoopAsync(loop.Token);
     List<RootTurnEvent> events = [];
+    using CancellationTokenSource turn = new();
 
-    Result<string> result = await runtime.SendRootTurnAsync(
-        new RootTurnRequest("turn-chatty", FakeConversationHost.ChattyInput, []), events.Add,
-        TestContext.Current.CancellationToken).WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
+    Task<Result<string>> pending = runtime.SendRootTurnAsync(
+        new RootTurnRequest("turn-chatty", FakeConversationHost.ChattyInput, []), events.Add, turn.Token);
+    await Task.Delay(TimeSpan.FromSeconds(6), TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+    // Still running after 6s: nothing wall-clock ended the turn.
+    if (pending.IsCompleted)
+    {
+      Result<string> early = await pending.ConfigureAwait(true);
+      Assert.Fail("the turn ended on its own — a wall-clock bound cut it instead of the caller "
+          + "stopping it: " + (early.IsSuccess ? "success '" + early.Value + "'" : early.Error.Code));
+    }
+
+    await turn.CancelAsync().ConfigureAwait(true);
+    Result<string> result = await pending.WaitAsync(Limit, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Assert.False(result.IsSuccess);
-    Assert.Equal("TurnCeilingExceeded", result.Error.Code);
-    // It really was streaming: the ceiling cut a live turn, it did not merely time out.
+    Assert.Equal("TurnCancelled", result.Error.Code);
+    // It really was streaming the whole time: the caller stopped a LIVE turn.
     Assert.Contains(events, e => e.Kind == "delta");
+    // And nothing settled it — no ceiling ended it behind the caller's back.
+    Assert.DoesNotContain(events, e => e.Kind == "settled");
   }
 
   [Fact]
@@ -958,8 +976,7 @@ public class ChildHostRootTurnTests
     try
     {
       RemoteAgentRuntime runtime = new(app, new RootTurnBudget(
-          TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(10),
-          TimeSpan.FromMilliseconds(400)));
+          TimeSpan.FromMilliseconds(400), TimeSpan.FromMilliseconds(400)));
       using CancellationTokenSource loop = new();
       _ = runtime.RunReceiveLoopAsync(loop.Token);
 

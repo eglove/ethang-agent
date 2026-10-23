@@ -302,7 +302,7 @@ public class ShellViewModelTests
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
-         AgentPreferenceKeys.RootTurnIdle, AgentPreferenceKeys.RootTurnCeiling,
+         AgentPreferenceKeys.RootTurnIdle,
          AgentPreferenceKeys.OpenRouterBaseUrl, SessionHandoffPreferences.Key],
         preferences.Deletions);
 
@@ -327,7 +327,7 @@ public class ShellViewModelTests
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
-         AgentPreferenceKeys.RootTurnIdle, AgentPreferenceKeys.RootTurnCeiling,
+         AgentPreferenceKeys.RootTurnIdle,
          AgentPreferenceKeys.OpenRouterBaseUrl, SessionHandoffPreferences.Key],
         preferences.Deletions);
     Assert.Equal(
@@ -364,7 +364,7 @@ public class ShellViewModelTests
          AgentPreferenceKeys.MaxConcurrentAgents, AgentPreferenceKeys.DefaultModel,
          AgentPreferenceKeys.WatchdogTickInterval, AgentPreferenceKeys.WatchdogIdleThreshold,
          AgentPreferenceKeys.WatchdogMaxWrapUpAttempts,
-         AgentPreferenceKeys.RootTurnIdle, AgentPreferenceKeys.RootTurnCeiling,
+         AgentPreferenceKeys.RootTurnIdle,
          AgentPreferenceKeys.OpenRouterBaseUrl, SessionHandoffPreferences.Key],
         preferences.Deletions);
     Assert.Equal("sk-or-v1-abc", vm.ConfiguredOpenRouterKey);

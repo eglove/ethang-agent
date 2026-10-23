@@ -19,7 +19,6 @@ public static class AgentPreferenceKeys
   public const string WatchdogIdleThreshold = "subagent_watchdog_idle_threshold";
   public const string WatchdogMaxWrapUpAttempts = "subagent_watchdog_max_wrap_up_attempts";
   public const string RootTurnIdle = "subagent_root_turn_idle";
-  public const string RootTurnCeiling = "subagent_root_turn_ceiling";
   public const string OpenRouterBaseUrl = "openrouter_base_url";
 }
 
@@ -55,7 +54,6 @@ public static class AgentSettingsLoader
     string? idle = await preferences.GetAsync(AgentPreferenceKeys.WatchdogIdleThreshold).ConfigureAwait(false);
     string? wrapUp = await preferences.GetAsync(AgentPreferenceKeys.WatchdogMaxWrapUpAttempts).ConfigureAwait(false);
     string? rootTurnIdle = await preferences.GetAsync(AgentPreferenceKeys.RootTurnIdle).ConfigureAwait(false);
-    string? rootTurnCeiling = await preferences.GetAsync(AgentPreferenceKeys.RootTurnCeiling).ConfigureAwait(false);
 
     bool computerUse;
     SubAgentOptions subAgents;
@@ -64,7 +62,7 @@ public static class AgentSettingsLoader
     WatchdogSettings? watchdog;
     try
     {
-      subAgents = SubAgentConfiguration.Bind(defaultModel, maxConcurrent, rootTurnIdle, rootTurnCeiling);
+      subAgents = SubAgentConfiguration.Bind(defaultModel, maxConcurrent, rootTurnIdle);
       watchdog = SubAgentConfiguration.BindWatchdog(tick, idle, wrapUp);
       computerUse = ParseComputerUseEnabled(computerUseStored);
       verificationGate = ParseVerificationGateEnabled(verificationGateStored);
