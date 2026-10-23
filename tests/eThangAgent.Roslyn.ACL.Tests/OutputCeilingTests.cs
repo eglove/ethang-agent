@@ -190,7 +190,7 @@ public sealed class OutputCeilingTests
       long truncateBytes, long killBytes)
   {
     ArgumentOutOfRangeException ex = Assert.Throws<ArgumentOutOfRangeException>(
-        () => new ScriptCeilings(1024L, 256, truncateBytes, killBytes));
+        () => new ScriptCeilings(256, truncateBytes, killBytes));
     Assert.Equal("outputKillBytes", ex.ParamName);
   }
 
@@ -211,7 +211,7 @@ public sealed class OutputCeilingTests
 
   private static ScriptGlobals GlobalsWith(long truncateBytes, long killBytes, CancellationToken ct) =>
       new(NoopRegistry(), Path.GetTempPath(), Path.GetTempPath(),
-          ceilings: new ScriptCeilings(4L * 1024 * 1024 * 1024, 256, truncateBytes, killBytes),
+          ceilings: new ScriptCeilings(256, truncateBytes, killBytes),
           shellToken: ct);
 
   // Shell never resolves tools or invokes capabilities; an empty registry stub

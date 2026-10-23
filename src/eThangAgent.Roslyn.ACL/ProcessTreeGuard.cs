@@ -3,38 +3,34 @@ using System.Diagnostics;
 namespace eThangAgent.Roslyn.ACL;
 
 /// <summary>What a guard observed over one run's lifetime.</summary>
-public sealed record ProcessTreeGuardOutcome(bool MemoryExceeded, bool ProcessCountExceeded, long PeakBytes, int PeakProcesses);
+public sealed record ProcessTreeGuardOutcome(bool ProcessCountExceeded, int PeakProcesses);
 
-/// <summary>Samples a spawned process TREE against its ceilings (spec D10). A Job
-///     Object memory limit alone would surface as an allocation failure inside the
-///     child — a half-alive program that keeps failing is worse for the model than a
-///     clean death it can react to — so the guard samples the tree's working set and
-///     kills it outright on breach. The kill is the contract; the Job Object limit
-///     stays as a backstop for a child that allocates faster than one sample interval.
-///     Additive to containment, never a replacement: the caller's kill-on-close Job
-///     Object still owns the tree's lifetime.</summary>
+/// <summary>Samples a spawned process TREE against its process-count ceiling (spec D10)
+///     and kills it outright on breach: a runaway fan-out is stopped, and the model
+///     reads a named ceiling instead of a half-alive program. The kill is the
+///     contract. Additive to containment, never a replacement: the caller's
+///     kill-on-close Job Object still owns the tree's lifetime.<para>Memory is
+///     deliberately NOT policed (issue #258): a spawned tree is an external process
+///     the harness does not own, so a legitimate build or test run must never be
+///     killed for growing. The guard counts processes and nothing else.</para></summary>
 internal sealed class ProcessTreeGuard : IDisposable
 {
   private readonly Process _root;
-  private readonly long _memoryCeilingBytes;
   private readonly int _processCeiling;
   private readonly Timer _timer;
   private readonly int _rootId;
-  private long _peakBytes;
   private int _peakProcesses;
   private int _sampling;
   private int _breached;
 
-  public ProcessTreeGuard(Process root, long memoryCeilingBytes, int processCeiling, TimeSpan sampleInterval)
+  public ProcessTreeGuard(Process root, int processCeiling, TimeSpan sampleInterval)
   {
     ArgumentNullException.ThrowIfNull(root);
-    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(memoryCeilingBytes);
     ArgumentOutOfRangeException.ThrowIfNegativeOrZero(processCeiling);
     ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleInterval.Ticks);
 
     _root = root;
     _rootId = root.Id;
-    _memoryCeilingBytes = memoryCeilingBytes;
     _processCeiling = processCeiling;
     _timer = new Timer(static state => ((ProcessTreeGuard)state!).Sample(), this, sampleInterval, sampleInterval);
   }
@@ -45,7 +41,7 @@ internal sealed class ProcessTreeGuard : IDisposable
   ///     kill, so without the latch a post-kill sample of the (now empty) tree would
   ///     overwrite the breach with a clean outcome and the caller would report a bare
   ///     non-zero exit with no ceiling error at all.</summary>
-  public ProcessTreeGuardOutcome Outcome { get; private set; } = new(false, false, 0, 0);
+  public ProcessTreeGuardOutcome Outcome { get; private set; } = new(false, 0);
 
   private void Sample()
   {
@@ -59,15 +55,12 @@ internal sealed class ProcessTreeGuard : IDisposable
 
     try
     {
-      (long bytes, int count) = MeasureTree();
-      _peakBytes = Math.Max(_peakBytes, bytes);
+      int count = CountTree();
       _peakProcesses = Math.Max(_peakProcesses, count);
 
-      bool memory = bytes > _memoryCeilingBytes;
-      bool processes = count > _processCeiling;
-      if (memory || processes)
+      if (count > _processCeiling)
       {
-        Outcome = new ProcessTreeGuardOutcome(memory, processes, _peakBytes, _peakProcesses);
+        Outcome = new ProcessTreeGuardOutcome(true, _peakProcesses);
         // Published BEFORE the kill so no tick can observe a breached tree without
         // the latch set.
         Volatile.Write(ref _breached, 1);
@@ -75,7 +68,7 @@ internal sealed class ProcessTreeGuard : IDisposable
         return;
       }
 
-      Outcome = new ProcessTreeGuardOutcome(false, false, _peakBytes, _peakProcesses);
+      Outcome = new ProcessTreeGuardOutcome(false, _peakProcesses);
     }
     // Named decision (CA1031): sampling must never fault the run it is guarding.
 #pragma warning disable CA1031 // Do not catch general exception types
@@ -90,12 +83,12 @@ internal sealed class ProcessTreeGuard : IDisposable
     }
   }
 
-  /// <summary>One sample's working-set sum and process count for the tree rooted at
-  ///     the guarded process. Parent ids are read ONCE per process per sample and the
-  ///     tree is then resolved entirely in memory: walking each candidate's ancestor
-  ///     chain instead would re-query the same parents once per candidate per hop —
-  ///     on the order of thousands of P/Invoke round-trips per tick on a busy machine.</summary>
-  private (long Bytes, int Count) MeasureTree()
+  /// <summary>The size of the tree rooted at the guarded process, one sample deep.
+  ///     Parent ids are read ONCE per process per sample and the tree is then
+  ///     resolved entirely in memory: walking each candidate's ancestor chain instead
+  ///     would re-query the same parents once per candidate per hop — on the order of
+  ///     thousands of P/Invoke round-trips per tick on a busy machine.</summary>
+  private int CountTree()
   {
     Dictionary<int, int> parentOf = [];
     foreach (Process candidate in Process.GetProcesses())
@@ -117,14 +110,7 @@ internal sealed class ProcessTreeGuard : IDisposable
       }
     }
 
-    HashSet<int> tree = TreeMembers(parentOf, _rootId);
-    long bytes = 0;
-    foreach (int memberId in tree)
-    {
-      bytes += WorkingSetOf(memberId);
-    }
-
-    return (bytes, tree.Count);
+    return TreeMembers(parentOf, _rootId).Count;
   }
 
   /// <summary>The root plus every process whose parent chain reaches it, resolved over
@@ -163,24 +149,6 @@ internal sealed class ProcessTreeGuard : IDisposable
     }
 
     return members;
-  }
-
-  /// <summary>The member's working set, or 0 when it exited between the enumeration
-  ///     and the read (a departed process contributes nothing to the tree's size).</summary>
-  private static long WorkingSetOf(int processId)
-  {
-    // Named decision (CA1031): the process may exit at any point during the sample.
-#pragma warning disable CA1031 // Do not catch general exception types
-    try
-    {
-      using Process member = Process.GetProcessById(processId);
-      return member.WorkingSet64;
-    }
-    catch (Exception)
-    {
-      return 0;
-    }
-#pragma warning restore CA1031 // Do not catch general exception types
   }
 
   private void KillTree()
