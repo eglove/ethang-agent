@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
@@ -8,7 +9,6 @@ using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
 using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
-using System.Text.Json;
 
 namespace eThangAgent.Desktop.ViewModels;
 
@@ -476,7 +476,16 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
 
     Transcript.AddNotice("[new session: starting a fresh session with the prompt you gave.]");
-    await _newSessionCommand(prompt).ConfigureAwait(true);
+    try
+    {
+      await _newSessionCommand(prompt).ConfigureAwait(true);
+    }
+#pragma warning disable CA1031 // Named decision: a command fault must surface as a notice, never an unobserved task exception.
+    catch (Exception ex)
+    {
+      Transcript.AddNotice($"Error [NewSessionCommandFault]: {ex.Message}");
+    }
+#pragma warning restore CA1031
   }
 
   /// <summary>Runs one ! command: echoes a command entry, executes through the

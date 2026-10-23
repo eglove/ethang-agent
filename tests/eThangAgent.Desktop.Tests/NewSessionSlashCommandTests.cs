@@ -186,6 +186,42 @@ public class NewSessionSlashCommandTests
   }
 
   [Fact]
+  public async Task New_CommandDelegateThrows_FaultNotice_NoCrash_NoTurn()
+  {
+    SkillInvocationService invocation = new(new FakeCatalog(Skill("deploy")));
+    Conversation conversation = new();
+    List<string> turns = [];
+    AgentSessionViewModel vm = new(
+        (cmd, _, _, _) =>
+        {
+          turns.Add(cmd.Text);
+          return Task.FromResult(Result.Success("ok"));
+        },
+        new RecordingLifecycle(new StubStore()), AgentId.NewId(), conversation,
+        "OpenRouter", "test/model",
+        new AgentSessionViewModelOptions
+        {
+          WorkspaceRoot = @"C:\work\demo",
+          SkillInvocation = invocation,
+          SkillCatalogSource = () => [],
+          NewSessionCommand = _ => throw new InvalidOperationException("the shell exploded"),
+          UiMarshal = action => action(),
+        });
+
+    // A faulting delegate must surface as a typed notice — never an unobserved
+    // task exception, never a crashed submit.
+    await vm.SubmitAsync("/new explore the auth module").ConfigureAwait(true);
+    await vm.WaitForTurnAsync().ConfigureAwait(true);
+
+    Assert.Contains(vm.Transcript.Notices,
+        n => n.Contains("Error [NewSessionCommandFault]", StringComparison.Ordinal));
+    Assert.Contains(vm.Transcript.Notices,
+        n => n.Contains("the shell exploded", StringComparison.Ordinal));
+    Assert.Empty(turns);
+    Assert.DoesNotContain(vm.Transcript.Entries, e => e is UserMessageEntry);
+  }
+
+  [Fact]
   public async Task New_IsCaseInsensitive()
   {
     (AgentSessionViewModel vm, Conversation _, List<string> _, RecordingCommand command) = Build(Skill("deploy"));
