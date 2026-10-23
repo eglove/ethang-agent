@@ -143,6 +143,27 @@ public class DefaultContextCompactorTests
     Assert.Equal(16, conversation.Messages.Count); // untouched
   }
 
+  /// <summary>THE EMPTY-SUMMARY GUARD HOLDS FROM THE HANDOFF SIDE TOO (issue #234):
+  ///     even with handoff ENABLED, an empty summarizer output is a FAILURE outcome —
+  ///     never a handoff. The guard lives in SummarizeAsync, which runs BEFORE the
+  ///     handoff decision, so the invariant does not rest on statement order alone.</summary>
+  [Fact]
+  public async Task CompactAsync_HandoffEnabled_EmptySummary_Fails_NeverHandsOff()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+
+    RecordingFactory factory = new(null);
+    ((ScriptedProvider)factory.Provider).Enqueue(Result.Success(new ModelResponse("   ", [])));
+    DefaultContextCompactor compactor = new(factory, () => null, handoffEnabled: () => Result.Success(true));
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.False(outcome.IsSuccess);
+    Assert.Equal("EmptySummary", outcome.Error.Code); // a FAILURE outcome, not a handoff
+    Assert.Equal(16, conversation.Messages.Count); // untouched
+  }
+
   [Fact]
   public void Render_PinsExactWireStrings()
   {

@@ -305,8 +305,10 @@ public class AgentTests
       return Task.FromResult(Result.Success(CompactionOutcome.Handoff("the handoff summary", new TokenUsage(50, 100))));
     }
 
+    /// <summary>The in-place shape honors its ALWAYS-IN-PLACE contract: a plain
+    /// outcome, never a handoff.</summary>
     public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
-        => CompactAsync(conversation, servingModel, ct);
+        => Task.FromResult(Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100))));
   }
 
   /// <summary>First response carries a tool call (driving a second iteration), then the
@@ -338,8 +340,10 @@ public class AgentTests
           : Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100))));
     }
 
+    /// <summary>The in-place shape honors its ALWAYS-IN-PLACE contract: a plain
+    /// outcome, never a handoff.</summary>
     public Task<Result<CompactionOutcome>> CompactInPlaceAsync(Conversation conversation, ModelConfig servingModel, CancellationToken ct = default)
-        => CompactAsync(conversation, servingModel, ct);
+        => Task.FromResult(Result.Success(new CompactionOutcome(1, conversation.Messages.Count - 1, new TokenUsage(50, 100))));
   }
 
   [Fact]
