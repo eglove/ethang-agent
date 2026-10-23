@@ -2,7 +2,6 @@ using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.ConversationDomain;
-using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SkillDomain;
 using eThangAgent.StateDomain;
@@ -79,7 +78,6 @@ public class CompositionGuardTests
             services.GetRequiredService<AppDatabase>(),
             services.GetRequiredService<ISkillCatalog>(),
             services.GetRequiredService<ILearnedSkillStore>(),
-            services.GetRequiredService<ICuratedMemoryStore>(),
             services.GetRequiredService<IWorkspaceContext>(),
             services.GetRequiredService<IPathResolver>(),
             services.GetRequiredService<IModelProvider>(),

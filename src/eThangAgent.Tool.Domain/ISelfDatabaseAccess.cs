@@ -3,7 +3,7 @@ using eThangAgent.SharedKernel;
 namespace eThangAgent.ToolDomain;
 
 /// <summary>Read-only inspection seam over the agent's own app database — the store
-///     behind sessions, transcripts, state, memories, skills, and preferences.
+///     behind sessions, transcripts, state, skills, and preferences.
 ///     Implementations must run every statement on a read-only connection so no input
 ///     can mutate the database. SQL passed to <see cref="QueryAsync"/> must already
 ///     have passed <see cref="ReadOnlySqlValidator.Validate"/>; the read-only

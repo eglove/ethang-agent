@@ -116,6 +116,7 @@ public sealed class AppDatabase
     (15, ApplyV15),
     (16, ApplyV16),
     (17, ApplyV17),
+    (18, ApplyV18),
   ];
 
   private void Migrate()
@@ -679,6 +680,29 @@ public sealed class AppDatabase
             payload_json TEXT NOT NULL,
             fetched_at   TEXT NOT NULL
         );
+        """;
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V18 removes the curated-memories feature (issue #236): the store, its
+  ///     capability surface, and the turn-boundary nudge loop are gone, so the schema
+  ///     goes with them. Drops the sync triggers first (a trigger on a dropped table
+  ///     would otherwise fail), then the FTS5 index, the index, and the table. Fresh
+  ///     databases run V4 then V18 and end clean; existing databases lose the rows —
+  ///     no export is planned.</summary>
+  private static void ApplyV18(SqliteConnection connection)
+  {
+    string sql = """
+        DROP TRIGGER IF EXISTS curated_ai;
+        DROP TRIGGER IF EXISTS curated_ad;
+        DROP TRIGGER IF EXISTS curated_au;
+        DROP TABLE IF EXISTS curated_memories_fts;
+        DROP INDEX IF EXISTS ix_curated_ws;
+        DROP TABLE IF EXISTS curated_memories;
         """;
     using SqliteCommand command = connection.CreateCommand();
 #pragma warning disable CA2100

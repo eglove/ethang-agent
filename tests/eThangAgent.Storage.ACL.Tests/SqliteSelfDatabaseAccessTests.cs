@@ -43,12 +43,12 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
     Assert.Contains("state_keys", names);
     Assert.Contains("agents", names);
     Assert.Contains("agent_messages", names);
-    Assert.Contains("curated_memories", names);
+    // Issue #236: the curated-memories feature is removed, so V18 drops its table,
+    // its FTS5 index, and the sync triggers — a migrated database has none of them.
+    Assert.DoesNotContain("curated_memories", names);
+    Assert.DoesNotContain("curated_memories_fts", names);
     // The FTS5 index itself is meaningful; its shadow tables are not.
-    Assert.Contains("curated_memories_fts", names);
     Assert.Contains("state_keys_fts", names);
-    Assert.DoesNotContain("curated_memories_fts_data", names);
-    Assert.DoesNotContain("curated_memories_fts_config", names);
     Assert.DoesNotContain("state_keys_fts_content", names);
     Assert.DoesNotContain("sqlite_sequence", names);
     Assert.DoesNotContain("sqlite_schema", names);
@@ -62,7 +62,7 @@ public sealed class SqliteSelfDatabaseAccessTests : IDisposable
 
     Assert.True(schema.IsSuccess);
     // Bump alongside the next AppDatabase migration.
-    Assert.Equal(17, schema.Value.SchemaVersion);
+    Assert.Equal(18, schema.Value.SchemaVersion);
   }
 
   [Fact]

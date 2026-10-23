@@ -1,4 +1,3 @@
-using eThangAgent.Agent.Application.Nudges;
 using eThangAgent.AgentDomain;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
@@ -22,10 +21,8 @@ public sealed record VerificationCollaborators(
 
 /// <summary>
 /// Sends a user message through the agent loop and, after a SUCCESSFUL turn, offers the
-/// nudge policy a chance to append a reminder line as a System message. Failed turns are
-/// never nudged. Nudging is active only when the conversation, the policy, and the
-/// memory-write counter are all supplied; with any of them absent the handler behaves
-/// exactly as before (turns pass through, nothing is appended).
+/// verification gate a chance to append an advisory note as a System message. Failed
+/// turns are never nudged.
 /// </summary>
 /// <remarks>
 /// Root model resolution: when the <see cref="RootTurnServices"/> seam is supplied, each
@@ -37,20 +34,15 @@ public sealed record VerificationCollaborators(
 public class SendMessageCommandHandler(
     Ag? agent = null,
     Conversation? conversation = null,
-    INudgePolicy? policy = null,
-    Func<int>? memoriesWritten = null,
     IAgentInbox? inbox = null,
     RootTurnServices? rootTurn = null,
     VerificationCollaborators? verification = null)
 {
   private readonly Ag? _agent = agent;
   private readonly Conversation? _conversation = conversation;
-  private readonly INudgePolicy? _nudgePolicy = policy;
-  private readonly Func<int>? _memoriesWritten = memoriesWritten;
   private readonly IAgentInbox? _inbox = inbox;
   private readonly RootTurnServices? _rootTurn = rootTurn;
   private readonly VerificationCollaborators? _verification = verification;
-  private int _turnCount;
 
   public async Task<Result<string>> Handle(SendMessageCommand command,
       TurnCallbacks? callbacks = null,
@@ -58,8 +50,6 @@ public class SendMessageCommandHandler(
       CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(command);
-    int turnNumber = Interlocked.Increment(ref _turnCount);
-
     Ag active;
     try
     {
@@ -90,30 +80,8 @@ public class SendMessageCommandHandler(
       return result;
     }
 
-    ApplyNudge(turnNumber, active, callbacks);
     ApplyVerificationGate(callbacks);
     return result;
-  }
-
-  /// <summary>After a SUCCESSFUL turn, offers the nudge policy a chance to append a
-  ///     reminder line as a System message. Active only when the conversation, the
-  ///     policy, and the memory-write counter are all supplied.</summary>
-  private void ApplyNudge(int turnNumber, Ag active, TurnCallbacks? callbacks)
-  {
-    if (_conversation is null || _nudgePolicy is null || _memoriesWritten is null)
-    {
-      return;
-    }
-
-    string? line = _nudgePolicy.Evaluate(
-        new NudgeContext(turnNumber, active.LastTurnToolCalls, _memoriesWritten()));
-    if (line is null)
-    {
-      return;
-    }
-
-    _conversation.AddSystemMessage(line);
-    callbacks?.OnSystemMessage?.Invoke(line);
   }
 
   /// <summary>Gate B (spec #24): one bounded verification nudge per turn when files

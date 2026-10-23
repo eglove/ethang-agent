@@ -130,7 +130,7 @@ public sealed class SqliteModelCatalogCacheTests : IDisposable
     using SqliteConnection check = migrated.Open();
     using SqliteCommand version = check.CreateCommand();
     version.CommandText = "PRAGMA user_version;";
-    Assert.Equal(17, Convert.ToInt32(await version.ExecuteScalarAsync(TestContext.Current.CancellationToken).ConfigureAwait(true), CultureInfo.InvariantCulture));
+    Assert.Equal(18, Convert.ToInt32(await version.ExecuteScalarAsync(TestContext.Current.CancellationToken).ConfigureAwait(true), CultureInfo.InvariantCulture));
     using SqliteCommand table = check.CreateCommand();
     table.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='model_catalog_cache';";
     Assert.Equal(1L, Convert.ToInt64(await table.ExecuteScalarAsync(TestContext.Current.CancellationToken).ConfigureAwait(true), CultureInfo.InvariantCulture));

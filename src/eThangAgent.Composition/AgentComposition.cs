@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using eThangAgent.Agent.Application;
 using eThangAgent.Agent.Application.Memory;
-using eThangAgent.Agent.Application.Nudges;
 using eThangAgent.AgentDomain;
 using eThangAgent.AgentInfrastructure;
 using eThangAgent.CapabilityDomain;
@@ -10,7 +9,6 @@ using eThangAgent.ConversationDomain;
 using eThangAgent.Documents.ACL;
 using eThangAgent.FileSystem.ACL;
 using eThangAgent.Mcp.ACL;
-using eThangAgent.MemoryDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.OpenRouter.ACL;
 using eThangAgent.PDF.ACL;
@@ -448,13 +446,11 @@ public static class AgentComposition
         .AddSingleton<INewSessionPort>(sp => new WireNewSessionPort(
             sp.GetRequiredService<NewSessionRequestChannel>()))
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
-        .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
-        .AddSingleton<SqliteCuratedMemoryStore>()
-        .AddSingleton<ICuratedMemoryStore>(sp => sp.GetRequiredService<SqliteCuratedMemoryStore>());
+        .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow);
   }
 
-  /// <summary>The wait wake bus and its adapters, the root inbox, the mailbox stores, the supervisor
-  ///     and mailbox registries, and the nudge policy.
+  /// <summary>The wait wake bus and its adapters, the root inbox, the mailbox stores, and the
+  ///     supervisor and mailbox registries.
   /// </summary>
   private static IServiceCollection AddWakeAndMailboxServices(IServiceCollection wired, ProcessMailboxLocator? mailboxLocator)
   {
@@ -489,9 +485,7 @@ public static class AgentComposition
         // ONE shared instance (AgentSessionFactory does), so every container's provider
         // consults the same process-wide registry of live mailboxes; a lone container
         // gets its own, which changes nothing (its source is itself).
-        .AddSingleton(_ => mailboxLocator ?? new ProcessMailboxLocator())
-        .AddSingleton<SessionMemoryWriteCounter>()
-        .AddSingleton<INudgePolicy>(_ => new DefaultNudgePolicy());
+        .AddSingleton(_ => mailboxLocator ?? new ProcessMailboxLocator());
   }
 
   /// <summary>The sub-agent stack: the workspace anchor scope, the spawner and its services, and
@@ -598,13 +592,7 @@ public static class AgentComposition
         .AddSingleton(sp => new PlanCapabilityProvider(
             sp.GetRequiredService<PlanService>(),
             () => sp.GetRequiredService<RootSessionIdentity>().Id?.ToString()))
-        .AddSingleton<MemoryCapabilityProvider>()
-        .AddSingleton(sp => new CuratedMemoryCapabilityProvider(
-            sp.GetRequiredService<ICuratedMemoryStore>(),
-            () => sp.GetRequiredService<IWorkspaceContext>().WorkspaceId,
-            () => SubAgentSpawner.RunningChild?.Id.ToString(),
-            sp.GetRequiredService<SessionMemoryWriteCounter>().Increment,
-            () => DateTimeOffset.UtcNow));
+        .AddSingleton<MemoryCapabilityProvider>();
   }
 
   /// <summary>The capability registry and its deferred factory - the deadlock-safe lazy resolution
@@ -720,7 +708,6 @@ public static class AgentComposition
                     "workspace, prefer the provided tools over guessing, and keep responses tight."),
                 new ExecGuidePromptProvider(
                     new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
-                new CuratedMemoryGuidePromptProvider(),
                 new ContextHygienePromptProvider(),
                 ..host.ExtraPromptProviders,
         ]));
@@ -783,8 +770,6 @@ public static class AgentComposition
         .AddSingleton(sp => new SendMessageCommandHandler(
             agent: null,
             sp.GetRequiredService<Conversation>(),
-            sp.GetRequiredService<INudgePolicy>(),
-            () => sp.GetRequiredService<SessionMemoryWriteCounter>().Count,
             sp.GetRequiredService<IAgentInbox>(),
             rootTurn: new RootTurnServices(
                 sp.GetRequiredService<RootAgentHolder>(),
@@ -1050,7 +1035,7 @@ public static class AgentComposition
 
   /// <summary>The session's child tool surface (R1): the action ids a default child can
   ///     dispatch — the loop registry's tools plus every child-surface capability action
-  ///     (agent tools minus human-facing, agent.* actions, state, memory, curated).
+  ///     (agent tools minus human-facing, agent.* actions, state, memory).
   ///     Built lazily: the surface reaches IExecEngine through the capability closure,
   ///     so eager construction re-enters the container (see the registry-factory
   ///     registration comment).</summary>
@@ -1067,8 +1052,7 @@ public static class AgentComposition
         .Concat(AgentCapabilityProvider.ActionNames)
         .Concat(sp.GetRequiredService<StateCapabilityProvider>().Actions.Select(a => a.Name))
         .Concat(sp.GetRequiredService<PlanCapabilityProvider>().Actions.Select(a => a.Name))
-        .Concat(sp.GetRequiredService<MemoryCapabilityProvider>().Actions.Select(a => a.Name))
-        .Concat(sp.GetRequiredService<CuratedMemoryCapabilityProvider>().Actions.Select(a => a.Name));
+        .Concat(sp.GetRequiredService<MemoryCapabilityProvider>().Actions.Select(a => a.Name));
     // GRANT DECISION (issue #234): a spawned child may NOT start sessions — a child has
     // no workspace identity of its own and a session launch is a shell-level act. The
     // tool stays root-only; a child's dispatch fails GrantViolation via the filtered
@@ -1146,7 +1130,6 @@ public static class AgentComposition
         sp.GetRequiredService<StateCapabilityProvider>(),
         sp.GetRequiredService<PlanCapabilityProvider>(),
         sp.GetRequiredService<MemoryCapabilityProvider>(),
-        sp.GetRequiredService<CuratedMemoryCapabilityProvider>(),
   ];
 
   /// <summary>Child-agent options with the default-model fallback applied: when

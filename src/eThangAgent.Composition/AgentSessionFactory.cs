@@ -66,7 +66,7 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   /// <summary>Creates a session rooted at <paramref name="workspaceRoot"/> on the selected
   ///     <paramref name="providerName"/>. The directory must exist; workspace identity is
   ///     its full path, so reopening the same directory resumes that workspace's durable
-  ///     state (state keys, curated memories) rather than forking a second identity — but
+  ///     state (state keys, plan records) rather than forking a second identity — but
   ///     the CONVERSATION is always fresh: every open mints a new root session, never an
   ///     automatic resume. Fails with a structured error when the provider is unknown or
   ///     unconfigured, or when bootstrap persistence fails.</summary>
@@ -469,8 +469,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     ServiceProvider services = new ServiceCollection()
         .AddEThangAgentCore(_settings, providerName, defaultModel,
             new AgentHostOptions(
-                // Workspace identity IS the root path: state keys and curated
-                // memories scope per opened directory, keyed in the shared DB.
+                // Workspace identity IS the root path: state keys and plans
+                // scope per opened directory, keyed in the shared DB.
                 new FixedWorkspaceContext(workspaceRoot),
                 new WorkspacePathResolver(workspaceRoot),
                 [new SessionFilesPromptProvider(workspaceRoot, stored.GlobalSessionFiles, stored.WorkspaceSessionFiles)]),
