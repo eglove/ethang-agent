@@ -120,12 +120,18 @@ content is refused; the extension alone is never trusted (magic-byte + package s
   findings require explicit confirmation), name collisions are refused against authoritative
   built-ins and learned skills, and installed skills surface immediately through hot reload
 - Skill invocation channel: type `/` in the chat input for an autocomplete popup (manual
-  skills marked and listed first, case-insensitive filter, arrow-key navigation, Tab or Enter
-  to complete) and submit `/skill-name arguments` — or ask the agent, which calls
-  `skill_invoke`. Both resolve through one shared core; the skill's content enters the
-  conversation as a system message (bodies over 4,000 characters fall back to
-  `skill_view`), manual skills resolve exactly like the rest, and unknown `/names` send
-  as ordinary messages
+  skills marked and listed first, then session commands, then plain skills; case-insensitive
+  filter, arrow-key navigation, Tab or Enter to complete) and submit `/skill-name arguments`
+  — or ask the agent, which calls `skill_invoke`. Both resolve through one shared core; the
+  skill's content enters the conversation as a system message (bodies over 4,000 characters
+  fall back to `skill_view`), manual skills resolve exactly like the rest, and unknown
+  `/names` send as ordinary messages
+- **Start a new session in place** — `/new <prompt>` (listed in the `/` popup as a command,
+  badged `[command]`) starts a fresh session in the CURRENT tab's workspace: the tab is
+  replaced, not duplicated, so the transcript clears and the status bar names the new session
+  id, while the old session closes gracefully and stays resumable from the **Sessions** entry.
+  It is refused while a turn is running (stop it first). The agent can do the same through the
+  `new_session` tool, which asks the app to start the session and answers with its id
 
 - **Model Settings** window (left menu, visible whenever a tab is open) — the one
   surface for per-session model choices. The **Model** section is a searchable catalog of
@@ -170,7 +176,9 @@ content is refused; the extension alone is never trusted (magic-byte + package s
   where it stopped, with prior history carried into the next turn. Opening a workspace
   through **Open Workspace** always starts a NEW session; resume is a deliberate pick from
   the menu, never automatic per directory. A workspace can hold many sessions, and
-  resuming one never merges another session's history into it
+  resuming one never merges another session's history into it. A session replaced in place
+  by `/new` (or by a compaction handoff) is closed gracefully and appears here too, so
+  nothing is lost when a conversation restarts
 - `todo` tool — durable workspace task list with compare-and-swap writes
 - Capability registry exposing agent tools plus spawnable sub-agents, durable workspace state, and memory recall
 - Nested sub-agents with depth limits and concurrency caps
@@ -216,6 +224,7 @@ The window opens directly on the shell: no workspace and no pre-configured key a
 | OpenRouter management key (optional) | **⚙ Settings → API Keys** | DPAPI-encrypted in the app database. A separate [management API key](https://openrouter.ai/docs/guides/overview/auth/management-api-keys) (created at openrouter.ai/settings/keys) that unlocks the `openrouter_management` tool — the debugging surface: per-request generation logs, stored prompt/completion content, credits, activity, and analytics queries. It never touches model calls; without it the tool refuses with `ManagementUnavailable`. |
 | OpenRouter base URL | **⚙ Settings → Advanced** | Optional; blank keeps the provider default (`https://openrouter.ai`). Stored in the app database; an invalid value is refused at save and re-validated at startup — never silently coerced. |
 | `ETHANG_AGENT_DB` | environment variable | Optional; overrides the database location. This is the one remaining environment variable — the bootstrap chicken-and-egg (the database itself must be locatable before preferences can be read) — not app configuration. |
+| Compaction handoff (`compaction_handoff_enabled`, default OFF) | Settings window — **Agents** tab; stored in the app database (`app_preferences`). | When on, reaching the compaction ceiling HANDS OFF instead of compacting in place: the turn ends with a named line and the conversation continues in a NEW session seeded with the summarizer's summary (the old session stays resumable). The composition reads the preference at every compaction, so a save applies from the next one — no restart. |
 | Sub-agent settings (`DefaultModel`, `MaxConcurrentAgents`) | Settings window — **Agents** tab; stored in the app database (`app_preferences`). Absent values fall back to shipped defaults (max concurrent 4, no default model). | Invalid values are refused at save and re-validated at startup — configuration is validated strictly, never silently coerced. There is deliberately no child-timeout setting: wall-clock is never a child cancellation source. There is no remote-host toggle: **every** conversation runs in its own out-of-process `eThangAgent.ChildHost` (spec D6/D7), keyed by the conversation id so two conversations in one workspace get two hosts and two budgets. The host survives app restarts — the app re-attaches, reuses a host already serving that conversation, and reconciles running children exactly. |
 | Sub-agent watchdog (`TickInterval`, `IdleThreshold`, `MaxWrapUpAttempts`) | Settings window — **Agents** tab; stored in the app database. Durations use constant format (`00:00:02`); every knob is optional and blank keeps the default (60-second tick, 15-minute idle threshold, 1 wrap-up attempt). Invalid text is refused at save and at startup — never clamped, never coerced (bare integers are rejected: without units they would bind as days). The configured knobs govern BOTH watchdogs: the app-side loop and the out-of-process child host's — the child host picks changes up for newly opened agents, while the app-side loop binds them once per process (changes reach it after the app restarts). |
 | Session files and skill directories | **Open Workspace** dialog (shown when a workspace is opened), not the Settings window. Global rows load for every workspace; workspace rows for that workspace only. Rows are added through native file/folder pickers (no typed paths), toggled per row, and stored in the app database (`app_preferences`) — the stored lists prefill the next launch, and the confirmed lists apply to the session being opened. |
