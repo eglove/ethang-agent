@@ -45,6 +45,39 @@ public class SkillAutocompleteViewModelTests
   }
 
   [Fact]
+  public void Commands_Sort_After_Manual_Before_Plain_Skills_NameOrdinal_Within_Groups()
+  {
+    // Issue #234: the popup lists the session command alongside skills — manual
+    // skills still first, then commands, then plain skills, name-ordinal inside
+    // each group.
+    SkillOption[] catalog =
+    [
+        Opt("deploy-app"),
+        AgentSessionViewModel.NewSessionCommandOption,
+        Opt("dep-check"),
+        Opt("Other", manual: true),
+        Opt("Another", manual: true),
+    ];
+
+    SkillAutocompleteViewModel vm = Make(catalog);
+    vm.Update("/");
+    Assert.True(vm.IsOpen);
+    Assert.Equal(
+        ["Another", "Other", "new", "dep-check", "deploy-app"],
+        vm.Options.Select(o => o.Name));
+  }
+
+  [Fact]
+  public void NewSessionCommandOption_IsACommandRow_NotManual()
+  {
+    SkillOption option = AgentSessionViewModel.NewSessionCommandOption;
+    Assert.Equal("new", option.Name, StringComparer.Ordinal);
+    Assert.True(option.IsCommand);
+    Assert.False(option.IsManual);
+    Assert.False(string.IsNullOrWhiteSpace(option.Description));
+  }
+
+  [Fact]
   public void Filter_Is_CaseInsensitive_On_Name()
   {
     SkillAutocompleteViewModel vm = Make(Catalog);

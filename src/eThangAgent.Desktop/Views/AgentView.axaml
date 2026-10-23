@@ -86,6 +86,7 @@
               <StackPanel Orientation="Horizontal" Spacing="6">
                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
                 <TextBlock Text="[manual]" IsVisible="{Binding IsManual}" Foreground="#FFB454"/>
+                <TextBlock Text="[command]" IsVisible="{Binding IsCommand}" Foreground="#4FC3F7"/>
                 <TextBlock Text="{Binding Description}" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
               </StackPanel>
             </DataTemplate>
