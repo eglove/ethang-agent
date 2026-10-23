@@ -48,6 +48,10 @@ internal sealed record SettingsValues
   public string? WatchdogWrapUpText { get; init; }
   public string? OpenRouterBaseUrlText { get; init; }
   public bool ComputerUse { get; init; }
+
+  /// <summary>Whether a compaction HANDS OFF to a new session instead of compacting in
+  ///     place (issue #234). Off by default.</summary>
+  public bool CompactionHandoff { get; init; }
   public string? SkillRegistryDefaultTarget { get; init; }
   public string? OpenRouterManagementKey { get; init; }
 }
@@ -60,7 +64,8 @@ internal sealed record SettingsUpdate(string? OpenRouterApiKey, CommitStyle Comm
     bool ComputerUse = false,
     string? SkillRegistryDefaultTarget = null,
     string? OpenRouterManagementKey = null,
-    string? RootTurnIdleText = null, string? RootTurnCeilingText = null);
+    string? RootTurnIdleText = null, string? RootTurnCeilingText = null,
+    bool CompactionHandoff = false);
 
 /// <summary>View-model behind the settings modal: the API-key field, a reveal toggle,
 ///     and their shared validation.
@@ -117,6 +122,15 @@ internal sealed partial class SettingsViewModel : ObservableObject
   [NotifyPropertyChangedFor(nameof(ValidationError))]
   [NotifyPropertyChangedFor(nameof(CanSave))]
   public partial bool ComputerUse { get; set; }
+
+  /// <summary>True makes a compaction HAND OFF to a new session instead of compacting in
+  ///     place (issue #234): the conversation ends with a named line and continues in a new
+  ///     session seeded with the summary. Off by default — the in-place compaction is the
+  ///     established behavior, and a handoff is a visible change to the user's session.</summary>
+  [ObservableProperty]
+  [NotifyPropertyChangedFor(nameof(ValidationError))]
+  [NotifyPropertyChangedFor(nameof(CanSave))]
+  public partial bool CompactionHandoff { get; set; }
 
   /// <summary>The skill-registry default install target: unset / global / workspace.
   ///     Raw tri-state; strict parsing happens in AgentSettingsLoader at load.</summary>
@@ -243,7 +257,8 @@ internal sealed partial class SettingsViewModel : ObservableObject
                 SkillRegistryDefaultTarget: SkillRegistryTarget,
                 OpenRouterManagementKey: Normalize(OpenRouterManagementKey),
                 RootTurnIdleText: Normalize(RootTurnIdleText),
-                RootTurnCeilingText: Normalize(RootTurnCeilingText)));
+                RootTurnCeilingText: Normalize(RootTurnCeilingText),
+                CompactionHandoff: CompactionHandoff));
           }
         },
         () => CanSave);
@@ -277,6 +292,7 @@ internal sealed partial class SettingsViewModel : ObservableObject
     MaxConcurrentAgentsText = values.MaxConcurrentAgentsText ?? string.Empty;
     DefaultModelText = values.DefaultModelText ?? string.Empty;
     ComputerUse = values.ComputerUse;
+    CompactionHandoff = values.CompactionHandoff;
     WatchdogTickText = values.WatchdogTickText ?? string.Empty;
     RootTurnIdleText = values.RootTurnIdleText ?? string.Empty;
     RootTurnCeilingText = values.RootTurnCeilingText ?? string.Empty;

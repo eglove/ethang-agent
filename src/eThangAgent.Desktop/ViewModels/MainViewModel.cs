@@ -74,6 +74,12 @@ internal sealed record MainViewModelOptions
   ///     nothing) means the Conventional default — the same one the tool side uses.</summary>
   public CommitStyle? CommitStyle { get; init; }
 
+  /// <summary>Whether a compaction hands off to a new session (issue #234), as loaded from
+  ///     the preference store at startup — the settings modal's prefill. Null means unset,
+  ///     which is OFF (the shipped default). The composition reads the LIVE preference at
+  ///     every compaction; this only seeds the checkbox.</summary>
+  public bool? CompactionHandoff { get; init; }
+
   /// <summary>Optional stream-sink override for every opened session (test seam).
   ///     When null, production self-marshaling applies per session view-model.</summary>
   public Func<UiStreamEvent, Task>? UiStreamSink { get; init; }
@@ -269,6 +275,13 @@ internal sealed partial class MainViewModel : ObservableObject
 
   public bool ConfiguredComputerUse => _settings?.ComputerUse ?? false;
 
+  /// <summary>The compaction-handoff choice the settings modal prefills (issue #234).
+  ///     Read from the STORE, not from <see cref="_settings"/>: the handoff is a live
+  ///     preference the composition reads at every compaction, not a container-build
+  ///     setting, so it has no place in the settings snapshot. Off when unset — the
+  ///     shipped default. Loaded at construction and updated on save.</summary>
+  public bool ConfiguredCompactionHandoff { get; private set; }
+
   /// <summary>The commit style the settings modal prefills; the stored choice, or the
   ///     Conventional default when none is stored (matching the tool-side default).
   ///     Loaded from preferences at construction; updated when settings save.</summary>
@@ -316,7 +329,7 @@ internal sealed partial class MainViewModel : ObservableObject
     // Each member is an optional seam: a null one behaves exactly as the
     // corresponding absent parameter always did.
     _preferences = options?.Preferences;
-    ConfiguredCommitStyle = CommitStyleOf(options);
+    SeedSettingsPrefills(options);
     _streamSink = options?.UiStreamSink;
     _settings = options?.Settings;
     _sessionOpened = options?.SessionOpened;
@@ -354,10 +367,15 @@ internal sealed partial class MainViewModel : ObservableObject
     }
   }
 
-  /// <summary>The commit style the settings modal prefills: the host-supplied one, or
-  ///     the Conventional default (the same one the tool side uses).</summary>
-  private static CommitStyle CommitStyleOf(MainViewModelOptions? options)
-      => options?.CommitStyle ?? CommitStyle.Conventional;
+  /// <summary>Seeds the settings modal's prefills the host loaded from the preference store
+  ///     at startup: the commit style (Conventional when the host loaded nothing — the same
+  ///     default the tool side uses) and the compaction-handoff choice (off when unset, the
+  ///     shipped default).</summary>
+  private void SeedSettingsPrefills(MainViewModelOptions? options)
+  {
+    ConfiguredCommitStyle = options?.CommitStyle ?? CommitStyle.Conventional;
+    ConfiguredCompactionHandoff = options?.CompactionHandoff ?? false;
+  }
 
   /// <summary>The session-creation delegate: the host-supplied one, else the factory's
   ///     create. It reads the factory at invocation, so a settings-save rebind reaches
@@ -773,6 +791,12 @@ internal sealed partial class MainViewModel : ObservableObject
         Normalize(update.OpenRouterBaseUrlText));
     await PersistPreferenceAsync(AgentPreferenceKeys.ComputerUseEnabled,
         update.ComputerUse ? "true" : "false");
+    // The compaction handoff is a LIVE preference (issue #234): the composition reads it at
+    // every compaction, so a save applies from the next compaction without a container
+    // rebuild. Absent means off, so 'false' is written as a delete rather than a value.
+    await PersistPreferenceAsync(SessionHandoffPreferences.Key,
+        update.CompactionHandoff ? "true" : null);
+    ConfiguredCompactionHandoff = update.CompactionHandoff;
   }
 
   /// <summary>Persists the two scoped settings of a settings-modal update: the

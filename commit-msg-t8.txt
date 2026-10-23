@@ -1,0 +1,27 @@
+feat(desktop): expose the compaction handoff as a settings checkbox
+
+Issue #234, plan #79 task 8. The compaction_handoff_enabled preference was
+already read LIVE by the composition at every compaction (SessionHandoff
+Preferences, strict parse, default off) but nothing could set it: the only
+way to enable a handoff was to write the preference by hand.
+
+The settings modal's Agents tab gains the checkbox, wired through the same
+layers as computer_use_enabled: SettingsValues/SettingsUpdate carry the
+choice, SettingsViewModel prefills and reports it, and ApplySettingsAsync
+persists it. OFF is written as a DELETE rather than the string "false" - the
+same "blank means absent" rule every other knob follows, and the state the
+shipped default already describes.
+
+The prefill is loaded at startup (DesktopHost.LoadCompactionHandoffAsync, the
+LoadCommitStyleAsync pattern) and passed through MainViewModelOptions, because
+the handoff is a LIVE preference the composition reads per compaction rather
+than a container-build setting - so it has no place in the settings snapshot,
+and a save applies from the next compaction with no container rebuild. A
+stored value the strict parser refuses logs to stderr and prefills OFF; the
+composition still surfaces the typed failure at the next compaction, so
+corrupt data is never silently obeyed.
+
+Tests: the checkbox round trip (prefill on, save off), the default-off shape,
+persistence both ways (true written verbatim, false deleted), the parse
+round trip closing, and the host-loaded prefill reaching the shell. Desktop
+suite 675/675, build and format gate clean.

@@ -19,6 +19,33 @@ public class SettingsViewModelTests
   }
 
   [Fact]
+  public void CompactionHandoff_PrefillsFromValues_AndRidesTheUpdate()
+  {
+    // Issue #234: the modal's checkbox must show what is stored (the host loads it at
+    // startup) and carry the choice back on save.
+    SettingsViewModel vm = new(new SettingsValues { CompactionHandoff = true });
+    Assert.True(vm.CompactionHandoff);
+
+    SettingsUpdate? saved = null;
+    vm.SaveRequested += (_, update) => saved = update;
+    vm.CompactionHandoff = false;
+    vm.SaveCommand.Execute(null);
+
+    Assert.NotNull(saved);
+    Assert.False(saved.CompactionHandoff);
+  }
+
+  [Fact]
+  public void CompactionHandoff_DefaultsOff()
+  {
+    // Off is the shipped default: a modal opened with no stored choice must not enable a
+    // behavior change the user never asked for.
+    SettingsViewModel vm = new(new SettingsValues());
+
+    Assert.False(vm.CompactionHandoff);
+  }
+
+  [Fact]
   public void Save_Raises_Update_With_Trimmed_Keys()
   {
     SettingsViewModel vm = new(new SettingsValues { OpenRouterKey = "  sk-or-v1-abc  " });

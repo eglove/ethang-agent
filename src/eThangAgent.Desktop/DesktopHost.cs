@@ -32,7 +32,8 @@ internal sealed record DesktopBootstrap(
     SessionCatalogQueryHandler Catalog,
     CommitStyle CommitStyle,
     IWatchdogEventStore WatchdogEvents,
-    WatchdogOptions WatchdogOptions);
+    WatchdogOptions WatchdogOptions,
+    bool CompactionHandoff);
 
 /// <summary>Composition root for the desktop frontend: shared core + desktop-specific seams.
 ///     Startup loads settings from app preferences (provider API keys live DPAPI-
@@ -63,6 +64,7 @@ internal static class DesktopHost
         .WithManagementKey(await LoadKeyAsync(preferences, protector,
             OpenRouterSettings.ManagementKeyPreferenceKey));
     CommitStyle commitStyle = await LoadCommitStyleAsync(preferences);
+    bool compactionHandoff = await LoadCompactionHandoffAsync(preferences);
 
     // The app-side watchdog (loop, policy, RSS monitor) runs the SAME configured knobs
     // the child host receives through the settings JSON — never hardcoded defaults.
@@ -83,7 +85,8 @@ internal static class DesktopHost
         catalog,
         commitStyle,
         new SqliteWatchdogEventStore(database),
-        watchdogOptions);
+        watchdogOptions,
+        compactionHandoff);
   }
 
   /// <summary>Recovers one stored key: absent stays null; undecryptable (corrupted or
@@ -118,6 +121,24 @@ internal static class DesktopHost
       await Console.Error.WriteLineAsync(
           $"stored '{AppPreferenceCommitStyleProvider.PreferenceKey}' value '{stored}' is not a valid commit style; using the conventional default");
       return CommitStyle.Conventional;
+    }
+
+    return resolved.Value;
+  }
+
+  /// <summary>Recovers the stored compaction-handoff choice (issue #234): absent means
+  ///     OFF, the shipped default. A stored value the strict parser refuses logs to stderr
+  ///     and prefills OFF — the PREFILL only; the composition still surfaces the typed
+  ///     failure at the next compaction, so corrupt data is never silently obeyed.</summary>
+  private static async Task<bool> LoadCompactionHandoffAsync(SqliteAppPreferenceStore preferences)
+  {
+    string? stored = await preferences.GetAsync(SessionHandoffPreferences.Key);
+    Result<bool> resolved = SessionHandoffPreferences.TryParse(stored);
+    if (!resolved.IsSuccess)
+    {
+      await Console.Error.WriteLineAsync(
+          $"stored '{SessionHandoffPreferences.Key}' value '{stored}' is not a valid handoff choice; using the default (off)");
+      return false;
     }
 
     return resolved.Value;
@@ -185,6 +206,7 @@ internal static class DesktopHost
         {
           PreferredProviderId = boot.PreferredProviderId,
           CommitStyle = boot.CommitStyle,
+          CompactionHandoff = boot.CompactionHandoff,
           Preferences = boot.Preferences,
           Settings = boot.Settings,
           SessionFactory = boot.Sessions,
