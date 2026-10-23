@@ -211,15 +211,14 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   /// <para>EVERY path settles the caller. The failures are typed and distinct:
   /// <c>InvalidTurnId</c> when the id is empty or already in flight, <c>HostUnavailable</c>
   /// when there is no live connection or the frame cannot be put on the wire,
-  /// <c>TurnCancelled</c> when the caller cancelled, <c>TurnUnaddressable</c> when the host
-  /// goes SILENT for <see cref="RootTurnBudget.Idle"/>, and <c>TurnCeilingExceeded</c> when
-  /// a turn outlasts <see cref="RootTurnBudget.Ceiling"/>.</para>
-  /// <para>The bounds exist because one number cannot be right: a healthy turn may run
-  /// for many minutes while streaming constantly (an idle bound is what protects it — it
-  /// resets on every event), a host that streams forever must still end (a ceiling is
-  /// what protects that), and putting one frame on the wire is a third question bounded by
-  /// <see cref="RootTurnBudget.Send"/>. A single total bound would kill the first and
-  /// misreport it as a host fault.</para>
+  /// <c>TurnCancelled</c> when the caller cancelled, and <c>TurnUnaddressable</c> when the
+  /// host goes SILENT for <see cref="RootTurnBudget.Idle"/>.</para>
+  /// <para>Two bounds, and deliberately no third. A healthy turn may run for many minutes
+  /// while streaming constantly — the idle bound is what protects it, because it resets on
+  /// every event; putting one frame on the wire is a separate question bounded by
+  /// <see cref="RootTurnBudget.Send"/>. There is NO total-duration ceiling (issue #248): it
+  /// killed legitimate long turns with nothing to resume, so a turn now runs until the host
+  /// settles it or the caller stops it.</para>
   /// <para>A bounded write is CANCELLED, and a cancellation that interrupts a frame
   /// desynchronizes the peer's frame stream permanently — so that path closes the connection
   /// and completes every pending settle with a declared failure rather than leaving a
@@ -369,27 +368,18 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
     }
   }
 
-  /// <summary>Waits for one turn's settle under the two bounds. The IDLE bound resets on
-  ///     every event the waiter routes (see <see cref="HandleRootTurnEvent"/>); the CEILING
-  ///     bounds total duration and is checked on the same tick. Both produce typed errors so
-  ///     a caller can tell "went quiet" from "would not stop".</summary>
+  /// <summary>Waits for one turn's settle under the IDLE bound, which resets on every event
+  ///     the waiter routes (see <see cref="HandleRootTurnEvent"/>). There is no total-duration
+  ///     bound (issue #248): a turn that keeps proving it is alive runs for as long as it
+  ///     needs, and only the caller's own cancellation or the host's settle ends this wait.</summary>
   private async Task<Result<string>> AwaitSettleAsync(RootTurnWaiter waiter, CancellationToken ct)
   {
-    DateTimeOffset ceiling = DateTimeOffset.UtcNow + TurnBudget.Ceiling;
     while (true)
     {
-      TimeSpan remaining = ceiling - DateTimeOffset.UtcNow;
-      if (remaining <= TimeSpan.Zero)
-      {
-        return Result.Failure<string>(new DomainError("TurnCeilingExceeded",
-            "the root turn exceeded its " + TurnBudget.Ceiling + " ceiling."));
-      }
-
       // Wait for the settle, for the turn to make progress, or for the window to lapse.
       // The lapse is a TIMER CALLBACK (CancelAfter), not a poll: this ACL owns one bounded
       // wait and does not sweep (R5.1 doctrine — no timed waits outside the allowlist).
-      TimeSpan idle = waiter.IdleRemaining(TurnBudget.Idle, DateTimeOffset.UtcNow);
-      TimeSpan wait = idle < remaining ? idle : remaining;
+      TimeSpan wait = waiter.IdleRemaining(TurnBudget.Idle, DateTimeOffset.UtcNow);
       using CancellationTokenSource tick = CancellationTokenSource.CreateLinkedTokenSource(ct);
       tick.CancelAfter(wait);
       TaskCompletionSource<bool> expired = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -405,7 +395,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
         return await settle.ConfigureAwait(false);
       }
 
-      // Progress or idle expiry: re-derive both clocks and loop. A lapsed idle window with
+      // Progress or idle expiry: re-derive the clock and loop. A lapsed idle window with
       // no progress since is the unaddressable case.
       if (waiter.IdleRemaining(TurnBudget.Idle, DateTimeOffset.UtcNow) <= TimeSpan.Zero)
       {
@@ -420,14 +410,13 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       => Result.Failure<string>(new DomainError("HostUnavailable", message));
 
   /// <summary>True when a failed turn is one the app ABANDONED rather than one the host
-  ///     refused: the idle bound and the ceiling both end the app's wait while the host
-  ///     may still be executing the turn, and an abandoned turn must be released on the
-  ///     host side (2026-10-22). A turn the host SETTLED - even with an error payload -
-  ///     is not an abandonment: the host is done with it, and its gate is free.</summary>
+  ///     refused: the idle bound ends the app's wait while the host may still be executing
+  ///     the turn, and an abandoned turn must be released on the host side (2026-10-22).
+  ///     A turn the host SETTLED - even with an error payload - is not an abandonment: the
+  ///     host is done with it, and its gate is free.</summary>
   private static bool IsAbandonment(DomainError? error)
       => error is { } failure
-          && (string.Equals(failure.Code, "TurnUnaddressable", StringComparison.Ordinal)
-              || string.Equals(failure.Code, "TurnCeilingExceeded", StringComparison.Ordinal));
+          && string.Equals(failure.Code, "TurnUnaddressable", StringComparison.Ordinal);
 
   /// <summary>Routes one streamed root-turn event to its waiter: every event reaches the
   ///     caller's callback in arrival order and resets the idle clock, and a 'settled' event

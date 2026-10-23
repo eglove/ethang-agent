@@ -256,9 +256,6 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     unconfigured (the runtime default applies).</summary>
   public string? ConfiguredRootTurnIdle => _settings?.SubAgents.RootTurnBudget?.Idle.ToString("c");
 
-  /// <summary>The configured root-turn ceiling as constant-format text, or null.</summary>
-  public string? ConfiguredRootTurnCeiling => _settings?.SubAgents.RootTurnBudget?.Ceiling.ToString("c");
-
   public string? ConfiguredWatchdogTick => _settings?.Watchdog?.TickInterval?.ToString("c");
   /// <summary>The watchdog idle-threshold text the settings modal prefills in
   ///     constant format (null when the knob is unset).</summary>
@@ -785,8 +782,6 @@ internal sealed partial class MainViewModel : ObservableObject
         Normalize(update.WatchdogWrapUpText));
     await PersistPreferenceAsync(AgentPreferenceKeys.RootTurnIdle,
         Normalize(update.RootTurnIdleText));
-    await PersistPreferenceAsync(AgentPreferenceKeys.RootTurnCeiling,
-        Normalize(update.RootTurnCeilingText));
     await PersistPreferenceAsync(AgentPreferenceKeys.OpenRouterBaseUrl,
         Normalize(update.OpenRouterBaseUrlText));
     await PersistPreferenceAsync(AgentPreferenceKeys.ComputerUseEnabled,
@@ -869,7 +864,7 @@ internal sealed partial class MainViewModel : ObservableObject
           Normalize(update.DefaultModelText),
           Normalize(update.MaxConcurrentAgentsText)
               ?? AgentSettingsDefaults.MaxConcurrentAgents.ToString(CultureInfo.InvariantCulture),
-          Normalize(update.RootTurnIdleText), Normalize(update.RootTurnCeilingText));
+          Normalize(update.RootTurnIdleText));
       watchdog = SubAgentConfiguration.BindWatchdog(
           Normalize(update.WatchdogTickText), Normalize(update.WatchdogIdleText),
           Normalize(update.WatchdogWrapUpText));
