@@ -428,6 +428,15 @@ public static class AgentComposition
             sp.GetRequiredService<ISkillInvocationPort>(),
             sp.GetRequiredService<IConversationSink>(),
             notice => sp.GetRequiredService<AgentSession>().PostNotice(notice)))
+        // New-session channel (issue #234): the per-container carrier of the LIVE root
+        // turn's session-request emitter plus the port adapter that serves the Tool
+        // Domain's INewSessionPort over it. Registered after the skill-invocation block
+        // (registration order mirrors the single chain); the tool binding itself belongs
+        // to the tool-binding task, which also decides the child-surface exclusion —
+        // AgentToolBindings is deliberately untouched here.
+        .AddSingleton<NewSessionRequestChannel>()
+        .AddSingleton<INewSessionPort>(sp => new WireNewSessionPort(
+            sp.GetRequiredService<NewSessionRequestChannel>()))
         .AddSingleton<ILearnedSkillStore, SqliteLearnedSkillStore>()
         .AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow)
         .AddSingleton<SqliteCuratedMemoryStore>()

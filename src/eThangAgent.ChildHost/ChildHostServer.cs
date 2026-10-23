@@ -136,6 +136,11 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       case "interrupt":
         HandleInterrupt(envelope);
         break;
+      case "session-response":
+        // Synchronous on purpose (issue #234): the handler only completes a pending
+        // request's TaskCompletionSource — no I/O, no reason to leave the serve loop.
+        HandleSessionResponse(envelope);
+        break;
       case "root-turn":
         // OFF the serve loop (fix round 1, finding 4): a turn can run for minutes, and
         // awaiting it here stopped the host processing ANY other envelope - start,
@@ -440,6 +445,54 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       return (string.Empty, 0);
     }
 #pragma warning restore CA1031 // Do not catch general exception types
+  }
+
+  /// <summary>Completes one pending session-request with the app's answer (issue #234).
+  ///     The envelope carries the new session's id, or the typed refusal the app
+  ///     answered with. Unknown requestIds are ignored by the channel (a late or
+  ///     duplicate response for an already-completed request); a response that names
+  ///     NEITHER a session id NOR an error is a malformed peer message and is answered
+  ///     as a SessionResponseMalformed failure rather than left pending.
+  ///     Synchronous like HandleDeliver: it completes a TCS and returns.</summary>
+  private void HandleSessionResponse(TransportEnvelope envelope)
+  {
+    SessionResponseCommand? command;
+    try
+    {
+      command = JsonSerializer.Deserialize<SessionResponseCommand>(envelope.Json);
+    }
+#pragma warning disable CA1031 // Do not catch general exception types
+    catch (Exception)
+    {
+      // Named decision (CA1031): an undecodable response is a PEER fault; there is no
+      // requestId to answer, so it is dropped — the requesting tool's own budget and
+      // the turn's teardown bound the wait, never this handler.
+      return;
+    }
+#pragma warning restore CA1031
+    if (command is null || string.IsNullOrWhiteSpace(command.RequestId))
+    {
+      return; // unaddressable: no requestId means no pending request to complete
+    }
+
+    Result<string> outcome = (command.SessionId, command.ErrorCode) switch
+    {
+      ({ Length: > 0 } sessionId, _) => Result.Success(sessionId),
+      (_, { Length: > 0 } errorCode) => Result.Failure<string>(new DomainError(errorCode,
+          command.ErrorMessage ?? "the app refused the session launch.")),
+      _ => Result.Failure<string>(new DomainError("SessionResponseMalformed",
+          "the app's session-response named neither a session id nor an error.")),
+    };
+    _ = ResolveRootHostAsync().ContinueWith(resolved =>
+    {
+      // The resolution is awaited here rather than blocking the serve loop: the runner
+      // may still be building on a cold host. A null runner (no root session bound, or
+      // the build failed) is a silent drop — there is no requester to answer.
+      if (resolved.Result is { } rootHost)
+      {
+        rootHost.CompleteSessionRequest(command.RequestId, outcome);
+      }
+    }, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
   }
 
   /// <summary>Delivers a steering envelope into the running child's mailbox (FR-C2).

@@ -1,5 +1,6 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
+using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.ModelDomain;
 using eThangAgent.SharedKernel;
@@ -177,6 +178,10 @@ public sealed class RootRunHost : IDisposable
       // The turn is over: the heartbeat must not speak for it any more. This runs BEFORE
       // the heartbeat is disposed, so no progress event can follow the settle.
       emitter.Complete();
+      // The new-session channel (issue #234) rides THIS turn only: disconnected on every
+      // exit path — success, failure, cancellation, and the pre-flight refusals — so a
+      // pending session-request never outlives the turn that could carry its answer.
+      DisconnectSessionChannel();
     }
   }
 
@@ -230,6 +235,14 @@ public sealed class RootRunHost : IDisposable
           + "rather than served by a model the user did not choose."));
       emitter.Emit("settled", DescribeFailure(refused.Error));
       return refused;
+    }
+
+    // The new-session channel (issue #234) rides the LIVE turn: connected here, before
+    // the handler runs, and disconnected in RunTurnAsync's finally. A container without
+    // the channel (a test rig) skips silently — the port is an optional capability.
+    if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    {
+      channel.Connect(payload => emitter.Emit("session-request", payload));
     }
 
     SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
@@ -502,6 +515,29 @@ public sealed class RootRunHost : IDisposable
       => error is null
           ? "Error [Unknown]: the turn failed without an error."
           : "Error [" + error.Code + "]: " + error.Message;
+
+  /// <summary>Disconnects the new-session channel at turn end (issue #234). The channel
+  ///     is an optional capability — a container without it (a test rig) skips silently.
+  ///     Pending requests fail as SessionRequestUnreachable: the turn that could carry
+  ///     them to the app is gone.</summary>
+  private void DisconnectSessionChannel()
+  {
+    if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    {
+      channel.Disconnect();
+    }
+  }
+
+  /// <summary>Completes one pending session-request with the app's answer (issue #234).
+  ///     The ChildHostServer's session-response handler calls this on the resolved root
+  ///     runner. Unknown requestIds are ignored by the channel.</summary>
+  public void CompleteSessionRequest(string requestId, Result<string> outcome)
+  {
+    if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    {
+      channel.Complete(requestId, outcome);
+    }
+  }
 
   /// <summary>Releases the turn gate. Disposing a runner with a turn in flight is a host
   ///     shutdown; the in-flight turn observes its own cancellation, never a disposed gate.</summary>
