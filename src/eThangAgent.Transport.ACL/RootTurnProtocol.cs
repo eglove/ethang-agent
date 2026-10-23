@@ -110,12 +110,16 @@ public sealed record RootTurnRequest(string TurnId, string Input, IReadOnlyList<
 }
 
 /// <summary>One event streamed back for a root turn. Kinds are exactly `delta`,
-///     `reasoning`, `notice`, `tool`, `settled`, `progress`, and `session-request` - the
-///     first five are the surface the session view renders; `progress` is the LIVENESS HEARTBEAT
+///     `reasoning`, `notice`, `tool`, `settled`, `progress`, `session-request`, and
+///     `context` - the first five are the surface the session view renders; `progress` is
+///     the LIVENESS HEARTBEAT
 ///     (2026-10-22): the host emits it when a turn has been quiet, so the app can tell
 ///     "the host is busy" from "the host stopped answering" instead of failing a healthy
 ///     long turn; `session-request` is the host's app-ward request to start a NEW session
-///     in the workspace (issue #234), emitted while the new_session tool runs host-side.
+///     in the workspace (issue #234), emitted while the new_session tool runs host-side;
+///     `context` carries the session's context accounting (issue #255) as a
+///     <see cref="RootTurnContextPayload"/> JSON object, so the status bar's CTX line
+///     advances for a host-run turn exactly as it did in-process.
 /// <para>PROTOCOL REQUIREMENT FOR HOST IMPLEMENTERS: <see cref="Generation"/> MUST be echoed
 ///     verbatim from the <see cref="RootTurnRequest"/> that produced the event. The app mints
 ///     a fresh generation per turn and delivers an event only when BOTH the turn id and the
@@ -132,12 +136,13 @@ public sealed record RootTurnEvent(string TurnId, string Kind, string Payload, l
 public static class RootTurnProtocol
 {
   /// <summary>The event kinds the wire carries: the five the session view renders,
-  ///     `progress` the liveness heartbeat, and `session-request` the host's app-ward
-  ///     request to start a NEW session (issue #234); anything else is a protocol error,
-  ///     not a forward-compatible unknown.</summary>
+  ///     `progress` the liveness heartbeat, `session-request` the host's app-ward
+  ///     request to start a NEW session (issue #234), and `context` the session's context
+  ///     accounting (issue #255); anything else is a protocol error, not a
+  ///     forward-compatible unknown.</summary>
   public static readonly IReadOnlySet<string> EventKinds = new HashSet<string>(StringComparer.Ordinal)
   {
-    "delta", "reasoning", "notice", "tool", "settled", "progress", "session-request",
+    "delta", "reasoning", "notice", "tool", "settled", "progress", "session-request", "context",
   };
 
   public static string SerializeRequest(RootTurnRequest request)

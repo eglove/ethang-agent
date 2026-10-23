@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../eThangAgent.Agent.Domain/eThangAgent.Agent.Domain.csproj" />
+    <!-- The context snapshot the `context` wire kind carries (issue #255) is a Model
+         Domain record; the payload converts to and from it, so the reference is explicit
+         rather than leaning on Agent.Domain's transitive one. -->
+    <ProjectReference Include="../eThangAgent.Model.Domain/eThangAgent.Model.Domain.csproj" />
     <ProjectReference Include="../eThangAgent.SharedKernel/eThangAgent.SharedKernel.csproj" />
   </ItemGroup>
 </Project>

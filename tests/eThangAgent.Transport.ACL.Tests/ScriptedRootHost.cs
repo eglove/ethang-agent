@@ -23,7 +23,11 @@ internal sealed record ScriptedOptions(
     // before its answer. Grouped here so the factory stays inside the parameter budget.
     IReadOnlyList<string>? ReasoningDeltas = null,
     IReadOnlyList<ToolCallRequest>? ToolCalls = null,
-    string? ToolResultContent = null);
+    string? ToolResultContent = null,
+    // Issue #255 test knob: the provider-scored usage the scripted model reports. Null
+    // (the default) reports none, so the accountant stays empty and no context event
+    // fires - the shape every pre-existing test relies on.
+    TokenUsage? Usage = null);
 
 #pragma warning disable CA1812 // Instantiated by the gate tests, not by this file.
 /// <summary>The optional mid-turn park a streaming test needs: an ASYNC hook that runs
@@ -93,7 +97,12 @@ internal sealed class ScriptedRootHost : IDisposable
         options ?? new ScriptedOptions());
     ModelConfig config = ModelConfig.Create("scripted/model", null, 4096, 0f, 200_000).Value!;
     AgentId rootId = AgentId.NewId();
-    Ag agent = new(provider, conversation, config, tools, new AgentOptions { Id = rootId });
+    // The context accountant is wired exactly as production wires it (RootAgentHolder
+    // builds one per resolved window): the loop's OnContextUpdate only fires when a
+    // monitor exists, so a harness without one could never observe the `context` wire
+    // kind (issue #255).
+    Ag agent = new(provider, conversation, config, tools,
+        new AgentOptions { Id = rootId, ContextMonitor = new ContextAccountant(config.ContextWindow) });
     RootSessionIdentity carrier = identity ?? new RootSessionIdentity();
 
     RecordingStore store = new(storedHistory ?? [], storeDelay ?? TimeSpan.Zero,
@@ -246,7 +255,9 @@ internal sealed class ScriptedRootHost : IDisposable
         return Result.Success(new ModelResponse("", calls));
       }
 
-      return Result.Success(new ModelResponse(answer, []));
+      // The provider-scored usage (issue #255): the agent's accountant is the only
+      // context source, so a scripted model that reports none produces no snapshot.
+      return Result.Success(new ModelResponse(answer, [], FinishReason.Stop, options.Usage));
     }
   }
 

@@ -24,8 +24,10 @@ namespace eThangAgent.ChildHost;
 ///     as "ok"); <c>OnSystemMessage</c> and the handler's model-resolution notice become
 ///     <c>notice</c>; the turn's completion - success OR failure - becomes exactly one
 ///     <c>settled</c> event carrying either the answer or
-///     <c>Error [&lt;code&gt;]: &lt;message&gt;</c>. Iteration ends, context snapshots, and
-///     compaction outcomes have no wire kind and are not forwarded.</para>
+///     <c>Error [&lt;code&gt;]: &lt;message&gt;</c>; <c>OnContextUpdate</c> becomes
+///     <c>context</c> (a <see cref="RootTurnContextPayload"/> JSON object - issue #255,
+///     the status bar's CTX line). Iteration ends and compaction outcomes have no wire
+///     kind and are not forwarded.</para>
 ///     <para>PROTOCOL REQUIREMENT: every emitted event echoes the request's
 ///     <see cref="RootTurnRequest.Generation"/> VERBATIM. The app mints a fresh generation
 ///     per turn and delivers an event only when both the turn id and the generation match
@@ -261,6 +263,11 @@ public sealed class RootRunHost : IDisposable
         OnToolResult: (name, summary, content, isError, rich) => emitter.Emit("tool",
             JsonSerializer.Serialize(new RootTurnToolResultPayload(name, isError ? "error" : "ok",
                 rich?.Title, summary, content))),
+        // The context snapshot (issue #255): the loop fires this after every provider
+        // response and after a compaction, and the accountant lives HERE - so a
+        // snapshot that did not travel left the app's CTX line frozen for every
+        // host-run turn (only the in-process path ever reached Status.SetContext).
+        OnContextUpdate: snapshot => emitter.Emit("context", RootTurnContextPayload.Serialize(snapshot)),
         OnSystemMessage: text => emitter.Emit("notice", text));
 
     Result<string> result;

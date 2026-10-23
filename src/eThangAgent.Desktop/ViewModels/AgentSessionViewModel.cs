@@ -851,8 +851,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   }
 
   /// <summary>Maps one host event onto the stream bridge. The wire kinds are the
-  ///     session surface's own vocabulary (delta/reasoning/notice/tool/settled), so this
-  ///     is a translation, never a second rendering path.
+  ///     session surface's own vocabulary (delta/reasoning/notice/tool/settled, plus
+  ///     context for the status bar's accounting), so this is a translation, never a
+  ///     second rendering path.
   ///     <para>An unreadable <c>tool</c> payload becomes a notice instead of vanishing: a
   ///     dropped tool event would hide a whole step of the turn.</para>
   ///     <para><c>progress</c> is the host's LIVENESS HEARTBEAT (2026-10-22) and renders
@@ -881,6 +882,19 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         break;
       case "session-request":
         ApplySessionRequest(evt.Payload);
+        break;
+      case "context":
+        // The session's context accounting (issue #255): the accountant lives in the
+        // HOST, so this event is the only way the status bar's CTX line advances for a
+        // host-run turn. SetContext is already thread-safe (it raises through the
+        // dispatcher), so no marshal is needed here. An unreadable payload is dropped
+        // rather than rendered: the CTX line is a status readout, and a notice per
+        // provider response would flood the transcript.
+        if (RootTurnContextPayload.Parse(evt.Payload) is { } context)
+        {
+          Status.SetContext(context.ToSnapshot());
+        }
+
         break;
       case "progress":
         // The heartbeat proves the host is alive; it says nothing the transcript needs.

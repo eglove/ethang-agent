@@ -62,7 +62,14 @@ Any external system or platform-specific concern is isolated behind an Anti-Corr
 **Root turns over the transport.** Two envelope kinds ride the same
 framing and pumps as the child-run kinds: `root-turn` (app → host: `RootTurnRequest` =
 turn id + input + seed) and `root-turn-event` (host → app: `RootTurnEvent` = turn id +
-kind + payload + generation). `RootTurnProtocol` is the codec; `RemoteAgentRuntime
+kind + payload + generation). The event kinds are a STRICT set — `delta`, `reasoning`,
+`notice`, `tool`, `settled`, `progress`, `session-request`, and `context`; an unknown kind
+is a protocol error, never a forward-compatible unknown. `context` carries the loop's
+`OnContextUpdate` snapshot (`RootTurnContextPayload`: last input tokens, session totals,
+catalog window, utilization, and the estimated bucket breakdown) so the status bar's CTX
+line advances for a HOST-run turn exactly as it did in-process — the accountant lives in
+the host, so a snapshot that did not travel left every production session's CTX frozen
+(issue #255). `RootTurnProtocol` is the codec; `RemoteAgentRuntime
 .SendRootTurnAsync` is the app-side call and `ChildHostServer` the host-side case. The host
 **must echo the request's generation verbatim** — the app drops any event whose
 (id, generation) does not match the live turn, which is what keeps a reused turn id safe.
