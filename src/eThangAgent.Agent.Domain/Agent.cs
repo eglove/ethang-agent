@@ -102,6 +102,24 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly ToolRepeatGuard _repeatGuard = new();
   private readonly ReadFreshnessLedger _readLedger = new();
 
+  /// <summary>THE REQUEST PREFIX, SNAPSHOTTED ONCE PER TURN (issue #267). The system
+  ///     prompt and the tool definitions are the leading bytes of every request, so a
+  ///     value that changes between iterations invalidates the provider's prompt cache
+  ///     from its first changed character - every later token re-billed at full input
+  ///     price, silently. Before this field existed the loop called
+  ///     <c>_systemPrompt.Build()</c> at three sites and read
+  ///     <c>_tools.Definitions</c> at two, all inside the iteration loop, so ANY
+  ///     provider whose Build() was not pure (a store read, a file read, a listing that
+  ///     hot-reloaded mid-turn) rewrote the prefix and there was nothing to notice it
+  ///     with.
+  ///     <para>The snapshot is taken at the START of each turn and reused for every
+  ///     iteration of that turn. That is the deliberate boundary: content that
+  ///     legitimately changes mid-session (a skill installed while the user works) takes
+  ///     effect on the NEXT turn, which is a cache miss the user asked for, instead of
+  ///     on an arbitrary iteration, which is a cache miss nobody asked for. Null until
+  ///     the first turn runs; legacy wiring with no prompt provider snapshots null.</para></summary>
+  private RequestPrefix _turnPrefix = RequestPrefix.Unrendered;
+
   public Conversation Conversation { get; } = conversation ?? throw new ArgumentNullException(nameof(conversation));
 
   private static IDisposable SubscribeSink(Conversation conversation, IChildTranscriptStore sink)
@@ -269,6 +287,20 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
   }
 
+  /// <summary>The frozen request prefix for one turn (issue #267): the rendered system
+  ///     prompt and the tool definitions, read ONCE at the turn's start and reused by
+  ///     every iteration. Both are leading bytes of the request, so this snapshot is what
+  ///     makes the prefix provably stable within a turn - the property prompt caching
+  ///     depends on and the harness previously could not state.</summary>
+  private sealed record RequestPrefix(string? SystemPrompt, IReadOnlyList<ToolDefinition> Tools)
+  {
+    /// <summary>The pre-turn state: no prompt rendered, no tools read. Every turn
+    ///     replaces it before its first iteration, so this value is only ever observed
+    ///     by code that runs outside a turn (nothing does today - the estimate path it
+    ///     guards runs inside one).</summary>
+    public static RequestPrefix Unrendered { get; } = new(null, []);
+  }
+
   /// <summary>Turn-local loop state: the bounded-retry counters an overflow recovery
   ///     or an auto-continuation set for the REMAINDER of the turn (never carried
   ///     between turns).</summary>
@@ -302,6 +334,9 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     _repeatGuard.Reset();
     _readLedger.Reset();
     TurnState state = new();
+    // The request prefix is frozen for the whole turn (issue #267): one system-prompt
+    // render and one tool-definition read, reused by every iteration. See _turnPrefix.
+    _turnPrefix = new RequestPrefix(_systemPrompt?.Build(), _tools.Definitions);
     DrainInbox(inbox);
     Conversation.AddUserMessage(text, imageParts);
     Beat();
@@ -319,7 +354,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // list, so handing it out directly would let every consumer of this request
       // (retries, logging, tests) read messages added by later iterations.
       ModelRequest request = new(
-          [.. Conversation.Messages], _tools.Definitions, _systemPrompt?.Build(), _sessionId);
+          [.. Conversation.Messages], _turnPrefix.Tools, _turnPrefix.SystemPrompt, _sessionId);
       // Stream-activity stamping: every fragment (content or reasoning) proves the
       // provider stream is alive. The stamp rides the option, not the turn callbacks,
       // so children get it without a UI surface. Null option: byte-identical legacy.
@@ -367,8 +402,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
     // list, so handing it out directly would let every consumer of this request
     // (retries, logging, tests) read messages added by later iterations.
-    ReportUsage(new ModelRequest([.. Conversation.Messages], _tools.Definitions,
-        _systemPrompt?.Build(), _sessionId), response, callbacks);
+    ReportUsage(new ModelRequest([.. Conversation.Messages], _turnPrefix.Tools,
+        _turnPrefix.SystemPrompt, _sessionId), response, callbacks);
     await SurfaceServerToolCallsAsync(response, callbacks, ct).ConfigureAwait(false);
     if (response.ToolCalls.Count == 0)
     {
@@ -620,7 +655,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     quietly is correct — the next honest report compacts.</summary>
   private bool UsageInflated(IContextMonitor monitor)
   {
-    long estimateChars = _systemPrompt?.Build().Length ?? 0;
+    long estimateChars = _turnPrefix.SystemPrompt?.Length ?? 0;
     foreach (Message message in Conversation.Messages)
     {
       estimateChars += message.Content.Length;

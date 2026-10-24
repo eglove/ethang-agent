@@ -20,6 +20,15 @@ public sealed class ConversationContextService(Conversation conversation)
 
   private readonly Conversation _conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
 
+  /// <summary>THE PRICE OF THE REWRITE (issue #267), rendered onto every tool-result
+  ///     shrink's sentinel. A provider's prompt cache is a PREFIX cache, so rewriting
+  ///     bytes in the middle of the array re-bills everything from the first changed
+  ///     message onward; this states that trade as numbers beside the savings the trim
+  ///     bought. The trim is never gated on it - the report exists so the trade is
+  ///     visible instead of invisible.</summary>
+  private static string Cost(IReadOnlyList<Message> messages, int firstChangedIndex, long savedChars) =>
+      ContextShrinkCost.Of(messages, firstChangedIndex, savedChars).Render();
+
   /// <summary>Renders the current message list: one '[i] [Role] content' line per
   ///     message, embedded newlines as indented continuation lines, tool calls as
   ///     'tool_call(id): name(arguments)'.</summary>
@@ -145,14 +154,17 @@ public sealed class ConversationContextService(Conversation conversation)
 
     IReadOnlyList<int> positions = resolved.Value;
     List<Message> updated = [.. messages];
+    long savedChars = 0;
     foreach (int position in positions)
     {
-      updated[position] = updated[position] with { Content = ToolResultMarker.For(messages, position) };
+      string marker = ToolResultMarker.For(messages, position);
+      savedChars += messages[position].Content.Length - marker.Length;
+      updated[position] = updated[position] with { Content = marker };
     }
 
     Result<bool> applied = _conversation.Compact(updated);
     return applied.IsSuccess
-        ? Result.Success($"{ShrankSentinel} {positions.Count} message(s): trimmed {parsed.Value.Render()}.]")
+        ? Result.Success($"{ShrankSentinel} {positions.Count} message(s): trimmed {parsed.Value.Render()}.] {Cost(messages, positions.Min(), savedChars)}")
         : Result.Failure<string>(applied.Error);
   }
 
@@ -180,10 +192,11 @@ public sealed class ConversationContextService(Conversation conversation)
 
     int position = resolved.Value[0];
     List<Message> updated = [.. _conversation.Messages];
+    long savedChars = updated[position].Content.Length - text.Length;
     updated[position] = updated[position] with { Content = text };
     Result<bool> applied = _conversation.Compact(updated);
     return applied.IsSuccess
-        ? Result.Success($"{ShrankSentinel} 1 message(s): message {position + 1} shortened.]")
+        ? Result.Success($"{ShrankSentinel} 1 message(s): message {position + 1} shortened.] {Cost(updated, position, savedChars)}")
         : Result.Failure<string>(applied.Error);
   }
 

@@ -106,4 +106,48 @@ public sealed class SessionFilesPromptProviderTests : IDisposable
     Assert.Contains("[session-files]", text, StringComparison.Ordinal);
     Assert.Contains("workspace", text, StringComparison.Ordinal);
   }
+
+  // Issue #267: Build() is a PURE RENDER. It used to re-read every configured file on
+  // every call while its doc claimed purity, and Build runs at least three times per
+  // iteration - so editing a session file mid-turn rewrote the first bytes of the
+  // request and silently invalidated the entire prompt cache. The snapshot is taken at
+  // construction; these tests pin that a later file change cannot reach the wire.
+  [Fact]
+  public void Build_IsPure_RepeatedCallsAreByteIdentical()
+  {
+    File.WriteAllText(Path.Combine(_dir, "a.md"), "AAA");
+    SessionFilesPromptProvider provider = new(_dir,
+        List(new SessionFileEntry(Path.Combine(_dir, "a.md"), true)), null);
+
+    Assert.Equal(provider.Build(), provider.Build());
+  }
+
+  [Fact]
+  public void Build_DoesNotReReadFiles_AfterConstruction()
+  {
+    string path = Path.Combine(_dir, "a.md");
+    File.WriteAllText(path, "ORIGINAL");
+    SessionFilesPromptProvider provider = new(_dir,
+        List(new SessionFileEntry(path, true)), null);
+
+    File.WriteAllText(path, "REWRITTEN-AFTER-CONSTRUCTION");
+
+    string text = provider.Build();
+    Assert.Contains("ORIGINAL", text, StringComparison.Ordinal);
+    Assert.DoesNotContain("REWRITTEN-AFTER-CONSTRUCTION", text, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void Build_DoesNotReReadFiles_BetweenCalls()
+  {
+    string path = Path.Combine(_dir, "a.md");
+    File.WriteAllText(path, "FIRST");
+    SessionFilesPromptProvider provider = new(_dir,
+        List(new SessionFileEntry(path, true)), null);
+    string first = provider.Build();
+
+    File.WriteAllText(path, "SECOND");
+
+    Assert.Equal(first, provider.Build());
+  }
 }
