@@ -723,6 +723,17 @@ internal partial class AgentView : UserControl
 
   private void OnStopClick(object? sender, RoutedEventArgs e) => Vm?.RequestStop();
 
+  /// <summary>Workbench icon click (issue #8): selects that view. The view-model ignores
+  ///     a view it has not built, so an unavailable icon is inert without the view
+  ///     needing to check.</summary>
+  private void OnWorkbenchIconClick(object? sender, RoutedEventArgs e)
+  {
+    if (sender is Button { Tag: WorkbenchView view } && Vm is { } vm)
+    {
+      vm.Workbench.Select(view);
+    }
+  }
+
   /// <summary>Copies the full session id to the clipboard; the button label flashes
   ///     a checkmark and reverts shortly after (best effort - no clipboard, no crash).</summary>
   private async void OnCopySessionId(object? sender, RoutedEventArgs e)

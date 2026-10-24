@@ -6,7 +6,10 @@ using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.Streaming;
 using eThangAgent.ModelDomain;
+using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
+using eThangAgent.StateDomain;
+using eThangAgent.Storage.ACL;
 using eThangAgent.ToolDomain;
 using eThangAgent.Transport.ACL;
 
@@ -97,6 +100,18 @@ internal sealed record AgentSessionViewModelOptions
   ///     SEEDED from it at tab open, so a resumed session starts from its real history.
   ///     Null = nothing is seeded and the cost starts at zero (headless stubs).</summary>
   public IUsageQueries? UsageQueries { get; init; }
+
+  /// <summary>The workbench's Plans view seams (issue #8): the plan service whose events
+  ///     announce in-process writes, the state service holding todo/list, and the
+  ///     cross-process change signal. All null = the workbench renders its unavailable
+  ///     state (headless stubs), never a blank pane.</summary>
+  public PlanService? Plans { get; init; }
+
+  public IStateService? State { get; init; }
+
+  public IChangeSignal? ChangeSignal { get; init; }
+
+  public IStateChangeBus? StateChanges { get; init; }
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
@@ -252,6 +267,11 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   ///     store. Always constructed; visible only while rows exist.</summary>
   public SubagentPanelViewModel Subagents { get; }
 
+  /// <summary>The right-hand workbench (issue #8, design D1/D5): a permanent column with
+  ///     an icon strip, showing one view at a time. Always constructed so the shell's
+  ///     layout is stable; the user's collapse is what hides it.</summary>
+  public WorkbenchViewModel Workbench { get; }
+
   /// <summary>Feeds the popup from the input box's current text; the view calls
   ///     this on every input change.</summary>
   public void UpdateAutocomplete(string input) => Autocomplete?.Update(input);
@@ -363,6 +383,15 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     Subagents = new SubagentPanelViewModel(options.AgentStore);
     Subagents.Attach(options.ChildEvents, apply => evt =>
       Avalonia.Threading.Dispatcher.UIThread.Post(() => apply(evt)));
+    // The workbench renders on the UI thread (its refresh completes on pool threads).
+    Workbench = new WorkbenchViewModel(
+        new PlansViewViewModel(
+            options.Plans,
+            options.State,
+            options.ChangeSignal,
+            options.StateChanges,
+            render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
+        Subagents);
     // Grand-plan "show initial bootstrap/context at start of session": the first
     // transcript line states what the session runs under (transient, never a
     // conversation message). Resume replays persisted history after it.
@@ -720,6 +749,9 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // M17: release decoded screenshot bitmaps when the tab shuts down.
     _drainLease?.Dispose();
     _drainLease = null;
+    // Issue #8: stop the workbench's poller and detach its event subscriptions; a
+    // closed tab must not keep reading the database once a second.
+    Workbench.Dispose();
     Transcript.DisposeEntries();
     await _lifecycle.CompleteAsync(_rootId, ReportPersistenceError).ConfigureAwait(true);
   }

@@ -32,16 +32,29 @@ public class FullWidthLayoutTests
   }
 
   [AvaloniaFact]
-  public void InputRow_SpansFullContainerWidth()
+  public void InputRow_SpansFullChatColumnWidth()
   {
     (AgentView view, TextBox input) = ShowAt(1100);
 
-    double container = view.Bounds.Width;
+    // Issue #8: the chat is one column of the workbench layout, so 'full width' means
+    // the CHAT COLUMN, not the whole window. The invariant under test is unchanged -
+    // no fixed 480 DIP input, no left-packed bar - only the container it is measured
+    // against moved.
+    double container = ChatColumnWidth(view);
     Grid inputGrid = InputGrid(view);
-    // The row fills the container except its own symmetric 8 DIP gutters.
+    // The row fills the column except its own symmetric 8 DIP gutters.
     Assert.Equal(container - inputGrid.Margin.Left - inputGrid.Margin.Right, inputGrid.Bounds.Width, 1.0);
     Assert.True(input.Bounds.Width > container * 0.8,
-        $"input should span most of the container ({input.Bounds.Width} of {container})");
+        $"input should span most of the chat column ({input.Bounds.Width} of {container})");
+  }
+
+  /// <summary>The chat column's width: the AgentView minus the workbench and its splitter,
+  ///     read from the chat DockPanel itself so the assertion never re-derives layout.</summary>
+  private static double ChatColumnWidth(AgentView view)
+  {
+    DockPanel chat = view.GetVisualDescendants().OfType<DockPanel>()
+        .First(d => Grid.GetColumn(d) == 0 && d.Parent is Grid g && g.Name == "RootSplit");
+    return chat.Bounds.Width;
   }
 
   [AvaloniaFact]
@@ -54,7 +67,7 @@ public class FullWidthLayoutTests
   }
 
   [AvaloniaFact]
-  public void StatusBarBorder_SpansFullContainerWidth()
+  public void StatusBarBorder_SpansFullChatColumnWidth()
   {
     (AgentView view, TextBox _) = ShowAt(1100);
     Button sessionId = SessionIdButton(view);
@@ -62,7 +75,8 @@ public class FullWidthLayoutTests
     Border statusBorder = view.GetVisualDescendants().OfType<Border>()
         .First(b => b.Child is DockPanel dp && dp.Children.Contains(sessionId));
 
-    Assert.Equal(view.Bounds.Width, statusBorder.Bounds.Width, 1.0);
+    // Issue #8: measured against the chat column, which is what the bar spans.
+    Assert.Equal(ChatColumnWidth(view), statusBorder.Bounds.Width, 1.0);
   }
 
   private static Grid InputGrid(AgentView view) => view.GetVisualDescendants().OfType<Grid>()
