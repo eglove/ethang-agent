@@ -50,7 +50,7 @@ public sealed class PlanService(IPlanStore store, IPlanTodoCleaner? todoCleaner 
 
   public Task<Result<Plan>> GetAsync(int id, CancellationToken ct = default) => store.GetAsync(id, ct);
 
-  public Task<Result<IReadOnlyList<Plan>>> ListAsync(PlanStatus? status, CancellationToken ct = default) =>
+  public Task<Result<PlanCatalog>> ListAsync(PlanStatus? status, CancellationToken ct = default) =>
     store.ListAsync(status, ct);
 
   public async Task<Result<Plan>> AddStepAsync(int id, string title, string? detail, int? todoId,

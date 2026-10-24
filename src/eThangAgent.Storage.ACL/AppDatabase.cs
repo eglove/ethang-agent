@@ -118,6 +118,7 @@ public sealed class AppDatabase
     (17, ApplyV17),
     (18, ApplyV18),
     (19, ApplyV19),
+    (20, ApplyV20),
   ];
 
   private void Migrate()
@@ -700,6 +701,91 @@ public sealed class AppDatabase
     AddColumnIfMissing(connection,
         "SELECT COUNT(*) FROM pragma_table_info('mailbox_messages') WHERE name = 'message_id';",
         "ALTER TABLE mailbox_messages ADD COLUMN message_id TEXT NULL;");
+  }
+
+  /// <summary>V20 repairs the corrupt plan_steps rows and closes the door behind them
+  ///     (issue #279). Six rows carried status 'Completed' - a PlanStatus value written into
+  ///     a step-status column - which made the store throw while materializing the LIST, so
+  ///     no plan in the workspace was readable. The repair maps the plan-level vocabulary
+  ///     onto the step-level one ('Completed' -> 'Done') and stamps any other out-of-enum
+  ///     value to 'Pending' rather than guessing a completed step: an unknown status is not
+  ///     evidence that work finished. The CHECK constraints are what make this a one-time
+  ///     repair - the capability provider already refuses bad input, but nothing stopped a
+  ///     DIRECT writer (an exec script's SQL), and now SQLite itself refuses. The constraints
+  ///     are added by rebuilding the tables, because SQLite cannot ALTER TABLE ADD CONSTRAINT;
+  ///     ids and versions are preserved verbatim, so no plan changes identity or CAS state.</summary>
+  private static void ApplyV20(SqliteConnection connection)
+  {
+    // The rebuild DROPS the parent table while children still reference it, which
+    // SQLite refuses under foreign-key enforcement. Enforcement is a per-connection
+    // pragma and cannot be toggled inside a transaction, so it is switched off around
+    // the rebuild and restored after - the data is copied verbatim, so no FK can be
+    // violated by the copy itself.
+    Execute(connection, "PRAGMA foreign_keys = OFF;");
+    try
+    {
+      RebuildPlanTables(connection);
+    }
+    finally
+    {
+      Execute(connection, "PRAGMA foreign_keys = ON;");
+    }
+  }
+
+  private static void Execute(SqliteConnection connection, string sql)
+  {
+    using SqliteCommand command = connection.CreateCommand();
+#pragma warning disable CA2100 // Review SQL query for security vulnerabilities
+    command.CommandText = sql;
+#pragma warning restore CA2100
+    _ = command.ExecuteNonQuery();
+  }
+
+  private static void RebuildPlanTables(SqliteConnection connection)
+  {
+    string sql = """
+        UPDATE plan_steps SET status = 'Done' WHERE status = 'Completed';
+        UPDATE plan_steps SET status = 'Pending'
+         WHERE status NOT IN ('Pending', 'InProgress', 'Done');
+        UPDATE plans SET status = 'Abandoned'
+         WHERE status NOT IN ('Active', 'Completed', 'Abandoned');
+
+        CREATE TABLE plans_v20 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            goal TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('Active', 'Completed', 'Abandoned')),
+            version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO plans_v20 (id, workspace_id, session_id, title, goal, status, version, created_at, updated_at)
+            SELECT id, workspace_id, session_id, title, goal, status, version, created_at, updated_at FROM plans;
+        DROP TABLE plans;
+        ALTER TABLE plans_v20 RENAME TO plans;
+
+        CREATE TABLE plan_steps_v20 (
+            plan_id INTEGER NOT NULL REFERENCES plans(id),
+            position INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            detail TEXT,
+            todo_id INTEGER,
+            status TEXT NOT NULL CHECK (status IN ('Pending', 'InProgress', 'Done')),
+            PRIMARY KEY (plan_id, position)
+        );
+        INSERT INTO plan_steps_v20 (plan_id, position, title, detail, todo_id, status)
+            SELECT plan_id, position, title, detail, todo_id, status FROM plan_steps;
+        DROP TABLE plan_steps;
+        ALTER TABLE plan_steps_v20 RENAME TO plan_steps;
+        """;
+    using SqliteTransaction transaction = connection.BeginTransaction();
+    using SqliteCommand command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText = sql;
+    _ = command.ExecuteNonQuery();
+    transaction.Commit();
   }
 
   /// <summary>V18 removes the curated-memories feature (issue #236): the store, its

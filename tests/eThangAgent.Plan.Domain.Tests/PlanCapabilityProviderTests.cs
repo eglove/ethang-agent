@@ -22,9 +22,9 @@ public class PlanCapabilityProviderTests
       Task.FromResult(_plans.TryGetValue(id, out Plan? p)
         ? Result.Success(p)
         : Result.Failure<Plan>(new DomainError("PlanNotFound", $"no plan #{id}")));
-    public Task<Result<IReadOnlyList<Plan>>> ListAsync(PlanStatus? status, CancellationToken ct = default) =>
-      Task.FromResult(Result.Success<IReadOnlyList<Plan>>([.. _plans.Values
-        .Where(p => status is null || p.Status == status)]));
+    public Task<Result<PlanCatalog>> ListAsync(PlanStatus? status, CancellationToken ct = default) =>
+      Task.FromResult(Result.Success(new PlanCatalog(
+        [.. _plans.Values.Where(p => status is null || p.Status == status)], [])));
     public Task<Result<Plan>> SaveAsync(Plan plan, int expectedVersion, CancellationToken ct = default)
     {
       if (!_plans.TryGetValue(plan.Id, out Plan? current))

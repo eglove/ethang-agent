@@ -68,7 +68,7 @@ public sealed class SqlitePlanStoreTests : IDisposable
     Plan active = (await _store.CreateAsync(Plan.New("A", "g", "s", DateTimeOffset.UtcNow), TestContext.Current.CancellationToken)).Value!;
     _ = await _store.CreateAsync(Plan.New("B", "g", "s", DateTimeOffset.UtcNow), TestContext.Current.CancellationToken);
     _ = await _store.SaveAsync(active.SetStatus(PlanStatus.Completed, DateTimeOffset.UtcNow), 1, TestContext.Current.CancellationToken);
-    Result<IReadOnlyList<Plan>> actives = await _store.ListAsync(PlanStatus.Active, TestContext.Current.CancellationToken);
-    _ = Assert.Single(actives.Value!);
+    Result<PlanCatalog> actives = await _store.ListAsync(PlanStatus.Active, TestContext.Current.CancellationToken);
+    _ = Assert.Single(actives.Value!.Plans);
   }
 }

@@ -15,8 +15,10 @@ public interface IPlanStore
   /// <summary>Loads a plan by id; fails with PlanNotFound.</summary>
   Task<Result<Plan>> GetAsync(int id, CancellationToken ct = default);
 
-  /// <summary>Lists plans, optionally filtered by status.</summary>
-  Task<Result<IReadOnlyList<Plan>>> ListAsync(PlanStatus? status, CancellationToken ct = default);
+  /// <summary>Lists plans, optionally filtered by status. A row that cannot be materialized
+  /// is SKIPPED and REPORTED in <see cref="PlanCatalog.Corrupt"/> rather than failing the
+  /// whole listing (issue #279: one bad row blanked every plan in the workspace).</summary>
+  Task<Result<PlanCatalog>> ListAsync(PlanStatus? status, CancellationToken ct = default);
 
   /// <summary>Compare-and-swap save: persists <paramref name="plan"/> only while the stored
   /// version still equals <paramref name="expectedVersion"/>; the store bumps Version on success.

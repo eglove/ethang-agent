@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using eThangAgent.PlanDomain;
 using eThangAgent.SharedKernel;
@@ -75,14 +76,25 @@ public sealed class SqlitePlanStore(AppDatabase database, string workspaceId) : 
 #pragma warning disable CA2007
       await using SqliteConnection connection = _database.Open();
 #pragma warning restore CA2007
-      PlanRow? row = await ReadPlanAsync(connection, id, ct).ConfigureAwait(false);
+      (PlanRow? row, string? reason) = await ReadPlanAsync(connection, id, ct).ConfigureAwait(false);
+      if (reason is not null)
+      {
+        // A single plan has no blast radius to contain, so a corrupt row is a named
+        // failure for THIS plan (issue #279) - never an escaping exception.
+        return Result.Failure<Plan>(Corrupt(id, reason));
+      }
+
       if (row is null)
       {
         return Result.Failure<Plan>(NotFound(id));
       }
 
-      List<PlanStep> steps = await ReadStepsAsync(connection, row.Id, ct).ConfigureAwait(false);
-      return Result.Success(Assemble(row, steps));
+      (List<PlanStep>? steps, string? stepReason) =
+          await TryReadStepsAsync(connection, row.Id, ct).ConfigureAwait(false);
+      return steps is null
+          ? Result.Failure<Plan>(Corrupt(row.Id, stepReason ?? "unreadable step rows"))
+          : Result.Success(new Plan(row.Id, row.Title, row.Goal, row.Status, row.SessionId,
+              row.CreatedAt, row.UpdatedAt, row.Version, steps));
     }
     catch (SqliteException ex)
     {
@@ -90,7 +102,7 @@ public sealed class SqlitePlanStore(AppDatabase database, string workspaceId) : 
     }
   }
 
-  public async Task<Result<IReadOnlyList<Plan>>> ListAsync(PlanStatus? status, CancellationToken ct = default)
+  public async Task<Result<PlanCatalog>> ListAsync(PlanStatus? status, CancellationToken ct = default)
   {
     try
     {
@@ -111,27 +123,42 @@ public sealed class SqlitePlanStore(AppDatabase database, string workspaceId) : 
         Add(command, "@status", status.Value.ToString());
       }
 
-      List<PlanRow> rows = [];
+      // Issue #279: one unreadable row must not blank the whole workspace catalog.
+      // Each plan is materialized in isolation; a corrupt one is skipped and REPORTED
+      // so the caller can render a marker for it while every healthy plan still lists.
+      // The row's id is read BEFORE the columns that can be corrupt, so a reported
+      // plan is always identifiable.
+      List<Plan> plans = [];
+      List<CorruptPlanRow> corrupt = [];
       using (SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
       {
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
         {
-          rows.Add(ReadPlanRow(reader));
+          int rowId = reader.GetInt32(0);
+          if (!TryReadPlanRow(reader, out PlanRow? row, out string? planReason))
+          {
+            corrupt.Add(new CorruptPlanRow(rowId, planReason ?? "unreadable plan row"));
+            continue;
+          }
+
+          (List<PlanStep>? steps, string? stepReason) =
+              await TryReadStepsAsync(connection, rowId, ct).ConfigureAwait(false);
+          if (steps is null)
+          {
+            corrupt.Add(new CorruptPlanRow(rowId, stepReason ?? "unreadable step rows"));
+            continue;
+          }
+
+          plans.Add(new Plan(row.Id, row.Title, row.Goal, row.Status, row.SessionId,
+              row.CreatedAt, row.UpdatedAt, row.Version, steps));
         }
       }
 
-      List<Plan> plans = [];
-      foreach (PlanRow row in rows)
-      {
-        List<PlanStep> steps = await ReadStepsAsync(connection, row.Id, ct).ConfigureAwait(false);
-        plans.Add(Assemble(row, steps));
-      }
-
-      return Result.Success<IReadOnlyList<Plan>>(plans);
+      return Result.Success(new PlanCatalog(plans, corrupt));
     }
     catch (SqliteException ex)
     {
-      return Result.Failure<IReadOnlyList<Plan>>(Unavailable(ex));
+      return Result.Failure<PlanCatalog>(Unavailable(ex));
     }
   }
 
@@ -214,17 +241,30 @@ public sealed class SqlitePlanStore(AppDatabase database, string workspaceId) : 
     _ = await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
   }
 
-  private async Task<PlanRow?> ReadPlanAsync(SqliteConnection connection, int id, CancellationToken ct)
+  /// <summary>Reads one plan row. A null row with a null reason means 'not found'; a
+  ///     non-null reason means the row EXISTS but cannot be read (issue #279).</summary>
+  private async Task<(PlanRow? Row, string? Reason)> ReadPlanAsync(
+      SqliteConnection connection, int id, CancellationToken ct)
   {
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "SELECT id, session_id, title, goal, status, version, created_at, updated_at FROM plans WHERE id=@id AND workspace_id=@ws;";
     Add(command, "@id", id);
     Add(command, "@ws", _workspaceId);
     using SqliteDataReader reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-    return await reader.ReadAsync(ct).ConfigureAwait(false) ? ReadPlanRow(reader) : null;
+    if (!await reader.ReadAsync(ct).ConfigureAwait(false))
+    {
+      return (null, null);
+    }
+
+    return TryReadPlanRow(reader, out PlanRow? row, out string? reason)
+        ? (row, null)
+        : (null, reason);
   }
 
-  private static async Task<List<PlanStep>> ReadStepsAsync(SqliteConnection connection, int planId, CancellationToken ct)
+  /// <summary>Reads a plan's steps, or reports WHY the plan is unreadable (issue #279):
+  ///     a null step list means the caller should skip this plan and record the reason.</summary>
+  private static async Task<(List<PlanStep>? Steps, string? Reason)> TryReadStepsAsync(
+      SqliteConnection connection, int planId, CancellationToken ct)
   {
     using SqliteCommand command = connection.CreateCommand();
     command.CommandText = "SELECT position, title, detail, todo_id, status FROM plan_steps WHERE plan_id=@planId ORDER BY position;";
@@ -235,15 +275,23 @@ public sealed class SqlitePlanStore(AppDatabase database, string workspaceId) : 
     {
       int? todoId = await reader.IsDBNullAsync(3, ct).ConfigureAwait(false) ? null : reader.GetInt32(3);
       string? detail = await reader.IsDBNullAsync(2, ct).ConfigureAwait(false) ? null : reader.GetString(2);
+      string rawStatus = reader.GetString(4);
+      if (!TryParseStepStatus(rawStatus, out PlanStepStatus stepStatus))
+      {
+        // Stop materializing this plan: the caller reports it as a corrupt row and
+        // moves on to the next plan (issue #279).
+        return (null, UnknownStatusReason("step status", rawStatus));
+      }
+
       steps.Add(new PlanStep(
           reader.GetInt32(0),
           reader.GetString(1),
           detail,
           todoId,
-          ParseStepStatus(reader.GetString(4))));
+          stepStatus));
     }
 
-    return steps;
+    return (steps, null);
   }
 
   private async Task<int?> ReadCurrentVersionAsync(SqliteConnection connection, SqliteTransaction transaction,
@@ -258,31 +306,61 @@ public sealed class SqlitePlanStore(AppDatabase database, string workspaceId) : 
     return await reader.ReadAsync(ct).ConfigureAwait(false) ? reader.GetInt32(0) : null;
   }
 
-  private static Plan Assemble(PlanRow row, List<PlanStep> steps)
-      => new(row.Id, row.Title, row.Goal, row.Status, row.SessionId, row.CreatedAt, row.UpdatedAt, row.Version, steps);
+  private static DomainError Corrupt(int planId, string reason)
+      => new("CorruptPlanRow", $"plan #{planId} could not be read: {reason}");
 
-  private static PlanRow ReadPlanRow(SqliteDataReader reader)
+  private static bool TryReadPlanRow(SqliteDataReader reader,
+      [NotNullWhen(true)] out PlanRow? row, [NotNullWhen(false)] out string? reason)
   {
-    return new PlanRow(
-        reader.GetInt32(0),
+    int id = reader.GetInt32(0);
+    string rawStatus = reader.GetString(4);
+    if (!TryParseStatus(rawStatus, out PlanStatus status))
+    {
+      row = null;
+      reason = UnknownStatusReason("status", rawStatus);
+      return false;
+    }
+
+    row = new PlanRow(
+        id,
         reader.GetString(1),
         reader.GetString(2),
         reader.GetString(3),
-        ParseStatus(reader.GetString(4)),
+        status,
         reader.GetInt32(5),
         ParseTimestamp(reader.GetString(6)),
         ParseTimestamp(reader.GetString(7)));
+    reason = null;
+    return true;
   }
 
-  private static PlanStatus ParseStatus(string value)
-      => Enum.TryParse(value, ignoreCase: false, out PlanStatus status)
-          ? status
-          : throw new InvalidOperationException($"corrupt plan row: unknown status '{value}'.");
+  private static string UnknownStatusReason(string column, string rawValue)
+      => $"unknown {column} '{rawValue}' (not a member of its status enum)";
 
-  private static PlanStepStatus ParseStepStatus(string value)
-      => Enum.TryParse(value, ignoreCase: false, out PlanStepStatus status)
-          ? status
-          : throw new InvalidOperationException($"corrupt plan row: unknown step status '{value}'.");
+  /// <summary>Parses a stored status NAME. Enum.TryParse alone is not enough: it accepts a
+  ///     numeric string ('5') and yields an UNDEFINED member, which would smuggle a value
+  ///     outside the enum into the domain. A DEFINED member is the only success.</summary>
+  private static bool TryParseStatus(string value, out PlanStatus status)
+  {
+    if (Enum.TryParse(value, ignoreCase: false, out status) && Enum.IsDefined(status))
+    {
+      return true;
+    }
+
+    status = default;
+    return false;
+  }
+
+  private static bool TryParseStepStatus(string value, out PlanStepStatus status)
+  {
+    if (Enum.TryParse(value, ignoreCase: false, out status) && Enum.IsDefined(status))
+    {
+      return true;
+    }
+
+    status = default;
+    return false;
+  }
 
   private static DateTimeOffset ParseTimestamp(string value)
       => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture);

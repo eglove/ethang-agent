@@ -50,7 +50,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1.")],
             [IdParam]),
         new("index", "List plans, optionally filtered by status.",
-            "Output contract: header '[plan] <n> plan(s)' then one line per plan:\n#<id> [ <status> ] <title> (<n> step(s), session <sid>)\nAn empty list prints only the header. status, when present, must be exactly Active|Completed|Abandoned. Errors: InvalidActionInput (bad params).",
+            "Output contract: header '[plan] <n> plan(s)' then one line per plan:\n#<id> [ <status> ] <title> (<n> step(s), session <sid>)\nAn empty list prints only the header. A plan row that cannot be read is NOT fatal: it is skipped and reported on its own line '#<id> [ CorruptPlanRow ] <reason>' after the healthy plans, so one bad row never blanks the catalog (issue #279). status, when present, must be exactly Active|Completed|Abandoned. Errors: InvalidActionInput (bad params).",
             [new ActionParameter(Status, ActionParameterTypes.StringType, "Optional. Exactly Active|Completed|Abandoned; omit for every plan.")]),
         new("add-step", "Append one step to a plan.",
             "Appends at the next 1-based position. Output contract: '[plan] added step <position> to #<id>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition (frozen plan), VersionConflict.",
@@ -129,18 +129,25 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
   private async Task<CapabilityInvocationResult> IndexAsync(string json)
   {
     Dictionary<string, JsonElement> args = ParseArgs(json, Allowed(Status));
-    Result<IReadOnlyList<Plan>> listed = await _service.ListAsync(OptStatus(args)).ConfigureAwait(false);
+    Result<PlanCatalog> listed = await _service.ListAsync(OptStatus(args)).ConfigureAwait(false);
     if (!listed.IsSuccess)
     {
       return Gutter(listed.Error);
     }
 
     StringBuilder sb = new();
-    _ = sb.Append(CultureInfo.InvariantCulture, $"[plan] {listed.Value.Count} plan(s)");
-    foreach (Plan plan in listed.Value)
+    _ = sb.Append(CultureInfo.InvariantCulture, $"[plan] {listed.Value.Plans.Count} plan(s)");
+    foreach (Plan plan in listed.Value.Plans)
     {
       _ = sb.Append(CultureInfo.InvariantCulture,
           $"\n#{plan.Id} [ {plan.Status} ] {plan.Title} ({plan.Steps.Count} step(s), session {plan.SessionId})");
+    }
+
+    // One unreadable row is reported, never fatal (issue #279): the listing above is
+    // complete for every healthy plan, and each corrupt one gets its own named line.
+    foreach (CorruptPlanRow row in listed.Value.Corrupt)
+    {
+      _ = sb.Append(CultureInfo.InvariantCulture, $"\n#{row.PlanId} [ CorruptPlanRow ] {row.Reason}");
     }
 
     return CapabilityInvocationResult.Ok(sb.ToString());
