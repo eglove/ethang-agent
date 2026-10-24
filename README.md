@@ -148,7 +148,10 @@ content is refused; the extension alone is never trusted (magic-byte + package s
   Choices apply from the next turn, root and children alike, and are persisted per
   workspace + provider — no config files
 - **Context accounting + auto-compaction + in-loop overflow recovery** — the status bar shows a live `CTX 148.2K/1M, 15%`
-  readout (hover for the estimated system-prompt/messages/tools breakdown), plus the session id (first
+  readout (hover for the estimated system-prompt/messages/tools breakdown), plus `, cache 82%` and
+   `, reasoning 1.2K` segments whenever the provider reports a prompt-cache hit or a reasoning-token
+   count (an unreported count renders nothing at all; a reported zero renders as a real zero), plus the
+   session id (first
   8 characters, full id on hover, click ⧉ to copy). The transcript auto-scrolls only while you rest
   at the bottom: your own messages never steal the scroll, scrolling up pauses the follow-the-tail
   behavior until you return to the bottom (or press End), and the reading position survives tab

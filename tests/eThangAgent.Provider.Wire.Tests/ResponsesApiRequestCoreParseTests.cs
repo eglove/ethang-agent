@@ -80,6 +80,67 @@ public class ResponsesApiRequestCoreParseTests
   }
 
   [Fact]
+  public void ParseUsage_ReasoningDetails_MapsReasoningTokens()
+  {
+    // issue #262: output_tokens_details.reasoning_tokens is the hidden share of the
+    // output bill; it rides the same nested-count helper as cached_tokens.
+    JsonDocument body = JsonDocument.Parse(
+        /*lang=json,strict*/"""{"usage":{"input_tokens":100,"output_tokens":20,"input_tokens_details":{"cached_tokens":64},"output_tokens_details":{"reasoning_tokens":12}}}""");
+
+    TokenUsage? usage = ResponsesApiRequestCore.ParseUsage(body.RootElement);
+
+    Assert.Equal(new TokenUsage(100, 20, 64, null, 12), usage);
+  }
+
+  [Fact]
+  public void ParseUsage_NoReasoningDetails_ReasoningTokensIsNullNotZero()
+  {
+    // An unreported count is NULL, never coerced to zero: the reasoning-policy
+    // measurements cannot tell a fabricated zero from a measured one.
+    JsonDocument body = JsonDocument.Parse(
+        /*lang=json,strict*/"""{"usage":{"input_tokens":100,"output_tokens":20}}""");
+
+    TokenUsage? usage = ResponsesApiRequestCore.ParseUsage(body.RootElement);
+
+    Assert.Equal(new TokenUsage(100, 20), usage);
+    Assert.Null(usage!.Value.ReasoningTokens);
+    Assert.Null(usage.Value.CachedInputTokens);
+  }
+
+  [Fact]
+  public void ParseUsage_ReportedZeroReasoning_IsDistinguishableFromAbsent()
+  {
+    // A provider reporting reasoning_tokens: 0 measured reasoning that billed nothing;
+    // one reporting nothing measured nothing. Both facts survive parsing, so the pair
+    // is asserted against each other rather than alone.
+    JsonDocument reported = JsonDocument.Parse(
+        /*lang=json,strict*/"""{"usage":{"input_tokens":5,"output_tokens":0,"output_tokens_details":{"reasoning_tokens":0}}}""");
+    JsonDocument absent = JsonDocument.Parse(
+        /*lang=json,strict*/"""{"usage":{"input_tokens":5,"output_tokens":0}}""");
+
+    TokenUsage zero = Assert.IsType<TokenUsage>(
+        ResponsesApiRequestCore.ParseUsage(reported.RootElement));
+    TokenUsage unreported = Assert.IsType<TokenUsage>(
+        ResponsesApiRequestCore.ParseUsage(absent.RootElement));
+
+    Assert.Equal(0, zero.ReasoningTokens);
+    Assert.Null(unreported.ReasoningTokens);
+    Assert.NotEqual(zero, unreported);
+  }
+
+  [Fact]
+  public void ParseResponse_ReasoningDetails_RideTheTerminalResponseBody_Too()
+  {
+    // The non-streaming path and the streaming terminal event both route through
+    // ParseUsage, so a usage object with reasoning details must survive ParseResponse.
+    Result<ModelResponse> result = Parse(
+        /*lang=json,strict*/"""{"status":"completed","output":[],"usage":{"input_tokens":7,"output_tokens":3,"output_tokens_details":{"reasoning_tokens":2}}}""");
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal(new TokenUsage(7, 3, null, null, 2), result.Value.Usage);
+  }
+
+  [Fact]
   public void ParseResponse_MissingUsage_UsageIsNull()
   {
     Result<ModelResponse> result = Parse(

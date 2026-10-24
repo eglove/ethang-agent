@@ -154,8 +154,13 @@ public static class ResponsesApiRequestCore
   }
 
   /// <summary>Maps the Responses-API usage object (input_tokens / output_tokens /
-  ///     input_tokens_details.cached_tokens / server_tool_use.web_search_requests)
-  ///     into TokenUsage; null when absent or missing its primary counts.</summary>
+  ///     input_tokens_details.cached_tokens / server_tool_use.web_search_requests /
+  ///     output_tokens_details.reasoning_tokens) into TokenUsage; null when absent or
+  ///     missing its primary counts.</summary>
+  /// <para>Every optional count stays NULL when the provider omits it (issue #262): an
+  ///     unreported reasoning or cache count is never fabricated as zero, so a provider
+  ///     reporting <c>reasoning_tokens: 0</c> stays distinguishable from one reporting
+  ///     nothing.</para>
   public static TokenUsage? ParseUsage(JsonElement parent)
   {
     if (!parent.TryGetProperty("usage", out JsonElement u) || u.ValueKind != JsonValueKind.Object)
@@ -170,7 +175,8 @@ public static class ResponsesApiRequestCore
 
     int? cached = OptionalCount(u, "input_tokens_details", "cached_tokens");
     int? serverToolCalls = OptionalCount(u, "server_tool_use", "web_search_requests");
-    return new TokenUsage(input, output, cached, serverToolCalls);
+    int? reasoning = OptionalCount(u, "output_tokens_details", "reasoning_tokens");
+    return new TokenUsage(input, output, cached, serverToolCalls, reasoning);
   }
 
   /// <summary>An optional nested count: <c>parent.member.countName</c> when the nested

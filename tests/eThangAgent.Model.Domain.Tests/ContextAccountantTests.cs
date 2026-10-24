@@ -68,6 +68,66 @@ public class ContextAccountantTests
   }
 
   [Fact]
+  public void CacheAndReasoning_AccumulateAcrossCalls_AndKeepTheLastValue()
+  {
+    ContextAccountant accountant = new(1000);
+    ContextComposition composition = new(1, 1, 1);
+
+    accountant.OnRequestUsage(new TokenUsage(500, 20, 400, null, 15), composition);
+    accountant.OnRequestUsage(new TokenUsage(600, 30, 500, null, 25), composition);
+
+    ContextStatus status = accountant.Status;
+    Assert.Equal(500, status.LastCachedInputTokens);
+    Assert.Equal(900, status.TotalCachedInputTokens);
+    Assert.Equal(25, status.LastReasoningTokens);
+    Assert.Equal(40, status.TotalReasoningTokens);
+    Assert.Equal(83.33, status.CacheHitPercent);
+  }
+
+  [Fact]
+  public void UnreportedCounts_StayNull_AndTotalsAddNothing()
+  {
+    // A provider that reports no cache and no reasoning must not be recorded as
+    // measured-cold: the last values stay null and the totals stay zero.
+    ContextAccountant accountant = new(1000);
+    accountant.OnRequestUsage(new TokenUsage(500, 20, 400, null, 15), new ContextComposition(1, 1, 1));
+    accountant.OnRequestUsage(new TokenUsage(600, 30), new ContextComposition(1, 1, 1));
+
+    ContextStatus status = accountant.Status;
+    Assert.Null(status.LastCachedInputTokens);
+    Assert.Null(status.LastReasoningTokens);
+    Assert.Null(status.CacheHitPercent);
+    Assert.Equal(400, status.TotalCachedInputTokens);
+    Assert.Equal(15, status.TotalReasoningTokens);
+  }
+
+  [Fact]
+  public void ReportedZeroCache_IsMeasuredCold_NotUnreported()
+  {
+    // cached_tokens: 0 is a real prompt-cache miss and must render as 0%, which is a
+    // different fact from the provider saying nothing at all.
+    ContextAccountant accountant = new(1000);
+    accountant.OnRequestUsage(new TokenUsage(500, 20, 0, null, 0), new ContextComposition(1, 1, 1));
+
+    ContextStatus status = accountant.Status;
+    Assert.Equal(0, status.LastCachedInputTokens);
+    Assert.Equal(0.0, status.CacheHitPercent);
+    Assert.Equal(0, status.LastReasoningTokens);
+  }
+
+  [Fact]
+  public void BeforeFirstReport_CacheAndReasoningAreUnreported()
+  {
+    ContextStatus status = new ContextAccountant(1000).Status;
+
+    Assert.Null(status.LastCachedInputTokens);
+    Assert.Null(status.LastReasoningTokens);
+    Assert.Null(status.CacheHitPercent);
+    Assert.Equal(0, status.TotalCachedInputTokens);
+    Assert.Equal(0, status.TotalReasoningTokens);
+  }
+
+  [Fact]
   public void ThresholdBoundary_ExactlyEightyPercent_IsReached()
   {
     ContextAccountant accountant = new(1000);

@@ -104,7 +104,10 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
   public string Spinner => Phase == TurnPhase.Ready ? "" : Frames[_frame];
 
   /// <summary>CTX statusline text, e.g. "CTX 148.2K/1M, 15%". "" until the first
-  ///     context update; unknown window shows session totals only.</summary>
+  ///     context update; unknown window shows session totals only. A provider-reported
+  ///     prompt-cache hit adds ", cache 82%" and a reported reasoning count adds
+  ///     ", reasoning 1.2K" (issue #262); a provider that reports neither renders
+  ///     exactly the pre-#262 line.</summary>
   public string ContextDisplay
   {
     get;
@@ -148,9 +151,17 @@ internal sealed class StatusViewModel(string provider, string modelId, string ef
 
     ContextStatus status = snapshot.Status;
     string totals = FormatTokens(status.LastInputTokens ?? (int)status.TotalInputTokens);
+
+    // Cache and reasoning segments appear ONLY when the provider reported them (issue
+    // #262): an unreported count renders exactly as it did before the fields existed,
+    // and a provider-reported zero renders as a real zero.
+    string cache = status.CacheHitPercent is { } hit ? $", cache {hit:0}%" : "";
+    string reasoning = status.LastReasoningTokens is { } tokens
+        ? $", reasoning {FormatTokens(tokens)}"
+        : "";
     ContextDisplay = status.ContextWindow is { } window
-        ? $"CTX {totals}/{FormatTokens(window)}, {status.UtilizationPercent:0}%"
-        : $"CTX {totals} total";
+        ? $"CTX {totals}/{FormatTokens(window)}, {status.UtilizationPercent:0}%{cache}{reasoning}"
+        : $"CTX {totals} total{cache}{reasoning}";
 
     ContextBreakdownText = snapshot.Breakdown is not { } breakdown
         ? ""

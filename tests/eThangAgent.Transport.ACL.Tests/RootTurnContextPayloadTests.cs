@@ -65,6 +65,45 @@ public class RootTurnContextPayloadTests
   }
 
   [Fact]
+  public void Serialize_RoundTripsCacheAndReasoningCounts()
+  {
+    // issue #262: the cache and reasoning counts travel with the rest of the
+    // accounting, so the CTX line's new segments advance in a HOST-run session too.
+    ContextSnapshot snapshot = new(
+        new ContextStatus(148_200, 300_000, 9_000, 1_000_000, 14.82,
+            LastCachedInputTokens: 120_000, TotalCachedInputTokens: 250_000,
+            LastReasoningTokens: 1_200, TotalReasoningTokens: 3_400),
+        null);
+
+    RootTurnContextPayload parsed = Assert.IsType<RootTurnContextPayload>(
+        RootTurnContextPayload.Parse(RootTurnContextPayload.Serialize(snapshot)));
+
+    Assert.Equal(120_000, parsed.LastCachedInputTokens);
+    Assert.Equal(250_000, parsed.TotalCachedInputTokens);
+    Assert.Equal(1_200, parsed.LastReasoningTokens);
+    Assert.Equal(3_400, parsed.TotalReasoningTokens);
+    Assert.Equal(snapshot, parsed.ToSnapshot());
+  }
+
+  [Fact]
+  public void Parse_PayloadFromAnOlderHost_ReadsCountsAsUnreported()
+  {
+    // A host built before #262 omits the new members entirely. The app must read them
+    // as unreported (null / zero) rather than faulting the pump on a missing field.
+    const string older = /*lang=json,strict*/ "{\"LastInputTokens\":900,\"TotalInputTokens\":900,\"TotalOutputTokens\":40,\"ContextWindow\":1000,\"UtilizationPercent\":90,\"Breakdown\":null}";
+
+    RootTurnContextPayload parsed = Assert.IsType<RootTurnContextPayload>(
+        RootTurnContextPayload.Parse(older));
+
+    Assert.Null(parsed.LastCachedInputTokens);
+    Assert.Null(parsed.LastReasoningTokens);
+    Assert.Equal(0, parsed.TotalCachedInputTokens);
+    Assert.Equal(0, parsed.TotalReasoningTokens);
+    Assert.Null(parsed.ToSnapshot().Status.CacheHitPercent);
+  }
+
+
+  [Fact]
   public void Parse_UnreadablePayload_ReturnsNull()
       // The app drops an unreadable context payload rather than faulting the pump: a
       // status readout is never worth a dead connection.
