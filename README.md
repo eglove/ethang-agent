@@ -165,6 +165,15 @@ content is refused; the extension alone is never trusted (magic-byte + package s
   unchanged. Recorded best-effort with the run's cancellation token ignored — a crash or
   interrupt leaves every completed iteration's trace persisted, and a store fault never fails a
   turn.
+  - **Token usage is stored as telemetry beside it** — each provider call also records a `usage`
+   row carrying the provider-scored counts: input and output tokens, plus the prompt-cache hit and
+   reasoning-token counts when the provider reports them (NULL when it does not — a reported zero
+   stays a different fact from an unreported one). Same identity as the reasoning row (agent + turn
+   + iteration), so a turn's usage and thinking line up, and the same append-only event table, so
+   there is no schema change. This is what makes the reasoning-in-context measurements computable
+   from the database alone: `SELECT` the `usage` rows and derive reasoning tokens per step and the
+   session's cache-hit rate. It stores no prices — per-call cost stays the usage ledger's job — and
+   nothing reads it back into a request.
 - **Context accounting + auto-compaction + in-loop overflow recovery** — the status bar shows a live `CTX 148.2K/1M, 15%`
   readout (hover for the estimated system-prompt/messages/tools breakdown), plus `, cache 82%` and
    `, reasoning 1.2K` segments whenever the provider reports a prompt-cache hit or a reasoning-token

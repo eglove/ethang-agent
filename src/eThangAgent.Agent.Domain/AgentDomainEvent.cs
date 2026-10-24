@@ -20,3 +20,19 @@ public sealed record AgentCompleted(AgentId AgentId, DateTimeOffset OccurredAt, 
 ///     <see cref="Iteration"/> is the 0-based provider call within that turn.</para></summary>
 public sealed record AgentReasoningRecorded(AgentId AgentId, DateTimeOffset OccurredAt, Guid TurnId, int Iteration,
     string Text) : AgentDomainEvent(AgentId, OccurredAt);
+
+/// <summary>One provider call's token accounting, recorded as TELEMETRY (issue #270): the
+///     provider-scored counts #262 surfaces, made durable so a measurement can be computed
+///     from persisted data alone. Same identity as <see cref="AgentReasoningRecorded"/> —
+///     (agent, turn, iteration) — so a turn's usage rows and reasoning rows line up.
+///     <para>Both optional counts stay NULL when the provider did not report them, never
+///     coerced to zero (the rule <c>TokenUsage</c> established): a provider reporting
+///     <c>reasoning_tokens: 0</c> states a different fact from one reporting nothing, and a
+///     fabricated zero would make the two indistinguishable in exactly the measurement this
+///     row exists to serve.</para>
+///     <para>Telemetry only, like its reasoning sibling: nothing reads this back into a
+///     request, so the next request's bytes are unchanged by it. It carries no price —
+///     per-call cost accounting belongs to the usage ledger (#21-#24).</para></summary>
+public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset OccurredAt, Guid TurnId, int Iteration,
+    int InputTokens, int OutputTokens, int? CachedInputTokens, int? ReasoningTokens)
+    : AgentDomainEvent(AgentId, OccurredAt);

@@ -19,6 +19,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
   private const string SpawnedEventType = "spawned";
   private const string CompletedEventType = "completed";
   private const string ReasoningEventType = "reasoning";
+  private const string UsageEventType = "usage";
 
   /// <summary>One persisted content part: the meta_json entry shape. Concrete by design -
   ///     System.Text.Json cannot deserialize the abstract MessagePart.</summary>
@@ -361,6 +362,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
         SpawnedEventType => JsonSerializer.Deserialize<AgentSpawned>(reader.GetString(1)),
         CompletedEventType => JsonSerializer.Deserialize<AgentCompleted>(reader.GetString(1)),
         ReasoningEventType => JsonSerializer.Deserialize<AgentReasoningRecorded>(reader.GetString(1)),
+        UsageEventType => JsonSerializer.Deserialize<AgentUsageRecorded>(reader.GetString(1)),
         _ => null,
       };
       if (domainEvent is null)
@@ -380,6 +382,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgent
         AgentSpawned => SpawnedEventType,
         AgentCompleted => CompletedEventType,
         AgentReasoningRecorded => ReasoningEventType,
+        AgentUsageRecorded => UsageEventType,
         _ => throw new InvalidOperationException(
               $"unknown agent domain event type {domainEvent.GetType().Name}"),
       };
