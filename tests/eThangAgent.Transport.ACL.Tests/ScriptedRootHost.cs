@@ -27,7 +27,11 @@ internal sealed record ScriptedOptions(
     // Issue #255 test knob: the provider-scored usage the scripted model reports. Null
     // (the default) reports none, so the accountant stays empty and no context event
     // fires - the shape every pre-existing test relies on.
-    TokenUsage? Usage = null);
+    TokenUsage? Usage = null,
+    // Issue #253 test knob: the ROOT steering inbox the handler drains. Production
+    // resolves the container's IAgentInbox here; a rig that omits it has no steering
+    // surface at all (the pre-#253 shape).
+    IAgentInbox? Inbox = null);
 
 #pragma warning disable CA1812 // Instantiated by the gate tests, not by this file.
 /// <summary>The optional mid-turn park a streaming test needs: an ASYNC hook that runs
@@ -107,14 +111,24 @@ internal sealed class ScriptedRootHost : IDisposable
 
     RecordingStore store = new(storedHistory ?? [], storeDelay ?? TimeSpan.Zero,
         options?.StoreIgnoresToken ?? false);
-    ServiceProvider services = new ServiceCollection()
+    IServiceCollection registrations = new ServiceCollection()
         .AddSingleton(conversation)
         .AddSingleton(tools)
         .AddSingleton<IModelProvider>(provider)
         .AddSingleton(carrier)
         .AddSingleton<IAgentStore>(store)
-        .AddSingleton(new SendMessageCommandHandler(agent: agent, conversation: conversation))
-        .BuildServiceProvider();
+        .AddSingleton(new SendMessageCommandHandler(agent: agent, conversation: conversation,
+            inbox: options?.Inbox));
+    // Production registers the ROOT steering inbox as the container's IAgentInbox and hands
+    // that same instance to the handler (AgentComposition). The host's root-steer delivery
+    // resolves it from the container, so a rig that only passed it to the handler would
+    // test a wiring production never has (issue #253).
+    if (options?.Inbox is { } rootInbox)
+    {
+      _ = registrations.AddSingleton(rootInbox);
+    }
+
+    ServiceProvider services = registrations.BuildServiceProvider();
     RootRunHost runner = new(services, rootId, conversation);
     // The REAL server, over a throwaway settings file and database: the tests that drive
     // envelopes need the production dispatch path, and the runner is attached through the

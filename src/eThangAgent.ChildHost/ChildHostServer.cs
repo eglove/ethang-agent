@@ -39,6 +39,19 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///     abandon the app's local wait while the host kept executing the stopped turn.</summary>
   private readonly ConcurrentDictionary<string, CancellationTokenSource> _rootTurns = [];
 
+  /// <summary>The ROOT container's steering inbox, resolved lazily from the root runner's
+  ///     own services (issue #253). A root turn has no record id, so the child delivery
+  ///     registry cannot address it either — and the APP container's inbox is a different
+  ///     object in a different process that drains nothing. Delivering through this box is
+  ///     what makes a mid-turn steer reach the model, and what arms the sticky user wake on
+  ///     the hub the root's waits subscribe to.</summary>
+  private IAgentInbox? _rootInbox;
+
+  /// <summary>Set once the root inbox has been resolved (or definitively found absent), so
+  ///     the resolve runs once per host rather than per envelope. Guarded by the same lock
+  ///     the root-runner latch uses: both answer 'is the root runner up yet'.</summary>
+  private bool _rootInboxResolved;
+
   // Child-event forwarding (issue #245): one subscription lease per running child, over
   // the CHILD CONTAINER's own event stream. The child's events publish into that
   // container's stream; without a forwarder they never leave the host process and the
@@ -138,6 +151,12 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
         break;
       case "deliver":
         HandleDeliver(envelope);
+        break;
+      case "root-steer":
+        // Synchronous on purpose: the handler only enqueues into the root inbox (no I/O,
+        // no model call), so it must not leave the serve loop. The DRAIN happens in the
+        // root turn's own loop at its next safe point.
+        HandleRootSteer(envelope);
         break;
       case "interrupt":
         HandleInterrupt(envelope);
@@ -604,6 +623,117 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       _ = mailbox.Deliver(new PendingMessage(command.Text, (MessageUrgency)command.Urgency,
           DateTimeOffset.UtcNow, command.Sender, messageId));
     }
+  }
+
+  /// <summary>Delivers one steering message into the ROOT container's inbox (issue #253).
+  ///     <para>WHY THIS EXISTS: every conversation runs its turn in a host process (spec
+  ///     D6), so the app's own container runs no agent work. The app's steering inbox was
+  ///     therefore a mailbox nothing drains — a message typed during a turn was queued in
+  ///     the wrong process, never reached the model, and never woke an <c>agent.wait</c>
+  ///     (whose sticky user wake arms on the HOST container's hub). This is the root
+  ///     counterpart of the child deliver path.</para>
+  ///     <para>An unknown turn id is a silent drop, matching the child path's pinned
+  ///     contract: the wire is the at-least-once replay, and a message addressed to a turn
+  ///     that already ended is stale by definition. A refused post (full or closed
+  ///     mailbox) is likewise dropped here — the app-side post is the one that reports a
+  ///     refusal to the human.</para></summary>
+  private void HandleRootSteer(TransportEnvelope envelope)
+  {
+    RootSteerCommand? command = JsonSerializer.Deserialize<RootSteerCommand>(envelope.Json);
+    if (command is null || string.IsNullOrWhiteSpace(command.TurnId))
+    {
+      return;
+    }
+
+    DeliverToRootTurn(command.TurnId, command.Text, command.Sender, command.MessageId);
+  }
+
+  /// <summary>Delivers one steering message to a LIVE root turn's inbox, or drops it when
+  ///     the turn is not live here. Public so the wire tests can drive the production
+  ///     delivery path without a full provider stack (the same seam shape
+  ///     <see cref="AttachDeliveryRegistry"/> gives the child path).</summary>
+  public void DeliverToRootTurn(string turnId, string text, string sender, Guid messageId = default)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(turnId);
+    ArgumentException.ThrowIfNullOrWhiteSpace(text);
+    if (!_rootTurns.ContainsKey(turnId))
+    {
+      return; // not a live turn: a stale replay, dropped like the child path's
+    }
+
+    if (ResolveRootInbox() is not { } inbox)
+    {
+      return; // this host has no root conversation bound: nothing to steer
+    }
+
+    // The identity travels with the message (issue #92, and issue #253 B3): the app pinned
+    // its echo under this id, and the loop's drain fact names it back - that name is what
+    // releases the pin. Minting a fresh id here would leave the echo pinned forever.
+    Guid id = messageId == Guid.Empty ? Guid.NewGuid() : messageId;
+    PendingMessage message = new(text, MessageUrgency.Normal, DateTimeOffset.UtcNow, sender, id);
+    if (inbox is IAgentMailbox mailbox)
+    {
+      _ = mailbox.Deliver(message);
+      return;
+    }
+
+    _ = inbox.TryPost(text);
+  }
+
+  /// <summary>Subscribes the child-event forwarder to the ROOT container's event stream
+  ///     (issue #253 B3), so the root loop's mailbox lifecycle facts - above all the DRAIN
+  ///     naming which steering messages it consumed - reach the app. The app's pinned
+  ///     steering echo is released by exactly that name; without the forwarder the echo
+  ///     would stay pinned forever, because the drain happens in this process.
+  ///     <para>Idempotent per runner: the lease is kept and disposed with the server. A
+  ///     container with no event stream (a test rig) skips silently.</para></summary>
+  private void AttachRootEventForwarder(RootRunHost runner)
+  {
+    if (runner.Services.GetService(typeof(IAgentEvents)) is not IAgentEvents events)
+    {
+      return;
+    }
+
+    ChildEventForwarder forwarder = new(SendChildEventAsync);
+    _rootEventLease ??= events.Subscribe(forwarder);
+  }
+
+  /// <summary>The ROOT container's event-forwarder lease (issue #253 B3): one per host,
+  ///     attached with the root runner.</summary>
+  private IDisposable? _rootEventLease;
+
+  /// <summary>The ROOT container's steering inbox, resolved once from the runner's own
+  ///     services. Null when this host serves no root conversation (a child-only host) or
+  ///     the container has no inbox registered — both are ordinary, not faults.</summary>
+  private IAgentInbox? ResolveRootInbox()
+  {
+    lock (_rootHostGate)
+    {
+      if (_rootInboxResolved)
+      {
+        return _rootInbox;
+      }
+    }
+
+    // The runner is built lazily on the first turn; resolving here would race that build,
+    // so the resolve is retried until it succeeds. A host with no bound session answers
+    // null forever, which is the honest 'nothing to steer'.
+    if (_rootHost is not { } runner)
+    {
+      return null;
+    }
+
+    // The root container's event stream is the only place its drain fact is published
+    // (issue #253 B3), so the forwarder attaches the moment the runner exists.
+    AttachRootEventForwarder(runner);
+    IAgentInbox? resolved = runner.Services.GetService(typeof(IAgentInbox)) as IAgentInbox;
+    lock (_rootHostGate)
+    {
+      _rootInbox = resolved;
+      _rootInboxResolved = resolved is not null;
+    }
+
+    return resolved;
   }
 
   /// <summary>Registers the per-child container registry whose MailboxFor answers the

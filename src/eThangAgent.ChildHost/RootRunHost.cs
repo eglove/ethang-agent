@@ -55,7 +55,6 @@ public sealed class RootRunHost : IDisposable
   ///     distinguish a heartbeat from a lost frame anyway.</summary>
   private static readonly TimeSpan MinimumHeartbeatInterval = TimeSpan.FromSeconds(1);
 
-  private readonly IServiceProvider _services;
 
   // TURN SERIALIZATION (fix round 2, finding 1). Turns are dispatched concurrently by the
   // host (round 1 moved them off the serve loop), but a conversation is a SEQUENCE: two
@@ -85,7 +84,7 @@ public sealed class RootRunHost : IDisposable
   public RootRunHost(IServiceProvider services, AgentId rootId, Conversation conversation)
   {
     ArgumentNullException.ThrowIfNull(conversation);
-    _services = services ?? throw new ArgumentNullException(nameof(services));
+    Services = services ?? throw new ArgumentNullException(nameof(services));
     RootId = rootId;
     Conversation = conversation;
 
@@ -111,9 +110,23 @@ public sealed class RootRunHost : IDisposable
   /// <summary>The root session this runner serves.</summary>
   public AgentId RootId { get; }
 
+  /// <summary>The container this runner turns over. Exposed so the host can resolve the
+  ///     seams a root turn needs but a turn request does not carry - the steering inbox
+  ///     (issue #253) is the first: a root turn has no record id, so the child delivery
+  ///     registry cannot address it, and the inbox must come from the container that
+  ///     actually drains it.</summary>
+  public IServiceProvider Services { get; }
+
   /// <summary>The container's conversation, exposed so a host can inspect the history a
   ///     turn will actually see.</summary>
   public Conversation Conversation { get; }
+
+  /// <summary>The container this runner turns over. Exposed so the host can resolve the
+  ///     seams a root turn needs but a turn request does not carry — the steering inbox
+  ///     (issue #253) is the first: a root turn has no record id, so the child delivery
+  ///     registry cannot address it, and the inbox must come from the container that
+  ///     actually drains it.</summary>
+
 
   /// <summary>Runs one turn, streaming its events as they happen. Returns the turn's own
   ///     result so the caller can log or audit it; the app reads the outcome from the
@@ -242,12 +255,12 @@ public sealed class RootRunHost : IDisposable
     // The new-session channel (issue #234) rides the LIVE turn: connected here, before
     // the handler runs, and disconnected in RunTurnAsync's finally. A container without
     // the channel (a test rig) skips silently — the port is an optional capability.
-    if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    if (Services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
     {
       channel.Connect(payload => emitter.Emit("session-request", payload));
     }
 
-    SendMessageCommandHandler handler = _services.GetRequiredService<SendMessageCommandHandler>();
+    SendMessageCommandHandler handler = Services.GetRequiredService<SendMessageCommandHandler>();
     TurnCallbacks callbacks = new(
         OnContentDelta: text => emitter.Emit("delta", text),
         // Reasoning deltas stream as their own wire kind (issue #245): the app renders
@@ -285,7 +298,7 @@ public sealed class RootRunHost : IDisposable
       // turn late, on the next turn's end. The emit itself runs on the returned-Result
       // path below; a CANCELLED turn drops the handoff by design (the session stays
       // resumable; the next turn may hand off again).
-      if (_services.GetService(typeof(RootAgentHolder)) is RootAgentHolder faultHolder
+      if (Services.GetService(typeof(RootAgentHolder)) is RootAgentHolder faultHolder
           && faultHolder.Current is { HandoffPending: true } faultAgent)
       {
         faultAgent.ClearHandoffPending();
@@ -317,7 +330,7 @@ public sealed class RootRunHost : IDisposable
   ///     summary rides <c>HandoffSummary</c> from the outcome.</para></summary>
   internal async Task EmitHandoffIfPendingAsync(TurnEmitter emitter, CancellationToken ct)
   {
-    if (_services.GetService(typeof(RootAgentHolder)) is not RootAgentHolder holder
+    if (Services.GetService(typeof(RootAgentHolder)) is not RootAgentHolder holder
         || holder.Current is not { HandoffPending: true } agent)
     {
       return;
@@ -337,7 +350,7 @@ public sealed class RootRunHost : IDisposable
         return;
       }
 
-      if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+      if (Services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
       {
         // Awaited (bounded by the turn's own token) BEFORE the settle: the app has the
         // id before the tab replacement. A failure is swallowed — the turn's own
@@ -401,7 +414,7 @@ public sealed class RootRunHost : IDisposable
     }
 
     Result<SessionModelPreferences> decoded = SessionModelPreferencesJson.Deserialize(request.ModelPreferences);
-    if (!decoded.IsSuccess || _services.GetService(typeof(SessionModelPreferences)) is not SessionModelPreferences live)
+    if (!decoded.IsSuccess || Services.GetService(typeof(SessionModelPreferences)) is not SessionModelPreferences live)
     {
       return false;
     }
@@ -531,7 +544,7 @@ public sealed class RootRunHost : IDisposable
   ///     because a turn with less history is better than a turn that never starts.</summary>
   private async Task<bool> TryHydrateFromStoreAsync(CancellationToken ct)
   {
-    if (_services.GetService(typeof(IAgentStore)) is not IAgentStore store)
+    if (Services.GetService(typeof(IAgentStore)) is not IAgentStore store)
     {
       return false;
     }
@@ -625,7 +638,7 @@ public sealed class RootRunHost : IDisposable
   ///     them to the app is gone.</summary>
   private void DisconnectSessionChannel()
   {
-    if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    if (Services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
     {
       channel.Disconnect();
     }
@@ -636,7 +649,7 @@ public sealed class RootRunHost : IDisposable
   ///     runner. Unknown requestIds are ignored by the channel.</summary>
   public void CompleteSessionRequest(string requestId, Result<string> outcome)
   {
-    if (_services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
+    if (Services.GetService(typeof(NewSessionRequestChannel)) is NewSessionRequestChannel channel)
     {
       channel.Complete(requestId, outcome);
     }

@@ -13,18 +13,23 @@ public class AgentSteeringTests
   private static ModelConfig DefaultConfig =>
       ModelConfig.Create("test-model", null, 100, 0.5f, 8192).Value!;
 
-  /// <summary>Scripted provider capturing every request; falls back to a final plain answer.</summary>
+  /// <summary>Scripted provider capturing every request; falls back to a final plain answer.
+  ///     <see cref="OnCall"/> runs with the 1-based call number BEFORE the response is
+  ///     produced, which is how a test stages "the user typed while the model was streaming"
+  ///     - the post lands in the inbox before the response returns.</summary>
   private sealed class ScriptedProvider(params ModelResponse[] responses) : IModelProvider
   {
     private readonly Queue<ModelResponse> _responses = new(responses);
     public List<ModelRequest> RequestsSeen { get; } = [];
     public int Calls => RequestsSeen.Count;
+    public Action<int>? OnCall { get; set; }
 
     public Task<Result<ModelResponse>> SendAsync(ModelConfig config, ModelRequest request,
         CancellationToken ct = default)
     {
       // No defensive copy needed: the loop snapshots messages per request.
       RequestsSeen.Add(request);
+      OnCall?.Invoke(RequestsSeen.Count);
       return Task.FromResult(Result.Success(
           _responses.Count > 0 ? _responses.Dequeue() : new ModelResponse("done", [])));
     }
@@ -84,6 +89,138 @@ public class AgentSteeringTests
     IReadOnlyList<Message> secondRequestMessages = provider.RequestsSeen[1].Messages;
     Assert.Equal(Role.User, secondRequestMessages[^1].Role);
     Assert.Equal("also check the config file", secondRequestMessages[^1].Content);
+  }
+
+  /// <summary>Issue #253 B2: a message typed while the model STREAMS an answer (no tool
+  ///     calls in the turn) must reach the model in the SAME turn. Before this, the loop
+  ///     drained only at entry and iteration boundaries, and a pure-text turn has exactly
+  ///     one iteration - so the steer sat queued until a later turn that might never come.
+  ///     The safe point is after the response exists and BEFORE the loop decides the turn
+  ///     is final: the assistant message is already appended, so the drained User message
+  ///     follows it and no tool call is left dangling.</summary>
+  [Fact]
+  public async Task SteeringPostedWhileStreaming_ReachesTheModelInTheSameTurn()
+  {
+    BoundedAgentMailbox inbox = new();
+    // The user types while the FIRST response is streaming: the post lands before the
+    // response returns, which is exactly the mid-stream window the issue names.
+    ScriptedProvider provider = new(
+        new ModelResponse("first answer", []),
+        new ModelResponse("second answer", []))
+    {
+      OnCall = call =>
+      {
+        if (call == 1)
+        {
+          inbox.Post("actually check the config");
+        }
+      },
+    };
+    Agent agent = new(provider, new Conversation(), DefaultConfig,
+        new ToolRegistry([]));
+
+    Result<string> result = await agent.SendMessage("start", default, inbox: inbox, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    // Two provider calls in ONE turn: the steer was not deferred to a later turn.
+    Assert.Equal(2, provider.Calls);
+    IReadOnlyList<Message> secondRequest = provider.RequestsSeen[1].Messages;
+    Assert.Equal(Role.User, secondRequest[^1].Role);
+    Assert.Equal("actually check the config", secondRequest[^1].Content);
+    // Protocol invariant: the first answer is kept as an assistant message before the
+    // steered user message - never a dangling tool call, never a dropped answer.
+    Assert.Contains(secondRequest, m => m.Role == Role.Assistant && m.Content == "first answer");
+    Assert.Equal("second answer", result.Value);
+  }
+
+  /// <summary>Issue #253 B3 depends on this: the drain fact is stamped with the LOOP's own
+  ///     identity, which for a root is the session's persisted root id. The Desktop releases
+  ///     a pinned steering echo only on a drain carrying that id (a child's drain names
+  ///     messages the user never typed), so a fact stamped with anything else would leave
+  ///     every echo pinned forever.</summary>
+  [Fact]
+  public async Task MidStreamDrain_PublishesTheFact_StampedWithTheLoopsOwnId()
+  {
+    BoundedAgentMailbox inbox = new();
+    RecordingEvents events = new();
+    ScriptedProvider provider = new(
+        new ModelResponse("first answer", []),
+        new ModelResponse("second answer", []))
+    {
+      OnCall = call =>
+      {
+        if (call == 1)
+        {
+          inbox.Post("steer mid-stream");
+        }
+      },
+    };
+    AgentId agentId = AgentId.NewId();
+    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]),
+        new AgentOptions { Id = agentId, Events = events });
+    List<MailboxDrainedEvent> drained = [];
+    using IDisposable lease = events.Subscribe(new DrainRecorder(drained));
+
+    _ = await agent.SendMessage("start", default, inbox: inbox, ct: TestContext.Current.CancellationToken);
+
+    MailboxDrainedEvent fact = Assert.Single(drained);
+    Assert.Equal(agentId, fact.ChildId);
+    _ = Assert.Single(fact.MessageIds);
+  }
+
+  /// <summary>A minimal in-memory event stream: the domain test project references the
+  ///     Domain only, and a domain test must use fakes anyway.</summary>
+  private sealed class RecordingEvents : IAgentEvents
+  {
+    private readonly List<IAgentEventSubscriber> _subscribers = [];
+
+    public IDisposable Subscribe(IAgentEventSubscriber subscriber)
+    {
+      _subscribers.Add(subscriber);
+      return new Lease(this, subscriber);
+    }
+
+    public void Publish(ChildEvent evt)
+    {
+      foreach (IAgentEventSubscriber subscriber in _subscribers.ToList())
+      {
+        subscriber.OnEvent(evt);
+      }
+    }
+
+    private sealed class Lease(RecordingEvents owner, IAgentEventSubscriber subscriber) : IDisposable
+    {
+      public void Dispose() => _ = owner._subscribers.Remove(subscriber);
+    }
+  }
+
+  /// <summary>Collects the mailbox drain facts a loop publishes.</summary>
+  private sealed class DrainRecorder(List<MailboxDrainedEvent> into) : IAgentEventSubscriber
+  {
+    public void OnEvent(ChildEvent evt)
+    {
+      if (evt is MailboxDrainedEvent fact)
+      {
+        into.Add(fact);
+      }
+    }
+  }
+
+  /// <summary>Issue #253 B2 (bound): the mid-stream drain does not loop forever. A model
+  ///     that answers without tool calls while the user keeps typing must still terminate -
+  ///     the drain continues the turn only while a message was actually consumed.</summary>
+  [Fact]
+  public async Task SteeringDrainedMidStream_DoesNotContinueTheTurnWhenNothingWasQueued()
+  {
+    BoundedAgentMailbox inbox = new();
+    ScriptedProvider provider = new(new ModelResponse("only answer", []));
+    Agent agent = new(provider, new Conversation(), DefaultConfig, new ToolRegistry([]));
+
+    Result<string> result = await agent.SendMessage("start", default, inbox: inbox, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    Assert.Equal("only answer", result.Value);
+    Assert.Equal(1, provider.Calls); // no empty continuation loop
   }
 
   [Fact]

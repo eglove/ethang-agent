@@ -206,6 +206,25 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
         new AgentId(Guid.NewGuid()), CancellationToken.None);
   }
 
+  /// <summary>Delivers one steering message to a LIVE root turn IN THE HOST (issue #253).
+  ///     <para>WHY IT RIDES THE WIRE: the app's container runs no agent work (spec D6), so
+  ///     its steering inbox is a mailbox nothing drains. A message typed during a turn was
+  ///     queued there, never reached the model, and never woke an <c>agent.wait</c> — the
+  ///     three symptoms in one cause. The host delivers into the ROOT container's inbox,
+  ///     which is the box the root loop drains and the hub its waits subscribe to.</para>
+  ///     <para>Fire-and-forget by contract, exactly like the interrupt path: the caller is
+  ///     the UI thread, and a steer that cannot be sent leaves the turn running rather than
+  ///     faulting the surface. The host drops an unknown turn id (a stale replay).</para></summary>
+  public void SteerRootTurn(string turnId, string text, Guid messageId)
+  {
+    ArgumentException.ThrowIfNullOrWhiteSpace(turnId);
+    ArgumentException.ThrowIfNullOrWhiteSpace(text);
+    _ = SendEnvelopeAsync("root-steer",
+        JsonSerializer.Serialize(new RootSteerCommand(turnId, text, (int)MessageUrgency.Normal,
+            "human", messageId)),
+        new AgentId(Guid.NewGuid()), CancellationToken.None);
+  }
+
   /// <summary>Answers one session-request (issue #234): the app-side session the request
   ///     produced, or the typed failure the app refused with. Fire-and-forget by contract —
   ///     the requesting tool awaits its response through its own channel, and a lost answer
@@ -829,6 +848,15 @@ public sealed record StartCommand(Guid RecordId, int MaxConcurrent, string Model
 ///     host-side, which keeps delivery working while leaving that message unaddressable —
 ///     the pre-handshake behavior, never a fabricated receipt.</summary>
 public sealed record DeliverCommand(Guid RecordId, string Text, int Urgency, string Sender, Guid MessageId = default);
+/// <summary>One steering delivery addressed to a LIVE ROOT TURN (issue #253). A root turn
+///     has no record id - the same reason <see cref="InterruptCommand.TurnId"/> exists - so
+///     the child deliver path cannot address it. Without this kind the app's steering landed
+///     in the APP container's mailbox, which drains nothing (the app runs no agent work,
+///     spec D6), so a message typed mid-turn never reached the model and never woke a wait.
+///     <para><see cref="MessageId"/> carries the sender's identity for the same reason the
+///     child path does (issue #92): the host's drain fact must name the handle the sender's
+///     receipt named.</para></summary>
+public sealed record RootSteerCommand(string TurnId, string Text, int Urgency, string Sender, Guid MessageId = default);
 /// <summary>One interrupt request. <paramref name="RecordId"/> addresses a CHILD subtree
 ///     (the FR-C6 scoped teardown); <paramref name="TurnId"/> addresses a live ROOT turn,
 ///     which has no record id of its own. A stop button sends both: the subtree and the

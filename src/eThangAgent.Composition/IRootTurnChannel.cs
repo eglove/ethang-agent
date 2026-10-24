@@ -35,6 +35,16 @@ public interface IRootTurnChannel
   ///     its conversation, and persists a turn the user stopped. A stop button must do both.</summary>
   void InterruptRootTurn(string turnId);
 
+  /// <summary>Delivers one steering message to the LIVE root turn IN THE HOST (issue #253).
+  ///     <para>WHY THE WIRE: the app's own container runs no agent work (spec D6), so its
+  ///     steering inbox is a mailbox nothing drains — a message typed mid-turn was queued in
+  ///     the wrong process, never reached the model, and never woke an <c>agent.wait</c>.
+  ///     The host delivers into the ROOT container's inbox, which is the box the root loop
+  ///     drains and the hub its waits subscribe to.</para>
+  ///     <para>Best-effort by contract, like the session answer above: a lost steer surfaces
+  ///     as the model simply not seeing it, never as a fault on the UI thread.</para></summary>
+  void SteerRootTurn(string turnId, string text, Guid messageId);
+
   /// <summary>Answers one <c>session-request</c> (issue #234): the new session's id, or the
   ///     typed failure the app refused with. The host's <c>new_session</c> tool (or a
   ///     compaction handoff) is BLOCKED awaiting this answer, so every request must be
@@ -59,6 +69,10 @@ public sealed class RemoteRootTurnChannel(RemoteAgentRuntime runtime) : IRootTur
 
   /// <inheritdoc />
   public void InterruptRootTurn(string turnId) => _runtime.InterruptRootTurn(turnId);
+
+  /// <inheritdoc />
+  public void SteerRootTurn(string turnId, string text, Guid messageId)
+      => _runtime.SteerRootTurn(turnId, text, messageId);
 
   /// <inheritdoc />
   public void SendSessionResponse(string requestId, string? sessionId, string? errorCode, string? errorMessage)

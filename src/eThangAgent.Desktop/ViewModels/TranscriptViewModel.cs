@@ -55,6 +55,44 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     Entries.Add(new UserMessageEntry(text, images, imageLabels));
   }
 
+  /// <summary>Echoes one ACCEPTED steering message (issue #253 B3) and pins it below the
+  ///     streaming block until the loop drains it.
+  ///     <para>PINNED means: the entry stays the LAST entry while the stream keeps growing,
+  ///     so it renders below the text still flowing in, and it carries
+  ///     <see cref="UserMessageEntry.Pending"/> so the view can show that the model has not
+  ///     seen it yet. <see cref="MarkDrained"/> releases it — the loop's own drain fact names
+  ///     the message, which is the only honest signal for when the model actually saw it.</para>
+  ///     <para>Why a pin rather than a plain append: appending immediately puts the echo in
+  ///     scroll order ahead of the stream that is still arriving, which reads as out of order
+  ///     and gives the user no idea when their text lands.</para></summary>
+  public void AddPendingUser(string text, Guid pendingId)
+  {
+    ArgumentNullException.ThrowIfNull(text);
+    CloseOpen();
+    Entries.Add(new UserMessageEntry(text, Pending: true, PendingId: pendingId));
+  }
+
+  /// <summary>Releases the pinned steering echo whose id the loop's drain fact named
+  ///     (issue #253 B3): it stops being pending and stops being pinned, so later stream
+  ///     text flows below it and it reads at its true chronological position. Idempotent;
+  ///     an id no entry carries is ignored.</summary>
+  public void MarkDrained(Guid pendingId)
+  {
+    if (pendingId == Guid.Empty)
+    {
+      return;
+    }
+
+    for (int i = 0; i < Entries.Count; i++)
+    {
+      if (Entries[i] is UserMessageEntry { Pending: true } entry && entry.PendingId == pendingId)
+      {
+        Entries[i] = entry with { Pending = false };
+        return;
+      }
+    }
+  }
+
   public void AddToolCall(string name, string arguments)
   {
     CloseOpen();
@@ -253,8 +291,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     }
 
     CloseOpen();
-    Entries.Add(new AssistantTextEntry(text, IsOpen: true));
-    _openIndex = Entries.Count - 1;
+    _openIndex = InsertEntry(new AssistantTextEntry(text, IsOpen: true));
   }
 
   public void AppendReasoning(string text)
@@ -276,8 +313,7 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     StreamedTextNormalizer normalizer = new();
     normalizer.Append(text);
     _openReasoning = normalizer;
-    Entries.Add(new ReasoningEntry(normalizer.Text, IsOpen: true));
-    _openIndex = Entries.Count - 1;
+    _openIndex = InsertEntry(new ReasoningEntry(normalizer.Text, IsOpen: true));
   }
 
   /// <summary>Abandons the running tool's timing at turn end: a call card left
@@ -300,6 +336,23 @@ internal sealed class TranscriptViewModel(Func<double>? secondsClock = null)
     }
 
     running.Elapsed.Display = ToolElapsed.Format(SecondsNow() - running.StartSeconds);
+  }
+
+  /// <summary>Appends one entry, or inserts it BEFORE the first pending steering echo when
+  ///     one is pinned (issue #253 B3) - the pin is what keeps the echo at the bottom while
+  ///     the turn's own output keeps arriving above it. Returns the entry's index so the
+  ///     open-block bookkeeping stays correct either way.</summary>
+  private int InsertEntry(TranscriptEntry entry)
+  {
+    int pending = Entries.ToList().FindIndex(e => e is UserMessageEntry { Pending: true });
+    if (pending < 0)
+    {
+      Entries.Add(entry);
+      return Entries.Count - 1;
+    }
+
+    Entries.Insert(pending, entry);
+    return pending;
   }
 
   private double SecondsNow() => _injectedClock is { } clock ? clock() : Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;

@@ -830,7 +830,10 @@ public static class AgentComposition
                 ContextCompactor: sp.GetRequiredService<DefaultContextCompactor>(),
                 TranscriptSink: sp.GetRequiredService<RootTranscriptSink>(),
                 ServerToolImages: sp.GetRequiredService<IServerToolImageStore>(),
-                EventLog: sp.GetRequiredService<IAgentEventLog>()),
+                EventLog: sp.GetRequiredService<IAgentEventLog>(),
+                // The root loop's mailbox facts (issue #253 B3): the drain naming which
+                // steering messages it consumed is what releases the app's pinned echo.
+                Events: sp.GetRequiredService<IAgentEvents>()),
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.

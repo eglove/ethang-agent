@@ -16,7 +16,12 @@ public sealed record RootDependencies(
     IContextCompactor? ContextCompactor = null,
     IChildTranscriptStore? TranscriptSink = null,
     IServerToolImageStore? ServerToolImages = null,
-    IAgentEventLog? EventLog = null);
+    IAgentEventLog? EventLog = null,
+    // The session's event stream (issue #253 B3). The root loop publishes its mailbox
+    // lifecycle facts here - above all the drain fact naming which steering messages it
+    // consumed - so a host can forward them and the app can release a pinned echo. Null
+    // (legacy wiring) publishes nothing, byte-identical to before.
+    IAgentEvents? Events = null);
 
 /// <summary>Holds the root agent for a session and rebuilds it when its model changes.
 ///     The root agent is constructed lazily on the first message (see
@@ -105,6 +110,7 @@ public sealed class RootAgentHolder(
     TranscriptSink = _dependencies?.TranscriptSink,
     ServerToolImages = _dependencies?.ServerToolImages,
     EventLog = _dependencies?.EventLog,
+    Events = _dependencies?.Events,
     SessionId = ResolveSessionId(),
   };
 

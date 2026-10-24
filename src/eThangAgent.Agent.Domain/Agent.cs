@@ -337,7 +337,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // The request prefix is frozen for the whole turn (issue #267): one system-prompt
     // render and one tool-definition read, reused by every iteration. See _turnPrefix.
     _turnPrefix = new RequestPrefix(_systemPrompt?.Build(), _tools.Definitions);
-    DrainInbox(inbox);
+    _ = DrainInbox(inbox);
     Conversation.AddUserMessage(text, imageParts);
     Beat();
     // No iteration cap by design: the loop runs until the model answers without
@@ -348,7 +348,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     {
       ct.ThrowIfCancellationRequested();
       Beat();
-      DrainInbox(inbox);
+      _ = DrainInbox(inbox);
       await ManageContextAsync(state, callbacks, ct).ConfigureAwait(false);
       // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
       // list, so handing it out directly would let every consumer of this request
@@ -385,7 +385,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       state.Iteration++;
       callbacks?.OnIterationEnd?.Invoke();
 
-      Result<string>? handled = await HandleSuccessAsync(result.Value, state, callbacks, ct).ConfigureAwait(false);
+      Result<string>? handled = await HandleSuccessAsync(result.Value, state, callbacks, inbox, ct).ConfigureAwait(false);
       if (handled is { } handledOutcome)
       {
         return handledOutcome;
@@ -397,7 +397,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     the no-tool-call finish policy, or the tool-call batch execution. Returns the
   ///     turn's terminal Result, or null to continue the loop.</summary>
   private async Task<Result<string>?> HandleSuccessAsync(ModelResponse response, TurnState state,
-      TurnCallbacks? callbacks, CancellationToken ct)
+      TurnCallbacks? callbacks, IAgentInbox? inbox, CancellationToken ct)
   {
     // Snapshot, not view: Conversation.Messages is a live wrapper over the growing
     // list, so handing it out directly would let every consumer of this request
@@ -407,7 +407,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     await SurfaceServerToolCallsAsync(response, callbacks, ct).ConfigureAwait(false);
     if (response.ToolCalls.Count == 0)
     {
-      return FinishWithoutToolCalls(response, state, callbacks);
+      return FinishWithoutToolCalls(response, state, callbacks, inbox);
     }
 
     Conversation.AddAssistantMessage(response.Content ?? "",
@@ -758,27 +758,22 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     A length-truncated answer is not final: the partial message stays in history,
   ///     the model is nudged to continue (bounded — a pathological model cannot spin
   ///     forever; leniency with a visible cap, never a silent retry), and null is
-  ///     returned so the loop continues. A complete answer is appended and returned.</summary>
+  ///     returned so the loop continues. A complete answer is appended and returned.
+  ///     <para>THE MID-STREAM SAFE POINT (issue #253 B2): the answer is appended FIRST, so
+  ///     the assistant message precedes anything drained after it — then the inbox is
+  ///     drained once more, and a message that arrived while the model was streaming
+  ///     continues the turn instead of being deferred. Before this, a pure-text turn had
+  ///     exactly one iteration, so a steer typed during it waited for a later turn that a
+  ///     conversation ending here would never open. The drain is AFTER the assistant
+  ///     message on purpose: draining before it would put the user's message ahead of the
+  ///     answer the model already produced, rewriting the exchange out of order.</para></summary>
   private Result<string>? FinishWithoutToolCalls(ModelResponse response, TurnState state,
-      TurnCallbacks? callbacks)
+      TurnCallbacks? callbacks, IAgentInbox? inbox)
   {
     string content = response.Content ?? "";
     if (response.FinishReason is not FinishReason.Length)
     {
-      Conversation.AddAssistantMessage(content);
-      if (HandoffPending)
-      {
-        // The turn ends here: surface the handoff decision as a system line (the
-        // transcript records WHY the conversation continues elsewhere) and end the
-        // turn with the normal terminal Result. The actual session launch is NOT
-        // here - the Agent Domain cannot reference the port; the composition reads
-        // HandoffPending after the turn ends and acts on it.
-        string handoffLine = "[context handoff: the conversation continues in a new session.]";
-        Conversation.AddSystemMessage(handoffLine);
-        callbacks?.OnSystemMessage?.Invoke(handoffLine);
-      }
-
-      return Result.Success(content);
+      return CompleteAnswer(content, callbacks, inbox);
     }
 
     if (state.Continuations >= _maxAutoContinuations)
@@ -799,6 +794,42 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     callbacks?.OnSystemMessage?.Invoke(continuationPrompt);
     return null;
   }
+
+  /// <summary>Lands a COMPLETE answer: the assistant message first, then the mid-stream
+  ///     safe point, then the handoff line when a compaction decided one. Null continues
+  ///     the turn (a steer arrived); otherwise the answer is the turn's terminal result.</summary>
+  private Result<string>? CompleteAnswer(string content, TurnCallbacks? callbacks, IAgentInbox? inbox)
+  {
+    Conversation.AddAssistantMessage(content);
+    if (SteerArrivedMidStream(inbox))
+    {
+      return null;
+    }
+
+    if (HandoffPending)
+    {
+      // The turn ends here: surface the handoff decision as a system line (the
+      // transcript records WHY the conversation continues elsewhere) and end the
+      // turn with the normal terminal Result. The actual session launch is NOT
+      // here - the Agent Domain cannot reference the port; the composition reads
+      // HandoffPending after the turn ends and acts on it.
+      string handoffLine = "[context handoff: the conversation continues in a new session.]";
+      Conversation.AddSystemMessage(handoffLine);
+      callbacks?.OnSystemMessage?.Invoke(handoffLine);
+    }
+
+    return Result.Success(content);
+  }
+
+  /// <summary>THE MID-STREAM SAFE POINT (issue #253 B2): drains the inbox once, after the
+  ///     final answer is in history, and reports whether a steering message arrived while
+  ///     the model was streaming. True means the turn must continue - the model has not
+  ///     seen the user's message yet, and ending here would defer it to a later turn that
+  ///     a pure-text exchange never opens.
+  ///     <para>The safe-point rule is unchanged and unbroken: this runs only where the
+  ///     conversation holds a complete assistant message and no unanswered tool calls, so
+  ///     the drained User message can never land between a tool call and its result.</para></summary>
+  private bool SteerArrivedMidStream(IAgentInbox? inbox) => DrainInbox(inbox) > 0;
 
   /// <summary>Re-fires the context snapshot after a compaction shrank the conversation:
   ///     utilization dropped, so the next threshold decision reads fresh state.</summary>
@@ -1104,15 +1135,21 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     };
   }
   /// <summary>Drains every queued steering message into the conversation as User messages,
-  /// preserving queue order. Safe points only: entry and iteration boundaries.
+  /// preserving queue order, and returns how many it consumed. Safe points only: turn
+  /// entry, iteration boundaries, and the MID-STREAM point after a response that carried
+  /// no tool calls (issue #253 B2).
   ///     <para>The drain names the ids it consumed (issue #92): that fact is what turns a
   ///     sender's "enqueued" into "received", so the loop takes the messages WITH their
-  ///     identities rather than only their text.</para></summary>
-  private void DrainInbox(IAgentInbox? inbox)
+  ///     identities rather than only their text.</para>
+  ///     <para>The COUNT is what the mid-stream safe point decides on: a non-zero return
+  ///     means the user's message is now in the conversation and the turn must NOT finish,
+  ///     because finishing would leave it unanswered until a later turn that a pure-text
+  ///     exchange may never reach.</para></summary>
+  private int DrainInbox(IAgentInbox? inbox)
   {
     if (inbox is null)
     {
-      return;
+      return 0;
     }
 
     List<Guid> drained = [];
@@ -1128,6 +1165,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // never run progress (the supervisor feed's pinned no-beat class).
       _events?.Publish(new MailboxDrainedEvent(Id, DateTimeOffset.UtcNow, drained));
     }
+
+    return drained.Count;
   }
 
   /// <summary>Closes the protocol gap an interruption can open: the trailing assistant

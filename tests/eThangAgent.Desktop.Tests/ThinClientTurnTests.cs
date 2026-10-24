@@ -1,5 +1,6 @@
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
+using eThangAgent.AgentInfrastructure;
 using eThangAgent.Composition;
 using eThangAgent.ConversationDomain;
 using eThangAgent.Desktop.ViewModels;
@@ -289,6 +290,105 @@ public sealed class ThinClientTurnTests
     Assert.False(result.IsError);
     Assert.Equal("1 line", result.Summary, StringComparer.Ordinal);
   }
+
+  /// <summary>Issue #253 B1, app side: a message typed while a HOST turn runs must travel to
+  ///     the host, not into this container's inbox. The app runs no agent work (spec D6), so
+  ///     a local post lands in a mailbox nothing drains - the message never reaches the model
+  ///     and no <c>agent.wait</c> ever wakes. The echo still renders (the user's text is
+  ///     accepted), and the local inbox stays EMPTY, which is the assertion that pins the
+  ///     routing rather than merely the echo.</summary>
+  [Fact]
+  public async Task BusySubmit_WithHostChannel_SteersTheHostTurn_NotTheLocalInbox()
+  {
+    BoundedAgentMailbox localInbox = new();
+    FakeRootTurnChannel host = new([], holdOpen: true);
+    AgentSessionViewModel vm = new(
+        new RecordingTurnRunner().RunAsync,
+        new RootSessionLifecycle(new TestFixtures.StubStore()),
+        AgentId.NewId(),
+        new Conversation(),
+        provider: "OpenRouter",
+        modelId: "test/model",
+        new AgentSessionViewModelOptions
+        {
+          WorkspaceRoot = @"C:\work\demo",
+          RootTurnChannel = host,
+          Inbox = localInbox,
+        });
+
+    Task turn = vm.SubmitAsync("long work");
+    await host.TurnStarted.ConfigureAwait(true);
+    Assert.True(vm.IsBusy);
+
+    await vm.SubmitAsync("the child is spinning - take over").ConfigureAwait(true);
+
+    (string turnId, string text, Guid messageId) = Assert.Single(host.SteeredTurns);
+    Assert.False(string.IsNullOrWhiteSpace(turnId));
+    Assert.Equal("the child is spinning - take over", text);
+    // The identity travels with the message (issue #92): the drain fact names it back, and
+    // that name is what releases the pinned echo (issue #253 B3).
+    Assert.NotEqual(Guid.Empty, messageId);
+    // The local mailbox is the box nothing drains: steering must not land there.
+    Assert.Equal(0, localInbox.UnreadCount);
+    _ = Assert.IsType<UserMessageEntry>(vm.Transcript.Entries[^1]);
+
+    vm.RequestStop();
+    await turn.ConfigureAwait(true);
+    await vm.WaitForTurnAsync().ConfigureAwait(true);
+  }
+
+  /// <summary>Issue #253 B3, app side: the pinned echo is released by the loop's OWN drain
+  ///     fact - the message id the loop names as consumed - and by nothing else. The drain
+  ///     happens in the host, so the fact arrives on the session's child-event stream.</summary>
+  [Fact]
+  public async Task PinnedSteerEcho_IsReleasedByTheDrainFactNamingItsId()
+  {
+    InProcessAgentEvents events = new();
+    FakeRootTurnChannel host = new([], holdOpen: true);
+    AgentId rootId = AgentId.NewId();
+    AgentSessionViewModel vm = new(
+        new RecordingTurnRunner().RunAsync,
+        new RootSessionLifecycle(new TestFixtures.StubStore()),
+        rootId,
+        new Conversation(),
+        provider: "OpenRouter",
+        modelId: "test/model",
+        new AgentSessionViewModelOptions
+        {
+          WorkspaceRoot = @"C:\work\demo",
+          RootTurnChannel = host,
+          ChildEvents = events,
+          UiMarshal = action => action(),
+        });
+
+    Task turn = vm.SubmitAsync("long work");
+    await host.TurnStarted.ConfigureAwait(true);
+    await vm.SubmitAsync("steer me").ConfigureAwait(true);
+
+    (string _, string _, Guid messageId) = Assert.Single(host.SteeredTurns);
+    UserMessageEntry pinned = Assert.Single(vm.Transcript.Entries.OfType<UserMessageEntry>(),
+        e => e.Text == "steer me");
+    Assert.True(pinned.Pending);
+
+    // A drain naming a DIFFERENT id must not release it.
+    events.Publish(new MailboxDrainedEvent(rootId, DateTimeOffset.UtcNow, [Guid.NewGuid()]));
+    Assert.True(Assert.Single(vm.Transcript.Entries.OfType<UserMessageEntry>(),
+        e => e.Text == "steer me").Pending);
+
+    // A CHILD's drain must not release it either: those are messages the user never typed.
+    events.Publish(new MailboxDrainedEvent(AgentId.NewId(), DateTimeOffset.UtcNow, [messageId]));
+    Assert.True(Assert.Single(vm.Transcript.Entries.OfType<UserMessageEntry>(),
+        e => e.Text == "steer me").Pending);
+
+    // The ROOT loop's own drain names this message: the echo is released.
+    events.Publish(new MailboxDrainedEvent(rootId, DateTimeOffset.UtcNow, [messageId]));
+    Assert.False(Assert.Single(vm.Transcript.Entries.OfType<UserMessageEntry>(),
+        e => e.Text == "steer me").Pending);
+
+    vm.RequestStop();
+    await turn.ConfigureAwait(true);
+    await vm.WaitForTurnAsync().ConfigureAwait(true);
+  }
 }
 
 /// <summary>One view-model wired the thin-client way: a fake host channel that streams
@@ -375,6 +475,14 @@ internal sealed class FakeRootTurnChannel(IReadOnlyList<string> deltas, bool hol
   public List<string> InterruptedTurnIds { get; } = [];
 
   public void InterruptRootTurn(string turnId) => InterruptedTurnIds.Add(turnId);
+
+  /// <summary>Steering the app sent to a LIVE host turn (issue #253). Before this the app
+  ///     posted into its own container's inbox, which no loop drains - so a list that stays
+  ///     empty here is exactly the defect the wire test pins.</summary>
+  public List<(string TurnId, string Text, Guid MessageId)> SteeredTurns { get; } = [];
+
+  public void SteerRootTurn(string turnId, string text, Guid messageId)
+      => SteeredTurns.Add((turnId, text, messageId));
 
   /// <summary>Answers the app sent for session-requests (issue #234): the request id with
   ///     either the new session's id or the refusal's typed code. The host side of the wire

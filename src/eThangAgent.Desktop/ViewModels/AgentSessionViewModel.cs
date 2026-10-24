@@ -259,6 +259,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly IAgentInbox? _inbox;
   private readonly IAgentRuntime? _childRuntime;
 
+  /// <summary>The subscription that releases pinned steering echoes when the loop's drain
+  ///     fact names them (issue #253 B3). Disposed with the session.</summary>
+  private IDisposable? _drainLease;
+
   /// <summary>This conversation's host channel (spec D6). Null means the session runs its
   ///     turns in this process — the headless/test-host shape, never production.
   ///     <para>Public because the shell must ANSWER a session-request (issue #234): the host
@@ -330,6 +334,22 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     // event stream. Events publish on stream threads; the marshal wrapper posts every
     // event's application onto the UI thread — Rows is bound to the accordion and
     // UI-thread-only (the 884fc61 crash fix; the badge's AttachBadge is the pattern).
+    // The root loop's drain fact releases a pinned steering echo (issue #253 B3). The drain
+    // happens in the HOST process, so the fact arrives over the child-event stream the
+    // session already subscribes to; the marshal keeps the transcript mutation on the UI
+    // thread, exactly like the panel's.
+    if (options.ChildEvents is { } events)
+    {
+      _drainLease = events.Subscribe(new SteerDrainSubscriber(rootId, ids =>
+          _uiMarshal(() =>
+          {
+            foreach (Guid id in ids)
+            {
+              Transcript.MarkDrained(id);
+            }
+          })));
+    }
+
     Subagents = new SubagentPanelViewModel(options.AgentStore);
     Subagents.Attach(options.ChildEvents, apply => evt =>
       Avalonia.Threading.Dispatcher.UIThread.Post(() => apply(evt)));
@@ -633,6 +653,23 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   /// <summary>Awaits the in-flight turn task. Returns a completed task if no turn is running.</summary>
   public Task WaitForTurnAsync() => _runningTurn ?? Task.CompletedTask;
 
+  /// <summary>Releases pinned steering echoes on the ROOT loop's own drain fact (issue #253
+  ///     B3). Only the root's drain counts: a CHILD's drain names messages the user never
+  ///     typed into this transcript, and releasing on one would unpin an echo the model has
+  ///     not seen. The root agent carries the session's persisted root id, which is what the
+  ///     loop stamps on the fact.</summary>
+  private sealed class SteerDrainSubscriber(AgentId rootId, Action<IReadOnlyList<Guid>> onDrained)
+      : IAgentEventSubscriber
+  {
+    public void OnEvent(ChildEvent evt)
+    {
+      if (evt is MailboxDrainedEvent { Count: > 0 } drained && drained.ChildId == rootId)
+      {
+        onDrained(drained.MessageIds);
+      }
+    }
+  }
+
   /// <summary>
   /// Completes the root session on graceful exit (tab close or window close).
   /// Persistence failures surface as transcript notices — teardown itself never throws.
@@ -640,6 +677,8 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   public async Task ShutdownAsync()
   {
     // M17: release decoded screenshot bitmaps when the tab shuts down.
+    _drainLease?.Dispose();
+    _drainLease = null;
     Transcript.DisposeEntries();
     await _lifecycle.CompleteAsync(_rootId, ReportPersistenceError).ConfigureAwait(true);
   }
@@ -1075,21 +1114,41 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     cts.Cancel();
   }
 
-  /// <summary>Posts input to the session inbox as steering for the running turn and echoes
-  /// it into the transcript ON ACCEPTANCE (issue #189): the post's result is checked before
-  /// anything renders, so a refused message (full or closed mailbox) surfaces as a notice
-  /// naming the reason and never claims to be queued - no user entry, no unread bump. The
-  /// model sees an accepted message on the provider call after the current tool batch
-  /// completes; if the turn ends first, it opens the next one.</summary>
+  /// <summary>Posts input as steering for the running turn and echoes it into the
+  /// transcript ON ACCEPTANCE (issue #189): nothing renders unless the message was actually
+  /// queued, so a refusal surfaces as a notice naming the reason and never claims to be
+  /// queued - no user entry, no unread bump.
+  ///     <para>WHERE IT GOES (issue #253): the running turn belongs to this conversation's
+  ///     HOST process (spec D6), so a live host turn routes the message over the channel to
+  ///     the ROOT container's inbox - the box the root loop drains and the hub its
+  ///     <c>agent.wait</c> subscribes to. Posting to this container's own inbox queued it in
+  ///     a process that runs no agent work: the model never saw it and no wait ever woke.
+  ///     The local inbox remains the path for a session with NO host channel (the
+  ///     headless/test shape), which is the only case where this container runs the turn.</para>
+  ///     <para>The model sees the message at the loop's next safe point: an iteration
+  ///     boundary, or - for a turn that answers without tool calls - the mid-stream safe
+  ///     point right after the answer lands in history (issue #253 B2).</para></summary>
   private void Steer(string input)
   {
+    // The echo is PINNED until the loop's drain fact names it (issue #253 B3). The APP mints
+    // the message identity and it travels with the message (the issue #92 handshake), so the
+    // drain fact - which names exactly what it consumed - can release exactly this echo.
+    Guid pendingId = Guid.NewGuid();
+    if (RootTurnChannel is { } channel && _liveTurnId is { Length: > 0 } turnId)
+    {
+      channel.SteerRootTurn(turnId, input, pendingId);
+      MessageCount++;
+      Transcript.AddPendingUser(input, pendingId);
+      return;
+    }
+
     if (_inbox is null)
     {
       Transcript.AddNotice("Error [NoInbox]: This session cannot accept steering messages.");
       return;
     }
 
-    Result<bool> posted = _inbox.TryPost(input);
+    Result<bool> posted = PostWithIdentity(input, pendingId);
     if (!posted.IsSuccess)
     {
       Transcript.AddNotice($"Error [{posted.Error.Code}]: your message was not queued - {posted.Error.Message}");
@@ -1097,7 +1156,27 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
 
     MessageCount++;
-    Transcript.AddUser(input);
+    Transcript.AddPendingUser(input, pendingId);
+  }
+
+  /// <summary>Posts to the local inbox carrying the identity the echo was pinned under.
+  ///     An inbox that only exposes the minting <see cref="IAgentInbox.TryPost"/> cannot be
+  ///     correlated, so the echo is released immediately - the pin is a display refinement
+  ///     and must never outlive a message the loop has already taken.</summary>
+  private Result<bool> PostWithIdentity(string input, Guid messageId)
+  {
+    if (_inbox is IAgentMailbox mailbox)
+    {
+      return mailbox.Deliver(PendingMessage.New(input, MessageUrgency.Normal, "human") with { Id = messageId });
+    }
+
+    Result<bool> posted = _inbox!.TryPost(input);
+    if (posted.IsSuccess)
+    {
+      Transcript.MarkDrained(messageId);
+    }
+
+    return posted;
   }
 
   private void ApplyStreamEvent(UiStreamEvent evt)

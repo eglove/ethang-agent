@@ -35,9 +35,18 @@ internal sealed record TranscriptImage : IDisposable
 internal sealed record PendingImage(string Label, byte[] Bytes, string MediaType);
 
 /// <summary>One user message; images ride beside the text when the user pasted or
-///     dropped any (issue #20).</summary>
+///     dropped any (issue #20).
+///     <para><see cref="Pending"/> marks a STEERING echo (issue #253 B3): the text was
+///     accepted into the inbox but the loop has not drained it yet, so the model has not
+///     seen it. A pending entry renders PINNED below the streaming block - the stream is
+///     still flowing and the message is not part of it yet - and reflows to its
+///     chronological position the moment the loop's drain fact names it. Without this the
+///     echo landed in scroll order immediately and read as out of order against the stream,
+///     with no signal about when the model would actually see it.</para>
+///     <para><see cref="PendingId"/> is the inbox message identity the drain fact names;
+///     empty for an ordinary (never pending) user message.</para></summary>
 internal sealed record UserMessageEntry(string Text, IReadOnlyList<TranscriptImage>? Images = null,
-    IReadOnlyList<string>? ImageLabels = null) : TranscriptEntry;
+    IReadOnlyList<string>? ImageLabels = null, bool Pending = false, Guid PendingId = default) : TranscriptEntry;
 
 internal sealed record AssistantTextEntry(string Text, bool IsOpen) : TranscriptEntry;
 
