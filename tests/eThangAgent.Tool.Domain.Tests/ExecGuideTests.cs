@@ -9,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.18", ExecGuide.Version);
+    Assert.Equal("2.19", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -53,6 +53,19 @@ public class ExecGuideTests
     Assert.Contains("APP's launch directory", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("[exec: workspace note", ExecGuide.Text, StringComparison.Ordinal);
   }
+  // Issue #93: a parent must be able to see what a RUNNING child is doing. The guide
+  // teaches the status line's progress suffix and states that it is a PULL surface —
+  // progress still never wakes a wait.
+  [Fact]
+  public void Guide_TeachesRunningChildProgressOnStatus()
+  {
+    string section = DelegationSection();
+
+    Assert.Contains("progress phase=model-call|tool-exec|draining", section, StringComparison.Ordinal);
+    Assert.Contains("never content", section, StringComparison.Ordinal);
+    Assert.Contains("PULL surface", section, StringComparison.Ordinal);
+  }
+
   [Fact]
   public void Guide_DocumentsDurableState()
   {

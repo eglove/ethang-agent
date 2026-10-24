@@ -496,6 +496,17 @@ public static class AgentComposition
           _ = new StateChangeWakeAdapter(sp.GetRequiredService<IStateChangeBus>(), hub);
           return hub;
         })
+        // The progress ledger (issue #93): the model-facing read surface for a running
+        // child's mid-run activity. Constructed eagerly here for the same reason the
+        // adapters are - DI is lazy and NOTHING else resolves it, so a plain registration
+        // would never subscribe. It feeds agent.status only; it is deliberately NOT
+        // attached to the wake hub (progress must never wake a wait).
+        .AddSingleton(sp =>
+        {
+          ChildProgressLedger ledger = new();
+          _ = sp.GetRequiredService<IAgentEvents>().Subscribe(ledger);
+          return ledger;
+        })
         .AddSingleton<IStateChangeBus, InProcessStateChangeBus>()
         .AddSingleton<IAgentInbox>(sp => new SignalingInbox(
             new BoundedAgentMailbox(),
@@ -606,6 +617,7 @@ public static class AgentComposition
                   EventsFor: id => sp.GetRequiredService<ProcessMailboxLocator>().EventsFor(id),
                   WakeSource: sp.GetRequiredService<WaitWakeHub>(),
                   Clock: TimeProvider.System,
+                  Progress: sp.GetRequiredService<ChildProgressLedger>(),
                   // Fail-fast join: agent.fanout's advertised contract - failed STARTS
                   // (DepthExceeded, InvalidSpawnRequest, ...) fail the join immediately
                   // and surface under their own error code.

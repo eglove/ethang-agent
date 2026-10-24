@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.18";
+  public const string Version = "2.19";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -169,9 +169,19 @@ public static class ExecGuide
 
         Tools.Invoke("agent.status", new { timeoutSeconds = 30, id = "<guid>" })   → projection for humans/debugging: status=running|completed|failed
 
-
     agent.status is an observation window between turns — for humans and debugging,
-    never a completion check. agent.result remains available when you already hold a
+    never a completion check. A RUNNING child's line also carries its latest mid-run
+    activity, so a long run is not a black box:
+
+        id=<guid> status=running progress phase=model-call|tool-exec|draining label=<short tag> age=<n>s
+
+    phase/label name what the child is doing right now (label is a phase tag such as
+    'iteration' or 'tool:read', never content); age is how long since that beat. The
+    suffix appears only while running and only once a beat has been observed. It is a
+    PULL surface: nothing pushes a child's progress into your context, so read it when
+    you want a status check — a wait still wakes only on the reasons listed above.
+
+    agent.result remains available when you already hold a
     settled id or need the report without blocking the current call:
 
         Tools.Invoke("agent.result", new { timeoutSeconds = 60, id = "<guid>" })

@@ -120,6 +120,38 @@ public class WaitWakeWiringTests
   }
 
   [Fact]
+  public void Container_ProgressLedger_SubscribedToTheEventStream()
+  {
+    // Issue #93: the ledger is constructed eagerly at container build (nothing else
+    // resolves it, so a lazy registration would never subscribe).
+    using ServiceProvider services = Build();
+    IAgentEvents events = services.GetRequiredService<IAgentEvents>();
+    ChildProgressLedger ledger = services.GetRequiredService<ChildProgressLedger>();
+    AgentId child = AgentId.NewId();
+
+    events.Publish(new ChildProgressEvent(child, DateTimeOffset.UtcNow, ChildPhase.ToolExec, "tool:read"));
+
+    Assert.Equal("tool:read", ledger.Find(child)!.Label);
+  }
+
+  [Fact]
+  public void Container_ProgressLedger_IsNotAWakeSource()
+  {
+    // The ledger is a READ surface only: subscribing it must not make progress
+    // wake-worthy (a wait that woke on every tool call would never rest).
+    using ServiceProvider services = Build();
+    _ = services.GetRequiredService<ChildProgressLedger>();
+    IAgentEvents events = services.GetRequiredService<IAgentEvents>();
+    WaitWakeHub hub = services.GetRequiredService<WaitWakeHub>();
+    List<WakeSignal> seen = [];
+    using IDisposable lease = hub.Subscribe(seen.Add);
+
+    events.Publish(new ChildProgressEvent(AgentId.NewId(), DateTimeOffset.UtcNow, ChildPhase.ToolExec, "tool:read"));
+
+    Assert.Empty(seen);
+  }
+
+  [Fact]
   public void SubAgentServices_SupervisorFor_ResolvesRegisteredChild()
   {
     using ServiceProvider services = Build();

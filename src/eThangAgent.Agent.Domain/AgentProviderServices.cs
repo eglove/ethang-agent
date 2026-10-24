@@ -24,8 +24,11 @@ namespace eThangAgent.AgentDomain;
 ///     cross-container delivery audit; null skips the audit event.</param>
 /// <param name="WakeSource">Optional wake hub for the wake-aware agent.wait; null
 ///     keeps the legacy pure-settlement await when no timeout is requested.</param>
-/// <param name="Clock">Optional time source for the wait's soft timeout; defaults
-///     to <see cref="TimeProvider.System"/> when a wake-aware wait runs.</param>
+/// <param name="Clock">Optional time source for the wait's soft timeout and the
+///     status line's progress age; defaults to <see cref="TimeProvider.System"/>.</param>
+/// <param name="Progress">Optional session progress ledger (issue #93): the read
+///     surface agent.status uses to report a RUNNING child's latest mid-run activity.
+///     Null (legacy wiring, tests) keeps the status line byte-identical.</param>
 public sealed record AgentProviderServices(
     IAgentSpawnCommand SpawnCommand,
     IAgentQueries Queries,
@@ -36,4 +39,5 @@ public sealed record AgentProviderServices(
     IAgentMailboxLocator? Locator = null,
     Func<AgentId, IAgentEvents?>? EventsFor = null,
     IWaitWakeSource? WakeSource = null,
-    TimeProvider? Clock = null);
+    TimeProvider? Clock = null,
+    ChildProgressLedger? Progress = null);

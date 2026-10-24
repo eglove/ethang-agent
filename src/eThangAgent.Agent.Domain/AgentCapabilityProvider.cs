@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Globalization;
 using System.Text.Json;
 using eThangAgent.CapabilityDomain;
 using eThangAgent.SharedKernel;
@@ -34,6 +35,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     _eventsFor = services.EventsFor;
     _wakeSource = services.WakeSource;
     _clock = services.Clock;
+    _progress = services.Progress;
     _handlers = BuildHandlers();
   }
 
@@ -47,6 +49,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   private readonly Func<AgentId, IAgentEvents?>? _eventsFor;
   private readonly IWaitWakeSource? _wakeSource;
   private readonly TimeProvider? _clock;
+  private readonly ChildProgressLedger? _progress;
   private readonly FrozenDictionary<string, ActionHandler> _handlers;
 
   public string Id => ProviderId;
@@ -82,6 +85,9 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
             id=<id> status=failed reason=max-iterations|timeout|provider-error|interrupted|hung|budget-exhausted|invalid-result
             id=<id> status=interrupted
             status=queued means the child is parked at the runtime's concurrent-agent limit: it has no run yet and starts on its own when a slot frees. The reason suffix appears only when status=failed.
+            A RUNNING child's line also carries its latest mid-run activity:
+            id=<id> status=running progress phase=model-call|tool-exec|draining label=<short tag> age=<n>s
+            phase/label name what the child is doing right now (label is a phase tag such as 'iteration' or 'tool:read', never content) and age is how long since that beat. The suffix appears only while running and only when a beat has been observed.
             """,
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
@@ -590,9 +596,39 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
 
     Result<AgentRecord> lookup = await _queries.GetStatus(id.Value, ct).ConfigureAwait(false);
     return lookup.IsSuccess
-        ? CapabilityInvocationResult.Ok(StateLine(lookup.Value))
+        ? CapabilityInvocationResult.Ok(StateLine(lookup.Value) + ProgressSuffix(lookup.Value))
         : CapabilityInvocationResult.Fail($"Error [{lookup.Error.Code}]: {lookup.Error.Message}");
   }
+
+  /// <summary>The mid-run activity suffix for a RUNNING child (issue #93): the phase and
+  ///     label of its latest progress beat plus the age of that beat, appended to the
+  ///     status line so a parent watching a long run learns what the child is DOING
+  ///     instead of only that it is running. Empty for every other status (a terminal
+  ///     record has no current phase) and empty when no ledger is wired or the ledger
+  ///     holds no beat for this child — legacy wiring stays byte-identical.</summary>
+  private string ProgressSuffix(AgentRecord record)
+  {
+    if (_progress is null || record.Status is not AgentStatus.Running
+        || _progress.Find(record.Id) is not { } snapshot)
+    {
+      return "";
+    }
+
+    TimeSpan age = (_clock ?? TimeProvider.System).GetUtcNow() - snapshot.At;
+    int seconds = Math.Max((int)age.TotalSeconds, 0);
+    return string.Create(CultureInfo.InvariantCulture,
+        $" progress phase={PhaseWord(snapshot.Phase)} label={snapshot.Label} age={seconds}s");
+  }
+
+  /// <summary>Lowercase phase words for the status line (CA1308 forbids ToLowerInvariant
+  ///     normalization; the words are pinned, not computed).</summary>
+  private static string PhaseWord(ChildPhase phase) => phase switch
+  {
+    ChildPhase.ModelCall => "model-call",
+    ChildPhase.ToolExec => "tool-exec",
+    ChildPhase.Draining => "draining",
+    _ => throw new InvalidOperationException($"Unknown child phase '{phase}'."),
+  };
 
   private async Task<CapabilityInvocationResult> GetResult(string json, CancellationToken ct)
   {
