@@ -15,20 +15,25 @@ internal sealed record NewAgentChoice(string ProviderId, string WorkspaceRoot,
     IReadOnlyList<SessionFileEntry> GlobalFiles,
     IReadOnlyList<SessionFileEntry> WorkspaceFiles,
     IReadOnlyList<SessionFileEntry> GlobalSkillDirectories,
-    IReadOnlyList<SessionFileEntry> WorkspaceSkillDirectories)
+    IReadOnlyList<SessionFileEntry> WorkspaceSkillDirectories,
+    IReadOnlyList<TrustedDirectoryEntry>? TrustedDirectories = null)
 {
   /// <summary>Converts one dialog row list to its persisted entry shape.</summary>
   private static IReadOnlyList<SessionFileEntry> Entries(IEnumerable<SessionFileRow> rows) =>
       [.. rows.Select(r => new SessionFileEntry(r.Path, r.Enabled))];
 
-  /// <summary>Builds the choice from the dialog's live row lists.</summary>
+  /// <summary>Builds the choice from the dialog's live row lists. The trusted-directory
+  ///     rows carry one extra field (the write permission), so they convert separately:
+  ///     the two shapes differ and a shared converter would have to lie about one.</summary>
   internal static NewAgentChoice FromRows(string providerId, string workspaceRoot,
       IReadOnlyList<SessionFileRow> globalFiles, IReadOnlyList<SessionFileRow> workspaceFiles,
       IReadOnlyList<SessionFileRow> globalSkillDirectories,
-      IReadOnlyList<SessionFileRow> workspaceSkillDirectories) => new(
+      IReadOnlyList<SessionFileRow> workspaceSkillDirectories,
+      IReadOnlyList<TrustedDirectoryRow> trustedDirectories) => new(
       providerId, workspaceRoot,
       Entries(globalFiles), Entries(workspaceFiles),
-      Entries(globalSkillDirectories), Entries(workspaceSkillDirectories));
+      Entries(globalSkillDirectories), Entries(workspaceSkillDirectories),
+      [.. trustedDirectories.Select(r => new TrustedDirectoryEntry(r.Path, r.Enabled, r.Editable))]);
 }
 
 /// <summary>One editable row in the launch dialog: the absolute path and its
@@ -38,6 +43,12 @@ internal sealed record SessionFileRow(string Path, bool Enabled)
 {
   public static implicit operator SessionFileEntry(SessionFileRow row) => new(row.Path, row.Enabled);
 }
+
+/// <summary>One editable TRUSTED-DIRECTORY row (issue #96): the external root, its enable
+///     checkbox, and whether mutating tools may write inside it. Both checkboxes are
+///     editable in place, so an approval can be narrowed to reading without removing and
+///     re-adding the root.</summary>
+internal sealed record TrustedDirectoryRow(string Path, bool Enabled, bool Editable);
 
 /// <summary>View-model behind the new-agent modal: an AI-provider dropdown, a
 ///     workspace chosen through the platform folder picker, and the session-file /
@@ -59,6 +70,8 @@ internal sealed partial class NewAgentViewModel : ObservableObject
   public event EventHandler? GlobalSkillDirectoryPickRequested;
   /// <summary>Raised when the user asks for a folder picker (workspace skill directory).</summary>
   public event EventHandler? WorkspaceSkillDirectoryPickRequested;
+  /// <summary>Raised when the user asks for a folder picker (trusted directory).</summary>
+  public event EventHandler? TrustedDirectoryPickRequested;
 
   /// <summary>Raised when the user confirms; carries the validated choice. The view
   ///     closes the dialog with it.</summary>
@@ -82,6 +95,8 @@ internal sealed partial class NewAgentViewModel : ObservableObject
 
   public ICommand PickWorkspaceSkillDirectoryCommand { get; }
 
+  public ICommand PickTrustedDirectoryCommand { get; }
+
   /// <summary>The global session-file rows: what loads (when checked) for every
   ///     workspace. Editable in place - checkbox toggles, row remove.</summary>
   public ObservableCollection<SessionFileRow> GlobalFiles { get; } = [];
@@ -98,6 +113,11 @@ internal sealed partial class NewAgentViewModel : ObservableObject
   /// <summary>The workspace-scope skill-directory rows (a directory equal to a
   ///     global one is skipped at the factory's resolution site).</summary>
   public ObservableCollection<SessionFileRow> WorkspaceSkillDirectories { get; } = [];
+
+  /// <summary>The trusted-directory rows (issue #96): external roots the user approves for
+  ///     THIS workspace. Workspace scope only - an approval in one workspace must never
+  ///     silently widen every other workspace's reach.</summary>
+  public ObservableCollection<TrustedDirectoryRow> TrustedDirectories { get; } = [];
 
   /// <summary>The named problem with the last pick, or null. Rendered beside the
   ///     lists so the user sees why a pick was refused.</summary>
@@ -121,7 +141,8 @@ internal sealed partial class NewAgentViewModel : ObservableObject
       IReadOnlyList<SessionFileEntry>? globalFiles = null,
       IReadOnlyList<SessionFileEntry>? workspaceFiles = null,
       IReadOnlyList<SessionFileEntry>? globalSkillDirectories = null,
-      IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null)
+      IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null,
+      IReadOnlyList<TrustedDirectoryEntry>? trustedDirectories = null)
   {
     Providers = providers is { Count: > 0 }
         ? providers
@@ -136,6 +157,7 @@ internal sealed partial class NewAgentViewModel : ObservableObject
     PickWorkspaceFileCommand = commands.PickWorkspaceFile;
     PickGlobalSkillDirectoryCommand = commands.PickGlobalSkillDirectory;
     PickWorkspaceSkillDirectoryCommand = commands.PickWorkspaceSkillDirectory;
+    PickTrustedDirectoryCommand = commands.PickTrustedDirectory;
     OpenCommand = commands.Open;
 
     SelectedProvider = providers.FirstOrDefault(p => p.Id == preferredProviderId) ?? providers[0];
@@ -144,6 +166,18 @@ internal sealed partial class NewAgentViewModel : ObservableObject
     SeedRows(WorkspaceFiles, workspaceFiles);
     SeedRows(GlobalSkillDirectories, globalSkillDirectories);
     SeedRows(WorkspaceSkillDirectories, workspaceSkillDirectories);
+    SeedTrustedRows(trustedDirectories);
+  }
+
+  /// <summary>Seeds the trusted-directory rows from the stored workspace list. Blank paths
+  ///     are dropped here rather than rendered as an unusable row - the stored parse
+  ///     already refuses them, so this only guards a hand-built entry.</summary>
+  private void SeedTrustedRows(IReadOnlyList<TrustedDirectoryEntry>? entries)
+  {
+    foreach (TrustedDirectoryEntry entry in entries ?? [])
+    {
+      TrustedDirectories.Add(new TrustedDirectoryRow(entry.Path, entry.Enabled, entry.Editable));
+    }
   }
 
   /// <summary>The dialog's command set, built in one place so the constructor stays
@@ -155,6 +189,7 @@ internal sealed partial class NewAgentViewModel : ObservableObject
       new RelayCommand(() => WorkspaceFilePickRequested?.Invoke(this, EventArgs.Empty)),
       new RelayCommand(() => GlobalSkillDirectoryPickRequested?.Invoke(this, EventArgs.Empty)),
       new RelayCommand(() => WorkspaceSkillDirectoryPickRequested?.Invoke(this, EventArgs.Empty)),
+      new RelayCommand(() => TrustedDirectoryPickRequested?.Invoke(this, EventArgs.Empty)),
       // The Open command is GATED by CanOpen: until a provider AND a workspace
       // are chosen, the button stays disabled. It was always enabled before
       // (the no-canExecute overload), so pressing Open with no workspace
@@ -179,7 +214,7 @@ internal sealed partial class NewAgentViewModel : ObservableObject
 
     OpenRequested?.Invoke(this, NewAgentChoice.FromRows(
         provider.Id, WorkspaceRoot, GlobalFiles, WorkspaceFiles,
-        GlobalSkillDirectories, WorkspaceSkillDirectories));
+        GlobalSkillDirectories, WorkspaceSkillDirectories, TrustedDirectories));
   }
 
   /// <summary>Appends one persisted entry list to a row list as checked rows. The
@@ -203,6 +238,7 @@ internal sealed partial class NewAgentViewModel : ObservableObject
       ICommand PickWorkspaceFile,
       ICommand PickGlobalSkillDirectory,
       ICommand PickWorkspaceSkillDirectory,
+      ICommand PickTrustedDirectory,
       IRelayCommand Open);
 
   /// <summary>Feeds the folder-picker result back in. An empty pick (cancelled
@@ -228,12 +264,18 @@ internal sealed partial class NewAgentViewModel : ObservableObject
   /// <summary>Feeds a picked workspace skill-directory path back in.</summary>
   public void SetPickedWorkspaceSkillDirectory(string? path) => SetPicked(path, WorkspaceSkillDirectories, "skill directory");
 
+  /// <summary>Feeds a picked trusted-directory path back in. A cancelled pick (null/blank)
+  ///     changes nothing; a duplicate is a named error. A new row starts ENABLED and
+  ///     READ-ONLY: approving reach and approving writes are separate decisions, and the
+  ///     dangerous one must be made deliberately.</summary>
+  public void SetPickedTrustedDirectory(string? path) => SetPickedTrusted(path);
+
   /// <summary>Replaces BOTH workspace-scope row lists with a picked workspace's
   ///     stored rows (the view loads them when a workspace is picked). The rows
   ///     reflect the stored preference for THIS root — the previous root's rows
   ///     never linger.</summary>
   public void ReplaceWorkspaceRows(IReadOnlyList<SessionFileEntry> files,
-      IReadOnlyList<SessionFileEntry> directories)
+      IReadOnlyList<SessionFileEntry> directories, IReadOnlyList<TrustedDirectoryEntry>? trusted = null)
   {
     WorkspaceFiles.Clear();
     foreach (SessionFileEntry entry in files)
@@ -246,6 +288,11 @@ internal sealed partial class NewAgentViewModel : ObservableObject
     {
       WorkspaceSkillDirectories.Add(new SessionFileRow(entry.Path, entry.Enabled));
     }
+
+    // Trusted directories are workspace-scoped, so they reload with the workspace: a
+    // previous root's approvals must never linger over a different directory.
+    TrustedDirectories.Clear();
+    SeedTrustedRows(trusted);
   }
 
   [RelayCommand]
@@ -259,6 +306,32 @@ internal sealed partial class NewAgentViewModel : ObservableObject
 
   [RelayCommand]
   private void RemoveWorkspaceSkillDirectory(SessionFileRow row) => _ = WorkspaceSkillDirectories.Remove(row);
+
+  [RelayCommand]
+  private void RemoveTrustedDirectory(TrustedDirectoryRow row) => _ = TrustedDirectories.Remove(row);
+
+  /// <summary>Duplicates are refused case-insensitively on the FULL path, exactly as the
+  ///     other row lists do: two rows naming one root would persist two approvals with
+  ///     different permissions and the resolver would answer with whichever came first.</summary>
+  private void SetPickedTrusted(string? path)
+  {
+    string trimmed = path?.Trim() ?? string.Empty;
+    if (trimmed.Length == 0)
+    {
+      return; // cancelled pick - no-op
+    }
+
+    string normalized = Path.GetFullPath(trimmed);
+    if (TrustedDirectories.Any(r =>
+        string.Equals(Path.GetFullPath(r.Path), normalized, StringComparison.OrdinalIgnoreCase)))
+    {
+      FileError = $"The trusted directory is already configured: '{trimmed}'.";
+      return;
+    }
+
+    FileError = null;
+    TrustedDirectories.Add(new TrustedDirectoryRow(trimmed, Enabled: true, Editable: false));
+  }
 
   /// <summary>Validates one picked path and appends a checked row. Pickers return
   ///     absolute paths by construction, so the only named failure is a duplicate

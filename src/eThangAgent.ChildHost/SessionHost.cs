@@ -127,6 +127,11 @@ public sealed class SessionHost
             // from the settings-carried stored lists, so remote children render
             // the identical always-on skills listing in their system prompt.
             .AddSingleton(new ResolvedSkillDirectories(AgentComposition.ResolveSkillDirectoriesFromSettings(settings)))
+            // Trusted directories (issue #96) ride the settings JSON for the same reason
+            // skill directories do: THIS container runs every production turn, so the
+            // approved external roots must resolve here, not only in the app process.
+            .AddSingleton(new ResolvedTrustedDirectories(
+                AgentComposition.ResolveTrustedDirectoriesFromSettings(settings)))
             .AddInProcessAgentRuntime(settings)
         .BuildServiceProvider();
 

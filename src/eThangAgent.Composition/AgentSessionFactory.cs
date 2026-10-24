@@ -83,9 +83,11 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(full, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(full, ct).ConfigureAwait(false);
+    string? trustedDirectories = await ReadTrustedDirectoriesAsync(full, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(full, providerName, conversationSeed,
         ResolveBootstrapModel(providerName),
-        new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories));
+        new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories,
+            trustedDirectories));
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
     {
@@ -220,9 +222,11 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
 
     (string? globalFiles, string? workspaceFiles) = await ReadSessionFilesAsync(workspaceRoot, ct).ConfigureAwait(false);
     (string? globalDirectories, string? workspaceDirectories) = await ReadSkillDirectoriesAsync(workspaceRoot, ct).ConfigureAwait(false);
+    string? trustedDirectories = await ReadTrustedDirectoriesAsync(workspaceRoot, ct).ConfigureAwait(false);
     ServiceProvider services = BuildContainer(workspaceRoot, providerName, transcript.Value,
         ResolveBootstrapModel(providerName),
-        new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories));
+        new StoredPreferenceLists(globalFiles, workspaceFiles, globalDirectories, workspaceDirectories,
+            trustedDirectories));
     services.GetService<SessionFilesCarrier>()?.Fill(globalFiles, workspaceFiles);
     try
     {
@@ -387,6 +391,15 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
     return (global, workspace);
   }
 
+  /// <summary>Reads one workspace's stored trusted-directory list (issue #96). Optional
+  ///     like every other launch preference: a store miss returns null and the session
+  ///     opens with no external roots approved.</summary>
+  private async Task<string?> ReadTrustedDirectoriesAsync(string workspaceRoot, CancellationToken ct)
+  {
+    SqliteAppPreferenceStore preferences = new(_database ?? new AppDatabase());
+    return await preferences.GetAsync(TrustedDirectoryPreferences.WorkspaceKey(workspaceRoot), ct).ConfigureAwait(false);
+  }
+
   /// <summary>Resolves the configured skill directories from the two raw stored
   ///     lists (E-shape, same as session files). Both lists parse independently and
   ///     a parse FAILURE contributes an empty list - the raw strings still ride the
@@ -491,8 +504,17 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
         // overlays onto the settings JSON.
         .AddSingleton(new ResolvedSkillDirectories(
             ResolveSkillDirectories(stored.GlobalSkillDirectories, stored.WorkspaceSkillDirectories, workspaceRoot)))
+        // Trusted directories (issue #96) override the core's settings-sourced
+        // registration for the same reason the skill directories do above: the value was
+        // just READ from the store here, and this is the site that owns preference
+        // resolution. The carrier filled below is the core-registered singleton the
+        // RemoteHost block overlays onto the settings JSON, so the host process - which
+        // runs every production turn - resolves the identical roots.
+        .AddSingleton(new ResolvedTrustedDirectories(
+            TrustedDirectoryPreferences.Resolve(stored.TrustedDirectories)))
         .BuildServiceProvider();
     services.GetRequiredService<SkillDirectoriesCarrier>().Fill(stored.GlobalSkillDirectories, stored.WorkspaceSkillDirectories);
+    services.GetRequiredService<TrustedDirectoriesCarrier>().Fill(stored.TrustedDirectories);
     return RegisterContainerMailboxSource(services);
   }
 
@@ -504,7 +526,8 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
       string? GlobalSessionFiles,
       string? WorkspaceSessionFiles,
       string? GlobalSkillDirectories,
-      string? WorkspaceSkillDirectories);
+      string? WorkspaceSkillDirectories,
+      string? TrustedDirectories);
 
   /// <summary>Contributes THIS container's live-mailbox views to the process-wide
   ///     locator, carrying the container's event stream so a cross-container delivery

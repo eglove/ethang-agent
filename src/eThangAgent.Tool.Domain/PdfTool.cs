@@ -24,6 +24,12 @@ public sealed class PdfTool(
   private const string PngMediaType = "image/png";
 
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+
+  // Actions that never write the document (issue #96): read extracts text, render
+  // rasterizes to attached PNGs. create and manipulate write, so they keep the strict
+  // resolver. Deny by default: an action not named here is treated as mutating.
+  private static readonly IReadOnlySet<string> ReadOnlyActions =
+      new HashSet<string>(StringComparer.Ordinal) { "read", "render" };
   private readonly IPdfAccess _pdf = pdf ?? throw new ArgumentNullException(nameof(pdf));
   private readonly IImageInputCapability? _vision = vision;
   private readonly ReadFreshnessLedger? _ledger = ledger;
@@ -113,7 +119,10 @@ public sealed class PdfTool(
     }
 
     PdfToolInput args = parsed.Value;
-    Result<string> resolved = _resolver.Resolve(args.Path!);
+    // Action-scoped resolution (issue #96): reading and rendering may reach a
+    // read-only trusted root; create and manipulate keep the strict resolver.
+    Result<string> resolved = ActionScopedPathResolver.Resolve(
+        _resolver, args.Path!, input.JsonArguments, ReadOnlyActions);
     if (!resolved.IsSuccess)
     {
       return Task.FromResult(Err(resolved.Error));

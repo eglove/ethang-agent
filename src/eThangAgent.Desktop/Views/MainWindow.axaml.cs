@@ -79,11 +79,15 @@ internal partial class MainWindow : Window
     try
     {
       NewAgentWindow dialog = new(_vm!.AvailableProviders, _vm.PreferredProviderId,
-          await _vm.GetGlobalSessionFilesAsync(),
-          await _vm.GetGlobalSkillDirectoriesAsync(),
+          new LaunchRows
+          {
+            GlobalFiles = await _vm.GetGlobalSessionFilesAsync(),
+            GlobalSkillDirectories = await _vm.GetGlobalSkillDirectoriesAsync(),
+          },
           loadWorkspaceRows: async root => (
               await _vm.GetWorkspaceSessionFilesAsync(root),
-              await _vm.GetWorkspaceSkillDirectoriesAsync(root)));
+              await _vm.GetWorkspaceSkillDirectoriesAsync(root),
+              await _vm.GetTrustedDirectoriesAsync(root)));
       NewAgentChoice? choice = await dialog.ShowDialog<NewAgentChoice?>(this);
       if (choice is null)
       {

@@ -24,6 +24,13 @@ public sealed class DocxTool(
   private const string JpegMediaType = "image/jpeg";
 
   private readonly IPathResolver _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+
+  // Actions that only READ the document (issue #96). A trusted root approved for
+  // reading is usable for these; edit/create/comments/revisions/extract all write
+  // (or write a sibling output file), so they take the strict resolver. Deny by
+  // default: an action not named here is treated as mutating.
+  private static readonly IReadOnlySet<string> ReadOnlyActions =
+      new HashSet<string>(StringComparer.Ordinal) { "read" };
   private readonly IDocxAccess _docx = docx ?? throw new ArgumentNullException(nameof(docx));
   private readonly IImageInputCapability? _vision = vision;
   private readonly ReadFreshnessLedger? _ledger = ledger;
@@ -137,7 +144,10 @@ public sealed class DocxTool(
     }
 
     DocxToolInput args = parsed.Value;
-    Result<string> resolved = _resolver.Resolve(args.Path!);
+    // Action-scoped resolution (issue #96): reading may reach a read-only trusted
+    // root; every writing action keeps the strict resolver.
+    Result<string> resolved = ActionScopedPathResolver.Resolve(
+        _resolver, args.Path!, input.JsonArguments, ReadOnlyActions);
     if (!resolved.IsSuccess)
     {
       return Task.FromResult(Err(resolved.Error));

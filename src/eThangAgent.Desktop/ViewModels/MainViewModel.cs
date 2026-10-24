@@ -580,6 +580,28 @@ internal sealed partial class MainViewModel : ObservableObject
     return parsedWs.IsSuccess ? parsedWs.Value : [];
   }
 
+  /// <summary>Loads the workspace trusted-directory rows for the launch dialog's prefill
+  ///     (issue #96). Null root means an empty scope; a parse failure renders as empty
+  ///     rather than half a list - the safe direction for external reach is nothing.</summary>
+  public async Task<IReadOnlyList<TrustedDirectoryEntry>> GetTrustedDirectoriesAsync(string? workspaceRoot = null)
+  {
+    if (_preferences is null || workspaceRoot is null)
+    {
+      return [];
+    }
+
+    Result<string> resolved = ResolveWorkspaceRoot(workspaceRoot);
+    if (!resolved.IsSuccess)
+    {
+      return [];
+    }
+
+    string? stored = await _preferences.GetAsync(
+        TrustedDirectoryPreferences.WorkspaceKey(resolved.Value));
+    Result<IReadOnlyList<TrustedDirectoryEntry>> parsed = TrustedDirectoryPreferences.Parse(stored);
+    return parsed.IsSuccess ? parsed.Value : [];
+  }
+
   /// <summary>Loads the skill-registry default target for the settings prefill.
   ///     The raw stored value prefills; strict parsing happens at settings load.</summary>
   public async Task<string> GetSkillRegistryDefaultTargetAsync()
@@ -1062,6 +1084,11 @@ internal sealed partial class MainViewModel : ObservableObject
     await PersistFileListAsync(
         SkillDirectoryPreferences.WorkspaceKey(root.Value),
         choice.WorkspaceSkillDirectories, SkillDirectoryPreferences.Serialize);
+    // Trusted directories (issue #96) are WORKSPACE-scoped: an approval says 'in THIS
+    // workspace the agent may reach this external root', and a global list would widen
+    // every other workspace's reach the moment one approves something.
+    await PersistTrustedDirectoriesAsync(TrustedDirectoryPreferences.WorkspaceKey(root.Value),
+        choice.TrustedDirectories ?? []);
 
     return Result.Success(true);
   }
@@ -1089,6 +1116,35 @@ internal sealed partial class MainViewModel : ObservableObject
       return Result.Failure<string>(new DomainError("InvalidWorkspace",
           "workspace root could not be resolved: " + ex.Message));
     }
+  }
+
+  /// <summary>Writes the trusted-directory list (issue #96): an empty list deletes the key
+  ///     (nothing approved), a non-empty one serializes verbatim. Best effort, the same
+  ///     named decision as every other preference write - a failed write logs to stderr and
+  ///     never fails the launch, so the worst case is a session opened without the approval
+  ///     the user just made rather than a lost workspace.</summary>
+  private async Task PersistTrustedDirectoriesAsync(string preferenceKey,
+      IReadOnlyList<TrustedDirectoryEntry> entries)
+  {
+    IAppPreferenceStore preferences = _preferences
+        ?? throw new InvalidOperationException("PersistTrustedDirectoriesAsync requires a preference store.");
+    // Named decision (CA1031): preference persistence must not take the launch down.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      bool landed = entries.Count == 0
+          ? await preferences.DeleteAsync(preferenceKey)
+          : await preferences.SetAsync(preferenceKey, TrustedDirectoryPreferences.Serialize(entries));
+      if (!landed)
+      {
+        await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}'");
+      }
+    }
+    catch (Exception ex)
+    {
+      await Console.Error.WriteLineAsync($"preference write failed for '{preferenceKey}': {ex.Message}");
+    }
+#pragma warning restore CA1031
   }
 
   /// <summary>Writes one file/directory list preference: an empty list deletes the

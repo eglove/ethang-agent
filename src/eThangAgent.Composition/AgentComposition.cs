@@ -176,41 +176,57 @@ public static class AgentComposition
   private static IReadOnlyList<AgentToolBinding> FileToolBindings(IServiceProvider sp) =>
   [
       new AgentToolBinding(
-          new ReadTool(sp.GetRequiredService<IPathResolver>(),
+          new ReadTool(ReadOnlyResolver(sp),
               sp.GetRequiredService<IFileSystemAccess>()),
           "Read lines from a text file."),
       new AgentToolBinding(
-          new ReadImageTool(sp.GetRequiredService<IPathResolver>(),
+          new ReadImageTool(ReadOnlyResolver(sp),
               sp.GetRequiredService<IFileSystemAccess>(),
               new SessionImageInputCapability(sp)),
           "Read one image file from the workspace and attach it to the result."),
       new AgentToolBinding(
-          new DocxTool(sp.GetRequiredService<IPathResolver>(),
+          new DocxTool(Resolver(sp),
               sp.GetRequiredService<IDocxAccess>(),
               new SessionImageInputCapability(sp)),
           "Read, edit, create, and inspect .docx documents."),
       new AgentToolBinding(
-          new PdfTool(sp.GetRequiredService<IPathResolver>(),
+          new PdfTool(Resolver(sp),
               sp.GetRequiredService<IPdfAccess>(),
               new SessionImageInputCapability(sp)),
           "Read, render, create, and manipulate PDF documents."),
       new AgentToolBinding(
-          new WriteTool(sp.GetRequiredService<IPathResolver>(),
+          new WriteTool(Resolver(sp),
               sp.GetRequiredService<IFileWriteAccess>()),
           "Create or overwrite a workspace file."),
       new AgentToolBinding(
-          new WriteMarkdownTool(sp.GetRequiredService<IPathResolver>(),
+          new WriteMarkdownTool(Resolver(sp),
               sp.GetRequiredService<IFileWriteAccess>()),
           "Render a structured JSON document into markdown; return it or write it to a workspace file."),
       new AgentToolBinding(
-          new EditTool(sp.GetRequiredService<IPathResolver>(),
+          new EditTool(Resolver(sp),
               sp.GetRequiredService<IFileEditAccess>()),
           "Edit a file by exact literal replacement."),
       new AgentToolBinding(
-          new FindFilesTool(sp.GetRequiredService<IPathResolver>(),
+          new FindFilesTool(ReadOnlyResolver(sp),
               sp.GetRequiredService<IFileSearchAccess>()),
           "Search the workspace for files by name pattern (Win32 glob: * and ?)."),
   ];
+
+  /// <summary>The trust-aware resolver every MUTATING file tool receives (issue #96): the
+  ///     host-supplied resolver widened with the session's approved external roots, with
+  ///     the per-root write permission ENFORCED. A container with nothing approved behaves
+  ///     exactly as before - the decorator answers with its inner result verbatim - so this
+  ///     is never a change for sessions that approve no root.</summary>
+  private static TrustedDirectoryPathResolver Resolver(IServiceProvider sp) =>
+      new(sp.GetRequiredService<IPathResolver>(),
+          sp.GetRequiredService<ResolvedTrustedDirectories>().List);
+
+  /// <summary>The READ view of <see cref="Resolver(IServiceProvider)"/>: the same roots with the write policy
+  ///     switched off. Read-only tools pass here so an approved read-only root is
+  ///     READABLE through them; enforcing the write permission on a read would refuse a
+  ///     read the user approved, which is the opposite of what the approval meant.</summary>
+  private static TrustedDirectoryPathResolver ReadOnlyResolver(IServiceProvider sp) =>
+      Resolver(sp).AsReadOnlyResolver();
 
   /// <summary>Database and skill tool bindings: the agent's own database, workspace
   ///     SQLite files, the skill catalog tools, and skill invocation.</summary>
@@ -223,7 +239,7 @@ public static class AgentComposition
           new DbQueryTool(sp.GetRequiredService<ISelfDatabaseAccess>()),
           "Run one read-only SQL query against the agent's own app database."),
       new AgentToolBinding(
-          new SqliteQueryTool(sp.GetRequiredService<IPathResolver>(),
+          new SqliteQueryTool(ReadOnlyResolver(sp),
               sp.GetRequiredService<ISqliteFileAccess>()),
           "Run one read-only SQL query against any SQLite file in the workspace."),
       new AgentToolBinding(
@@ -723,13 +739,13 @@ public static class AgentComposition
             new ToolRegistry([sp.GetRequiredService<ITool>(),
                 new McpTool(sp.GetRequiredService<IMcpServerAccess>(), new AmbientMcpGrantScopeAdapter()),
                 new OpenRouterManagementTool(sp.GetRequiredService<IOpenRouterManagementAccess>()),
-                new ReadImageTool(sp.GetRequiredService<IPathResolver>(),
+                new ReadImageTool(ReadOnlyResolver(sp),
                     sp.GetRequiredService<IFileSystemAccess>(),
                     new SessionImageInputCapability(sp)),
-                new DocxTool(sp.GetRequiredService<IPathResolver>(),
+                new DocxTool(Resolver(sp),
                     sp.GetRequiredService<IDocxAccess>(),
                     new SessionImageInputCapability(sp)),
-                new PdfTool(sp.GetRequiredService<IPathResolver>(),
+                new PdfTool(Resolver(sp),
                     sp.GetRequiredService<IPdfAccess>(),
                     new SessionImageInputCapability(sp)),
                 .. ComputerLoopTools(sp, settings)]));
@@ -754,6 +770,10 @@ public static class AgentComposition
                 new ExecGuidePromptProvider(
                     new Lazy<ICapabilityRegistry>(() => sp.GetRequiredService<ICapabilityRegistry>())),
                 new ContextHygienePromptProvider(),
+                 // Trusted directories (issue #96): renders EMPTY when nothing is approved,
+                 // so a session with no approvals keeps a byte-identical prompt.
+                 new TrustedDirectoriesPromptProvider(
+                     sp.GetRequiredService<ResolvedTrustedDirectories>().List),
                 ..host.ExtraPromptProviders,
         ]));
   }
@@ -853,7 +873,15 @@ public static class AgentComposition
             sp.GetRequiredService<VerificationFreshnessSpecification>(),
             settings.VerificationGateEnabled))
         .AddSingleton<SkillDirectoriesCarrier>()
-        .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)));
+        .AddSingleton(_ => new ResolvedSkillDirectories(ResolveSkillDirectoriesFromSettings(settings)))
+        // Trusted directories (issue #96) ride EVERY container the same way skill
+        // directories do: the factory fills the carrier from the workspace preference at
+        // open/resume, and the RemoteHost block overlays that raw value onto the settings
+        // JSON - so BOTH containers (the app's and the host that actually runs the turns)
+        // resolve the same approved external roots. Unconditional registration: not
+        // remote resolves nulls, an empty root list, and nothing else changes.
+        .AddSingleton<TrustedDirectoriesCarrier>()
+        .AddSingleton(_ => new ResolvedTrustedDirectories(ResolveTrustedDirectoriesFromSettings(settings)));
   }
 
   /// <summary>Registers the IN-PROCESS runtime as this container's <see cref="IAgentRuntime"/>.
@@ -906,7 +934,11 @@ public static class AgentComposition
                   sp.GetRequiredService<SessionFilesCarrier>().Workspace)
                .WithSkillDirectories(
                   sp.GetRequiredService<SkillDirectoriesCarrier>().Global,
-                  sp.GetRequiredService<SkillDirectoriesCarrier>().Workspace),
+                  sp.GetRequiredService<SkillDirectoriesCarrier>().Workspace)
+               // Trusted directories (issue #96): the host runs every production turn, so
+               // an approval that did not travel with the settings would be invisible to
+               // the process that resolves the tool paths.
+               .WithTrustedDirectories(sp.GetRequiredService<TrustedDirectoriesCarrier>().Stored),
               sp.GetRequiredService<AppDatabase>().DatabasePath,
               // Host-health notices surface on the session transcript when the host UI
               // has attached its notice sink; headless hosts drop them.
@@ -972,6 +1004,19 @@ public static class AgentComposition
   ///     rule matches the factory's resolution: parse validates shape only; a workspace
   ///     path equal (case-insensitive, full-path normalized) to an already-included
   ///     global path is skipped with no error - the global entry wins.</summary>
+  /// <summary>Resolves the trusted directories from the settings-carried stored list -
+  ///     the config shape a host built from serialized AgentSettings (the remote
+  ///     ChildHost) resolves through. App-side containers REPLACE the core's
+  ///     settings-sourced registration in AgentSessionFactory.BuildContainer with the
+  ///     value they just read from the store; the host takes this path, so a remote
+  ///     child and a host-run root turn see the identical approved roots.</summary>
+  public static IReadOnlyList<TrustedDirectory> ResolveTrustedDirectoriesFromSettings(AgentSettings settings)
+  {
+    ArgumentNullException.ThrowIfNull(settings);
+
+    return TrustedDirectoryPreferences.Resolve(settings.TrustedDirectories);
+  }
+
   public static IReadOnlyList<SkillDirectory> ResolveSkillDirectoriesFromSettings(AgentSettings settings)
   {
     ArgumentNullException.ThrowIfNull(settings);

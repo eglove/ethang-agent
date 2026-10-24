@@ -9,7 +9,22 @@ namespace eThangAgent.Desktop.Views;
 /// <summary>The workspace-scope rows loaded once a workspace is picked: the
 ///     session-file list and the skill-directory list for that root.</summary>
 internal delegate Task<(IReadOnlyList<SessionFileEntry> Files,
-    IReadOnlyList<SessionFileEntry> Directories)> WorkspaceRowsLoader(string workspaceRoot);
+    IReadOnlyList<SessionFileEntry> Directories,
+    IReadOnlyList<TrustedDirectoryEntry> TrustedDirectories)> WorkspaceRowsLoader(string workspaceRoot);
+
+/// <summary>The dialog's prefill rows, grouped so the window constructor stays
+/// parameter-light (S107: constructor parameter count) - the same shape the adjacent
+/// settings modal uses through <c>SettingsValues</c>. Every member is optional and its
+/// absence means an empty scope; the trusted-directory rows are workspace-scoped like the
+/// workspace-scope file and skill lists.</summary>
+internal sealed record LaunchRows
+{
+  public IReadOnlyList<SessionFileEntry>? GlobalFiles { get; init; }
+  public IReadOnlyList<SessionFileEntry>? GlobalSkillDirectories { get; init; }
+  public IReadOnlyList<SessionFileEntry>? WorkspaceFiles { get; init; }
+  public IReadOnlyList<SessionFileEntry>? WorkspaceSkillDirectories { get; init; }
+  public IReadOnlyList<TrustedDirectoryEntry>? TrustedDirectories { get; init; }
+}
 
 /// <summary>The new-agent modal: (A) a provider dropdown of the configured providers,
 ///     (B) a "Choose Workspace" button that opens the platform folder picker, and
@@ -28,14 +43,13 @@ internal partial class NewAgentWindow : Window
   public NewAgentWindow() => InitializeComponent();
 
   public NewAgentWindow(IReadOnlyList<ProviderOption> providers, string preferredProviderId,
-      IReadOnlyList<SessionFileEntry>? globalFiles = null,
-      IReadOnlyList<SessionFileEntry>? globalSkillDirectories = null,
-      WorkspaceRowsLoader? loadWorkspaceRows = null,
-      IReadOnlyList<SessionFileEntry>? workspaceFiles = null,
-      IReadOnlyList<SessionFileEntry>? workspaceSkillDirectories = null) : this()
+      LaunchRows? rows = null, WorkspaceRowsLoader? loadWorkspaceRows = null) : this()
   {
+    LaunchRows seeded = rows ?? new LaunchRows();
     _vm = new NewAgentViewModel(providers, preferredProviderId,
-        globalFiles, workspaceFiles, globalSkillDirectories, workspaceSkillDirectories);
+        seeded.GlobalFiles, seeded.WorkspaceFiles,
+        seeded.GlobalSkillDirectories, seeded.WorkspaceSkillDirectories,
+        seeded.TrustedDirectories);
     _loadWorkspaceRows = loadWorkspaceRows;
     DataContext = _vm;
     _vm.WorkspaceRequested += async (_, _) => await ChooseWorkspaceAsync();
@@ -43,6 +57,7 @@ internal partial class NewAgentWindow : Window
     _vm.WorkspaceFilePickRequested += async (_, _) => await PickFileAsync("workspace");
     _vm.GlobalSkillDirectoryPickRequested += async (_, _) => await PickSkillDirectoryAsync("global");
     _vm.WorkspaceSkillDirectoryPickRequested += async (_, _) => await PickSkillDirectoryAsync("workspace");
+    _vm.TrustedDirectoryPickRequested += async (_, _) => await PickTrustedDirectoryAsync();
     _vm.OpenRequested += (_, choice) => Close(choice);
   }
 
@@ -74,9 +89,9 @@ internal partial class NewAgentWindow : Window
       return;
     }
 
-    (IReadOnlyList<SessionFileEntry> files, IReadOnlyList<SessionFileEntry> directories) =
-        await _loadWorkspaceRows(root);
-    _vm.ReplaceWorkspaceRows(files, directories);
+    (IReadOnlyList<SessionFileEntry> files, IReadOnlyList<SessionFileEntry> directories,
+        IReadOnlyList<TrustedDirectoryEntry> trusted) = await _loadWorkspaceRows(root);
+    _vm.ReplaceWorkspaceRows(files, directories, trusted);
   }
 
   /// <summary>Shows the native open-file picker and feeds the picked path back in.
@@ -126,6 +141,21 @@ internal partial class NewAgentWindow : Window
       {
         _vm?.SetPickedGlobalSkillDirectory(path);
       }
+    }
+  }
+
+  /// <summary>Shows the native folder picker for a trusted directory (issue #96) and
+  ///     feeds the picked root back in. A cancelled pick changes nothing.</summary>
+  private async Task PickTrustedDirectoryAsync()
+  {
+    IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+    {
+      Title = "Choose an external directory the agent may reach from this workspace",
+      AllowMultiple = false,
+    });
+    if (folders.Count > 0)
+    {
+      _vm?.SetPickedTrustedDirectory(folders[0].Path.LocalPath);
     }
   }
 

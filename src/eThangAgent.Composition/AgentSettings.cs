@@ -36,7 +36,8 @@ public sealed record AgentSettings(
     string? SkillDirectoriesGlobal = null,
     string? SkillDirectoriesWorkspace = null,
     string? SkillRegistryDefaultTarget = null,
-    string? SessionId = null)
+    string? SessionId = null,
+    string? TrustedDirectories = null)
 {
   // Watchdog (W1.2): null means no SubAgent:Watchdog configuration — the host watchdog
   // runs WatchdogOptions.Default. The value travels to the child host inside the
@@ -72,6 +73,16 @@ public sealed record AgentSettings(
   {
     SkillDirectoriesGlobal = SkillDirectoriesGlobal ?? globalStored,
     SkillDirectoriesWorkspace = SkillDirectoriesWorkspace ?? workspaceStored,
+  };
+
+  /// <summary>Returns the same settings with the stored trusted-directory list
+  ///     overlaid (issue #96): the raw preference value travels to the host inside the
+  ///     settings JSON, so a remote child - and the host-run ROOT turn, which is every
+  ///     production turn - resolves the SAME approved external roots the app-side
+  ///     session does. Null keeps whatever the caller already set (never a clobber).</summary>
+  public AgentSettings WithTrustedDirectories(string? stored) => this with
+  {
+    TrustedDirectories = TrustedDirectories ?? stored,
   };
 
   /// <summary>Returns the same settings with the verification gate toggled. The
