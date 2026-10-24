@@ -32,6 +32,7 @@ These principles explain every convention below. When a rule seems arbitrary, it
 - **The codebase is not the standard.** Existing code records what was done, not what is right. Never treat a current pattern as best practice just because it is present — when work touches code and a better way exists, improve it in the same change. Improve what you touch; do not launch unrelated refactors.
 - **Lean, event-driven operations.** Aim for high performance and a small memory footprint. Prefer event-driven designs — react to what happened instead of polling, stream instead of loading, and don't hold what you're not using.
 - **Direction: a self-contained agent.** The long-range shape (per the grand plan's philosophy, not its plan details) is a persistent desktop application that manages its own world — conversations, sessions, state, configuration — in app-owned structured storage rather than scattered project-level files. Work written today must fit that destination: durable state flows through domain-owned stores, never ad-hoc files.
+- **Mechanical solutions first.** Harness features should prefer mechanical solutions, or mechanical checks as a supplement to model actions, wherever possible. A model action should be the fallback, not the default — when a task can be done by a tool, a validation, a specification, or an automated gate, build that instead of asking the model to do it by hand.
 
 ## Architecture Principles
 
@@ -205,48 +206,7 @@ address-only rule are unchanged; a cross-container delivery publishes
 - **State Domain**: durable, workspace-scoped key-value state, evidence-carrying transitions, and state events.
 - **Plan Domain**: durable plan records — ids tied to owning sessions, ordered steps with optional todo references — persisted through the Storage ACL (`plans`/`plan_steps`, migrations V13 and V20) and exposed through the `plan` capability provider; the experiment-driven-development workflow's design specs and implementation plans are plan records. **A corrupt row is contained to its own plan (issue #279).** `ListAsync` returns a `PlanCatalog` — the readable plans plus a `CorruptPlanRow(PlanId, Reason)` per row that could not be materialized — so one unreadable row can never blank the workspace catalog; `GetAsync` fails that one plan with the named `CorruptPlanRow` code instead of throwing; `plan.index` renders each corrupt plan on its own `#<id> [ CorruptPlanRow ] <reason>` line after the healthy ones. Status parsing requires a DEFINED enum member (`Enum.TryParse` alone accepts `"5"` and yields an out-of-range value, which would smuggle it into the domain). Migration V20 repaired the six `plan_steps` rows that carried `Completed` (a `PlanStatus` value in a step-status column) to `Done` — any other unknown step status becomes `Pending`, never a guessed completion — and added CHECK constraints to `plans` and `plan_steps`, so a DIRECT writer (an exec script's SQL) can no longer reintroduce the corruption; the tables are rebuilt with foreign-key enforcement suspended around the swap and ids/versions preserved verbatim.
 
-### Desktop shell: the right-hand workbench (issue #8)
-
-The shell's right column is a **permanent workbench** (design decisions D1/D3/D5 in
-[`docs/design/2026-10-24-desktop-views-draft.md`](docs/design/2026-10-24-desktop-views-draft.md)):
-an icon strip with one view at a time, per tab, read-only except navigation. It
-replaced the subagent accordion's auto-open-on-content mechanism — a pane that
-vanishes while you are reading it is worse than one you collapse yourself — and the
-accordion now renders as the **Progress** view. `WorkbenchViewModel` owns the strip
-(`WorkbenchIconViewModel`, one per view; an icon for a view this slice has not built
-renders dimmed and does not switch, because an icon that silently does nothing is
-worse than one that says so) and `WorkbenchView` names all six views so a later view
-is a case, not a redesign.
-
-The **Plans** view (`PlansViewViewModel`) renders this session's plan records and the
-workspace todo list. It has THREE realtime sources because the writer can be in
-either process, and all three funnel into one `RefreshAsync` so exactly one renderer
-exists:
-
-- **`PlanService` events** (`Created`/`StepChanged`/`StatusChanged`) for in-process writes.
-- **`IStateChangeBus`** filtered to `todo/list` (the `TodoTool.StoreKey`) for todo writes.
-- **`IChangeSignal`** (`SqliteChangeSignal`) for the ChildHost's writes: the conversation
-  runs in another process, so no in-process bus can see them. It reads SQLite's
-  `PRAGMA data_version`, which is a PER-CONNECTION counter — **the connection must
-  persist**, because a fresh connection always reports 1 and the obvious
-  open-per-read implementation would silently never detect anything. Holding its own
-  connection means it moves on any OTHER connection's commit (the host's writes and
-  this process's store writes alike); that over-reporting is deliberate, since a
-  redundant re-read of a small table is cheap while distinguishing processes could
-  only ever under-report. The baseline is seeded at `Start()`, not on the first poll
-  tick, so a change landing in between is not adopted as the baseline and lost; a
-  refresh requested while one is running sets `_refreshAgain` instead of being
-  dropped, because the in-flight read may have already passed the write. The signal is
-  disposable and the view disposes it — an undisposed signal pins a database
-  connection for the process lifetime.
-
-A load failure renders as a named error, never as the empty state: "no plans" and
-"cannot read plans" must not look the same. A corrupt plan row renders as its own
-marked card with the store's reason (issue #279), so one bad row never blanks the
-list. The view is read-only (D4) and starts its sources only when it is actually
-shown — a collapsed workbench has no reason to poll.
-
-Configuration concerns live with their consumers until a real Configuration context earns its own boundary.
+#
 
 ## Project Structure
 
