@@ -1,3 +1,4 @@
+using System.Text.Json;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
 
@@ -86,6 +87,74 @@ public sealed class SqliteAgentStoreUsageTests : IDisposable
     Assert.Equal(4, events.Value.Count);
     Assert.Equal(first, events.Value[1]);
     Assert.Equal(second, events.Value[2]);
+  }
+
+  [Fact]
+  public async Task AppendEventAsync_ExtendedUsageRecord_RoundTripsPriceAndAttribution()
+  {
+    // Issue #22: price, call class, workspace, and provider ride the SAME row - no new
+    // table, no migration - so a cost report is computable from agent_events alone.
+    AgentId id = AgentId.NewId();
+    AgentUsageRecorded recorded = new(id, DateTimeOffset.UtcNow, Guid.NewGuid(), 2, 100, 20, 64, 7,
+        UsageCallClass.Compaction, "ws-root", "openrouter", 0.000003m, 0.0000003m, 0.000015m);
+
+    Assert.True((await _store.AppendEventAsync(recorded, ct: TestContext.Current.CancellationToken)).IsSuccess);
+
+    Result<IReadOnlyList<AgentDomainEvent>> events =
+        await _store.GetEventsAsync(id, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(events.IsSuccess);
+    AgentUsageRecorded reloaded = Assert.IsType<AgentUsageRecorded>(Assert.Single(events.Value));
+    Assert.Equal(recorded, reloaded);
+    Assert.Same(UsageCallClass.Compaction, reloaded.CallClass);
+    Assert.Equal("ws-root", reloaded.WorkspaceId);
+    Assert.Equal("openrouter", reloaded.Provider);
+    Assert.Equal(0.000003m, reloaded.PromptPricePerToken);
+    Assert.Equal(0.0000003m, reloaded.PromptCacheReadPricePerToken);
+    Assert.Equal(0.000015m, reloaded.CompletionPricePerToken);
+  }
+
+  [Fact]
+  public async Task GetEventsAsync_LegacyUsagePayload_ReadsWithNullMembersAndMainLoopClass()
+  {
+    // A row written before #22 carries none of the new members. It must still deserialize -
+    // into the extended record with them null - and its class must read as main_loop,
+    // because every row written before the class existed came from the loop.
+    AgentId id = AgentId.NewId();
+    string legacyPayload = JsonSerializer.Serialize(new
+    {
+      AgentId = new { Value = id.ToString() },
+      OccurredAt = "2026-10-24T09:00:00+00:00",
+      TurnId = Guid.NewGuid().ToString(),
+      Iteration = 0,
+      InputTokens = 100,
+      OutputTokens = 20,
+      CachedInputTokens = 64,
+      ReasoningTokens = 7,
+    });
+    using (Microsoft.Data.Sqlite.SqliteConnection connection = new AppDatabase(_dbPath).Open())
+    {
+      using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand();
+      command.CommandText =
+          "INSERT INTO agent_events (agent_id, occurred_at, type, payload_json) VALUES (@id, @at, 'usage', @payload);";
+      _ = command.Parameters.AddWithValue("@id", id.ToString());
+      _ = command.Parameters.AddWithValue("@at", "2026-10-24T09:00:00.0000000+00:00");
+      _ = command.Parameters.AddWithValue("@payload", legacyPayload);
+      _ = await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+    }
+
+    Result<IReadOnlyList<AgentDomainEvent>> events =
+        await _store.GetEventsAsync(id, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(events.IsSuccess);
+    AgentUsageRecorded reloaded = Assert.IsType<AgentUsageRecorded>(Assert.Single(events.Value));
+    Assert.Null(reloaded.CallClass);
+    Assert.Null(reloaded.WorkspaceId);
+    Assert.Null(reloaded.Provider);
+    Assert.Null(reloaded.PromptPricePerToken);
+    Assert.Null(reloaded.PromptCacheReadPricePerToken);
+    Assert.Null(reloaded.CompletionPricePerToken);
+    Assert.Same(UsageCallClass.MainLoop, reloaded.EffectiveCallClass);
   }
 
   [Fact]

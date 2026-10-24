@@ -386,7 +386,7 @@ public sealed class OpenRouterCatalogClient(
 
     string id = idEl.GetString()!;
     int contextLength = GetIntOr(item, "context_length", 0);
-    (decimal promptPrice, decimal completionPrice, decimal discount) = ParsePricing(item);
+    (decimal promptPrice, decimal? cacheReadPrice, decimal completionPrice, decimal discount) = ParsePricing(item);
     bool supportsToolUse = item.TryGetProperty("supported_parameters", out JsonElement paramsEl)
         && paramsEl.ValueKind == JsonValueKind.Array
         && ContainsString(paramsEl, "tools");
@@ -396,21 +396,26 @@ public sealed class OpenRouterCatalogClient(
     (string? topProviderName, int topProviderContext, int topProviderMaxTokens) =
         ParseTopProvider(item, contextLength);
 
-    IntermediateModel model = new(id, contextLength, promptPrice, completionPrice, discount,
+    IntermediateModel model = new(id, contextLength, promptPrice, cacheReadPrice, completionPrice, discount,
         supportsToolUse, supportsVision, description, intelligence, coding, agentic,
         topProviderName, topProviderContext, topProviderMaxTokens);
     return model;
   }
 
-  /// <summary>Model-level pricing triplet, all zero when pricing is absent or not an object.</summary>
-  private static (decimal PromptPrice, decimal CompletionPrice, decimal Discount) ParsePricing(JsonElement item)
+  /// <summary>Model-level pricing: prompt and completion default to zero when pricing is
+  ///     absent or not an object, while the cache-read price stays NULL - "no cache price
+  ///     advertised" is a different fact from "cache reads are free" (a served "0" IS a
+  ///     real price of zero).</summary>
+  private static (decimal PromptPrice, decimal? CacheReadPrice, decimal CompletionPrice, decimal Discount) ParsePricing(
+      JsonElement item)
   {
     if (item.TryGetProperty("pricing", out JsonElement pricing) && pricing.ValueKind == JsonValueKind.Object)
     {
-      return (ParseDecimal(pricing, "prompt"), ParseDecimal(pricing, "completion"), ParseDiscount(pricing));
+      return (ParseDecimal(pricing, "prompt"), ParsePriceOrNull(pricing, CacheReadPriceField),
+          ParseDecimal(pricing, "completion"), ParseDiscount(pricing));
     }
 
-    return (0m, 0m, 0m);
+    return (0m, null, 0m, 0m);
   }
 
   /// <summary>Vision capability: any image input modality in the architecture block.
@@ -479,10 +484,10 @@ public sealed class OpenRouterCatalogClient(
 
     string providerName = nameEl.GetString()!;
     (int contextLength, int maxCompletionTokens) = ParseEndpointLimits(endpoint, model);
-    (decimal promptPrice, decimal completionPrice) = ParseEndpointPrices(endpoint, model);
+    (decimal promptPrice, decimal? cacheReadPrice, decimal completionPrice) = ParseEndpointPrices(endpoint, model);
     (double? latencyMs, double? throughput) = ParseEndpointPerformance(endpoint);
 
-    return new ModelProviderEntry(model.Id, providerName, promptPrice, completionPrice,
+    return new ModelProviderEntry(model.Id, providerName, promptPrice, cacheReadPrice, completionPrice,
         contextLength, maxCompletionTokens, model.SupportsToolUse, model.SupportsVision,
         model.IntelligenceScore, model.CodingScore, model.AgenticScore, latencyMs, throughput,
         model.Description);
@@ -501,17 +506,25 @@ public sealed class OpenRouterCatalogClient(
   ///     $0.35 as the price paid). The discount field is promo metadata, not a
   ///     multiplier: applying it double-discounts. The endpoint row overrides the
   ///     model-level price only when it carries one.</summary>
-  private static (decimal PromptPrice, decimal CompletionPrice) ParseEndpointPrices(
+  private static (decimal PromptPrice, decimal? CacheReadPrice, decimal CompletionPrice) ParseEndpointPrices(
       JsonElement endpoint, IntermediateModel model)
   {
     if (!endpoint.TryGetProperty("pricing", out JsonElement pricing) || pricing.ValueKind != JsonValueKind.Object)
     {
-      return (model.PromptPrice, model.CompletionPrice);
+      return (model.PromptPrice, model.CacheReadPrice, model.CompletionPrice);
     }
 
     return (OverridePositive(ParseDecimal(pricing, "prompt"), model.PromptPrice),
+        OverrideCacheReadPrice(ParsePriceOrNull(pricing, CacheReadPriceField), model.CacheReadPrice),
         OverridePositive(ParseDecimal(pricing, "completion"), model.CompletionPrice));
   }
+
+  /// <summary>The endpoint's cache-read price override: taken only when the row carries a
+  ///     non-negative one. A negative advertised value (-1 on the routing pseudo-models)
+  ///     means "set at routing time", never a price, so it leaves the model-level value
+  ///     untouched; an absent endpoint value inherits the model-level one.</summary>
+  private static decimal? OverrideCacheReadPrice(decimal? endpointPrice, decimal? modelPrice)
+      => endpointPrice is { } price && price >= 0m ? price : modelPrice;
 
   /// <summary>The endpoint's price override: a price is taken only when the row
   ///     carries a positive one — zero leaves the model-level value untouched.</summary>
@@ -541,7 +554,8 @@ public sealed class OpenRouterCatalogClient(
   ///     and fail every request. Null never pins.</summary>
   private static ModelProviderEntry CreateFallbackEntry(IntermediateModel model)
   {
-    return new ModelProviderEntry(model.Id, model.TopProviderName, model.PromptPrice, model.CompletionPrice,
+    return new ModelProviderEntry(model.Id, model.TopProviderName, model.PromptPrice, model.CacheReadPrice,
+        model.CompletionPrice,
         model.TopProviderContext, model.TopProviderMaxTokens, model.SupportsToolUse,
         model.SupportsVision, model.IntelligenceScore, model.CodingScore, model.AgenticScore,
         null, null, model.Description);
@@ -585,6 +599,21 @@ public sealed class OpenRouterCatalogClient(
     return 0m;
   }
 
+  /// <summary>The endpoints API's cache-read price field name: what the provider charges
+  ///     for an input token served from the prompt cache (issue #22).</summary>
+  private const string CacheReadPriceField = "input_cache_read";
+
+  /// <summary>Reads an optional price: null when the property is absent, not a string, or
+  ///     not a parseable decimal. A negative advertised value is likewise not a price (the
+  ///     routing pseudo-models serve -1 to mean "set at routing time"), while a served
+  ///     zero IS a price - cache reads billed at nothing.</summary>
+  private static decimal? ParsePriceOrNull(JsonElement parent, string propertyName)
+      => parent.TryGetProperty(propertyName, out JsonElement el) && el.ValueKind == JsonValueKind.String
+          && decimal.TryParse(el.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out decimal parsed)
+          && parsed >= 0m
+              ? parsed
+              : null;
+
   private static decimal ParseDecimal(JsonElement parent, string propertyName)
   {
     if (parent.TryGetProperty(propertyName, out JsonElement el) && el.ValueKind == JsonValueKind.String)
@@ -615,6 +644,7 @@ public sealed class OpenRouterCatalogClient(
       string Id,
       int ContextLength,
       decimal PromptPrice,
+      decimal? CacheReadPrice,
       decimal CompletionPrice,
       decimal Discount,
       bool SupportsToolUse,

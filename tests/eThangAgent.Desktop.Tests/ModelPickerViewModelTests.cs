@@ -15,7 +15,7 @@ public class ModelPickerViewModelTests
       decimal promptPrice = 0.000003m,
       decimal completionPrice = 0.000015m,
       int context = 200_000)
-      => new(modelId, providerName, promptPrice, completionPrice, context,
+      => new(modelId, providerName, promptPrice, null, completionPrice, context,
           8192, SupportsToolUse: true, SupportsVision: false,
           IntelligenceScore: null, CodingScore: null, AgenticScore: null,
           LatencyMs: null, ThroughputTokensPerSec: null, Description: null);

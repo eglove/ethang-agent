@@ -153,6 +153,81 @@ public class OpenRouterCatalogClientTests
     Assert.Equal(0.000001m, azure.PromptPricePerToken);
   }
 
+  // The cache-read price (issue #22): pricing.input_cache_read is what the provider charges
+  // for an input token served from the prompt cache. It parses at both levels and stays
+  // NULL when the row advertises none - 'no cache price' is a different fact from 'free'.
+  private const string CacheReadModelsJson =
+      /*lang=json,strict*/
+      """{"data":[{"id":"vendor/cached","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000015","input_cache_read":"0.0000003"},"architecture":{"input_modalities":["text"]},"supported_parameters":["tools"],"top_provider":{"context_length":200000,"max_completion_tokens":8192},"description":"cached"},{"id":"vendor/uncached","context_length":100000,"pricing":{"prompt":"0.000004","completion":"0.000020"},"architecture":{"input_modalities":["text"]},"supported_parameters":[],"top_provider":{"context_length":100000,"max_completion_tokens":4096},"description":null}]}""";
+
+  private const string CachedEndpointsJson =
+      /*lang=json,strict*/
+      """{"data":{"id":"vendor/cached","endpoints":[{"provider_name":"Vendor","context_length":200000,"max_completion_tokens":8192,"pricing":{"prompt":"0.000003","completion":"0.000015","input_cache_read":"0.0000003"}}]}}""";
+
+  private const string CachedEndpointsWithoutCachePriceJson =
+      /*lang=json,strict*/
+      """{"data":{"id":"vendor/cached","endpoints":[{"provider_name":"Vendor","context_length":200000,"max_completion_tokens":8192,"pricing":{"prompt":"0.000003","completion":"0.000015"}}]}}""";
+
+  private static HttpResponseMessage CacheReadHandler(HttpRequestMessage req) =>
+      req.RequestUri!.AbsolutePath switch
+      {
+        "/api/v1/models" => JsonResponse(HttpStatusCode.OK, CacheReadModelsJson),
+        "/api/v1/models/vendor/cached/endpoints" => JsonResponse(HttpStatusCode.OK, CachedEndpointsJson),
+        "/api/v1/models/vendor/uncached/endpoints" => new HttpResponseMessage(HttpStatusCode.NotFound),
+        _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+      };
+
+  [Fact]
+  public async Task GetAsync_ModelAdvertisesCacheReadPrice_ParsesItOnTheEntry()
+  {
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(CacheReadHandler(req)));
+    using HttpClient http = new(handler);
+    OpenRouterCatalogClient client = new(http, Config);
+
+    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    ModelProviderEntry cached = Assert.Single(result.Value, e => e.ModelId == "vendor/cached");
+    Assert.Equal(0.000003m, cached.PromptPricePerToken);
+    Assert.Equal(0.0000003m, cached.PromptCacheReadPricePerToken);
+    Assert.Equal(0.000015m, cached.CompletionPricePerToken);
+  }
+
+  [Fact]
+  public async Task GetAsync_NoCacheReadPriceAdvertised_LeavesItNull()
+  {
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(CacheReadHandler(req)));
+    using HttpClient http = new(handler);
+    OpenRouterCatalogClient client = new(http, Config);
+
+    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    ModelProviderEntry uncached = Assert.Single(result.Value, e => e.ModelId == "vendor/uncached");
+    Assert.Null(uncached.PromptCacheReadPricePerToken);
+    Assert.Equal(0.000004m, uncached.PromptPricePerToken);
+  }
+
+  [Fact]
+  public async Task GetAsync_EndpointOmitsCacheReadPrice_InheritsTheModelLevelPrice()
+  {
+    // The endpoint row overrides the model-level price only when it carries one; an absent
+    // cache-read price on the endpoint falls back to the model-level value the same way
+    // prompt and completion already do.
+    FakeHttpMessageHandler handler = new(req => Task.FromResult(
+        req.RequestUri!.AbsolutePath == "/api/v1/models/vendor/cached/endpoints"
+            ? JsonResponse(HttpStatusCode.OK, CachedEndpointsWithoutCachePriceJson)
+            : CacheReadHandler(req)));
+    using HttpClient http = new(handler);
+    OpenRouterCatalogClient client = new(http, Config);
+
+    Result<IReadOnlyList<ModelProviderEntry>> result = await client.GetAsync(TestContext.Current.CancellationToken);
+
+    Assert.True(result.IsSuccess);
+    ModelProviderEntry cached = Assert.Single(result.Value, e => e.ModelId == "vendor/cached");
+    Assert.Equal(0.0000003m, cached.PromptCacheReadPricePerToken);
+  }
+
   [Fact]
   public async Task GetAsync_HttpError_ReturnsFailure()
   {

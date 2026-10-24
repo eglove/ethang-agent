@@ -14,7 +14,7 @@ namespace eThangAgent.Desktop.Tests;
 public class ModelSettingsModelSectionTests
 {
   private static ModelProviderEntry Entry(string modelId) => new(
-      modelId, "ProviderA", 0.000003m, 0.000015m, 200_000, 8192,
+      modelId, "ProviderA", 0.000003m, null, 0.000015m, 200_000, 8192,
       SupportsToolUse: true, SupportsVision: false, IntelligenceScore: null,
       CodingScore: null, AgenticScore: null, LatencyMs: null,
       ThroughputTokensPerSec: null, Description: null);

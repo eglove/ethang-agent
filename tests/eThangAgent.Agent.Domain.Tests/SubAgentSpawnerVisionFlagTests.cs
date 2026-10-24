@@ -18,7 +18,7 @@ public class SubAgentSpawnerVisionFlagTests
     public Task<Result<IReadOnlyList<ModelProviderEntry>>> GetAsync(CancellationToken ct = default)
         => Task.FromResult(Result.Success<IReadOnlyList<ModelProviderEntry>>(
             [.. entries.Select(e => new ModelProviderEntry(
-                e.ModelId, "TestProvider", 0.000001m, 0.000002m, 128_000, 8_192,
+                e.ModelId, "TestProvider", 0.000001m, null, 0.000002m, 128_000, 8_192,
                 SupportsToolUse: true, SupportsVision: e.Vision,
                 null, null, null, null, null, null))]));
   }

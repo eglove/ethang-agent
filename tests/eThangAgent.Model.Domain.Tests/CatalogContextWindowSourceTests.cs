@@ -18,7 +18,7 @@ public class CatalogContextWindowSourceTests
   }
 
   private static ModelProviderEntry Entry(string model, string provider, int window) =>
-      new(model, provider, 0m, 0m, window, 4096, true, false, null, null, null, null, null, "");
+      new(model, provider, 0m, null, 0m, window, 4096, true, false, null, null, null, null, null, "");
 
   [Fact]
   public async Task WindowFor_MatchesModelAndProvider()

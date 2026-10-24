@@ -35,7 +35,7 @@ public class CompactionModelVisionFlagTests
     FakePreferences preferences = new();
     preferences.Store[CompactionModelResolver.PreferenceKey("openrouter", @"C:\ws")] = "vision/model";
     CompactionModelResolver resolver = new(preferences,
-        new FakeCatalog(new ModelProviderEntry("vision/model", "openrouter", 0.000001m, 0.000002m,
+        new FakeCatalog(new ModelProviderEntry("vision/model", "openrouter", 0.000001m, null, 0.000002m,
             200_000, 8_192, true, true, null, null, null, null, null, "")), "openrouter", @"C:\ws");
 
     ModelConfig? resolved = await resolver.ResolveAsync(32 * 1024, 0.7f, TestContext.Current.CancellationToken);
@@ -50,7 +50,7 @@ public class CompactionModelVisionFlagTests
     FakePreferences preferences = new();
     preferences.Store[CompactionModelResolver.PreferenceKey("openrouter", @"C:\ws")] = "text/model";
     CompactionModelResolver resolver = new(preferences,
-        new FakeCatalog(new ModelProviderEntry("text/model", "openrouter", 0.000001m, 0.000002m,
+        new FakeCatalog(new ModelProviderEntry("text/model", "openrouter", 0.000001m, null, 0.000002m,
             200_000, 8_192, true, false, null, null, null, null, null, "")), "openrouter", @"C:\ws");
 
     ModelConfig? resolved = await resolver.ResolveAsync(32 * 1024, 0.7f, TestContext.Current.CancellationToken);
