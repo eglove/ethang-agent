@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.21";
+  public const string Version = "2.22";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -96,11 +96,27 @@ public static class ExecGuide
     values) from the shared todo list; the set-status result then appends
     `[plan] #<id> cleaned <n> linked todo(s)`.
 
-    Argument-shape contract errors — InvalidParameterValue and MissingParameter — THROW
-    `ScriptToolException` even after dispatch: a malformed call has no legitimate continue-path.
-    Environmental errors — FileNotFound, AnchorNotFound, PathOutsideWorkspace, tool-level
-    failures, elapsed budgets (ToolTimeout) — still return as `Error [Code]:` strings you read
-    and branch on. Parse failures additionally carry `hint (line N):` lines above the raw
+    Errors are results, not script-fatal — with ONE exception, and the split is worth knowing:
+
+    IN-BAND (returned as an `Error [Code]:` string you read, branch on, and keep going):
+    environmental outcomes (FileNotFound, AnchorNotFound, PathOutsideWorkspace, tool-level
+    failures, elapsed budgets (ToolTimeout)) AND an argument-shape refusal from a tool that
+    validates its arguments BEFORE doing any work — InvalidParameterValue and MissingParameter.
+    That second class is the one that bites a first attempt: `Tools.edit(new { path, old,
+    replacement })` with no selector returns
+
+        Error [InvalidParameterValue]: nested call 'edit': Provide exactly one of 'all'
+        (boolean true) or 'occurrences' (integer >= 1).
+
+    as a STRING. The program keeps running: read it, add the argument it names, call again.
+    Nothing was applied — a tool that refused your arguments performed no work.
+
+    THROWS `ScriptToolException`, killing the program at that call: errors the arguments
+    cannot explain — an unknown action, arguments that are not valid JSON or not an object,
+    a missing or out-of-range timeoutSeconds the harness itself checks — plus any error
+    reported by a tool that DOES run work (a backend failure after a partial application).
+    Those have no in-place remedy: the call cannot be corrected, it has to be rethought.
+    Script parse failures additionally carry `hint (line N):` lines above the raw
     diagnostics when the program shows a known raw-string mistake (4+ consecutive quotes, opening
     delimiter with same-line content, closing delimiter not starting its own line). In a batch
     that must not continue past a failure, wrap with Tools.Require:

@@ -24,7 +24,12 @@ public sealed class AgentToolsProvider : ICapabilityProvider
         b.Tool.Definition.Description,
         [.. b.Tool.Definition.Parameters.Select(p => new ActionParameter(p.Name, p.Type.ToString(), p.Description))],
         b.Tool.Definition.RequiredParameters,
-        TimeoutPolicy.SelfManaged))];
+        TimeoutPolicy.SelfManaged,
+        // An ITool parses and validates its ENTIRE input before it touches anything
+        // (ExecuteAsync's first statement is the validator), so its argument refusals are
+        // recoverable in place; a failure its BACKEND reports comes back with its own code
+        // and keeps the loud throw discipline (issue #259).
+        ValidatesArgumentsBeforeDispatch: true))];
   }
 
 

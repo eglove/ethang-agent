@@ -10,6 +10,17 @@ public class AgentToolsProviderTests
       new("agent",
           [new AgentToolBinding(new ReadTool(new UnrootedPathResolver(), new FakeFileSystemAccess()), "Read lines from a text file.")]);
 
+  // Issue #259: an ITool validates its whole input before it touches anything, so its
+  // argument refusals are recoverable in place and the exec bridge keeps them in-band.
+  // The declaration rides every action this provider exposes, including a rooted view.
+  [Fact]
+  public void Actions_DeclarePreDispatchValidation()
+  {
+    Assert.All(Create().Actions, a => Assert.True(a.ValidatesArgumentsBeforeDispatch));
+    Assert.All(Create().RootedAt(Path.Combine(Path.GetTempPath(), "atp-anchor")).Actions,
+        a => Assert.True(a.ValidatesArgumentsBeforeDispatch));
+  }
+
   [Fact]
   public void Actions_MappedFromToolDefinitions()
   {

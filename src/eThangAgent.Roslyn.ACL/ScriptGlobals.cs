@@ -595,11 +595,23 @@ public sealed class ScriptTools
     CapabilityInvocationResult result = Dispatch(name, resolved, stripped, budget);
     if (result.IsError && IsContractError(result.Content))
     {
-      // Argument-shape violations have no legitimate continue-path: the script cannot
-      // branch its way out of a malformed call, so an in-band error here is exactly the
-      // buried-failure hazard the pre-dispatch throws already prevent. The nested-call
-      // attribution is inserted after the Error [CODE]: prefix so the wire contract holds.
-      throw new ScriptToolException(NestError(name, result.Content));
+      // A RECOVERABLE argument-shape refusal stays IN-BAND (issue #259): the tool parsed
+      // the arguments, refused them without running anything, and named the argument at
+      // fault, so the remedy is the SAME call with that argument corrected — derivable
+      // from the error text alone. Throwing here killed the whole program and cost a
+      // mandatory round trip per occurrence, while teaching the model nothing it could
+      // not read off the error it already had. The nested-call attribution is inserted
+      // after the Error [CODE]: prefix exactly as it is for the thrown case, so a branch
+      // keyed on the code works the same way it does for environmental errors.
+      //
+      // The same code from a tool that DID run work keeps the loud throw: there the state
+      // has moved, the arguments cannot correct it, and a partially applied batch passing
+      // silently is precisely the failure this throw exists to prevent. The action's own
+      // declaration decides the side — a tool that validates its whole input before
+      // acting is recoverable in place, one that does not keeps the old throw.
+      return resolved.Action.ValidatesArgumentsBeforeDispatch
+          ? NestError(name, result.Content)
+          : throw new ScriptToolException(NestError(name, result.Content));
     }
 
     return result.Content;
@@ -768,17 +780,15 @@ public sealed class ScriptTools
         ? $"nested call '{name}': {content}"
         : $"{content[..(prefixEnd + 3)]}nested call '{name}': {content[(prefixEnd + 3)..]}";
   }
-  /// <summary>Codes that identify an argument-shape contract violation: knowable from
-  ///     the arguments alone, before any state changed. These throw from Invoke;
-  ///     environmental outcomes (FileNotFound, AnchorNotFound, budgets, ...) stay in-band.</summary>
+  /// <summary>The argument-shape error codes: knowable from the arguments alone, on a
+  ///     class of failure whose remedy the model can read off the error itself.</summary>
   private static readonly HashSet<string> ContractErrorCodes = new(StringComparer.Ordinal)
   {
     "InvalidParameterValue",
     "MissingParameter",
   };
 
-  /// <summary>True when the in-band error result carries one of the codes that mark an
-  ///     argument-shape contract violation rather than an environmental outcome.</summary>
+  /// <summary>True when the error result carries one of <see cref="ContractErrorCodes"/>.</summary>
   private static bool IsContractError(string resultContent) =>
       ContractErrorCodes.Any(code => resultContent.StartsWith($"Error [{code}]", StringComparison.Ordinal));
 

@@ -95,16 +95,48 @@ public class ScriptToolsContractTests
     Assert.StartsWith("Error [ToolTimeout]", result, StringComparison.Ordinal);
   }
 
-  // --- Argument-shape contract errors throw loudly (research 2026-08-30):
-  //     codes knowable from the arguments alone have no legitimate continue-path;
-  //     buried among successes they silently lose work (corpus: 53 + 25 occurrences).
+  // --- Argument-shape refusals split by whether the call did any work (issue #259).
 
+  // A tool that validates its whole input BEFORE acting refuses in place: the remedy is
+  // the same call with the named argument corrected, so the refusal is an in-band result
+  // the script reads and branches on — the program keeps running. Before #259 these threw
+  // and killed the program, costing a mandatory round trip per occurrence while teaching
+  // the model nothing the error text had not already said.
   [Theory]
   [InlineData("InvalidParameterValue")]
   [InlineData("MissingParameter")]
-  public void ContractErrorCodes_Throw_Loudly(string code)
+  public void PreDispatchContractErrors_StayInBand_ForAnActionThatValidatesFirst(string code)
   {
-    ScriptGlobals globals = new(CapabilityRegistry.Create([new CodedErrorProvider(code)]), ".", Path.GetTempPath());
+    ScriptGlobals globals = new(
+        CapabilityRegistry.Create([new CodedErrorProvider(code, validatesArgumentsBeforeDispatch: true)]),
+        ".", Path.GetTempPath());
+    string result = globals.Tools.Invoke("boom", new { timeoutSeconds = 30 });
+    Assert.StartsWith($"Error [{code}]", result, StringComparison.Ordinal);
+  }
+
+  // The nested-call attribution still rides the in-band text, so a branch keyed on the
+  // exact shape works identically to the environmental-error class.
+  [Fact]
+  public void PreDispatchContractError_KeepsNestedCallAttribution()
+  {
+    ScriptGlobals globals = new(
+        CapabilityRegistry.Create([new CodedErrorProvider("InvalidParameterValue", validatesArgumentsBeforeDispatch: true)]),
+        ".", Path.GetTempPath());
+    string result = globals.Tools.Invoke("boom", new { timeoutSeconds = 30 });
+    Assert.StartsWith("Error [InvalidParameterValue]: nested call 'boom':", result, StringComparison.Ordinal);
+  }
+
+  // A tool that DID run work keeps the loud throw: its error text describes a state the
+  // arguments cannot correct, and a partially applied batch must never pass silently.
+  // edit's OccurrenceMismatch is exactly this shape — reported after the file was matched.
+  [Theory]
+  [InlineData("InvalidParameterValue")]
+  [InlineData("MissingParameter")]
+  public void PostDispatchContractErrors_StillThrow_ForAnActionThatDoesWork(string code)
+  {
+    ScriptGlobals globals = new(
+        CapabilityRegistry.Create([new CodedErrorProvider(code, validatesArgumentsBeforeDispatch: false)]),
+        ".", Path.GetTempPath());
     Exception ex = Assert.Throws<ScriptToolException>(() => globals.Tools.Invoke("boom", new { timeoutSeconds = 30 }));
     Assert.Contains($"Error [{code}]", ex.Message, StringComparison.Ordinal);
   }
@@ -133,12 +165,14 @@ public class ScriptToolsContractTests
   public void Require_Returns_The_Result_On_Success() =>
       Assert.Equal("[edit a.cs] replaced 1 occurrence", ScriptTools.Require("[edit a.cs] replaced 1 occurrence"));
 
-  private sealed class CodedErrorProvider(string code) : ICapabilityProvider
+  private sealed class CodedErrorProvider(string code, bool validatesArgumentsBeforeDispatch = false)
+      : ICapabilityProvider
   {
     public string Id => "coded";
     public IReadOnlyList<ActionDescriptor> Actions { get; } =
     [
-        new ActionDescriptor("boom", "Fails with a fixed code.", "Test stub.", []),
+        new ActionDescriptor("boom", "Fails with a fixed code.", "Test stub.", [],
+            ValidatesArgumentsBeforeDispatch: validatesArgumentsBeforeDispatch),
     ];
     public Task<CapabilityInvocationResult> InvokeAsync(string actionName,
         string jsonArguments, CancellationToken ct = default) =>
