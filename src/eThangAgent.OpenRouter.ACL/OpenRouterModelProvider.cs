@@ -338,16 +338,43 @@ public class OpenRouterModelProvider(HttpClient http, OpenRouterConfiguration co
       return stopFault;
     }
 
-    // Only sent when the user picked a level (the effort picker); OpenRouter's own
-    // default applies otherwise, and it normalizes the level to what the model supports.
-    if (config.Effort is { } effort)
+    if (ReasoningBody(config.Effort, settings?.ReasoningSummary) is { } reasoning)
     {
-      bodyDict["reasoning"] = new { effort = OpenRouterReasoningEffort.ToWire(effort) };
+      bodyDict["reasoning"] = reasoning;
     }
 
     ApplyServerTools(bodyDict, settings, request);
     ApplyPlugins(bodyDict, settings);
     return null;
+  }
+
+  /// <summary>Builds the request's "reasoning" object from the two independent knobs:
+  ///     effort (the picker's level) and summary (the display channel's level). Each
+  ///     member is emitted only when set, so effort-only, summary-only, and both
+  ///     together are all well-formed; neither set yields null, and the key is then
+  ///     omitted entirely — OpenRouter's own defaults apply. The summary member is
+  ///     the provider's display separation: it changes what streams to the user and
+  ///     nothing else (the request's "input" array is untouched by it).</summary>
+  private static Dictionary<string, object?>? ReasoningBody(
+      ReasoningEffort? effort, ReasoningSummaryLevel? summary)
+  {
+    if (effort is null && summary is null)
+    {
+      return null;
+    }
+
+    Dictionary<string, object?> reasoning = [];
+    if (effort is { } level)
+    {
+      reasoning["effort"] = OpenRouterReasoningEffort.ToWire(level);
+    }
+
+    if (summary is { } summaryLevel)
+    {
+      reasoning["summary"] = OpenRouterReasoningSummary.ToWire(summaryLevel);
+    }
+
+    return reasoning;
   }
 
   /// <summary>Sets the stop_server_tools_when budget when configured; every condition

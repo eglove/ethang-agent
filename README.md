@@ -139,7 +139,10 @@ content is refused; the extension alone is never trusted (magic-byte + package s
   surface for per-session model choices. The **Model** section is a searchable catalog of
   the provider's lineup; the
   **Reasoning effort** selector offers model default or max, extra high, high, medium,
-  low, minimal, none. The **Sampling** section carries the twelve knobs
+  low, minimal, none; the **Reasoning summary (display)** selector beside it (OpenRouter
+  sessions) asks the provider for its own summary of its reasoning — provider default,
+  auto, concise, or detailed — and changes only what streams into the transcript, never
+  what enters the request's context. The **Sampling** section carries the twelve knobs
   (top-p, top-k, frequency/presence/repetition penalties, min-p, top-a,
   seed, temperature and max-tokens caps as text fields; verbosity, parallel tool
   calls and the fixed-vocabulary routing/plugin fields as dropdowns over the
@@ -147,7 +150,13 @@ content is refused; the extension alone is never trusted (magic-byte + package s
   the ten wired server tools, plugins, and loop budgets.
   Choices apply from the next turn, root and children alike, and are persisted per
   workspace + provider — no config files
-- **Reasoning is stored as telemetry, never as context** — the reasoning text the provider
+- **Reasoning summary is a display knob, not a context one** — the Model Settings window's
+  summary selector rides the request's `reasoning.summary` member (independent of effort:
+  either can be set alone, and both together emit one well-formed object), so the provider
+  streams its own summary of its thinking while the request's `input` array stays
+  byte-identical. The harness never writes a summarizer and never asks the model to narrate
+  its thinking.
+ - **Reasoning is stored as telemetry, never as context** — the reasoning text the provider
   streams is accumulated on the response and recorded once per iteration as a `reasoning` row
   in the app database's append-only `agent_events` table (identity: agent + turn + iteration),
   so after a session the thinking is readable from the database for debugging, evals, and safety
@@ -245,7 +254,7 @@ The window opens directly on the shell: no workspace and no pre-configured key a
 
 Saved keys apply to newly opened agents; already-open tabs keep the credentials they were created with.
 
-The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. The model is chosen per tab through the **Model Settings** window (left menu, visible whenever a tab is open), and the choice applies from the next turn to the root agent and children alike. It is remembered per workspace + provider and restored when the same directory reopens; clearing the choice returns the session to the provider's default model. Reasoning effort works the same way through the window's **Reasoning effort** selector, with **Model default** returning the session to the provider's own behavior.
+The active provider is chosen per agent in the Open-Agent dialog — switching providers is deliberately a different experience (its own model catalog, defaults, and tool surface), not a merged model list. The model is chosen per tab through the **Model Settings** window (left menu, visible whenever a tab is open), and the choice applies from the next turn to the root agent and children alike. It is remembered per workspace + provider and restored when the same directory reopens; clearing the choice returns the session to the provider's default model. Reasoning effort works the same way through the window's **Reasoning effort** selector, with **Model default** returning the session to the provider's own behavior; the **Reasoning summary (display)** selector beside it persists the same way and asks the provider for its own summary of its reasoning (provider default, auto, concise, or detailed).
 
 The picker offers a searchable list of every OpenRouter model (deduped across provider endpoints, shown with effective pricing and context size). Catalog prices are served final: OpenRouter's endpoints API reports the price you actually pay, and its `discount` field is promo metadata rather than a multiplier. The catalog is **persisted in the app database** (scoped by provider and API source, so proxy/mock catalogs cannot overwrite the live catalog; legacy source-less snapshots are ignored) and served **stale-while-revalidate**: reopening the app shows the model picker instantly from the last fetched catalog while a background refresh revalidates it. Every new catalog client revalidates a persisted snapshot even within the 24-hour TTL; warm reads use the TTL, and opening Model Settings joins the refresh and updates the model list without resetting search or selection. A failed refresh keeps cached models visible and shows its error. With no persisted snapshot, the initial load waits for the API.
 

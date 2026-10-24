@@ -52,6 +52,19 @@
                     DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
         </StackPanel>
 
+        <!-- Reasoning summary (display channel only): asks the provider for its own
+             summary of its reasoning instead of the raw trace. Independent of the
+             effort knob — either can be set alone. OpenRouter-only: the key rides
+             the OpenRouter request's reasoning object. -->
+        <StackPanel Spacing="4" IsVisible="{Binding ShowOpenRouterSection}">
+          <TextBlock Text="Reasoning summary (display)" FontWeight="SemiBold"/>
+          <ComboBox x:Name="SummaryBox" ItemsSource="{Binding SummaryOptions}"
+                    SelectedItem="{Binding SelectedSummaryOption}"
+                    DisplayMemberBinding="{Binding DisplayName}" HorizontalAlignment="Stretch"/>
+          <TextBlock Text="What the provider streams into the transcript. Never enters the request's context."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
+        </StackPanel>
+
         <!-- The twelve sampling knobs. Fixed-vocabulary knobs (verbosity,
               parallel tool calls) render as dropdowns over their documented
               values; free-range knobs keep the text box. -->

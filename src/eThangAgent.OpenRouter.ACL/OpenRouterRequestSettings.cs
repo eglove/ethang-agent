@@ -35,6 +35,15 @@ public sealed record OpenRouterRequestSettings
   [JsonIgnore]
   public Plugins Plugins { get; init; } = new();
 
+  /// <summary>The provider's own reasoning-summary level for the DISPLAY channel:
+  ///     when set it rides the request's <c>reasoning.summary</c> member, so the
+  ///     provider streams a summary of its reasoning instead of (or alongside) the
+  ///     raw trace. Null means the key is omitted and the provider default applies.
+  ///     This is a display knob only — it never touches the message array, so the
+  ///     context channel's bytes are unchanged by it.</summary>
+  [JsonIgnore]
+  public ReasoningSummaryLevel? ReasoningSummary { get; init; }
+
   /// <summary>Serializes to the compact opaque JSON stored in ProviderSettings.
   ///     Null settings serialize to null.</summary>
   public static string? Serialize(OpenRouterRequestSettings? settings)
@@ -69,28 +78,83 @@ public sealed record OpenRouterRequestSettings
         throw new JsonException("Expected an object for OpenRouterRequestSettings.");
       }
 
-      Routing? routing = null;
-      ServerTools? serverTools = null;
-      Plugins? plugins = null;
+      Members members = new();
       while (reader.Read())
       {
         if (reader.TokenType == JsonTokenType.EndObject)
         {
-          return new OpenRouterRequestSettings { Routing = routing ?? new(), ServerTools = serverTools ?? new(), Plugins = plugins ?? new() };
+          return members.ToSettings();
         }
 
         string? name = reader.GetString();
         _ = reader.Read();
+        members.ReadMember(name, ref reader, options);
+      }
+
+      throw new JsonException("Unterminated OpenRouterRequestSettings object.");
+    }
+
+    /// <summary>The members read so far; one field per persisted section. Kept as a
+    ///     small mutable carrier so the reader loop's own complexity stays flat as
+    ///     the persisted surface grows.</summary>
+    private sealed class Members
+    {
+      public Routing? Routing { get; set; }
+
+      public ServerTools? ServerTools { get; set; }
+
+      public Plugins? Plugins { get; set; }
+
+      public ReasoningSummaryLevel? ReasoningSummary { get; set; }
+
+      public OpenRouterRequestSettings ToSettings() => new()
+      {
+        Routing = Routing ?? new(),
+        ServerTools = ServerTools ?? new(),
+        Plugins = Plugins ?? new(),
+        ReasoningSummary = ReasoningSummary,
+      };
+
+      /// <summary>Reads one member by name; an unknown name is skipped so the
+      ///     surface can grow server-side without breaking old readers.</summary>
+      public void ReadMember(string? name, ref Utf8JsonReader reader, JsonSerializerOptions options)
+      {
         switch (name)
         {
-          case "routing": routing = JsonSerializer.Deserialize<Routing>(ref reader, options); break;
-          case "server_tools": serverTools = JsonSerializer.Deserialize<ServerTools>(ref reader, options); break;
-          case "plugins": plugins = JsonSerializer.Deserialize<Plugins>(ref reader, options); break;
+          case "routing": Routing = JsonSerializer.Deserialize<Routing>(ref reader, options); break;
+          case "server_tools": ServerTools = JsonSerializer.Deserialize<ServerTools>(ref reader, options); break;
+          case "plugins": Plugins = JsonSerializer.Deserialize<Plugins>(ref reader, options); break;
+          case "reasoning_summary": ReasoningSummary = ReadSummary(ref reader); break;
           default: reader.Skip(); break;
         }
       }
 
-      throw new JsonException("Unterminated OpenRouterRequestSettings object.");
+      /// <summary>Reads the persisted summary level, accepting the wire vocabulary
+      ///     (auto/concise/detailed) case-insensitively. An unknown or non-string
+      ///     value is a named JsonException: corrupt persisted settings are an
+      ///     infrastructure fault, never silently coerced to a level the user did not
+      ///     pick.</summary>
+      private static ReasoningSummaryLevel? ReadSummary(ref Utf8JsonReader reader)
+      {
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+          return null;
+        }
+
+        if (reader.TokenType != JsonTokenType.String)
+        {
+          throw new JsonException("reasoning_summary must be a string (auto, concise, or detailed).");
+        }
+
+        string text = reader.GetString()!;
+        return text.ToUpperInvariant() switch
+        {
+          "AUTO" => ReasoningSummaryLevel.Auto,
+          "CONCISE" => ReasoningSummaryLevel.Concise,
+          "DETAILED" => ReasoningSummaryLevel.Detailed,
+          _ => throw new JsonException($"Unknown reasoning_summary '{text}'; expected auto, concise, or detailed."),
+        };
+      }
     }
 
     public override void Write(Utf8JsonWriter writer, OpenRouterRequestSettings value, JsonSerializerOptions options)
@@ -112,6 +176,12 @@ public sealed record OpenRouterRequestSettings
       {
         writer.WritePropertyName("plugins");
         JsonSerializer.Serialize(writer, value.Plugins, options);
+      }
+
+      if (value.ReasoningSummary is { } summary)
+      {
+        writer.WritePropertyName("reasoning_summary");
+        writer.WriteStringValue(OpenRouterReasoningSummary.ToWire(summary));
       }
 
       writer.WriteEndObject();

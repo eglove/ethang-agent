@@ -252,5 +252,60 @@ public class OpenRouterRequestSettingsTests
   public void Parse_JsonNull_ThrowsJsonException()
     => Assert.Throws<JsonException>(() => OpenRouterRequestSettings.Parse("null"));
 
+  [Fact]
+  public void Serialize_ReasoningSummary_EmitsWireVocabulary()
+  {
+    string json = OpenRouterRequestSettings.Serialize(
+        new OpenRouterRequestSettings { ReasoningSummary = ReasoningSummaryLevel.Concise })!;
+
+    Assert.Equal("{\"reasoning_summary\":\"concise\"}", json);
+  }
+
+  [Fact]
+  public void Serialize_ReasoningSummaryUnset_EmitsNoKey()
+  {
+    string json = OpenRouterRequestSettings.Serialize(new OpenRouterRequestSettings())!;
+
+    Assert.DoesNotContain("reasoning_summary", json, StringComparison.Ordinal);
+  }
+
+  [Theory]
+  [InlineData(ReasoningSummaryLevel.Auto)]
+  [InlineData(ReasoningSummaryLevel.Concise)]
+  [InlineData(ReasoningSummaryLevel.Detailed)]
+  public void ReasoningSummary_RoundTripsThroughSerializeAndParse(ReasoningSummaryLevel summary)
+  {
+    OpenRouterRequestSettings original = new()
+    {
+      Routing = new Routing(Sort: "price"),
+      ReasoningSummary = summary,
+    };
+
+    OpenRouterRequestSettings parsed = OpenRouterRequestSettings.Parse(
+        OpenRouterRequestSettings.Serialize(original))!;
+
+    Assert.Equal(summary, parsed.ReasoningSummary);
+    Assert.Equal(original, parsed);
+  }
+
+  [Fact]
+  public void Parse_UnknownReasoningSummary_ThrowsJsonException()
+    => Assert.Throws<JsonException>(
+        () => OpenRouterRequestSettings.Parse("{\"reasoning_summary\":\"verbose\"}"));
+
+  [Fact]
+  public void Parse_NonStringReasoningSummary_ThrowsJsonException()
+    => Assert.Throws<JsonException>(
+        () => OpenRouterRequestSettings.Parse("{\"reasoning_summary\":3}"));
+
+  [Fact]
+  public void Parse_SummaryIsCaseInsensitive()
+  {
+    OpenRouterRequestSettings parsed = OpenRouterRequestSettings.Parse(
+        "{\"reasoning_summary\":\"Detailed\"}")!;
+
+    Assert.Equal(ReasoningSummaryLevel.Detailed, parsed.ReasoningSummary);
+  }
+
 #pragma warning restore JSON002
 }

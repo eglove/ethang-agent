@@ -384,6 +384,98 @@ public class ModelSettingsViewModelTests
     }
   }
 
+  [Fact]
+  public void Save_PersistsReasoningSummaryInProviderSettings()
+  {
+    SessionModelPreferences live = Snapshot();
+    ModelSettingsViewModel vm = new(live, ProvidersOpenRouter, persist: _ => { })
+    {
+      SummaryChoice = nameof(ReasoningSummaryLevel.Concise),
+    };
+
+    bool saved = vm.TrySave(out string? error);
+
+    Assert.True(saved, error ?? "no error");
+    OpenRouterRequestSettings parsed = OpenRouterRequestSettings.Parse(live.ProviderSettings!)!;
+    Assert.Equal(ReasoningSummaryLevel.Concise, parsed.ReasoningSummary);
+  }
+
+  [Fact]
+  public void Save_SummaryDefault_PersistsNoProviderSettings()
+  {
+    SessionModelPreferences live = Snapshot();
+    ModelSettingsViewModel vm = new(live, ProvidersOpenRouter, persist: _ => { });
+
+    bool saved = vm.TrySave(out string? error);
+
+    Assert.True(saved, error ?? "no error");
+    // The provider-default choice is the all-default payload: nothing persists, so a
+    // null ProviderSettings leaves the request's reasoning object untouched.
+    Assert.Null(live.ProviderSettings);
+  }
+
+  [Fact]
+  public void Constructor_PrefillsTheSummaryPickerFromPersistedSettings()
+  {
+    SessionModelPreferences live = new()
+    {
+      ProviderSettings = OpenRouterRequestSettings.Serialize(
+          new OpenRouterRequestSettings { ReasoningSummary = ReasoningSummaryLevel.Detailed }),
+    };
+
+    ModelSettingsViewModel vm = new(live, ProvidersOpenRouter, persist: _ => { });
+
+    Assert.Equal(nameof(ReasoningSummaryLevel.Detailed), vm.SummaryChoice);
+    Assert.Equal(ModelSettingsViewModel.SummaryOption.For(ReasoningSummaryLevel.Detailed), vm.SelectedSummaryOption);
+  }
+
+  [Fact]
+  public void Constructor_NoPersistedSummary_PrefillsTheDefaultRow()
+  {
+    ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: _ => { });
+
+    Assert.Equal(ModelSettingsViewModel.SummaryDefault, vm.SummaryChoice);
+    Assert.Same(ModelSettingsViewModel.SummaryOption.Default, vm.SelectedSummaryOption);
+  }
+
+  [Fact]
+  public void SelectedSummaryOption_DrivesTheChoice()
+  {
+    ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: _ => { })
+    {
+      SelectedSummaryOption = ModelSettingsViewModel.SummaryOption.For(ReasoningSummaryLevel.Auto),
+    };
+
+    Assert.Equal(nameof(ReasoningSummaryLevel.Auto), vm.SummaryChoice);
+  }
+
+  [Fact]
+  public void SummaryOptions_OfferProviderDefaultPlusTheThreeLevels()
+  {
+    ModelSettingsViewModel vm = new(Snapshot(), ProvidersOpenRouter, persist: _ => { });
+
+    Assert.Equal(
+        ["default", "Auto", "Concise", "Detailed"],
+        vm.SummaryOptions.Select(option => option.Choice));
+  }
+
+  [Fact]
+  public void Save_Summary_RoundTripsThroughAReopenedDialog()
+  {
+    SessionModelPreferences live = Snapshot();
+    ModelSettingsViewModel first = new(live, ProvidersOpenRouter, persist: _ => { })
+    {
+      SummaryChoice = nameof(ReasoningSummaryLevel.Auto),
+    };
+    Assert.True(first.TrySave(out string? error), error ?? "no error");
+
+    // The reopened dialog reads the persisted payload back — the per-workspace +
+    // per-provider restore path the shell uses.
+    ModelSettingsViewModel reopened = new(live, ProvidersOpenRouter, persist: _ => { });
+
+    Assert.Equal(nameof(ReasoningSummaryLevel.Auto), reopened.SummaryChoice);
+  }
+
   private const string ProvidersOpenRouter = "openrouter";
 
 }

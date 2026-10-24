@@ -612,6 +612,8 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
   };
 
   private bool _catalogLoadStarted;
+
+
   private readonly Func<CancellationToken, Task<Result<IReadOnlyList<ModelProviderEntry>>>>? _refreshCatalog;
   private readonly SessionModelPreferences _live;
   private readonly Action<ModelSettingsSnapshot> _persist;
@@ -726,6 +728,52 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
 
   partial void OnSelectedEffortOptionChanged(EffortOption value) => EffortChoice = value.Choice;
 
+  /// <summary>The summary pseudo-choice meaning "no summary request — the provider
+  ///     default applies"; any other value is a
+  ///     <see cref="ReasoningSummaryLevel"/> name.</summary>
+  public const string SummaryDefault = "default";
+
+  /// <summary>One choosable reasoning-summary row: the provider-default
+  ///     pseudo-choice or a concrete <see cref="ReasoningSummaryLevel"/>.</summary>
+  internal sealed record SummaryOption(string DisplayName, string Choice)
+  {
+    public static readonly SummaryOption Default = new("Provider default", SummaryDefault);
+
+    public static SummaryOption For(ReasoningSummaryLevel level)
+        => new(level.ToString(), level.ToString());
+  }
+
+  /// <summary>The summary choices in display order: provider default first, then
+  ///     the three levels OpenRouter accepts on reasoning.summary. This is the
+  ///     DISPLAY channel's knob — it changes what streams to the transcript and
+  ///     never what enters the request's input array.</summary>
+  public IReadOnlyList<SummaryOption> SummaryOptions { get; } =
+  [
+    SummaryOption.Default,
+    SummaryOption.For(ReasoningSummaryLevel.Auto),
+    SummaryOption.For(ReasoningSummaryLevel.Concise),
+    SummaryOption.For(ReasoningSummaryLevel.Detailed),
+  ];
+
+  /// <summary>The chosen reasoning summary: <see cref="SummaryDefault"/> or a
+  ///     <see cref="ReasoningSummaryLevel"/> name. Persisted inside the OpenRouter
+  ///     provider-settings payload, so it round-trips per workspace + provider the
+  ///     way routing and the server-tool toggles do.</summary>
+  [ObservableProperty]
+  public partial string SummaryChoice { get; set; }
+
+  /// <summary>The currently selected summary row (two-way bound). Mirrors
+  ///     <see cref="SummaryChoice"/> so the save path keeps one source of truth.
+  ///     </summary>
+  [ObservableProperty]
+  public partial SummaryOption SelectedSummaryOption { get; set; }
+
+  partial void OnSelectedSummaryOptionChanged(SummaryOption value) => SummaryChoice = value.Choice;
+
+  /// <summary>The summary level the save carries: null for the provider default.</summary>
+  private ReasoningSummaryLevel? SummaryLevel()
+      => SummaryChoice == SummaryDefault ? null : Enum.Parse<ReasoningSummaryLevel>(SummaryChoice);
+
   /// <summary>The knob rows in fixed display order (the window's ItemsSource).
   ///     </summary>
   public IReadOnlyList<KnobRow> KnobRows { get; }
@@ -775,7 +823,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       [KnobVerbosity] = CreateEntry(KnobVerbosity, Format(_live.Verbosity), SettingChoiceVocabulary.Verbosity),
       [KnobParallelToolCalls] = CreateEntry(KnobParallelToolCalls, Format(_live.ParallelToolCalls), SettingChoiceVocabulary.ParallelToolCalls),
     };
-    (Routing, ServerTools, Plugins) = ParseProviderSettings(_live.ProviderSettings);
+    (Routing, ServerTools, Plugins, ReasoningSummaryLevel? persistedSummary) = ParseProviderSettings(_live.ProviderSettings);
     foreach (KnobEntry entry in Knobs.Values)
     {
       entry.PropertyChanged += (_, args) =>
@@ -803,6 +851,7 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     ];
     EffortChoice = _live.ReasoningEffort?.ToString() ?? EffortDefault;
     SelectedEffortOption = EffortOptions.FirstOrDefault(option => option.Choice == EffortChoice) ?? EffortOption.Default;
+    PrefillSummary(persistedSummary);
     // The command exists before the observable property is set: setting it raises
     // the changed hook, which requeries save availability. The guard in the action
     // is load-bearing: ICommand.Execute does not consult CanExecute, and a disabled
@@ -813,16 +862,26 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
         : new ModelPickerViewModel(loadCatalog, currentModelId);
   }
 
+  /// <summary>Prefills the summary picker from the persisted level: the matching
+  ///     row when the level is known, the provider-default row otherwise. Kept out
+  ///     of the constructor so the ctor's own complexity stays flat.</summary>
+  private void PrefillSummary(ReasoningSummaryLevel? persisted)
+  {
+    SummaryChoice = persisted?.ToString() ?? SummaryDefault;
+    SelectedSummaryOption = SummaryOptions.FirstOrDefault(option => option.Choice == SummaryChoice)
+        ?? SummaryOption.Default;
+  }
+
   /// <summary>Parses the persisted provider settings for the section prefill.
   ///     Null or blank yields the all-default sections; corrupt JSON degrades to
   ///     the defaults too — prefill is best effort, and the next save overwrites
   ///     the payload (the agent-turn path is where corrupt settings are a
   ///     structured error, not here).</summary>
-  private static (RoutingSection, ServerToolsSection, PluginsSection) ParseProviderSettings(string? json)
+  private static (RoutingSection, ServerToolsSection, PluginsSection, ReasoningSummaryLevel?) ParseProviderSettings(string? json)
   {
     if (string.IsNullOrWhiteSpace(json))
     {
-      return (new RoutingSection(), new ServerToolsSection(), new PluginsSection());
+      return (new RoutingSection(), new ServerToolsSection(), new PluginsSection(), null);
     }
 
     // Named decision (CA1031): a corrupt preference must not crash the dialog.
@@ -830,11 +889,12 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
     try
     {
       OpenRouterRequestSettings parsed = OpenRouterRequestSettings.Parse(json)!;
-      return (RoutingSection.From(parsed.Routing), ServerToolsSection.From(parsed.ServerTools), PluginsSection.From(parsed.Plugins));
+      return (RoutingSection.From(parsed.Routing), ServerToolsSection.From(parsed.ServerTools),
+          PluginsSection.From(parsed.Plugins), parsed.ReasoningSummary);
     }
     catch
     {
-      return (new RoutingSection(), new ServerToolsSection(), new PluginsSection());
+      return (new RoutingSection(), new ServerToolsSection(), new PluginsSection(), null);
     }
 #pragma warning restore CA1031
   }
@@ -921,13 +981,17 @@ internal sealed partial class ModelSettingsViewModel : ObservableObject
       Routing = Routing.ToRouting(),
       ServerTools = ServerTools.ToServerTools(),
       Plugins = Plugins.ToPlugins(),
+      ReasoningSummary = SummaryLevel(),
     };
     string? serialized = IsAllDefault(settings) ? null : OpenRouterRequestSettings.Serialize(settings);
     return serialized;
   }
 
   private static bool IsAllDefault(OpenRouterRequestSettings settings)
-      => settings.Routing == new Routing() && settings.ServerTools == new ServerTools() && settings.Plugins == new Plugins();
+      => settings.Routing == new Routing()
+          && settings.ServerTools == new ServerTools()
+          && settings.Plugins == new Plugins()
+          && settings.ReasoningSummary is null;
 
   private Dictionary<string, string> KnobTexts()
       => Knobs.ToDictionary(pair => pair.Key, pair => pair.Value.Text.Trim(), StringComparer.Ordinal);

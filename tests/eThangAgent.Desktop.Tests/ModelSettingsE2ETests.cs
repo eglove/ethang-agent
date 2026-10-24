@@ -138,8 +138,56 @@ public class ModelSettingsE2ETests
     }
   }
 
-  /// <summary>Opens the harness's session through the shell's PRODUCTION open path
-  ///     with the preference store wired — the restore site every real open uses.
+  /// <summary>The display knob end to end: a persisted reasoning_summary restores on
+  ///     open and reaches the wire inside the request's reasoning object, while the
+  ///     request's input array is exactly what it is without the setting — the
+  ///     display and context channels are provably independent (issue #264 /
+  ///     parent #261 acceptance sketch).</summary>
+  [Fact]
+  public async Task SavedReasoningSummary_ReachesTheWire_AndLeavesInputUnchanged()
+  {
+    DirectoryInfo ws = Directory.CreateTempSubdirectory("ethang-e2e-summary");
+    try
+    {
+      using E2E.HostHarness host = new();
+      _ = await host.StartAsync(workspaceRoot: ws.FullName);
+      string workspaceRoot = ws.FullName;
+
+      _ = await host.Store.SetAsync($"model_choice:openrouter:{workspaceRoot}", "mock/sub-model",
+          TestContext.Current.CancellationToken);
+      _ = await host.Store.SetAsync($"provider_settings:openrouter:{workspaceRoot}",
+          /*lang=json,strict*/ "{\"reasoning_summary\":\"concise\"}",
+          TestContext.Current.CancellationToken);
+
+      MainViewModel shell = await OpenThroughShellAsync(host, workspaceRoot);
+
+      _ = host.Mock.ReturnsForModel("mock/sub-model", RawCompletion("summary in flight"));
+      await shell.Tabs[0].ViewModel.RunTurnAsync("say it back");
+
+      string body = Assert.Single(host.Mock.RequestBodies);
+      using JsonDocument doc = JsonDocument.Parse(body);
+      JsonElement root = doc.RootElement;
+
+      JsonElement reasoning = root.GetProperty("reasoning");
+      Assert.Equal("concise", reasoning.GetProperty("summary").GetString());
+      // Summary-only: no effort member is invented beside it.
+      Assert.False(reasoning.TryGetProperty("effort", out _));
+
+      // The context channel: the input array carries the user's message and nothing
+      // the display setting added.
+      JsonElement input = root.GetProperty("input");
+      Assert.Equal(JsonValueKind.Array, input.ValueKind);
+      string inputText = input.GetRawText();
+      Assert.DoesNotContain("concise", inputText, StringComparison.Ordinal);
+      Assert.DoesNotContain("reasoning_summary", inputText, StringComparison.Ordinal);
+    }
+    finally
+    {
+      ws.Delete(true);
+    }
+  }
+
+  /// <summary>Opens the harness's session through the shell's PRODUCTION open path  ///     with the preference store wired — the restore site every real open uses.
   ///     The session carries the container's live preferences, so the restore writes
   ///     onto the exact instance the resolvers overlay from.</summary>
   private static async Task<MainViewModel> OpenThroughShellAsync(E2E.HostHarness host, string workspaceRoot)
