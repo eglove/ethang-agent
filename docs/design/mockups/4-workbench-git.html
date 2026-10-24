@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Desktop views - lofi</title>
+<style>
+:root{--rail:#1b1b2f;--bar:#23232e;--bg:#1a1a22;--panel:#20202a;--line:#33333f;
+  --text:#d6dae4;--dim:#8b93a5;--blue:#4c8cff;--amber:#ffb454;--green:#5fd18b;
+  --red:#ff6b6b;--sys:#b9c7e2;--mono:Consolas,"Courier New",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:#0e0e13;color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;padding:22px}
+h1{font-size:15px;font-weight:600;margin:0 0 4px;color:#fff}
+h2{font-size:12.5px;font-weight:600;margin:16px 0 3px;color:#fff;letter-spacing:.3px}
+.cap{font-size:11.5px;color:var(--dim);margin:0 0 9px;max-width:1360px;line-height:1.5}
+.frame{width:1360px;background:var(--bg);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:0 0 10px}
+.win{display:flex;height:620px}
+.rail{width:48px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:6px;flex:0 0 48px}
+.rail .ic{width:34px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;border-radius:4px;color:#cfd6e6}
+.rail .sp{flex:1}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.resbar{background:var(--bar);padding:6px 10px;display:flex;align-items:center;gap:10px;font-size:12px;flex:0 0 auto}
+.meter{width:130px;height:6px;background:#3a3a48;border-radius:3px;overflow:hidden}
+.meter i{display:block;height:100%;width:58%;background:var(--blue)}
+.tabs{display:flex;gap:2px;padding:0 6px;background:#16161d;flex:0 0 auto;align-items:flex-end}
+.tab{padding:5px 10px;font-size:11px;background:#22222c;border:1px solid var(--line);border-bottom:none;border-radius:4px 4px 0 0;color:#c8cede;display:flex;gap:6px;align-items:center}
+.tab.on{background:var(--bg);color:#fff}
+.tab .x{opacity:.5;font-size:10px}
+.body{flex:1;display:flex;min-height:0}
+.chat{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)}
+.scroll{flex:1;overflow:hidden;padding:8px 10px;display:flex;flex-direction:column;gap:8px}
+.u{font-weight:600}
+.a{color:#e2e6ef;line-height:1.45}
+.card{border:1px solid var(--line);border-radius:4px;background:#1e1e27;overflow:hidden}
+.card .hd{padding:5px 8px;font-size:12px;display:flex;justify-content:space-between;gap:8px;background:#232330}
+.card .bd{padding:6px 8px;font-family:var(--mono);font-size:11.5px;color:#b9c2d4;white-space:pre-wrap;line-height:1.45}
+.res{color:var(--green);font-size:11.5px;padding-left:2px}
+.input{border-top:1px solid var(--line);padding:8px 10px;flex:0 0 auto}
+.box{border:1px solid var(--line);border-radius:4px;padding:6px 8px;color:#6f7688;background:#16161d}
+.status{border-top:1px solid var(--line);padding:4px 10px;font-size:11px;color:#9aa3b5;display:flex;gap:12px;flex:0 0 auto;background:#16161d}
+.side{width:250px;flex:0 0 250px;background:#171720;padding:8px;display:flex;flex-direction:column;gap:6px}
+.side .ttl{font-size:11px;font-weight:600;color:#aab2c4;letter-spacing:.4px}
+.row{display:flex;justify-content:space-between;font-size:11.5px;padding:3px 0;border-bottom:1px solid #23232e}
+.ok{color:var(--green)}.run{color:var(--amber)}.bad{color:var(--red)}.mut{color:var(--dim)}
+.strip{width:32px;flex:0 0 32px;background:#15151c;display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:4px;border-left:1px solid var(--line)}
+.strip .ic{width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:13px;border-radius:3px;color:#8f97a9}
+.strip .ic.on{background:#2b2b40;color:#fff}
+.wb{width:380px;flex:0 0 380px;background:#171720;border-left:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
+.wb .hd{padding:7px 10px;font-size:11px;font-weight:600;letter-spacing:.5px;color:#aab2c4;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.wb .ct{padding:8px 10px;overflow:hidden;flex:1;display:flex;flex-direction:column;gap:6px}
+.plan{border:1px solid var(--line);border-radius:4px;padding:7px 8px;background:#1d1d27}
+.plan .t{font-weight:600;font-size:12px;margin-bottom:3px}
+.plan .g{font-size:11px;color:var(--dim);margin-bottom:6px}
+.step{display:flex;gap:6px;font-size:11.5px;padding:2px 0;align-items:flex-start}
+.step .m{flex:0 0 12px;text-align:center}
+.step.done .tx{color:#7d8497;text-decoration:line-through}
+.step.act .tx{color:#fff}
+.badge{font-size:10px;padding:1px 6px;border-radius:8px;background:#2b2b40;color:#aab2c4}
+.badge.a{background:#243a2c;color:var(--green)}
+.kv{display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0}
+.kv .k{color:var(--dim)}
+.diff{font-family:var(--mono);font-size:11px;line-height:1.5;white-space:pre-wrap}
+.add{color:var(--green)}.del{color:var(--red)}.hunk{color:#6f8fc9}
+.note{font-size:11px;color:var(--amber);line-height:1.5}
+.cols{display:flex;gap:8px;padding:8px;flex:1;min-height:0}
+.col{flex:1;background:#1a1a23;border:1px solid var(--line);border-radius:4px;padding:6px;display:flex;flex-direction:column;gap:5px}
+.col .ch{font-size:10.5px;font-weight:600;color:#98a0b2;letter-spacing:.4px;margin-bottom:2px}
+.kcard{background:#22222e;border:1px solid #2e2e3c;border-radius:3px;padding:5px 6px;font-size:11px;line-height:1.35}
+.kcard .km{font-size:10px;color:var(--dim);margin-top:2px}
+.inner{display:flex;gap:2px;padding:0 6px;background:#141419;flex:0 0 auto;align-items:flex-end;border-bottom:1px solid var(--line)}
+.itab{padding:4px 9px;font-size:10.5px;color:#8f97a9;border-radius:3px 3px 0 0}
+.itab.on{background:var(--bg);color:#fff}
+.pane{flex:1;display:flex;min-height:0;overflow:hidden}
+.dock{flex:1;display:flex;flex-direction:column;min-height:0;padding:6px;gap:6px}
+.dockpanel{flex:1;border:1px solid var(--line);border-radius:4px;background:#1a1a23;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.dockpanel .dph{padding:4px 8px;font-size:10.5px;font-weight:600;color:#98a0b2;background:#20202b;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
+.dockpanel .dpb{padding:6px 8px;overflow:hidden;flex:1;font-size:11.5px}
+.docksplit{height:4px;background:#33888888;border-radius:2px;flex:0 0 4px}
+.ghost{border:1px dashed #4c8cff88;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#6f8fc9;background:#4c8cff08}
+.tag{font-size:9.5px;padding:1px 5px;border-radius:3px;background:#2b2b40;color:#9aa3b5;font-weight:600;letter-spacing:.3px}
+.tag.rec{background:#243a2c;color:var(--green)}
+.tag.warn{background:#3a2f1f;color:var(--amber)}
+</style>
+</head>
+<body><h2>4b — the same workbench, git view</h2>
+<p class="cap">Same column, different icon. The diff is the file you clicked in the status list. Note the two untracked paths — that is <b>real</b> output from this workspace right now, which is also how you can tell the view is honest rather than decorative.</p>
+<div class="frame"><div class="win">
+  <div class="rail"><div class="ic">📂</div><div class="ic">💬</div><div class="ic">🎛</div><div class="ic">🔌</div><div class="sp"></div><div class="ic">⚙</div></div>
+  <div class="main">
+    <div class="resbar"><b>Memory</b><span>412 MB</span><div class="meter"><i></i></div><span>normal</span><span class="mut">app 268 MB · 3 tabs</span></div>
+    <div class="tabs"><div class="tab on">ethang-agent <span class="x">✕</span></div><div class="tab">personal-vault <span class="x">✕</span></div></div>
+    <div class="body">
+      <div class="chat">
+        <div class="scroll">
+          <div class="u">start on issue #3, we lack a design</div>
+          <div class="a">Issue #3 asks for realtime views beside the conversation…</div>
+          <div class="card"><div class="hd"><span>⚙ write lofi design draft</span><span class="mut">0.2s / 120s</span></div></div>
+          <div class="res">↳ write  created  docs/design/2026-10-24-desktop-views-draft.md  9,890 bytes  LF</div>
+        </div>
+        <div class="input"><div class="box">Type a message</div></div>
+        <div class="status"><span>ready</span><span>ctx 44%</span><span>$0.0052</span><span>master</span><span>openrouter</span><span>effort: high</span></div>
+      </div>
+      <div class="strip">
+        <div class="ic">📋</div><div class="ic on">🌿</div><div class="ic">🗂</div><div class="ic">⚡</div><div class="ic">🔍</div><div class="ic">🛢</div>
+      </div>
+      <div class="wb">
+        <div class="hd"><span>GIT</span><span class="mut">watched · .git</span></div>
+        <div class="ct">
+          <div class="kv"><span class="k">branch</span><span>master → origin/master</span></div>
+          <div class="kv"><span class="k">dirty</span><span class="run">2 untracked</span></div>
+          <div class="kv"><span class="k">head</span><span>10bde14 fix(exec): keep recoverable contract errors in-band</span></div>
+          <div style="margin-top:4px;font-size:10.5px;color:#98a0b2;letter-spacing:.4px">CHANGES</div>
+          <div class="kv"><span>?? docs/</span><span class="mut">new</span></div>
+          <div class="kv"><span>?? .tmp-dv/</span><span class="mut">new</span></div>
+          <div style="margin-top:6px;font-size:10.5px;color:#98a0b2;letter-spacing:.4px">DIFF · docs/design/…draft.md</div>
+          <div class="diff"><span class="hunk">@@ -0,0 +1,8 @@</span>
+<span class="add">+# Desktop views (realtime) — lofi draft</span>
+<span class="add">+</span>
+<span class="add">+Nothing here is decided. This is the shape of the thing,</span>
+<span class="add">+drawn cheaply so we can argue about it.</span>
+          </div>
+          <div class="note">↳ .tmp-dv/ is my own probe scratch — a real view would show it too</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+</body></html>
