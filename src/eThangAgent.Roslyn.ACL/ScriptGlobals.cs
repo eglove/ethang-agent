@@ -878,6 +878,17 @@ public sealed class ScriptTools
   public string skill_manage(object? args = null) => Invoke("skill_manage", args);
   public string skill_registry(object? args = null) => Invoke("skill_registry", args);
 
+  public string computer(object? args = null) => Invoke("computer", args);
+  public string context_trim(object? args = null) => Invoke("context_trim", args);
+  public string docx(object? args = null) => Invoke("docx", args);
+  public string experiment(object? args = null) => Invoke("experiment", args);
+  public string find_files(object? args = null) => Invoke("find_files", args);
+  public string mcp(object? args = null) => Invoke("mcp", args);
+  public string new_session(object? args = null) => Invoke("new_session", args);
+  public string openrouter_management(object? args = null) => Invoke("openrouter_management", args);
+  public string pdf(object? args = null) => Invoke("pdf", args);
+  public string read_image(object? args = null) => Invoke("read_image", args);
+
   public string List() => string.Join("\n", _registry.Providers.SelectMany(p => p.Actions)
       .Select(a => $"{a.Name}({string.Join(", ", a.Parameters.Select(p => $"{p.Name}: {p.Type}"))})"));
 
