@@ -130,6 +130,12 @@ public sealed class SessionHost
             .AddInProcessAgentRuntime(settings)
         .BuildServiceProvider();
 
+    // Hot reload (issue #269): THIS container serves the model's skill_list/skill_view in
+    // every production session, so THIS is where the watcher must be live. The app-side
+    // factory's start never ran here - the host builds its own container - which left a
+    // skill added mid-session invisible for the session's whole lifetime.
+    AgentComposition.StartSkillHotReload(services);
+
     return new SessionHost(
         services,
         services.GetRequiredService<IAgentStore>(),

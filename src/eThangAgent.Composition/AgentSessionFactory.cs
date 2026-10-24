@@ -540,10 +540,11 @@ public sealed class AgentSessionFactory(AgentSettings settings, AppDatabase? dat
   private static AgentSession BuildSession(ServiceProvider services, AgentId rootId,
       string workspaceRoot, string providerName)
   {
-    // Hot reload (spec #26): the watcher is idempotent-Start, so create AND resume
-    // can call it; a second call on the same container is a no-op. Headless stubs
-    // without the composition registrations skip it via GetService.
-    services.GetService<SkillDirectoryWatcher>()?.Start();
+    // Hot reload (spec #26, issue #269): the shared seam - idempotent, so create AND
+    // resume can call it, and a headless stub without the registrations skips silently.
+    // The ChildHost calls the SAME seam at its own container build, which is the
+    // container that actually serves the model in production.
+    AgentComposition.StartSkillHotReload(services);
     return new(
       services,
       rootId,

@@ -420,12 +420,21 @@ public static class AgentComposition
             sp.GetRequiredService<ISkillDirectorySource>(),
             sp.GetRequiredService<ResolvedSkillDirectories>().List))
         .AddSingleton<ISkillCatalog>(sp => sp.GetRequiredService<CompositeSkillCatalog>())
-        // Hot reload (spec #26): ONE watcher + reloader per container. The factory
-        // starts the watcher after the session exists; child containers never do,
-        // so their watchers stay inert (named limitation in the spec).
+        // Out-of-band notice seam (issue #269): the transcript sink belongs to the host
+        // UI, but container services post to it from background paths. It used to be
+        // resolved as AgentSession, which is registered NOWHERE - every post threw and
+        // each caller swallowed it, so reload announcements never reached the transcript.
+        // The session binds its own PostNotice to this carrier at construction, and a
+        // container nobody attached to (a headless host) drops notices by contract.
+        .AddSingleton<SessionNoticeSink>()
+        // Hot reload (spec #26): ONE watcher + reloader per container. Every container that
+        // registers the watcher STARTS it at its build site (AgentSessionFactory and
+        // SessionHost both call AgentComposition.StartSkillHotReload): production turns run
+        // in the ChildHost process, so an app-side-only start left every real session's
+        // watcher inert and a skill added mid-session invisible forever (issue #269).
         .AddSingleton(sp => new SkillDirectoryReloader(
             () => sp.GetRequiredService<Conversation>(),
-            notice => sp.GetRequiredService<AgentSession>().PostNotice(notice)))
+            notice => sp.GetRequiredService<SessionNoticeSink>().Post(notice)))
         .AddSingleton(sp => new SkillDirectoryWatcher(
             sp.GetRequiredService<CompositeSkillCatalog>(),
             diff => sp.GetRequiredService<SkillDirectoryReloader>().Announce(diff),
@@ -449,7 +458,7 @@ public static class AgentComposition
         .AddSingleton(sp => new SkillInvokeTool(
             sp.GetRequiredService<ISkillInvocationPort>(),
             sp.GetRequiredService<IConversationSink>(),
-            notice => sp.GetRequiredService<AgentSession>().PostNotice(notice)))
+            notice => sp.GetRequiredService<SessionNoticeSink>().Post(notice)))
         .AddSingleton(sp => new NewSessionTool(sp.GetRequiredService<INewSessionPort>()))
         // New-session channel (issue #234): the per-container carrier of the LIVE root
         // turn's session-request emitter plus the port adapter that serves the Tool
@@ -889,7 +898,7 @@ public static class AgentComposition
               sp.GetRequiredService<AppDatabase>().DatabasePath,
               // Host-health notices surface on the session transcript when the host UI
               // has attached its notice sink; headless hosts drop them.
-              notice => sp.GetRequiredService<AgentSession>().PostNotice(notice),
+              notice => sp.GetRequiredService<SessionNoticeSink>().Post(notice),
               // null keeps the default resolution (the repo's live build output, else
               // the copy shipped next to the app).
               hostExePath))
@@ -921,6 +930,24 @@ public static class AgentComposition
       ?? throw new InvalidOperationException(
           "the root session id must be published before the host supervisor is resolved.");
 
+
+  /// <summary>Starts this container's skill hot-reload watcher (issue #269).
+  ///     <para>EVERY container that registers the watcher must call this after building,
+  ///     because the watcher is inert until Start and the composite catalog memoizes its
+  ///     first load - an unstarted watcher means a skill added while the session is open
+  ///     stays invisible for the session's whole lifetime. The previous single call site
+  ///     was the app factory, which production never reaches: every conversation runs its
+  ///     turns in a ChildHost process that builds its own container.</para>
+  ///     <para>Idempotent (the watcher's own Start is), and a container without the skill
+  ///     registrations (a headless test stub) skips silently.</para></summary>
+  public static void StartSkillHotReload(IServiceProvider services)
+  {
+    ArgumentNullException.ThrowIfNull(services);
+    if (services.GetService(typeof(SkillDirectoryWatcher)) is SkillDirectoryWatcher watcher)
+    {
+      watcher.Start();
+    }
+  }
 
   /// <summary>Resolves skill directories from the settings-carried stored lists - the
   ///     config shape a host built from serialized AgentSettings (the remote

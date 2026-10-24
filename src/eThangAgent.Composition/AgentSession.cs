@@ -44,11 +44,28 @@ public sealed record AgentSession(
   ///     when the host did not wire the skill catalog (headless stubs).</summary>
   public SkillInvocationService? SkillInvocation { get; init; }
 
-  /// <summary>Sink for out-of-band session notices (host health, orphan repair),
-  ///     populated by the host UI after the session is constructed: the VM owns the
-  ///     transcript, the session does not. Null = notices are dropped (headless hosts).
+  /// <summary>Sink for out-of-band session notices (host health, orphan repair, skill
+  ///     reload announcements), populated by the host UI after the session is
+  ///     constructed: the VM owns the transcript, the session does not. Null = notices
+  ///     are dropped (headless hosts).
+  ///     <para>Setting this ALSO fills the container's <see cref="SessionNoticeSink"/>
+  ///     (issue #269): container services post from background paths and cannot resolve
+  ///     this session (it is registered in no container), so the carrier is the seam they
+  ///     reach. One sink, two doors. A container without the carrier (a bare test stub)
+  ///     keeps the session-local sink working exactly as before.</para>
   ///     Thread-safe by contract: invoked from background supervisory paths.</summary>
-  public Action<string>? NoticeSink { get; set; }
+  public Action<string>? NoticeSink
+  {
+    get;
+    set
+    {
+      field = value;
+      if (Services.GetService(typeof(SessionNoticeSink)) is SessionNoticeSink carrier)
+      {
+        carrier.Sink = value;
+      }
+    }
+  }
 
   /// <summary>Posts one out-of-band notice to the session surface.</summary>
   public void PostNotice(string message) => NoticeSink?.Invoke(message);
