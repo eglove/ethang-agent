@@ -1588,6 +1588,8 @@ internal sealed partial class MainViewModel : ObservableObject
 
     await RestorePinnedModelAsync(session, sessionVm);
     await RestoreSessionPreferencesAsync(session, sessionVm);
+    // The cost seed runs before any turn can run in this tab (issue #24).
+    await sessionVm.SeedUsageAsync().ConfigureAwait(true);
 
     // Resume replay: the persisted transcript (already hydrated into the session's
     // conversation) renders into the transcript view. A fresh session replays nothing.
@@ -1656,6 +1658,9 @@ internal sealed partial class MainViewModel : ObservableObject
           // this conversation's host; a headless/test container that opted into the
           // in-process runtime resolves none, and only then does the turn run locally.
           RootTurnChannel = session.Services.GetService<IRootTurnChannel>(),
+          // Issue #24: the status bar's session cost is seeded from the persisted usage
+          // rollup at tab open, so a resumed session starts from its real spend.
+          UsageQueries = session.Services.GetService<IUsageQueries>(),
         });
   }
 

@@ -281,6 +281,11 @@ public sealed class RootRunHost : IDisposable
         // snapshot that did not travel left the app's CTX line frozen for every
         // host-run turn (only the in-process path ever reached Status.SetContext).
         OnContextUpdate: snapshot => emitter.Emit("context", RootTurnContextPayload.Serialize(snapshot)),
+        // The session's live spend (issue #24): the ledger row is written HERE, in the host
+        // process, so this event is the only way the app's status-bar cost advances during a
+        // host-run turn. It fires after the row is persisted, so the displayed total can
+        // never count a call the ledger dropped.
+        OnUsageRecorded: row => emitter.Emit("usage", RootTurnUsagePayload.Serialize(row)),
         OnSystemMessage: text => emitter.Emit("notice", text));
 
     Result<string> result;

@@ -92,6 +92,11 @@ internal sealed record AgentSessionViewModelOptions
   ///     bootstrap entry so nothing the agent receives is hidden. Empty = nothing to
   ///     surface (headless stubs); production always passes the session's prompt.</summary>
   public string SystemPrompt { get; init; } = string.Empty;
+
+  /// <summary>The usage ledger's read model (issue #24): the status bar's session cost is
+  ///     SEEDED from it at tab open, so a resumed session starts from its real history.
+  ///     Null = nothing is seeded and the cost starts at zero (headless stubs).</summary>
+  public IUsageQueries? UsageQueries { get; init; }
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
@@ -108,6 +113,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
   private readonly Func<UiStreamEvent, Task> _streamSink;
   private readonly Action<string>? _statusModelUpdater;
   private readonly SessionModelPreferences? _modelPreferences;
+
+  /// <summary>The usage ledger's read model (issue #24): the tab-open seed for the status
+  ///     bar's session cost. Null = nothing to seed from (headless stubs).</summary>
+  private readonly IUsageQueries? _usageQueries;
 
   /// <summary>The session's bootstrap model (the provider default). Serves as the
   ///     status-bar display when the user returns the session to automatic choice.</summary>
@@ -315,6 +324,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
       return Task.CompletedTask;
     });
     _modelPreferences = options.ModelPreferences;
+    _usageQueries = options.UsageQueries;
     _sessionDefaultModelId = modelId;
     // The session's model is ALWAYS NAMED (2026-10-22) - see ResolveServingModel.
     string servingModel = ResolveServingModel(_modelPreferences, modelId);
@@ -362,6 +372,37 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
 
 
 
+  /// <summary>Seeds the status bar's session cost from the persisted rollup (issue #24):
+  ///     the ledger rows a resumed or reopened session already has. Called at tab open,
+  ///     BEFORE the first turn, so no in-turn increment can be lost to it.
+  ///     <para>Best effort by design: a read-model fault leaves the cost at zero rather
+  ///     than failing the session open — a status readout is never load-bearing. The
+  ///     failure is still visible: the cost line simply stays empty, which is the same
+  ///     state a session with no spend renders.</para></summary>
+  public async Task SeedUsageAsync(CancellationToken ct = default)
+  {
+    if (_usageQueries is null)
+    {
+      return;
+    }
+
+    // Named decision (CA1031): a status seed must never fail the session open.
+#pragma warning disable CA1031 // Do not catch general exception types
+    try
+    {
+      Result<UsageSummary> summary = await _usageQueries
+          .SessionSummaryAsync(_rootId.ToString(), ct).ConfigureAwait(true);
+      if (summary.IsSuccess)
+      {
+        Status.SeedUsage(summary.Value.Totals);
+      }
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      // Deliberately swallowed: see above.
+    }
+#pragma warning restore CA1031
+  }
   /// <summary>
   /// Processes one submission. Blank input is ignored. While a turn runs, input
   /// steers it. For normal turns, sets the in-flight task and returns that same
@@ -826,6 +867,7 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
               OnReasoningDelta: bridge.OnReasoningDelta,
               OnIterationEnd: bridge.OnIterationEnd,
               OnContextUpdate: snapshot => Status.SetContext(snapshot),
+              OnUsageRecorded: row => Status.AddUsage(row),
               OnCompacted: _ => onCompacted(),
               OnContextShrunk: onShrunk,
               OnToolCall: (name, args, index, count) => bridge.OnToolCall(name, args),
@@ -923,17 +965,10 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
         ApplySessionRequest(evt.Payload);
         break;
       case "context":
-        // The session's context accounting (issue #255): the accountant lives in the
-        // HOST, so this event is the only way the status bar's CTX line advances for a
-        // host-run turn. SetContext is already thread-safe (it raises through the
-        // dispatcher), so no marshal is needed here. An unreadable payload is dropped
-        // rather than rendered: the CTX line is a status readout, and a notice per
-        // provider response would flood the transcript.
-        if (RootTurnContextPayload.Parse(evt.Payload) is { } context)
-        {
-          Status.SetContext(context.ToSnapshot());
-        }
-
+        ApplyContextEvent(evt.Payload);
+        break;
+      case "usage":
+        ApplyUsageEvent(evt.Payload);
         break;
       case "progress":
         // The heartbeat proves the host is alive; it says nothing the transcript needs.
@@ -950,6 +985,31 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
     }
   }
 
+  /// <summary>Applies one `context` event (issue #255): the accountant lives in the HOST,
+  ///     so this event is the only way the status bar's CTX line advances for a host-run
+  ///     turn. SetContext is already thread-safe (it raises through the dispatcher), so no
+  ///     marshal is needed here. An unreadable payload is dropped rather than rendered: the
+  ///     CTX line is a status readout, and a notice per provider response would flood the
+  ///     transcript.</summary>
+  private void ApplyContextEvent(string payload)
+  {
+    if (RootTurnContextPayload.Parse(payload) is { } context)
+    {
+      Status.SetContext(context.ToSnapshot());
+    }
+  }
+  /// <summary>Applies one `usage` event (issue #24): the ledger row is written in the HOST
+  ///     process, so this event is the only way the status bar's session cost advances
+  ///     during a host-run turn. An unreadable payload is dropped rather than rendered —
+  ///     the cost line is a readout, and a notice per provider call would flood the
+  ///     transcript.</summary>
+  private void ApplyUsageEvent(string payload)
+  {
+    if (RootTurnUsagePayload.Parse(payload) is { } usage)
+    {
+      Status.AddUsage(usage.ToRow());
+    }
+  }
   /// <summary>True when a settled payload is the host's typed failure line
   ///     (<c>Error [&lt;code&gt;]: &lt;message&gt;</c>) rather than an answer. The wire carries the
   ///     outcome in the payload, so this is the only way to tell a failed turn from a

@@ -50,7 +50,7 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
     int InputTokens, int OutputTokens, int? CachedInputTokens, int? ReasoningTokens,
     UsageCallClass? CallClass = null, string? WorkspaceId = null, string? Provider = null,
     decimal? PromptPricePerToken = null, decimal? PromptCacheReadPricePerToken = null,
-    decimal? CompletionPricePerToken = null)
+    decimal? CompletionPricePerToken = null, string? ModelId = null)
     : AgentDomainEvent(AgentId, OccurredAt)
 {
   /// <summary>The class this row belongs to, with the legacy rule applied: a null class
@@ -77,9 +77,16 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
             usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.ReasoningTokens,
             attribution.CallClass, attribution.WorkspaceId, attribution.Provider,
             attribution.Prices.PromptPricePerToken, attribution.Prices.PromptCacheReadPricePerToken,
-            attribution.Prices.CompletionPricePerToken));
+            attribution.Prices.CompletionPricePerToken, attribution.ModelId));
   }
 
+  /// <summary>Projects this row onto the Model Domain's neutral read shape (issue #24), so
+  ///     the loop can hand a live call to the status bar without the Model Domain ever
+  ///     learning what a usage EVENT is. The class's wire name travels verbatim: the closed
+  ///     set stays owned here, and the read model treats the name as opaque.</summary>
+  public UsageRow ToUsageRow() => new(EffectiveCallClass.WireName, ModelId, Provider, WorkspaceId,
+      InputTokens, OutputTokens, CachedInputTokens, ReasoningTokens,
+      PromptPricePerToken, PromptCacheReadPricePerToken, CompletionPricePerToken);
   /// <summary>The name of the first negative count, or null when every count is sane.</summary>
   private static string? NegativeCount(TokenUsage usage) =>
       Counts(usage).FirstOrDefault(count => count.Value < 0).Key;
@@ -102,8 +109,11 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
 /// <param name="WorkspaceId">The workspace the work belongs to; null when unwired.</param>
 /// <param name="Provider">The provider whose price was stamped; null when unnamed.</param>
 /// <param name="Prices">The three per-token prices, each null when unknown.</param>
+/// <param name="ModelId">The model whose prices were stamped (issue #24): the per-model
+///     rollup groups on it, and a row that cannot name its model is reported with a null
+///     model rather than being attributed to one that did not run.</param>
 public sealed record UsageAttribution(UsageCallClass CallClass, string? WorkspaceId, string? Provider,
-    UsagePrices Prices)
+    UsagePrices Prices, string? ModelId = null)
 {
   /// <summary>The attribution of a call whose workspace, provider, and prices are all
   ///     unknown — the legacy shape, where tokens are recorded and cost reads as null.</summary>

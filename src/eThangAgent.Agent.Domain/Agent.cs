@@ -555,6 +555,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       }
 
       _ = await _eventLog.AppendEventAsync(record.Value, CancellationToken.None).ConfigureAwait(false);
+      // The live-spend signal (issue #24) fires only AFTER the row is persisted: a total
+      // that counted a call the ledger dropped would disagree with the persisted rollup
+      // the next tab open seeds from.
+      callbacks?.OnUsageRecorded?.Invoke(record.Value.ToUsageRow());
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
@@ -599,7 +603,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
               .ConfigureAwait(false);
       Result<AgentUsageRecorded> record = AgentUsageRecorded.Create(Id, DateTimeOffset.UtcNow,
           state.TurnId, state.Iteration, usage,
-          new UsageAttribution(UsageCallClass.Compaction, _workspaceId, outcome.SummarizerProvider, prices));
+          new UsageAttribution(UsageCallClass.Compaction, _workspaceId, outcome.SummarizerProvider, prices, modelId));
       if (!record.IsSuccess)
       {
         CountUsageDrop(state, callbacks, record.Error.Message);
@@ -607,6 +611,9 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       }
 
       _ = await _eventLog.AppendEventAsync(record.Value, CancellationToken.None).ConfigureAwait(false);
+      // A compaction call is billed spend like any other, so it advances the session total
+      // on the same signal (issue #24).
+      callbacks?.OnUsageRecorded?.Invoke(record.Value.ToUsageRow());
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
@@ -631,7 +638,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
             usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.ReasoningTokens))
         : AgentUsageRecorded.Create(Id, at, state.TurnId, state.Iteration, usage,
             new UsageAttribution(UsageCallClass.MainLoop, _workspaceId, Config.Provider,
-                await ResolvePricesAsync().ConfigureAwait(false)));
+                await ResolvePricesAsync().ConfigureAwait(false), Config.ModelId));
   }
 
   /// <summary>The three prices to stamp on this call's row: the catalog's current prices

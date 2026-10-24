@@ -370,6 +370,10 @@ public static class AgentComposition
         // source per container, shared by the root loop and every child run. A session
         // whose catalog cannot answer stamps nulls rather than failing.
         .AddSingleton<IUsagePriceSource, CatalogUsagePriceSource>()
+        // The usage ledger's READ model (issue #24): rollups over the usage rows the loop
+        // writes, on the read-only connection. Session attribution walks agents.parent_id
+        // from the root, so subagent spend counts toward the session that caused it.
+        .AddSingleton<IUsageQueries, SqliteUsageQueries>()
         .AddSingleton(sp =>
         {
           // Summarizer model resolved per compaction (never pinned at startup).

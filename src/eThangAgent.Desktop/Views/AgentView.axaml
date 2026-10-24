@@ -58,6 +58,10 @@
           <TextBlock x:Name="SpinnerText" Text="{Binding Status.Spinner}"/>
           <TextBlock x:Name="PhaseText" Text="{Binding Status.PhaseLabel}"/>
           <TextBlock x:Name="ContextText" Text="{Binding Status.ContextDisplay}" ToolTip.Tip="{Binding Status.ContextBreakdownText}"/>
+          <!-- Session spend (issue #24): cumulative cost of every recorded provider call in
+               this session and its subagents. Hidden until the session has spend, so a
+               fresh session's bar is unchanged. -->
+          <TextBlock x:Name="CostText" Text="{Binding Status.CostDisplay}" ToolTip.Tip="{Binding Status.CostBreakdownText}" IsVisible="{Binding Status.CostDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
           <TextBlock x:Name="BranchText" Text="{Binding Status.Branch}" IsVisible="{Binding Status.Branch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
           <TextBlock Text="{Binding Status.Provider}"/>
           <TextBlock Text="{Binding Status.ModelId}"/>

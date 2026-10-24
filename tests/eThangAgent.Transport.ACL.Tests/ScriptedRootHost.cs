@@ -31,7 +31,12 @@ internal sealed record ScriptedOptions(
     // Issue #253 test knob: the ROOT steering inbox the handler drains. Production
     // resolves the container's IAgentInbox here; a rig that omits it has no steering
     // surface at all (the pre-#253 shape).
-    IAgentInbox? Inbox = null);
+    IAgentInbox? Inbox = null,
+    // Issue #24 test knob: the append-only event log the loop records usage rows to, and
+    // the prices it stamps. Null (the default) records nothing, so no `usage` event fires -
+    // the shape every pre-existing test relies on.
+    IAgentEventLog? EventLog = null,
+    IUsagePriceSource? UsagePrices = null);
 
 #pragma warning disable CA1812 // Instantiated by the gate tests, not by this file.
 /// <summary>The optional mid-turn park a streaming test needs: an ASYNC hook that runs
@@ -106,7 +111,14 @@ internal sealed class ScriptedRootHost : IDisposable
     // monitor exists, so a harness without one could never observe the `context` wire
     // kind (issue #255).
     Ag agent = new(provider, conversation, config, tools,
-        new AgentOptions { Id = rootId, ContextMonitor = new ContextAccountant(config.ContextWindow) });
+        new AgentOptions
+        {
+          Id = rootId,
+          ContextMonitor = new ContextAccountant(config.ContextWindow),
+          EventLog = options?.EventLog,
+          UsagePrices = options?.UsagePrices,
+          WorkspaceId = options?.EventLog is null ? null : "ws-scripted",
+        });
     RootSessionIdentity carrier = identity ?? new RootSessionIdentity();
 
     RecordingStore store = new(storedHistory ?? [], storeDelay ?? TimeSpan.Zero,

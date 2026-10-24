@@ -28,6 +28,10 @@ namespace eThangAgent.AgentDomain;
 ///     transcript instead of appending the turn's slice.</param>
 /// <param name="OnCompacted">Invoked after a successful automatic compaction with what
 ///     the compactor did.</param>
+/// <param name="OnUsageRecorded">Invoked with the row a completed provider call recorded
+///     (issue #24), so a host can forward the session's live spend to the status bar. It
+///     fires only after the row is PERSISTED, so the displayed total never counts a call the
+///     ledger dropped. May fire on arbitrary threads.</param>
 /// <param name="OnSystemMessage">Invoked verbatim whenever the loop itself appends a
 ///     System message to the conversation mid-turn (length-truncation continuation
 ///     prompt, compaction-failure notice), so hosts can surface loop-voice decisions
@@ -41,4 +45,5 @@ public sealed record TurnCallbacks(
     Action<ContextSnapshot>? OnContextUpdate = null,
     Action<CompactionOutcome>? OnCompacted = null,
     Action? OnContextShrunk = null,
-    Action<string>? OnSystemMessage = null);
+    Action<string>? OnSystemMessage = null,
+    Action<UsageRow>? OnUsageRecorded = null);
