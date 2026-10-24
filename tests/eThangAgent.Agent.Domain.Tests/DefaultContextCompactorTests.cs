@@ -350,4 +350,87 @@ public class DefaultContextCompactorTests
     Assert.False(outcome.Value.IsHandoff);
     Assert.True(conversation.Messages[0].IsSummary); // compacted in place
   }
+
+  // ---- summarizer identity for the usage ledger (issue #23) ----
+
+  /// <summary>The outcome names the model that ACTUALLY wrote the summary: the resolved
+  ///     writer when the summarizer resolver supplies one.</summary>
+  [Fact]
+  public async Task CompactAsync_SummarizerResolved_OutcomeNamesTheSummarizerModel()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    ModelConfig summarizer = ModelConfig.Create("summarizer-model", "openrouter", 100, 0.5f, 1000).Value!;
+    RecordingFactory factory = new(summarizer);
+    DefaultContextCompactor compactor = new(factory, () => summarizer);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.Equal("summarizer-model", outcome.Value.SummarizerModelId);
+    Assert.Equal("openrouter", outcome.Value.SummarizerProvider);
+  }
+
+  /// <summary>On FALLBACK the writer IS the serving model, and the outcome must say so:
+  ///     the price stamped onto the usage row is the price of the model that ran.</summary>
+  [Fact]
+  public async Task CompactAsync_SummarizerFallsBack_OutcomeNamesTheServingModel()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.Equal("serving", outcome.Value.SummarizerModelId);
+    Assert.Null(outcome.Value.SummarizerProvider);
+  }
+
+  /// <summary>A HANDOFF outcome carries the summarizer identity too (issue #23): the
+  ///     summarizer was called and billed whether or not the conversation was compacted.</summary>
+  [Fact]
+  public async Task CompactAsync_HandoffOutcome_CarriesTheSummarizerIdentity()
+  {
+    Conversation conversation = ConversationWithEvictableMiddle();
+    ModelConfig summarizer = ModelConfig.Create("summarizer-model", "openrouter", 100, 0.5f, 1000).Value!;
+    RecordingFactory factory = new(summarizer);
+    DefaultContextCompactor compactor = new(factory, () => summarizer, handoffEnabled: () => Result.Success(true));
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.True(outcome.Value.IsHandoff);
+    Assert.Equal("summarizer-model", outcome.Value.SummarizerModelId);
+    Assert.Equal("openrouter", outcome.Value.SummarizerProvider);
+  }
+
+  /// <summary>The tail-compression fallback makes NO summarizer call, so its outcome names
+  ///     no model: a usage row must never be attributed to a model that did not run.</summary>
+  [Fact]
+  public async Task CompactAsync_TailCompressionFallback_OutcomeNamesNoSummarizerModel()
+  {
+    // Tail-dominated bloat with oversized tool results: the plan evicts nothing, so the
+    // deep clean compresses and makes NO summarizer call.
+    Conversation conversation = new();
+    conversation.AddUserMessage("task");
+    for (int i = 0; i < 3; i++)
+    {
+      conversation.AddUserMessage($"kept user {i}");
+      conversation.AddAssistantMessage("", [new ToolCall($"c{i}", "read", "{}")]);
+      conversation.AddToolResult($"c{i}", new string('r', 800));
+    }
+
+    RecordingFactory factory = new(null);
+    DefaultContextCompactor compactor = new(factory, () => null);
+
+    Result<CompactionOutcome> outcome = await compactor.CompactAsync(
+        conversation, Serving, TestContext.Current.CancellationToken);
+
+    Assert.True(outcome.IsSuccess, outcome.Error?.Code + ": " + outcome.Error?.Message);
+    Assert.Null(outcome.Value.SummarizerUsage);
+    Assert.Null(outcome.Value.SummarizerModelId);
+  }
 }

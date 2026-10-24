@@ -1,3 +1,6 @@
+using eThangAgent.ModelDomain;
+using eThangAgent.SharedKernel;
+
 namespace eThangAgent.AgentDomain;
 
 public abstract record AgentDomainEvent(AgentId AgentId, DateTimeOffset OccurredAt);
@@ -54,4 +57,56 @@ public sealed record AgentUsageRecorded(AgentId AgentId, DateTimeOffset Occurred
   ///     reads as <see cref="UsageCallClass.MainLoop"/>, because every row written before
   ///     the class existed came from the loop.</summary>
   public UsageCallClass EffectiveCallClass => CallClass ?? UsageCallClass.MainLoop;
+
+  /// <summary>Strictly validated construction (issue #23, B10): a record the loop cannot
+  ///     honestly write is a DOMAIN ERROR here, never a coerced row. The recording site
+  ///     counts a rejected record as a drop and surfaces it once per turn, so a bad record
+  ///     is never silent — and never becomes a corrupt measurement.
+  ///     <para>Negative token counts are rejected because a provider cannot report them and
+  ///     a fabricated negative would poison every rollup it enters. The positional
+  ///     constructor stays for deserialization (a stored payload is read back as written)
+  ///     and for tests; production records go through this factory.</para></summary>
+  public static Result<AgentUsageRecorded> Create(AgentId agentId, DateTimeOffset occurredAt, Guid turnId,
+      int iteration, TokenUsage usage, UsageAttribution attribution)
+  {
+    ArgumentNullException.ThrowIfNull(attribution);
+    return NegativeCount(usage) is { } offending
+        ? Result.Failure<AgentUsageRecorded>(new DomainError("InvalidUsageCounts",
+            $"Usage count '{offending}' is negative; a provider cannot report a negative token count."))
+        : Result.Success(new AgentUsageRecorded(agentId, occurredAt, turnId, iteration,
+            usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.ReasoningTokens,
+            attribution.CallClass, attribution.WorkspaceId, attribution.Provider,
+            attribution.Prices.PromptPricePerToken, attribution.Prices.PromptCacheReadPricePerToken,
+            attribution.Prices.CompletionPricePerToken));
+  }
+
+  /// <summary>The name of the first negative count, or null when every count is sane.</summary>
+  private static string? NegativeCount(TokenUsage usage) =>
+      Counts(usage).FirstOrDefault(count => count.Value < 0).Key;
+
+  /// <summary>The four counts as named pairs, in the order they are checked.</summary>
+  private static IEnumerable<KeyValuePair<string, int>> Counts(TokenUsage usage)
+  {
+    yield return new(nameof(usage.InputTokens), usage.InputTokens);
+    yield return new(nameof(usage.OutputTokens), usage.OutputTokens);
+    yield return new(nameof(usage.CachedInputTokens), usage.CachedInputTokens ?? 0);
+    yield return new(nameof(usage.ReasoningTokens), usage.ReasoningTokens ?? 0);
+  }
+}
+
+/// <summary>Who and what a usage row attributes to, and on what price basis (issue #23):
+///     the call class, the workspace, the provider whose price applied, and the three
+///     prices resolved at write time. Grouped because they always travel together and the
+///     record factory would otherwise carry a parameter per column.</summary>
+/// <param name="CallClass">The class of the call: main loop or compaction.</param>
+/// <param name="WorkspaceId">The workspace the work belongs to; null when unwired.</param>
+/// <param name="Provider">The provider whose price was stamped; null when unnamed.</param>
+/// <param name="Prices">The three per-token prices, each null when unknown.</param>
+public sealed record UsageAttribution(UsageCallClass CallClass, string? WorkspaceId, string? Provider,
+    UsagePrices Prices)
+{
+  /// <summary>The attribution of a call whose workspace, provider, and prices are all
+  ///     unknown — the legacy shape, where tokens are recorded and cost reads as null.</summary>
+  public static UsageAttribution Unattributed(UsageCallClass callClass) =>
+      new(callClass, null, null, UsagePrices.Unknown);
 }

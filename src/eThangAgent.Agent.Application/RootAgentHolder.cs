@@ -21,7 +21,12 @@ public sealed record RootDependencies(
     // lifecycle facts here - above all the drain fact naming which steering messages it
     // consumed - so a host can forward them and the app can release a pinned echo. Null
     // (legacy wiring) publishes nothing, byte-identical to before.
-    IAgentEvents? Events = null);
+    IAgentEvents? Events = null,
+    // The prices stamped onto every usage row at write time (issue #23), and the
+    // workspace those rows belong to. Both null (legacy wiring) records rows with null
+    // prices and no workspace: byte-identical to before.
+    IUsagePriceSource? UsagePrices = null,
+    string? WorkspaceId = null);
 
 /// <summary>Holds the root agent for a session and rebuilds it when its model changes.
 ///     The root agent is constructed lazily on the first message (see
@@ -96,23 +101,35 @@ public sealed class RootAgentHolder(
 
   /// <summary>The construction options for a build: the root's persisted identity, the
   ///     session's shaping collaborators, and the continuous transcript sink.</summary>
-  private AgentOptions BuildOptions() => new()
+  private AgentOptions BuildOptions()
   {
-    // The root agent's in-memory identity IS the persisted root row id: children spawned
-    // by the root record this id as their ParentId, so a fresh random id here would
-    // phantom-parent every child (2026-10-04: all children pointed at a parent id that
-    // had no row). Legacy wiring without a session id keeps the generated-id behavior.
-    Id = ResolveRootId(),
-    SystemPrompt = _dependencies?.SystemPrompt,
-    MaxAutoContinuations = _dependencies?.MaxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,
-    ContextMonitor = Accountant,
-    ContextCompactor = _dependencies?.ContextCompactor,
-    TranscriptSink = _dependencies?.TranscriptSink,
-    ServerToolImages = _dependencies?.ServerToolImages,
-    EventLog = _dependencies?.EventLog,
-    Events = _dependencies?.Events,
-    SessionId = ResolveSessionId(),
-  };
+    (IUsagePriceSource? prices, string? workspace) = UsageAttributionDependencies();
+    return new AgentOptions
+    {
+      // The root agent's in-memory identity IS the persisted root row id: children spawned
+      // by the root record this id as their ParentId, so a fresh random id here would
+      // phantom-parent every child (2026-10-04: all children pointed at a parent id that
+      // had no row). Legacy wiring without a session id keeps the generated-id behavior.
+      Id = ResolveRootId(),
+      SystemPrompt = _dependencies?.SystemPrompt,
+      MaxAutoContinuations = _dependencies?.MaxAutoContinuations ?? Ag.DefaultMaxAutoContinuations,
+      ContextMonitor = Accountant,
+      ContextCompactor = _dependencies?.ContextCompactor,
+      TranscriptSink = _dependencies?.TranscriptSink,
+      ServerToolImages = _dependencies?.ServerToolImages,
+      EventLog = _dependencies?.EventLog,
+      Events = _dependencies?.Events,
+      SessionId = ResolveSessionId(),
+      UsagePrices = prices,
+      WorkspaceId = workspace,
+    };
+  }
+
+  /// <summary>The usage ledger's two write-time dependencies (issue #23), read from the
+  ///     optional dependency record: the price source and the workspace id. Both null in
+  ///     legacy wiring, which records the pre-#23 row shape unchanged.</summary>
+  private (IUsagePriceSource? Prices, string? WorkspaceId) UsageAttributionDependencies()
+      => (_dependencies?.UsagePrices, _dependencies?.WorkspaceId);
 
   /// <summary>The persisted root id parsed out of the session identity, or null when the
   ///     wiring carries no id (legacy) or it is not a GUID.</summary>

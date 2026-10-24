@@ -99,6 +99,8 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   private readonly Action<string>? _onStreamActivity = options?.OnStreamActivity;
   private readonly IServerToolImageStore? _serverToolImages = options?.ServerToolImages;
   private readonly IAgentEventLog? _eventLog = options?.EventLog;
+  private readonly IUsagePriceSource? _usagePrices = options?.UsagePrices;
+  private readonly string? _workspaceId = options?.WorkspaceId;
   private readonly ToolRepeatGuard _repeatGuard = new();
   private readonly ReadFreshnessLedger _readLedger = new();
 
@@ -319,6 +321,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // turn — a second overflow fails the turn, bounded.
     public bool OverflowRecovered { get; set; }
     public bool AutoCompactBlocked { get; set; }
+    // Usage rows this turn could not persist (issue #23 B8). The FIRST drop is surfaced
+    // as a notice; later ones only increment, so a persistently failing store is visible
+    // without spamming the transcript once per provider call.
+    public int UsageDrops { get; set; }
   }
 
   /// <summary>The turn loop proper (everything <see cref="SendMessage"/> advertises in
@@ -381,7 +387,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // agree; recording usage from ReportUsage instead would number it one ahead,
       // because that runs after the increment inside HandleSuccessAsync.
       await RecordReasoningAsync(result.Value, state).ConfigureAwait(false);
-      await RecordUsageTelemetryAsync(result.Value, state).ConfigureAwait(false);
+      await RecordUsageTelemetryAsync(result.Value, state, callbacks).ConfigureAwait(false);
       state.Iteration++;
       callbacks?.OnIterationEnd?.Invoke();
 
@@ -432,7 +438,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       callbacks?.OnContextShrunk?.Invoke();
     }
 
-    bool compacted = !shrinkObserved && await TryCompactIfNeededAsync(callbacks, ct).ConfigureAwait(false);
+    bool compacted = !shrinkObserved && await TryCompactIfNeededAsync(state, callbacks, ct).ConfigureAwait(false);
     // A handoff decision blocks the backstop too (one decision per turn): the
     // conversation did not shrink, so utilization would re-fire every iteration.
     state.AutoCompactBlocked = compacted || shrinkObserved || _handoffDecidedThisTurn;
@@ -461,7 +467,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // re-send of the SAME request; a second overflow fails the turn.
     if (error.Code is ContextWindowExceededCode && !state.OverflowRecovered)
     {
-      Result<string>? recovered = await RecoverFromContextOverflowAsync(error, callbacks, ct).ConfigureAwait(false);
+      Result<string>? recovered = await RecoverFromContextOverflowAsync(error, state, callbacks, ct).ConfigureAwait(false);
       if (recovered is null)
       {
         state.OverflowRecovered = true;
@@ -513,16 +519,26 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     }
   }
 
-  /// <summary>Records one provider call's token accounting as TELEMETRY (issue #270),
-  ///     beside the reasoning trace and at the same safe point, under
+  /// <summary>Records one provider call's token accounting AND cost as TELEMETRY (issues
+  ///     #270, #23), beside the reasoning trace and at the same safe point, under
   ///     <see cref="CancellationToken.None"/> — the usage of a turn about to be cancelled is
   ///     exactly the usage worth keeping.
   ///     <para>A response carrying no usage report records nothing (an absent report is a
   ///     different fact from a zero one), and a persistence fault is SWALLOWED: the
   ///     established best-effort discipline, so the turn never fails because its telemetry
   ///     hiccupped. Nothing here reads back into the request, so the model's next request
-  ///     is byte-identical whether or not this ran.</para></summary>
-  private async Task RecordUsageTelemetryAsync(ModelResponse response, TurnState state)
+  ///     is byte-identical whether or not this ran.</para>
+  ///     <para>PRICE IS RESOLVED HERE, at write time, because the catalog keeps no price
+  ///     history: a call not priced when it happens is unpriced forever. A null price
+  ///     source stamps nulls — the row still records its tokens and cost reads as null
+  ///     rather than being fabricated.</para>
+  ///     <para>LEGACY SHAPE (B9): with neither a price source nor a workspace id wired,
+  ///     the row is written exactly as it was before this change — every member this issue
+  ///     added stays null. That is what makes the unwired path byte-identical rather than
+  ///     merely equivalent.</para>
+  ///     <para>A record the domain REJECTS, or a store that faults, is COUNTED and surfaced
+  ///     once per turn (B8): a drop is never silent, but it is also never turn-failing.</para></summary>
+  private async Task RecordUsageTelemetryAsync(ModelResponse response, TurnState state, TurnCallbacks? callbacks)
   {
     if (_eventLog is null || response.Usage is not { } usage)
     {
@@ -531,14 +547,116 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
 
     try
     {
-      _ = await _eventLog.AppendEventAsync(
-          new AgentUsageRecorded(Id, DateTimeOffset.UtcNow, state.TurnId, state.Iteration,
-              usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.ReasoningTokens),
-          CancellationToken.None).ConfigureAwait(false);
+      Result<AgentUsageRecorded> record = await BuildUsageRecordAsync(usage, state).ConfigureAwait(false);
+      if (!record.IsSuccess)
+      {
+        CountUsageDrop(state, callbacks, record.Error.Message);
+        return;
+      }
+
+      _ = await _eventLog.AppendEventAsync(record.Value, CancellationToken.None).ConfigureAwait(false);
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
-      // Swallowed deliberately: telemetry is best-effort, never turn-failing.
+      // Swallowed deliberately: telemetry is best-effort, never turn-failing. The DROP is
+      // still counted and surfaced once per turn, so a persistently failing store is
+      // visible instead of silently losing every row.
+      CountUsageDrop(state, callbacks, ex.Message);
+    }
+  }
+
+  /// <summary>Records the summarizer call a successful compaction made, as its own
+  ///     <see cref="UsageCallClass.Compaction"/> row (issue #23, B3) — including a HANDOFF
+  ///     outcome, because the summarizer was called and billed whether or not the
+  ///     conversation was compacted. Before this, <see cref="CompactionOutcome.SummarizerUsage"/>
+  ///     was produced and read by nothing in production: summarizer spend was measured and
+  ///     thrown away.
+  ///     <para>The row names the SUMMARIZER's model and provider (the resolved writer, the
+  ///     serving model on fallback), never the serving model unconditionally — the price
+  ///     stamped must be the price of the model that actually ran.</para>
+  ///     <para>IDENTITY: the iteration is the iteration the compaction preceded, so a
+  ///     compaction row and that iteration's main-loop row share (turn, iteration) and are
+  ///     told apart by <see cref="AgentUsageRecorded.CallClass"/>. Totals are unaffected —
+  ///     both calls genuinely happened and both are genuinely billed.</para>
+  ///     <para>An outcome carrying no summarizer usage or no summarizer model id records
+  ///     nothing: the tail-compression fallback makes no summarizer call at all, so there
+  ///     is no call to attribute. A rejected record or a store fault is counted exactly as
+  ///     a main-loop drop is.</para></summary>
+  private async Task RecordCompactionUsageAsync(CompactionOutcome outcome, TurnState state,
+      TurnCallbacks? callbacks)
+  {
+    if (_eventLog is null || outcome.SummarizerUsage is not { } usage
+        || outcome.SummarizerModelId is not { } modelId)
+    {
+      return;
+    }
+
+    try
+    {
+      UsagePrices prices = _usagePrices is null
+          ? UsagePrices.Unknown
+          : await _usagePrices.PricesForAsync(modelId, outcome.SummarizerProvider, CancellationToken.None)
+              .ConfigureAwait(false);
+      Result<AgentUsageRecorded> record = AgentUsageRecorded.Create(Id, DateTimeOffset.UtcNow,
+          state.TurnId, state.Iteration, usage,
+          new UsageAttribution(UsageCallClass.Compaction, _workspaceId, outcome.SummarizerProvider, prices));
+      if (!record.IsSuccess)
+      {
+        CountUsageDrop(state, callbacks, record.Error.Message);
+        return;
+      }
+
+      _ = await _eventLog.AppendEventAsync(record.Value, CancellationToken.None).ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+      // Swallowed deliberately, exactly as the main-loop recorder does: telemetry is
+      // never turn-failing, but the drop is counted and surfaced once per turn.
+      CountUsageDrop(state, callbacks, ex.Message);
+    }
+  }
+
+  /// <summary>Builds the row to persist for one provider call. With NEITHER a price source
+  ///     NOR a workspace id wired the record is the LEGACY shape — the positional
+  ///     constructor, every member this issue added left null — so the unwired path is
+  ///     byte-identical to before (B9), not merely equivalent. Otherwise the row carries
+  ///     its class, provider, workspace, and the three prices resolved at write time.
+  ///     <para>Construction is strictly validated (B10): a record the domain cannot
+  ///     honestly write is a named failure the caller counts as a drop.</para></summary>
+  private async Task<Result<AgentUsageRecorded>> BuildUsageRecordAsync(TokenUsage usage, TurnState state)
+  {
+    DateTimeOffset at = DateTimeOffset.UtcNow;
+    return _usagePrices is null && _workspaceId is null
+        ? Result.Success(new AgentUsageRecorded(Id, at, state.TurnId, state.Iteration,
+            usage.InputTokens, usage.OutputTokens, usage.CachedInputTokens, usage.ReasoningTokens))
+        : AgentUsageRecorded.Create(Id, at, state.TurnId, state.Iteration, usage,
+            new UsageAttribution(UsageCallClass.MainLoop, _workspaceId, Config.Provider,
+                await ResolvePricesAsync().ConfigureAwait(false)));
+  }
+
+  /// <summary>The three prices to stamp on this call's row: the catalog's current prices
+  ///     for the serving model, or <see cref="UsagePrices.Unknown"/> when no price source is
+  ///     wired (legacy) or the catalog cannot answer. Never a guess, never a zero.
+  ///     <para>The catalog lookup is the only await in the recording path that can be slow,
+  ///     and it is memoized per (model, provider) for the process lifetime, so the steady
+  ///     state is a dictionary read.</para></summary>
+  private async Task<UsagePrices> ResolvePricesAsync() =>
+      _usagePrices is null
+          ? UsagePrices.Unknown
+          : await _usagePrices.PricesForAsync(Config.ModelId, Config.Provider, CancellationToken.None)
+              .ConfigureAwait(false);
+
+  /// <summary>Counts a dropped usage row and surfaces the fact ONCE per turn (B8): the
+  ///     first drop of a turn emits a notice, later drops only increment the counter. The
+  ///     notice goes to the display channel, never into the conversation — a telemetry
+  ///     hiccup must not change a single request byte.</summary>
+  private static void CountUsageDrop(TurnState state, TurnCallbacks? callbacks, string reason)
+  {
+    state.UsageDrops++;
+    if (state.UsageDrops == 1)
+    {
+      callbacks?.OnSystemMessage?.Invoke(
+          $"[usage ledger] a usage row could not be recorded ({reason}); further drops this turn are counted but not reported.");
     }
   }
 
@@ -577,7 +695,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     <see cref="TurnCallbacks.OnCompacted"/> and re-fires the context snapshot;
   ///     failure appends a System notice telling the model why nothing changed and
   ///     returns true so a broken compactor stops being retried this turn.</summary>
-  private async Task<bool> TryCompactIfNeededAsync(TurnCallbacks? callbacks, CancellationToken ct)
+  private async Task<bool> TryCompactIfNeededAsync(TurnState state, TurnCallbacks? callbacks, CancellationToken ct)
   {
     if (_contextCompactor is null || _contextMonitor is not { } monitor)
     {
@@ -619,6 +737,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       // compaction also starts a new pressure cycle.
       _readLedger.Reset();
       _softReminderShown = false;
+      await RecordCompactionUsageAsync(compacted.Value, state, callbacks).ConfigureAwait(false);
       NotifyCompacted(callbacks, compacted.Value);
       // The handoff decision rides the OUTCOME (issue #234): a handoff outcome means the
       // conversation was NOT compacted and the summary seeds a new session. Set the
@@ -718,7 +837,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
   ///     the turn's terminal failure — the compaction error is the actionable cause, so it
   ///     surfaces in both the returned Result and the transcript's turn-failure line.</summary>
   private async Task<Result<string>?> RecoverFromContextOverflowAsync(DomainError overflowError,
-      TurnCallbacks? callbacks, CancellationToken ct)
+      TurnState state, TurnCallbacks? callbacks, CancellationToken ct)
   {
     if (_contextCompactor is null)
     {
@@ -750,6 +869,7 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     // Same observer surface as the threshold backstop.
     _readLedger.Reset();  // history was replaced: nothing held before is held now
     _softReminderShown = false;  // a successful compaction starts a new pressure cycle
+    await RecordCompactionUsageAsync(compacted.Value, state, callbacks).ConfigureAwait(false);
     NotifyCompacted(callbacks, compacted.Value);
     return null;
   }

@@ -63,4 +63,17 @@ public sealed record AgentOptions
   ///     back, so a persisted trace changes no request byte. Null (legacy wiring) records
   ///     nothing: byte-identical legacy behavior.</summary>
   public IAgentEventLog? EventLog { get; init; }
+
+  /// <summary>Resolves the per-token prices stamped onto each usage row at write time
+  ///     (issue #23). Price is stamped when the call happens because the catalog keeps no
+  ///     price history - a call not priced then is unpriced forever. Null (legacy wiring)
+  ///     stamps null prices: the row still records its tokens, and cost reads as null
+  ///     rather than being fabricated.</summary>
+  public IUsagePriceSource? UsagePrices { get; init; }
+
+  /// <summary>The workspace this run's usage rows belong to (issue #23). One database
+  ///     file serves many workspaces, so a row without it cannot be attributed to the
+  ///     work that caused it. Null (legacy wiring) records no workspace: byte-identical
+  ///     legacy behavior.</summary>
+  public string? WorkspaceId { get; init; }
 }

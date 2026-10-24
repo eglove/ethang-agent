@@ -69,7 +69,7 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
       return Result.Failure<CompactionOutcome>(summary.Error);
     }
 
-    if (!forceInPlace && DecideHandoff(summary.Value.Text, summary.Value.Usage) is { } handoff)
+    if (!forceInPlace && DecideHandoff(summary.Value) is { } handoff)
     {
       return handoff;
     }
@@ -82,13 +82,15 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
     ];
     Result<bool> compacted = conversation.Compact(replacement);
     return compacted.IsSuccess
-        ? Result.Success(new CompactionOutcome(plan.EvictCount, keptTail.Count, summary.Value.Usage))
+        ? Result.Success(new CompactionOutcome(plan.EvictCount, keptTail.Count, summary.Value.Usage,
+            SummarizerModelId: summary.Value.ModelId, SummarizerProvider: summary.Value.Provider))
         : Result.Failure<CompactionOutcome>(compacted.Error);
   }
 
-  /// <summary>One summarizer call's usable output: the trimmed summary text and the
-  ///     call's token usage.</summary>
-  private sealed record SummaryResult(string Text, TokenUsage? Usage);
+  /// <summary>One summarizer call's usable output: the trimmed summary text, the call's
+  ///     token usage, and the identity of the model that produced it (issue #23) — the
+  ///     resolved WRITER, which is the serving model on fallback, never a guess.</summary>
+  private sealed record SummaryResult(string Text, TokenUsage? Usage, string ModelId, string? Provider);
 
   /// <summary>One summarizer call over the evicted prefix: resolves the writer (the
   ///     factory delegate, falling back to the serving model), sends the render, and
@@ -113,7 +115,7 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
     return trimmed.Length == 0
         ? Result.Failure<SummaryResult>(new DomainError("EmptySummary",
             "The summarizer model returned no summary text."))
-        : Result.Success(new SummaryResult(trimmed, response.Value.Usage));
+        : Result.Success(new SummaryResult(trimmed, response.Value.Usage, writer.ModelId, writer.Provider));
   }
 
   /// <summary>THE HANDOFF REPLACES IN-PLACE COMPACTION (issue #234): the enablement
@@ -123,12 +125,13 @@ public sealed class DefaultContextCompactor(IModelProviderFactory providerFactor
   /// outcome: the compactor never guesses enabled/disabled, and the existing
   /// compaction-failure notice path carries the error to the model. Returns null when
   /// the compaction must proceed in place (the caller's fall-through).</summary>
-  private Result<CompactionOutcome>? DecideHandoff(string summaryText, TokenUsage? usage)
+  private Result<CompactionOutcome>? DecideHandoff(SummaryResult summary)
   {
     return (handoffEnabled is null ? Result.Success(false) : handoffEnabled())
         .Match(
             success => success && SubAgentSpawner.RunningChild is null
-                ? Result.Success(CompactionOutcome.Handoff(summaryText, usage))
+                ? Result.Success(CompactionOutcome.Handoff(summary.Text, summary.Usage,
+                    summary.ModelId, summary.Provider))
                 : null,
             failure => Result.Failure<CompactionOutcome>(failure));
   }

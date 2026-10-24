@@ -58,6 +58,8 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
   private readonly IModelProviderFactory _factory = services.Factory ?? throw new ArgumentNullException(nameof(services), "Factory must not be null.");
   private readonly IAgentStore _store = services.Store ?? throw new ArgumentNullException(nameof(services), "Store must not be null.");
   private readonly IAgentEventLog? _eventLog = services.EventLog;
+  private readonly IUsagePriceSource? _usagePrices = services.UsagePrices;
+  private readonly string? _workspaceId = services.WorkspaceId;
   private readonly IToolRegistry _tools = services.Tools ?? throw new ArgumentNullException(nameof(services), "Tools must not be null.");
   private readonly ISystemPromptProvider _systemPrompt = services.SystemPrompt ?? throw new ArgumentNullException(nameof(services), "SystemPrompt must not be null.");
   private readonly SessionModelPreferences? _preferences = preferences;
@@ -266,6 +268,11 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
             // The reasoning trace is recorded under the CHILD's own id (issue #263): a
             // child's thinking is evidence about that child's run, never the parent's.
             EventLog = _eventLog,
+            // Usage rows carry the child's own agent id (already the loop's identity) and
+            // the session's prices + workspace (issue #23): a child's spend is attributed
+            // by walking agents.parent_id from the root, so no root id is stamped here.
+            UsagePrices = _usagePrices,
+            WorkspaceId = _workspaceId,
           });
 
   /// <summary>Runs the agent under the child's ambient scopes — the running-child slot,

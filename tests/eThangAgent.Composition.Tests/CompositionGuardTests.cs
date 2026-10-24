@@ -155,4 +155,25 @@ public class CompositionGuardTests
     ArgumentException argument = Assert.IsType<ArgumentException>(ex);
     Assert.Contains("anthropic", argument.Message, StringComparison.Ordinal);
   }
+
+  /// <summary>Issue #23: ONE memoized price source per container, shared by the root loop
+  ///     and every child run, so a session's rows and its subagents' rows are priced on
+  ///     one basis. A container that resolves it twice must get the SAME instance.</summary>
+  [Fact]
+  public void UsagePriceSource_IsOneSingletonPerContainer()
+  {
+    using TestAppDatabase db = TestAppDatabase.Create();
+    using ServiceProvider services = new ServiceCollection()
+        .AddEThangAgentCore(Settings(), Providers.OpenRouter,
+            ModelConfig.Create("m", null, 512, 0.5f, 8192).Value!,
+            new AgentHostOptions(new FixedWorkspaceContext("app"), new UnrootedPathResolver()),
+            db.Database)
+        .BuildServiceProvider();
+
+    IUsagePriceSource first = services.GetRequiredService<IUsagePriceSource>();
+    IUsagePriceSource second = services.GetRequiredService<IUsagePriceSource>();
+
+    Assert.Same(first, second);
+    _ = Assert.IsType<CatalogUsagePriceSource>(first);
+  }
 }

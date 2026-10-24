@@ -29,14 +29,25 @@ public interface IContextCompactor
 /// <param name="SummarizerUsage">The summarizer call's token usage, when reported.</param>
 /// <param name="HandoffSummary">The summary text a handoff carries; null for an ordinary
 ///     in-place compaction.</param>
+/// <param name="SummarizerModelId">The model that actually wrote the summary (issue #23):
+///     the resolved writer, which is the SERVING model whenever the summarizer resolver
+///     returned nothing. Null only for an outcome that made no summarizer call at all
+///     (the tail-compression fallback), so a usage row is never attributed to a model that
+///     did not run.</param>
+/// <param name="SummarizerProvider">The provider whose price applies to the summarizer
+///     call: the writer config's provider, or null when it names none.</param>
 public sealed record CompactionOutcome(int MessagesEvicted, int MessagesKept, TokenUsage? SummarizerUsage,
-    string? HandoffSummary = null)
+    string? HandoffSummary = null, string? SummarizerModelId = null, string? SummarizerProvider = null)
 {
   /// <summary>True when this outcome is a SESSION HANDOFF: the conversation was not
   ///     compacted, and the summary seeds a new session instead.</summary>
   public bool IsHandoff => HandoffSummary is not null;
 
   /// <summary>The handoff outcome: the conversation is left intact and the summary
-  ///     launches a new session as its seed.</summary>
-  public static CompactionOutcome Handoff(string summary, TokenUsage? usage) => new(0, 0, usage, summary);
+  ///     launches a new session as its seed. The summarizer identity travels with it —
+  ///     the summarizer was called and billed whether or not the conversation was
+  ///     compacted (issue #23: a handoff records its usage row too).</summary>
+  public static CompactionOutcome Handoff(string summary, TokenUsage? usage,
+      string? summarizerModelId = null, string? summarizerProvider = null)
+      => new(0, 0, usage, summary, summarizerModelId, summarizerProvider);
 }

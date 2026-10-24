@@ -366,6 +366,10 @@ public static class AgentComposition
         // Desktop status view share this workspace's pooled sessions.
         .AddSingleton(SharedMcpServerAccess)
         .AddSingleton<IContextWindowSource, CatalogContextWindowSource>()
+        // The prices stamped onto every usage row at write time (issue #23): ONE memoized
+        // source per container, shared by the root loop and every child run. A session
+        // whose catalog cannot answer stamps nulls rather than failing.
+        .AddSingleton<IUsagePriceSource, CatalogUsagePriceSource>()
         .AddSingleton(sp =>
         {
           // Summarizer model resolved per compaction (never pinned at startup).
@@ -588,7 +592,11 @@ public static class AgentComposition
             ProviderRequired: true,
             // Children record their reasoning traces to the same append-only log
             // (issue #263), keyed by their own agent id.
-            EventLog: sp.GetRequiredService<IAgentEventLog>()))
+            EventLog: sp.GetRequiredService<IAgentEventLog>(),
+            // Children stamp the same prices and workspace as the root (issue #23);
+            // attribution to the session happens by walking agents.parent_id (#24).
+            UsagePrices: sp.GetRequiredService<IUsagePriceSource>(),
+            WorkspaceId: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId))
         .AddSingleton(sp => new SubAgentSpawner(
             sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),
@@ -833,7 +841,12 @@ public static class AgentComposition
                 EventLog: sp.GetRequiredService<IAgentEventLog>(),
                 // The root loop's mailbox facts (issue #253 B3): the drain naming which
                 // steering messages it consumed is what releases the app's pinned echo.
-                Events: sp.GetRequiredService<IAgentEvents>()),
+                Events: sp.GetRequiredService<IAgentEvents>(),
+                // The usage ledger's write-time prices and workspace (issue #23): the
+                // same price source the children stamp with, so a session's rows and its
+                // subagents' rows are priced on one basis.
+                UsagePrices: sp.GetRequiredService<IUsagePriceSource>(),
+                WorkspaceId: sp.GetRequiredService<IWorkspaceContext>().WorkspaceId),
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.

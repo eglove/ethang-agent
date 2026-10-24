@@ -42,6 +42,11 @@ namespace eThangAgent.AgentDomain;
 /// <param name="EventLog">Append-only event log a child records its reasoning traces to
 ///     (issue #263) — the same telemetry channel the root uses, keyed by the child's own
 ///     id. Null disables child telemetry (legacy wiring, tests): byte-identical behavior.</param>
+/// <param name="UsagePrices">Resolves the prices stamped onto each child usage row at
+///     write time (issue #23). Null (legacy wiring) stamps null prices: the row records
+///     its tokens and cost reads as null rather than being fabricated.</param>
+/// <param name="WorkspaceId">The workspace a child's usage rows belong to (issue #23).
+///     Null (legacy wiring) records no workspace.</param>
 public sealed record SubAgentServices(
     IModelProviderFactory Factory,
     IAgentStore Store,
@@ -57,5 +62,7 @@ public sealed record SubAgentServices(
     Func<AgentId, ChildSupervisor?>? SupervisorFor = null,
     Func<string?, IServerToolImageStore?>? ServerToolImagesFor = null,
     bool ProviderRequired = false,
-    IAgentEventLog? EventLog = null);
+    IAgentEventLog? EventLog = null,
+    IUsagePriceSource? UsagePrices = null,
+    string? WorkspaceId = null);
 
