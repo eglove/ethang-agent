@@ -26,5 +26,9 @@ public class EditToolAnchorHintDescriptionTests
     public Task<Result<ReplaceOutcome>> ReplaceLineRangeAsync(
         string path, int startLine, int endLine, string newText, CancellationToken ct = default)
         => throw new NotImplementedException("not exercised by description tests");
+
+    public Task<Result<HunkReplaceOutcome>> ReplaceHunksAsync(
+        string path, IReadOnlyList<EditHunk> hunks, CancellationToken ct = default)
+        => throw new NotImplementedException("not exercised by description tests");
   }
 }

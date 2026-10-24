@@ -80,8 +80,18 @@ public class ToolContractAdvertisementTests
     EditTool tool = new(new UnrootedPathResolver(), new StubEditAccess());
     Assert.DoesNotContain("all", tool.Definition.RequiredParameters);
     Assert.DoesNotContain("occurrences", tool.Definition.RequiredParameters);
-    Assert.Contains("replacement", tool.Definition.RequiredParameters);
     Assert.DoesNotContain("new", tool.Definition.RequiredParameters);
+  }
+
+  [Fact]
+  public void Edit_OnlyTimeoutAndPath_AreUnconditionallyRequired()
+  {
+    // 'replacement' is a per-mode rule (hunks mode carries it inside each hunk), so it is
+    // advertised but not required — the write tool's content/lines shape exactly.
+    EditTool tool = new(new UnrootedPathResolver(), new StubEditAccess());
+    Assert.Equal(["timeoutSeconds", "path"], tool.Definition.RequiredParameters);
+    Assert.Contains(tool.Definition.Parameters, p => p.Name == "replacement");
+    Assert.Contains(tool.Definition.Parameters, p => p.Name == "hunks");
   }
 
   // ── write ─────────────────────────────────────────────────────────────────
@@ -219,6 +229,10 @@ internal sealed class StubEditAccess : IFileEditAccess
   public Task<Result<ReplaceOutcome>> ReplaceLineRangeAsync(string path, int startLine,
       int endLine, string newText, CancellationToken ct = default) =>
       Task.FromResult(Result.Failure<ReplaceOutcome>(new DomainError("Unused", "not exercised")));
+
+  public Task<Result<HunkReplaceOutcome>> ReplaceHunksAsync(string path,
+      IReadOnlyList<EditHunk> hunks, CancellationToken ct = default) =>
+      Task.FromResult(Result.Failure<HunkReplaceOutcome>(new DomainError("Unused", "not exercised")));
 }
 
 

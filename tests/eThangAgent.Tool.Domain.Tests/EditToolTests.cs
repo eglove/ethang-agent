@@ -56,11 +56,17 @@ public class EditToolTests
   }
 
   [Fact]
-  public void Replacement_IsRequired_NewIsNotAdvertised()
+  public void Replacement_IsACrossParameterRule_SoOnlyTimeoutAndPathAreUnconditionallyRequired()
   {
+    // 'replacement' is required in anchor and range modes but NOT in hunks mode (each hunk
+    // carries its own), so advertising it as required would lie about one of the modes —
+    // the same shape as write's content/lines rule. The parser enforces it per mode
+    // (MissingReplacement_ReturnsError, below), which is what the advertisement must not
+    // contradict.
     ToolDefinition definition = MakeTool(null!).Definition;
-    Assert.Contains("replacement", definition.RequiredParameters);
-    Assert.DoesNotContain("new", definition.RequiredParameters);
+    Assert.Equal(["timeoutSeconds", "path"], definition.RequiredParameters);
+    Assert.Contains(definition.Parameters, p => p.Name == "replacement");
+    Assert.DoesNotContain(definition.Parameters, p => p.Name == "new");
   }
 
   // ---- Selector rules ----
@@ -204,5 +210,9 @@ public class EditToolTests
     public Task<Result<ReplaceOutcome>> ReplaceLineRangeAsync(
         string path, int startLine, int endLine, string newText, CancellationToken ct = default) =>
         throw new NotImplementedException("range mode not implemented yet");
+
+    public Task<Result<HunkReplaceOutcome>> ReplaceHunksAsync(
+        string path, IReadOnlyList<EditHunk> hunks, CancellationToken ct = default) =>
+        throw new NotImplementedException("hunks mode not implemented yet");
   }
 }

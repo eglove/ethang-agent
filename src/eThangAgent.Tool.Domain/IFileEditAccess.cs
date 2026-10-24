@@ -19,4 +19,15 @@ public interface IFileEditAccess
   ///     'endLine' past EOF is rejected, never clamped. Refuses binary files. Never creates files.</summary>
   Task<Result<ReplaceOutcome>> ReplaceLineRangeAsync(
       string path, int startLine, int endLine, string newText, CancellationToken ct = default);
+
+  /// <summary>Applies every hunk ATOMICALLY over one file read: all of them land or none
+  ///     does (the file is left byte-identical on failure). Hunks are matched against the
+  ///     file as it stands, never against another hunk's output, so they must name disjoint
+  ///     regions — two hunks whose matches overlap are refused as <c>HunksOverlap</c>
+  ///     rather than applied in some order. Each hunk's replacement is normalized to the
+  ///     file's dominant convention; untouched regions keep their exact bytes. A failure
+  ///     names the hunk that failed and why (<c>hunk N: ...</c>) and carries the hunk's own
+  ///     anchor-miss hint. Refuses binary files. Never creates files.</summary>
+  Task<Result<HunkReplaceOutcome>> ReplaceHunksAsync(
+      string path, IReadOnlyList<EditHunk> hunks, CancellationToken ct = default);
 }

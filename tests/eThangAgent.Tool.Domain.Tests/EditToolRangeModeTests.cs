@@ -190,6 +190,10 @@ public class EditToolRangeModeTests
       LastNewText = newText;
       return Task.FromResult(outcome);
     }
+
+    public Task<Result<HunkReplaceOutcome>> ReplaceHunksAsync(
+        string path, IReadOnlyList<EditHunk> hunks, CancellationToken ct = default) =>
+        throw new NotImplementedException("hunks mode not implemented yet");
   }
 }
 

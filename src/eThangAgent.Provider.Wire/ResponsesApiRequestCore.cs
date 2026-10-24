@@ -418,14 +418,15 @@ public static class ResponsesApiRequestCore
                       ToolParameterType.WholeNumber => "integer",
                       ToolParameterType.Flag => "boolean",
                       ToolParameterType.ObjectValue => "object",
+                      ToolParameterType.ObjectArray => "array",
                       _ => throw new InvalidOperationException(
                             $"Unhandled tool parameter type: {p.Type}"),
                     },
                     ["description"] = p.Description,
                   };
-                  if (p.Type == ToolParameterType.TextArray)
+                  if (ItemsType(p.Type) is { } itemsType)
                   {
-                    props["items"] = new Dictionary<string, object?> { ["type"] = "string" };
+                    props["items"] = new Dictionary<string, object?> { ["type"] = itemsType };
                   }
 
                   if (p.Minimum is { } min)
@@ -440,4 +441,19 @@ public static class ResponsesApiRequestCore
       },
     };
   }
+
+  /// <summary>The 'items' schema type for an array parameter, or null when the type is
+  ///     not an array. TextArray carries strings; ObjectArray carries objects whose
+  ///     shape the tool's own parser validates.</summary>
+  private static string? ItemsType(ToolParameterType type) =>
+       type switch
+       {
+         ToolParameterType.Text => null,
+         ToolParameterType.TextArray => "string",
+         ToolParameterType.WholeNumber => null,
+         ToolParameterType.Flag => null,
+         ToolParameterType.ObjectValue => null,
+         ToolParameterType.ObjectArray => "object",
+         _ => null,
+       };
 }

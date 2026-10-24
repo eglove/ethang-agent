@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.20";
+  public const string Version = "2.21";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -277,6 +277,29 @@ public static class ExecGuide
         catch (Exception ex) { Output("fallback: " + ex.Message); }
 
     Thrown exceptions mark the whole result as an error with exec error [ScriptError] lines.
+
+    ### Editing files
+
+    `edit` is the patch surface — not a whole-file rewrite. Give it an ANCHOR (`old` +
+    `replacement` + exactly one of `all`/`occurrences`) and it replaces that text
+    verbatim; several places in one file go in ONE call as `hunks`, a JSON array of
+    `{old, replacement, all|occurrences}` entries applied ATOMICALLY over one read:
+
+        Tools.edit(new { timeoutSeconds = 30, path = "src/App.cs", hunks = new[] {
+            new { old = "var a = 1;", replacement = "var a = 2;", occurrences = 1 },
+            new { old = "Run();", replacement = "Run(2);", occurrences = 1 } }) });
+
+    - All hunks land or NOTHING is applied — a failure leaves the file byte-identical,
+      so a multi-hunk call can never leave a half-applied patch behind.
+    - Hunks match the file AS IT STANDS (content-addressed, not line numbers), so an
+      earlier hunk that grows the file cannot invalidate a later one. Name disjoint
+      regions; touching matches are refused as Error [HunksOverlap].
+    - An anchor miss answers with the file's nearest region quoted in gutter format
+      AND the text that WOULD match there, emitted as a ready-to-use 'old'. Copy that
+      block verbatim into your next call — one retry, no re-read.
+    - Never rewrite a whole file to change several lines, and never hand-roll
+      File.ReadAllLines / File.WriteAllLines: that path bypasses the line-ending
+      convention handling the tool owns.
 
     ### Writing C# safely (string literals and large content)
 
