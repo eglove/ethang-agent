@@ -328,10 +328,10 @@ public class InProcessAgentRuntimeQueueTests
     _ = await runtime.Start(queued, TestContext.Current.CancellationToken).ConfigureAwait(true);
 
     Result<bool> delivered = runtime.Deliver(queued.Id,
-        new PendingMessage("steer while queued", MessageUrgency.Normal, DateTimeOffset.UtcNow, "parent"));
+        PendingMessage.New("steer while queued", MessageUrgency.Normal, "parent"));
 
     Assert.True(delivered.IsSuccess, delivered.Error?.Message);
-    Assert.True(runtime.InboxFor(queued.Id)!.TryTake(out string steered), "the queued child's mailbox must hold the message");
+    Assert.True(runtime.InboxFor(queued.Id)!.TryTake(out string steered, out Guid _), "the queued child's mailbox must hold the message");
     Assert.Equal("steer while queued", steered);
     runner.Complete(running.Id, "first done");
     runner.Complete(queued.Id, "second done");

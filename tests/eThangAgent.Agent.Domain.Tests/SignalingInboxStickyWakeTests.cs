@@ -23,15 +23,17 @@ public class SignalingInboxStickyWakeTests
       return Result.Success(true);
     }
 
-    public bool TryTake(out string text)
+    public bool TryTake(out string text, out Guid messageId)
     {
       if (_pending.Count == 0)
       {
         text = string.Empty;
+        messageId = Guid.Empty;
         return false;
       }
 
       text = _pending.Dequeue();
+      messageId = Guid.NewGuid();
       return true;
     }
   }
@@ -70,7 +72,7 @@ public class SignalingInboxStickyWakeTests
       Assert.Equal(1, late); // armed
     }
 
-    _ = inbox.TryTake(out string _);
+    _ = inbox.TryTake(out string _, out Guid _);
     int late2 = 0;
     using IDisposable lease2 = hub.Subscribe(_ => late2++);
     Assert.Equal(0, late2); // cleared
@@ -97,7 +99,7 @@ public class SignalingInboxStickyWakeTests
     WaitWakeHub hub = new();
     SignalingInbox inbox = new(inner, hub, new AgentId(Guid.NewGuid()));
     inbox.Post("one");
-    _ = inbox.TryTake(out string _);
+    _ = inbox.TryTake(out string _, out Guid _);
     int late = 0;
 
     using IDisposable lease = hub.Subscribe(_ => late++);
@@ -113,13 +115,13 @@ public class SignalingInboxStickyWakeTests
     SignalingInbox inbox = new(inner, hub, new AgentId(Guid.NewGuid()));
     inbox.Post("one");
     inbox.Post("two");
-    _ = inbox.TryTake(out string _);
+    _ = inbox.TryTake(out string _, out Guid _);
     int late = 0;
 
     using IDisposable lease = hub.Subscribe(_ => late++);
     Assert.Equal(1, late);
 
-    _ = inbox.TryTake(out string _);
+    _ = inbox.TryTake(out string _, out Guid _);
     int late2 = 0;
     using IDisposable lease2 = hub.Subscribe(_ => late2++);
     Assert.Equal(0, late2);

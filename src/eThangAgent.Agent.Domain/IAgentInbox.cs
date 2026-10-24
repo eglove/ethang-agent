@@ -24,8 +24,13 @@ public interface IAgentInbox
   ///     the user can see.</summary>
   void Post(string text) => _ = TryPost(text);
 
-  /// <summary>Takes the oldest queued message, or returns false when the inbox is empty.</summary>
-  bool TryTake(out string text);
+  /// <summary>Takes the oldest queued message, or returns false when the inbox is empty.
+  ///     <para><paramref name="messageId"/> is that message's identity (issue #92): the
+  ///     loop needs it to name what it consumed, so a sender can learn its message was
+  ///     received rather than merely queued. <see cref="Guid.Empty"/> means the message
+  ///     carried no identity (a legacy publisher) — the drain fact then names nothing for
+  ///     it, and no receipt is invented.</para></summary>
+  bool TryTake(out string text, out Guid messageId);
 }
 
 /// <summary>The bounded, per-agent mailbox: one instance per agent. Generalizes the
@@ -113,22 +118,24 @@ public sealed class BoundedAgentMailbox : IAgentInbox, IAgentMailbox
   public Result<bool> TryPost(string text)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(text);
-    return Deliver(new PendingMessage(text, MessageUrgency.Normal, DateTimeOffset.UtcNow, "human"));
+    return Deliver(PendingMessage.New(text, MessageUrgency.Normal, "human"));
   }
 
   /// <inheritdoc cref="IAgentInbox.TryTake"/>
-  public bool TryTake(out string text)
+  public bool TryTake(out string text, out Guid messageId)
   {
     lock (_gate)
     {
       if (_pending.Count == 0)
       {
         text = "";
+        messageId = Guid.Empty;
         return false;
       }
 
       PendingMessage message = _pending.Dequeue();
       text = message.Text;
+      messageId = message.Id;
       return true;
     }
   }

@@ -596,8 +596,13 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     if (_delivery.TryGetValue(command.RecordId, out ChildMailboxRegistry? registry)
         && registry.MailboxFor(new AgentId(command.RecordId)) is { } mailbox)
     {
+      // The identity travels with the message (issue #92): the app-side sender's receipt
+      // named this handle, so the host's drain/remainder facts must name the same one.
+      // An older app's frame carries no id; minting one here keeps delivery working while
+      // leaving that message unaddressable - the pre-handshake behavior.
+      Guid messageId = command.MessageId == Guid.Empty ? Guid.NewGuid() : command.MessageId;
       _ = mailbox.Deliver(new PendingMessage(command.Text, (MessageUrgency)command.Urgency,
-          DateTimeOffset.UtcNow, command.Sender));
+          DateTimeOffset.UtcNow, command.Sender, messageId));
     }
   }
 

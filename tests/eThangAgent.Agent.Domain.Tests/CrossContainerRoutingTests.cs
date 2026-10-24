@@ -176,7 +176,7 @@ public class CrossContainerRoutingTests
   {
     Guid foreignChild = Guid.NewGuid();
     BoundedAgentMailbox full = new(capacity: 1);
-    _ = full.Deliver(new PendingMessage("occupant", MessageUrgency.Normal, DateTimeOffset.UtcNow, "x"));
+    _ = full.Deliver(PendingMessage.New("occupant", MessageUrgency.Normal, "x"));
     (AgentCapabilityProvider provider, _, _, AgentLinkRegistry links) = Make(Parent(),
         new Dictionary<Guid, IAgentMailbox> { [foreignChild] = full });
     string name = LinkFor(links, foreignChild);

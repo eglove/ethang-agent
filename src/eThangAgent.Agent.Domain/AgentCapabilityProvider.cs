@@ -17,8 +17,8 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   ///     grant-surface computation needs the names at composition time, where
   ///     resolving the provider itself would re-enter its singleton (R1).</summary>
   public static readonly string[] ActionNames =
-      ["spawn", "status", "result", "wait", "send", "resume", "cancel", "route", "escalate", "fanout",
-        "notify-subtree", "notify-ancestors"];
+      ["spawn", "status", "result", "wait", "send", "receipts", "resume", "cancel", "route", "escalate",
+        "fanout", "notify-subtree", "notify-ancestors"];
 
   /// <summary>Builds the dispatch map eagerly: every handler closes over this
   ///     provider's collaborators, so the map is per provider (one per session).</summary>
@@ -36,6 +36,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     _wakeSource = services.WakeSource;
     _clock = services.Clock;
     _progress = services.Progress;
+    _receipts = services.Receipts;
     _handlers = BuildHandlers();
   }
 
@@ -50,6 +51,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
   private readonly IWaitWakeSource? _wakeSource;
   private readonly TimeProvider? _clock;
   private readonly ChildProgressLedger? _progress;
+  private readonly MessageReceiptLedger? _receipts;
   private readonly FrozenDictionary<string, ActionHandler> _handlers;
 
   public string Id => ProviderId;
@@ -114,12 +116,23 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
         new("send", "Send a steering message to one of your running child agents mid-run.",
             """
             Delivers into the child's mailbox; the child drains it at its next safe point (iteration boundary; never between a tool call and its result). Normal urgency drains at boundaries. Fails to you: NotRunning (unknown/finished child), MailboxFull (child's box at capacity — batch or retry), InvalidMessage (empty text). Content lands in the child's transcript on drain, attributed to you.
+             The receipt names the message handle: delivered to=<id> urgency=<U> msg=<guid> state=queued. state=queued means ENQUEUED, not received — ask agent.receipts with that msg to learn whether the child actually drained it.
             """,
             [
                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
                 new ActionParameter("text", ActionParameterTypes.StringType, "Steering message for the child. Non-empty."),
                 new ActionParameter("urgency", ActionParameterTypes.StringType, "Optional: normal (default) | attention | urgent."),
             ]),
+         new("receipts", "Report what became of a steering message: queued, received, or undelivered.",
+             """
+             The delivery handshake's read side. A message is queued from the moment it lands in the child's mailbox, becomes received when the child's loop drains it at a safe point (so the model WILL see it on its next provider call), and becomes undelivered when the run settles with it still queued (it was persisted for the next start — the model never saw it in that run).
+             With 'msg': one line, msg=<guid> child=<id> state=queued|received|undelivered. Without 'msg': one line per receipt for that child, in delivery order, or child=<id> receipts=0 when it has none.
+             Fails to you: NotFound (this session never saw that message delivered — the ledger never invents a state), NotAvailable (no ledger wired), InvalidActionInput (bad id/msg).
+             """,
+             [
+                 new ActionParameter("id", ActionParameterTypes.StringType, "GUID string of the child agent, exactly as returned by spawn."),
+                 new ActionParameter("msg", ActionParameterTypes.StringType, "Optional message handle from agent.send's receipt (msg=<guid>). Omit to list every receipt for that child."),
+             ]),
         new("resume", "Resume a settled child agent with a new message (same id, same context).",
             """
             Continues a SETTLED child (completed or failed) on the SAME id: its persisted transcript,
@@ -209,6 +222,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
       ["result"] = GetResult,
       ["wait"] = Wait,
       ["send"] = (json, _) => Send(json),
+      ["receipts"] = (json, _) => Task.FromResult(Receipts(json)),
       ["resume"] = (json, _) => Resume(json),
       ["cancel"] = Cancel,
       ["route"] = (json, _) => Task.FromResult(Route(json)),
@@ -455,11 +469,111 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
       return settled;
     }
 
-    Result<bool> delivered = _runtime.Deliver(id.Value,
-        new PendingMessage(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(parent)));
-    return delivered.IsSuccess
-        ? CapabilityInvocationResult.Ok($"delivered to={id.Value} urgency={urgency.ToString().ToUpperInvariant()}")
-        : CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");
+    PendingMessage message = PendingMessage.New(text!, urgency, SenderLabel(parent));
+    Result<bool> delivered = _runtime.Deliver(id.Value, message);
+    if (!delivered.IsSuccess)
+    {
+      return CapabilityInvocationResult.Fail($"Error [{delivered.Error.Code}]: {delivered.Error.Message}");
+    }
+
+    // The handshake (issue #92): the receipt names the message handle and states the
+    // honest fact — the message is ENQUEUED, not yet received. Ask agent.receipts for
+    // msg=<id> to learn whether the child's loop actually drained it. Legacy wiring (no
+    // ledger) keeps the pre-handshake receipt byte-identical: without a ledger the
+    // handle could never be asked about, so naming one would be noise.
+    return CapabilityInvocationResult.Ok(_receipts is null
+        ? $"delivered to={id.Value} urgency={urgency.ToString().ToUpperInvariant()}"
+        : $"delivered to={id.Value} urgency={urgency.ToString().ToUpperInvariant()} msg={message.Id} state=queued");
+  }
+
+  /// <summary>agent.receipts (issue #92): what became of a steering message. With 'msg'
+  ///     it answers one message's state — queued (enqueued, not yet drained), received
+  ///     (drained into the child's conversation at a safe point, so the model WILL see it),
+  ///     or undelivered (the run settled with it still queued; it was persisted for the
+  ///     next start). Without 'msg' it lists the child's receipts in delivery order.
+  ///     A message this session never saw delivered is NotFound — the ledger never invents
+  ///     a state for an id it did not observe.</summary>
+  private CapabilityInvocationResult Receipts(string json)
+  {
+    if (_receipts is null)
+    {
+      return CapabilityInvocationResult.Fail(
+          "Error [NotAvailable]: agent.receipts needs a message receipt ledger wired into this session's capability provider.");
+    }
+
+    string? parseError = ReceiptsArgs(json, out AgentId? id, out Guid? messageId);
+    if (parseError is not null)
+    {
+      return CapabilityInvocationResult.Fail($"Error [InvalidActionInput]: {parseError}");
+    }
+
+    if (messageId is { } wanted)
+    {
+      return _receipts.Find(id!.Value, wanted) is { } receipt
+          ? CapabilityInvocationResult.Ok(ReceiptLine(receipt))
+          : CapabilityInvocationResult.Fail(
+              $"Error [NotFound]: no receipt for msg={wanted} on agent {id.Value}; this session never saw it delivered.");
+    }
+
+    IReadOnlyList<MessageReceipt> receipts = _receipts.ForChild(id!.Value);
+    return receipts.Count == 0
+        ? CapabilityInvocationResult.Ok($"child={id.Value} receipts=0")
+        : CapabilityInvocationResult.Ok(string.Join("\n", receipts.Select(ReceiptLine)));
+  }
+
+  /// <summary>One receipt line: the message handle, its child, and its state.</summary>
+  private static string ReceiptLine(MessageReceipt receipt)
+      => $"msg={receipt.MessageId} child={receipt.ChildId} state={ReceiptStateWord(receipt.State)}";
+
+  /// <summary>Lowercase state words for the receipt line (CA1308 forbids ToLowerInvariant
+  ///     normalization; the words are pinned, not computed).</summary>
+  private static string ReceiptStateWord(MessageReceiptState state) => state switch
+  {
+    MessageReceiptState.Queued => "queued",
+    MessageReceiptState.Received => "received",
+    MessageReceiptState.Undelivered => "undelivered",
+    _ => throw new InvalidOperationException($"Unknown message receipt state '{state}'."),
+  };
+
+  /// <summary>Strict receipts-argument parsing: 'id' (Guid D) required, 'msg' (Guid D)
+  ///     optional. Anything else names the offending member.</summary>
+  private static string? ReceiptsArgs(string json, out AgentId? id, out Guid? messageId)
+  {
+    id = null;
+    messageId = null;
+    JsonDocument doc;
+    try
+    {
+      doc = JsonDocument.Parse(json);
+    }
+    catch (JsonException ex)
+    {
+      return $"arguments must be a JSON object ({ex.Message}).";
+    }
+
+    using (doc)
+    {
+      if (!doc.RootElement.TryGetProperty("id", out JsonElement idElement) || idElement.ValueKind is not JsonValueKind.String
+          || !Guid.TryParseExact(idElement.GetString(), "D", out Guid parsedId))
+      {
+        return "'id' must be a GUID string.";
+      }
+
+      id = new AgentId(parsedId);
+      if (!doc.RootElement.TryGetProperty("msg", out JsonElement msgElement))
+      {
+        return null;
+      }
+
+      if (msgElement.ValueKind is not JsonValueKind.String
+          || !Guid.TryParseExact(msgElement.GetString(), "D", out Guid parsedMsg))
+      {
+        return "'msg' must be a GUID string.";
+      }
+
+      messageId = parsedMsg;
+      return null;
+    }
   }
 
   /// <summary>The settled-target half of agent.send: a completed child auto-resumes
@@ -710,7 +824,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     }
 
     AgentRecord sender = _parentContext();
-    PendingMessage message = new(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender));
+    PendingMessage message = PendingMessage.New(text!, urgency, SenderLabel(sender));
     AgentId targetId = new(target);
 
     Result<bool> delivered = DeliverToTarget(targetId, message, urgency, text!);
@@ -793,7 +907,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
       }
 
       Result<bool> delivered = _runtime.Deliver(current.Value,
-          new PendingMessage(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender)));
+          PendingMessage.New(text!, urgency, SenderLabel(sender)));
       receipts.Add(delivered.IsSuccess
           ? $"hop={hop} to={current.Value} delivered"
           : $"hop={hop} to={current.Value} {delivered.Error.Code}");
@@ -846,7 +960,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
         }
 
         Result<bool> attempt = _runtime.Deliver(record.Id,
-            new PendingMessage(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender)));
+            PendingMessage.New(text!, urgency, SenderLabel(sender)));
         if (attempt.IsSuccess)
         {
           delivered++;
@@ -894,7 +1008,7 @@ public sealed class AgentCapabilityProvider : ICapabilityProvider
     {
       Result<AgentRecord> ancestor = await _queries.GetStatus(target, ct).ConfigureAwait(false);
       Result<bool> attempt = _runtime.Deliver(target,
-          new PendingMessage(text!, urgency, DateTimeOffset.UtcNow, SenderLabel(sender)));
+          PendingMessage.New(text!, urgency, SenderLabel(sender)));
       if (attempt.IsSuccess)
       {
         delivered++;

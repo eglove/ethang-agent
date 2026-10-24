@@ -13,7 +13,7 @@ public partial class SupervisorFeedContractTests
   {
     (FakeStream stream, ChildSupervisor supervisor, AgentId child, StubClock clock) = Fresh();
 
-    stream.Publish(new MailboxDrainedEvent(child, T0, 3));
+    stream.Publish(new MailboxDrainedEvent(child, T0, [Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()]));
 
     clock.Now = T0.AddMinutes(15).AddTicks(1);
     ChildIdleAlertEvent? alert = supervisor.CheckIdle(TimeSpan.FromMinutes(15));

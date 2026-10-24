@@ -29,13 +29,34 @@ public sealed record ChildSettledEvent(AgentId ChildId, DateTimeOffset At, Agent
     AgentFailureReason? Reason, int ReportBytes)
     : ChildEvent(ChildId, At);
 
-/// <summary>A message landed in a mailbox. Size in bytes; content stays out (D5).</summary>
-public sealed record MessageDeliveredEvent(AgentId ChildId, DateTimeOffset At, string Direction, int Urgency, int Size)
+/// <summary>A message landed in a mailbox. Size in bytes; content stays out (D5).
+///     <para><paramref name="MessageId"/> is the delivered message's identity (issue #92) —
+///     the handle the sender's receipt names and the id the drain/remainder facts carry.
+///     <see cref="Guid.Empty"/> means the publisher predates the handshake: the ledger
+///     records no receipt for it, because a receipt keyed on an unknown id could never be
+///     asked about.</para></summary>
+public sealed record MessageDeliveredEvent(AgentId ChildId, DateTimeOffset At, string Direction, int Urgency, int Size,
+    Guid MessageId = default)
     : ChildEvent(ChildId, At);
 
-/// <summary>The owning loop drained its mailbox at a safe point (W4.4). Count is the
-/// number of messages taken; content stays out (D5). Mailbox-lifecycle, not progress.</summary>
-public sealed record MailboxDrainedEvent(AgentId ChildId, DateTimeOffset At, int Count)
+/// <summary>The owning loop drained its mailbox at a safe point (W4.4). Content stays out
+///     (D5). Mailbox-lifecycle, not progress.
+///     <para><paramref name="MessageIds"/> names exactly which messages the drain consumed
+///     (issue #92): this is the fact that turns "enqueued" into "received". The count is
+///     derived, never carried beside the ids, so the two can never disagree.</para></summary>
+public sealed record MailboxDrainedEvent(AgentId ChildId, DateTimeOffset At, IReadOnlyList<Guid> MessageIds)
+    : ChildEvent(ChildId, At)
+{
+  /// <summary>The number of messages taken — derived from the ids, never a second fact.</summary>
+  public int Count => MessageIds.Count;
+}
+
+/// <summary>The run settled with these messages still queued (issue #92): they were
+///     persisted for the next start, so the model never saw them in the run that just
+///     ended. This is the fact that stops a settle from reading as "received" — before it,
+///     a message left in the mailbox at settle was indistinguishable from a drained one.
+///     Content stays out (D5).</summary>
+public sealed record MailboxUndeliveredEvent(AgentId ChildId, DateTimeOffset At, IReadOnlyList<Guid> MessageIds)
     : ChildEvent(ChildId, At);
 
 /// <summary>A turn was interrupted by an Urgent message under an audited policy grant (D4-revised).</summary>

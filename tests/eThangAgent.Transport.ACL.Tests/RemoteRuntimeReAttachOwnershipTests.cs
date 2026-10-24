@@ -27,7 +27,7 @@ public class RemoteRuntimeReAttachOwnershipTests
   }
 
   private static PendingMessage Steering(string text) =>
-      new(text, MessageUrgency.Attention, DateTimeOffset.UtcNow, "parent:root");
+      PendingMessage.New(text, MessageUrgency.Attention, "parent:root");
 
   /// <summary>Waits until the runtime has observed the host's declared set. The declare
   ///     envelope is asynchronous on the wire, so the test polls the OBSERVABLE fact

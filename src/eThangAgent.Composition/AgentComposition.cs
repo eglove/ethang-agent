@@ -523,6 +523,16 @@ public static class AgentComposition
           _ = sp.GetRequiredService<IAgentEvents>().Subscribe(ledger);
           return ledger;
         })
+        // The message receipt ledger (issue #92): the read surface agent.receipts uses to
+        // answer what became of a steering message. Constructed eagerly for the same reason
+        // the progress ledger is - DI is lazy and nothing else resolves it, so a plain
+        // registration would never subscribe. It feeds agent.receipts only.
+        .AddSingleton(sp =>
+        {
+          MessageReceiptLedger ledger = new();
+          _ = sp.GetRequiredService<IAgentEvents>().Subscribe(ledger);
+          return ledger;
+        })
         .AddSingleton<IStateChangeBus, InProcessStateChangeBus>()
         .AddSingleton<IAgentInbox>(sp => new SignalingInbox(
             new BoundedAgentMailbox(),
@@ -634,6 +644,7 @@ public static class AgentComposition
                   WakeSource: sp.GetRequiredService<WaitWakeHub>(),
                   Clock: TimeProvider.System,
                   Progress: sp.GetRequiredService<ChildProgressLedger>(),
+                  Receipts: sp.GetRequiredService<MessageReceiptLedger>(),
                   // Fail-fast join: agent.fanout's advertised contract - failed STARTS
                   // (DepthExceeded, InvalidSpawnRequest, ...) fail the join immediately
                   // and surface under their own error code.

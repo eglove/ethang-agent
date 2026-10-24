@@ -1104,7 +1104,10 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
     };
   }
   /// <summary>Drains every queued steering message into the conversation as User messages,
-  /// preserving queue order. Safe points only: entry and iteration boundaries.</summary>
+  /// preserving queue order. Safe points only: entry and iteration boundaries.
+  ///     <para>The drain names the ids it consumed (issue #92): that fact is what turns a
+  ///     sender's "enqueued" into "received", so the loop takes the messages WITH their
+  ///     identities rather than only their text.</para></summary>
   private void DrainInbox(IAgentInbox? inbox)
   {
     if (inbox is null)
@@ -1112,14 +1115,14 @@ public class Agent(IModelProvider provider, Conversation conversation, ModelConf
       return;
     }
 
-    int drained = 0;
-    while (inbox.TryTake(out string? steered))
+    List<Guid> drained = [];
+    while (inbox.TryTake(out string? steered, out Guid messageId))
     {
       Conversation.AddUserMessage(steered);
-      drained++;
+      drained.Add(messageId);
     }
 
-    if (drained > 0)
+    if (drained.Count > 0)
     {
       // W4.4: the push signal a host's unread badge clears on — mailbox lifecycle,
       // never run progress (the supervisor feed's pinned no-beat class).

@@ -75,7 +75,7 @@ public class UnreadBadgeTests
     stream.Publish(new MessageDeliveredEvent(child, DateTimeOffset.UtcNow, "inbound", 0, 8));
     Assert.Equal(2, subscriber.Count);
 
-    stream.Publish(new MailboxDrainedEvent(child, DateTimeOffset.UtcNow, 2));
+    stream.Publish(new MailboxDrainedEvent(child, DateTimeOffset.UtcNow, [Guid.NewGuid(), Guid.NewGuid()]));
 
     Assert.Equal(0, subscriber.Count);
   }
@@ -110,7 +110,7 @@ public class UnreadBadgeTests
 #pragma warning restore CA2000
 
     stream.Publish(new MessageDeliveredEvent(new AgentId(Guid.NewGuid()), DateTimeOffset.UtcNow, "inbound", 0, 8));
-    stream.Publish(new MailboxDrainedEvent(new AgentId(Guid.NewGuid()), DateTimeOffset.UtcNow, 1));
+    stream.Publish(new MailboxDrainedEvent(new AgentId(Guid.NewGuid()), DateTimeOffset.UtcNow, [Guid.NewGuid()]));
 
     Assert.Equal(0, subscriber.Count);
   }

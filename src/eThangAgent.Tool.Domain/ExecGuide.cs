@@ -226,6 +226,26 @@ public static class ExecGuide
       outside your tree, use agent.route. To reach yourself upward one hop with a hop
       cap, use agent.escalate.
 
+     Checking a steering message actually arrived - agent.send + agent.receipts:
+
+         Tools.Invoke("agent.send", new { timeoutSeconds = 30, id = "<guid>", text = "stop and report" })
+         → delivered to=<guid> urgency=NORMAL msg=<guid> state=queued
+
+         Tools.Invoke("agent.receipts", new { timeoutSeconds = 30, id = "<guid>", msg = "<msg guid>" })
+         → msg=<guid> child=<guid> state=received
+
+     - state=queued means ENQUEUED, not received: the message is in the child's mailbox
+       and the child has not reached a safe point yet. The receipt is not a claim that
+       the child saw it.
+     - state=received means the child's loop drained it at a safe point and appended it
+       to its conversation — the model WILL see it on its next provider call.
+     - state=undelivered means the run settled with the message still queued: it was
+       persisted for the child's next start, so the model never saw it in that run.
+     - Omit msg to list every receipt for that child in delivery order (oldest first),
+       or child=<guid> receipts=0 when it has none.
+     - `Error [NotFound]` means this session never saw that message delivered — the
+       ledger never invents a state for a message it did not observe.
+
         ### Recalling earlier work
 
     Run memory.sessions when resuming work or before duplicating effort —

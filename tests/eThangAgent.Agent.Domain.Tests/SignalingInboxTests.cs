@@ -16,15 +16,17 @@ public class SignalingInboxTests
       return Result.Success(true);
     }
 
-    public bool TryTake(out string text)
+    public bool TryTake(out string text, out Guid messageId)
     {
       if (_pending.Count == 0)
       {
         text = string.Empty;
+        messageId = Guid.Empty;
         return false;
       }
 
       text = _pending.Dequeue();
+      messageId = Guid.NewGuid();
       return true;
     }
   }
@@ -41,7 +43,7 @@ public class SignalingInboxTests
 
     inbox.Post("check on the child");
 
-    Assert.True(inner.TryTake(out string text));
+    Assert.True(inner.TryTake(out string text, out Guid _));
     Assert.Equal("check on the child", text);
     WakeSignal signal = Assert.Single(seen);
     Assert.Equal(WakeReason.UserMessage, signal.Reason);
@@ -58,11 +60,11 @@ public class SignalingInboxTests
     inbox.Post("first");
     inbox.Post("second");
 
-    Assert.True(inbox.TryTake(out string first));
-    Assert.True(inbox.TryTake(out string second));
+    Assert.True(inbox.TryTake(out string first, out Guid _));
+    Assert.True(inbox.TryTake(out string second, out Guid _));
     Assert.Equal("first", first);
     Assert.Equal("second", second);
-    Assert.False(inbox.TryTake(out string _));
+    Assert.False(inbox.TryTake(out string _, out Guid _));
   }
 
   [Fact]
@@ -72,7 +74,7 @@ public class SignalingInboxTests
     WaitWakeHub hub = new();
     SignalingInbox inbox = new(inner, hub, new AgentId(Guid.NewGuid()));
 
-    Assert.False(inbox.TryTake(out string _));
+    Assert.False(inbox.TryTake(out string _, out Guid _));
   }
 
   [Fact]

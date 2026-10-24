@@ -29,6 +29,10 @@ namespace eThangAgent.AgentDomain;
 /// <param name="Progress">Optional session progress ledger (issue #93): the read
 ///     surface agent.status uses to report a RUNNING child's latest mid-run activity.
 ///     Null (legacy wiring, tests) keeps the status line byte-identical.</param>
+/// <param name="Receipts">Optional session message receipt ledger (issue #92): the read
+///     surface agent.receipts uses to answer what became of a steering message, and the
+///     reason agent.send's receipt can name a message handle. Null (legacy wiring, tests)
+///     keeps both byte-identical to the pre-handshake behavior.</param>
 public sealed record AgentProviderServices(
     IAgentSpawnCommand SpawnCommand,
     IAgentQueries Queries,
@@ -40,4 +44,5 @@ public sealed record AgentProviderServices(
     Func<AgentId, IAgentEvents?>? EventsFor = null,
     IWaitWakeSource? WakeSource = null,
     TimeProvider? Clock = null,
-    ChildProgressLedger? Progress = null);
+    ChildProgressLedger? Progress = null,
+    MessageReceiptLedger? Receipts = null);

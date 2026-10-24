@@ -639,7 +639,7 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
     if (delivered.IsSuccess)
     {
       _events?.Publish(new MessageDeliveredEvent(id, DateTimeOffset.UtcNow, "inbound",
-          (int)message.Urgency, System.Text.Encoding.UTF8.GetByteCount(message.Text)));
+          (int)message.Urgency, System.Text.Encoding.UTF8.GetByteCount(message.Text), message.Id));
 
       // Urgent + sender-granted + receiver running => audited preemption (approved D1).
       // The interrupted turn repairs via the cancelled-turn path; the urgent message
@@ -698,6 +698,16 @@ public sealed class InProcessAgentRuntime : IAgentRuntime
       _supervisors?.Unregister(id);
       mailbox.Close();
       IReadOnlyList<PendingMessage> remainder = mailbox.Drain();
+      if (remainder.Count > 0)
+      {
+        // Issue #92: the settle fact that stops an undrained message from reading as
+        // received. Published BEFORE the settle event so a ledger observing both applies
+        // the remainder first and the terminal event last (a received message stays
+        // received either way - the ledger never regresses that state).
+        _events?.Publish(new MailboxUndeliveredEvent(id, DateTimeOffset.UtcNow,
+            [.. remainder.Select(m => m.Id)]));
+      }
+
       if (_mailboxStore is not null && remainder.Count > 0)
       {
         _ = PersistRemainderAsync(id, remainder);

@@ -45,8 +45,7 @@ public class RemoteMailboxProxyTests
     Guid remoteChild = Guid.NewGuid();
     RemoteMailboxProxy proxy = new(runtime, new AgentId(remoteChild));
 
-    Result<bool> delivered = proxy.Deliver(new PendingMessage("over the wire",
-        MessageUrgency.Urgent, DateTimeOffset.UtcNow, "parent:root session"));
+    Result<bool> delivered = proxy.Deliver(PendingMessage.New("over the wire", MessageUrgency.Urgent, "parent:root session"));
 
     Assert.True(delivered.IsSuccess);
     (Guid id, string text, string sender) = Assert.Single(runtime.Delivered);
@@ -61,8 +60,7 @@ public class RemoteMailboxProxyTests
     RecordingRuntime runtime = new() { Running = false };
     RemoteMailboxProxy proxy = new(runtime, new AgentId(Guid.NewGuid()));
 
-    Result<bool> delivered = proxy.Deliver(new PendingMessage("x", MessageUrgency.Normal,
-        DateTimeOffset.UtcNow, "parent"));
+    Result<bool> delivered = proxy.Deliver(PendingMessage.New("x", MessageUrgency.Normal, "parent"));
 
     Assert.False(delivered.IsSuccess);
     Assert.Equal("NotRunning", delivered.Error?.Code);

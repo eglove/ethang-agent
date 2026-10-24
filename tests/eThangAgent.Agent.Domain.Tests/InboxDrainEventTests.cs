@@ -26,8 +26,7 @@ public class InboxDrainEventTests
   public async Task DeliveredSteering_PublishesDrainEventWithCount()
   {
     BoundedAgentMailbox mailbox = new();
-    _ = mailbox.Deliver(new PendingMessage("steer: check the file", MessageUrgency.Normal,
-        DateTimeOffset.UtcNow, "parent"));
+    _ = mailbox.Deliver(PendingMessage.New("steer: check the file", MessageUrgency.Normal, "parent"));
 
     EventCapture capture = new();
     FakeProvider provider = new(

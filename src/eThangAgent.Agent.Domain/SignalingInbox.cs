@@ -43,9 +43,9 @@ public sealed class SignalingInbox(IAgentInbox inner, WaitWakeHub hub, AgentId o
   /// <summary>The void wrapper: loop-facing callers keep the legacy shape.</summary>
   public void Post(string text) => _ = TryPost(text);
 
-  public bool TryTake(out string text)
+  public bool TryTake(out string text, out Guid messageId)
   {
-    bool taken = _inner.TryTake(out text!);
+    bool taken = _inner.TryTake(out text!, out messageId);
     if (taken && Interlocked.Decrement(ref _pending) <= 0)
     {
       _hub.ClearSticky(WakeReason.UserMessage);

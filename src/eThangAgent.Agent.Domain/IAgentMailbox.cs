@@ -13,8 +13,21 @@ public enum MessageUrgency
 }
 
 /// <summary>One queued mailbox message. Metadata (sender, urgency, arrival) rides beside
-///     the text; content persists only with the receiver's transcript on drain (FR-C4/D5).</summary>
-public sealed record PendingMessage(string Text, MessageUrgency Urgency, DateTimeOffset At, string Sender);
+///     the text; content persists only with the receiver's transcript on drain (FR-C4/D5).
+///     <para><paramref name="Id"/> is the message's identity, and it is REQUIRED (issue #92):
+///     the delivery handshake works by naming a message, so a message without one could
+///     never be asked about. It is minted by the sender — see
+///     <see cref="New(string, MessageUrgency, string, DateTimeOffset?)"/> — and travels with
+///     the message through the mailbox, the wire, and the between-turn store, so the drain
+///     and remainder facts can name exactly which messages they consumed or left behind.</para></summary>
+public sealed record PendingMessage(string Text, MessageUrgency Urgency, DateTimeOffset At, string Sender, Guid Id)
+{
+  /// <summary>Mints a message with a fresh identity — the shape every sender uses. The
+  ///     explicit constructor stays available for replays that must preserve an identity
+  ///     (a wire re-delivery, a rehydrated remainder).</summary>
+  public static PendingMessage New(string text, MessageUrgency urgency, string sender, DateTimeOffset? at = null)
+      => new(text, urgency, at ?? DateTimeOffset.UtcNow, sender, Guid.NewGuid());
+}
 
 /// <summary>Addressable side of one agent's mailbox. Deliver FAILS THE SENDER on full or
 ///     not-running (P3: errors are information, never silent drops); Drain is called only

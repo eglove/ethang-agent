@@ -146,7 +146,7 @@ public class AgentSteeringDesktopTests
 
   {
     List<string> taken = [];
-    while (inbox.TryTake(out string? text))
+    while (inbox.TryTake(out string? text, out Guid _))
     {
       taken.Add(text);
     }

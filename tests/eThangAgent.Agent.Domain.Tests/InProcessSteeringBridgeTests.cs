@@ -19,8 +19,7 @@ public class InProcessSteeringBridgeTests
     // The runtime's mailbox for the child; the spawner resolves the SAME instance
     // through SubAgentServices.InboxFor — exactly what the composition wires.
     BoundedAgentMailbox mailbox = new();
-    _ = mailbox.Deliver(new PendingMessage("steer: check the file", MessageUrgency.Normal,
-        DateTimeOffset.UtcNow, "parent"));
+    _ = mailbox.Deliver(PendingMessage.New("steer: check the file", MessageUrgency.Normal, "parent"));
 
     FakeAgentStore store = new();
     FakeProvider provider = new(

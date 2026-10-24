@@ -56,7 +56,7 @@ public class TabBadgeViewModelTests
     Assert.Equal(1, badge.UnreadCount);
     Assert.True(badge.HasUnread);
 
-    stream.Publish(new MailboxDrainedEvent(root, DateTimeOffset.UtcNow, 1));
+    stream.Publish(new MailboxDrainedEvent(root, DateTimeOffset.UtcNow, [Guid.NewGuid()]));
     Assert.Equal(0, badge.UnreadCount);
     Assert.False(badge.HasUnread);
     Assert.Equal([1, 0], rendered); // pushed: exactly the two transitions, nothing polled

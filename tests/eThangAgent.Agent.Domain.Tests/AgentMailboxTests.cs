@@ -8,7 +8,7 @@ public class AgentMailboxTests
 {
   private static PendingMessage Message(string text, string sender = "parent",
       MessageUrgency urgency = MessageUrgency.Normal)
-      => new(text, urgency, DateTimeOffset.UtcNow, sender);
+      => PendingMessage.New(text, urgency, sender);
 
   [Fact]
   public void Drain_IsFifo_AcrossSenders()
@@ -116,10 +116,10 @@ public class AgentMailboxTests
     box.Post("first");
     box.Post("second");
 
-    Assert.True(box.TryTake(out string first));
+    Assert.True(box.TryTake(out string first, out Guid _));
     Assert.Equal("first", first);
-    Assert.True(box.TryTake(out string second));
+    Assert.True(box.TryTake(out string second, out Guid _));
     Assert.Equal("second", second);
-    Assert.False(box.TryTake(out string _));
+    Assert.False(box.TryTake(out string _, out Guid _));
   }
 }

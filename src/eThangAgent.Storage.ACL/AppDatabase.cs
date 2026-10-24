@@ -117,6 +117,7 @@ public sealed class AppDatabase
     (16, ApplyV16),
     (17, ApplyV17),
     (18, ApplyV18),
+    (19, ApplyV19),
   ];
 
   private void Migrate()
@@ -686,6 +687,19 @@ public sealed class AppDatabase
     command.CommandText = sql;
 #pragma warning restore CA2100
     _ = command.ExecuteNonQuery();
+  }
+
+  /// <summary>V19 adds the message identity to mailbox_messages (issue #92): a persisted
+  ///     remainder must stay ADDRESSABLE across the settle that persisted it, or a sender
+  ///     could never learn what became of a message that outlived its run. Nullable by
+  ///     necessity — rows written before this migration have no id, and the store mints one
+  ///     when it loads them (a fabricated identity for an old row is still an honest
+  ///     answer: the message exists and is undelivered; only its original handle is gone).</summary>
+  private static void ApplyV19(SqliteConnection connection)
+  {
+    AddColumnIfMissing(connection,
+        "SELECT COUNT(*) FROM pragma_table_info('mailbox_messages') WHERE name = 'message_id';",
+        "ALTER TABLE mailbox_messages ADD COLUMN message_id TEXT NULL;");
   }
 
   /// <summary>V18 removes the curated-memories feature (issue #236): the store, its

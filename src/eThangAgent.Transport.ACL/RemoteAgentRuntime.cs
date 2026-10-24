@@ -151,7 +151,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
           $"agent '{id}' is not running in this container; the message was refused."));
     }
 
-    DeliverCommand command = new(id.Value, message.Text, (int)message.Urgency, message.Sender);
+    DeliverCommand command = new(id.Value, message.Text, (int)message.Urgency, message.Sender, message.Id);
     bool sent = SendEnvelopeAsync("deliver", JsonSerializer.Serialize(command), id, CancellationToken.None)
         .GetAwaiter().GetResult();
     return sent
@@ -822,7 +822,13 @@ internal sealed class RootTurnWaiter(
 }
 
 public sealed record StartCommand(Guid RecordId, int MaxConcurrent, string ModelId);
-public sealed record DeliverCommand(Guid RecordId, string Text, int Urgency, string Sender);
+/// <summary>One steering delivery over the wire. <paramref name="MessageId"/> is the
+///     message's identity (issue #92): it travels so the host's mailbox holds the SAME
+///     handle the app-side sender's receipt named, and the host's drain/remainder facts
+///     name it back. <see cref="Guid.Empty"/> (an older app's frame) is re-minted
+///     host-side, which keeps delivery working while leaving that message unaddressable —
+///     the pre-handshake behavior, never a fabricated receipt.</summary>
+public sealed record DeliverCommand(Guid RecordId, string Text, int Urgency, string Sender, Guid MessageId = default);
 /// <summary>One interrupt request. <paramref name="RecordId"/> addresses a CHILD subtree
 ///     (the FR-C6 scoped teardown); <paramref name="TurnId"/> addresses a live ROOT turn,
 ///     which has no record id of its own. A stop button sends both: the subtree and the
