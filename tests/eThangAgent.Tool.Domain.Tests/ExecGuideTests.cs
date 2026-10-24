@@ -9,7 +9,7 @@ public class ExecGuideTests
   [Fact]
   public void Guide_IsVersionedAndNonEmpty()
   {
-    Assert.Equal("2.19", ExecGuide.Version);
+    Assert.Equal("2.20", ExecGuide.Version);
     Assert.True(ExecGuide.Text.Length >= 500);
   }
 
@@ -287,5 +287,79 @@ public class ExecGuideTests
     Assert.Contains("Tools.read(new { path = \"notes.txt\" });", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("var r = Tools.read(new { path = \"notes.txt\" });", ExecGuide.Text, StringComparison.Ordinal);
     Assert.Contains("[exec: empty output", ExecGuide.Text, StringComparison.Ordinal);
+  }
+
+  // Issue #260: the guide described the raw-string hazard and two remedies, and
+  // neither was the tool-domain primitive that removes the hazard. `lines` must be
+  // the NAMED primary remedy, with a concrete call example.
+  [Fact]
+  public void Guide_Names_Lines_As_The_RawString_Remedy()
+  {
+    string section = SafeWritingSection();
+
+    Assert.Contains("`lines`", section, StringComparison.Ordinal);
+    Assert.Contains("Tools.write(new {", section, StringComparison.Ordinal);
+    Assert.Contains("lines = new[] {", section, StringComparison.Ordinal);
+    // The remedy outranks the in-script workaround: it is named before it.
+    int remedy = section.IndexOf("pass `lines` to the write tool", StringComparison.Ordinal);
+    int workaround = section.IndexOf("string array joined with newlines", StringComparison.Ordinal);
+    Assert.True(remedy >= 0, "the `lines` remedy is not named in the safe-writing section");
+    Assert.True(workaround > remedy, "the in-script array workaround must follow the `lines` remedy");
+  }
+
+  // The staging-file route is now scoped to content originating OUTSIDE the script;
+  // it used to be the advice for content the model authors, which `lines` handles
+  // in one call.
+  [Fact]
+  public void Guide_Scopes_The_Staging_File_Route_To_External_Content()
+  {
+    string section = SafeWritingSection();
+    Assert.Contains("ORIGINATES OUTSIDE the script", section, StringComparison.Ordinal);
+  }
+
+  // The guide and the write tool description must agree about how `lines` joins:
+  // per-line, the target file's convention, empty element = blank line, empty array
+  // = empty file. A contradiction here is what makes the model guess.
+  [Fact]
+  public void Guide_And_WriteTool_Agree_On_The_Lines_Contract()
+  {
+    // Whitespace-normalized: the contract is about what the text SAYS, so a reflow
+    // of the guide must not fail this test.
+    string section = Collapse(SafeWritingSection());
+    WriteTool tool = new(new WorkspacePathResolver(Path.GetTempPath()), new NoopFileWriteAccess());
+    // The join contract lives in the tool description AND its 'lines' parameter text;
+    // the guide must agree with both.
+    string description = Collapse(tool.Definition.Description + " " +
+        string.Join(' ', tool.Definition.Parameters.Where(p => p.Name == "lines").Select(p => p.Description)));
+
+    foreach (string claim in new[] { "empty element", "empty array", "line-ending", "carried verbatim" })
+    {
+      Assert.Contains(claim, section, StringComparison.OrdinalIgnoreCase);
+      Assert.Contains(claim, description, StringComparison.OrdinalIgnoreCase);
+    }
+  }
+
+  private static string Collapse(string text) =>
+      string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+  private static string SafeWritingSection()
+  {
+    int start = ExecGuide.Text.IndexOf("### Writing C# safely", StringComparison.Ordinal);
+    int end = ExecGuide.Text.IndexOf("### Rules", StringComparison.Ordinal);
+    Assert.True(start >= 0, "Writing C# safely section missing");
+    Assert.True(end > start, "Rules section missing after the safe-writing section");
+    return ExecGuide.Text[start..end];
+  }
+
+  // The guide/tool-description agreement test only reads Definition, so the seam
+  // behind it is inert.
+  private sealed class NoopFileWriteAccess : IFileWriteAccess
+  {
+    public Task<Result<FileWriteOutcome>> WriteFileAsync(string path, string content, bool overwrite, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+    public Task<Result<FileWriteOutcome>> WriteFileLinesAsync(string path, IReadOnlyList<string> lines, bool overwrite, CancellationToken ct = default) =>
+        throw new NotSupportedException();
+    public Task<Result<FileWriteOutcome>> WriteFileBytesAsync(string path, byte[] bytes, bool overwrite, CancellationToken ct = default) =>
+        throw new NotSupportedException();
   }
 }

@@ -19,7 +19,7 @@ public static class ExecParseHints
       int run = MaxQuoteRun(line);
       if (run > 3)
       {
-        hints.Add($"hint (line {i + 1}): raw-string delimiter conflict - never type more than 3 quote characters in a row; build multi-line content as a string array joined with newlines");
+        hints.Add($"hint (line {i + 1}): raw-string delimiter conflict - never type more than 3 quote characters in a row; to write content that itself contains raw strings, pass the write tool's `lines` parameter (one array element per line, carried verbatim) instead of building it inside the script");
         continue;
       }
 
@@ -59,7 +59,7 @@ public static class ExecParseHints
     string after = line[(start + 3)..].TrimStart();
     if (after.Length > 0 && after[0] is not ';' and not ')' and not ',' and not ']')
     {
-      hints.Add($"hint (line {lineNumber}): the opening raw-string delimiter must be followed by a newline - put content on the next line");
+      hints.Add($"hint (line {lineNumber}): the opening raw-string delimiter must be followed by a newline - put content on the next line; if the content itself contains raw strings, write it with the write tool's `lines` parameter (one array element per line, carried verbatim) instead");
     }
   }
 
@@ -71,7 +71,7 @@ public static class ExecParseHints
     string after = line[(start + 3)..].TrimStart();
     if (start > 0 || (after.Length > 0 && after[0] is not ';' and not ')' and not ',' and not ']'))
     {
-      hints.Add($"hint (line {lineNumber}): a closing raw-string delimiter must start its own line (no leading whitespace or code before it)");
+      hints.Add($"hint (line {lineNumber}): a closing raw-string delimiter must start its own line (no leading whitespace or code before it); if the content itself contains raw strings, write it with the write tool's `lines` parameter (one array element per line, carried verbatim) instead");
     }
   }
 

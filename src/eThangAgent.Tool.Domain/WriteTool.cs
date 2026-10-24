@@ -16,7 +16,9 @@ public sealed class WriteTool(IPathResolver resolver, IFileWriteAccess files) : 
       "Create or replace a text file. timeoutSeconds and path are mandatory; then provide " +
       "exactly one of content (string) or lines (array of strings, one element per line; an empty " +
       "array writes an empty file; empty elements are blank lines). 'lines' " +
-      "avoids raw-string escaping hazards: each element is carried verbatim. The call fails if " +
+      "avoids raw-string escaping hazards: each element is carried verbatim, so content " +
+      "that itself contains raw-string delimiters belongs here rather than built inside " +
+      "an exec script. The call fails if " +
       "the file exists unless overwrite is exactly true — it will never silently replace anything. " +
       "Omitting overwrite keeps the call create-only. Parent directories are never created " +
       "automatically; the DirectoryNotFound error names the missing directory and the remedy. " +

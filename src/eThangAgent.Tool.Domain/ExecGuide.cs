@@ -2,7 +2,7 @@ namespace eThangAgent.ToolDomain;
 
 public static class ExecGuide
 {
-  public const string Version = "2.19";
+  public const string Version = "2.20";
 
   public const string Text = """
     ## exec — writing C# programs
@@ -286,15 +286,36 @@ public static class ExecGuide
     - A multi-line raw string's opening delimiter must be followed by a newline, and
       its closing delimiter must start its own line.
     - Never type more than three quote characters in a row anywhere in a script.
-    - To generate code that itself contains triple-quote delimiters (SQL blocks,
-      embedded markdown), build it as a string array joined with newlines instead of
-      nesting raw strings:
+
+    When the content you are writing CONTAINS raw-string delimiters (a source file, a
+    code sample, SQL blocks, embedded markdown), do not build it inside the script at
+    all - pass `lines` to the write tool: a JSON array of strings, one element per
+    line, each carried verbatim, no quoting inside quoting:
+
+        Tools.write(new { timeoutSeconds = 30, path = "src/Probe.cs", lines = new[] {
+            "var sql = \"\"\"",
+            "SELECT 1;",
+            "\"\"\";" } });
+
+    - Elements are joined with the TARGET FILE's line-ending convention (for a new
+      file, the project's convention - resolved from .editorconfig, then
+      .gitattributes, then the workspace's existing majority, then LF). An empty
+      element is a blank line; an empty array writes an empty file. Never convert
+      line endings yourself; the write tool normalizes them mechanically.
+    - Build the array as DATA - one string per line, never a nested raw string. A
+      quote inside an element is just a character; there is no delimiter to balance.
+
+    Fallback when the content must exist INSIDE the script as a string value rather
+    than as a file: build it as a string array joined with newlines instead of
+    nesting raw strings:
 
         var parts = new[] { "var sql = " + q3 + ";", "SELECT 1;" };  // q3 = triple quotes
 
-    - To store large multi-line content (markdown, plans, reports) into state keys,
-      write it to a staging file with the write tool, read it inside exec, pass it to
-      state.set, then delete the staging file. Do not fight raw-string escaping inline.
+    A staging file is the route only when the content ORIGINATES OUTSIDE the script
+    (a file already on disk, a command's output): write it with the write tool, read
+    it inside exec, pass it to state.set, then delete the staging file. For content
+    you author, `lines` -> read -> state.set is the same step count with no escaping
+    hazard and no temp file to forget.
 
     Bounded output helper:
 
