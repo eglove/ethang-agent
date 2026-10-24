@@ -57,6 +57,7 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
 
   private readonly IModelProviderFactory _factory = services.Factory ?? throw new ArgumentNullException(nameof(services), "Factory must not be null.");
   private readonly IAgentStore _store = services.Store ?? throw new ArgumentNullException(nameof(services), "Store must not be null.");
+  private readonly IAgentEventLog? _eventLog = services.EventLog;
   private readonly IToolRegistry _tools = services.Tools ?? throw new ArgumentNullException(nameof(services), "Tools must not be null.");
   private readonly ISystemPromptProvider _systemPrompt = services.SystemPrompt ?? throw new ArgumentNullException(nameof(services), "SystemPrompt must not be null.");
   private readonly SessionModelPreferences? _preferences = preferences;
@@ -262,6 +263,9 @@ public sealed class SubAgentSpawner(SubAgentServices services, SessionModelPrefe
             // generated image belongs beside the work that produced it, and an anchored
             // child's workspace is the anchor (issue #230).
             ServerToolImages = _serverToolImagesFor?.Invoke(anchor),
+            // The reasoning trace is recorded under the CHILD's own id (issue #263): a
+            // child's thinking is evidence about that child's run, never the parent's.
+            EventLog = _eventLog,
           });
 
   /// <summary>Runs the agent under the child's ambient scopes — the running-child slot,

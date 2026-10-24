@@ -39,6 +39,9 @@ namespace eThangAgent.AgentDomain;
 ///     audit row instead of looping on tools with zero model calls (issue #124,
 ///     2026-10-15 incident). Legacy test wiring (false, the default) stays
 ///     byte-identical.</param>
+/// <param name="EventLog">Append-only event log a child records its reasoning traces to
+///     (issue #263) — the same telemetry channel the root uses, keyed by the child's own
+///     id. Null disables child telemetry (legacy wiring, tests): byte-identical behavior.</param>
 public sealed record SubAgentServices(
     IModelProviderFactory Factory,
     IAgentStore Store,
@@ -53,5 +56,6 @@ public sealed record SubAgentServices(
     IWorkspaceCleanlinessCheck? Cleanliness = null,
     Func<AgentId, ChildSupervisor?>? SupervisorFor = null,
     Func<string?, IServerToolImageStore?>? ServerToolImagesFor = null,
-    bool ProviderRequired = false);
+    bool ProviderRequired = false,
+    IAgentEventLog? EventLog = null);
 

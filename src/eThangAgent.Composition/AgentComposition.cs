@@ -391,6 +391,10 @@ public static class AgentComposition
         // rides todo/list: the tool (a later task) resolves this port, never IStateService.
         .AddSingleton<IExperimentLedgerStore>(sp => new StateServiceExperimentLedgerStore(sp.GetRequiredService<IStateService>()))
         .AddSingleton<IAgentStore, SqliteAgentStore>()
+        // The append-only event log (issue #263): the SAME store instance backs both
+        // seams — the reasoning trace is an ordinary agent_events row, which is exactly
+        // what keeps it out of the conversation (and out of every request).
+        .AddSingleton<IAgentEventLog>(sp => (SqliteAgentStore)sp.GetRequiredService<IAgentStore>())
         .AddSingleton<IAgentHeartbeat>(_ => new InMemoryAgentHeartbeat(TimeProvider.System))
         .AddSingleton<IWatchdogEventStore>(sp => new SqliteWatchdogEventStore(
             sp.GetRequiredService<AppDatabase>()));
@@ -535,7 +539,10 @@ public static class AgentComposition
             // binding on every begin-run — an unbound record fails loudly (Failed + audit
             // row) instead of looping without model calls. The spawn stamp above always
             // supplies one; this is the second net under it.
-            ProviderRequired: true))
+            ProviderRequired: true,
+            // Children record their reasoning traces to the same append-only log
+            // (issue #263), keyed by their own agent id.
+            EventLog: sp.GetRequiredService<IAgentEventLog>()))
         .AddSingleton(sp => new SubAgentSpawner(
             sp.GetRequiredService<SubAgentServices>(),
             sp.GetRequiredService<SessionModelPreferences>(),
@@ -770,7 +777,8 @@ public static class AgentComposition
                 SystemPrompt: sp.GetRequiredService<ISystemPromptProvider>(),
                 ContextCompactor: sp.GetRequiredService<DefaultContextCompactor>(),
                 TranscriptSink: sp.GetRequiredService<RootTranscriptSink>(),
-                ServerToolImages: sp.GetRequiredService<IServerToolImageStore>()),
+                ServerToolImages: sp.GetRequiredService<IServerToolImageStore>(),
+                EventLog: sp.GetRequiredService<IAgentEventLog>()),
             // The persisted root session id keys OpenRouter sticky sessions (prompt
             // caching): read lazily — the factory sets RootSessionIdentity AFTER the
             // container builds, so a raw value here would always be null.

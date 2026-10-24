@@ -424,6 +424,10 @@ public static class ResponsesApiStreamCore
     }
     else
     {
+      // Accumulated as well as streamed (issue #263): the display callback is one
+      // consumer of a reasoning fragment, the telemetry trace is the other. Before
+      // this, reasoning text went to the callback and was then gone.
+      _ = state.ReasoningText.Append(text);
       state.OnReasoningDelta?.Invoke(text);
     }
   }
@@ -466,6 +470,7 @@ public static class ResponsesApiStreamCore
   private sealed class StreamState
   {
     internal StringBuilder Content { get; } = new();
+    internal StringBuilder ReasoningText { get; } = new();
     internal Dictionary<string, StreamedToolCall> ToolCalls { get; } = []; // keyed by output_index
     internal Dictionary<int, ServerToolCall> ServerToolCalls { get; } = []; // keyed by output_index
     internal FinishReason FinishReason { get; set; } = FinishReason.Stop;
@@ -482,6 +487,12 @@ public static class ResponsesApiStreamCore
         [.. ToolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value.ToRequest())],
         ToolCalls.Count > 0 ? FinishReason.ToolCalls : FinishReason,
         Usage,
-        [.. ServerToolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value)]);
+        [.. ServerToolCalls.OrderBy(pair => pair.Key).Select(pair => pair.Value)])
+    {
+      // Null when the provider streamed no reasoning at all: an absent trace stays a
+      // different fact from an empty one (the rule TokenUsage's optional counts follow),
+      // so a consumer can tell "no reasoning channel" from "reasoned nothing".
+      Reasoning = ReasoningText.Length > 0 ? ReasoningText.ToString() : null,
+    };
   }
 }

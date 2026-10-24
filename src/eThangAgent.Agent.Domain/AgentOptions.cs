@@ -57,4 +57,10 @@ public sealed record AgentOptions
   ///     by a later read_image. Null (legacy wiring) surfaces the call without persisting
   ///     anything: byte-identical legacy behavior.</summary>
   public IServerToolImageStore? ServerToolImages { get; init; }
+
+  /// <summary>Append-only event log the loop records reasoning traces to (issue #263):
+  ///     the TELEMETRY channel, never the context channel — no request builder reads it
+  ///     back, so a persisted trace changes no request byte. Null (legacy wiring) records
+  ///     nothing: byte-identical legacy behavior.</summary>
+  public IAgentEventLog? EventLog { get; init; }
 }

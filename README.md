@@ -147,6 +147,15 @@ content is refused; the extension alone is never trusted (magic-byte + package s
   the ten wired server tools, plugins, and loop budgets.
   Choices apply from the next turn, root and children alike, and are persisted per
   workspace + provider — no config files
+- **Reasoning is stored as telemetry, never as context** — the reasoning text the provider
+  streams is accumulated on the response and recorded once per iteration as a `reasoning` row
+  in the app database's append-only `agent_events` table (identity: agent + turn + iteration),
+  so after a session the thinking is readable from the database for debugging, evals, and safety
+  review. Nothing reads it back: the request builder has no path to the event log, so the next
+  request is byte-identical whether or not a trace was persisted, and the streaming display is
+  unchanged. Recorded best-effort with the run's cancellation token ignored — a crash or
+  interrupt leaves every completed iteration's trace persisted, and a store fault never fails a
+  turn.
 - **Context accounting + auto-compaction + in-loop overflow recovery** — the status bar shows a live `CTX 148.2K/1M, 15%`
   readout (hover for the estimated system-prompt/messages/tools breakdown), plus `, cache 82%` and
    `, reasoning 1.2K` segments whenever the provider reports a prompt-cache hit or a reasoning-token

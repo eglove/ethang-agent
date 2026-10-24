@@ -31,28 +31,12 @@ public static class ResponsesApiRequestCore
     }
 
     StringBuilder content = new();
+    StringBuilder reasoning = new();
     List<ToolCallRequest> toolCalls = [];
     List<ServerToolCall> serverToolCalls = [];
     foreach (JsonElement item in output.EnumerateArray())
     {
-      string type = item.TryGetProperty("type", out JsonElement t) && t.ValueKind == JsonValueKind.String
-          ? t.GetString()! : "";
-      switch (type)
-      {
-        case "message":
-          AppendMessageContent(item, content);
-          break;
-        case "function_call":
-          toolCalls.Add(FunctionToolCall(item));
-          break;
-        default:
-          if (ServerToolCallItem.TryParse(type, item, out ServerToolCall? call))
-          {
-            serverToolCalls.Add(call);
-          }
-
-          break;
-      }
+      AppendOutputItem(item, content, reasoning, toolCalls, serverToolCalls);
     }
 
     return Result.Success(new ModelResponse(
@@ -60,7 +44,42 @@ public static class ResponsesApiRequestCore
         toolCalls,
         ParseFinishReason(body, toolCalls.Count > 0),
         ParseUsage(body),
-        serverToolCalls));
+        serverToolCalls)
+    {
+      // Null when the response carried no reasoning item at all — an absent trace is a
+      // different fact from an empty one, the rule TokenUsage's optional counts follow.
+      Reasoning = reasoning.Length > 0 ? reasoning.ToString() : null,
+    });
+  }
+
+  /// <summary>Classifies one output item into its sink: message text, the reasoning
+  ///     trace (the non-streaming sibling of the stream's reasoning deltas, issue #263),
+  ///     a function call, or a surfaced server-tool call. An unrecognized type is
+  ///     ignored (the tolerance contract).</summary>
+  private static void AppendOutputItem(JsonElement item, StringBuilder content, StringBuilder reasoning,
+      List<ToolCallRequest> toolCalls, List<ServerToolCall> serverToolCalls)
+  {
+    string type = item.TryGetProperty("type", out JsonElement t) && t.ValueKind == JsonValueKind.String
+        ? t.GetString()! : "";
+    switch (type)
+    {
+      case "message":
+        AppendMessageContent(item, content);
+        break;
+      case "reasoning":
+        AppendReasoningContent(item, reasoning);
+        break;
+      case "function_call":
+        toolCalls.Add(FunctionToolCall(item));
+        break;
+      default:
+        if (ServerToolCallItem.TryParse(type, item, out ServerToolCall? call))
+        {
+          serverToolCalls.Add(call);
+        }
+
+        break;
+    }
   }
 
   /// <summary>One function_call output item: the call_id and name are required wire
@@ -151,6 +170,43 @@ public static class ResponsesApiRequestCore
         _ = content.Append(text.GetString());
       }
     }
+  }
+
+  /// <summary>Accumulates one reasoning output item's text (issue #263). The item
+  ///     carries the raw trace under <c>content</c> (parts typed <c>reasoning_text</c>)
+  ///     and/or the provider's summary under <c>summary</c> (parts typed
+  ///     <c>summary_text</c>). The RAW trace wins when both are present — the summary is
+  ///     the display-channel artifact, the trace is the evidence — and a provider that
+  ///     emits only a summary still yields a trace rather than nothing.</summary>
+  private static void AppendReasoningContent(JsonElement item, StringBuilder reasoning)
+  {
+    string raw = ReasoningParts(item, "content", "reasoning_text");
+    _ = reasoning.Append(raw.Length > 0 ? raw : ReasoningParts(item, "summary", "summary_text"));
+  }
+
+  /// <summary>The concatenated text of one reasoning item's part array, or an empty
+  ///     string when the array is absent or carries no matching part type.</summary>
+  private static string ReasoningParts(JsonElement item, string member, string partType)
+  {
+    if (!item.TryGetProperty(member, out JsonElement parts) || parts.ValueKind != JsonValueKind.Array)
+    {
+      return "";
+    }
+
+    StringBuilder text = new();
+    foreach (JsonElement part in parts.EnumerateArray())
+    {
+      if (part.TryGetProperty("type", out JsonElement type)
+          && type.ValueKind == JsonValueKind.String
+          && type.GetString() == partType
+          && part.TryGetProperty("text", out JsonElement partText)
+          && partText.ValueKind == JsonValueKind.String)
+      {
+        _ = text.Append(partText.GetString());
+      }
+    }
+
+    return text.ToString();
   }
 
   /// <summary>Maps the Responses-API usage object (input_tokens / output_tokens /

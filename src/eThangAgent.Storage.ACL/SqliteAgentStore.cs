@@ -14,10 +14,11 @@ namespace eThangAgent.Storage.ACL;
 // Named decision (CA1001): process-lifetime singleton owned by the composition root —
 // disposing the write gate on teardown adds no value.
 #pragma warning disable CA1001 // Types that own disposable fields should be disposable
-public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
+public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore, IAgentEventLog
 {
   private const string SpawnedEventType = "spawned";
   private const string CompletedEventType = "completed";
+  private const string ReasoningEventType = "reasoning";
 
   /// <summary>One persisted content part: the meta_json entry shape. Concrete by design -
   ///     System.Text.Json cannot deserialize the abstract MessagePart.</summary>
@@ -308,22 +309,36 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
     return Result.Success<IReadOnlyList<AgentRecord>>(records);
   }
 
-  /// <summary>Persists an agent domain event as an agent_events row (state_events-style append).</summary>
+  /// <summary>Persists an agent domain event as an agent_events row (state_events-style append).
+  ///     This is the <see cref="IAgentEventLog"/> implementation too: the reasoning trace
+  ///     (issue #263) is an ordinary row here, which is what makes it telemetry — the
+  ///     conversation table and the request builder never see it.</summary>
   public async Task<Result<string>> AppendEventAsync(AgentDomainEvent domainEvent, CancellationToken ct = default)
   {
-    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
-#pragma warning disable CA2007
-    await using SqliteConnection connection = _database.Open();
-#pragma warning restore CA2007
-    using SqliteCommand command = connection.CreateCommand();
-    command.CommandText = "INSERT INTO agent_events (agent_id, occurred_at, type, payload_json) VALUES (@id, @at, @type, @payload);";
     ArgumentNullException.ThrowIfNull(domainEvent);
-    Add(command, "@id", domainEvent.AgentId.ToString());
-    Add(command, "@at", domainEvent.OccurredAt.ToString("o"));
-    Add(command, "@type", EventTypeOf(domainEvent));
-    Add(command, "@payload", JsonSerializer.Serialize(domainEvent, domainEvent.GetType()));
-    _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-    return Result.Success(domainEvent.AgentId.ToString());
+    // The same single-writer gate every other mutation takes: a reasoning trace lands
+    // while the transcript is being written, and two writers racing inside SQLite is
+    // exactly what the gate exists to prevent.
+    await _writeGate.WaitAsync(ct).ConfigureAwait(false);
+    try
+    {
+      // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+      await using SqliteConnection connection = _database.Open();
+#pragma warning restore CA2007
+      using SqliteCommand command = connection.CreateCommand();
+      command.CommandText = "INSERT INTO agent_events (agent_id, occurred_at, type, payload_json) VALUES (@id, @at, @type, @payload);";
+      Add(command, "@id", domainEvent.AgentId.ToString());
+      Add(command, "@at", domainEvent.OccurredAt.ToString("o"));
+      Add(command, "@type", EventTypeOf(domainEvent));
+      Add(command, "@payload", JsonSerializer.Serialize(domainEvent, domainEvent.GetType()));
+      _ = await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+      return Result.Success(domainEvent.AgentId.ToString());
+    }
+    finally
+    {
+      _ = _writeGate.Release();
+    }
   }
 
   /// <summary>Reloads an agent's persisted events in insertion order.</summary>
@@ -345,6 +360,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
       {
         SpawnedEventType => JsonSerializer.Deserialize<AgentSpawned>(reader.GetString(1)),
         CompletedEventType => JsonSerializer.Deserialize<AgentCompleted>(reader.GetString(1)),
+        ReasoningEventType => JsonSerializer.Deserialize<AgentReasoningRecorded>(reader.GetString(1)),
         _ => null,
       };
       if (domainEvent is null)
@@ -363,6 +379,7 @@ public sealed class SqliteAgentStore(AppDatabase database) : IAgentStore
       {
         AgentSpawned => SpawnedEventType,
         AgentCompleted => CompletedEventType,
+        AgentReasoningRecorded => ReasoningEventType,
         _ => throw new InvalidOperationException(
               $"unknown agent domain event type {domainEvent.GetType().Name}"),
       };

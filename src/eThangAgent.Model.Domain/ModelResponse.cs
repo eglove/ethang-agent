@@ -20,4 +20,13 @@ public sealed record ModelResponse(
 {
   /// <summary>Never null: an absent list reads as empty.</summary>
   public IReadOnlyList<ServerToolCall> ServerToolCalls { get; init; } = ServerToolCalls ?? [];
+
+  /// <summary>The reasoning text the provider streamed for this response, accumulated
+  ///     across fragments — or null when the provider emitted none (issue #263).
+  ///     <para>This is the TELEMETRY channel, never the context channel: nothing in the
+  ///     request builder reads it, so a response carrying reasoning produces a
+  ///     byte-identical next request. A provider that streams only a summary
+  ///     (<c>response.reasoning_summary_text.delta</c>) accumulates the summary here; the
+  ///     raw trace exists only when the provider streams one.</para></summary>
+  public string? Reasoning { get; init; }
 }
