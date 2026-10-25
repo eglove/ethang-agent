@@ -15,10 +15,16 @@ namespace eThangAgent.Composition;
 ///     settings JSON and scratch paths the host needs — including the conversation id as
 ///     <see cref="AgentSettings.SessionId"/>, the ONLY thing that lets the host resolve its
 ///     root runner (without it every root turn answers RootTurnUnavailable) — and detects
-///     host death. <see cref="AttachAsync"/> is the R3.1 re-attach entry: it connects to the
-///     pipe, swaps the runtime's transport, starts the settle pump, and returns the freshly
-///     declared live set for exact orphan repair. A host that died is restarted on attach —
-///     its absence is a condition to repair, never a hang.</summary>
+///     host death. <see cref="AttachAsync"/> launches the host when it is not already
+///     running for this supervisor, connects, swaps the runtime's transport, starts the
+///     settle pump, and returns the declared live set for exact orphan repair.
+///     <para>CONTAINMENT, NOT RE-ATTACH (issue #274). The host is assigned to a kill-on-close
+///     Job Object held by this process, so the kernel reaps it when the app dies — a clean
+///     exit AND a crash alike. Closing the app is a decision to kill everything, and a
+///     subagent that outlived a crash would be a process nobody is watching. That retires
+///     spec R3.1's reuse probe: a host from a previous app run no longer exists to find, so
+///     every attach launches a fresh one. Continuing a conversation is the Sessions
+///     catalog's job — resume the persisted session, which is the durable record.</para></summary>
 public sealed class RemoteHostSupervisor : IAsyncDisposable
 {
   /// <summary>The startup bound (a CLOCK, never a line count): a host that has not
@@ -27,10 +33,6 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
 
   /// <summary>The connect bound (a CLOCK): a pipe held by another instance must fail named.</summary>
   internal static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
-
-  /// <summary>The reuse probe (a CLOCK, and deliberately short): how long to look for a
-  ///     host already serving this conversation before launching one.</summary>
-  internal static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(2);
 
   /// <summary>How the host's started line resolved.</summary>
   internal enum StartedLineOutcome
@@ -53,6 +55,11 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   // The current host's output tail (one supervisor serves one conversation, so the
   // tail is per conversation). Null until a host is started.
   private HostOutputTail? _hostOutputTail;
+
+  // The kill-on-close job containing the current host (issue #274). Held for the
+  // supervisor's lifetime: the kernel reaps the host when THIS process dies, which is the
+  // crash guarantee. Zero when the job could not be created (degrades to explicit kill).
+  private nint _hostJob;
   private Process? Host { get; set; }
 
   public RemoteHostSupervisor(string conversationId, string scratchDirectory,
@@ -153,11 +160,12 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     }
   }
 
-  /// <summary>Stops this conversation's host process (spec D3's kill rung). The host's
-  ///     children keep running - they re-attach to the next host that serves this
-  ///     conversation - but the host's OWN memory (the model runtimes, the exec engine,
-  ///     and everything else it hosts) is released. Best effort: a host that is already
-  ///     gone is the desired end state, not a failure.</summary>
+  /// <summary>Stops this conversation's host process (spec D3's kill rung), releasing the
+  ///     host's own memory - the model runtimes, the exec engine, and everything else it
+  ///     hosts. The host's children are contained with it (issue #274): they do not survive
+  ///     to re-attach anywhere, and their persisted rows are repaired to Interrupted by the
+  ///     next session open. Best effort: a host that is already gone is the desired end
+  ///     state, not a failure.</summary>
   public void StopHost()
   {
     Process? host = Host;
@@ -176,22 +184,24 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     }
   }
 
-  /// <summary>Connects (or re-connects) to the host's pipe and starts the runtime's
-  ///     settle pump. Returns the declared live set the repair pass consumes.</summary>
+  /// <summary>Launches this conversation's host (when this supervisor has none running),
+  ///     connects, and starts the runtime's settle pump. Returns the declared live set the
+  ///     repair pass consumes.
+  ///     <para>There is deliberately NO reuse probe (issue #274): containment reaps a host
+  ///     when the app dies, so a host from a previous app run cannot exist. Probing for one
+  ///     would spend a connect attempt to learn what containment already guarantees.</para></summary>
   public async Task<IReadOnlyCollection<Guid>> AttachAsync(RemoteAgentRuntime runtime, CancellationToken ct = default)
   {
     ArgumentNullException.ThrowIfNull(runtime);
-    // FIND before spawning (the class contract): a host already serving this
-    // conversation - the one a resumed session's PREVIOUS container launched, or one a
-    // relaunching app left running - is reused. Spawning a second host would collide on
-    // the single-instance pipe and leave the connect retrying forever.
-    NamedPipeChildTransport transport = await TryConnectAsync(ProbeTimeout, ct).ConfigureAwait(false)
-        ?? await StartAndConnectAsync(ct).ConfigureAwait(false);
+    // A caller who cancelled asked for NO work: refuse before launching, so a cancelled
+    // attach never starts a host process that nothing will ever connect to.
+    ct.ThrowIfCancellationRequested();
+    NamedPipeChildTransport transport = await StartAndConnectAsync(ct).ConfigureAwait(false);
     runtime.ReplaceTransport(transport);
     _ = runtime.RunReceiveLoopAsync(CancellationToken.None);
 
-    // The host declares its live set immediately on accepting the connection (R3.1);
-    // give the pump a bounded moment to observe it before callers repair orphans.
+    // The host declares its live set immediately on accepting the connection; give the
+    // pump a bounded moment to observe it before callers repair orphans.
     for (int i = 0; i < 50 && runtime.DeclaredLiveChildren.Count == 0; i++)
     {
       await Task.Delay(TimeSpan.FromMilliseconds(20), ct).ConfigureAwait(false);
@@ -230,42 +240,6 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
           $"could not connect to this conversation's host pipe '{HostPipeName}' within {timeout:c}; "
           + "another host instance likely holds it.");
     }
-  }
-
-  /// <summary>Test seam over <see cref="TryConnectAsync"/>: the reuse probe's bound is a
-  ///     CLOCK, and a test must be able to drive it with a short deadline against a pipe
-  ///     nothing serves. Production always probes with <see cref="ProbeTimeout"/>.</summary>
-  internal Task<NamedPipeChildTransport?> ProbeForTestAsync(TimeSpan timeout, CancellationToken ct) =>
-      TryConnectAsync(timeout, ct);
-  /// <summary>Connects to an ALREADY-RUNNING host, or null when none answers inside the
-  ///     probe window. A probe, not a failure path: absence is the ordinary cold-start
-  ///     answer and must never surface as an error.</summary>
-  private async Task<NamedPipeChildTransport?> TryConnectAsync(TimeSpan timeout, CancellationToken ct)
-  {
-    // A caller who cancelled asked for NO work: refuse before probing, so a cancelled
-    // attach never reaches StartAndConnectAsync and never launches a host process
-    // (review finding 9: the broad catch below swallowed the cancellation and fell
-    // through to a spawn).
-    ct.ThrowIfCancellationRequested();
-    using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-    deadline.CancelAfter(timeout);
-    try
-    {
-      return await NamedPipeChildTransport.ConnectToHostAsync(HostPipeName, deadline.Token).ConfigureAwait(false);
-    }
-    catch (OperationCanceledException) when (ct.IsCancellationRequested)
-    {
-      // The CALLER cancelled: propagate, never treat it as "no host here".
-      throw;
-    }
-    // Named decision (CA1031): no host answering inside the probe window is the expected
-    // cold-start answer - the caller's own cancellation is handled above, not here.
-#pragma warning disable CA1031 // Do not catch general exception types
-    catch (Exception)
-    {
-      return null;
-    }
-#pragma warning restore CA1031
   }
 
   /// <summary>Starts the host when absent; a dead host from a previous app lifetime is
@@ -345,6 +319,17 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
 
     ProcessStartInfo psi = BuildStartInfo(exe, HostPipeName, _settingsPath, _databasePath, _hostWorkingDirectory);
     Process started = Process.Start(psi) ?? throw new InvalidOperationException("child host failed to start.");
+
+    // CONTAINMENT (issue #274): the host joins a kill-on-close job whose handle this
+    // process holds, so the kernel reaps it when the app dies - a clean exit AND a crash
+    // alike. Best-effort: a job that cannot be created leaves the explicit-kill paths
+    // (dispose, StopHost) as the only guarantee, which still covers a clean exit.
+    _hostJob = JobObject.Create();
+    if (_hostJob != nint.Zero && JobObject.Configure(_hostJob))
+    {
+      _ = JobObject.Attach(_hostJob, started);
+    }
+
     Host = started;
     HostOutputTail tail = new();
     _hostOutputTail = tail;
@@ -353,7 +338,7 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
       // Host-health notice (R3.3): death of the host is surfaced, never silent.
       if (state is Action<string> report && !t.IsCanceled)
       {
-        report("[host] the child host process exited; children it ran keep running and will re-attach on the next connection."
+        report("[host] the child host process exited; the children it ran were contained with it and are marked interrupted."
             + tail.Describe());
       }
     }, _reportNotice, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
@@ -524,6 +509,15 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
       // were the app's children; leaving it would orphan them against nothing).
       Host.Kill(entireProcessTree: true);
       Host.Dispose();
+    }
+
+    // Closing the kill-on-close job reaps anything the explicit kill missed (a host that
+    // raced the HasExited check, or a descendant that escaped the tree walk). The handle
+    // is closed on EVERY disposal path, because an open handle pins the job.
+    if (_hostJob != nint.Zero)
+    {
+      _ = JobObject.Close(_hostJob);
+      _hostJob = nint.Zero;
     }
 
     await ValueTask.CompletedTask.ConfigureAwait(false);

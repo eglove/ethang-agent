@@ -64,8 +64,8 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
   private volatile bool _hostLost;
 
   /// <summary>True when this runtime believes its connection is gone (a pump fault or a
-  ///     declared connection loss). Exposed so a host can decide whether to re-attach, and so
-  ///     tests can assert that a recoverable failure did NOT tear the connection down.</summary>
+  ///     declared connection loss). Exposed so a host can decide whether to recover the
+  ///     connection, and so tests can assert that a recoverable failure did NOT tear it down.</summary>
   public bool HostLost => _hostLost;
 
   private Guid[] _declaredLive = [];
@@ -74,8 +74,8 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
 
   /// <summary>The host's most recently declared live child set (R3.2's exact orphan
   ///     resolution input). Refreshed by the pump on every declare envelope — the
-  ///     host sends it on connect and after each start/settle — so a snapshot read
-  ///     after re-attach reflects children the host kept running.</summary>
+  ///     host sends it on connect and after each start/settle — so the snapshot reflects
+  ///     exactly the children the host is running.</summary>
   public IReadOnlyCollection<Guid> DeclaredLiveChildren => _declaredLive;
 
   /// <summary>Ids this runtime has started remotely (exact ownership for orphan repair).</summary>
@@ -348,7 +348,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
         return HostUnavailable("the root turn could not be put on the wire within "
             + TurnBudget.Send + ": the host did not consume the frame in time and the "
             + "interrupted write desynchronized the connection, which was closed; "
-            + "re-attach to continue.");
+            + "the session must be reopened to continue.");
       }
       catch (OperationCanceledException)
       {
@@ -754,7 +754,7 @@ public sealed class RemoteAgentRuntime : IAgentRuntime
       {
         // The connection is known dead (a bounded send was abandoned and its write gate is
         // wedged): refuse at once instead of blocking on a gate that will never open.
-        throw new TransportClosedException("the runtime's connection is lost; re-attach required.");
+        throw new TransportClosedException("the runtime's connection is lost; the session must be reopened.");
       }
 
       NamedPipeChildTransport transport = _transport ?? throw new TransportClosedException("the runtime is not attached to a host pipe.");

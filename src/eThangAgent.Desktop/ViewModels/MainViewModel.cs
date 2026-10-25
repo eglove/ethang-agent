@@ -2208,6 +2208,46 @@ internal sealed partial class MainViewModel : ObservableObject
   ///     Teardown errors are swallowed inside <see cref="CloseTabAsync"/>.</summary>
   public void CloseTab(AgentTabViewModel tab) => _ = CloseTabAsync(tab);
 
+  /// <summary>Shuts the WHOLE app down (issue #274): every open tab's session is stopped
+  ///     and every session container is disposed, which is what kills the processes those
+  ///     sessions own - the conversation host, the computer-use broker, MCP stdio servers,
+  ///     and any exec-spawned tree still alive.
+  ///     <para>WHY THIS EXISTS. Closing the window used to run only the graceful session
+  ///     completion pass; container disposal lived in the TAB-close paths, so the app
+  ///     exited with its containers undisposed and every host process survived it.
+  ///     <see cref="RemoteHostSupervisor.DisposeAsync"/> never ran.</para>
+  ///     <para>CLOSING IS A DECISION TO KILL EVERYTHING (the user's ruling on #274): an
+  ///     in-flight turn is INTERRUPTED rather than awaited, because a close that waits on a
+  ///     long turn reads as a hang. The transcript up to the last safe point is already
+  ///     persisted, and the root row is still completed gracefully, so the conversation
+  ///     stays resumable from the Sessions catalog.</para>
+  ///     <para>Best effort per tab, matching every other teardown path: one session's
+  ///     failure must never leave the others running. Must run on the UI thread.</para></summary>
+  public async Task ShutdownAllAsync()
+  {
+    List<AgentTabViewModel> tabs = [.. Tabs];
+    foreach (AgentTabViewModel tab in tabs)
+    {
+      // Stop the turn FIRST: the container disposal below tears down the transport the
+      // turn is streaming over, and an interrupted turn settles cleanly where a severed
+      // one would fault. RequestStop is a no-op when the tab is idle.
+      try
+      {
+        tab.ViewModel.RequestStop();
+      }
+#pragma warning disable CA1031 // Named decision: teardown is best effort, like CloseTabAsync.
+      catch
+#pragma warning restore CA1031
+      {
+        // Swallowed deliberately: see the named decision above.
+      }
+
+      // The tab-close path already owns 'complete the session, dispose the container'.
+      // Reusing it means app shutdown and tab close can never drift apart.
+      await CloseTabAsync(tab).ConfigureAwait(true);
+    }
+  }
+
   /// <summary>Single-session convenience: a shell whose only tab opens over a
   ///     pre-built session (used by hosts/tests that compose the session themselves).</summary>
   public static async Task<MainViewModel> ForPrebuiltSessionAsync(AgentSession session,

@@ -306,57 +306,16 @@ public class ConversationHostSupervisionTests
             cancelled.Token)).ConfigureAwait(true);
   }
 
-  /// <summary>The connect bound (review finding 3): TryConnectAsync must return null - not
-  ///     block - when no host answers inside its deadline. A pipe whose only instance is
-  ///     held leaves NamedPipeClientStream.ConnectAsync retrying forever, so an unbounded
-  ///     probe is the second suite-wide hang. This test FAILS on an unbounded probe
-  ///     instead of hanging: the assertion bound is far shorter than any suite timeout.</summary>
-  [Fact]
-  public async Task Probe_NoHostListening_ReturnsNullInsideItsDeadline()
-  {
-    string scratch = Directory.CreateTempSubdirectory("ethang-probe-scratch").FullName;
-    try
-    {
-      string workspace = Directory.CreateTempSubdirectory("ethang-probe-ws").FullName;
-      try
-      {
-        AgentSettings settings = new AgentSettings(
-            new OpenRouterSettings("sk-test", new Uri("https://openrouter.test")),
-            new SubAgentOptions(null, 2)).WithWorkspaceRoot(workspace);
-        // A pipe name nothing serves: the probe must give up, not wait forever.
-        RemoteHostSupervisor supervisor = new("conversation-probe", scratch,
-            settings, Path.Combine(scratch, "app.db"), _ => { });
-
-        Task<NamedPipeChildTransport?> probe = supervisor.ProbeForTestAsync(TimeSpan.FromMilliseconds(300),
-            TestContext.Current.CancellationToken);
-        Task finished = await Task.WhenAny(
-            probe, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken))
-            .ConfigureAwait(true);
-        Assert.Same(probe, finished);
-        Assert.Null(await probe.ConfigureAwait(true));
-        await supervisor.DisposeAsync().ConfigureAwait(true);
-      }
-      finally
-      {
-        Directory.Delete(workspace, recursive: true);
-      }
-    }
-    finally
-    {
-      Directory.Delete(scratch, recursive: true);
-    }
-  }
-
   /// <summary>The connect bound itself is a CLOCK with a sane value: a regression to an
-  ///     unbounded (or absurd) connect is caught by the pin, not by a hung suite.</summary>
+  ///     unbounded (or absurd) connect is caught by the pin, not by a hung suite.
+  ///     <para>The reuse probe is GONE (issue #274): containment reaps a host when the app
+  ///     dies, so there is no surviving host to probe for. The connect bound is now the only
+  ///     startup clock besides the started-line deadline.</para></summary>
   [Fact]
   public void ConnectTimeout_IsABoundedClock()
   {
     Assert.True(RemoteHostSupervisor.ConnectTimeout > TimeSpan.Zero);
     Assert.True(RemoteHostSupervisor.ConnectTimeout <= TimeSpan.FromSeconds(60));
-    Assert.True(RemoteHostSupervisor.ProbeTimeout > TimeSpan.Zero);
-    Assert.True(RemoteHostSupervisor.ProbeTimeout < RemoteHostSupervisor.ConnectTimeout,
-        "the reuse probe must be shorter than a full connect, or reuse would cost a launch wait");
   }
 
   /// <summary>Closed stdout WITHOUT an exit (review finding 6): the host closed its pipe but
@@ -437,8 +396,12 @@ public class ConversationHostSupervisionTests
   ///     (review round 2, finding 3). Without the explicit guard the probe's broad catch
   ///     swallowed it and the caller fell through to a spawn - so a cancelled attach still
   ///     launched a host process.</summary>
+  /// <summary>A cancelled caller asked for NO work, so attach must refuse BEFORE launching a
+  ///     host process - a host started for a cancelled attach is a process nothing will ever
+  ///     connect to, and nothing will ever dispose. The guard survives the reuse probe's
+  ///     removal (issue #274) because the launch it protects is still there.</summary>
   [Fact]
-  public async Task Probe_CallerAlreadyCancelled_PropagatesInsteadOfProbing()
+  public async Task Attach_CallerAlreadyCancelled_PropagatesWithoutLaunchingAHost()
   {
     string scratch = Directory.CreateTempSubdirectory("ethang-cancel-scratch").FullName;
     try
@@ -455,12 +418,12 @@ public class ConversationHostSupervisionTests
         using CancellationTokenSource cancelled = new();
         await cancelled.CancelAsync().ConfigureAwait(true);
 
-        // A cancelled caller asked for NO work: the probe must refuse, not return null
-        // (null means "no host here" and would send the caller on to launch one).
+        RemoteAgentRuntime runtime = new(transport: null);
         _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => supervisor.ProbeForTestAsync(TimeSpan.FromSeconds(30), cancelled.Token))
-            .ConfigureAwait(true);
+            () => supervisor.AttachAsync(runtime, cancelled.Token)).ConfigureAwait(true);
 
+        // No host was started: the refusal came before the launch, which is the whole point.
+        Assert.Null(supervisor.HostProcessId);
         await supervisor.DisposeAsync().ConfigureAwait(true);
       }
       finally

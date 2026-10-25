@@ -148,9 +148,28 @@ public sealed class NamedPipeChildTransport : IChildTransport, IAsyncDisposable
     // A server pipe MUST Disconnect before Dispose: without it the peer's pending read
     // never observes EOF and blocks forever. Disconnect gives the peer a clean pipe-closed
     // signal, which its pump surfaces as the declared closed condition.
+    //
+    // GUARDED (issue #274): when the PEER went away first - now the ordinary way a host
+    // connection ends - Disconnect throws IOException because there is nothing left to
+    // disconnect. That is the desired end state, not a failure: unguarded, it escaped the
+    // host's top-level entry point as an unhandled exception and the process died on a
+    // crash path instead of exiting cleanly.
     if (_stream is NamedPipeServerStream server)
     {
-      server.Disconnect();
+#pragma warning disable CA1031 // Named decision: a peer that already left is the desired end state.
+      try
+      {
+        server.Disconnect();
+      }
+      catch (IOException)
+      {
+        // The peer is already gone: exactly what this method is trying to achieve.
+      }
+      catch (ObjectDisposedException)
+      {
+        // The pipe was already torn down.
+      }
+#pragma warning restore CA1031
     }
 
     await _stream.DisposeAsync().ConfigureAwait(false);

@@ -10,9 +10,10 @@ namespace eThangAgent.ChildHost;
 /// <summary>The host's serve loop: receives envelopes, runs children through the real
 ///     spawner stack built from a headless session composition, streams events/settlements
 ///     back, acks app-sent frames (declared at-least-once, FR-X3), and enforces the host's
-///     own concurrency ceiling (FR-X5). One connection; host exits when the app disconnects
-///     or the pipe closes — children keep running per survivability (FR-L7/T4) and the
-///     app re-attaches on restart.</summary>
+///     own concurrency ceiling (FR-X5). ONE connection, then the process exits (issue #274):
+///     the app contains the host in a kill-on-close Job Object, so the host dies with the app
+///     and there is no later app to re-attach. A dropped connection means the only client
+///     this host will ever have is gone.</summary>
 public sealed class ChildHostServer(string settingsPath, string databasePath)
 {
   private volatile NamedPipeChildTransport? _transport;
@@ -83,11 +84,10 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
   ///     repair consumes (FR-L8). Sent on every (re)connect and after each mutation.</summary>
   public IReadOnlyCollection<Guid> LiveIds() => [.. _active.Keys];
 
-  /// <summary>Serves the CURRENT app connection. On entry the host declares its live
-  ///     set (R3.1: a re-attaching app learns exactly which Running records the host
-  ///     still owns). When the app goes away children keep running (survivability); a
-  ///     later call with a fresh transport re-attaches them and settle emission
-  ///     resumes through <see cref="AttachTransport"/>.</summary>
+  /// <summary>Serves the app connection. On entry the host declares its live set, so the
+  ///     app's orphan repair learns exactly which Running records this host still owns.
+  ///     Returns when the connection drops; the entry point then exits the process (issue
+  ///     #274 — containment, not re-attach).</summary>
   public async Task ServeAsync()
   {
     // The caller attaches the transport BEFORE calling ServeAsync; hold it locally so
@@ -104,11 +104,11 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       }
       catch (TransportClosedException)
       {
-        return; // app gone: children keep running (survivability)
+        return; // app gone: the process exits behind us (issue #274)
       }
 
       // Named decision (CA1031): a failed ACK write IS the disconnect (broken pipe) —
-      // return so the accept loop re-attaches the next connection; children keep running.
+      // return so the entry point exits the process.
 #pragma warning disable CA1031 // Do not catch general exception types
       try
       {
@@ -130,7 +130,7 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
       }
       catch (TransportClosedException)
       {
-        return; // the app went away: children keep running (survivability)
+        return; // the app went away: the process exits behind us
       }
       catch (Exception)
       {
@@ -193,8 +193,8 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     CancellationTokenSource cts = new();
     _active[command.RecordId] = cts;
     _ = Task.Run(() => RunChildAsync(command, cts));
-    // Named decision (CA1031): a failed live-set broadcast IS the disconnect; the accept
-    // loop re-attaches. The child was already registered and keeps running.
+    // Named decision (CA1031): a failed live-set broadcast IS the disconnect; the entry
+    // point exits the process behind us. The child was already registered and runs.
 #pragma warning disable CA1031 // Do not catch general exception types
     try
     {
@@ -929,16 +929,33 @@ public sealed class ChildHostServer(string settingsPath, string databasePath)
     }
   }
 
+  /// <summary>Sends one envelope to the app. A send on a connection that has gone away is
+  ///     NOT a fault (issue #274): the host now serves exactly one connection and exits when
+  ///     it drops, so a write racing that drop is the ordinary end of service. Unguarded, it
+  ///     escaped the entry point as an unhandled exception and the process died on a crash
+  ///     path instead of exiting cleanly - and an unobserved fault here would also fail a
+  ///     child's settle for a reason the child had nothing to do with.</summary>
   private async Task SendAsync(string kind, string json)
   {
     NamedPipeChildTransport? transport = _transport;
     if (transport is null)
     {
-      return; // no app attached (yet): settles/declares resume on the next attach
+      return; // no app attached: the connection this host serves is gone
     }
 
     long sequence = Interlocked.Increment(ref _sequence);
-    await transport.SendAsync(new TransportEnvelope(kind, json, sequence)).ConfigureAwait(false);
+#pragma warning disable CA1031 // Named decision: a dropped connection is the end of service, not a fault.
+    try
+    {
+      await transport.SendAsync(new TransportEnvelope(kind, json, sequence)).ConfigureAwait(false);
+    }
+    catch (Exception ex) when (ex is IOException or ObjectDisposedException or TransportClosedException)
+    {
+      // The app is gone. The serve loop's next ReceiveAsync observes the same condition and
+      // returns, which is what makes the process exit.
+      Console.Error.WriteLine("send-on-closed-connection: " + ex.Message);
+    }
+#pragma warning restore CA1031
   }
 }
 

@@ -20,6 +20,12 @@ internal partial class MainWindow : Window
 {
   private readonly MainViewModel? _vm;
 
+  // Window-close teardown state (issue #274): the first close request cancels itself, runs
+  // the app-wide shutdown, then closes for real. These two flags are what keep a re-entrant
+  // or repeated close from running the teardown twice or exiting mid-teardown.
+  private bool _shutdownRunning;
+  private bool _shutdownComplete;
+
   public MainWindow() => InitializeComponent();
 
   public MainWindow(MainViewModel vm) : this()
@@ -246,24 +252,51 @@ internal partial class MainWindow : Window
     }
   }
 
-  private async void OnWindowClosed(object? sender, EventArgs e)
+  /// <summary>Tears the app down BEFORE the process exits (issue #274).
+  ///     <para>THE ORDERING HAZARD this closes: the previous handler was <c>async void</c> on
+  ///     <c>Closed</c>, and <c>ShutdownMode.OnLastWindowClose</c> terminates the process the
+  ///     moment the last window closes - so the handler's awaits raced process exit. Worse,
+  ///     it only completed each root session gracefully and never disposed the containers,
+  ///     so every conversation host process survived the app.</para>
+  ///     <para>The close is therefore CANCELLED first, the teardown runs to completion, and
+  ///     only then is the window closed for real — the second pass is what lets Avalonia's
+  ///     last-window shutdown fire with nothing left running.</para>
+  ///     <para>Closing is a decision to kill everything: in-flight turns are interrupted by
+  ///     <see cref="MainViewModel.ShutdownAllAsync"/>, not awaited.</para></summary>
+  private async void OnWindowClosing(object? sender, WindowClosingEventArgs e)
   {
+    if (_shutdownComplete)
+    {
+      return; // the teardown already ran; let this close through
+    }
+
+    // Hold the window open while teardown runs. Without this the process exits mid-teardown
+    // and the containers are never disposed - the bug this handler exists to fix.
+    e.Cancel = true;
+    if (_shutdownRunning)
+    {
+      return; // a second close request while teardown runs is the same request
+    }
+
+    _shutdownRunning = true;
     try
     {
-      // Every open agent completes its root session gracefully on window close.
-      List<AgentSessionViewModel>? sessions = _vm?.Tabs.Select(t => t.ViewModel).ToList();
-      if (sessions is not null && sessions.Count > 0)
+      if (_vm is { } vm)
       {
-        await Task.WhenAll(sessions.Select(s => s.ShutdownAsync()));
+        await vm.ShutdownAllAsync();
       }
     }
-    // Named decision (CA1031): shutdown on close is best effort — a failing
-    // persistence teardown must never prevent the window from closing.
+    // Named decision (CA1031): shutdown on close is best effort — a failing teardown must
+    // never prevent the window from closing. The kernel-level containment (the host's
+    // kill-on-close Job Object) is the backstop if a disposal path faults.
 #pragma warning disable CA1031 // Do not catch general exception types
     catch (Exception ex)
     {
       await Console.Error.WriteLineAsync(ex.ToString());
     }
 #pragma warning restore CA1031
+
+    _shutdownComplete = true;
+    Close();
   }
 }

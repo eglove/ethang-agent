@@ -4,13 +4,16 @@ using eThangAgent.SharedKernel;
 
 namespace eThangAgent.Transport.ACL.Tests;
 
-/// <summary>Ownership after a RE-ATTACH (review finding 1 on commit 63a034b): a child the
-///     host kept running across an app restart is in the declared live set but was never
-///     STARTED by the new runtime, so an ownership gate fed only by Start refuses it.
-///     Steering to a surviving child is the exact scenario the host-survives-restart plan
-///     exists to serve, so the declared set must seed ownership: a child the host declares
-///     live IS owned by this runtime's connection. Genuinely unknown ids still fail
-///     NotRunning - that half is pinned here too, so the fix cannot regress it.</summary>
+/// <summary>The host's DECLARED LIVE SET is ownership (review finding 1 on commit 63a034b):
+///     a child in that set was never STARTED by this runtime instance, so an ownership gate
+///     fed only by Start would refuse it. The declared set must therefore seed ownership - a
+///     child the host declares live IS owned by this runtime's connection - and it must be
+///     RECONCILED rather than accumulated, because the host re-declares after every start
+///     and settle.
+///     <para>Two facts make this contract load-bearing even though re-attach is retired
+///     (issue #274): the declared set is the EXACT input to startup orphan repair, and it is
+///     what the host says about the children it is actually running. The wire shape is
+///     unchanged; only the 'survived a restart' motivation is gone.</para></summary>
 public class RemoteRuntimeReAttachOwnershipTests
 {
   private static async Task<(NamedPipeChildTransport App, NamedPipeChildTransport Host)> ConnectAsync()
@@ -47,11 +50,11 @@ public class RemoteRuntimeReAttachOwnershipTests
   }
 
   [Fact]
-  public async Task Deliver_ToAChildTheHostDeclaredLive_AfterReAttach_Succeeds()
+  public async Task Deliver_ToAChildTheHostDeclaredLive_Succeeds()
   {
     AgentId child = new(Guid.NewGuid());
 
-    // FIRST connection: the app starts the child, so the FIRST runtime owns it by Start.
+    // The app starts the child, so this runtime owns it by Start.
     (NamedPipeChildTransport firstApp, NamedPipeChildTransport firstHost) = await ConnectAsync().ConfigureAwait(true);
     RemoteAgentRuntime firstRuntime = new(firstApp);
     using CancellationTokenSource firstLoop = new();
@@ -61,15 +64,16 @@ public class RemoteRuntimeReAttachOwnershipTests
         TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10),
             TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(started.IsSuccess, started.Error?.Message);
-    Assert.True(firstRuntime.Deliver(child, Steering("before restart")).IsSuccess,
+    Assert.True(firstRuntime.Deliver(child, Steering("before reconnect")).IsSuccess,
         "the first runtime must steer a child it started");
 
-    // The app dies; the host survives, still running that child.
+    // The first connection goes away (the runtime is replaced, as it is whenever a session
+    // reconnects). Both halves are disposed so the pipes are released.
     await firstApp.DisposeAsync().ConfigureAwait(true);
     await firstHost.DisposeAsync().ConfigureAwait(true);
 
-    // SECOND connection: a FRESH runtime that never started this child. The host
-    // declares its live set on connect - the child it kept running.
+    // A FRESH runtime that never started this child. The host declares its live set on
+    // connect - the child it is still running.
     (NamedPipeChildTransport secondApp, NamedPipeChildTransport secondHost) = await ConnectAsync().ConfigureAwait(true);
     try
     {
@@ -81,11 +85,11 @@ public class RemoteRuntimeReAttachOwnershipTests
           TestContext.Current.CancellationToken).ConfigureAwait(true);
       await WaitForDeclaredAsync(secondRuntime, child.Value).ConfigureAwait(true);
 
-      // The host declares it live, so the re-attached runtime owns it: steering must
-      // reach it. Before the fix this failed NotRunning and the message was lost.
-      Result<bool> delivered = secondRuntime.Deliver(child, Steering("after restart"));
+      // The host declares it live, so this runtime owns it: steering must reach it.
+      // Before the fix this failed NotRunning and the message was lost.
+      Result<bool> delivered = secondRuntime.Deliver(child, Steering("after reconnect"));
       Assert.True(delivered.IsSuccess,
-          "a child the host declared live must be steerable after re-attach: " + delivered.Error?.Message);
+          "a child the host declared live must be steerable: " + delivered.Error?.Message);
     }
     finally
     {
