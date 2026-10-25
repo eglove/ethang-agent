@@ -139,6 +139,10 @@ public static class AgentComposition
         .AddSingleton<DirectGitAccess>()
         .AddSingleton<IGitQueryAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
         .AddSingleton<IGitCommitAccess>(sp => sp.GetRequiredService<DirectGitAccess>())
+        // Issue #10 (design D6): GitHub access drives the gh CLI as a subprocess, so the
+        // harness stores no GitHub credentials of its own. The exe resolvers are
+        // process-cached lazily, so an uninstalled CLI costs one PATH probe, not one per poll.
+        .AddSingleton<IGitHubAccess>(_ => GhCliAccess.CreateForProcess())
         .AddSingleton<GitWorktreeAccess>()
         .AddSingleton<IGitWorktreeAccess>(sp => sp.GetRequiredService<GitWorktreeAccess>())
         .AddSingleton<IWorktreeProvisioner>(sp => new GitWorktreeProvisioner(sp.GetRequiredService<GitWorktreeAccess>()))
