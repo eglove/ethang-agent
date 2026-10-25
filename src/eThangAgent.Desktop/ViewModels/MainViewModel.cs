@@ -1676,6 +1676,10 @@ internal sealed partial class MainViewModel : ObservableObject
           // Issue #9: the workbench's Git view reads through the same read-only git
           // seam the statusline's branch watcher uses.
           Git = session.Services.GetService<IGitQueryAccess>(),
+          // Issue #10: the GitHub view drives the gh CLI (design D6) - no API client and no
+          // token storage, so a container without the seam renders the view's own unavailable
+          // state instead of a blank pane.
+          GitHub = session.Services.GetService<IGitHubAccess>(),
         });
   }
 

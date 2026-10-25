@@ -45,11 +45,16 @@ internal sealed partial class WorkbenchIconViewModel(WorkbenchView view, string 
 ///     <para>Per-tab (D3): each tab owns one of these, so each tab remembers its own view.</para></summary>
 internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 {
-  public WorkbenchViewModel(PlansViewViewModel plans, GitViewViewModel git, SubagentPanelViewModel subagents)
+  public WorkbenchViewModel(
+      PlansViewViewModel plans,
+      GitViewViewModel git,
+      SubagentPanelViewModel subagents,
+      PullRequestPaneViewModel pullRequests)
   {
     Plans = plans ?? throw new ArgumentNullException(nameof(plans));
     Git = git ?? throw new ArgumentNullException(nameof(git));
     Subagents = subagents ?? throw new ArgumentNullException(nameof(subagents));
+    PullRequests = pullRequests ?? throw new ArgumentNullException(nameof(pullRequests));
     Icons =
     [
       new WorkbenchIconViewModel(WorkbenchView.Plans, "\U0001F4CB", "Plans and todos") { IsAvailable = true },
@@ -59,7 +64,7 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
       // live agent progress is exactly what it renders, so retiring the auto-open
       // mechanism costs no functionality.
       new WorkbenchIconViewModel(WorkbenchView.Progress, "\u26A1", "Live agent progress") { IsAvailable = true },
-      new WorkbenchIconViewModel(WorkbenchView.GitHub, "\U0001F50D", "Pull requests and CI (not yet built)"),
+      new WorkbenchIconViewModel(WorkbenchView.GitHub, "\U0001F50D", "Pull requests and CI") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Database, "\U0001F6E2", "App database (not yet built)"),
     ];
     Select(WorkbenchView.Plans);
@@ -74,6 +79,11 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   /// <summary>The live agent progress view (design D5): the subagent accordion, moved
   ///     from its own auto-opening column into a workbench view.</summary>
   public SubagentPanelViewModel Subagents { get; }
+
+  /// <summary>The GitHub view (issue #10): the repository's open pull requests, one PR's
+  ///     detail, and a create form. Slower realtime than the other views by design - every
+  ///     read spawns the gh CLI, so it polls on a long interval and only while visible.</summary>
+  public PullRequestPaneViewModel PullRequests { get; }
 
   public IReadOnlyList<WorkbenchIconViewModel> Icons { get; }
 
@@ -95,6 +105,9 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
   /// <summary>True while the git view is the selected one.</summary>
   public bool IsGitSelected => SelectedView == WorkbenchView.Git;
+
+  /// <summary>True while the GitHub view is the selected one.</summary>
+  public bool IsGitHubSelected => SelectedView == WorkbenchView.GitHub;
 
   /// <summary>Selects a view. Unavailable views are ignored (their icons say so).
   ///     Selecting a view starts its realtime sources; a view nobody is looking at has
@@ -118,7 +131,17 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     OnPropertyChanged(nameof(IsPlansSelected));
     OnPropertyChanged(nameof(IsProgressSelected));
     OnPropertyChanged(nameof(IsGitSelected));
+    OnPropertyChanged(nameof(IsGitHubSelected));
     IsOpen = true;
+
+    // Only the SELECTED view runs its realtime source. The GitHub view spawns a subprocess
+    // per tick, so leaving it started while another view is on screen would cost real work
+    // for nothing - the pane stops the moment it stops being looked at.
+    if (view != WorkbenchView.GitHub)
+    {
+      PullRequests.Stop();
+    }
+
     if (view == WorkbenchView.Plans)
     {
       Plans.Start();
@@ -130,11 +153,29 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
       // Start() runs the first read; the watcher then keeps it current.
       Git.Start();
     }
+
+    if (view == WorkbenchView.GitHub)
+    {
+      // Start() runs the first read AND starts the slow poll; it stops when the view is
+      // deselected (above), when the workbench collapses, or when the tab closes.
+      PullRequests.Start();
+    }
+  }
+
+  /// <summary>A collapsed workbench shows no view, so no view keeps running: the GitHub
+  ///     poll is the one realtime source with a cost outside the process.</summary>
+  partial void OnIsOpenChanged(bool value)
+  {
+    if (!value)
+    {
+      PullRequests.Stop();
+    }
   }
 
   public void Dispose()
   {
     Plans.Dispose();
     Git.Dispose();
+    PullRequests.Dispose();
   }
 }

@@ -789,6 +789,44 @@ internal partial class AgentView : UserControl
     }
   }
 
+  /// <summary>GitHub view PR-row click (issue #10): loads that PR's body into the detail
+  ///     area. The row's Tag carries the NUMBER, so the view never parses the display line.
+  ///     <para>Fire-and-forget by design: the read is a gh subprocess, and blocking the click
+  ///     handler on it would freeze the shell for the call's duration.</para></summary>
+  private void OnPullRequestClick(object? sender, RoutedEventArgs e)
+  {
+    if (sender is Button { Tag: int number } && Vm is { } vm)
+    {
+      _ = vm.Workbench.PullRequests.SelectAsync(number, CancellationToken.None);
+    }
+  }
+
+  /// <summary>Opens the create form seeded with the branches already on screen: the
+  ///     checked-out branch as HEAD and its base as BASE, so the ordinary case is a title and
+  ///     a click. Both come from the statusline's own branch facts rather than a new read.</summary>
+  private void OnNewPullRequestClick(object? sender, RoutedEventArgs e)
+  {
+    if (Vm is not { } vm)
+    {
+      return;
+    }
+
+    vm.Workbench.PullRequests.BeginCreate(vm.Status.Branch, vm.Workbench.Git.SuggestedBaseBranch);
+  }
+
+  /// <summary>Sends the create request. Fire-and-forget for the same reason as the PR row:
+  ///     the CLI runs a network call, and the form's error slot is what reports a refusal.</summary>
+  private void OnSubmitPullRequestClick(object? sender, RoutedEventArgs e)
+  {
+    if (Vm is { } vm)
+    {
+      _ = vm.Workbench.PullRequests.SubmitCreateAsync(CancellationToken.None);
+    }
+  }
+
+  /// <summary>Closes the create form without sending anything.</summary>
+  private void OnCancelPullRequestClick(object? sender, RoutedEventArgs e) =>
+      Vm?.Workbench.PullRequests.CancelCreate();
   /// <summary>Copies the full session id to the clipboard; the button label flashes
   ///     a checkmark and reverts shortly after (best effort - no clipboard, no crash).</summary>
   private async void OnCopySessionId(object? sender, RoutedEventArgs e)

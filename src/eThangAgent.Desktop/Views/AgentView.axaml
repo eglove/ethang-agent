@@ -454,6 +454,95 @@
               </StackPanel>
             </ScrollViewer>
           </DockPanel>
+          <!-- GITHUB (issue #10, design D6): the repository's open pull requests, one PR's
+               detail, and a create form. Every degradation state renders its own actionable
+               sentence here - a blank pane is a bug, not an empty state. -->
+          <DockPanel IsVisible="{Binding Workbench.IsGitHubSelected, Mode=OneWay}" Margin="8,8,8,0">
+            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
+              <TextBlock Text="GITHUB" FontWeight="SemiBold" Opacity="0.8"/>
+              <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                         Text="{Binding Workbench.PullRequests.StatusLine, Mode=OneWay}" Opacity="0.6"/>
+            </DockPanel>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel>
+                <!-- The degradation states and the empty-list state share one slot: exactly
+                     one of them is ever the answer to 'why is there nothing here'. -->
+                <SelectableTextBlock Text="{Binding Workbench.PullRequests.EmptyReason, Mode=OneWay}"
+                                     Foreground="#FFB454" TextWrapping="Wrap" Margin="0,0,0,6"
+                                     IsVisible="{Binding Workbench.PullRequests.EmptyReason, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                <ItemsControl x:Name="PullRequestList"
+                              ItemsSource="{Binding Workbench.PullRequests.PullRequests, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PullRequestRowViewModel">
+                      <Button Padding="2,1" Margin="0" HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Left" Background="Transparent"
+                              Click="OnPullRequestClick" Tag="{Binding Number}">
+                        <StackPanel>
+                          <SelectableTextBlock Text="{Binding Display}" FontSize="11.5" TextWrapping="Wrap"/>
+                          <DockPanel LastChildFill="False">
+                            <TextBlock Text="{Binding AuthorDisplay}" FontSize="10.5" Opacity="0.55" Margin="0,0,8,0"/>
+                            <TextBlock Text="{Binding ReviewDisplay}" FontSize="10.5" Opacity="0.7" Margin="0,0,8,0"/>
+                            <TextBlock Text="{Binding ChecksDisplay}" FontSize="10.5" Opacity="0.7"/>
+                          </DockPanel>
+                        </StackPanel>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- CREATE: the one write this view performs, and only offered while the
+                     pane is Ready - a form whose submit could only fail is worse than none. -->
+                <Button x:Name="NewPullRequestButton" Content="New pull request" Padding="6,2"
+                        HorizontalAlignment="Left" Margin="0,8,0,4"
+                        IsVisible="{Binding Workbench.PullRequests.IsReady, Mode=OneWay}"
+                        Click="OnNewPullRequestClick"/>
+
+                <StackPanel IsVisible="{Binding Workbench.PullRequests.IsCreating, Mode=OneWay}"
+                            Margin="0,4,0,0">
+                  <TextBlock Text="TITLE" FontSize="10.5" Opacity="0.6" Margin="0,0,0,2"/>
+                  <TextBox Text="{Binding Workbench.PullRequests.NewTitle, Mode=TwoWay}"
+                           PlaceholderText="What does this change do?" FontSize="11.5"/>
+                  <TextBlock Text="DESCRIPTION" FontSize="10.5" Opacity="0.6" Margin="0,4,0,2"/>
+                  <TextBox Text="{Binding Workbench.PullRequests.NewBody, Mode=TwoWay}"
+                           AcceptsReturn="True" Height="72" TextWrapping="Wrap" FontSize="11.5"/>
+                  <Grid ColumnDefinitions="*,*" Margin="0,4,0,0">
+                    <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                      <TextBlock Text="HEAD" FontSize="10.5" Opacity="0.6"/>
+                      <TextBox Text="{Binding Workbench.PullRequests.NewHeadBranch, Mode=TwoWay}" FontSize="11.5"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                      <TextBlock Text="BASE" FontSize="10.5" Opacity="0.6"/>
+                      <TextBox Text="{Binding Workbench.PullRequests.NewBaseBranch, Mode=TwoWay}" FontSize="11.5"/>
+                    </StackPanel>
+                  </Grid>
+                  <CheckBox Content="Draft" FontSize="11"
+                            IsChecked="{Binding Workbench.PullRequests.NewDraft, Mode=TwoWay}"/>
+                  <SelectableTextBlock Text="{Binding Workbench.PullRequests.CreateError, Mode=OneWay}"
+                                       Foreground="#FF8A80" TextWrapping="Wrap" Margin="0,2,0,0"
+                                       IsVisible="{Binding Workbench.PullRequests.CreateError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <Button x:Name="SubmitPullRequestButton" Content="Create" Padding="8,2"
+                            IsEnabled="{Binding !Workbench.PullRequests.IsSubmitting, Mode=OneWay}"
+                            Click="OnSubmitPullRequestClick"/>
+                    <Button Content="Cancel" Padding="8,2" Margin="6,0,0,0"
+                            Click="OnCancelPullRequestClick"/>
+                  </StackPanel>
+                </StackPanel>
+
+                <!-- DETAIL: the selected PR's body. A read failure says so rather than
+                     rendering an empty description, which would look like a PR with no text. -->
+                <TextBlock Text="{Binding Workbench.PullRequests.SelectedDisplay, Mode=OneWay}"
+                           FontWeight="SemiBold" FontSize="10.5" Opacity="0.8" Margin="0,10,0,3"
+                           IsVisible="{Binding Workbench.PullRequests.Selected, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <SelectableTextBlock Text="{Binding Workbench.PullRequests.DetailError, Mode=OneWay}"
+                                     Foreground="#FF8A80" TextWrapping="Wrap" Margin="0,0,0,4"
+                                     IsVisible="{Binding Workbench.PullRequests.DetailError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <SelectableTextBlock Text="{Binding Workbench.PullRequests.SelectedBody, Mode=OneWay}"
+                                     FontSize="11.5" TextWrapping="Wrap"/>
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
           <!-- LIVE AGENT PROGRESS (design D5): the subagent accordion, unchanged in
                substance, now a workbench view instead of an auto-opening column. -->
           <DockPanel IsVisible="{Binding Workbench.IsProgressSelected, Mode=OneWay}" Margin="8,8,8,0">

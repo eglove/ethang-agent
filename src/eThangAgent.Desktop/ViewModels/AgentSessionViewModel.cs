@@ -124,6 +124,11 @@ internal sealed record AgentSessionViewModelOptions
   ///     branch, status, and diff. Null = the view renders its unavailable state
   ///     (headless stubs), never a blank pane.</summary>
   public IGitQueryAccess? Git { get; init; }
+
+  /// <summary>The workbench's GitHub view seam (issue #10): pull-request reads and the one
+  ///     create-PR write, driven by the <c>gh</c> CLI (design D6). Null = the view renders
+  ///     its unavailable state (headless stubs), never a blank pane.</summary>
+  public IGitHubAccess? GitHub { get; init; }
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
@@ -410,7 +415,13 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
             options.WorkspaceRoot,
             options.Git,
             render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
-        Subagents);
+         Subagents,
+         // The GitHub view (issue #10) polls the gh CLI on a long interval and ONLY while
+         // visible: each read is a subprocess, and no push channel exists (design D6).
+         new PullRequestPaneViewModel(
+             options.WorkspaceRoot,
+             options.GitHub,
+             render => Avalonia.Threading.Dispatcher.UIThread.Post(render)));
     // Grand-plan "show initial bootstrap/context at start of session": the first
     // transcript line states what the session runs under (transient, never a
     // conversation message). Resume replays persisted history after it.

@@ -163,6 +163,11 @@ internal sealed partial class GitViewViewModel : ObservableObject, IDisposable
   ///     selected or the selection has no differences to show.</summary>
   public ObservableCollection<DiffLineViewModel> DiffLines { get; } = [];
 
+  /// <summary>The base branch a pull request would target, derived from the tracking branch
+  ///     ('origin/master' -> 'master'). Empty when the branch tracks nothing, in which case
+  ///     the user names a base in the create form rather than being handed a guess.</summary>
+  public string SuggestedBaseBranch { get; private set; } = "";
+
   /// <summary>The branch line: 'master' or 'master → origin/master' when a tracking
   ///     branch is configured.</summary>
   [ObservableProperty]
@@ -281,6 +286,7 @@ internal sealed partial class GitViewViewModel : ObservableObject, IDisposable
     BranchDisplay = status.Upstream is { Length: > 0 } upstream
         ? $"{status.Branch} \u2192 {upstream}"
         : status.Branch;
+    SuggestedBaseBranch = BaseBranchFrom(status.Upstream);
     HeadDisplay = status.HeadCommit is { } head
         ? $"{head.Hash} {head.Subject}".TrimEnd()
         : "(no commits yet)";
@@ -309,6 +315,21 @@ internal sealed partial class GitViewViewModel : ObservableObject, IDisposable
     }
   }
 
+  /// <summary>Strips the remote name from a tracking branch, so a PR's base is the branch
+  ///     name the provider knows ('origin/master' -> 'master'). A remote-less or detached
+  ///     entry yields empty rather than a fabricated name.</summary>
+  internal static string BaseBranchFrom(string? upstream)
+  {
+    if (string.IsNullOrWhiteSpace(upstream))
+    {
+      return string.Empty;
+    }
+
+    string trimmed = upstream.Trim();
+    int slash = trimmed.IndexOf('/', StringComparison.Ordinal);
+    return slash < 0 ? trimmed : trimmed[(slash + 1)..];
+  }
+
   /// <summary>The dirty summary for a change count and an untracked count. Both counts
   ///     are reported when both are non-zero: '2 changed' alone would hide untracked
   ///     work, which is usually the thing a person has forgotten about.</summary>
@@ -325,6 +346,7 @@ internal sealed partial class GitViewViewModel : ObservableObject, IDisposable
   ///     blank pane is indistinguishable from a broken view.</summary>
   private void RenderUnavailable(DomainError error)
   {
+    SuggestedBaseBranch = string.Empty;
     Changes.Clear();
     DiffLines.Clear();
     SelectedPath = null;

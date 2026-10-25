@@ -231,11 +231,35 @@ events, so #281 (or its equivalent) must be fixed for that view to show anything
     status list and the diff disagreed about the same file. The ACL now renders them
     through `git diff --no-index`, capped at 25 files with the cap named in the patch.
 
-- **`gh` missing or unauthenticated**: D6 makes `gh` a prerequisite. The views must
-  degrade to a named, actionable empty state ("gh is not installed" / "gh is not
-  authenticated — run gh auth login"), never a blank pane or a crash.
+- **`gh` missing or unauthenticated** — settled by issue #10. The views degrade to a
+  named, actionable empty state and never a blank pane: `GhNotInstalled` gives "GitHub
+  views need the gh CLI — install it from cli.github.com", `GhNotAuthenticated` gives
+  "Run gh auth login to enable GitHub views", and `NotAGitHubRepository` gives "This
+  workspace is not a GitHub repository". **A fourth fact surfaced while building it:**
+  the remote URL alone cannot decide "is this GitHub" — `gitlab.com/org/repo` parses
+  exactly like a github.com remote — so the authority is the host set
+  `gh auth status --json hosts` reports. A host gh does not know is
+  `NotAGitHubRepository`; an enterprise host gh HAS authenticated works with no code
+  change. Authentication is read from the status BODY, not the exit code (an
+  unauthenticated gh exits 0 with an empty `hosts` object).
 - **Poll interval** for the database-change path and for `gh`-backed views (1 s and
-  10–30 s proposed respectively).
+  10–30 s proposed respectively) — settled by issues #8, #9, and #10: 1 s for the
+  `data_version` backstop (the plan event stream is the primary path), a 200 ms debounce
+  over the file watch for git, and **20 s, visible-only, for GitHub**. The GitHub poll
+  additionally skips entirely while the pane is degraded: a state that needs the user
+  to act will not change between ticks, and re-probing spends a subprocess to learn the
+  same answer.
+- **Which PRs, and how deep is v1** — settled by issue #10: ALL open PRs for the
+  repository (not only those on the current branch, and not only the user's own),
+  listed with number, title, author, review state, and CI summary; selecting one shows
+  its body; creating a PR from the current branch is the one write. Merging,
+  commenting, and reviewing stay out of v1 — a later depth decision, not a silent extra.
+- **Where PR state surfaces** — settled: its own workbench view under the GitHub icon
+  (D8 groups PRs and CI there rather than crowding the git pane, which stays read-only
+  per D4).
+- **Caching** — settled deliberately as NO cache: the 20 s poll IS the refresh, and a
+  per-(repo, branch) cache would need invalidation the CLI cannot signal. Revisit only
+  if a real repository makes the poll expensive.
 - **File tree click behaviour**: preview in the pane, or open in an external editor?
 - **Kanban column naming**: `PlanStepStatus` uses `Done`; todo statuses use `Completed`.
 - **Transcript search across sessions**: noted for later, not part of this parent. The

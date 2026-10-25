@@ -212,6 +212,48 @@ public class WorkbenchLayoutTests
         "the collapse control must close the workbench when hosted like production");
   }
 
+  /// <summary>Issue #10: selecting the GitHub icon renders the pull-request pane and hides the
+  ///     other views. Like the Git test above, the assertion is against real visibility in the
+  ///     SAME content border - a view-model flag alone never proved a pane drew.</summary>
+  [AvaloniaFact]
+  public void SelectingTheGitHubIcon_RendersThePullRequestPane_AndHidesTheOthers()
+  {
+    (AgentView view, Grid _, Window window) = ShowWindow(1200);
+    AgentSessionViewModel vm = (AgentSessionViewModel)view.DataContext!;
+
+    vm.Workbench.Select(WorkbenchView.GitHub);
+    Dispatcher.UIThread.RunJobs();
+
+    ItemsControl pullRequests = view.GetVisualDescendants().OfType<ItemsControl>()
+        .First(c => c.Name == "PullRequestList");
+    // The plans list is always realized (it is never gated on a count), so it is the reliable
+    // witness that a DIFFERENT view is not the one on screen.
+    ItemsControl planList = view.GetVisualDescendants().OfType<ItemsControl>()
+        .First(c => c.Name == "PlanCardList");
+
+    Assert.True(pullRequests.IsEffectivelyVisible, "the pull-request list must render when the GitHub icon is selected");
+    Assert.False(planList.IsEffectivelyVisible, "the plans list must not render at the same time");
+    window.Close();
+  }
+
+  /// <summary>The GitHub icon is AVAILABLE: a dimmed icon is how the workbench says a view is
+  ///     not built yet, and issue #10 built this one.</summary>
+  [AvaloniaFact]
+  public void TheGitHubIcon_IsAvailable_AndSelectable()
+  {
+    (AgentView view, Grid _, Window window) = ShowWindow(1200);
+    AgentSessionViewModel vm = (AgentSessionViewModel)view.DataContext!;
+
+    WorkbenchIconViewModel icon = vm.Workbench.Icons.First(i => i.View == WorkbenchView.GitHub);
+    Assert.True(icon.IsAvailable, "the GitHub view is built, so its icon must not be dimmed");
+
+    vm.Workbench.Select(WorkbenchView.GitHub);
+    Dispatcher.UIThread.RunJobs();
+
+    Assert.Equal(WorkbenchView.GitHub, vm.Workbench.SelectedView);
+    Assert.True(vm.Workbench.IsGitHubSelected);
+    window.Close();
+  }
   /// <summary>The chat column's width, read from the chat DockPanel itself so the
   ///     assertion never re-derives layout.</summary>
   private static double ChatWidth(AgentView view) => view.GetVisualDescendants().OfType<DockPanel>()

@@ -61,6 +61,7 @@ public sealed partial class DoctrineTests
         "src/eThangAgent.Desktop/ViewModels/GitBranchWatcher.cs", // the debounce is an event-burst coalesce over FSW .git writes (one query per git gesture), not a poll — the SkillDirectoryWatcher precedent
         "src/eThangAgent.Desktop/ViewModels/GitViewViewModel.cs", // same shape over the WORKSPACE ROOT: the debounce coalesces an FSW write burst into one git query, so a build or a multi-file save is one refresh, not one per file — never a poll
         "src/eThangAgent.Agent.Domain/WakeAwareWait.cs", // the soft timeout's ONE Task.Delay races the settle task (Task.WhenAny) — a bounded alternative, never a retry loop or sweep
+        "src/eThangAgent.Desktop/ViewModels/PullRequestPaneViewModel.cs", // issue #10: gh-backed data has NO push channel (design D6), so the GitHub view's 20 s visible-only poll is the realtime story — it runs only while selected and skips entirely while degraded
     ];
 
     List<string> violations = [];
