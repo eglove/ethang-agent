@@ -137,26 +137,36 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   ///     conversation runs in its OWN host process (spec D6), so the host's working set
   ///     IS that conversation's memory. Null is an honest 'no host right now', never a
   ///     fabricated id - the observer then reports the conversation as absent rather
-  ///     than counting some other process's memory as its own.</summary>
+  ///     than counting some other process's memory as its own.
+  ///     <para>The read is safe AFTER <see cref="DisposeAsync"/> (issue #287): a disposed
+  ///     supervisor answers null, because a consumer sampling a closed session is exactly
+  ///     the case this contract exists for.</para></summary>
   public int? HostProcessId
   {
     get
     {
       Process? host = Host;
-      if (host is null || host.HasExited)
-      {
-        return null;
-      }
+      return host is null ? null : LiveProcessId(host);
+    }
+  }
 
-      try
-      {
-        return host.Id;
-      }
-      catch (InvalidOperationException)
-      {
-        // The process was reaped between the check and the read.
-        return null;
-      }
+  /// <summary>One process's id while it is live, or null when it has none to report.
+  ///     <para>The <c>HasExited</c> probe is INSIDE the catch (issue #287), and that is the
+  ///     whole fix: on a DISPOSED <see cref="Process"/> it throws
+  ///     <c>InvalidOperationException</c> ("No process is associated with this object.")
+  ///     instead of returning true, so a guard that probes it outside the catch cannot
+  ///     short-circuit - the guard itself becomes the exception. Disposed, reaped mid-read,
+  ///     and already-exited all answer the same honest null.</para></summary>
+  private static int? LiveProcessId(Process host)
+  {
+    try
+    {
+      return host.HasExited ? null : host.Id;
+    }
+    catch (InvalidOperationException)
+    {
+      // Disposed, or reaped between the check and the read: both mean 'no host'.
+      return null;
     }
   }
 
@@ -169,7 +179,10 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   public void StopHost()
   {
     Process? host = Host;
-    if (host is null || host.HasExited)
+    // LiveProcessId, not HasExited (issue #287): a DISPOSED Process throws from the probe,
+    // so the guard would become the exception on exactly the path where 'already gone' is
+    // the desired end state.
+    if (host is null || LiveProcessId(host) is null)
     {
       return;
     }
@@ -249,7 +262,10 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   ///     routine condition to fail on, never a hang.</summary>
   private async Task EnsureHostAsync(CancellationToken ct)
   {
-    if (Host is { HasExited: false })
+    // A tolerant liveness probe (issue #287): the previous host may have been DISPOSED by
+    // a failed startup below, and HasExited on a disposed Process throws - so a retry would
+    // fault in the guard instead of starting a fresh host.
+    if (Host is { } existing && LiveProcessId(existing) is not null)
     {
       return;
     }
@@ -272,7 +288,10 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
     }
 
     // Not announced: the host is unusable either way, and leaving a live-but-silent one
-    // running would strand a process retrying against a pipe nobody dials.
+    // running would strand a process retrying against a pipe nobody dials. The reference is
+    // cleared BEFORE the dispose for the same reason DisposeAsync clears it (issue #287): a
+    // disposed Process left assigned throws from every later liveness probe.
+    Host = null;
     KillQuietly(started);
     throw outcome is StartedLineOutcome.Exited
         ? new InvalidOperationException("child host exited during startup.")
@@ -454,7 +473,11 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
   }
 
   /// <summary>Best-effort kill of a host that will never serve: it is already a failure,
-  ///     so cleanup must never mask the named startup error the caller is about to see.</summary>
+  ///     so cleanup must never mask the named startup error the caller is about to see.
+  ///     <para>Also the DISPOSAL path's teardown (issue #287), where the same shape is what
+  ///     makes that contract true: a running host is killed, an already-exited one is
+  ///     tolerated, and the Process handle is DISPOSED in both cases - leaving an exited
+  ///     host's handle open was the second half of that defect.</para></summary>
   private static void KillQuietly(Process process)
   {
     try
@@ -503,12 +526,24 @@ public sealed class RemoteHostSupervisor : IAsyncDisposable
 
   public async ValueTask DisposeAsync()
   {
-    if (Host is { HasExited: false })
+    // The reference is CLEARED before the process is touched (issue #287): a disposed
+    // Process throws InvalidOperationException from HasExited, so a reference left
+    // assigned turns every later read of HostProcessId - a public property whose whole
+    // contract is an honest null - into an exception. Clearing first also makes a second
+    // disposal a no-op instead of a fault.
+    Process? host = Host;
+    Host = null;
+
+    // The app owns the host's lifetime: on shutdown the host goes too (its children
+    // were the app's children; leaving it would orphan them against nothing).
+    // KillQuietly is exactly the shape this needs: it kills a running host, tolerates one
+    // that already exited, and DISPOSES the Process either way - the handle must be
+    // released in BOTH cases (an exited host used to keep an undisposed handle for the
+    // supervisor's lifetime), and a teardown must never turn container disposal into a
+    // fault at shutdown.
+    if (host is not null)
     {
-      // The app owns the host's lifetime: on shutdown the host goes too (its children
-      // were the app's children; leaving it would orphan them against nothing).
-      Host.Kill(entireProcessTree: true);
-      Host.Dispose();
+      KillQuietly(host);
     }
 
     // Closing the kill-on-close job reaps anything the explicit kill missed (a host that
