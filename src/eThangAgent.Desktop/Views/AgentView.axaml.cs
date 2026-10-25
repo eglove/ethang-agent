@@ -190,7 +190,7 @@ internal partial class AgentView : UserControl
     {
       _wiredVm.Transcript.Entries.CollectionChanged -= OnEntriesChanged;
       _wiredVm.PropertyChanged -= OnVmPropertyChanged;
-      _wiredVm.Subagents.PropertyChanged -= OnSubagentsPropertyChanged;
+      _wiredVm.Workbench.PropertyChanged -= OnWorkbenchPropertyChanged;
       _wiredVm = null;
     }
 
@@ -232,10 +232,11 @@ internal partial class AgentView : UserControl
     };
     _subagentTimer.Start();
 
-    // The split: column 2 is star-sized only while rows exist; with none, it
-    // collapses to zero so the chat owns the full width (the panel is hidden too).
-    vm.Subagents.PropertyChanged += OnSubagentsPropertyChanged;
-    ApplySplitLayout(vm.Subagents.HasRows);
+    // The split: the workbench column takes its width only while the workbench is
+    // OPEN (design D5 - permanent, collapsed by the user alone). Row count is no
+    // longer the input: the Progress view shows rows, and every other view has none.
+    vm.Workbench.PropertyChanged += OnWorkbenchPropertyChanged;
+    ApplyWorkbenchLayout(vm.Workbench.IsOpen);
 
     // Animated spinner parity with the terminal frame loop (~12 fps): an 80 ms timer
     // runs only while a turn is busy; Phase transitions reset the displayed state.
@@ -289,18 +290,33 @@ internal partial class AgentView : UserControl
   // Subagent transcript refresh timer, same lifecycle as the spinner timer.
   private DispatcherTimer? _subagentTimer;
 
-  /// <summary>Sizes the split: the subagent column is star-sized while rows exist,
-  ///     zero-width otherwise — a star column with hidden content would still take
-  ///     half the width and starve the chat.</summary>
-  private void OnSubagentsPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+  /// <summary>Sizes the workbench column from the workbench's OPEN state (issue #8,
+  ///     design D5). The column is a pixel width while open - a GridSplitter resizes a
+  ///     column definition, so an Auto column would leave the splitter inert - and zero
+  ///     while collapsed, so the chat reclaims the full width.
+  ///     <para>This used to key off <see cref="SubagentPanelViewModel.HasRows"/>, which
+  ///     was correct when the subagent accordion WAS the right column. Now that the
+  ///     workbench is permanent (D5), row count is the wrong input: a session with no
+  ///     children would collapse the workbench and hide every view.</para></summary>
+  private void OnWorkbenchPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
   {
-    if (e.PropertyName == nameof(SubagentPanelViewModel.HasRows) && sender is SubagentPanelViewModel panel)
+    if (e.PropertyName == nameof(WorkbenchViewModel.IsOpen) && sender is WorkbenchViewModel workbench)
     {
-      ApplySplitLayout(panel.HasRows);
+      ApplyWorkbenchLayout(workbench.IsOpen);
     }
   }
 
-  private void ApplySplitLayout(bool hasRows)
+  /// <summary>Workbench width while open. Wide enough for the icon strip plus a
+  ///     readable content pane; the splitter adjusts it from here.</summary>
+  private const double WorkbenchDefaultWidth = 354;
+
+  /// <summary>The width to restore when the workbench reopens. Collapsing sets the
+  ///     column to zero, so the column itself cannot be the memory: reading it back
+  ///     would restore 0 and the workbench would never reappear. The splitter's last
+  ///     width is captured here instead.</summary>
+  private double _workbenchWidth = WorkbenchDefaultWidth;
+
+  private void ApplyWorkbenchLayout(bool isOpen)
   {
     Grid? root = this.FindControl<Grid>("RootSplit");
     if (root is null || root.ColumnDefinitions.Count < 3)
@@ -308,9 +324,14 @@ internal partial class AgentView : UserControl
       return;
     }
 
-    root.ColumnDefinitions[2].Width = hasRows
-        ? new GridLength(1, GridUnitType.Star)
-        : new GridLength(0);
+    // Only a LIVE (non-zero) width is worth remembering: it is what the splitter left.
+    GridLength current = root.ColumnDefinitions[2].Width;
+    if (current.IsAbsolute && current.Value > 0)
+    {
+      _workbenchWidth = current.Value;
+    }
+
+    root.ColumnDefinitions[2].Width = isOpen ? new GridLength(_workbenchWidth) : new GridLength(0);
   }
 
   /// <summary>Whether the spinner timer is currently running (test observation surface:
@@ -722,6 +743,27 @@ internal partial class AgentView : UserControl
   }
 
   private void OnStopClick(object? sender, RoutedEventArgs e) => Vm?.RequestStop();
+
+  /// <summary>Collapses the workbench (design D5). The workbench never hides itself on
+  ///     content, so this deliberate click is the only thing that closes it; the chat
+  ///     then reclaims the full width.</summary>
+  private void OnWorkbenchCollapseClick(object? sender, RoutedEventArgs e)
+  {
+    if (Vm is { } vm)
+    {
+      vm.Workbench.IsOpen = false;
+    }
+  }
+
+  /// <summary>Reopens the workbench from the status bar (design D5): the complement of
+  ///     <see cref="OnWorkbenchCollapseClick"/>, so collapsing is reversible.</summary>
+  private void OnWorkbenchReopenClick(object? sender, RoutedEventArgs e)
+  {
+    if (Vm is { } vm)
+    {
+      vm.Workbench.IsOpen = true;
+    }
+  }
 
   /// <summary>Workbench icon click (issue #8): selects that view. The view-model ignores
   ///     a view it has not built, so an unavailable icon is inert without the view

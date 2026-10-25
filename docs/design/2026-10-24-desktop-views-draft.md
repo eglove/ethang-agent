@@ -193,7 +193,7 @@ first.
 | D1 | Placement | **Right-hand workbench** — a permanent column with its own icon strip, one view at a time, chat keeps full width when collapsed. Generalizes the subagent accordion. |
 | D2 | First slice | **Plans + todos, git status + diff, live agent progress.** Proves all three realtime sources and needs no new external seam. |
 | D3 | Scope | **Per-tab** — each workspace tab remembers its own view and scroll position, matching how the subagent panel already behaves. |
-| D4 | Interactivity | **Read-only**, with one exception: clicking a plan step or todo scrolls the transcript to where it was last touched (navigation, not mutation). |
+| D4 | Interactivity | **Read-only, amended 2026-10-25:** the original exception (clicking a plan step or todo scrolls the transcript to where it was last touched) is DROPPED. Nothing in the persisted model records where a step was last touched, and the options to add it (a schema change stamping a turn id, or render-time correlation) bought navigation the user did not ask for. Plans are modifiable only via the model — the user reads the workbench, never edits it — so a step click is a no-op by design, not a missing feature. |
 | D5 | The panel becomes permanent | The workbench does not appear and disappear on content. It is always present; the auto-open-on-subagents mechanism is retired. |
 | D6 | GitHub reach | **Drive the `gh` CLI as a subprocess** — the user must have `gh` installed and authenticated. No GitHub API client, no token storage, no OAuth flow. Same shape as `DirectGitAccess` driving `git`. |
 | D7 | File tree | **A view in the right panel** (not a separate picker). Read-only in v1. |
