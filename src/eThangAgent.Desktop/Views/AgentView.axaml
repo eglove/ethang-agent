@@ -294,7 +294,7 @@
         <!-- Collapse control (design D5): the workbench never hides itself on content,
              so the user needs one deliberate way to close it. Docked bottom, away from
              the view icons so it can never be mistaken for a seventh view. -->
-        <Button x:Name="WorkbenchCollapseButton" DockPanel.Dock="Bottom" Content="\u00BB" ToolTip.Tip="Collapse the workbench"
+        <Button x:Name="WorkbenchCollapseButton" DockPanel.Dock="Bottom" Content="»" ToolTip.Tip="Collapse the workbench"
                 Width="30" Height="30" Margin="2,4" Padding="0"
                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                 Click="OnWorkbenchCollapseClick"/>
