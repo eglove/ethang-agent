@@ -47,8 +47,15 @@ public class PlanTodoCleanerWiringTests
           [("step", null, 1)], DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
       Assert.True(plan.IsSuccess);
 
+      // Completion demands a consistent plan (issue #271): the step must be Done or
+      // Skipped first, or set-status refuses and no todo cleanup runs.
+      Result<Plan> finished = await plans.UpdateStepAsync(plan.Value.Id, 1,
+          s => s with { Status = PlanStepStatus.Done }, plan.Value.Version,
+          DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
+      Assert.True(finished.IsSuccess);
+
       Result<PlanSetStatusResult> done = await plans.SetStatusAsync(plan.Value.Id, PlanStatus.Completed,
-          plan.Value.Version, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
+          finished.Value.Version, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
       Assert.True(done.IsSuccess);
       Assert.Equal([1], done.Value.RemovedTodoIds);
       Assert.Null(done.Value.CleanupError);

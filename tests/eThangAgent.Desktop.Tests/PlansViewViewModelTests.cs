@@ -136,6 +136,28 @@ public sealed class PlansViewViewModelTests : IDisposable
   }
 
   [Fact]
+  public async Task Refresh_RendersSkippedStepWithItsOwnMarker_NotThePendingCircle()
+  {
+    FakePlanStore store = new();
+    _ = await store.CreateAsync(Plan.New("#271", "g", "sess-abcdef12", DateTimeOffset.UtcNow)
+        .AddStep("done", null, null).AddStep("skipped", null, null).AddStep("pending", null, null)
+        .UpdateStep(1, s => s with { Status = PlanStepStatus.Done })
+        .UpdateStep(2, s => s with { Status = PlanStepStatus.Skipped }),
+        TestContext.Current.CancellationToken);
+    PlansViewViewModel vm = Build(store);
+
+    await vm.RefreshAsync(TestContext.Current.CancellationToken);
+
+    PlanCardViewModel card = Assert.Single(vm.Plans);
+    Assert.Equal("\u2713", card.Steps[0].Marker);
+    Assert.Equal("\u2014", card.Steps[1].Marker);
+    Assert.Equal("\u25CB", card.Steps[2].Marker);
+    // Skipped settles a step the way Done does; it is not outstanding work.
+    Assert.True(card.Steps[1].IsDone);
+    Assert.False(card.Steps[2].IsDone);
+  }
+
+  [Fact]
   public async Task Refresh_RendersCorruptRowsAsMarkers_InsteadOfBlankingTheList()
   {
     FakePlanStore store = new();

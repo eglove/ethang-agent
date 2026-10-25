@@ -119,6 +119,7 @@ public sealed class AppDatabase
     (18, ApplyV18),
     (19, ApplyV19),
     (20, ApplyV20),
+    (21, ApplyV21),
   ];
 
   private void Migrate()
@@ -786,6 +787,48 @@ public sealed class AppDatabase
     command.CommandText = sql;
     _ = command.ExecuteNonQuery();
     transaction.Commit();
+  }
+
+  /// <summary>V21 widens the plan_steps status CHECK to admit 'Skipped' (issue #271).
+  ///     The completion invariant refuses to complete a plan while any step is Pending or
+  ///     InProgress, and 'Skipped' is the truthful escape that keeps the refusal honest -
+  ///     without it the cheapest way past the gate would be to mark unfinished work Done.
+  ///     V20 had pinned the column to three values, so the constraint is rebuilt rather
+  ///     than dropped: SQLite cannot ALTER a CHECK, and the door V20 closed (a DIRECT
+  ///     writer smuggling an out-of-enum value) must stay closed. Rows, ids and versions
+  ///     are copied verbatim; foreign-key enforcement is suspended around the swap for the
+  ///     same reason V20 does it.</summary>
+  private static void ApplyV21(SqliteConnection connection)
+  {
+    Execute(connection, "PRAGMA foreign_keys = OFF;");
+    try
+    {
+      string sql = """
+          CREATE TABLE plan_steps_v21 (
+              plan_id INTEGER NOT NULL REFERENCES plans(id),
+              position INTEGER NOT NULL,
+              title TEXT NOT NULL,
+              detail TEXT,
+              todo_id INTEGER,
+              status TEXT NOT NULL CHECK (status IN ('Pending', 'InProgress', 'Done', 'Skipped')),
+              PRIMARY KEY (plan_id, position)
+          );
+          INSERT INTO plan_steps_v21 (plan_id, position, title, detail, todo_id, status)
+              SELECT plan_id, position, title, detail, todo_id, status FROM plan_steps;
+          DROP TABLE plan_steps;
+          ALTER TABLE plan_steps_v21 RENAME TO plan_steps;
+          """;
+      using SqliteTransaction transaction = connection.BeginTransaction();
+      using SqliteCommand command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText = sql;
+      _ = command.ExecuteNonQuery();
+      transaction.Commit();
+    }
+    finally
+    {
+      Execute(connection, "PRAGMA foreign_keys = ON;");
+    }
   }
 
   /// <summary>V18 removes the curated-memories feature (issue #236): the store, its

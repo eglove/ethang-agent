@@ -28,7 +28,11 @@ internal sealed record PlanCardViewModel(
 internal sealed record PlanStepRowViewModel(int Position, string Marker, string Text, bool IsDone)
 {
   /// <summary>Renders a step status as the design's marker set: Pending circle,
-  ///     InProgress triangle, Done check (struck through and dimmed by the view).</summary>
+  ///     InProgress triangle, Done check (struck through and dimmed by the view), and a
+  ///     strike-through dash for Skipped (issue #271). Skipped is deliberately NOT given
+  ///     the Pending circle: 'deliberately not doing this' and 'not started yet' are
+  ///     different facts, and a view that drew them alike would undo the distinction the
+  ///     completion invariant depends on.</summary>
   public static PlanStepRowViewModel For(PlanStep step)
   {
     ArgumentNullException.ThrowIfNull(step);
@@ -36,10 +40,12 @@ internal sealed record PlanStepRowViewModel(int Position, string Marker, string 
     {
       PlanStepStatus.Done => "\u2713",
       PlanStepStatus.InProgress => "\u25B6",
+      PlanStepStatus.Skipped => "\u2014",
       PlanStepStatus.Pending => "\u25CB",
       _ => "\u25CB",
     };
-    return new PlanStepRowViewModel(step.Position, marker, step.Title, step.Status == PlanStepStatus.Done);
+    return new PlanStepRowViewModel(step.Position, marker, step.Title,
+        step.Status is PlanStepStatus.Done or PlanStepStatus.Skipped);
   }
 }
 

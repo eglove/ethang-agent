@@ -102,9 +102,36 @@ public sealed class PlanStepStatusRepairMigrationTests : IDisposable
 
     using SqliteConnection connection = new($"Data Source={_dbPath}");
     connection.Open();
-    Assert.Equal(0L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('plans_old','plan_steps_old','plans_v20','plan_steps_v20');"));
+    Assert.Equal(0L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('plans_old','plan_steps_old','plans_v20','plan_steps_v20','plan_steps_v21');"));
     string sql = (string)Scalar(connection, "SELECT sql FROM sqlite_master WHERE name='plan_steps';");
     Assert.Contains("CHECK", sql, StringComparison.Ordinal);
+  }
+
+  /// <summary>Issue #271: V21 widens the step-status CHECK to admit 'Skipped', and only
+  ///     that - an out-of-enum value is still refused by SQLite itself.</summary>
+  [Fact]
+  public async Task V21_AdmitsSkippedStepStatus_AndStillRefusesOutOfEnumValues()
+  {
+    SeedV19WithCorruptRows();
+    AppDatabase db = new(_dbPath); // migrates through V20 and V21
+    SqlitePlanStore store = new(db, "C:\\ws\\alpha");
+
+    Result<PlanCatalog> listed = await store.ListAsync(null, TestContext.Current.CancellationToken);
+    Assert.True(listed.IsSuccess, listed.Error?.Message ?? "expected the listing to succeed");
+    Plan healthy = listed.Value.Plans.Single(p => p.Id == 31);
+    Result<Plan> saved = await store.SaveAsync(
+        healthy.UpdateStep(1, s => s with { Status = PlanStepStatus.Skipped }),
+        healthy.Version, TestContext.Current.CancellationToken);
+    Assert.True(saved.IsSuccess, saved.Error?.Message ?? "expected Skipped to be admitted");
+
+    // Named decision (CA2007): 'await using' cannot carry ConfigureAwait.
+#pragma warning disable CA2007
+    await using SqliteConnection connection = new($"Data Source={_dbPath}");
+#pragma warning restore CA2007
+    await connection.OpenAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+    // The CHECK is still a closed set: only the four step statuses are storable.
+    _ = Assert.Throws<SqliteException>(() => Scalar(connection,
+        "UPDATE plan_steps SET status = 'Completed' WHERE plan_id = 31 AND position = 2;"));
   }
 
   private static object Scalar(SqliteConnection connection, string sql)

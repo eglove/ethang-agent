@@ -83,4 +83,61 @@ public class PlanAggregateTests
   [Fact]
   public void TransitionSpecification_AllowsActiveToCompleted() =>
     Assert.True(new PlanStatusTransition(PlanStatus.Completed).IsSatisfiedBy(NewPlan()));
+
+  // ---- completion invariant (issue #271) ------------------------------------
+
+  [Fact]
+  public void SetStatus_Completed_WithPendingStep_Throws_NamingPositionAndStatus()
+  {
+    Plan p = NewPlan().AddStep("a", null, null).AddStep("b", null, null)
+      .UpdateStep(1, s => s with { Status = PlanStepStatus.Done });
+    PlanInputException ex = Assert.Throws<PlanInputException>(
+      () => p.SetStatus(PlanStatus.Completed, DateTimeOffset.UtcNow));
+    Assert.Contains("2", ex.Message, StringComparison.Ordinal);
+    Assert.Contains("Pending", ex.Message, StringComparison.Ordinal);
+    Assert.DoesNotContain("1.", ex.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void SetStatus_Completed_WithInProgressStep_Throws()
+  {
+    Plan p = NewPlan().AddStep("a", null, null)
+      .UpdateStep(1, s => s with { Status = PlanStepStatus.InProgress });
+    PlanInputException ex = Assert.Throws<PlanInputException>(
+      () => p.SetStatus(PlanStatus.Completed, DateTimeOffset.UtcNow));
+    Assert.Contains("InProgress", ex.Message, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void SetStatus_Completed_WhenEveryStepDoneOrSkipped_Succeeds()
+  {
+    Plan p = NewPlan().AddStep("a", null, null).AddStep("b", null, null)
+      .UpdateStep(1, s => s with { Status = PlanStepStatus.Done })
+      .UpdateStep(2, s => s with { Status = PlanStepStatus.Skipped });
+    Plan completed = p.SetStatus(PlanStatus.Completed, DateTimeOffset.UtcNow);
+    Assert.Equal(PlanStatus.Completed, completed.Status);
+  }
+
+  [Fact]
+  public void SetStatus_Abandoned_WithPendingSteps_StillSucceeds()
+  {
+    Plan p = NewPlan().AddStep("a", null, null);
+    Plan abandoned = p.SetStatus(PlanStatus.Abandoned, DateTimeOffset.UtcNow);
+    Assert.Equal(PlanStatus.Abandoned, abandoned.Status);
+  }
+
+  [Fact]
+  public void TransitionSpecification_RejectsCompletion_WhileAStepIsUnfinished()
+  {
+    Plan p = NewPlan().AddStep("a", null, null);
+    Assert.False(new PlanStatusTransition(PlanStatus.Completed).IsSatisfiedBy(p));
+    Assert.True(new PlanStatusTransition(PlanStatus.Abandoned).IsSatisfiedBy(p));
+  }
+
+  [Fact]
+  public void Skipped_IsADefinedStepStatus()
+  {
+    Assert.True(Enum.IsDefined(PlanStepStatus.Skipped));
+    Assert.Equal("Skipped", PlanStepStatus.Skipped.ToString());
+  }
 }

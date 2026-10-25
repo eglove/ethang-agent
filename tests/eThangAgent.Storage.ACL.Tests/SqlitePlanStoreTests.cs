@@ -41,6 +41,21 @@ public sealed class SqlitePlanStoreTests : IDisposable
   }
 
   [Fact]
+  public async Task Save_RoundTripsSkippedStepStatus()
+  {
+    Plan created = (await _store.CreateAsync(
+      Plan.New("T", "G", "s", DateTimeOffset.UtcNow).AddStep("a", null, null),
+      TestContext.Current.CancellationToken)).Value!;
+    Plan skipped = created.UpdateStep(1, s => s with { Status = PlanStepStatus.Skipped });
+    Result<Plan> saved = await _store.SaveAsync(skipped, created.Version, TestContext.Current.CancellationToken);
+    Assert.True(saved.IsSuccess, saved.Error?.Message ?? "expected the store to accept Skipped");
+
+    Result<Plan> back = await _store.GetAsync(created.Id, TestContext.Current.CancellationToken);
+    Assert.True(back.IsSuccess, back.Error?.Message ?? "expected success");
+    Assert.Equal(PlanStepStatus.Skipped, back.Value.Steps[0].Status);
+  }
+
+  [Fact]
   public async Task Isolation_SecondWorkspace_CannotSeeOrMutateFirst()
   {
     Plan draft = Plan.New("secret", "g", "s", DateTimeOffset.UtcNow);

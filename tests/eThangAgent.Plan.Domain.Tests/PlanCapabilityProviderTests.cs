@@ -59,6 +59,19 @@ public class PlanCapabilityProviderTests
     return provider;
   }
 
+  /// <summary>Marks every step of a plan Done, so a completion attempt satisfies the
+  ///     invariant issue #271 added (a plan cannot be completed with unfinished steps).</summary>
+  private static async Task FinishAllStepsAsync(PlanCapabilityProvider provider, int planId, int stepCount)
+  {
+    for (int position = 1; position <= stepCount; position++)
+    {
+      CapabilityInvocationResult r = await provider.InvokeAsync("update-step",
+        $"{{ \"id\": {planId}, \"position\": {position}, \"status\": \"Done\" }}",
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.False(r.IsError, r.Content);
+    }
+  }
+
   // ---- create -------------------------------------------------------------
 
   [Fact]
@@ -283,6 +296,7 @@ public class PlanCapabilityProviderTests
   public async Task AddStep_OnFrozenPlan_FailsInvalidTransition()
   {
     PlanCapabilityProvider provider = await SeededAsync();
+    await FinishAllStepsAsync(provider, 1, 2).ConfigureAwait(true);
     _ = await provider.InvokeAsync("set-status", /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
     CapabilityInvocationResult r = await provider.InvokeAsync("add-step",
       /*lang=json,strict*/"{ \"id\": 1, \"title\": \"extra\" }", TestContext.Current.CancellationToken);
@@ -401,12 +415,13 @@ public class PlanCapabilityProviderTests
   public async Task SetStatus_Completes_RendersCanonicalStatus()
   {
     PlanCapabilityProvider provider = await SeededAsync();
+    await FinishAllStepsAsync(provider, 1, 2).ConfigureAwait(true);
     CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
       /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
     Assert.False(r.IsError);
     Assert.Equal("[plan] #1 is now Completed", r.Content);
     CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
-    Assert.Contains("[plan #1 v2 | Completed | session root-session-1]", shown.Content, StringComparison.Ordinal);
+    Assert.Contains("[plan #1 v4 | Completed | session root-session-1]", shown.Content, StringComparison.Ordinal);
   }
 
   [Fact]
@@ -434,6 +449,7 @@ public class PlanCapabilityProviderTests
   public async Task SetStatus_FromTerminal_FailsInvalidTransition_NamingAllowedMoves()
   {
     PlanCapabilityProvider provider = await SeededAsync();
+    await FinishAllStepsAsync(provider, 1, 2).ConfigureAwait(true);
     _ = await provider.InvokeAsync("set-status", /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
     CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
       /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Active\" }", TestContext.Current.CancellationToken);
@@ -454,6 +470,69 @@ public class PlanCapabilityProviderTests
     Assert.StartsWith("Error [PlanNotFound]:", r.Content, StringComparison.Ordinal);
   }
 
+  // ---- completion invariant (issue #271) -------------------------------------
+
+  [Fact]
+  public async Task SetStatus_Completed_WithPendingStep_FailsInvalidTransition_NamingPositions_AndLeavesStatus()
+  {
+    PlanCapabilityProvider provider = await SeededAsync();
+    _ = await provider.InvokeAsync("update-step",
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 1, \"status\": \"Done\" }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
+      /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+    Assert.True(r.IsError);
+    Assert.StartsWith("Error [InvalidTransition]:", r.Content, StringComparison.Ordinal);
+    Assert.Contains("2 (Pending)", r.Content, StringComparison.Ordinal);
+    Assert.Contains("Skipped", r.Content, StringComparison.Ordinal);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    Assert.Contains("[plan #1 v2 | Active | session root-session-1]", shown.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task SetStatus_Completed_WhenEveryStepDoneOrSkipped_Succeeds()
+  {
+    PlanCapabilityProvider provider = await SeededAsync();
+    _ = await provider.InvokeAsync("update-step",
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 1, \"status\": \"Done\" }", TestContext.Current.CancellationToken);
+    _ = await provider.InvokeAsync("update-step",
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 2, \"status\": \"Skipped\" }", TestContext.Current.CancellationToken);
+    CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
+      /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
+    Assert.False(r.IsError);
+    Assert.Equal("[plan] #1 is now Completed", r.Content);
+  }
+
+  [Fact]
+  public async Task SetStatus_Abandoned_WithPendingSteps_StillSucceeds()
+  {
+    PlanCapabilityProvider provider = await SeededAsync();
+    CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
+      /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Abandoned\" }", TestContext.Current.CancellationToken);
+    Assert.False(r.IsError);
+    Assert.Equal("[plan] #1 is now Abandoned", r.Content);
+  }
+
+  [Fact]
+  public async Task UpdateStep_Status_Skipped_Renders()
+  {
+    PlanCapabilityProvider provider = await SeededAsync();
+    CapabilityInvocationResult r = await provider.InvokeAsync("update-step",
+      /*lang=json,strict*/"{ \"id\": 1, \"position\": 1, \"status\": \"Skipped\" }", TestContext.Current.CancellationToken);
+    Assert.False(r.IsError);
+    Assert.Equal("[plan] updated step 1 in #1", r.Content);
+    CapabilityInvocationResult shown = await provider.InvokeAsync("show", /*lang=json,strict*/"{ \"id\": 1 }", TestContext.Current.CancellationToken);
+    Assert.Contains("  1. [ Skipped ] one", shown.Content, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public void SetStatus_Description_StatesTheCompletionInvariant()
+  {
+    PlanCapabilityProvider provider = New(out _);
+    ActionDescriptor setStatus = provider.Actions.Single(a => a.Name == "set-status");
+    Assert.Contains("Skipped", setStatus.Description, StringComparison.Ordinal);
+    Assert.Contains("InvalidTransition", setStatus.Description, StringComparison.Ordinal);
+  }
+
   private static PlanCapabilityProvider NewWithCleaner(RecordingCleaner cleaner)
   {
     FakeStore store = new();
@@ -468,6 +547,7 @@ public class PlanCapabilityProviderTests
     _ = await provider.InvokeAsync("create",
       /*lang=json,strict*/"{ \"title\": \"Ship\", \"goal\": \"G\", \"steps\": [ { \"title\": \"one\", \"todoId\": 3 } ] }",
       TestContext.Current.CancellationToken);
+    await FinishAllStepsAsync(provider, 1, 1).ConfigureAwait(true);
     CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
       /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
     Assert.False(r.IsError);
@@ -482,6 +562,7 @@ public class PlanCapabilityProviderTests
     _ = await provider.InvokeAsync("create",
       /*lang=json,strict*/"{ \"title\": \"Ship\", \"goal\": \"G\", \"steps\": [ { \"title\": \"one\", \"todoId\": 3 } ] }",
       TestContext.Current.CancellationToken);
+    await FinishAllStepsAsync(provider, 1, 1).ConfigureAwait(true);
     CapabilityInvocationResult r = await provider.InvokeAsync("set-status",
       /*lang=json,strict*/"{ \"id\": 1, \"status\": \"Completed\" }", TestContext.Current.CancellationToken);
     Assert.False(r.IsError);

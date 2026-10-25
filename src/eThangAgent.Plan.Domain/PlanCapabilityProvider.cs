@@ -60,13 +60,13 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
               new ActionParameter(TodoId, ActionParameterTypes.IntegerType, "Optional. Linked todo id, >= 1.")],
             [IdParam, Title]),
         new("update-step", "Change one step's title, detail, todo link, or status.",
-            "At least one optional field is required. Output contract: '[plan] updated step <position> in #<id>'. status must be exactly Pending|InProgress|Done. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. VersionConflict errors instruct re-get + reconcile + retry. Errors: InvalidActionInput, PlanNotFound, PlanStepNotFound, InvalidTransition (frozen plan), VersionConflict.",
+            "At least one optional field is required. Output contract: '[plan] updated step <position> in #<id>'. status must be exactly Pending|InProgress|Done|Skipped. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. VersionConflict errors instruct re-get + reconcile + retry. Errors: InvalidActionInput, PlanNotFound, PlanStepNotFound, InvalidTransition (frozen plan), VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position."),
               new ActionParameter(Title, ActionParameterTypes.StringType, "Optional. Non-empty when present."),
               new ActionParameter(Detail, ActionParameterTypes.StringType, "Optional. Non-empty when present."),
               new ActionParameter(TodoId, ActionParameterTypes.IntegerType, "Optional. Linked todo id, >= 1."),
-              new ActionParameter(Status, ActionParameterTypes.StringType, "Optional. Exactly Pending|InProgress|Done.")],
+              new ActionParameter(Status, ActionParameterTypes.StringType, "Optional. Exactly Pending|InProgress|Done|Skipped.")],
             [IdParam, Position]),
         new("remove-step", "Remove one step; the tail renumbers.",
             "Output contract: '[plan] removed step <position> from #<id>'. An unknown position fails Error [PlanStepNotFound] naming the position and plan id. Errors: InvalidActionInput (bad params), PlanNotFound, PlanStepNotFound, InvalidTransition (frozen plan), VersionConflict.",
@@ -74,7 +74,7 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
               new ActionParameter(Position, ActionParameterTypes.IntegerType, "Required. 1-based step position.")],
             [IdParam, Position]),
         new("set-status", "Move a plan between statuses.",
-            "Only Active -> Completed / Active -> Abandoned is legal; other moves fail Error [InvalidTransition] naming the allowed moves. Completing or abandoning a plan whose steps carry todoId links also removes those todos from the shared todo list; output then appends '[plan] #<id> cleaned <n> linked todo(s)' (n >= 1), or '[plan] warning: todo cleanup failed (<code>)' when the todo store write failed after the transition landed (the transition itself still succeeded). Output contract: '[plan] #<id> is now <status>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition, VersionConflict.",
+            "Only Active -> Completed / Active -> Abandoned is legal; other moves fail Error [InvalidTransition] naming the allowed moves. COMPLETION REQUIRES A CONSISTENT PLAN: while any step is Pending or InProgress the move is refused with Error [InvalidTransition] naming the offending step positions and statuses, and the plan's stored status is unchanged - mark each step Done, or Skipped when you are deliberately not doing it, with update-step first. Abandoned is unaffected: dropping a half-finished plan stays possible. Completing or abandoning a plan whose steps carry todoId links also removes those todos from the shared todo list; output then appends '[plan] #<id> cleaned <n> linked todo(s)' (n >= 1), or '[plan] warning: todo cleanup failed (<code>)' when the todo store write failed after the transition landed (the transition itself still succeeded). Output contract: '[plan] #<id> is now <status>'. Errors: InvalidActionInput (bad params), PlanNotFound, InvalidTransition, VersionConflict.",
             [new ActionParameter(IdParam, ActionParameterTypes.IntegerType, "Required. Plan id, >= 1."),
               new ActionParameter(Status, ActionParameterTypes.StringType, "Required. Exactly Active|Completed|Abandoned.")],
             [IdParam, Status]),
@@ -503,8 +503,9 @@ public sealed class PlanCapabilityProvider(PlanService service, Func<string?> se
       nameof(PlanStepStatus.Pending) => PlanStepStatus.Pending,
       nameof(PlanStepStatus.InProgress) => PlanStepStatus.InProgress,
       nameof(PlanStepStatus.Done) => PlanStepStatus.Done,
+      nameof(PlanStepStatus.Skipped) => PlanStepStatus.Skipped,
       _ => throw new PlanInputException(
-            $"'status' must be exactly {nameof(PlanStepStatus.Pending)}|{nameof(PlanStepStatus.InProgress)}|{nameof(PlanStepStatus.Done)}."),
+            $"'status' must be exactly {nameof(PlanStepStatus.Pending)}|{nameof(PlanStepStatus.InProgress)}|{nameof(PlanStepStatus.Done)}|{nameof(PlanStepStatus.Skipped)}."),
     };
   }
 }

@@ -72,6 +72,23 @@ public class PlanServiceTests
     return (new PlanService(store, cleaner), store);
   }
 
+  /// <summary>Marks every step Done, so a completion satisfies the invariant issue #271
+  ///     added (a plan cannot be completed while any step is Pending or InProgress).</summary>
+  private static async Task<Plan> FinishAllStepsAsync(PlanService service, Plan plan)
+  {
+    Plan current = plan;
+    foreach (PlanStep step in plan.Steps)
+    {
+      Result<Plan> updated = await service.UpdateStepAsync(current.Id, step.Position,
+        s => s with { Status = PlanStepStatus.Done }, current.Version, DateTimeOffset.UtcNow,
+        TestContext.Current.CancellationToken).ConfigureAwait(true);
+      Assert.True(updated.IsSuccess, updated.Error?.Message ?? "expected the step update to succeed");
+      current = updated.Value;
+    }
+
+    return current;
+  }
+
   [Fact]
   public async Task Create_WithSteps_PersistsAll_AndRaisesCreatedEvent()
   {
@@ -128,6 +145,7 @@ public class PlanServiceTests
     (PlanService service, _) = New(cleaner);
     Plan p = (await service.CreateAsync("T", "G", "s", [("a", null, 3), ("b", null, 7), ("c", null, 3), ("d", null, null)],
       DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
+    p = await FinishAllStepsAsync(service, p).ConfigureAwait(true);
     Result<PlanSetStatusResult> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, p.Version,
       DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(r.IsSuccess);
@@ -156,6 +174,7 @@ public class PlanServiceTests
     (PlanService service, _) = New();
     Plan p = (await service.CreateAsync("T", "G", "s", [("a", null, 5)],
       DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
+    p = await FinishAllStepsAsync(service, p).ConfigureAwait(true);
     Result<PlanSetStatusResult> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, p.Version,
       DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(r.IsSuccess);
@@ -170,6 +189,7 @@ public class PlanServiceTests
     (PlanService service, _) = New(cleaner);
     Plan p = (await service.CreateAsync("T", "G", "s", [("a", null, 2)],
       DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
+    p = await FinishAllStepsAsync(service, p).ConfigureAwait(true);
     Result<PlanSetStatusResult> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, p.Version,
       DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(r.IsSuccess);
@@ -196,6 +216,7 @@ public class PlanServiceTests
     (PlanService service, _) = New(cleaner);
     Plan p = (await service.CreateAsync("T", "G", "s", [("a", null, null)],
       DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).Value!;
+    p = await FinishAllStepsAsync(service, p).ConfigureAwait(true);
     Result<PlanSetStatusResult> r = await service.SetStatusAsync(p.Id, PlanStatus.Completed, p.Version,
       DateTimeOffset.UtcNow, TestContext.Current.CancellationToken).ConfigureAwait(true);
     Assert.True(r.IsSuccess);

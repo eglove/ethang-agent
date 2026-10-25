@@ -89,7 +89,7 @@ public sealed class CuratedMemoryRemovalMigrationTests : IDisposable
     _ = new AppDatabase(_dbPath); // constructor migrates
 
     using SqliteConnection connection = Open();
-    Assert.Equal(20, Version(connection));
+    Assert.Equal(21, Version(connection));
     Assert.Equal(0L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'curated%';"));
     Assert.Equal(0L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='ix_curated_ws';"));
     // Every earlier table and row is untouched.
@@ -106,7 +106,7 @@ public sealed class CuratedMemoryRemovalMigrationTests : IDisposable
     _ = new AppDatabase(_dbPath); // reopen: no-op
 
     using SqliteConnection connection = Open();
-    Assert.Equal(20, Version(connection));
+    Assert.Equal(21, Version(connection));
     Assert.Equal(0L, Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'curated%';"));
   }
 
