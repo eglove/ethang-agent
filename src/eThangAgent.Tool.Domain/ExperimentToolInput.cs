@@ -48,6 +48,14 @@ public sealed record ExperimentInput(
     ["summary"] = ExperimentAction.Summary,
   };
 
+  /// <summary>The action vocabulary as the model reads it: <see cref="ActionWords"/>'s keys
+  ///     joined in declaration order. THE one source of truth — the tool's parameter text
+  ///     and both rejection messages read it, so a vocabulary change cannot leave one of
+  ///     them describing a set the tool does not accept (issue #284: the missing-action
+  ///     message predated <c>summary</c>, so a model that omitted <c>action</c> was told a
+  ///     vocabulary that could not express the cheap finish-gate check).</summary>
+  public static string ActionVocabulary => string.Join(", ", ActionWords.Keys);
+
   private static readonly Dictionary<string, ExperimentVerdict> VerdictWords = new(StringComparer.Ordinal)
   {
     ["confirmed"] = ExperimentVerdict.Confirmed,
@@ -153,8 +161,7 @@ public sealed record ExperimentInput(
   private static Result<ExperimentAction> ParseAction(JsonElement json)
   {
     Result<string> text = ToolArguments.RequireString(json, ActionName,
-        "This tool requires action (record-hypothesis, record-prediction, record-verdict, " +
-        "record-observation, record-conclusion, record-skip, or list).");
+        "This tool requires action (" + ActionVocabulary + ").");
     return text.IsSuccess
       ? MatchAction(text.Value)
       : Result.Failure<ExperimentAction>(text.Error);
@@ -164,7 +171,7 @@ public sealed record ExperimentInput(
       ActionWords.TryGetValue(text, out ExperimentAction action)
         ? Result.Success(action)
         : Result.Failure<ExperimentAction>(new DomainError(ToolErrorCodes.InvalidParameterValue,
-            $"'{ActionName}' must be exactly one of {string.Join(", ", ActionWords.Keys)} " +
+            $"'{ActionName}' must be exactly one of {ActionVocabulary} " +
             $"(case-sensitive), but got '{text}'."));
 
   private static Result<int?> ParseId(JsonElement json)

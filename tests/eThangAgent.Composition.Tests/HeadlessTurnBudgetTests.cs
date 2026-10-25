@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using eThangAgent.Agent.Application;
 using eThangAgent.AgentDomain;
 using eThangAgent.SharedKernel;
-using eThangAgent.Storage.ACL;
+using eThangAgent.TestSupport;
 
 // Best-effort temp-file cleanup in finally blocks is deliberate (CA1031).
 #pragma warning disable CA1031 // Do not catch general exception types
@@ -17,7 +17,7 @@ namespace eThangAgent.Composition.Tests;
 ///     whole eval forever. The budget turns the wedge into a per-row failure — the same
 ///     mechanism RunPromptAsync now drives. Pinned end-to-end over the REAL composition
 ///     (real container, real OpenRouter wire) against a server that stalls.</summary>
-public class HeadlessTurnBudgetTests
+public class HeadlessTurnBudgetTests : SessionOwningTest
 {
   /// <summary>A local OpenAI-compatible server that ACCEPTS chat completions and then
   ///     goes silent: headers never arrive, the client read blocks until its token fires.
@@ -103,39 +103,20 @@ public class HeadlessTurnBudgetTests
   {
     using StallingLocalServer server = new();
     server.Start();
-    string dbPath = Path.Combine(Path.GetTempPath(), $"ethang-budget-{Guid.NewGuid():N}.db");
-    DirectoryInfo workspace = Directory.CreateTempSubdirectory("ethang-budget-ws");
     AgentSettings settings = new(
         new OpenRouterSettings("sk-or-test", server.BaseUrl),
         new SubAgentOptions(null, 2));
-    AgentSessionFactory factory = new(settings, new AppDatabase(dbPath));
-    try
-    {
-      Result<AgentSession> created = await factory.CreateAsync(
-          workspace.FullName, Providers.OpenRouter, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
-      Assert.True(created.IsSuccess, created.Error?.Message);
-      AgentSession session = created.Value;
 
-      // THE PIN: the turn must surface within the budget, not hang forever. A generous
-      // margin over the wire's own timeouts keeps this deterministic on loaded CI.
-      using CancellationTokenSource budget = new(TimeSpan.FromSeconds(35));
-      Result<string> result = await session.Handler.Handle(
-          new SendMessageCommand("say hello"), ct: budget.Token).ConfigureAwait(true);
+    // The session owns a real ChildHost; disposal rides IAsyncLifetime so a failing
+    // assertion cannot strand it (issue #284 item 3).
+    AgentSession session = await CreateSessionAsync(settings);
 
-      Assert.False(result.IsSuccess, "a stalled provider must fail the turn, never hang it");
-      await session.Services.DisposeAsync().ConfigureAwait(true);
-    }
-    finally
-    {
-      try
-      {
-        File.Delete(dbPath);
-        workspace.Delete(recursive: true);
-      }
-      catch
-      {
-        // best effort
-      }
-    }
+    // THE PIN: the turn must surface within the budget, not hang forever. A generous
+    // margin over the wire's own timeouts keeps this deterministic on loaded CI.
+    using CancellationTokenSource budget = new(TimeSpan.FromSeconds(35));
+    Result<string> result = await session.Handler.Handle(
+        new SendMessageCommand("say hello"), ct: budget.Token).ConfigureAwait(true);
+
+    Assert.False(result.IsSuccess, "a stalled provider must fail the turn, never hang it");
   }
 }

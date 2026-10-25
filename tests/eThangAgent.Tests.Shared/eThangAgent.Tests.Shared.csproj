@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Shared test SUPPORT, deliberately not a test project: the ChildHost leak guard and
+       the session-owning teardown base class several suites need. tests/Directory.Build.props
+       marks everything under tests/ as a test project and adds xunit.v3, whose MTP targets
+       demand an executable and would turn this into a phantom zero-test module. Both are
+       undone here: xunit.v3 is REMOVED (a PackageReference cannot be overridden, only
+       removed) and fixture support comes from xunit.v3.extensibility.core, the package
+       xunit.v3 itself builds on. -->
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject>
+    <OutputType>Library</OutputType>
+    <!-- Composition is net10.0-windows (the platform is Windows-only by design), so the
+         support assembly that owns session disposal targets the same framework. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Remove="xunit.v3" />
+    <PackageReference Remove="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Remove="Microsoft.Testing.Extensions.HangDump" />
+    <PackageReference Remove="xunit.analyzers" />
+    <PackageReference Include="xunit.v3.extensibility.core" Version="3.2.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- SessionOwningTest owns their disposal, so the support assembly needs the
+         composition itself. Only the suites that open sessions reference this project,
+         and every one of them already references Composition. -->
+    <ProjectReference Include="../../src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
+  </ItemGroup>
+</Project>

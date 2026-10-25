@@ -40,9 +40,7 @@ public sealed class ExperimentTool(IExperimentLedgerStore store) : ITool
       [
           new ToolParameter(ToolTimeout.ParameterName, ToolParameterType.WholeNumber, ToolTimeout.ParameterDescription, Minimum: 1),
           new ToolParameter("action", ToolParameterType.Text,
-              "Exactly record-hypothesis, record-prediction, record-verdict, record-observation, " +
-              "Exactly record-hypothesis, record-prediction, record-verdict, record-observation, " +
-              "record-conclusion, record-skip, list, or summary (case-sensitive)."),
+              "Exactly " + ExperimentInput.ActionVocabulary + " (case-sensitive)."),
           new ToolParameter("slug", ToolParameterType.Text,
               "Always: the plan slug; the ledger key is sci.<slug>/ledger (no '/' and no whitespace)."),
           new ToolParameter("id", ToolParameterType.WholeNumber,

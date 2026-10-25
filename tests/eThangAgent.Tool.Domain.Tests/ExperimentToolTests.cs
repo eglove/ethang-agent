@@ -754,6 +754,83 @@ public class ExperimentToolTests
     Assert.Contains("'text' is not accepted", result.Content, StringComparison.Ordinal);
   }
 
+  // ---- Group 11: the action vocabulary has ONE source of truth (issue #284) ----
+
+  /// <summary>The action parameter's text carries the vocabulary EXACTLY once. The
+  ///     description was duplicated verbatim, so the model read the phrase twice and
+  ///     the list appeared truncated at record-observation. A count is the check the
+  ///     duplication cannot survive.</summary>
+  [Fact]
+  public void ActionParameter_StatesTheVocabulary_ExactlyOnce()
+  {
+    (ExperimentTool tool, _) = MakeTool();
+
+    ToolParameter action = Assert.Single(tool.Definition.Parameters, p => p.Name == "action");
+
+    Assert.Equal(1, CountOccurrences(action.Description, "record-hypothesis"));
+    Assert.Equal(1, CountOccurrences(action.Description, "record-conclusion"));
+    Assert.Equal(1, CountOccurrences(action.Description, "summary"));
+  }
+
+  /// <summary>Omitting action names EVERY action the tool accepts, derived from the one
+  ///     vocabulary: the missing-action message predated summary, so a model that
+  ///     omitted action was told a vocabulary that could not express the cheap
+  ///     finish-gate check and its natural next guess was the expensive list.</summary>
+  [Fact]
+  public async Task MissingAction_NamesEveryAction_IncludingSummary()
+  {
+    (ExperimentTool tool, FakeExperimentLedgerStore store) = MakeTool();
+
+    ToolResult result = await RunAsync(tool, /*lang=json,strict*/ """{"timeoutSeconds":120,"slug":"alpha"}""");
+
+    Assert.True(result.IsError);
+    Assert.StartsWith("Error [MissingParameter]:", result.Content, StringComparison.Ordinal);
+    string[] vocabulary =
+    [
+        "record-hypothesis", "record-prediction", "record-verdict", "record-observation",
+        "record-conclusion", "record-skip", "list", "summary",
+    ];
+    Assert.All(vocabulary, word => Assert.Contains(word, result.Content, StringComparison.Ordinal));
+    Assert.Empty(store.AppendCalls);
+  }
+
+  /// <summary>The rejected-action message and the missing-action message enumerate the
+  ///     SAME vocabulary: two lists that can drift are two lists that will, so the
+  ///     two messages must agree word for word about what the tool accepts.</summary>
+  [Fact]
+  public async Task InvalidAction_And_MissingAction_NameTheSameVocabulary()
+  {
+    (ExperimentTool tool, _) = MakeTool();
+
+    ToolResult missing = await RunAsync(tool, /*lang=json,strict*/ """{"timeoutSeconds":120,"slug":"alpha"}""");
+    ToolResult invalid = await RunAsync(tool, /*lang=json,strict*/ """{"timeoutSeconds":120,"action":"hypothesis","slug":"alpha"}""");
+
+    Assert.True(missing.IsError);
+    Assert.True(invalid.IsError);
+    string[] vocabulary =
+    [
+        "record-hypothesis", "record-prediction", "record-verdict", "record-observation",
+        "record-conclusion", "record-skip", "list", "summary",
+    ];
+    Assert.All(vocabulary, word =>
+    {
+      Assert.Contains(word, missing.Content, StringComparison.Ordinal);
+      Assert.Contains(word, invalid.Content, StringComparison.Ordinal);
+    });
+  }
+
+  private static int CountOccurrences(string haystack, string needle)
+  {
+    int count = 0;
+    for (int i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+        i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+    {
+      count++;
+    }
+
+    return count;
+  }
+
   private sealed class FakeExperimentLedgerStore : IExperimentLedgerStore
   {
     private readonly Dictionary<string, string> _keys = [];

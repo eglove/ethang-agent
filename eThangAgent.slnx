@@ -20,6 +20,7 @@
     <Project Path="tests/eThangAgent.Mcp.ACL.Tests/eThangAgent.Mcp.ACL.Tests.csproj" />
     <Project Path="tests/eThangAgent.Memory.Domain.Tests/eThangAgent.Memory.Domain.Tests.csproj" />
     <Project Path="tests/eThangAgent.Skill.Domain.Tests/eThangAgent.Skill.Domain.Tests.csproj" />
+    <Project Path="tests/eThangAgent.Tests.Shared/eThangAgent.Tests.Shared.csproj" />
     <Project Path="tests/eThangAgent.Transport.ACL.Tests/eThangAgent.Transport.ACL.Tests.csproj" />
     <Project Path="tests/eThangAgent.Web.ACL.Tests/eThangAgent.Web.ACL.Tests.csproj" />
     <Project Path="tests/eThangAgent.PDF.ACL.Tests/eThangAgent.PDF.ACL.Tests.csproj" />

@@ -6,5 +6,7 @@
     <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.*" />
     <ProjectReference Include="../../src/eThangAgent.Composition/eThangAgent.Composition.csproj" />
     <ProjectReference Include="../../src/eThangAgent.Desktop/eThangAgent.Desktop.csproj" />
+    <!-- The ChildHost leak guard (issue #284 item 3). -->
+    <ProjectReference Include="../eThangAgent.Tests.Shared/eThangAgent.Tests.Shared.csproj" />
   </ItemGroup>
 </Project>

@@ -7,5 +7,8 @@
     <!-- The serialization assertions decode the WIRE payload (SessionRequestPayload),
          so the wire contract's assembly is referenced directly. -->
     <ProjectReference Include="../../src/eThangAgent.Transport.ACL/eThangAgent.Transport.ACL.csproj" />
+    <!-- The ChildHost leak guard (issue #284 item 3): an assembly fixture that fails the
+         run, naming the pids, when a host outlives the tests. -->
+    <ProjectReference Include="../eThangAgent.Tests.Shared/eThangAgent.Tests.Shared.csproj" />
   </ItemGroup>
 </Project>
