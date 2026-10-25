@@ -3,8 +3,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace eThangAgent.Desktop.ViewModels;
 
 /// <summary>The workbench's view identities (design D8: six icons for nine views, grouped).
-///     Only <see cref="Plans"/> is implemented in this slice; the rest are named here so
-///     the strip's shape is settled and a later view is a case, not a redesign.</summary>
+///     <see cref="Plans"/>, <see cref="Git"/>, and <see cref="Progress"/> are implemented;
+///     the rest are named here so the strip's shape is settled and a later view is a
+///     case, not a redesign.</summary>
 internal enum WorkbenchView
 {
   Plans,
@@ -44,14 +45,15 @@ internal sealed partial class WorkbenchIconViewModel(WorkbenchView view, string 
 ///     <para>Per-tab (D3): each tab owns one of these, so each tab remembers its own view.</para></summary>
 internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 {
-  public WorkbenchViewModel(PlansViewViewModel plans, SubagentPanelViewModel subagents)
+  public WorkbenchViewModel(PlansViewViewModel plans, GitViewViewModel git, SubagentPanelViewModel subagents)
   {
     Plans = plans ?? throw new ArgumentNullException(nameof(plans));
+    Git = git ?? throw new ArgumentNullException(nameof(git));
     Subagents = subagents ?? throw new ArgumentNullException(nameof(subagents));
     Icons =
     [
       new WorkbenchIconViewModel(WorkbenchView.Plans, "\U0001F4CB", "Plans and todos") { IsAvailable = true },
-      new WorkbenchIconViewModel(WorkbenchView.Git, "\U0001F33F", "Git status and diff (not yet built)"),
+      new WorkbenchIconViewModel(WorkbenchView.Git, "\U0001F33F", "Git status and diff") { IsAvailable = true },
       new WorkbenchIconViewModel(WorkbenchView.Files, "\U0001F5C2", "File tree (not yet built)"),
       // The Progress view IS the subagent accordion this workbench generalizes (D5):
       // live agent progress is exactly what it renders, so retiring the auto-open
@@ -64,6 +66,10 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   }
 
   public PlansViewViewModel Plans { get; }
+
+  /// <summary>The git status and diff view (issue #9): branch, working-tree changes, and
+  ///     the selected path's diff, refreshed by a watch over the workspace root.</summary>
+  public GitViewViewModel Git { get; }
 
   /// <summary>The live agent progress view (design D5): the subagent accordion, moved
   ///     from its own auto-opening column into a workbench view.</summary>
@@ -87,9 +93,12 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
   /// <summary>True while the live-progress view is the selected one.</summary>
   public bool IsProgressSelected => SelectedView == WorkbenchView.Progress;
 
+  /// <summary>True while the git view is the selected one.</summary>
+  public bool IsGitSelected => SelectedView == WorkbenchView.Git;
+
   /// <summary>Selects a view. Unavailable views are ignored (their icons say so).
-  ///     Selecting the Plans view starts its realtime sources; a view nobody is looking
-  ///     at has no reason to poll.
+  ///     Selecting a view starts its realtime sources; a view nobody is looking at has
+  ///     no reason to watch or poll.
   ///     <para>Also opens the workbench: picking an icon while collapsed is a request to
   ///     see it.</para></summary>
   public void Select(WorkbenchView view)
@@ -108,13 +117,24 @@ internal sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     OnPropertyChanged(nameof(IsPlansSelected));
     OnPropertyChanged(nameof(IsProgressSelected));
+    OnPropertyChanged(nameof(IsGitSelected));
     IsOpen = true;
     if (view == WorkbenchView.Plans)
     {
       Plans.Start();
       _ = Plans.RefreshAsync(CancellationToken.None);
     }
+
+    if (view == WorkbenchView.Git)
+    {
+      // Start() runs the first read; the watcher then keeps it current.
+      Git.Start();
+    }
   }
 
-  public void Dispose() => Plans.Dispose();
+  public void Dispose()
+  {
+    Plans.Dispose();
+    Git.Dispose();
+  }
 }

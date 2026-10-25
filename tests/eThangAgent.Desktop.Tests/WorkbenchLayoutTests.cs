@@ -241,4 +241,29 @@ public class WorkbenchLayoutTests
     Grid root = view.GetVisualDescendants().OfType<Grid>().First(g => g.Name == "RootSplit");
     return (view, root, window);
   }
+
+  /// <summary>Issue #9: selecting the Git icon renders the git pane and hides the other
+  ///     views. The pane is one of several in the SAME content border, so the assertion
+  ///     is against real visibility, not against the view-model flag alone.</summary>
+  [AvaloniaFact]
+  public void SelectingTheGitIcon_RendersTheGitPane_AndHidesTheOthers()
+  {
+    (AgentView view, Grid _, Window window) = ShowWindow(1200);
+    AgentSessionViewModel vm = (AgentSessionViewModel)view.DataContext!;
+
+    vm.Workbench.Select(WorkbenchView.Git);
+    Dispatcher.UIThread.RunJobs();
+
+    ItemsControl changeList = view.GetVisualDescendants().OfType<ItemsControl>()
+        .First(c => c.Name == "GitChangeList");
+    ItemsControl diffList = view.GetVisualDescendants().OfType<ItemsControl>()
+        .First(c => c.Name == "GitDiffList");
+    ItemsControl planList = view.GetVisualDescendants().OfType<ItemsControl>()
+        .First(c => c.Name == "PlanCardList");
+
+    Assert.True(changeList.IsEffectivelyVisible, "the git change list must render when the Git icon is selected");
+    Assert.True(diffList.IsEffectivelyVisible, "the git diff must render when the Git icon is selected");
+    Assert.False(planList.IsEffectivelyVisible, "the plans list must not render at the same time");
+    window.Close();
+  }
 }

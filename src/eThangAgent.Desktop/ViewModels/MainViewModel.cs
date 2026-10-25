@@ -1673,6 +1673,9 @@ internal sealed partial class MainViewModel : ObservableObject
           // The INSTANT path for the Plans view: plan-change facts ride the session's
           // event stream, which the ChildHost forwards over the wire.
           Events = session.Services.GetService<IAgentEvents>(),
+          // Issue #9: the workbench's Git view reads through the same read-only git
+          // seam the statusline's branch watcher uses.
+          Git = session.Services.GetService<IGitQueryAccess>(),
         });
   }
 

@@ -776,6 +776,19 @@ internal partial class AgentView : UserControl
     }
   }
 
+  /// <summary>Git view change-row click (issue #9): renders that path's diff. The row's
+  ///     Tag carries the path a diff can be asked for (a rename's NEW path), so the view
+  ///     never has to parse porcelain text.
+  ///     <para>Fire-and-forget by design: the read is a git invocation, and blocking the
+  ///     click handler on it would freeze the shell for the query's duration.</para></summary>
+  private void OnGitChangeClick(object? sender, RoutedEventArgs e)
+  {
+    if (sender is Button { Tag: string path } && Vm is { } vm)
+    {
+      _ = vm.Workbench.Git.SelectAsync(path, CancellationToken.None);
+    }
+  }
+
   /// <summary>Copies the full session id to the clipboard; the button label flashes
   ///     a checkmark and reverts shortly after (best effort - no clipboard, no crash).</summary>
   private async void OnCopySessionId(object? sender, RoutedEventArgs e)

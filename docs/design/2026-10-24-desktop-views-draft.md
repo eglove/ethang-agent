@@ -43,8 +43,8 @@ anything without asking the model to print it again.
 | ---- | ------------------- | ---------------------------- | --------- |
 | Plans | what is this session trying to do, and how far along | `IPlanStore` (`plans`, `plan_steps`) | event |
 | Todos | what is on the list right now | state key `todo/list` (one JSON blob) | event |
-| Git status | what is dirty, on what branch | `IGitQueryAccess.GetStatusAsync` | file watch |
-| Diff | what changed in this file | `IGitQueryAccess.GetDiffAsync` | file watch |
+| Git status | what is dirty, on what branch | `IGitQueryAccess.GetStatusAsync` | file watch — **shipped, #9** |
+| Diff | what changed in this file | `IGitQueryAccess.GetDiffAsync` | file watch — **shipped, #9** |
 | PRs | what is in flight upstream | **nothing yet — no GitHub seam** | poll |
 | CI | did the branch go green | **nothing yet — no GitHub seam** | poll |
 | File tree | what is in the workspace | the file system | file watch |
@@ -199,6 +199,7 @@ first.
 | D7 | File tree | **A view in the right panel** (not a separate picker). Read-only in v1. |
 | D8 | Icon grouping | **Six icons for nine views**, grouped: Plans (todos + kanban inside), Git, Files, Progress, GitHub (PRs + CI inside), Database. No menu, no scrolling strip. |
 | D9 | No transcript view | The chat window **is** the transcript surface. A separate live transcript renderer would duplicate it with two chances to drift (#15 closed). |
+| D10 | Git view watch root | **The workspace root, never `.git`.** Working-tree edits never touch `.git`, so a `.git`-only watch would miss every file edit the view exists to show. `.git`, `bin`, `obj`, and `node_modules` are excluded as whole path segments, and a 200 ms debounce coalesces a burst into one git query (issue #9). |
 
 ### Consequence of D5: the panel bug stops being load-bearing
 
@@ -208,6 +209,27 @@ removes the auto-open mechanism it breaks. The **progress view** still needs chi
 events, so #281 (or its equivalent) must be fixed for that view to show anything.
 
 ## 9. Still open
+
+- **Git view (issue #9) — settled while building it.** The four open questions above
+  are answered by the shipped view and recorded here so the draft stops asking:
+  - **Diff scope** is `All`. A path can be dirty in the index, in the worktree, or
+    both, and the question the pane answers is "what changed in this file", not
+    "what changed in this file that is not staged".
+  - **Large diffs** render in full inside one `ScrollViewer`. The patch was already
+    delivered in full by `GetDiffAsync`; virtualising it is a follow-up if a real
+    diff ever makes the pane slow, and no cap was invented ahead of that evidence.
+  - **Diff renderer** is a single-column unified diff with classified lines
+    (added / removed / hunk / context), which is the mockup's shape. A side-by-side
+    renderer remains more work than the question needs.
+  - **The head commit line stays.** It is one line, it answers "am I looking at the
+    commit I think I am", and it is the only place the view names a commit at all.
+  - **The watch root is the workspace, not `.git`** — and the mockup header's
+    "watched · .git" was wrong for this view; it now reads "watched · workspace".
+    `GitBranchWatcher` watches `.git` because it only tracks branch changes.
+  - **Untracked files needed a real fix, not a view tweak.** `GetDiffAsync` rendered
+    nothing for them (plain `git diff` has no index entry to diff against), so the
+    status list and the diff disagreed about the same file. The ACL now renders them
+    through `git diff --no-index`, capped at 25 files with the cap named in the patch.
 
 - **`gh` missing or unauthenticated**: D6 makes `gh` a prerequisite. The views must
   degrade to a named, actionable empty state ("gh is not installed" / "gh is not

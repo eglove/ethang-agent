@@ -217,4 +217,98 @@ public sealed class DirectGitAccessTests : IDisposable
       Directory.Delete(plain, true);
     }
   }
+
+  [Fact]
+  public async Task GetStatusAsync_ReportsHeadCommitAndUpstream()
+  {
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "seed.txt"), "seed", TestContext.Current.CancellationToken);
+    RunGit("add", "seed.txt");
+    RunGit("commit", "-m", "feat: seed commit");
+    DirectGitAccess access = new();
+
+    Result<GitStatus> r = await access.GetStatusAsync(_repoDir, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.NotNull(r.Value.HeadCommit);
+    Assert.Equal("feat: seed commit", r.Value.HeadCommit.Subject);
+    Assert.False(string.IsNullOrWhiteSpace(r.Value.HeadCommit.Hash));
+    // No remote configured: the absence of an upstream is reported as null, not invented.
+    Assert.Null(r.Value.Upstream);
+  }
+
+  [Fact]
+  public async Task GetStatusAsync_UnbornHead_ReportsNoHeadCommit()
+  {
+    DirectGitAccess access = new();
+
+    Result<GitStatus> r = await access.GetStatusAsync(_repoDir, ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Null(r.Value.HeadCommit);
+  }
+
+  [Fact]
+  public async Task GetDiffAsync_UntrackedFile_RendersItAsANewFile()
+  {
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "brand-new.txt"), "line one\nline two\n",
+        TestContext.Current.CancellationToken);
+    DirectGitAccess access = new();
+
+    Result<GitDiff> r = await access.GetDiffAsync(_repoDir, "Unstaged", path: null,
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    // 'git diff' alone never shows an untracked file; without --no-index support this
+    // reported 0 files while the status list beside it listed the file.
+    Assert.Equal(1, r.Value.Stats.Files);
+    Assert.Equal(2, r.Value.Stats.Additions);
+    Assert.Contains("+line one", r.Value.Patch, StringComparison.Ordinal);
+    Assert.Contains("+line two", r.Value.Patch, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task GetDiffAsync_UntrackedFileInSubdirectory_UsesTheRepoRelativePath()
+  {
+    _ = Directory.CreateDirectory(Path.Combine(_repoDir, "sub"));
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "sub", "nested.txt"), "nested\n",
+        TestContext.Current.CancellationToken);
+    DirectGitAccess access = new();
+
+    Result<GitDiff> r = await access.GetDiffAsync(_repoDir, "Unstaged", path: null,
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal(1, r.Value.Stats.Files);
+    Assert.Contains("sub/nested.txt", r.Value.Patch, StringComparison.Ordinal);
+  }
+
+  [Fact]
+  public async Task GetDiffAsync_StagedScope_DoesNotIncludeUntrackedFiles()
+  {
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "untracked.txt"), "x\n",
+        TestContext.Current.CancellationToken);
+    DirectGitAccess access = new();
+
+    Result<GitDiff> r = await access.GetDiffAsync(_repoDir, "Staged", path: null,
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal(0, r.Value.Stats.Files);
+  }
+
+  [Fact]
+  public async Task GetDiffAsync_PathFilter_RestrictsToThatUntrackedFile()
+  {
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "one.txt"), "1\n", TestContext.Current.CancellationToken);
+    await File.WriteAllTextAsync(Path.Combine(_repoDir, "two.txt"), "2\n", TestContext.Current.CancellationToken);
+    DirectGitAccess access = new();
+
+    Result<GitDiff> r = await access.GetDiffAsync(_repoDir, "Unstaged", "one.txt",
+        ct: TestContext.Current.CancellationToken);
+
+    Assert.True(r.IsSuccess);
+    Assert.Equal(1, r.Value.Stats.Files);
+    Assert.Contains("one.txt", r.Value.Patch, StringComparison.Ordinal);
+    Assert.DoesNotContain("two.txt", r.Value.Patch, StringComparison.Ordinal);
+  }
 }

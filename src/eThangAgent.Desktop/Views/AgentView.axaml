@@ -379,6 +379,81 @@
             </ScrollViewer>
           </DockPanel>
 
+          <!-- GIT (issue #9): branch, working-tree changes, and the selected path's
+               diff. Read-only by design (D4) - nothing here stages or commits. The status
+               list and the diff are two scroll regions of one pane, so a long diff cannot
+               push the change list out of reach. -->
+          <DockPanel IsVisible="{Binding Workbench.IsGitSelected, Mode=OneWay}" Margin="8,8,8,0">
+            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
+              <TextBlock Text="GIT" FontWeight="SemiBold" Opacity="0.8"/>
+              <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
+                          Text="{Binding Workbench.Git.StatusLine, Mode=OneWay}" Opacity="0.6"/>
+            </DockPanel>
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+              <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                <TextBlock Grid.Column="0" Text="branch" Opacity="0.55" Width="52" FontSize="11"/>
+                <SelectableTextBlock Grid.Column="1" Text="{Binding Workbench.Git.BranchDisplay, Mode=OneWay}"
+                            FontSize="11.5" TextWrapping="Wrap"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                <TextBlock Grid.Column="0" Text="dirty" Opacity="0.55" Width="52" FontSize="11"/>
+                <SelectableTextBlock Grid.Column="1" Text="{Binding Workbench.Git.DirtyDisplay, Mode=OneWay}"
+                            FontSize="11.5" TextWrapping="Wrap"/>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                <TextBlock Grid.Column="0" Text="head" Opacity="0.55" Width="52" FontSize="11"/>
+                <SelectableTextBlock Grid.Column="1" Text="{Binding Workbench.Git.HeadDisplay, Mode=OneWay}"
+                            FontSize="11.5" TextWrapping="Wrap"/>
+              </Grid>
+            </StackPanel>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel>
+                <!-- A workspace that is not a repository renders HERE, never as an empty
+                     change list: 'not a repo' and 'a clean repo' must not look alike. -->
+                <SelectableTextBlock Text="{Binding Workbench.Git.EmptyReason, Mode=OneWay}"
+                            Foreground="#FFB454" TextWrapping="Wrap" Margin="0,0,0,6"
+                            IsVisible="{Binding Workbench.Git.EmptyReason, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <TextBlock Text="CHANGES" FontWeight="SemiBold" Opacity="0.8" FontSize="10.5"
+                           Margin="0,0,0,3"
+                           IsVisible="{Binding Workbench.Git.Changes.Count, Converter={x:Static views:WorkbenchConverters.CountToVisibility}}"/>
+                <ItemsControl x:Name="GitChangeList" ItemsSource="{Binding Workbench.Git.Changes, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:GitChangeRowViewModel">
+                      <Button Padding="2,1" Margin="0" HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Left" Background="Transparent"
+                              Click="OnGitChangeClick" Tag="{Binding SelectablePath}">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                          <TextBlock Grid.Column="0" Text="{Binding Code}" FontFamily="Consolas, Courier New"
+                                           FontSize="11" Opacity="0.75" Margin="0,0,6,0"/>
+                          <SelectableTextBlock Grid.Column="1" Text="{Binding Path}" FontSize="11.5"
+                                           TextWrapping="Wrap"/>
+                          <TextBlock Grid.Column="2" Text="{Binding Label}" FontSize="10.5"
+                                           Opacity="0.55" Margin="6,0,0,0"/>
+                        </Grid>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="Nothing changed." Opacity="0.55" Margin="0,4"
+                           IsVisible="{Binding Workbench.Git.IsClean, Mode=OneWay}"/>
+
+                <TextBlock Text="{Binding Workbench.Git.DiffHeading, Mode=OneWay}" FontWeight="SemiBold"
+                           Opacity="0.8" FontSize="10.5" Margin="0,8,0,3"/>
+                <SelectableTextBlock Text="{Binding Workbench.Git.DiffError, Mode=OneWay}"
+                            Foreground="#FF8A80" TextWrapping="Wrap" Margin="0,0,0,4"
+                            IsVisible="{Binding Workbench.Git.DiffError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <ItemsControl x:Name="GitDiffList" ItemsSource="{Binding Workbench.Git.DiffLines, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DiffLineViewModel">
+                      <SelectableTextBlock Text="{Binding Text}" FontFamily="Consolas, Courier New"
+                              FontSize="11" TextWrapping="Wrap"
+                              Foreground="{Binding Kind, Converter={x:Static views:WorkbenchConverters.DiffLineBrush}}"/>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
           <!-- LIVE AGENT PROGRESS (design D5): the subagent accordion, unchanged in
                substance, now a workbench view instead of an auto-opening column. -->
           <DockPanel IsVisible="{Binding Workbench.IsProgressSelected, Mode=OneWay}" Margin="8,8,8,0">

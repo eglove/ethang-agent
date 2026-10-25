@@ -119,6 +119,11 @@ internal sealed record AgentSessionViewModelOptions
   ///     writes in the host process reaches this view with no polling). Null = the view
   ///     falls back to its poller alone (headless stubs).</summary>
   public IAgentEvents? Events { get; init; }
+
+  /// <summary>The workbench's Git view seam (issue #9): the read-only git queries behind
+  ///     branch, status, and diff. Null = the view renders its unavailable state
+  ///     (headless stubs), never a blank pane.</summary>
+  public IGitQueryAccess? Git { get; init; }
 }
 
 /// <summary>View-model for one open agent tab: owns that agent's transcript,
@@ -399,6 +404,12 @@ internal sealed partial class AgentSessionViewModel : ObservableObject
             options.StateChanges,
             render => Avalonia.Threading.Dispatcher.UIThread.Post(render),
             events: options.Events),
+        // The git view watches the WORKSPACE ROOT (never .git): working-tree edits are
+        // the thing it exists to show, and they never touch .git.
+        new GitViewViewModel(
+            options.WorkspaceRoot,
+            options.Git,
+            render => Avalonia.Threading.Dispatcher.UIThread.Post(render)),
         Subagents);
     // Grand-plan "show initial bootstrap/context at start of session": the first
     // transcript line states what the session runs under (transient, never a

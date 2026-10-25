@@ -19,6 +19,15 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
 {
   private const string RevParse = "rev-parse";
 
+  /// <summary>The empty side of an untracked file's diff. Git special-cases this name on
+  ///     every platform, so the same argv works on Windows and elsewhere.</summary>
+  private const string DevNull = "/dev/null";
+
+  /// <summary>How many untracked files one diff renders. Each costs its own git
+  ///     invocation, and an untracked build directory can hold tens of thousands of
+  ///     files; the cap is reported in the patch, never applied silently.</summary>
+  private const int MaxUntrackedDiffs = 25;
+
   private static readonly string[] NewLines = ["\r\n", "\n"];
 
   // Resolved once: spawning git through an absolute path keeps the executable
@@ -55,7 +64,9 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
 
     (List<GitStatusEntry> staged, List<GitStatusEntry> unstaged, List<string> untracked) =
         ParsePorcelain(statusRes.Value.StdOut);
-    GitStatus status = new(branch, staged, unstaged, untracked);
+    GitHeadCommit? head = await ResolveHeadCommitAsync(repoPath, ct).ConfigureAwait(false);
+    string? upstream = await ResolveUpstreamAsync(repoPath, ct).ConfigureAwait(false);
+    GitStatus status = new(branch, staged, unstaged, untracked, head, upstream);
     return Result.Success(status);
   }
 
@@ -80,6 +91,49 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
 
     string branch = branchRes.ExitCode == 0 ? branchRes.StdOut.Trim() : "(detached)";
     return Result.Success(branch);
+  }
+
+  /// <summary>Resolves HEAD's abbreviated hash and subject line. A repository with no
+  ///     commits yet has no HEAD commit, and that is reported as NULL rather than as an
+  ///     empty commit: 'no commits' and 'a commit with an empty subject' are different
+  ///     facts, and a view that renders them the same lies about one of them.</summary>
+  private static async Task<GitHeadCommit?> ResolveHeadCommitAsync(string repoPath, CancellationToken ct)
+  {
+    // Raw run (no nonzero-exit guard): on an unborn HEAD git exits 128 and that IS the
+    // signal. A transport failure (git not on PATH) also yields null - the status query
+    // already succeeded, so an unrenderable head line must not fail the whole view.
+    GitRun run = await RunGitAsync(repoPath, ["log", "-1", "--format=%h%x09%s"], ct).ConfigureAwait(false);
+    if (!run.Ok || run.ExitCode != 0)
+    {
+      return null;
+    }
+
+    string line = run.StdOut.TrimEnd('\r', '\n');
+    if (line.Length == 0)
+    {
+      return null;
+    }
+
+    int tab = line.IndexOf('\t', StringComparison.Ordinal);
+    return tab < 0
+        ? new GitHeadCommit(line, string.Empty)
+        : new GitHeadCommit(line[..tab], line[(tab + 1)..]);
+  }
+
+  /// <summary>Resolves the branch's configured upstream ('origin/master'), or null when
+  ///     the branch tracks nothing. A local-only branch is the ordinary case, not a
+  ///     fault, so the failure is swallowed into null.</summary>
+  private static async Task<string?> ResolveUpstreamAsync(string repoPath, CancellationToken ct)
+  {
+    GitRun run = await RunGitAsync(
+        repoPath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], ct).ConfigureAwait(false);
+    if (!run.Ok || run.ExitCode != 0)
+    {
+      return null;
+    }
+
+    string upstream = run.StdOut.Trim();
+    return upstream.Length == 0 ? null : upstream;
   }
 
   /// <summary>Splits 'git status --porcelain' output into staged, unstaged, and
@@ -133,32 +187,82 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
     }
 
     Result<GitRun> probe = await RunGitVerifiedAsync(repoPath, [RevParse, "--git-dir"], ct).ConfigureAwait(false);
-    if (!probe.IsSuccess)
-    {
-      return Result.Failure<GitDiff>(probe.Error);
-    }
+    return probe.IsSuccess
+        ? await BuildDiffAsync(repoPath, scope, path, ct).ConfigureAwait(false)
+        : Result.Failure<GitDiff>(probe.Error);
+  }
 
+  /// <summary>Collects the stats and the patch for an already-validated scope inside a
+  ///     confirmed repository, in one place so the two never disagree about which
+  ///     sections they cover.</summary>
+  private static async Task<Result<GitDiff>> BuildDiffAsync(string repoPath, string scope, string? path,
+      CancellationToken ct)
+  {
     // Optional pathspec filter: everything after '--'.
     string[] pathArgs = path is null ? [] : ["--", path];
 
     bool wantStaged = scope is "Staged" or "All";
     bool wantUnstaged = scope is "Unstaged" or "All";
 
-    Result<GitDiffStats> stats = await CollectStatsAsync(repoPath, pathArgs, wantStaged, wantUnstaged, ct).ConfigureAwait(false);
+    // An untracked file is entirely new in the worktree, so it belongs in the unstaged
+    // diff - but 'git diff' never shows it (it has no index entry to diff against).
+    // Without this, a brand-new file renders as an empty diff, which reads as 'no
+    // changes' while the status list right beside it says otherwise.
+    Result<List<string>> untracked = wantUnstaged
+        ? await CollectUntrackedAsync(repoPath, pathArgs, ct).ConfigureAwait(false)
+        : Result.Success<List<string>>([]);
+    if (!untracked.IsSuccess)
+    {
+      return Result.Failure<GitDiff>(untracked.Error);
+    }
+
+    Result<GitDiffStats> stats = await CollectStatsAsync(
+        repoPath, pathArgs, wantStaged, wantUnstaged, untracked.Value, ct).ConfigureAwait(false);
     if (!stats.IsSuccess)
     {
       return Result.Failure<GitDiff>(stats.Error);
     }
 
-    Result<string> patch = await RenderPatchAsync(repoPath, pathArgs, wantStaged, wantUnstaged, ct).ConfigureAwait(false);
+    Result<string> patch = await RenderPatchAsync(
+        repoPath, pathArgs, wantStaged, wantUnstaged, untracked.Value, ct).ConfigureAwait(false);
     return patch.IsSuccess
         ? Result.Success(new GitDiff(stats.Value, patch.Value))
         : Result.Failure<GitDiff>(patch.Error);
   }
 
+  /// <summary>
+  ///     <para>Lists the untracked paths the diff will render, bounded by
+  ///     <see cref="MaxUntrackedDiffs"/>: each one costs its own git invocation, and an
+  ///     untracked build directory can hold tens of thousands of files. The cap is
+  ///     reported in the patch rather than applied silently.</para>
+  ///     <para>Paths come back repo-relative with forward slashes, which is exactly the
+  ///     form 'git diff --no-index' wants.</para>
+  /// </summary>
+  private static async Task<Result<List<string>>> CollectUntrackedAsync(string repoPath, string[] pathArgs,
+      CancellationToken ct)
+  {
+    Result<GitRun> run = await RunGitVerifiedAsync(
+        repoPath, WithPath(["status", "--porcelain", "-uall"], pathArgs), ct).ConfigureAwait(false);
+    if (!run.IsSuccess)
+    {
+      return Result.Failure<List<string>>(run.Error);
+    }
+
+    List<string> untracked = [];
+    foreach (string line in run.Value.StdOut.Split(NewLines, StringSplitOptions.RemoveEmptyEntries))
+    {
+      if (line.Length > 3 && line.StartsWith("?? ", StringComparison.Ordinal))
+      {
+        untracked.Add(line[3..]);
+      }
+    }
+
+    return Result.Success(untracked);
+  }
+
   /// <summary>Runs both numstat passes in scope order, then folds them into the stats.</summary>
   private static async Task<Result<GitDiffStats>> CollectStatsAsync(string repoPath, string[] pathArgs,
-      bool wantStaged, bool wantUnstaged, CancellationToken ct)
+      bool wantStaged, bool wantUnstaged, IReadOnlyList<string> untracked, CancellationToken ct)
   {
     List<string> numstatLines = [];
     if (wantStaged)
@@ -181,6 +285,20 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       }
 
       numstatLines.AddRange(unstaged.Value);
+    }
+
+    foreach (string path in untracked.Take(MaxUntrackedDiffs))
+    {
+      // Raw run: 'git diff --no-index' exits 1 when the files DIFFER, which is the
+      // success case here - verifying the exit code would fail every untracked file.
+      GitRun run = await RunGitAsync(
+          repoPath, ["diff", "--no-index", "--numstat", "--", DevNull, path], ct).ConfigureAwait(false);
+      if (!run.Ok)
+      {
+        return Result.Failure<GitDiffStats>(run.Err);
+      }
+
+      numstatLines.AddRange(run.StdOut.Split(NewLines, StringSplitOptions.RemoveEmptyEntries));
     }
 
     return Result.Success(FoldNumstat(numstatLines));
@@ -236,7 +354,7 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
   /// <summary>Runs the section diffs in scope order and joins them under their
   ///     '### staged ###' / '### unstaged ###' gutters.</summary>
   private static async Task<Result<string>> RenderPatchAsync(string repoPath, string[] pathArgs,
-      bool wantStaged, bool wantUnstaged, CancellationToken ct)
+      bool wantStaged, bool wantUnstaged, IReadOnlyList<string> untracked, CancellationToken ct)
   {
     StringBuilder sb = new();
     if (wantStaged)
@@ -255,10 +373,60 @@ public sealed class DirectGitAccess : IGitQueryAccess, IGitCommitAccess, IDispos
       {
         return Result.Failure<string>(unstaged.Error);
       }
+
+      Result<bool> newFiles = await AppendUntrackedAsync(sb, repoPath, untracked, ct).ConfigureAwait(false);
+      if (!newFiles.IsSuccess)
+      {
+        return Result.Failure<string>(newFiles.Error);
+      }
     }
 
     string patch = sb.ToString();
     return Result.Success(patch);
+  }
+
+  /// <summary>Appends each untracked file's diff against the empty file, under the same
+  ///     'unstaged' gutter the tracked hunks use - an untracked file IS an unstaged change,
+  ///     and giving it a separate gutter would split one answer across two headings.
+  ///     <para>'git diff --no-index' exits 1 when the files differ, which is the SUCCESS
+  ///     case here, so the exit code is deliberately not verified. A truncation marker
+  ///     names how many files the cap left out, so a partial diff never reads as a
+  ///     complete one.</para></summary>
+  private static async Task<Result<bool>> AppendUntrackedAsync(StringBuilder sb, string repoPath,
+      IReadOnlyList<string> untracked, CancellationToken ct)
+  {
+    if (untracked.Count == 0)
+    {
+      return Result.Success(true);
+    }
+
+    if (sb.Length == 0)
+    {
+      _ = sb.Append("### unstaged ###\n");
+    }
+
+    foreach (string path in untracked.Take(MaxUntrackedDiffs))
+    {
+      GitRun run = await RunGitAsync(repoPath, ["diff", "--no-index", "--", DevNull, path], ct).ConfigureAwait(false);
+      if (!run.Ok)
+      {
+        return Result.Failure<bool>(run.Err);
+      }
+
+      if (run.StdOut.Length > 0)
+      {
+        _ = sb.Append(run.StdOut);
+      }
+    }
+
+    if (untracked.Count > MaxUntrackedDiffs)
+    {
+      int hidden = untracked.Count - MaxUntrackedDiffs;
+      _ = sb.Append(CultureInfo.InvariantCulture,
+          $"### untracked: {hidden} more file(s) not shown (cap {MaxUntrackedDiffs}) ###\n");
+    }
+
+    return Result.Success(true);
   }
 
   /// <summary>Appends one diff section under its gutter when the section is non-empty.</summary>
